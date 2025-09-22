@@ -63,24 +63,36 @@ class IGDBService {
   }
 
   private async makeRequest(endpoint: string, query: string): Promise<any> {
-    const token = await this.authenticate();
+    try {
+      console.log(`Making IGDB request to endpoint: ${endpoint}`);
+      const token = await this.authenticate();
+      console.log(`Authentication successful, token obtained`);
 
-    const response = await fetch(`https://api.igdb.com/v4/${endpoint}`, {
-      method: 'POST',
-      headers: {
-        'Client-ID': this.clientId,
-        'Authorization': `Bearer ${token}`,
-        'Accept': 'application/json',
-        'Content-Type': 'text/plain',
-      },
-      body: query,
-    });
+      console.log(`Sending query to IGDB: ${query.trim()}`);
+      const response = await fetch(`https://api.igdb.com/v4/${endpoint}`, {
+        method: 'POST',
+        headers: {
+          'Client-ID': this.clientId,
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json',
+          'Content-Type': 'text/plain',
+        },
+        body: query,
+      });
 
-    if (!response.ok) {
-      throw new Error(`IGDB API error: ${response.statusText}`);
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`IGDB API error: ${response.status} ${response.statusText}`, errorText);
+        throw new Error(`IGDB API error: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log(`IGDB API response: ${JSON.stringify(result, null, 2)}`);
+      return result;
+    } catch (error) {
+      console.error('Error in makeRequest:', error);
+      throw error;
     }
-
-    return response.json();
   }
 
   private mapPlatformName(platformName: string): string {
@@ -112,15 +124,18 @@ class IGDBService {
   }
 
   public async searchGames(query: string, limit: number = 20): Promise<any[]> {
+    // Use the search operator which is the recommended approach for text search in IGDB
     const igdbQuery = `
       search "${query}";
       fields name, summary, rating, aggregated_rating, first_release_date, 
              genres.name, platforms.name, cover.url, screenshots.url;
       limit ${limit};
-      where version_parent = null & category = 0;
+      where category = 0;
     `;
 
+    console.log(`IGDB Search Query v2: ${igdbQuery}`);
     const games = await this.makeRequest('games', igdbQuery) as IGDBGame[];
+    console.log(`IGDB Search Results for "${query}":`, games.length, 'games found');
     
     return games.map(game => this.transformGame(game));
   }

@@ -162,12 +162,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/discover/search", async (req, res) => {
     try {
       const { q, limit } = req.query;
+      console.log(`Search endpoint called with query: "${q}", limit: ${limit}`);
+      
       if (!q || typeof q !== "string") {
+        console.log("Invalid search query provided");
         return res.status(400).json({ error: "Search query is required" });
       }
       
       const limitNum = limit ? parseInt(limit as string) : 20;
+      console.log(`Calling IGDB service to search for: "${q}"`);
       const games = await igdbService.searchGames(q, limitNum);
+      console.log(`IGDB service returned ${games.length} games`);
       res.json(games);
     } catch (error) {
       console.error("IGDB search error:", error);

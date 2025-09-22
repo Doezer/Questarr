@@ -91,3 +91,40 @@ export const statsAPI = {
     return response.json();
   },
 };
+
+// Discovery API (IGDB)
+export const discoveryAPI = {
+  search: async (query: string, limit: number = 20) => {
+    const response = await fetch(`${API_BASE}/discover/search?q=${encodeURIComponent(query)}&limit=${limit}`);
+    if (!response.ok) throw new Error("Failed to search games");
+    return response.json();
+  },
+
+  popular: async (limit: number = 20) => {
+    const response = await fetch(`${API_BASE}/discover/popular?limit=${limit}`);
+    if (!response.ok) throw new Error("Failed to fetch popular games");
+    return response.json();
+  },
+
+  recent: async (limit: number = 20) => {
+    const response = await fetch(`${API_BASE}/discover/recent?limit=${limit}`);
+    if (!response.ok) throw new Error("Failed to fetch recent games");
+    return response.json();
+  },
+
+  upcoming: async (limit: number = 20) => {
+    const response = await fetch(`${API_BASE}/discover/upcoming?limit=${limit}`);
+    if (!response.ok) throw new Error("Failed to fetch upcoming games");
+    return response.json();
+  },
+
+  addToCollection: async (gameData: InsertGame): Promise<Game> => {
+    const response = await fetch(`${API_BASE}/games/add-from-igdb`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(gameData),
+    });
+    if (!response.ok) throw new Error("Failed to add game to collection");
+    return response.json();
+  },
+};

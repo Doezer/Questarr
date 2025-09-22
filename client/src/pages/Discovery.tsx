@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Search, TrendingUp, Star, Calendar, AlertCircle } from "lucide-react";
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { gameAPI, statsAPI } from "@/lib/api";
+import { gameAPI, statsAPI, discoveryAPI } from "@/lib/api";
 import { transformGame } from "@/lib/gameUtils";
 import { type GameStatus } from "@/components/StatusBadge";
 import { useToast } from "@/hooks/use-toast";
@@ -18,9 +18,25 @@ export default function Discovery() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const { data: allGames = [], isLoading, isError } = useQuery({
-    queryKey: ["games"],
-    queryFn: gameAPI.getAll,
+  // Query for discovery games based on active tab
+  const { data: discoveryGames = [], isLoading: discoveryLoading, isError: discoveryError } = useQuery({
+    queryKey: ["discovery", activeTab, searchQuery],
+    queryFn: async () => {
+      if (searchQuery) {
+        return await discoveryAPI.search(searchQuery, 20);
+      }
+      
+      switch (activeTab) {
+        case "new":
+          return await discoveryAPI.recent(20);
+        case "upcoming":
+          return await discoveryAPI.upcoming(20);
+        case "trending":
+        default:
+          return await discoveryAPI.popular(20);
+      }
+    },
+    staleTime: 5 * 60 * 1000, // 5 minutes
   });
 
   const { data: stats } = useQuery({
@@ -28,73 +44,49 @@ export default function Discovery() {
     queryFn: statsAPI.get,
   });
 
-  const updateStatusMutation = useMutation({
-    mutationFn: ({ gameId, status }: { gameId: string; status: GameStatus }) =>
-      gameAPI.updateStatus(gameId, status),
+  const addToCollectionMutation = useMutation({
+    mutationFn: (gameData: any) => discoveryAPI.addToCollection(gameData),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["games"] });
       queryClient.invalidateQueries({ queryKey: ["stats"] });
       toast({
-        title: "Game updated",
-        description: "Status updated successfully",
+        title: "Game added",
+        description: "Game added to your collection successfully",
       });
     },
     onError: () => {
       toast({
-        title: "Error", 
-        description: "Failed to update game status",
+        title: "Error",
+        description: "Failed to add game to collection",
         variant: "destructive",
       });
     },
   });
 
-  // Filter and organize games based on active tab and search
-  const discoveryGames = useMemo(() => {
-    let filteredGames = allGames;
+  // Transform IGDB games to our format
+  const transformedGames = useMemo(() => {
+    return discoveryGames.map((game: any) => ({
+      ...game,
+      platforms: game.platforms || ["PC"],
+      rating: game.rating ? parseFloat(game.rating) : undefined,
+    }));
+  }, [discoveryGames]);
 
-    // Apply search filter if search query exists
-    if (searchQuery) {
-      const searchTerm = searchQuery.toLowerCase();
-      filteredGames = filteredGames.filter(game =>
-        game.title.toLowerCase().includes(searchTerm) ||
-        game.genre.toLowerCase().includes(searchTerm) ||
-        (game.description && game.description.toLowerCase().includes(searchTerm))
-      );
-    }
-
-    // Apply tab filter
-    const today = new Date().toISOString().split('T')[0];
-    switch (activeTab) {
-      case "new":
-        return filteredGames
-          .filter(game => game.releaseDate && game.releaseDate <= today)
-          .sort((a, b) => new Date(b.releaseDate || 0).getTime() - new Date(a.releaseDate || 0).getTime())
-          .map(transformGame);
-      case "upcoming":
-        return filteredGames
-          .filter(game => game.releaseDate && game.releaseDate > today)
-          .sort((a, b) => new Date(a.releaseDate || 0).getTime() - new Date(b.releaseDate || 0).getTime())
-          .map(transformGame);
-      case "trending":
-      default:
-        return filteredGames
-          .sort((a, b) => (parseFloat(b.rating || "0") - parseFloat(a.rating || "0")))
-          .map(transformGame);
-    }
-  }, [allGames, searchQuery, activeTab]);
-
-  // Generate trending genres from actual data
+  // Generate trending genres from discovery data
   const trendingGenres = useMemo(() => {
-    const genreCounts = allGames.reduce((acc, game) => {
+    const genreCounts = discoveryGames.reduce((acc: Record<string, number>, game: any) => {
       acc[game.genre] = (acc[game.genre] || 0) + 1;
       return acc;
-    }, {} as Record<string, number>);
+    }, {});
 
     return Object.entries(genreCounts)
       .sort(([, a], [, b]) => b - a)
       .slice(0, 4)
       .map(([name, count]) => ({ name, count }));
-  }, [allGames]);
+  }, [discoveryGames]);
+
+  const isLoading = discoveryLoading;
+  const isError = discoveryError;
 
   const tabs = [
     { id: "trending", label: "Trending", icon: TrendingUp },
@@ -108,7 +100,11 @@ export default function Discovery() {
   };
 
   const handleStatusChange = (gameId: string, status: GameStatus) => {
-    updateStatusMutation.mutate({ gameId, status });
+    // Find the game in discovery data
+    const game = discoveryGames.find((g: any) => g.externalId === gameId);
+    if (game) {
+      addToCollectionMutation.mutate({ ...game, status });
+    }
   };
 
   const handleGameClick = (game: Game) => {
@@ -191,7 +187,7 @@ export default function Discovery() {
             </div>
           ) : (
             <GameGrid
-              games={discoveryGames}
+              games={transformedGames}
               title={`${tabs.find(t => t.id === activeTab)?.label} Games`}
               onGameClick={handleGameClick}
               onStatusChange={handleStatusChange}

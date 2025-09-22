@@ -17,7 +17,7 @@ const platformConfig = {
 };
 
 export default function PlatformBadge({ platform, className = "" }: PlatformBadgeProps) {
-  const config = platformConfig[platform];
+  const config = platformConfig[platform] || platformConfig.PC; // Fallback to PC config
 
   return (
     <Badge 

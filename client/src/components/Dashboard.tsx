@@ -17,15 +17,32 @@ interface DashboardProps {}
 export default function Dashboard({}: DashboardProps) {
   const [activeSection, setActiveSection] = useState("/");
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
   const [isDarkMode, setIsDarkMode] = useState(true);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  // Fetch games from API
+  // Debounce search query for live search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Fetch games from API (with debounced search query)
   const { data: games = [], isLoading } = useQuery<Game[]>({
-    queryKey: ['/api/games'],
-    enabled: true
+    queryKey: ['/api/games', debouncedSearchQuery],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (debouncedSearchQuery.trim()) {
+        params.set('search', debouncedSearchQuery.trim());
+      }
+      const response = await fetch(`/api/games?${params}`);
+      if (!response.ok) throw new Error('Failed to fetch games');
+      return response.json();
+    }
   });
 
   // Status update mutation
@@ -91,6 +108,7 @@ export default function Dashboard({}: DashboardProps) {
   const handleSearch = (query: string) => {
     console.log(`Search: ${query}`);
     setSearchQuery(query);
+    // Query will automatically refetch due to queryKey dependency
   };
 
   const handleFilterToggle = () => {

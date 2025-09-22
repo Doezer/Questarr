@@ -11,7 +11,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all games in collection
   app.get("/api/games", async (req, res) => {
     try {
-      const games = await storage.getAllGames();
+      const { search } = req.query;
+      
+      let games;
+      if (search && typeof search === 'string' && search.trim()) {
+        games = await storage.searchGames(search.trim());
+      } else {
+        games = await storage.getAllGames();
+      }
+      
       res.json(games);
     } catch (error) {
       console.error("Error fetching games:", error);

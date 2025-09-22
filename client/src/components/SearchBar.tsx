@@ -27,6 +27,14 @@ export default function SearchBar({
     onSearch?.(searchQuery);
   };
 
+  // Trigger search on input change for live search
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setSearchQuery(value);
+    console.log(`Search input change: ${value}`);
+    onSearch?.(value);
+  };
+
   const handleFilterClick = () => {
     console.log("Filter toggle triggered");
     onFilterToggle?.();
@@ -46,7 +54,7 @@ export default function SearchBar({
             type="search"
             placeholder={placeholder}
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={handleInputChange}
             className="pl-10"
             data-testid="input-search"
           />

@@ -157,6 +157,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Placeholder image endpoint
+  app.get("/api/placeholder/:width/:height", (req, res) => {
+    const { width, height } = req.params;
+    const w = parseInt(width) || 300;
+    const h = parseInt(height) || 400;
+    
+    // Generate a simple SVG placeholder
+    const svg = `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
+      <rect width="100%" height="100%" fill="#f3f4f6"/>
+      <text x="50%" y="50%" font-family="Arial, sans-serif" font-size="14" fill="#6b7280" text-anchor="middle" dy=".3em">
+        ${w} × ${h}
+      </text>
+    </svg>`;
+    
+    res.setHeader('Content-Type', 'image/svg+xml');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.send(svg);
+  });
+
   const httpServer = createServer(app);
 
   return httpServer;

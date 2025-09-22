@@ -2,17 +2,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Download, Info, Star, Calendar } from "lucide-react";
 import StatusBadge, { type GameStatus } from "./StatusBadge";
-
-export interface Game {
-  id: string;
-  title: string;
-  coverUrl: string;
-  releaseDate: string;
-  rating: number;
-  platform: string[];
-  status: GameStatus;
-  genre: string[];
-}
+import { type Game } from "@shared/schema";
 
 interface GameCardProps {
   game: Game;
@@ -41,7 +31,7 @@ export default function GameCard({ game, onStatusChange, onViewDetails }: GameCa
     <Card className="group hover-elevate transition-all duration-200" data-testid={`card-game-${game.id}`}>
       <div className="relative">
         <img 
-          src={game.coverUrl} 
+          src={game.coverUrl || "/placeholder-game-cover.jpg"} 
           alt={`${game.title} cover`}
           className="w-full aspect-[3/4] object-cover rounded-t-md"
           data-testid={`img-cover-${game.id}`}
@@ -74,12 +64,12 @@ export default function GameCard({ game, onStatusChange, onViewDetails }: GameCa
         </h3>
         <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
           <Star className="w-3 h-3 text-accent" />
-          <span data-testid={`text-rating-${game.id}`}>{game.rating}/10</span>
+          <span data-testid={`text-rating-${game.id}`}>{game.rating ? `${game.rating}/10` : "N/A"}</span>
           <Calendar className="w-3 h-3 ml-2" />
-          <span data-testid={`text-release-${game.id}`}>{game.releaseDate}</span>
+          <span data-testid={`text-release-${game.id}`}>{game.releaseDate || "TBA"}</span>
         </div>
         <div className="flex flex-wrap gap-1 mb-3">
-          {game.genre.slice(0, 2).map((genre) => (
+          {game.genres?.slice(0, 2).map((genre) => (
             <span 
               key={genre} 
               className="text-xs bg-muted px-2 py-1 rounded-sm"
@@ -87,7 +77,7 @@ export default function GameCard({ game, onStatusChange, onViewDetails }: GameCa
             >
               {genre}
             </span>
-          ))}
+          )) || <span className="text-xs text-muted-foreground">No genres</span>}
         </div>
         <Button 
           variant="outline" 

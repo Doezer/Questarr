@@ -1,4 +1,5 @@
-import GameCard, { type Game } from "./GameCard";
+import GameCard from "./GameCard";
+import { type Game } from "@shared/schema";
 import { type GameStatus } from "./StatusBadge";
 
 interface GameGridProps {

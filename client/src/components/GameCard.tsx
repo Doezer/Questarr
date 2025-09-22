@@ -11,14 +11,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-export interface Game {
-  id: string;
-  title: string;
-  coverImage: string;
-  status: GameStatus;
+import { type Game as APIGame } from "@shared/schema";
+
+export interface Game extends Omit<APIGame, 'platforms' | 'rating' | 'createdAt' | 'updatedAt'> {
   platforms: Platform[];
-  genre: string;
-  releaseDate: string;
   rating?: number;
 }
 
@@ -90,11 +86,11 @@ export default function GameCard({ game, onClick, onStatusChange }: GameCardProp
           </div>
 
           {/* Rating */}
-          {game.rating && (
+          {game.rating && game.rating > 0 && (
             <div className="absolute bottom-2 right-2">
               <Badge variant="secondary" className="gap-1">
                 <Star className="h-3 w-3 fill-current" />
-                {game.rating}
+                {game.rating.toFixed(1)}
               </Badge>
             </div>
           )}

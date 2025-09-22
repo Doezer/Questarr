@@ -1,69 +1,78 @@
 import GameGrid from "@/components/GameGrid";
 import { type Game } from "@/components/GameCard";
 import { Input } from "@/components/ui/input";
-import { Search } from "lucide-react";
-import { useState } from "react";
-import fantasyRpgCover from '@assets/generated_images/Fantasy_RPG_game_cover_53d6bedb.png';
-import scifiShooterCover from '@assets/generated_images/Sci-fi_shooter_game_cover_44a05942.png';
-import racingCover from '@assets/generated_images/Racing_game_cover_art_7a256a20.png';
-import puzzleCover from '@assets/generated_images/Indie_puzzle_game_cover_d884c5f4.png';
+import { Search, AlertCircle } from "lucide-react";
+import { useState, useMemo } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { gameAPI } from "@/lib/api";
+import { transformGame } from "@/lib/gameUtils";
+import { type GameStatus } from "@/components/StatusBadge";
+import { useToast } from "@/hooks/use-toast";
 
 export default function Library() {
   const [searchQuery, setSearchQuery] = useState("");
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
 
-  //todo: remove mock functionality
-  const ownedGames: Game[] = [
-    {
-      id: "lib1",
-      title: "Elder Scrolls: Legendary Edition",
-      coverImage: fantasyRpgCover,
-      status: "owned",
-      platforms: ["PC", "PlayStation"],
-      genre: "Action RPG",
-      releaseDate: "2024-03-15",
-      rating: 9.2
-    },
-    {
-      id: "lib2",
-      title: "Neon Speed Racing",
-      coverImage: racingCover,
-      status: "owned",
-      platforms: ["PC", "PlayStation", "Xbox"],
-      genre: "Racing",
-      releaseDate: "2024-01-10",
-      rating: 7.8
-    },
-    {
-      id: "lib3",
-      title: "Pixel Adventure Quest",
-      coverImage: puzzleCover,
-      status: "completed",
-      platforms: ["PC", "Switch", "Mobile"],
-      genre: "Puzzle Platformer",
-      releaseDate: "2023-11-05",
-      rating: 8.9
-    },
-    {
-      id: "lib4",
-      title: "Cyber Assault: Future Wars",
-      coverImage: scifiShooterCover,
-      status: "playing",
-      platforms: ["PC", "Xbox"],
-      genre: "FPS",
-      releaseDate: "2024-06-20",
-      rating: 8.5
-    }
-  ];
+  const { data: allGames = [], isLoading, isError } = useQuery({
+    queryKey: ["games"],
+    queryFn: gameAPI.getAll,
+  });
 
-  // Filter games based on search query
-  const filteredGames = ownedGames.filter(game =>
-    game.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    game.genre.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const updateStatusMutation = useMutation({
+    mutationFn: ({ gameId, status }: { gameId: string; status: GameStatus }) =>
+      gameAPI.updateStatus(gameId, status),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["games"] });
+      queryClient.invalidateQueries({ queryKey: ["stats"] });
+      toast({
+        title: "Game updated",
+        description: "Status updated successfully",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to update game status",
+        variant: "destructive",
+      });
+    },
+  });
 
-  const handleStatusChange = (gameId: string, status: string) => {
-    console.log(`Status changed for game ${gameId} to ${status}`);
+  // Filter games to show only owned and playing/completed games
+  const libraryGames = useMemo(() => {
+    const ownedGames = allGames.filter(game => 
+      game.status === "owned" || game.status === "playing" || game.status === "completed"
+    );
+
+    // Apply search filter
+    if (!searchQuery) return ownedGames;
+    
+    const searchTerm = searchQuery.toLowerCase();
+    return ownedGames.filter(game =>
+      game.title.toLowerCase().includes(searchTerm) ||
+      game.genre.toLowerCase().includes(searchTerm) ||
+      (game.description && game.description.toLowerCase().includes(searchTerm))
+    );
+  }, [allGames, searchQuery]);
+
+  const filteredGames = libraryGames.map(transformGame);
+
+  const handleStatusChange = (gameId: string, status: GameStatus) => {
+    updateStatusMutation.mutate({ gameId, status });
   };
+
+  if (isError) {
+    return (
+      <div className="space-y-6 p-6">
+        <div className="text-center py-12">
+          <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
+          <h3 className="text-lg font-medium">Failed to load library</h3>
+          <p className="text-muted-foreground">Please try refreshing the page.</p>
+        </div>
+      </div>
+    );
+  }
 
   const handleGameClick = (game: Game) => {
     console.log(`Clicked on game: ${game.title}`);
@@ -88,13 +97,19 @@ export default function Library() {
         />
       </div>
 
-      <GameGrid
-        games={filteredGames}
-        title={`Your Library (${filteredGames.length} games)`}
-        onGameClick={handleGameClick}
-        onStatusChange={handleStatusChange}
-        showFilters={true}
-      />
+      {isLoading ? (
+        <div className="text-center py-12">
+          <div className="text-lg">Loading your library...</div>
+        </div>
+      ) : (
+        <GameGrid
+          games={filteredGames}
+          title={`Your Library (${filteredGames.length} games)`}
+          onGameClick={handleGameClick}
+          onStatusChange={handleStatusChange}
+          showFilters={true}
+        />
+      )}
     </div>
   );
 }

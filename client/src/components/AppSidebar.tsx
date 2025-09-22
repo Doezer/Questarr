@@ -21,37 +21,8 @@ import {
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
-
-const navigationItems = [
-  {
-    title: "Dashboard",
-    url: "/",
-    icon: LayoutDashboard,
-  },
-  {
-    title: "Library",
-    url: "/library",
-    icon: Library,
-    count: 42, //todo: remove mock functionality
-  },
-  {
-    title: "Wishlist",
-    url: "/wishlist", 
-    icon: Heart,
-    count: 8, //todo: remove mock functionality
-  },
-  {
-    title: "Calendar",
-    url: "/calendar",
-    icon: Calendar,
-    count: 3, //todo: remove mock functionality
-  },
-  {
-    title: "Discovery",
-    url: "/discovery",
-    icon: Search,
-  }
-];
+import { useQuery } from "@tanstack/react-query";
+import { statsAPI } from "@/lib/api";
 
 const settingsItems = [
   {
@@ -63,6 +34,41 @@ const settingsItems = [
 
 export default function AppSidebar() {
   const [location] = useLocation();
+  
+  const { data: stats } = useQuery({
+    queryKey: ["stats"],
+    queryFn: statsAPI.get,
+  });
+
+  const navigationItems = [
+    {
+      title: "Dashboard",
+      url: "/",
+      icon: LayoutDashboard,
+    },
+    {
+      title: "Library",
+      url: "/library",
+      icon: Library,
+      count: (stats?.owned || 0) + (stats?.playing || 0) + (stats?.completed || 0),
+    },
+    {
+      title: "Wishlist",
+      url: "/wishlist", 
+      icon: Heart,
+      count: stats?.wishlist || 0,
+    },
+    {
+      title: "Calendar",
+      url: "/calendar",
+      icon: Calendar,
+    },
+    {
+      title: "Discovery",
+      url: "/discovery",
+      icon: Search,
+    }
+  ];
 
   return (
     <Sidebar data-testid="sidebar-main">

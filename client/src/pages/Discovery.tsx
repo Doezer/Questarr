@@ -4,68 +4,97 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Search, TrendingUp, Star, Calendar } from "lucide-react";
-import { useState } from "react";
-import fantasyRpgCover from '@assets/generated_images/Fantasy_RPG_game_cover_53d6bedb.png';
-import scifiShooterCover from '@assets/generated_images/Sci-fi_shooter_game_cover_44a05942.png';
-import racingCover from '@assets/generated_images/Racing_game_cover_art_7a256a20.png';
-import puzzleCover from '@assets/generated_images/Indie_puzzle_game_cover_d884c5f4.png';
+import { Search, TrendingUp, Star, Calendar, AlertCircle } from "lucide-react";
+import { useState, useMemo } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { gameAPI, statsAPI } from "@/lib/api";
+import { transformGame } from "@/lib/gameUtils";
+import { type GameStatus } from "@/components/StatusBadge";
+import { useToast } from "@/hooks/use-toast";
 
 export default function Discovery() {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState("trending");
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
 
-  //todo: remove mock functionality
-  const discoveryGames: Game[] = [
-    {
-      id: "disc1",
-      title: "Elder Scrolls: Legendary Edition",
-      coverImage: fantasyRpgCover,
-      status: "wishlist",
-      platforms: ["PC", "PlayStation"],
-      genre: "Action RPG",
-      releaseDate: "2024-03-15",
-      rating: 9.2
+  const { data: allGames = [], isLoading, isError } = useQuery({
+    queryKey: ["games"],
+    queryFn: gameAPI.getAll,
+  });
+
+  const { data: stats } = useQuery({
+    queryKey: ["stats"],
+    queryFn: statsAPI.get,
+  });
+
+  const updateStatusMutation = useMutation({
+    mutationFn: ({ gameId, status }: { gameId: string; status: GameStatus }) =>
+      gameAPI.updateStatus(gameId, status),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["games"] });
+      queryClient.invalidateQueries({ queryKey: ["stats"] });
+      toast({
+        title: "Game updated",
+        description: "Status updated successfully",
+      });
     },
-    {
-      id: "disc2",
-      title: "Cyber Assault: Future Wars",
-      coverImage: scifiShooterCover,
-      status: "wishlist",
-      platforms: ["PC", "Xbox"],
-      genre: "FPS",
-      releaseDate: "2024-06-20",
-      rating: 8.5
+    onError: () => {
+      toast({
+        title: "Error", 
+        description: "Failed to update game status",
+        variant: "destructive",
+      });
     },
-    {
-      id: "disc3",
-      title: "Neon Speed Racing",
-      coverImage: racingCover,
-      status: "wishlist",
-      platforms: ["PC", "PlayStation", "Xbox"],
-      genre: "Racing",
-      releaseDate: "2024-01-10",
-      rating: 7.8
-    },
-    {
-      id: "disc4",
-      title: "Pixel Adventure Quest",
-      coverImage: puzzleCover,
-      status: "wishlist",
-      platforms: ["PC", "Switch", "Mobile"],
-      genre: "Puzzle Platformer",
-      releaseDate: "2023-11-05",
-      rating: 8.9
+  });
+
+  // Filter and organize games based on active tab and search
+  const discoveryGames = useMemo(() => {
+    let filteredGames = allGames;
+
+    // Apply search filter if search query exists
+    if (searchQuery) {
+      const searchTerm = searchQuery.toLowerCase();
+      filteredGames = filteredGames.filter(game =>
+        game.title.toLowerCase().includes(searchTerm) ||
+        game.genre.toLowerCase().includes(searchTerm) ||
+        (game.description && game.description.toLowerCase().includes(searchTerm))
+      );
     }
-  ];
 
-  //todo: remove mock functionality
-  const trendingGenres = [
-    { name: "Action RPG", count: 42 },
-    { name: "FPS", count: 28 },
-    { name: "Racing", count: 15 },
-    { name: "Puzzle", count: 31 }
-  ];
+    // Apply tab filter
+    const today = new Date().toISOString().split('T')[0];
+    switch (activeTab) {
+      case "new":
+        return filteredGames
+          .filter(game => game.releaseDate && game.releaseDate <= today)
+          .sort((a, b) => new Date(b.releaseDate || 0).getTime() - new Date(a.releaseDate || 0).getTime())
+          .map(transformGame);
+      case "upcoming":
+        return filteredGames
+          .filter(game => game.releaseDate && game.releaseDate > today)
+          .sort((a, b) => new Date(a.releaseDate || 0).getTime() - new Date(b.releaseDate || 0).getTime())
+          .map(transformGame);
+      case "trending":
+      default:
+        return filteredGames
+          .sort((a, b) => (parseFloat(b.rating || "0") - parseFloat(a.rating || "0")))
+          .map(transformGame);
+    }
+  }, [allGames, searchQuery, activeTab]);
+
+  // Generate trending genres from actual data
+  const trendingGenres = useMemo(() => {
+    const genreCounts = allGames.reduce((acc, game) => {
+      acc[game.genre] = (acc[game.genre] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+
+    return Object.entries(genreCounts)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 4)
+      .map(([name, count]) => ({ name, count }));
+  }, [allGames]);
 
   const tabs = [
     { id: "trending", label: "Trending", icon: TrendingUp },
@@ -75,15 +104,28 @@ export default function Discovery() {
 
   const handleSearch = () => {
     console.log(`Searching for: ${searchQuery}`);
+    // Search is handled automatically via useMemo
   };
 
-  const handleStatusChange = (gameId: string, status: string) => {
-    console.log(`Status changed for game ${gameId} to ${status}`);
+  const handleStatusChange = (gameId: string, status: GameStatus) => {
+    updateStatusMutation.mutate({ gameId, status });
   };
 
   const handleGameClick = (game: Game) => {
     console.log(`Clicked on discovery game: ${game.title}`);
   };
+
+  if (isError) {
+    return (
+      <div className="space-y-6 p-6">
+        <div className="text-center py-12">
+          <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
+          <h3 className="text-lg font-medium">Failed to load discovery</h3>
+          <p className="text-muted-foreground">Please try refreshing the page.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 p-6">
@@ -134,13 +176,28 @@ export default function Discovery() {
           </div>
 
           {/* Games Grid */}
-          <GameGrid
-            games={discoveryGames}
-            title={`${tabs.find(t => t.id === activeTab)?.label} Games`}
-            onGameClick={handleGameClick}
-            onStatusChange={handleStatusChange}
-            showFilters={true}
-          />
+          {isLoading ? (
+            <div className="space-y-4">
+              <div className="h-6 bg-muted rounded w-48"></div>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {[...Array(8)].map((_, i) => (
+                  <div key={i} className="space-y-2">
+                    <div className="aspect-[3/4] bg-muted rounded"></div>
+                    <div className="h-4 bg-muted rounded w-3/4"></div>
+                    <div className="h-3 bg-muted rounded w-1/2"></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <GameGrid
+              games={discoveryGames}
+              title={`${tabs.find(t => t.id === activeTab)?.label} Games`}
+              onGameClick={handleGameClick}
+              onStatusChange={handleStatusChange}
+              showFilters={true}
+            />
+          )}
         </div>
 
         {/* Sidebar */}

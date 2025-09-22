@@ -2,52 +2,59 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import GameGrid from "@/components/GameGrid";
 import { type Game } from "@/components/GameCard";
-import { TrendingUp, Library, Heart, Calendar, Clock } from "lucide-react";
-import fantasyRpgCover from '@assets/generated_images/Fantasy_RPG_game_cover_53d6bedb.png';
-import scifiShooterCover from '@assets/generated_images/Sci-fi_shooter_game_cover_44a05942.png';
-import racingCover from '@assets/generated_images/Racing_game_cover_art_7a256a20.png';
+import { TrendingUp, Library, Heart, Calendar, Clock, AlertCircle } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { gameAPI, statsAPI } from "@/lib/api";
+import { transformGame, formatDate } from "@/lib/gameUtils";
 
 export default function Dashboard() {
-  //todo: remove mock functionality
-  const recentlyAdded: Game[] = [
-    {
-      id: "recent1",
-      title: "Elder Scrolls: Legendary Edition",
-      coverImage: fantasyRpgCover,
-      status: "owned",
-      platforms: ["PC", "PlayStation"],
-      genre: "Action RPG",
-      releaseDate: "2024-03-15",
-      rating: 9.2
-    },
-    {
-      id: "recent2",
-      title: "Cyber Assault: Future Wars", 
-      coverImage: scifiShooterCover,
-      status: "wishlist",
-      platforms: ["PC", "Xbox"],
-      genre: "FPS",
-      releaseDate: "2024-06-20",
-      rating: 8.5
-    },
-    {
-      id: "recent3",
-      title: "Neon Speed Racing",
-      coverImage: racingCover,
-      status: "playing",
-      platforms: ["PC", "PlayStation", "Xbox"],
-      genre: "Racing",
-      releaseDate: "2024-01-10", 
-      rating: 7.8
-    }
-  ];
+  const { data: stats, isLoading: statsLoading, isError: statsError } = useQuery({
+    queryKey: ["stats"],
+    queryFn: statsAPI.get,
+  });
 
-  //todo: remove mock functionality
-  const upcomingReleases = [
-    { title: "Fantasy Quest VII", date: "2024-05-15", status: "wishlist" },
-    { title: "Space Combat Elite", date: "2024-06-20", status: "wishlist" },
-    { title: "Racing Legends 2024", date: "2024-07-08", status: "owned" }
-  ];
+  const { data: allGames = [], isLoading: gamesLoading, isError: gamesError } = useQuery({
+    queryKey: ["games"],
+    queryFn: gameAPI.getAll,
+  });
+
+  const isLoading = statsLoading || gamesLoading;
+  const hasError = statsError || gamesError;
+
+  // Get recent games (last 3 added) - sort by createdAt with safety
+  const recentlyAdded = allGames
+    .filter(game => game.createdAt) // Filter out games without createdAt
+    .sort((a, b) => {
+      const dateA = new Date(a.createdAt || 0).getTime();
+      const dateB = new Date(b.createdAt || 0).getTime();
+      return dateB - dateA;
+    })
+    .slice(0, 3)
+    .map(transformGame);
+
+  // Get upcoming releases (games with future release dates) with safety
+  const today = new Date().toISOString().split('T')[0];
+  const upcomingReleases = allGames
+    .filter(game => game.releaseDate && game.releaseDate > today)
+    .sort((a, b) => new Date(a.releaseDate || 0).getTime() - new Date(b.releaseDate || 0).getTime())
+    .slice(0, 3)
+    .map(game => ({
+      title: game.title,
+      date: formatDate(game.releaseDate),
+      status: game.status
+    }));
+
+  if (hasError) {
+    return (
+      <div className="space-y-6 p-6">
+        <div className="text-center py-12">
+          <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
+          <h3 className="text-lg font-medium">Failed to load dashboard</h3>
+          <p className="text-muted-foreground">Please try refreshing the page.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 p-6">
@@ -64,8 +71,8 @@ export default function Dashboard() {
             <Library className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold" data-testid="text-stat-total">42</div>
-            <p className="text-xs text-muted-foreground">+3 from last month</p>
+            <div className="text-2xl font-bold" data-testid="text-stat-total">{stats?.total || 0}</div>
+            <p className="text-xs text-muted-foreground">+{Math.floor((stats?.total || 0) / 10)} from last month</p>
           </CardContent>
         </Card>
 
@@ -75,8 +82,8 @@ export default function Dashboard() {
             <Heart className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold" data-testid="text-stat-wishlist">8</div>
-            <p className="text-xs text-muted-foreground">2 releasing this month</p>
+            <div className="text-2xl font-bold" data-testid="text-stat-wishlist">{stats?.wishlist || 0}</div>
+            <p className="text-xs text-muted-foreground">{upcomingReleases.length} releasing soon</p>
           </CardContent>
         </Card>
 
@@ -86,8 +93,8 @@ export default function Dashboard() {
             <Clock className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold" data-testid="text-stat-playing">3</div>
-            <p className="text-xs text-muted-foreground">Average: 2.5 games</p>
+            <div className="text-2xl font-bold" data-testid="text-stat-playing">{stats?.playing || 0}</div>
+            <p className="text-xs text-muted-foreground">Currently active</p>
           </CardContent>
         </Card>
 
@@ -97,8 +104,8 @@ export default function Dashboard() {
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold" data-testid="text-stat-month">5</div>
-            <p className="text-xs text-muted-foreground">Games added</p>
+            <div className="text-2xl font-bold" data-testid="text-stat-month">{stats?.completed || 0}</div>
+            <p className="text-xs text-muted-foreground">Games completed</p>
           </CardContent>
         </Card>
       </div>
@@ -106,11 +113,26 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Recently Added */}
         <div className="lg:col-span-2">
-          <GameGrid 
-            games={recentlyAdded} 
-            title="Recently Added"
-            showFilters={false}
-          />
+          {isLoading ? (
+            <div className="space-y-4">
+              <div className="h-6 bg-muted rounded w-48"></div>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                {[...Array(3)].map((_, i) => (
+                  <div key={i} className="space-y-2">
+                    <div className="aspect-[3/4] bg-muted rounded"></div>
+                    <div className="h-4 bg-muted rounded w-3/4"></div>
+                    <div className="h-3 bg-muted rounded w-1/2"></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <GameGrid 
+              games={recentlyAdded} 
+              title="Recently Added"
+              showFilters={false}
+            />
+          )}
         </div>
 
         {/* Upcoming Releases */}

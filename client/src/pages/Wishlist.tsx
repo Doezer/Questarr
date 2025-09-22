@@ -2,44 +2,80 @@ import GameGrid from "@/components/GameGrid";
 import { type Game } from "@/components/GameCard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Calendar, TrendingUp } from "lucide-react";
-import scifiShooterCover from '@assets/generated_images/Sci-fi_shooter_game_cover_44a05942.png';
-import fantasyRpgCover from '@assets/generated_images/Fantasy_RPG_game_cover_53d6bedb.png';
+import { Calendar, TrendingUp, AlertCircle } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { gameAPI, statsAPI } from "@/lib/api";
+import { transformGame, calculateDaysUntil, formatDate } from "@/lib/gameUtils";
+import { type GameStatus } from "@/components/StatusBadge";
+import { useToast } from "@/hooks/use-toast";
 
 export default function Wishlist() {
-  //todo: remove mock functionality
-  const wishlistedGames: Game[] = [
-    {
-      id: "wish1",
-      title: "Cyber Assault: Future Wars",
-      coverImage: scifiShooterCover,
-      status: "wishlist",
-      platforms: ["PC", "Xbox"],
-      genre: "FPS",
-      releaseDate: "2024-06-20",
-      rating: 8.5
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  const { data: stats, isLoading: statsLoading, isError: statsError } = useQuery({
+    queryKey: ["stats"],
+    queryFn: statsAPI.get,
+  });
+
+  const { data: allGames = [], isLoading: gamesLoading, isError: gamesError } = useQuery({
+    queryKey: ["games"],
+    queryFn: gameAPI.getAll,
+  });
+
+  const isLoading = statsLoading || gamesLoading;
+  const hasError = statsError || gamesError;
+
+  const updateStatusMutation = useMutation({
+    mutationFn: ({ gameId, status }: { gameId: string; status: GameStatus }) =>
+      gameAPI.updateStatus(gameId, status),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["games"] });
+      queryClient.invalidateQueries({ queryKey: ["stats"] });
+      toast({
+        title: "Game updated",
+        description: "Status updated successfully",
+      });
     },
-    {
-      id: "wish2",
-      title: "Dragon's Legacy: Ultimate Edition",
-      coverImage: fantasyRpgCover,
-      status: "wishlist", 
-      platforms: ["PC", "PlayStation", "Xbox"],
-      genre: "Action RPG",
-      releaseDate: "2024-08-15",
-      rating: 9.0
-    }
-  ];
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to update game status",
+        variant: "destructive",
+      });
+    },
+  });
 
-  //todo: remove mock functionality
-  const upcomingReleases = [
-    { title: "Cyber Assault: Future Wars", date: "2024-06-20", daysUntil: 45 },
-    { title: "Dragon's Legacy: Ultimate Edition", date: "2024-08-15", daysUntil: 101 }
-  ];
+  const wishlistedGames = allGames
+    .filter(game => game.status === "wishlist")
+    .map(transformGame);
 
-  const handleStatusChange = (gameId: string, status: string) => {
-    console.log(`Status changed for game ${gameId} to ${status}`);
+  const today = new Date().toISOString().split('T')[0];
+  const upcomingReleases = allGames
+    .filter(game => game.status === "wishlist" && game.releaseDate && game.releaseDate > today)
+    .sort((a, b) => new Date(a.releaseDate || 0).getTime() - new Date(b.releaseDate || 0).getTime())
+    .slice(0, 3)
+    .map(game => ({
+      title: game.title,
+      date: formatDate(game.releaseDate),
+      daysUntil: calculateDaysUntil(game.releaseDate)
+    }));
+
+  const handleStatusChange = (gameId: string, status: GameStatus) => {
+    updateStatusMutation.mutate({ gameId, status });
   };
+
+  if (hasError) {
+    return (
+      <div className="space-y-6 p-6">
+        <div className="text-center py-12">
+          <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
+          <h3 className="text-lg font-medium">Failed to load wishlist</h3>
+          <p className="text-muted-foreground">Please try refreshing the page.</p>
+        </div>
+      </div>
+    );
+  }
 
   const handleGameClick = (game: Game) => {
     console.log(`Clicked on wishlist game: ${game.title}`);
@@ -60,8 +96,8 @@ export default function Wishlist() {
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold" data-testid="text-wishlist-total">8</div>
-            <p className="text-xs text-muted-foreground">3 releasing soon</p>
+            <div className="text-2xl font-bold" data-testid="text-wishlist-total">{stats?.wishlist || 0}</div>
+            <p className="text-xs text-muted-foreground">{upcomingReleases.length} releasing soon</p>
           </CardContent>
         </Card>
 
@@ -71,8 +107,8 @@ export default function Wishlist() {
             <Calendar className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold" data-testid="text-wishlist-month">2</div>
-            <p className="text-xs text-muted-foreground">Games releasing</p>
+            <div className="text-2xl font-bold" data-testid="text-wishlist-month">{upcomingReleases.filter(r => r.daysUntil <= 30).length}</div>
+            <p className="text-xs text-muted-foreground">Games releasing this month</p>
           </CardContent>
         </Card>
 
@@ -81,11 +117,17 @@ export default function Wishlist() {
             <CardTitle className="text-sm font-medium">Next Release</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-lg font-semibold">Cyber Assault</div>
-            <div className="flex items-center gap-2 mt-1">
-              <Badge variant="secondary" className="text-xs">45 days</Badge>
-              <span className="text-xs text-muted-foreground">Jun 20, 2024</span>
-            </div>
+            {upcomingReleases.length > 0 ? (
+              <>
+                <div className="text-lg font-semibold">{upcomingReleases[0].title.split(':')[0]}</div>
+                <div className="flex items-center gap-2 mt-1">
+                  <Badge variant="secondary" className="text-xs">{upcomingReleases[0].daysUntil} days</Badge>
+                  <span className="text-xs text-muted-foreground">{upcomingReleases[0].date}</span>
+                </div>
+              </>
+            ) : (
+              <div className="text-sm text-muted-foreground">No upcoming releases</div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -93,13 +135,19 @@ export default function Wishlist() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Wishlist Games */}
         <div className="lg:col-span-2">
-          <GameGrid
-            games={wishlistedGames}
-            title="Your Wishlist"
-            onGameClick={handleGameClick}
-            onStatusChange={handleStatusChange}
-            showFilters={true}
-          />
+          {isLoading ? (
+            <div className="text-center py-12">
+              <div className="text-lg">Loading your wishlist...</div>
+            </div>
+          ) : (
+            <GameGrid
+              games={wishlistedGames}
+              title="Your Wishlist"
+              onGameClick={handleGameClick}
+              onStatusChange={handleStatusChange}
+              showFilters={true}
+            />
+          )}
         </div>
 
         {/* Release Timeline */}

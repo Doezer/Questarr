@@ -31,19 +31,35 @@ export default function Dashboard({}: DashboardProps) {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // Fetch games from API (with debounced search query)
-  const { data: games = [], isLoading } = useQuery<Game[]>({
-    queryKey: ['/api/games', debouncedSearchQuery],
-    queryFn: async () => {
-      const params = new URLSearchParams();
-      if (debouncedSearchQuery.trim()) {
-        params.set('search', debouncedSearchQuery.trim());
-      }
-      const response = await fetch(`/api/games?${params}`);
-      if (!response.ok) throw new Error('Failed to fetch games');
-      return response.json();
+  // Different query logic based on section
+  const getQueryConfig = () => {
+    if (activeSection === "/discover") {
+      return {
+        queryKey: ['/api/games/discover'],
+        queryFn: async () => {
+          const response = await fetch(`/api/games/discover?limit=20`);
+          if (!response.ok) throw new Error('Failed to fetch recommendations');
+          return response.json();
+        }
+      };
     }
-  });
+    
+    // For library and other sections, query user's collection
+    return {
+      queryKey: ['/api/games', debouncedSearchQuery],
+      queryFn: async () => {
+        const params = new URLSearchParams();
+        if (debouncedSearchQuery.trim()) {
+          params.set('search', debouncedSearchQuery.trim());
+        }
+        const response = await fetch(`/api/games?${params}`);
+        if (!response.ok) throw new Error('Failed to fetch games');
+        return response.json();
+      }
+    };
+  };
+
+  const { data: games = [], isLoading } = useQuery<Game[]>(getQueryConfig());
 
   // Status update mutation
   const statusMutation = useMutation({
@@ -201,18 +217,34 @@ export default function Dashboard({}: DashboardProps) {
             
             {activeSection !== "/" && (
               <div className="space-y-6">
-                <SearchBar
-                  onSearch={handleSearch}
-                  onFilterToggle={handleFilterToggle}
-                  activeFilters={activeFilters}
-                  onRemoveFilter={handleRemoveFilter}
-                />
-                <GameGrid
-                  games={games}
-                  onStatusChange={handleStatusChange}
-                  onViewDetails={handleViewDetails}
-                  isLoading={isLoading}
-                />
+                {activeSection === "/discover" ? (
+                  <div className="space-y-4">
+                    <div className="text-sm text-muted-foreground">
+                      Personalized recommendations based on your collection
+                    </div>
+                    <GameGrid
+                      games={games}
+                      onStatusChange={handleStatusChange}
+                      onViewDetails={handleViewDetails}
+                      isLoading={isLoading}
+                    />
+                  </div>
+                ) : (
+                  <>
+                    <SearchBar
+                      onSearch={handleSearch}
+                      onFilterToggle={handleFilterToggle}
+                      activeFilters={activeFilters}
+                      onRemoveFilter={handleRemoveFilter}
+                    />
+                    <GameGrid
+                      games={games}
+                      onStatusChange={handleStatusChange}
+                      onViewDetails={handleViewDetails}
+                      isLoading={isLoading}
+                    />
+                  </>
+                )}
               </div>
             )}
           </main>

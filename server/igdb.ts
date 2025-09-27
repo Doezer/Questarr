@@ -121,7 +121,7 @@ class IGDBClient {
           console.log(`IGDB word search for "${word}" found ${wordResults.length} results`);
           
           // Filter to prefer games containing multiple query words
-          const filteredResults = wordResults.filter(game => 
+          const filteredResults = wordResults.filter((game: IGDBGame) => 
             words.filter(w => game.name.toLowerCase().includes(w)).length >= Math.min(2, words.length)
           );
           
@@ -183,6 +183,134 @@ class IGDBClient {
     `;
 
     return this.makeRequest('games', igdbQuery);
+  }
+
+  async getGamesByGenres(genres: string[], excludeIds: number[] = [], limit: number = 20): Promise<IGDBGame[]> {
+    if (genres.length === 0) return [];
+
+    // Convert genre names to a query format - use regex matching for better results
+    const genreConditions = genres.slice(0, 3).map(genre => {
+      // Handle special characters in genre names
+      const cleanGenre = genre.replace(/[()]/g, '').replace(/\s+/g, ' ').trim();
+      return `genres.name ~ *"${cleanGenre}"*`;
+    });
+    const genreCondition = genreConditions.join(' | ');
+    const excludeCondition = excludeIds.length > 0 ? ` & id != (${excludeIds.join(',')})` : '';
+
+    const igdbQuery = `
+      fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url;
+      where (${genreCondition}) & rating > 70 & rating_count > 5${excludeCondition};
+      sort rating desc;
+      limit ${limit};
+    `;
+
+    try {
+      return await this.makeRequest('games', igdbQuery);
+    } catch (error) {
+      console.warn(`IGDB genre search failed for genres: ${genres.join(', ')}`, error);
+      return [];
+    }
+  }
+
+  async getGamesByPlatforms(platforms: string[], excludeIds: number[] = [], limit: number = 20): Promise<IGDBGame[]> {
+    if (platforms.length === 0) return [];
+
+    // Use common platform names for better matching
+    const platformMap: { [key: string]: string } = {
+      "PC (Microsoft Windows)": "PC",
+      "PlayStation 5": "PlayStation",
+      "PlayStation 4": "PlayStation",
+      "Xbox Series X|S": "Xbox",
+      "Xbox One": "Xbox",
+      "Nintendo Switch": "Nintendo"
+    };
+
+    const mappedPlatforms = platforms.slice(0, 3).map(platform => 
+      platformMap[platform] || platform.split(' ')[0] // Use first word if no mapping
+    );
+    const uniquePlatforms = [...new Set(mappedPlatforms)];
+    
+    const platformConditions = uniquePlatforms.map(platform => 
+      `platforms.name ~ *"${platform}"*`
+    );
+    const platformCondition = platformConditions.join(' | ');
+    const excludeCondition = excludeIds.length > 0 ? ` & id != (${excludeIds.join(',')})` : '';
+
+    const igdbQuery = `
+      fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url;
+      where (${platformCondition}) & rating > 70 & rating_count > 5${excludeCondition};
+      sort rating desc;
+      limit ${limit};
+    `;
+
+    try {
+      return await this.makeRequest('games', igdbQuery);
+    } catch (error) {
+      console.warn(`IGDB platform search failed for platforms: ${platforms.join(', ')}`, error);
+      return [];
+    }
+  }
+
+  async getRecommendations(userGames: any[], limit: number = 20): Promise<IGDBGame[]> {
+    if (userGames.length === 0) {
+      // If user has no games, show popular games
+      return this.getPopularGames(limit);
+    }
+
+    // Extract genres and platforms from user's games
+    const userGenres = Array.from(new Set(
+      userGames.flatMap(game => game.genres || [])
+    ));
+    const userPlatforms = Array.from(new Set(
+      userGames.flatMap(game => game.platforms || [])
+    ));
+    const userIgdbIds = userGames
+      .filter(game => game.igdbId)
+      .map(game => game.igdbId);
+
+    console.log(`Generating recommendations based on ${userGenres.length} genres and ${userPlatforms.length} platforms, excluding ${userIgdbIds.length} games`);
+
+    const recommendations: IGDBGame[] = [];
+    
+    try {
+      // Get games by favorite genres (60% of results)
+      if (userGenres.length > 0) {
+        const topGenres = userGenres.slice(0, 5); // Use top 5 genres
+        const genreGames = await this.getGamesByGenres(topGenres, userIgdbIds, Math.ceil(limit * 0.6));
+        recommendations.push(...genreGames);
+      }
+
+      // Get games by platforms (40% of results)
+      if (userPlatforms.length > 0 && recommendations.length < limit) {
+        const remaining = limit - recommendations.length;
+        const platformGames = await this.getGamesByPlatforms(userPlatforms, userIgdbIds, remaining);
+        recommendations.push(...platformGames);
+      }
+
+      // Fill remaining with popular games if needed
+      if (recommendations.length < limit) {
+        const remaining = limit - recommendations.length;
+        const popularGames = await this.getPopularGames(remaining + 10); // Get extra to filter duplicates
+        const filteredPopular = popularGames.filter(game => 
+          !userIgdbIds.includes(game.id) && 
+          !recommendations.some(rec => rec.id === game.id)
+        );
+        recommendations.push(...filteredPopular.slice(0, remaining));
+      }
+
+      // Remove duplicates and return
+      const uniqueRecommendations = recommendations.filter((game, index, self) => 
+        index === self.findIndex(g => g.id === game.id)
+      );
+
+      console.log(`Generated ${uniqueRecommendations.length} unique recommendations`);
+      return uniqueRecommendations.slice(0, limit);
+
+    } catch (error) {
+      console.error('Error generating recommendations:', error);
+      // Fallback to popular games
+      return this.getPopularGames(limit);
+    }
   }
 
   formatGameData(igdbGame: IGDBGame): any {

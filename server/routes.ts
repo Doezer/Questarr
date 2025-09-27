@@ -138,6 +138,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // New discover endpoint for personalized recommendations
+  app.get("/api/games/discover", async (req, res) => {
+    try {
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 20;
+      
+      // Get user's current games for recommendations
+      const userGames = await storage.getAllGames();
+      
+      // Get recommendations from IGDB
+      const igdbGames = await igdbClient.getRecommendations(userGames, limit);
+      const formattedGames = igdbGames.map(game => igdbClient.formatGameData(game));
+      
+      res.json(formattedGames);
+    } catch (error) {
+      console.error("Error getting game recommendations:", error);
+      res.status(500).json({ error: "Failed to get recommendations" });
+    }
+  });
+
   // Get popular games
   app.get("/api/igdb/popular", async (req, res) => {
     try {

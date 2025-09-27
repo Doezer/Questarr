@@ -10,9 +10,11 @@ interface GameCardProps {
   game: Game;
   onStatusChange?: (gameId: string, newStatus: GameStatus) => void;
   onViewDetails?: (gameId: string) => void;
+  onTrackGame?: (game: Game) => void;
+  isDiscovery?: boolean;
 }
 
-export default function GameCard({ game, onStatusChange, onViewDetails }: GameCardProps) {
+export default function GameCard({ game, onStatusChange, onViewDetails, onTrackGame, isDiscovery = false }: GameCardProps) {
   const [detailsOpen, setDetailsOpen] = useState(false);
 
   const handleStatusClick = () => {
@@ -41,9 +43,18 @@ export default function GameCard({ game, onStatusChange, onViewDetails }: GameCa
           className="w-full aspect-[3/4] object-cover rounded-t-md"
           data-testid={`img-cover-${game.id}`}
         />
-        <div className="absolute top-2 right-2">
-          <StatusBadge status={game.status} />
-        </div>
+        {!isDiscovery && game.status && (
+          <div className="absolute top-2 right-2">
+            <StatusBadge status={game.status} />
+          </div>
+        )}
+        {isDiscovery && (
+          <div className="absolute top-2 right-2">
+            <div className="bg-blue-500 text-white px-2 py-1 rounded text-xs font-medium">
+              {game.isReleased ? "Released" : "Upcoming"}
+            </div>
+          </div>
+        )}
         <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-t-md flex items-center justify-center gap-2">
           <Button 
             size="icon" 
@@ -84,15 +95,27 @@ export default function GameCard({ game, onStatusChange, onViewDetails }: GameCa
             </span>
           )) || <span className="text-xs text-muted-foreground">No genres</span>}
         </div>
-        <Button 
-          variant="outline" 
-          size="sm" 
-          className="w-full" 
-          onClick={handleStatusClick}
-          data-testid={`button-status-${game.id}`}
-        >
-          Mark as {game.status === "wanted" ? "Owned" : game.status === "owned" ? "Completed" : "Wanted"}
-        </Button>
+        {isDiscovery ? (
+          <Button 
+            variant="default" 
+            size="sm" 
+            className="w-full" 
+            onClick={() => onTrackGame?.(game)}
+            data-testid={`button-track-${game.id}`}
+          >
+            Track Game
+          </Button>
+        ) : (
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="w-full" 
+            onClick={handleStatusClick}
+            data-testid={`button-status-${game.id}`}
+          >
+            Mark as {game.status === "wanted" ? "Owned" : game.status === "owned" ? "Completed" : "Wanted"}
+          </Button>
+        )}
       </CardContent>
       
       <GameDetailsModal

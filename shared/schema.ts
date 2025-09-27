@@ -42,6 +42,10 @@ export const updateGameStatusSchema = z.object({
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
-export type Game = typeof games.$inferSelect;
+export type Game = typeof games.$inferSelect & {
+  // Additional fields for Discovery games
+  isReleased?: boolean;
+  releaseYear?: number | null;
+};
 export type InsertGame = z.infer<typeof insertGameSchema>;
 export type UpdateGameStatus = z.infer<typeof updateGameStatusSchema>;

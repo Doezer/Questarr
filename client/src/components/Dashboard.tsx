@@ -7,6 +7,7 @@ import AddGameModal from "./AddGameModal";
 import SearchBar from "./SearchBar";
 import GameGrid from "./GameGrid";
 import StatsCard from "./StatsCard";
+import DiscoveryFilters from "./DiscoveryFilters";
 import { Library, Download, Star, Calendar } from "lucide-react";
 import { type Game } from "@shared/schema";
 import { type GameStatus } from "./StatusBadge";
@@ -19,7 +20,14 @@ export default function Dashboard({}: DashboardProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
-  const [isDarkMode, setIsDarkMode] = useState(true);
+  const [discoveryFilters, setDiscoveryFilters] = useState<{
+    releaseStatus?: "all" | "released" | "upcoming";
+    minYear?: number | null;
+  }>({});
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    // Initialize based on current document theme
+    return document.documentElement.classList.contains('dark');
+  });
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -35,11 +43,33 @@ export default function Dashboard({}: DashboardProps) {
   const getQueryConfig = () => {
     if (activeSection === "/discover") {
       return {
-        queryKey: ['/api/games/discover'],
+        queryKey: ['/api/games/discover', discoveryFilters],
         queryFn: async () => {
           const response = await fetch(`/api/games/discover?limit=20`);
           if (!response.ok) throw new Error('Failed to fetch recommendations');
-          return response.json();
+          const games = await response.json();
+          
+          // Apply client-side filters
+          let filteredGames = games;
+          
+          if (discoveryFilters.releaseStatus && discoveryFilters.releaseStatus !== "all") {
+            filteredGames = filteredGames.filter((game: any) => {
+              if (discoveryFilters.releaseStatus === "released") {
+                return game.isReleased;
+              } else if (discoveryFilters.releaseStatus === "upcoming") {
+                return !game.isReleased;
+              }
+              return true;
+            });
+          }
+          
+          if (discoveryFilters.minYear) {
+            filteredGames = filteredGames.filter((game: any) => 
+              game.releaseYear && game.releaseYear >= discoveryFilters.minYear!
+            );
+          }
+          
+          return filteredGames;
         }
       };
     }
@@ -167,7 +197,15 @@ export default function Dashboard({}: DashboardProps) {
 
   const handleThemeToggle = () => {
     console.log("Theme toggle");
-    setIsDarkMode(!isDarkMode);
+    const newMode = !isDarkMode;
+    setIsDarkMode(newMode);
+    
+    // Actually apply the theme to the document
+    if (newMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
   };
 
   const handleStatusChange = (gameId: string, newStatus: GameStatus) => {
@@ -187,6 +225,38 @@ export default function Dashboard({}: DashboardProps) {
 
   const handleViewDetails = (gameId: string) => {
     console.log(`View details: ${gameId}`);
+  };
+
+  // Track game mutation (for Discovery games)
+  const trackGameMutation = useMutation({
+    mutationFn: async (game: Game) => {
+      const response = await fetch('/api/games', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          ...game,
+          status: 'wanted' // Set default status when tracking
+        })
+      });
+      if (!response.ok) throw new Error('Failed to track game');
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/games'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/games/discover'] });
+      toast({ description: "Game added to watchlist!" });
+    },
+    onError: () => {
+      toast({ description: "Failed to track game", variant: "destructive" });
+    }
+  });
+
+  const handleTrackGame = (game: Game) => {
+    trackGameMutation.mutate(game);
+  };
+
+  const handleFiltersChange = (filters: { releaseStatus?: "all" | "released" | "upcoming"; minYear?: number | null; }) => {
+    setDiscoveryFilters(filters);
   };
 
   const getPageTitle = () => {
@@ -258,10 +328,13 @@ export default function Dashboard({}: DashboardProps) {
                     <div className="text-sm text-muted-foreground">
                       Personalized recommendations based on your collection
                     </div>
+                    <DiscoveryFilters onFiltersChange={handleFiltersChange} />
                     <GameGrid
                       games={games}
                       onStatusChange={handleStatusChange}
                       onViewDetails={handleViewDetails}
+                      onTrackGame={handleTrackGame}
+                      isDiscovery={true}
                       isLoading={isLoading}
                     />
                   </div>

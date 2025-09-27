@@ -314,20 +314,28 @@ class IGDBClient {
   }
 
   formatGameData(igdbGame: IGDBGame): any {
+    const releaseDate = igdbGame.first_release_date 
+      ? new Date(igdbGame.first_release_date * 1000)
+      : null;
+    
+    const now = new Date();
+    const isReleased = releaseDate ? releaseDate <= now : false;
+    
     return {
       id: `igdb-${igdbGame.id}`,
       igdbId: igdbGame.id,
       title: igdbGame.name,
       summary: igdbGame.summary || '',
       coverUrl: igdbGame.cover?.url ? `https:${igdbGame.cover.url.replace('t_thumb', 't_cover_big')}` : '',
-      releaseDate: igdbGame.first_release_date 
-        ? new Date(igdbGame.first_release_date * 1000).toISOString().split('T')[0]
-        : '',
+      releaseDate: releaseDate ? releaseDate.toISOString().split('T')[0] : '',
       rating: igdbGame.rating ? Math.round(igdbGame.rating) / 10 : 0,
       platforms: igdbGame.platforms?.map(p => p.name) || [],
       genres: igdbGame.genres?.map(g => g.name) || [],
       screenshots: igdbGame.screenshots?.map(s => `https:${s.url.replace('t_thumb', 't_screenshot_big')}`) || [],
-      status: 'wanted' as const,
+      // For Discovery games, don't set a status since they're not in collection yet
+      status: null,
+      isReleased,
+      releaseYear: releaseDate ? releaseDate.getFullYear() : null,
     };
   }
 }

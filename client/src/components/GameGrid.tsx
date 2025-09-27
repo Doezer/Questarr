@@ -6,10 +6,19 @@ interface GameGridProps {
   games: Game[];
   onStatusChange?: (gameId: string, newStatus: GameStatus) => void;
   onViewDetails?: (gameId: string) => void;
+  onTrackGame?: (game: Game) => void;
+  isDiscovery?: boolean;
   isLoading?: boolean;
 }
 
-export default function GameGrid({ games, onStatusChange, onViewDetails, isLoading = false }: GameGridProps) {
+export default function GameGrid({ 
+  games, 
+  onStatusChange, 
+  onViewDetails, 
+  onTrackGame, 
+  isDiscovery = false, 
+  isLoading = false 
+}: GameGridProps) {
   if (isLoading) {
     return (
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4" data-testid="grid-games-loading">
@@ -43,6 +52,8 @@ export default function GameGrid({ games, onStatusChange, onViewDetails, isLoadi
           game={game}
           onStatusChange={onStatusChange}
           onViewDetails={onViewDetails}
+          onTrackGame={onTrackGame}
+          isDiscovery={isDiscovery}
         />
       ))}
     </div>

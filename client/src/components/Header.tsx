@@ -1,9 +1,10 @@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { SidebarTrigger } from "@/components/ui/sidebar";
-import { Plus, Bell, User, Moon, Sun } from "lucide-react";
+import { Plus, Bell, Moon, Sun } from "lucide-react";
 import { useState } from "react";
 import AddGameModal from "./AddGameModal";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 interface HeaderProps {
   title?: string;
@@ -61,25 +62,34 @@ export default function Header({
           </Button>
         </AddGameModal>
         
-        <div className="relative">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleNotificationClick}
-            data-testid="button-notifications"
-          >
-            <Bell className="w-4 h-4" />
-            {notificationCount > 0 && (
-              <Badge 
-                variant="destructive" 
-                className="absolute -top-1 -right-1 w-5 h-5 text-xs p-0 flex items-center justify-center"
-                data-testid="badge-notification-count"
-              >
-                {notificationCount > 9 ? "9+" : notificationCount}
-              </Badge>
-            )}
-          </Button>
-        </div>
+        <Popover open={showNotifications} onOpenChange={setShowNotifications}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              data-testid="button-notifications"
+            >
+              <Bell className="w-4 h-4" />
+              {notificationCount > 0 && (
+                <Badge 
+                  variant="destructive" 
+                  className="absolute -top-1 -right-1 w-5 h-5 text-xs p-0 flex items-center justify-center"
+                  data-testid="badge-notification-count"
+                >
+                  {notificationCount > 9 ? "9+" : notificationCount}
+                </Badge>
+              )}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-80">
+            <div className="space-y-4">
+              <h4 className="font-medium">Notifications</h4>
+              <div className="space-y-2">
+                <p className="text-sm text-muted-foreground">No new notifications</p>
+              </div>
+            </div>
+          </PopoverContent>
+        </Popover>
 
         <Button
           variant="ghost"
@@ -94,14 +104,6 @@ export default function Header({
           )}
         </Button>
 
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={handleProfileClick}
-          data-testid="button-profile"
-        >
-          <User className="w-4 h-4" />
-        </Button>
       </div>
     </header>
   );

@@ -71,8 +71,8 @@ export default function GameDetailsModal({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden">
-          <DialogHeader className="pb-0">
+        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
+          <DialogHeader className="flex-shrink-0 pb-0">
             <div className="flex items-start justify-between gap-4">
               <div className="flex-1 min-w-0">
                 <DialogTitle className="text-2xl font-bold mb-2 leading-tight" data-testid={`text-game-title-${game.id}`}>
@@ -112,8 +112,8 @@ export default function GameDetailsModal({
             </div>
           </DialogHeader>
 
-          <ScrollArea className="flex-1 pr-4">
-            <div className="space-y-6 py-4">
+          <ScrollArea className="flex-1 mt-4">
+            <div className="space-y-6 pr-4">
               {/* Summary */}
               {game.summary && (
                 <div>

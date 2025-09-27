@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { igdbClient } from "./igdb";
-import { insertGameSchema, updateGameStatusSchema } from "@shared/schema";
+import { insertGameSchema, updateGameStatusSchema, insertIndexerSchema, insertDownloaderSchema } from "@shared/schema";
 import { z } from "zod";
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -225,6 +225,176 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching game details:", error);
       res.status(500).json({ error: "Failed to fetch game details" });
+    }
+  });
+
+  // Indexer management routes
+  
+  // Get all indexers
+  app.get("/api/indexers", async (req, res) => {
+    try {
+      const indexers = await storage.getAllIndexers();
+      res.json(indexers);
+    } catch (error) {
+      console.error("Error fetching indexers:", error);
+      res.status(500).json({ error: "Failed to fetch indexers" });
+    }
+  });
+
+  // Get enabled indexers only
+  app.get("/api/indexers/enabled", async (req, res) => {
+    try {
+      const indexers = await storage.getEnabledIndexers();
+      res.json(indexers);
+    } catch (error) {
+      console.error("Error fetching enabled indexers:", error);
+      res.status(500).json({ error: "Failed to fetch enabled indexers" });
+    }
+  });
+
+  // Get single indexer
+  app.get("/api/indexers/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const indexer = await storage.getIndexer(id);
+      if (!indexer) {
+        return res.status(404).json({ error: "Indexer not found" });
+      }
+      res.json(indexer);
+    } catch (error) {
+      console.error("Error fetching indexer:", error);
+      res.status(500).json({ error: "Failed to fetch indexer" });
+    }
+  });
+
+  // Add new indexer
+  app.post("/api/indexers", async (req, res) => {
+    try {
+      const indexerData = insertIndexerSchema.parse(req.body);
+      const indexer = await storage.addIndexer(indexerData);
+      res.status(201).json(indexer);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid indexer data", details: error.errors });
+      }
+      console.error("Error adding indexer:", error);
+      res.status(500).json({ error: "Failed to add indexer" });
+    }
+  });
+
+  // Update indexer
+  app.patch("/api/indexers/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const updates = req.body; // Partial updates
+      const indexer = await storage.updateIndexer(id, updates);
+      if (!indexer) {
+        return res.status(404).json({ error: "Indexer not found" });
+      }
+      res.json(indexer);
+    } catch (error) {
+      console.error("Error updating indexer:", error);
+      res.status(500).json({ error: "Failed to update indexer" });
+    }
+  });
+
+  // Delete indexer
+  app.delete("/api/indexers/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const success = await storage.removeIndexer(id);
+      if (!success) {
+        return res.status(404).json({ error: "Indexer not found" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting indexer:", error);
+      res.status(500).json({ error: "Failed to delete indexer" });
+    }
+  });
+
+  // Downloader management routes
+  
+  // Get all downloaders
+  app.get("/api/downloaders", async (req, res) => {
+    try {
+      const downloaders = await storage.getAllDownloaders();
+      res.json(downloaders);
+    } catch (error) {
+      console.error("Error fetching downloaders:", error);
+      res.status(500).json({ error: "Failed to fetch downloaders" });
+    }
+  });
+
+  // Get enabled downloaders only
+  app.get("/api/downloaders/enabled", async (req, res) => {
+    try {
+      const downloaders = await storage.getEnabledDownloaders();
+      res.json(downloaders);
+    } catch (error) {
+      console.error("Error fetching enabled downloaders:", error);
+      res.status(500).json({ error: "Failed to fetch enabled downloaders" });
+    }
+  });
+
+  // Get single downloader
+  app.get("/api/downloaders/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const downloader = await storage.getDownloader(id);
+      if (!downloader) {
+        return res.status(404).json({ error: "Downloader not found" });
+      }
+      res.json(downloader);
+    } catch (error) {
+      console.error("Error fetching downloader:", error);
+      res.status(500).json({ error: "Failed to fetch downloader" });
+    }
+  });
+
+  // Add new downloader
+  app.post("/api/downloaders", async (req, res) => {
+    try {
+      const downloaderData = insertDownloaderSchema.parse(req.body);
+      const downloader = await storage.addDownloader(downloaderData);
+      res.status(201).json(downloader);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid downloader data", details: error.errors });
+      }
+      console.error("Error adding downloader:", error);
+      res.status(500).json({ error: "Failed to add downloader" });
+    }
+  });
+
+  // Update downloader
+  app.patch("/api/downloaders/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const updates = req.body; // Partial updates
+      const downloader = await storage.updateDownloader(id, updates);
+      if (!downloader) {
+        return res.status(404).json({ error: "Downloader not found" });
+      }
+      res.json(downloader);
+    } catch (error) {
+      console.error("Error updating downloader:", error);
+      res.status(500).json({ error: "Failed to update downloader" });
+    }
+  });
+
+  // Delete downloader
+  app.delete("/api/downloaders/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const success = await storage.removeDownloader(id);
+      if (!success) {
+        return res.status(404).json({ error: "Downloader not found" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting downloader:", error);
+      res.status(500).json({ error: "Failed to delete downloader" });
     }
   });
 

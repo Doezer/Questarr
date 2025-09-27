@@ -158,8 +158,15 @@ export class MemStorage implements IStorage {
   async addIndexer(insertIndexer: InsertIndexer): Promise<Indexer> {
     const id = randomUUID();
     const indexer: Indexer = {
-      ...insertIndexer,
       id,
+      name: insertIndexer.name,
+      url: insertIndexer.url,
+      apiKey: insertIndexer.apiKey,
+      enabled: insertIndexer.enabled ?? true,
+      priority: insertIndexer.priority ?? 1,
+      categories: insertIndexer.categories ?? [],
+      rssEnabled: insertIndexer.rssEnabled ?? true,
+      autoSearchEnabled: insertIndexer.autoSearchEnabled ?? true,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -203,8 +210,17 @@ export class MemStorage implements IStorage {
   async addDownloader(insertDownloader: InsertDownloader): Promise<Downloader> {
     const id = randomUUID();
     const downloader: Downloader = {
-      ...insertDownloader,
       id,
+      name: insertDownloader.name,
+      type: insertDownloader.type,
+      url: insertDownloader.url,
+      username: insertDownloader.username ?? null,
+      password: insertDownloader.password ?? null,
+      enabled: insertDownloader.enabled ?? true,
+      priority: insertDownloader.priority ?? 1,
+      downloadPath: insertDownloader.downloadPath ?? null,
+      category: insertDownloader.category ?? "games",
+      settings: insertDownloader.settings ?? null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };

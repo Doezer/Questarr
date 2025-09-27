@@ -398,6 +398,116 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Torznab search routes
+  
+  // Search for games using configured indexers
+  app.get("/api/search", async (req, res) => {
+    try {
+      const { query, category, limit = 50, offset = 0 } = req.query;
+      
+      if (!query || typeof query !== "string") {
+        return res.status(400).json({ error: "Search query required" });
+      }
+
+      // Get enabled indexers
+      const enabledIndexers = await storage.getEnabledIndexers();
+      if (enabledIndexers.length === 0) {
+        return res.status(400).json({ error: "No indexers configured" });
+      }
+
+      const searchParams = {
+        query: query.trim(),
+        category: category && typeof category === "string" ? category.split(",") : undefined,
+        limit: parseInt(limit as string) || 50,
+        offset: parseInt(offset as string) || 0,
+      };
+
+      const { results, errors } = await torznabClient.searchMultipleIndexers(
+        enabledIndexers,
+        searchParams
+      );
+
+      res.json({
+        items: results.items,
+        total: results.total,
+        offset: results.offset,
+        errors: errors.length > 0 ? errors : undefined,
+      });
+    } catch (error) {
+      console.error("Error searching indexers:", error);
+      res.status(500).json({ error: "Failed to search indexers" });
+    }
+  });
+
+  // Test indexer connection
+  app.post("/api/indexers/:id/test", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const indexer = await storage.getIndexer(id);
+      
+      if (!indexer) {
+        return res.status(404).json({ error: "Indexer not found" });
+      }
+
+      const result = await torznabClient.testConnection(indexer);
+      res.json(result);
+    } catch (error) {
+      console.error("Error testing indexer:", error);
+      res.status(500).json({ 
+        success: false, 
+        message: "Failed to test indexer connection" 
+      });
+    }
+  });
+
+  // Get available categories from an indexer
+  app.get("/api/indexers/:id/categories", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const indexer = await storage.getIndexer(id);
+      
+      if (!indexer) {
+        return res.status(404).json({ error: "Indexer not found" });
+      }
+
+      const categories = await torznabClient.getCategories(indexer);
+      res.json(categories);
+    } catch (error) {
+      console.error("Error getting categories:", error);
+      res.status(500).json({ error: "Failed to get categories" });
+    }
+  });
+
+  // Search specific indexer
+  app.get("/api/indexers/:id/search", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { query, category, limit = 50, offset = 0 } = req.query;
+      
+      if (!query || typeof query !== "string") {
+        return res.status(400).json({ error: "Search query required" });
+      }
+
+      const indexer = await storage.getIndexer(id);
+      if (!indexer) {
+        return res.status(404).json({ error: "Indexer not found" });
+      }
+
+      const searchParams = {
+        query: query.trim(),
+        category: category && typeof category === "string" ? category.split(",") : undefined,
+        limit: parseInt(limit as string) || 50,
+        offset: parseInt(offset as string) || 0,
+      };
+
+      const results = await torznabClient.searchGames(indexer, searchParams);
+      res.json(results);
+    } catch (error) {
+      console.error("Error searching specific indexer:", error);
+      res.status(500).json({ error: "Failed to search indexer" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

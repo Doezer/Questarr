@@ -1,4 +1,4 @@
-import { type User, type InsertUser, type Game, type InsertGame, type UpdateGameStatus, users, games } from "@shared/schema";
+import { type User, type InsertUser, type Game, type InsertGame, type UpdateGameStatus, type Indexer, type InsertIndexer, type Downloader, type InsertDownloader, users, games, indexers, downloaders } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
 import { eq, ilike, or, sql } from "drizzle-orm";
@@ -18,15 +18,35 @@ export interface IStorage {
   addGame(game: InsertGame): Promise<Game>;
   updateGameStatus(id: string, statusUpdate: UpdateGameStatus): Promise<Game | undefined>;
   removeGame(id: string): Promise<boolean>;
+
+  // Indexer methods
+  getAllIndexers(): Promise<Indexer[]>;
+  getIndexer(id: string): Promise<Indexer | undefined>;
+  getEnabledIndexers(): Promise<Indexer[]>;
+  addIndexer(indexer: InsertIndexer): Promise<Indexer>;
+  updateIndexer(id: string, updates: Partial<InsertIndexer>): Promise<Indexer | undefined>;
+  removeIndexer(id: string): Promise<boolean>;
+
+  // Downloader methods
+  getAllDownloaders(): Promise<Downloader[]>;
+  getDownloader(id: string): Promise<Downloader | undefined>;
+  getEnabledDownloaders(): Promise<Downloader[]>;
+  addDownloader(downloader: InsertDownloader): Promise<Downloader>;
+  updateDownloader(id: string, updates: Partial<InsertDownloader>): Promise<Downloader | undefined>;
+  removeDownloader(id: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
   private users: Map<string, User>;
   private games: Map<string, Game>;
+  private indexers: Map<string, Indexer>;
+  private downloaders: Map<string, Downloader>;
 
   constructor() {
     this.users = new Map();
     this.games = new Map();
+    this.indexers = new Map();
+    this.downloaders = new Map();
   }
 
   // User methods
@@ -119,6 +139,96 @@ export class MemStorage implements IStorage {
   async removeGame(id: string): Promise<boolean> {
     return this.games.delete(id);
   }
+
+  // Indexer methods
+  async getAllIndexers(): Promise<Indexer[]> {
+    return Array.from(this.indexers.values()).sort((a, b) => a.priority - b.priority);
+  }
+
+  async getIndexer(id: string): Promise<Indexer | undefined> {
+    return this.indexers.get(id);
+  }
+
+  async getEnabledIndexers(): Promise<Indexer[]> {
+    return Array.from(this.indexers.values())
+      .filter(indexer => indexer.enabled)
+      .sort((a, b) => a.priority - b.priority);
+  }
+
+  async addIndexer(insertIndexer: InsertIndexer): Promise<Indexer> {
+    const id = randomUUID();
+    const indexer: Indexer = {
+      ...insertIndexer,
+      id,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    this.indexers.set(id, indexer);
+    return indexer;
+  }
+
+  async updateIndexer(id: string, updates: Partial<InsertIndexer>): Promise<Indexer | undefined> {
+    const indexer = this.indexers.get(id);
+    if (!indexer) return undefined;
+
+    const updatedIndexer: Indexer = {
+      ...indexer,
+      ...updates,
+      updatedAt: new Date(),
+    };
+
+    this.indexers.set(id, updatedIndexer);
+    return updatedIndexer;
+  }
+
+  async removeIndexer(id: string): Promise<boolean> {
+    return this.indexers.delete(id);
+  }
+
+  // Downloader methods
+  async getAllDownloaders(): Promise<Downloader[]> {
+    return Array.from(this.downloaders.values()).sort((a, b) => a.priority - b.priority);
+  }
+
+  async getDownloader(id: string): Promise<Downloader | undefined> {
+    return this.downloaders.get(id);
+  }
+
+  async getEnabledDownloaders(): Promise<Downloader[]> {
+    return Array.from(this.downloaders.values())
+      .filter(downloader => downloader.enabled)
+      .sort((a, b) => a.priority - b.priority);
+  }
+
+  async addDownloader(insertDownloader: InsertDownloader): Promise<Downloader> {
+    const id = randomUUID();
+    const downloader: Downloader = {
+      ...insertDownloader,
+      id,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    this.downloaders.set(id, downloader);
+    return downloader;
+  }
+
+  async updateDownloader(id: string, updates: Partial<InsertDownloader>): Promise<Downloader | undefined> {
+    const downloader = this.downloaders.get(id);
+    if (!downloader) return undefined;
+
+    const updatedDownloader: Downloader = {
+      ...downloader,
+      ...updates,
+      updatedAt: new Date(),
+    };
+
+    this.downloaders.set(id, updatedDownloader);
+    return updatedDownloader;
+  }
+
+  async removeDownloader(id: string): Promise<boolean> {
+    return this.downloaders.delete(id);
+  }
 }
 
 export class DatabaseStorage implements IStorage {
@@ -204,6 +314,84 @@ export class DatabaseStorage implements IStorage {
   async removeGame(id: string): Promise<boolean> {
     const result = await db.delete(games).where(eq(games.id, id));
     // For Drizzle, we assume success if no error is thrown
+    return true;
+  }
+
+  // Indexer methods
+  async getAllIndexers(): Promise<Indexer[]> {
+    return db.select().from(indexers).orderBy(indexers.priority);
+  }
+
+  async getIndexer(id: string): Promise<Indexer | undefined> {
+    const [indexer] = await db.select().from(indexers).where(eq(indexers.id, id));
+    return indexer || undefined;
+  }
+
+  async getEnabledIndexers(): Promise<Indexer[]> {
+    return db.select().from(indexers)
+      .where(eq(indexers.enabled, true))
+      .orderBy(indexers.priority);
+  }
+
+  async addIndexer(insertIndexer: InsertIndexer): Promise<Indexer> {
+    const [indexer] = await db
+      .insert(indexers)
+      .values(insertIndexer)
+      .returning();
+    return indexer;
+  }
+
+  async updateIndexer(id: string, updates: Partial<InsertIndexer>): Promise<Indexer | undefined> {
+    const [updatedIndexer] = await db
+      .update(indexers)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(indexers.id, id))
+      .returning();
+    
+    return updatedIndexer || undefined;
+  }
+
+  async removeIndexer(id: string): Promise<boolean> {
+    await db.delete(indexers).where(eq(indexers.id, id));
+    return true;
+  }
+
+  // Downloader methods
+  async getAllDownloaders(): Promise<Downloader[]> {
+    return db.select().from(downloaders).orderBy(downloaders.priority);
+  }
+
+  async getDownloader(id: string): Promise<Downloader | undefined> {
+    const [downloader] = await db.select().from(downloaders).where(eq(downloaders.id, id));
+    return downloader || undefined;
+  }
+
+  async getEnabledDownloaders(): Promise<Downloader[]> {
+    return db.select().from(downloaders)
+      .where(eq(downloaders.enabled, true))
+      .orderBy(downloaders.priority);
+  }
+
+  async addDownloader(insertDownloader: InsertDownloader): Promise<Downloader> {
+    const [downloader] = await db
+      .insert(downloaders)
+      .values(insertDownloader)
+      .returning();
+    return downloader;
+  }
+
+  async updateDownloader(id: string, updates: Partial<InsertDownloader>): Promise<Downloader | undefined> {
+    const [updatedDownloader] = await db
+      .update(downloaders)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(downloaders.id, id))
+      .returning();
+    
+    return updatedDownloader || undefined;
+  }
+
+  async removeDownloader(id: string): Promise<boolean> {
+    await db.delete(downloaders).where(eq(downloaders.id, id));
     return true;
   }
 }

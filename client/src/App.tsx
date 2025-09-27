@@ -6,6 +6,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import Dashboard from "@/components/Dashboard";
+import SearchPage from "@/pages/search";
+import DownloadsPage from "@/pages/downloads";
 import IndexersPage from "@/pages/indexers";
 import DownloadersPage from "@/pages/downloaders";
 import NotFound from "@/pages/not-found";
@@ -14,6 +16,8 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Dashboard} />
+      <Route path="/search" component={SearchPage} />
+      <Route path="/downloads" component={DownloadsPage} />
       <Route path="/indexers" component={IndexersPage} />
       <Route path="/downloaders" component={DownloadersPage} />
       <Route component={NotFound} />

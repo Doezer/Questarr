@@ -20,9 +20,14 @@ const items = [
     icon: Home,
   },
   {
-    title: "Discovery",
-    url: "/discovery",
+    title: "Search",
+    url: "/search",
     icon: Search,
+  },
+  {
+    title: "Downloads",
+    url: "/downloads",
+    icon: Download,
   },
   {
     title: "Indexers",
@@ -32,11 +37,6 @@ const items = [
   {
     title: "Downloaders",
     url: "/downloaders",
-    icon: Download,
-  },
-  {
-    title: "Settings",
-    url: "/settings",
     icon: Settings,
   },
 ];

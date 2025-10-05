@@ -1,0 +1,8 @@
+# Fichiers et dossiers à ignorer par Docker
+node_modules/
+.git/
+.gitignore
+.env
+*.md
+.vscode/
+*.log

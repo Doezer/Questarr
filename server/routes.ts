@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import { insertGameSchema } from "@shared/schema";
 import { z } from "zod";
 import { igdbService } from "./services/igdbService";
+import { SERVER_CONFIG } from './config';
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Game routes
@@ -250,6 +251,5 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   const httpServer = createServer(app);
-
   return httpServer;
 }

@@ -1,4 +1,5 @@
 import fetch from 'node-fetch';
+import { TWITCH_CONFIG } from '../config';
 
 interface IGDBGame {
   id: number;
@@ -26,12 +27,9 @@ class IGDBService {
   private readonly clientSecret: string;
 
   constructor() {
-    this.clientId = process.env.TWITCH_CLIENT_ID || '';
-    this.clientSecret = process.env.TWITCH_CLIENT_SECRET || '';
-    
-    if (!this.clientId || !this.clientSecret) {
-      throw new Error('TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET must be set');
-    }
+    const { clientId, clientSecret } = TWITCH_CONFIG;
+    this.clientId = clientId;
+    this.clientSecret = clientSecret;
   }
 
   private async authenticate(): Promise<string> {

@@ -1,6 +1,7 @@
-import express, { type Request, Response, NextFunction } from "express";
+import express, { type Request, Response, NextFunction }   from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import { SERVER_CONFIG } from './config';
 
 const app = express();
 app.use(express.json());
@@ -44,10 +45,16 @@ app.use((req, res, next) => {
     const message = err.message || "Internal Server Error";
 
     res.status(status).json({ message });
-    throw err;
+    console.error(err);
   });
 
-  // importantly only setup vite in development and after
+  if (process.env.NODE_ENV === 'development') {
+    // Setup Vite only in development
+    await setupVite(app);
+  } else {
+    // Serve static files in production
+    app.use(serveStatic());
+  }
   // setting up all the other routes so the catch-all route
   // doesn't interfere with the other routes
   if (app.get("env") === "development") {
@@ -61,11 +68,9 @@ app.use((req, res, next) => {
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || '5000', 10);
-  server.listen({
-    port,
-    host: "0.0.0.0",
-    reusePort: true,
-  }, () => {
-    log(`serving on port ${port}`);
+  // Démarrage du serveur avec la configuration
+  server.listen(port, SERVER_CONFIG.host,
+    { reusePort: true }, () => {
+    console.log(`Server is running on http://${SERVER_CONFIG.host}:${port}`);
   });
 })();

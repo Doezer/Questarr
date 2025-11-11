@@ -1,0 +1,237 @@
+import rateLimit from "express-rate-limit";
+import { body, param, query, validationResult } from "express-validator";
+import type { Request, Response, NextFunction } from "express";
+
+// Rate limiter for IGDB API endpoints to prevent blacklisting
+// IGDB has a limit of 4 requests per second, so we'll be conservative
+export const igdbRateLimiter = rateLimit({
+  windowMs: 1000, // 1 second
+  max: 3, // limit each IP to 3 requests per second
+  message: "Too many IGDB requests, please try again later",
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: false,
+});
+
+// Rate limiter for sensitive endpoints (write operations)
+export const sensitiveEndpointLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 30, // limit each IP to 30 requests per minute
+  message: "Too many requests, please try again later",
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Rate limiter for authentication/login endpoints (if needed in future)
+export const authRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // limit each IP to 5 requests per 15 minutes
+  message: "Too many authentication attempts, please try again later",
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// General API rate limiter (lenient, just to prevent abuse)
+export const generalApiLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 100, // limit each IP to 100 requests per minute
+  message: "Too many requests, please try again later",
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Validation middleware to check for validation errors
+export const validateRequest = (req: Request, res: Response, next: NextFunction) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ 
+      error: "Validation failed", 
+      details: errors.array() 
+    });
+  }
+  next();
+};
+
+// Sanitization rules for game search queries
+export const sanitizeSearchQuery = [
+  query("q")
+    .trim()
+    .escape()
+    .isLength({ min: 1, max: 200 })
+    .withMessage("Search query must be between 1 and 200 characters"),
+  query("search")
+    .optional()
+    .trim()
+    .escape()
+    .isLength({ max: 200 })
+    .withMessage("Search query must be at most 200 characters"),
+  query("limit")
+    .optional()
+    .isInt({ min: 1, max: 100 })
+    .withMessage("Limit must be between 1 and 100")
+    .toInt(),
+];
+
+// Sanitization rules for game ID parameters
+export const sanitizeGameId = [
+  param("id")
+    .trim()
+    .matches(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
+    .withMessage("Invalid game ID format"),
+];
+
+// Sanitization rules for IGDB ID parameters
+export const sanitizeIgdbId = [
+  param("id")
+    .trim()
+    .isInt({ min: 1 })
+    .withMessage("Invalid IGDB ID")
+    .toInt(),
+];
+
+// Sanitization rules for game status updates
+export const sanitizeGameStatus = [
+  body("status")
+    .trim()
+    .isIn(["wanted", "owned", "completed", "playing"])
+    .withMessage("Invalid status value"),
+];
+
+// Sanitization rules for adding games
+export const sanitizeGameData = [
+  body("title")
+    .trim()
+    .escape()
+    .isLength({ min: 1, max: 500 })
+    .withMessage("Title must be between 1 and 500 characters"),
+  body("igdbId")
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage("Invalid IGDB ID")
+    .toInt(),
+  body("summary")
+    .optional()
+    .trim()
+    .escape()
+    .isLength({ max: 5000 })
+    .withMessage("Summary must be at most 5000 characters"),
+  body("coverUrl")
+    .optional()
+    .trim()
+    .isURL()
+    .withMessage("Invalid cover URL"),
+  body("releaseDate")
+    .optional()
+    .trim()
+    .matches(/^\d{4}-\d{2}-\d{2}$/)
+    .withMessage("Invalid date format, use YYYY-MM-DD"),
+  body("rating")
+    .optional()
+    .isFloat({ min: 0, max: 10 })
+    .withMessage("Rating must be between 0 and 10")
+    .toFloat(),
+  body("platforms")
+    .optional()
+    .isArray()
+    .withMessage("Platforms must be an array"),
+  body("platforms.*")
+    .optional()
+    .trim()
+    .escape()
+    .isLength({ max: 100 })
+    .withMessage("Platform name must be at most 100 characters"),
+  body("genres")
+    .optional()
+    .isArray()
+    .withMessage("Genres must be an array"),
+  body("genres.*")
+    .optional()
+    .trim()
+    .escape()
+    .isLength({ max: 100 })
+    .withMessage("Genre name must be at most 100 characters"),
+];
+
+// Sanitization rules for indexer data
+export const sanitizeIndexerData = [
+  body("name")
+    .trim()
+    .escape()
+    .isLength({ min: 1, max: 200 })
+    .withMessage("Name must be between 1 and 200 characters"),
+  body("url")
+    .trim()
+    .isURL()
+    .withMessage("Invalid URL"),
+  body("apiKey")
+    .optional()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage("API key must be at most 500 characters"),
+  body("enabled")
+    .optional()
+    .isBoolean()
+    .withMessage("Enabled must be a boolean")
+    .toBoolean(),
+];
+
+// Sanitization rules for downloader data
+export const sanitizeDownloaderData = [
+  body("name")
+    .trim()
+    .escape()
+    .isLength({ min: 1, max: 200 })
+    .withMessage("Name must be between 1 and 200 characters"),
+  body("type")
+    .trim()
+    .isIn(["qbittorrent", "transmission", "deluge"])
+    .withMessage("Invalid downloader type"),
+  body("url")
+    .trim()
+    .isURL()
+    .withMessage("Invalid URL"),
+  body("username")
+    .optional()
+    .trim()
+    .isLength({ max: 200 })
+    .withMessage("Username must be at most 200 characters"),
+  body("password")
+    .optional()
+    .trim()
+    .isLength({ max: 200 })
+    .withMessage("Password must be at most 200 characters"),
+  body("enabled")
+    .optional()
+    .isBoolean()
+    .withMessage("Enabled must be a boolean")
+    .toBoolean(),
+];
+
+// Sanitization rules for torrent add requests
+export const sanitizeTorrentData = [
+  body("url")
+    .trim()
+    .isURL()
+    .withMessage("Invalid torrent URL"),
+  body("title")
+    .trim()
+    .escape()
+    .isLength({ min: 1, max: 500 })
+    .withMessage("Title must be between 1 and 500 characters"),
+  body("category")
+    .optional()
+    .trim()
+    .escape()
+    .isLength({ max: 100 })
+    .withMessage("Category must be at most 100 characters"),
+  body("downloadPath")
+    .optional()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage("Download path must be at most 500 characters"),
+  body("priority")
+    .optional()
+    .isInt({ min: 0, max: 10 })
+    .withMessage("Priority must be between 0 and 10")
+    .toInt(),
+];

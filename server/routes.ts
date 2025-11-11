@@ -458,8 +458,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error testing indexer:", error);
       res.status(500).json({ 
-        success: false, 
-        message: "Failed to test indexer connection" 
+        error: "Failed to test indexer connection" 
       });
     }
   });
@@ -529,8 +528,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error testing downloader:", error);
       res.status(500).json({ 
-        success: false, 
-        message: "Failed to test downloader connection" 
+        error: "Failed to test downloader connection" 
       });
     }
   });
@@ -566,8 +564,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error adding torrent:", error);
       res.status(500).json({ 
-        success: false, 
-        message: "Failed to add torrent" 
+        error: "Failed to add torrent" 
       });
     }
   });
@@ -627,8 +624,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error pausing torrent:", error);
       res.status(500).json({ 
-        success: false, 
-        message: "Failed to pause torrent" 
+        error: "Failed to pause torrent" 
       });
     }
   });
@@ -648,8 +644,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error resuming torrent:", error);
       res.status(500).json({ 
-        success: false, 
-        message: "Failed to resume torrent" 
+        error: "Failed to resume torrent" 
       });
     }
   });
@@ -675,8 +670,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error removing torrent:", error);
       res.status(500).json({ 
-        success: false, 
-        message: "Failed to remove torrent" 
+        error: "Failed to remove torrent" 
       });
     }
   });
@@ -741,8 +735,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error adding download:", error);
       res.status(500).json({ 
-        success: false, 
-        message: "Failed to add download" 
+        error: "Failed to add download" 
       });
     }
   });

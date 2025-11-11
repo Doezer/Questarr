@@ -87,8 +87,11 @@ export default function AddGameModal({ children }: AddGameModalProps) {
     // Search is handled by the debounced query
   };
 
-  const handleAddGame = (game: Game) => {
-    addGameMutation.mutate(game);
+  const handleAddGame = (searchResult: SearchResult) => {
+    // Filter out client-only fields before sending to server
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { id, isReleased, inCollection, ...gameData } = searchResult;
+    addGameMutation.mutate(gameData as Game);
   };
 
   // Mark games already in collection

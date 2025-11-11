@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
-import { Plus, Edit, Trash2, Settings, Check, X } from "lucide-react";
+import { Plus, Edit, Trash2, Settings, Check, X, Activity } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -93,6 +93,31 @@ export default function IndexersPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/indexers"] });
+    },
+  });
+
+  const testConnectionMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const response = await fetch(`/api/indexers/${id}/test`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (!response.ok) throw new Error("Failed to test indexer connection");
+      return response.json() as Promise<{ success: boolean; message: string }>;
+    },
+    onSuccess: (data) => {
+      if (data.success) {
+        toast({ title: "Connection successful", description: data.message });
+      } else {
+        toast({ title: "Connection failed", description: data.message, variant: "destructive" });
+      }
+    },
+    onError: (error) => {
+      toast({ 
+        title: "Test failed", 
+        description: error instanceof Error ? error.message : "Unknown error",
+        variant: "destructive" 
+      });
     },
   });
 
@@ -199,6 +224,16 @@ export default function IndexersPage() {
                     <Badge variant="outline">Priority {indexer.priority}</Badge>
                   </div>
                   <div className="flex items-center space-x-2">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => testConnectionMutation.mutate(indexer.id)}
+                      disabled={testConnectionMutation.isPending}
+                      title="Test connection"
+                      data-testid={`button-test-indexer-${indexer.id}`}
+                    >
+                      <Activity className="h-4 w-4" />
+                    </Button>
                     <Switch
                       checked={indexer.enabled}
                       onCheckedChange={(enabled) =>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { Search, Download, Calendar, Users, HardDrive, Eye, Plus } from "lucide-react";
@@ -74,11 +74,49 @@ export default function SearchPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTorrent, setSelectedTorrent] = useState<TorrentItem | null>(null);
   const [isDownloadDialogOpen, setIsDownloadDialogOpen] = useState(false);
+  const [lastSearchQuery, setLastSearchQuery] = useState("");
 
   const { data: searchResults, isLoading: isSearching, error: searchError } = useQuery<SearchResult>({
     queryKey: ["/api/search", searchQuery],
     enabled: searchQuery.trim().length > 0,
   });
+
+  // Show toast notification when search completes
+  useEffect(() => {
+    // Only show notification if we actually performed a search
+    if (searchQuery && searchQuery !== lastSearchQuery && !isSearching) {
+      if (searchError) {
+        toast({
+          title: "Search failed",
+          description: "Unable to search indexers. Please check your configuration.",
+          variant: "destructive",
+        });
+      } else if (searchResults) {
+        const itemCount = searchResults.items.length;
+        if (itemCount > 0) {
+          toast({
+            title: "Search completed",
+            description: `Found ${itemCount} result${itemCount !== 1 ? 's' : ''}`,
+          });
+        } else {
+          toast({
+            title: "No results found",
+            description: "Try a different search query",
+          });
+        }
+        
+        // Show warning if there were indexer errors
+        if (searchResults.errors && searchResults.errors.length > 0) {
+          toast({
+            title: "Some indexers failed",
+            description: `${searchResults.errors.length} indexer(s) encountered errors`,
+            variant: "destructive",
+          });
+        }
+      }
+      setLastSearchQuery(searchQuery);
+    }
+  }, [searchResults, isSearching, searchError, searchQuery, lastSearchQuery, toast]);
 
   const { data: downloaders = [] } = useQuery<Downloader[]>({
     queryKey: ["/api/downloaders/enabled"],

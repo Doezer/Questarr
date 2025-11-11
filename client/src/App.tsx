@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
+import { useBackgroundNotifications } from "@/hooks/use-background-notifications";
 import Dashboard from "@/components/Dashboard";
 import SearchPage from "@/pages/search";
 import DownloadsPage from "@/pages/downloads";
@@ -23,6 +24,13 @@ function Router() {
       <Route component={NotFound} />
     </Switch>
   );
+}
+
+function AppContent() {
+  // Enable background notifications for downloads
+  useBackgroundNotifications();
+
+  return <Router />;
 }
 
 function App() {
@@ -44,7 +52,7 @@ function App() {
                 <h1 className="text-xl font-semibold">GameRadarr</h1>
               </header>
               <main className="flex-1 overflow-hidden">
-                <Router />
+                <AppContent />
               </main>
             </div>
           </div>

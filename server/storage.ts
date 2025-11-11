@@ -19,6 +19,9 @@ export interface IStorage {
   getGamesByStatus(status: string): Promise<Game[]>;
   searchGames(query: string): Promise<Game[]>;
   getGamesByPlatform(platform: string): Promise<Game[]>;
+  
+  // Health check
+  checkHealth(): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -165,6 +168,15 @@ export class MemStorage implements IStorage {
     return Array.from(this.games.values()).filter(game =>
       game.platforms.includes(platform)
     );
+  }
+
+  async checkHealth(): Promise<boolean> {
+    try {
+      // For in-memory storage, just check if the data structures are accessible
+      return this.games !== undefined && this.users !== undefined;
+    } catch (error) {
+      return false;
+    }
   }
 }
 

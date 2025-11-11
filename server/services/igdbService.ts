@@ -200,6 +200,17 @@ class IGDBService {
       status: 'wishlist', // Default status when adding from discovery
     };
   }
+
+  public async checkHealth(): Promise<boolean> {
+    try {
+      // Try to authenticate with Twitch to verify IGDB connectivity
+      await this.authenticate();
+      return true;
+    } catch (error) {
+      console.error('IGDB health check failed:', error);
+      return false;
+    }
+  }
 }
 
 export const igdbService = new IGDBService();

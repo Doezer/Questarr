@@ -7,6 +7,32 @@ import { igdbService } from "./services/igdbService";
 import { SERVER_CONFIG } from './config';
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Health check endpoint
+  app.get("/api/health", async (req, res) => {
+    try {
+      const [dbHealthy, igdbHealthy] = await Promise.all([
+        storage.checkHealth(),
+        igdbService.checkHealth()
+      ]);
+
+      const ok = dbHealthy && igdbHealthy;
+      const statusCode = ok ? 200 : 500;
+
+      res.status(statusCode).json({
+        ok,
+        db: dbHealthy,
+        igdb: igdbHealthy
+      });
+    } catch (error) {
+      console.error("Health check error:", error);
+      res.status(500).json({
+        ok: false,
+        db: false,
+        igdb: false
+      });
+    }
+  });
+
   // Game routes
   
   // Get all games

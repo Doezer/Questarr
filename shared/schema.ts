@@ -63,6 +63,9 @@ export const insertUserSchema = createInsertSchema(users).pick({
 export const insertGameSchema = createInsertSchema(games).omit({
   addedAt: true,
   id: true,
+  completedAt: true,
+}).extend({
+  status: z.enum(["wanted", "owned", "completed", "downloading"]).nullable().transform(val => val ?? "wanted"),
 });
 
 export const updateGameStatusSchema = z.object({

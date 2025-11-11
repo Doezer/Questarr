@@ -59,6 +59,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Add game to collection
   app.post("/api/games", async (req, res) => {
     try {
+      console.log("Received game data:", JSON.stringify(req.body, null, 2));
       const gameData = insertGameSchema.parse(req.body);
       
       // Check if game already exists by IGDB ID
@@ -74,6 +75,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(game);
     } catch (error) {
       if (error instanceof z.ZodError) {
+        console.error("Validation error:", JSON.stringify(error.errors, null, 2));
         return res.status(400).json({ error: "Invalid game data", details: error.errors });
       }
       console.error("Error adding game:", error);

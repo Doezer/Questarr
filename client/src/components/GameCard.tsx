@@ -64,14 +64,6 @@ export default function GameCard({ game, onStatusChange, onViewDetails, onTrackG
           >
             <Info className="w-4 h-4" />
           </Button>
-          <Button 
-            size="icon" 
-            variant="secondary"
-            onClick={handleDownloadClick}
-            data-testid={`button-download-${game.id}`}
-          >
-            <Download className="w-4 h-4" />
-          </Button>
         </div>
       </div>
       <CardContent className="p-4">

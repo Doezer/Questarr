@@ -168,7 +168,7 @@ For detailed design specifications, refer to `design_guidelines.md`.
 5. **Authentication**: Always check authentication status for protected routes.
 
 ## Environment Setup
-The application is designed to run on Replit but can be deployed elsewhere. Ensure the following environment variables are configured:
+Ensure the following environment variables are configured:
 - Database connection string (for PostgreSQL)
 - IGDB API credentials
 - Session secret

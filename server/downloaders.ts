@@ -397,6 +397,58 @@ export class DownloaderManager {
       return { success: false, message: errorMessage };
     }
   }
+
+  static async addTorrentWithFallback(
+    downloaders: Downloader[],
+    request: DownloadRequest
+  ): Promise<{ 
+    success: boolean; 
+    id?: string; 
+    message: string; 
+    downloaderId?: string;
+    downloaderName?: string;
+    attemptedDownloaders?: string[];
+  }> {
+    if (downloaders.length === 0) {
+      return { 
+        success: false, 
+        message: 'No downloaders available',
+        attemptedDownloaders: []
+      };
+    }
+
+    const attemptedDownloaders: string[] = [];
+    const errors: string[] = [];
+
+    for (const downloader of downloaders) {
+      attemptedDownloaders.push(downloader.name);
+      
+      try {
+        const result = await this.addTorrent(downloader, request);
+        
+        if (result.success) {
+          return {
+            ...result,
+            downloaderId: downloader.id,
+            downloaderName: downloader.name,
+            attemptedDownloaders
+          };
+        } else {
+          errors.push(`${downloader.name}: ${result.message}`);
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        errors.push(`${downloader.name}: ${errorMessage}`);
+      }
+    }
+
+    // All downloaders failed
+    return {
+      success: false,
+      message: `All downloaders failed. Errors: ${errors.join('; ')}`,
+      attemptedDownloaders
+    };
+  }
 }
 
 export { DownloadRequest, DownloadStatus, DownloaderClient };

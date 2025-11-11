@@ -702,7 +702,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Add torrent to best available downloader
+  // Add torrent to best available downloader with fallback
   app.post("/api/downloads", async (req, res) => {
     try {
       const { url, title, category, downloadPath, priority } = req.body;
@@ -716,22 +716,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "No downloaders configured" });
       }
 
-      // Use the first enabled downloader (highest priority)
-      const downloader = enabledDownloaders[0];
+      // Try downloaders by priority order with automatic fallback
+      const result = await DownloaderManager.addTorrentWithFallback(
+        enabledDownloaders,
+        {
+          url,
+          title,
+          category,
+          downloadPath,
+          priority,
+        }
+      );
 
-      const result = await DownloaderManager.addTorrent(downloader, {
-        url,
-        title,
-        category,
-        downloadPath,
-        priority,
-      });
-
-      res.json({
-        ...result,
-        downloaderId: downloader.id,
-        downloaderName: downloader.name,
-      });
+      res.json(result);
     } catch (error) {
       console.error("Error adding download:", error);
       res.status(500).json({ 

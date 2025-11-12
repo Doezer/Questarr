@@ -56,13 +56,11 @@ export const validateRequest = (req: Request, res: Response, next: NextFunction)
 export const sanitizeSearchQuery = [
   query("q")
     .trim()
-    .escape()
     .isLength({ min: 1, max: 200 })
     .withMessage("Search query must be between 1 and 200 characters"),
   query("search")
     .optional()
     .trim()
-    .escape()
     .isLength({ max: 200 })
     .withMessage("Search query must be at most 200 characters"),
   query("limit")
@@ -93,7 +91,7 @@ export const sanitizeIgdbId = [
 export const sanitizeGameStatus = [
   body("status")
     .trim()
-    .isIn(["wanted", "owned", "completed", "playing"])
+    .isIn(["wanted", "owned", "completed", "downloading"])
     .withMessage("Invalid status value"),
 ];
 
@@ -101,7 +99,6 @@ export const sanitizeGameStatus = [
 export const sanitizeGameData = [
   body("title")
     .trim()
-    .escape()
     .isLength({ min: 1, max: 500 })
     .withMessage("Title must be between 1 and 500 characters"),
   body("igdbId")
@@ -112,7 +109,6 @@ export const sanitizeGameData = [
   body("summary")
     .optional()
     .trim()
-    .escape()
     .isLength({ max: 5000 })
     .withMessage("Summary must be at most 5000 characters"),
   body("coverUrl")
@@ -137,7 +133,6 @@ export const sanitizeGameData = [
   body("platforms.*")
     .optional()
     .trim()
-    .escape()
     .isLength({ max: 100 })
     .withMessage("Platform name must be at most 100 characters"),
   body("genres")
@@ -147,7 +142,6 @@ export const sanitizeGameData = [
   body("genres.*")
     .optional()
     .trim()
-    .escape()
     .isLength({ max: 100 })
     .withMessage("Genre name must be at most 100 characters"),
 ];
@@ -156,7 +150,6 @@ export const sanitizeGameData = [
 export const sanitizeIndexerData = [
   body("name")
     .trim()
-    .escape()
     .isLength({ min: 1, max: 200 })
     .withMessage("Name must be between 1 and 200 characters"),
   body("url")
@@ -175,11 +168,53 @@ export const sanitizeIndexerData = [
     .toBoolean(),
 ];
 
+// Sanitization rules for partial indexer updates (PATCH)
+export const sanitizeIndexerUpdateData = [
+  body("name")
+    .optional()
+    .trim()
+    .isLength({ min: 1, max: 200 })
+    .withMessage("Name must be between 1 and 200 characters"),
+  body("url")
+    .optional()
+    .trim()
+    .isURL()
+    .withMessage("Invalid URL"),
+  body("apiKey")
+    .optional()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage("API key must be at most 500 characters"),
+  body("enabled")
+    .optional()
+    .isBoolean()
+    .withMessage("Enabled must be a boolean")
+    .toBoolean(),
+  body("priority")
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage("Priority must be a positive integer")
+    .toInt(),
+  body("categories")
+    .optional()
+    .isArray()
+    .withMessage("Categories must be an array"),
+  body("rssEnabled")
+    .optional()
+    .isBoolean()
+    .withMessage("RSS enabled must be a boolean")
+    .toBoolean(),
+  body("autoSearchEnabled")
+    .optional()
+    .isBoolean()
+    .withMessage("Auto search enabled must be a boolean")
+    .toBoolean(),
+];
+
 // Sanitization rules for downloader data
 export const sanitizeDownloaderData = [
   body("name")
     .trim()
-    .escape()
     .isLength({ min: 1, max: 200 })
     .withMessage("Name must be between 1 and 200 characters"),
   body("type")
@@ -207,6 +242,55 @@ export const sanitizeDownloaderData = [
     .toBoolean(),
 ];
 
+// Sanitization rules for partial downloader updates (PATCH)
+export const sanitizeDownloaderUpdateData = [
+  body("name")
+    .optional()
+    .trim()
+    .isLength({ min: 1, max: 200 })
+    .withMessage("Name must be between 1 and 200 characters"),
+  body("type")
+    .optional()
+    .trim()
+    .isIn(["qbittorrent", "transmission", "deluge", "rtorrent", "utorrent", "vuze"])
+    .withMessage("Invalid downloader type"),
+  body("url")
+    .optional()
+    .trim()
+    .isURL()
+    .withMessage("Invalid URL"),
+  body("username")
+    .optional()
+    .trim()
+    .isLength({ max: 200 })
+    .withMessage("Username must be at most 200 characters"),
+  body("password")
+    .optional()
+    .trim()
+    .isLength({ max: 200 })
+    .withMessage("Password must be at most 200 characters"),
+  body("enabled")
+    .optional()
+    .isBoolean()
+    .withMessage("Enabled must be a boolean")
+    .toBoolean(),
+  body("priority")
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage("Priority must be a positive integer")
+    .toInt(),
+  body("downloadPath")
+    .optional()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage("Download path must be at most 500 characters"),
+  body("category")
+    .optional()
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage("Category must be at most 100 characters"),
+];
+
 // Sanitization rules for torrent add requests
 export const sanitizeTorrentData = [
   body("url")
@@ -215,13 +299,11 @@ export const sanitizeTorrentData = [
     .withMessage("Invalid torrent URL"),
   body("title")
     .trim()
-    .escape()
     .isLength({ min: 1, max: 500 })
     .withMessage("Title must be between 1 and 500 characters"),
   body("category")
     .optional()
     .trim()
-    .escape()
     .isLength({ max: 100 })
     .withMessage("Category must be at most 100 characters"),
   body("downloadPath")

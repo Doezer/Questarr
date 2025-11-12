@@ -167,7 +167,7 @@ describe("Middleware - Input Sanitization", () => {
 
   describe("sanitizeGameStatus", () => {
     it("should allow valid game status", async () => {
-      const validStatuses = ["wanted", "owned", "completed", "playing"];
+      const validStatuses = ["wanted", "owned", "completed", "downloading"];
 
       for (const status of validStatuses) {
         const req = createMockRequest({ body: { status } });

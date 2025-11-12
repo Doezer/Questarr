@@ -61,7 +61,7 @@ This implementation adds comprehensive rate limiting and input sanitization to t
 - **Genres:** Optional array, each item max 100 characters
 
 ### Game Status Validation
-- Whitelist: `wanted`, `owned`, `completed`, `playing`
+- Whitelist: `wanted`, `owned`, `completed`, `downloading`
 - Rejects any other values
 
 ### Indexer Data Validation

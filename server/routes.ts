@@ -9,7 +9,6 @@ import { z } from "zod";
 import {
   igdbRateLimiter,
   sensitiveEndpointLimiter,
-  generalApiLimiter,
   validateRequest,
   sanitizeSearchQuery,
   sanitizeGameId,
@@ -17,7 +16,9 @@ import {
   sanitizeGameStatus,
   sanitizeGameData,
   sanitizeIndexerData,
+  sanitizeIndexerUpdateData,
   sanitizeDownloaderData,
+  sanitizeDownloaderUpdateData,
   sanitizeTorrentData,
 } from "./middleware";
 
@@ -301,7 +302,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Update indexer
-  app.patch("/api/indexers/:id", sensitiveEndpointLimiter, async (req, res) => {
+  app.patch("/api/indexers/:id", sensitiveEndpointLimiter, sanitizeIndexerUpdateData, validateRequest, async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
       const updates = req.body; // Partial updates
@@ -386,7 +387,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Update downloader
-  app.patch("/api/downloaders/:id", sensitiveEndpointLimiter, async (req, res) => {
+  app.patch("/api/downloaders/:id", sensitiveEndpointLimiter, sanitizeDownloaderUpdateData, validateRequest, async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
       const updates = req.body; // Partial updates

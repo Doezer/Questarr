@@ -34,7 +34,7 @@ function AppContent() {
 }
 
 function App() {
-  const [location, setLocation] = useLocation();
+  const [location, navigate] = useLocation();
   
   // Custom sidebar width for the application
   const style = {
@@ -47,7 +47,7 @@ function App() {
       <TooltipProvider>
         <SidebarProvider style={style as React.CSSProperties}>
           <div className="flex h-screen w-full">
-            <AppSidebar activeItem={location} onNavigate={setLocation} />
+            <AppSidebar activeItem={location} onNavigate={navigate} />
             <div className="flex flex-col flex-1">
               <header className="flex items-center justify-between p-4 border-b">
                 <SidebarTrigger data-testid="button-sidebar-toggle" />

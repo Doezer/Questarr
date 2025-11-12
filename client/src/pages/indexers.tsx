@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
-import { Plus, Edit, Trash2, Settings, Check, X, Activity } from "lucide-react";
+import { Plus, Edit, Trash2, Check, X, Activity } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +18,7 @@ export default function IndexersPage() {
   const { toast } = useToast();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingIndexer, setEditingIndexer] = useState<Indexer | null>(null);
+  const [testingIndexerId, setTestingIndexerId] = useState<string | null>(null);
 
   const { data: indexers = [], isLoading } = useQuery<Indexer[]>({
     queryKey: ["/api/indexers"],
@@ -102,8 +103,14 @@ export default function IndexersPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
-      if (!response.ok) throw new Error("Failed to test indexer connection");
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to test indexer connection");
+      }
       return response.json() as Promise<{ success: boolean; message: string }>;
+    },
+    onMutate: (id) => {
+      setTestingIndexerId(id);
     },
     onSuccess: (data) => {
       if (data.success) {
@@ -118,6 +125,9 @@ export default function IndexersPage() {
         description: error instanceof Error ? error.message : "Unknown error",
         variant: "destructive" 
       });
+    },
+    onSettled: () => {
+      setTestingIndexerId(null);
     },
   });
 
@@ -228,7 +238,7 @@ export default function IndexersPage() {
                       variant="outline"
                       size="icon"
                       onClick={() => testConnectionMutation.mutate(indexer.id)}
-                      disabled={testConnectionMutation.isPending}
+                      disabled={testingIndexerId === indexer.id}
                       title="Test connection"
                       data-testid={`button-test-indexer-${indexer.id}`}
                     >

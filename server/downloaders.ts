@@ -407,7 +407,7 @@ export class DownloaderManager {
     message: string; 
     downloaderId?: string;
     downloaderName?: string;
-    attemptedDownloaders?: string[];
+    attemptedDownloaders: string[];
   }> {
     if (downloaders.length === 0) {
       return { 

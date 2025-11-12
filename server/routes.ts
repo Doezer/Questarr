@@ -728,6 +728,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       );
 
+      if (result && result.success === false) {
+        // All downloaders failed, return 500 error
+        return res.status(500).json(result);
+      }
       res.json(result);
     } catch (error) {
       console.error("Error adding download:", error);

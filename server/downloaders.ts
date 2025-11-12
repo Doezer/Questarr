@@ -404,7 +404,7 @@ export class DownloaderManager {
   ): Promise<{ 
     success: boolean; 
     id?: string; 
-    message: string; 
+    message?: string; 
     downloaderId?: string;
     downloaderName?: string;
     attemptedDownloaders: string[];

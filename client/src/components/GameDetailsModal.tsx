@@ -16,6 +16,7 @@ import { Calendar, Star, Monitor, Gamepad2, Tag, Download, Play, CheckCircle, Ey
 import { useToast } from "@/hooks/use-toast";
 import { type Game } from "@shared/schema";
 import StatusBadge, { type GameStatus } from "./StatusBadge";
+import GameDownloadDialog from "./GameDownloadDialog";
 
 interface GameDetailsModalProps {
   game: Game | null;
@@ -31,6 +32,7 @@ export default function GameDetailsModal({
   onStatusChange 
 }: GameDetailsModalProps) {
   const [selectedScreenshot, setSelectedScreenshot] = useState<string | null>(null);
+  const [downloadOpen, setDownloadOpen] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -59,6 +61,10 @@ export default function GameDetailsModal({
 
   const handleRemoveGame = () => {
     removeGameMutation.mutate(game.id);
+  };
+
+  const handleDownloadClick = () => {
+    setDownloadOpen(true);
   };
 
   const statusActions = [
@@ -135,7 +141,13 @@ export default function GameDetailsModal({
                     <Play className="w-4 h-4" />
                     Launch Game
                   </Button>
-                  <Button variant="outline" size="sm" className="gap-2" data-testid="button-download-game">
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="gap-2" 
+                    onClick={handleDownloadClick}
+                    data-testid="button-download-game"
+                  >
                     <Download className="w-4 h-4" />
                     Download
                   </Button>
@@ -288,6 +300,12 @@ export default function GameDetailsModal({
           </DialogContent>
         </Dialog>
       )}
+      
+      <GameDownloadDialog
+        game={game}
+        open={downloadOpen}
+        onOpenChange={setDownloadOpen}
+      />
     </>
   );
 }

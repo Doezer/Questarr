@@ -731,22 +731,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "No downloaders configured" });
       }
 
-      // Use the first enabled downloader (highest priority)
-      const downloader = enabledDownloaders[0];
+      // Try downloaders by priority order with automatic fallback
+      const result = await DownloaderManager.addTorrentWithFallback(
+        enabledDownloaders,
+        {
+          url,
+          title,
+          category,
+          downloadPath,
+          priority,
+        }
+      );
 
-      const result = await DownloaderManager.addTorrent(downloader, {
-        url,
-        title,
-        category,
-        downloadPath,
-        priority,
-      });
-
-      res.json({
-        ...result,
-        downloaderId: downloader.id,
-        downloaderName: downloader.name,
-      });
+      if (result && result.success === false) {
+        // All downloaders failed, return 500 error
+        return res.status(500).json(result);
+      }
+      res.json(result);
     } catch (error) {
       console.error("Error adding download:", error);
       res.status(500).json({ 

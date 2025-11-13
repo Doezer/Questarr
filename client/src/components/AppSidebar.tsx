@@ -6,7 +6,8 @@ import {
   Calendar, 
   Settings, 
   TrendingUp,
-  Star
+  Star,
+  Database
 } from "lucide-react";
 import {
   Sidebar,
@@ -64,8 +65,13 @@ const navigation = [
 
 const management = [
   {
-    title: "Settings",
-    url: "/settings",
+    title: "Indexers",
+    url: "/indexers",
+    icon: Database,
+  },
+  {
+    title: "Downloaders",
+    url: "/downloaders",
     icon: Settings,
   },
 ];

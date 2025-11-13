@@ -272,6 +272,383 @@ class TransmissionClient implements DownloaderClient {
   }
 }
 
+class RTorrentClient implements DownloaderClient {
+  private downloader: Downloader;
+
+  constructor(downloader: Downloader) {
+    this.downloader = downloader;
+  }
+
+  async testConnection(): Promise<{ success: boolean; message: string }> {
+    try {
+      // Test connection by getting rTorrent version
+      await this.makeXMLRPCRequest('system.client_version', []);
+      return { success: true, message: 'Connected successfully to rTorrent' };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      return { success: false, message: `Failed to connect to rTorrent: ${errorMessage}` };
+    }
+  }
+
+  async addTorrent(request: DownloadRequest): Promise<{ success: boolean; id?: string; message: string }> {
+    try {
+      // rTorrent uses load.start for adding and starting torrents
+      // The method returns the hash of the torrent
+      const hash = await this.makeXMLRPCRequest('load.start', ['', request.url]);
+      
+      if (hash) {
+        return { 
+          success: true, 
+          id: hash, 
+          message: 'Torrent added successfully' 
+        };
+      } else {
+        return { 
+          success: false, 
+          message: 'Failed to add torrent' 
+        };
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      return { success: false, message: `Failed to add torrent: ${errorMessage}` };
+    }
+  }
+
+  async getTorrentStatus(id: string): Promise<DownloadStatus | null> {
+    try {
+      // Get detailed information about a specific torrent using multicall
+      const result = await this.makeXMLRPCRequest('d.multicall2', [
+        '',
+        id,
+        'd.hash=',
+        'd.name=',
+        'd.state=',
+        'd.complete=',
+        'd.size_bytes=',
+        'd.completed_bytes=',
+        'd.down.rate=',
+        'd.up.rate=',
+        'd.ratio=',
+        'd.peers_connected=',
+        'd.peers_complete=',
+        'd.message='
+      ]);
+
+      if (result && result.length > 0) {
+        const torrent = result[0];
+        return this.mapRTorrentStatus(torrent);
+      }
+
+      return null;
+    } catch (error) {
+      console.error('Error getting torrent status:', error);
+      return null;
+    }
+  }
+
+  async getAllTorrents(): Promise<DownloadStatus[]> {
+    try {
+      // Get all torrents using multicall
+      const result = await this.makeXMLRPCRequest('d.multicall2', [
+        '',
+        'main',
+        'd.hash=',
+        'd.name=',
+        'd.state=',
+        'd.complete=',
+        'd.size_bytes=',
+        'd.completed_bytes=',
+        'd.down.rate=',
+        'd.up.rate=',
+        'd.ratio=',
+        'd.peers_connected=',
+        'd.peers_complete=',
+        'd.message='
+      ]);
+
+      if (result) {
+        return result.map((torrent: any) => this.mapRTorrentStatus(torrent));
+      }
+
+      return [];
+    } catch (error) {
+      console.error('Error getting all torrents:', error);
+      return [];
+    }
+  }
+
+  async pauseTorrent(id: string): Promise<{ success: boolean; message: string }> {
+    try {
+      await this.makeXMLRPCRequest('d.stop', [id]);
+      return { success: true, message: 'Torrent paused successfully' };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      return { success: false, message: `Failed to pause torrent: ${errorMessage}` };
+    }
+  }
+
+  async resumeTorrent(id: string): Promise<{ success: boolean; message: string }> {
+    try {
+      await this.makeXMLRPCRequest('d.start', [id]);
+      return { success: true, message: 'Torrent resumed successfully' };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      return { success: false, message: `Failed to resume torrent: ${errorMessage}` };
+    }
+  }
+
+  async removeTorrent(id: string, deleteFiles = false): Promise<{ success: boolean; message: string }> {
+    try {
+      if (deleteFiles) {
+        // Stop torrent, delete data, and remove from client
+        await this.makeXMLRPCRequest('d.stop', [id]);
+        await this.makeXMLRPCRequest('d.erase', [id]);
+      } else {
+        // Just remove from client without deleting files
+        await this.makeXMLRPCRequest('d.erase', [id]);
+      }
+      return { success: true, message: 'Torrent removed successfully' };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      return { success: false, message: `Failed to remove torrent: ${errorMessage}` };
+    }
+  }
+
+  private mapRTorrentStatus(torrent: any): DownloadStatus {
+    // torrent is an array: [hash, name, state, complete, size, completed, down_rate, up_rate, ratio, peers_connected, peers_complete, message]
+    const [hash, name, state, complete, sizeBytes, completedBytes, downRate, upRate, ratio, peersConnected, peersComplete, message] = torrent;
+    
+    // rTorrent state: 0=stopped, 1=started
+    // complete: 0=incomplete, 1=complete
+    let status: DownloadStatus['status'] = 'paused';
+    
+    if (state === 1) {
+      if (complete === 1) {
+        status = 'seeding';
+      } else {
+        status = 'downloading';
+      }
+    } else {
+      if (complete === 1) {
+        status = 'completed';
+      } else {
+        status = 'paused';
+      }
+    }
+
+    if (message && message.length > 0) {
+      status = 'error';
+    }
+
+    const progress = sizeBytes > 0 ? Math.round((completedBytes / sizeBytes) * 100) : 0;
+
+    return {
+      id: hash,
+      name,
+      status,
+      progress,
+      downloadSpeed: downRate,
+      uploadSpeed: upRate,
+      size: sizeBytes,
+      downloaded: completedBytes,
+      seeders: peersComplete,
+      leechers: peersConnected - peersComplete,
+      ratio: ratio / 1000, // rTorrent returns ratio * 1000
+      error: message || undefined,
+    };
+  }
+
+  private async makeXMLRPCRequest(method: string, params: any[]): Promise<any> {
+    const url = this.downloader.url.endsWith('/') 
+      ? this.downloader.url + 'RPC2' 
+      : this.downloader.url + '/RPC2';
+
+    // Build XML-RPC request
+    const xmlParams = params.map(param => {
+      if (typeof param === 'string') {
+        return `<param><value><string>${this.escapeXml(param)}</string></value></param>`;
+      } else if (typeof param === 'number') {
+        return `<param><value><int>${param}</int></value></param>`;
+      }
+      return `<param><value><string>${param}</string></value></param>`;
+    }).join('');
+
+    const xmlBody = `<?xml version="1.0"?>
+<methodCall>
+  <methodName>${this.escapeXml(method)}</methodName>
+  <params>
+    ${xmlParams}
+  </params>
+</methodCall>`;
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'text/xml',
+      'User-Agent': 'GameRadarr/1.0',
+    };
+
+    if (this.downloader.username && this.downloader.password) {
+      const auth = Buffer.from(`${this.downloader.username}:${this.downloader.password}`).toString('base64');
+      headers['Authorization'] = `Basic ${auth}`;
+    }
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: xmlBody,
+      signal: AbortSignal.timeout(30000),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const responseText = await response.text();
+    return this.parseXMLRPCResponse(responseText);
+  }
+
+  private parseXMLRPCResponse(xml: string): any {
+    // Simple XML-RPC response parser
+    // Extract the value from <methodResponse><params><param><value>...</value></param></params></methodResponse>
+    
+    // Check for fault
+    if (xml.includes('<fault>')) {
+      const faultMatch = xml.match(/<string>([^<]+)<\/string>/);
+      if (faultMatch) {
+        throw new Error(`XML-RPC Fault: ${faultMatch[1]}`);
+      }
+      throw new Error('XML-RPC Fault occurred');
+    }
+
+    // Find the main response value
+    const paramValueMatch = xml.match(/<methodResponse>\s*<params>\s*<param>\s*<value>([\s\S]*?)<\/value>\s*<\/param>\s*<\/params>\s*<\/methodResponse>/);
+    if (!paramValueMatch) {
+      return null;
+    }
+
+    const valueContent = paramValueMatch[1].trim();
+
+    // Parse array responses (for multicall)
+    if (valueContent.startsWith('<array>')) {
+      return this.parseXMLArray(valueContent);
+    }
+
+    // Parse string response
+    const stringMatch = valueContent.match(/<string>([^<]*)<\/string>/);
+    if (stringMatch) {
+      return stringMatch[1];
+    }
+
+    // Parse int response
+    const intMatch = valueContent.match(/<int>([^<]+)<\/int>/) || valueContent.match(/<i4>([^<]+)<\/i4>/);
+    if (intMatch) {
+      return parseInt(intMatch[1]);
+    }
+
+    // Parse double response
+    const doubleMatch = valueContent.match(/<double>([^<]+)<\/double>/);
+    if (doubleMatch) {
+      return parseFloat(doubleMatch[1]);
+    }
+
+    return null;
+  }
+
+  private parseXMLArray(arrayXml: string): any[] {
+    const result: any[] = [];
+    
+    // Extract the data section from <array><data>...</data></array>
+    const dataMatch = arrayXml.match(/<array>\s*<data>([\s\S]*)<\/data>\s*<\/array>/);
+    if (!dataMatch) {
+      return result;
+    }
+
+    const dataContent = dataMatch[1];
+    
+    // Parse each value in the array
+    // We need to be careful with nested structures
+    let depth = 0;
+    let currentValue = '';
+    let inValue = false;
+    
+    for (let i = 0; i < dataContent.length; i++) {
+      const char = dataContent[i];
+      
+      if (dataContent.substring(i, i + 7) === '<value>') {
+        if (!inValue) {
+          inValue = true;
+          currentValue = '<value>';
+          i += 6;
+          depth = 1;
+          continue;
+        } else {
+          depth++;
+        }
+      } else if (dataContent.substring(i, i + 8) === '</value>') {
+        depth--;
+        if (depth === 0 && inValue) {
+          currentValue += '</value>';
+          // Parse this value
+          result.push(this.parseXMLValue(currentValue));
+          currentValue = '';
+          inValue = false;
+          i += 7;
+          continue;
+        }
+      }
+      
+      if (inValue) {
+        currentValue += char;
+      }
+    }
+
+    return result;
+  }
+
+  private parseXMLValue(valueXml: string): any {
+    // Extract content between <value> and </value>
+    const contentMatch = valueXml.match(/<value>([\s\S]*)<\/value>/);
+    if (!contentMatch) {
+      return '';
+    }
+    
+    const content = contentMatch[1].trim();
+    
+    // Check if this is a nested array
+    if (content.startsWith('<array>')) {
+      return this.parseXMLArray(content);
+    }
+
+    // Parse string
+    const stringMatch = content.match(/<string>([^<]*)<\/string>/);
+    if (stringMatch) {
+      return stringMatch[1];
+    }
+
+    // Parse int
+    const intMatch = content.match(/<int>([^<]+)<\/int>/) || content.match(/<i4>([^<]+)<\/i4>/);
+    if (intMatch) {
+      return parseInt(intMatch[1]);
+    }
+
+    // Parse double
+    const doubleMatch = content.match(/<double>([^<]+)<\/double>/);
+    if (doubleMatch) {
+      return parseFloat(doubleMatch[1]);
+    }
+
+    return '';
+  }
+
+  private escapeXml(str: string): string {
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
+  }
+}
+
 // Placeholder implementations for other client types
 class QBittorrentClient implements DownloaderClient {
   private downloader: Downloader;
@@ -314,6 +691,8 @@ export class DownloaderManager {
     switch (downloader.type) {
       case 'transmission':
         return new TransmissionClient(downloader);
+      case 'rtorrent':
+        return new RTorrentClient(downloader);
       case 'qbittorrent':
         return new QBittorrentClient(downloader);
       default:

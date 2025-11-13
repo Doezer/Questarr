@@ -2,10 +2,14 @@ import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import { generalApiLimiter } from "./middleware";
 
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
+
+// Apply general rate limiting to all API routes
+app.use("/api", generalApiLimiter);
 
 app.use((req, res, next) => {
   const start = Date.now();

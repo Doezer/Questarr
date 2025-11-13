@@ -1,4 +1,4 @@
-import type { Express } from "express";
+import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { igdbClient } from "./igdb";
@@ -6,6 +6,21 @@ import { insertGameSchema, updateGameStatusSchema, insertIndexerSchema, insertDo
 import { torznabClient } from "./torznab";
 import { DownloaderManager } from "./downloaders";
 import { z } from "zod";
+import {
+  igdbRateLimiter,
+  sensitiveEndpointLimiter,
+  validateRequest,
+  sanitizeSearchQuery,
+  sanitizeGameId,
+  sanitizeIgdbId,
+  sanitizeGameStatus,
+  sanitizeGameData,
+  sanitizeIndexerData,
+  sanitizeIndexerUpdateData,
+  sanitizeDownloaderData,
+  sanitizeDownloaderUpdateData,
+  sanitizeTorrentData,
+} from "./middleware";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Game collection routes
@@ -42,7 +57,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Search user's collection
-  app.get("/api/games/search", async (req, res) => {
+  app.get("/api/games/search", sanitizeSearchQuery, validateRequest, async (req: Request, res: Response) => {
     try {
       const { q } = req.query;
       if (!q || typeof q !== "string") {
@@ -57,7 +72,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Add game to collection
-  app.post("/api/games", async (req, res) => {
+  app.post("/api/games", sensitiveEndpointLimiter, sanitizeGameData, validateRequest, async (req: Request, res: Response) => {
     try {
       console.log("Received game data:", JSON.stringify(req.body, null, 2));
       const gameData = insertGameSchema.parse(req.body);
@@ -84,7 +99,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Update game status
-  app.patch("/api/games/:id/status", async (req, res) => {
+  app.patch("/api/games/:id/status", sensitiveEndpointLimiter, sanitizeGameId, sanitizeGameStatus, validateRequest, async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
       const statusUpdate = updateGameStatusSchema.parse(req.body);
@@ -105,7 +120,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Remove game from collection
-  app.delete("/api/games/:id", async (req, res) => {
+  app.delete("/api/games/:id", sensitiveEndpointLimiter, sanitizeGameId, validateRequest, async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
       const success = await storage.removeGame(id);
@@ -124,7 +139,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // IGDB discovery routes
 
   // Search IGDB for games
-  app.get("/api/igdb/search", async (req, res) => {
+  app.get("/api/igdb/search", igdbRateLimiter, sanitizeSearchQuery, validateRequest, async (req: Request, res: Response) => {
     try {
       const { q, limit } = req.query;
       if (!q || typeof q !== "string") {
@@ -143,7 +158,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // New discover endpoint for personalized recommendations
-  app.get("/api/games/discover", async (req, res) => {
+  app.get("/api/games/discover", igdbRateLimiter, async (req, res) => {
     try {
       const limit = req.query.limit ? parseInt(req.query.limit as string) : 20;
       
@@ -162,7 +177,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get popular games
-  app.get("/api/igdb/popular", async (req, res) => {
+  app.get("/api/igdb/popular", igdbRateLimiter, async (req, res) => {
     try {
       const { limit } = req.query;
       const limitNum = limit ? parseInt(limit as string) : 20;
@@ -178,7 +193,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get recent releases
-  app.get("/api/igdb/recent", async (req, res) => {
+  app.get("/api/igdb/recent", igdbRateLimiter, async (req, res) => {
     try {
       const { limit } = req.query;
       const limitNum = limit ? parseInt(limit as string) : 20;
@@ -194,7 +209,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get upcoming releases
-  app.get("/api/igdb/upcoming", async (req, res) => {
+  app.get("/api/igdb/upcoming", igdbRateLimiter, async (req, res) => {
     try {
       const { limit } = req.query;
       const limitNum = limit ? parseInt(limit as string) : 20;
@@ -210,7 +225,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get game details by IGDB ID
-  app.get("/api/igdb/game/:id", async (req, res) => {
+  app.get("/api/igdb/game/:id", igdbRateLimiter, sanitizeIgdbId, validateRequest, async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
       const igdbId = parseInt(id);
@@ -272,7 +287,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Add new indexer
-  app.post("/api/indexers", async (req, res) => {
+  app.post("/api/indexers", sensitiveEndpointLimiter, sanitizeIndexerData, validateRequest, async (req: Request, res: Response) => {
     try {
       const indexerData = insertIndexerSchema.parse(req.body);
       const indexer = await storage.addIndexer(indexerData);
@@ -287,7 +302,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Update indexer
-  app.patch("/api/indexers/:id", async (req, res) => {
+  app.patch("/api/indexers/:id", sensitiveEndpointLimiter, sanitizeIndexerUpdateData, validateRequest, async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
       const updates = req.body; // Partial updates
@@ -303,7 +318,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Delete indexer
-  app.delete("/api/indexers/:id", async (req, res) => {
+  app.delete("/api/indexers/:id", sensitiveEndpointLimiter, async (req, res) => {
     try {
       const { id } = req.params;
       const success = await storage.removeIndexer(id);
@@ -357,7 +372,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Add new downloader
-  app.post("/api/downloaders", async (req, res) => {
+  app.post("/api/downloaders", sensitiveEndpointLimiter, sanitizeDownloaderData, validateRequest, async (req: Request, res: Response) => {
     try {
       const downloaderData = insertDownloaderSchema.parse(req.body);
       const downloader = await storage.addDownloader(downloaderData);
@@ -372,7 +387,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Update downloader
-  app.patch("/api/downloaders/:id", async (req, res) => {
+  app.patch("/api/downloaders/:id", sensitiveEndpointLimiter, sanitizeDownloaderUpdateData, validateRequest, async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
       const updates = req.body; // Partial updates
@@ -388,7 +403,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Delete downloader
-  app.delete("/api/downloaders/:id", async (req, res) => {
+  app.delete("/api/downloaders/:id", sensitiveEndpointLimiter, async (req, res) => {
     try {
       const { id } = req.params;
       const success = await storage.removeDownloader(id);
@@ -534,7 +549,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Add torrent to downloader
-  app.post("/api/downloaders/:id/torrents", async (req, res) => {
+  app.post("/api/downloaders/:id/torrents", sensitiveEndpointLimiter, sanitizeTorrentData, validateRequest, async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
       const { url, title, category, downloadPath, priority } = req.body;
@@ -702,8 +717,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Add torrent to best available downloader with fallback
-  app.post("/api/downloads", async (req, res) => {
+  // Add torrent to best available downloader
+  app.post("/api/downloads", sensitiveEndpointLimiter, sanitizeTorrentData, validateRequest, async (req: Request, res: Response) => {
     try {
       const { url, title, category, downloadPath, priority } = req.body;
       

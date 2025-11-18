@@ -52,7 +52,7 @@
     "date-fns": "^3.6.0",
     "dotenv": "^17.2.3",
     "drizzle-orm": "^0.44.7",
-    "drizzle-zod": "^0.8.3",
+    "drizzle-zod": "^0.7.0",
     "embla-carousel-react": "^8.6.0",
     "express": "^4.21.2",
     "express-rate-limit": "^8.2.1",

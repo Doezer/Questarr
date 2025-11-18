@@ -64,6 +64,7 @@ export default function GameCard({ game, onStatusChange, onViewDetails, onTrackG
               size="icon" 
               variant="default"
               onClick={handleDownloadClick}
+              aria-label="Download game"
               data-testid={`button-download-${game.id}`}
             >
               <Download className="w-4 h-4" />

@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient } from "@/lib/queryClient";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Dialog,
   DialogContent,
@@ -66,12 +65,15 @@ export default function GameDownloadDialog({
   onOpenChange,
 }: GameDownloadDialogProps) {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
 
   // Auto-populate search when dialog opens with game title
   useEffect(() => {
     if (open && game) {
       setSearchQuery(game.title);
+    } else if (!open) {
+      setSearchQuery("");
     }
   }, [open, game]);
 
@@ -92,8 +94,14 @@ export default function GameDownloadDialog({
         }),
       });
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Failed to add download");
+        let errorMessage = "Failed to add download";
+        try {
+          const error = await response.json();
+          errorMessage = error.error || errorMessage;
+        } catch {
+          // Response is not JSON, use default error message
+        }
+        throw new Error(errorMessage);
       }
       return response.json();
     },
@@ -163,8 +171,8 @@ export default function GameDownloadDialog({
                 <p className="text-sm text-muted-foreground">
                   Found {searchResults.total} result{searchResults.total !== 1 ? "s" : ""}
                 </p>
-                {searchResults.items.map((torrent, index) => (
-                  <Card key={index}>
+                {searchResults.items.map((torrent) => (
+                  <Card key={torrent.guid || torrent.link}>
                     <CardHeader>
                       <div className="flex justify-between items-start gap-4">
                         <div className="flex-1 min-w-0">

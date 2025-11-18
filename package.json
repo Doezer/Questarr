@@ -59,7 +59,7 @@
     "express-session": "^1.18.1",
     "express-validator": "^7.3.0",
     "fast-xml-parser": "^5.2.5",
-    "framer-motion": "^11.13.1",
+    "framer-motion": "^11.18.2",
     "input-otp": "^1.4.2",
     "lucide-react": "^0.554.0",
     "memorystore": "^1.6.7",

@@ -46,7 +46,6 @@ jobs:
           images: ghcr.io/${{ github.repository }}
           tags: |
             type=raw,value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
-            type=raw,value=${{ inputs.environment }}-${{ github.sha }},enable=${{ inputs.tag == '' }}
             type=raw,value=${{ inputs.environment }}-latest
             type=sha,prefix=${{ inputs.environment }}-
       

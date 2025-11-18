@@ -23,7 +23,7 @@ The workflow performs the following steps:
 1. **Build**: Compiles the application using the Dockerfile
 2. **Tag**: Creates multiple tags for the Docker image:
    - `{environment}-latest`: Always points to the latest build for the environment
-   - `{environment}-{git-sha}`: Specific version tag
+   - `{environment}-sha-{short-sha}`: Short SHA version tag (first 7 characters of commit SHA)
    - Custom tag if specified
 3. **Push**: Uploads the Docker image to GitHub Container Registry
 4. **Summary**: Provides pull and run instructions in the workflow summary
@@ -48,6 +48,7 @@ docker run -d -p 5000:5000 \
   -e IGDB_CLIENT_ID=your_igdb_client_id \
   -e IGDB_CLIENT_SECRET=your_igdb_client_secret \
   -e PORT=5000 \
+  -e HOST=0.0.0.0 \
   ghcr.io/doezer/gameradarr:production-latest
 ```
 
@@ -67,6 +68,7 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - IGDB_CLIENT_ID=${IGDB_CLIENT_ID}
       - IGDB_CLIENT_SECRET=${IGDB_CLIENT_SECRET}
+      - HOST=0.0.0.0
     depends_on:
       - db
     restart: unless-stopped
@@ -86,6 +88,7 @@ The following environment variables are required:
 | `IGDB_CLIENT_ID` | IGDB API client ID | Yes |
 | `IGDB_CLIENT_SECRET` | IGDB API client secret | Yes |
 | `PORT` | Port to run the application on | No (default: 5000) |
+| `HOST` | Host interface to bind to | No (default: localhost, use 0.0.0.0 for Docker) |
 | `NODE_ENV` | Node environment | No (default: production) |
 
 ## Deployment Platforms
@@ -159,7 +162,7 @@ Check the workflow logs in the Actions tab for detailed error messages.
 
 ## Security Notes
 
-- Docker images are stored in GitHub Container Registry
-- Repository secrets are used for deployment credentials
+- Docker images are stored in GitHub Container Registry using the automatically provided GITHUB_TOKEN
+- Package visibility settings can be configured in GitHub package settings
 - Never commit sensitive environment variables to the repository
-- Use GitHub Secrets for production credentials
+- Configure production credentials (e.g., DATABASE_URL, IGDB_CLIENT_ID, etc.) in your deployment platform's environment variables, not in the repository or GitHub Secrets for this workflow

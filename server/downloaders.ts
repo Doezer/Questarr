@@ -272,6 +272,15 @@ class TransmissionClient implements DownloaderClient {
   }
 }
 
+/**
+ * rTorrent/ruTorrent client implementation using XML-RPC protocol.
+ * 
+ * @remarks
+ * - Communicates via XML-RPC to the /RPC2 endpoint
+ * - Uses d.multicall2 for efficient batch operations
+ * - Status mapping: state (0=stopped, 1=started) + complete (0/1)
+ * - Supports Basic Authentication via username/password
+ */
 class RTorrentClient implements DownloaderClient {
   private downloader: Downloader;
 
@@ -292,11 +301,28 @@ class RTorrentClient implements DownloaderClient {
 
   async addTorrent(request: DownloadRequest): Promise<{ success: boolean; id?: string; message: string }> {
     try {
+      if (!request.url) {
+        return { 
+          success: false, 
+          message: 'Torrent URL is required' 
+        };
+      }
+
       // rTorrent uses load.start for adding and starting torrents
-      // The method returns the hash of the torrent
-      const hash = await this.makeXMLRPCRequest('load.start', ['', request.url]);
+      // The method returns 0 on success (or sometimes the hash as a string)
+      const result = await this.makeXMLRPCRequest('load.start', ['', request.url]);
       
-      if (hash) {
+      // Handle both 0 (success) and string hash responses
+      if (result === 0 || typeof result === 'string') {
+        let hash: string;
+        if (typeof result === 'string' && result !== '0') {
+          // Some implementations return the hash directly
+          hash = result;
+        } else {
+          // Extract hash from magnet link or torrent URL
+          hash = this.extractHashFromUrl(request.url) || 'unknown';
+        }
+        
         return { 
           success: true, 
           id: hash, 
@@ -312,6 +338,15 @@ class RTorrentClient implements DownloaderClient {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       return { success: false, message: `Failed to add torrent: ${errorMessage}` };
     }
+  }
+
+  private extractHashFromUrl(url: string): string | null {
+    // Extract hash from magnet link
+    const magnetMatch = url.match(/xt=urn:btih:([a-fA-F0-9]{40}|[a-zA-Z2-7]{32})/i);
+    if (magnetMatch) {
+      return magnetMatch[1].toUpperCase();
+    }
+    return null;
   }
 
   async getTorrentStatus(id: string): Promise<DownloadStatus | null> {
@@ -402,6 +437,7 @@ class RTorrentClient implements DownloaderClient {
       if (deleteFiles) {
         // Stop torrent, delete data, and remove from client
         await this.makeXMLRPCRequest('d.stop', [id]);
+        await this.makeXMLRPCRequest('d.delete_tied', [id]); // Delete files
         await this.makeXMLRPCRequest('d.erase', [id]);
       } else {
         // Just remove from client without deleting files
@@ -420,7 +456,7 @@ class RTorrentClient implements DownloaderClient {
     
     // rTorrent state: 0=stopped, 1=started
     // complete: 0=incomplete, 1=complete
-    let status: DownloadStatus['status'] = 'paused';
+    let status: DownloadStatus['status'];
     
     if (state === 1) {
       if (complete === 1) {
@@ -452,7 +488,7 @@ class RTorrentClient implements DownloaderClient {
       size: sizeBytes,
       downloaded: completedBytes,
       seeders: peersComplete,
-      leechers: peersConnected - peersComplete,
+      leechers: Math.max(0, peersConnected - peersComplete),
       ratio: ratio / 1000, // rTorrent returns ratio * 1000
       error: message || undefined,
     };
@@ -470,7 +506,7 @@ class RTorrentClient implements DownloaderClient {
       } else if (typeof param === 'number') {
         return `<param><value><int>${param}</int></value></param>`;
       }
-      return `<param><value><string>${param}</string></value></param>`;
+      return `<param><value><string>${this.escapeXml(String(param))}</string></value></param>`;
     }).join('');
 
     const xmlBody = `<?xml version="1.0"?>
@@ -512,9 +548,9 @@ class RTorrentClient implements DownloaderClient {
     
     // Check for fault
     if (xml.includes('<fault>')) {
-      const faultMatch = xml.match(/<string>([^<]+)<\/string>/);
-      if (faultMatch) {
-        throw new Error(`XML-RPC Fault: ${faultMatch[1]}`);
+      const faultStringMatch = xml.match(/<name>faultString<\/name>\s*<value><string>([^<]+)<\/string>/);
+      if (faultStringMatch) {
+        throw new Error(`XML-RPC Fault: ${faultStringMatch[1]}`);
       }
       throw new Error('XML-RPC Fault occurred');
     }
@@ -535,7 +571,7 @@ class RTorrentClient implements DownloaderClient {
     // Parse string response
     const stringMatch = valueContent.match(/<string>([^<]*)<\/string>/);
     if (stringMatch) {
-      return stringMatch[1];
+      return this.unescapeXml(stringMatch[1]);
     }
 
     // Parse int response
@@ -621,7 +657,7 @@ class RTorrentClient implements DownloaderClient {
     // Parse string
     const stringMatch = content.match(/<string>([^<]*)<\/string>/);
     if (stringMatch) {
-      return stringMatch[1];
+      return this.unescapeXml(stringMatch[1]);
     }
 
     // Parse int
@@ -646,6 +682,15 @@ class RTorrentClient implements DownloaderClient {
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&apos;');
+  }
+
+  private unescapeXml(str: string): string {
+    return str
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'")
+      .replace(/&amp;/g, '&'); // Must be last
   }
 }
 

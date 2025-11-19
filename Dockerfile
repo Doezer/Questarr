@@ -4,7 +4,7 @@ FROM node:20-alpine AS base
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci
+RUN npm install --frozen-lockfile
 
 # Étape de build
 FROM base AS builder
@@ -24,10 +24,11 @@ WORKDIR /app
 
 # Installation des dépendances de production uniquement
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN npm install --frozen-lockfile --omit=dev
 
 # Copie des fichiers nécessaires depuis l'étape de build
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/shared ./shared
 
 # Copie des fichiers de configuration nécessaires
 COPY --from=builder /app/package.json ./

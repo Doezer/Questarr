@@ -5,6 +5,7 @@ import StatusBadge, { type GameStatus } from "./StatusBadge";
 import { type Game } from "@shared/schema";
 import { useState } from "react";
 import GameDetailsModal from "./GameDetailsModal";
+import GameDownloadDialog from "./GameDownloadDialog";
 
 interface GameCardProps {
   game: Game;
@@ -16,6 +17,7 @@ interface GameCardProps {
 
 export default function GameCard({ game, onStatusChange, onViewDetails, onTrackGame, isDiscovery = false }: GameCardProps) {
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [downloadOpen, setDownloadOpen] = useState(false);
 
   const handleStatusClick = () => {
     console.log(`Status change triggered for game: ${game.title}`);
@@ -32,6 +34,7 @@ export default function GameCard({ game, onStatusChange, onViewDetails, onTrackG
 
   const handleDownloadClick = () => {
     console.log(`Download triggered for game: ${game.title}`);
+    setDownloadOpen(true);
   };
 
   return (
@@ -56,6 +59,17 @@ export default function GameCard({ game, onStatusChange, onViewDetails, onTrackG
           </div>
         )}
         <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-t-md flex items-center justify-center gap-2">
+          {isDiscovery && (
+            <Button 
+              size="icon" 
+              variant="default"
+              onClick={handleDownloadClick}
+              aria-label="Download game"
+              data-testid={`button-download-${game.id}`}
+            >
+              <Download className="w-4 h-4" />
+            </Button>
+          )}
           <Button 
             size="icon" 
             variant="secondary"
@@ -115,6 +129,12 @@ export default function GameCard({ game, onStatusChange, onViewDetails, onTrackG
         open={detailsOpen}
         onOpenChange={setDetailsOpen}
         onStatusChange={onStatusChange}
+      />
+      
+      <GameDownloadDialog
+        game={game}
+        open={downloadOpen}
+        onOpenChange={setDownloadOpen}
       />
     </Card>
   );

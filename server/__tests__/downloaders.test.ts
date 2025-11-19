@@ -529,3 +529,471 @@ describe('DownloaderManager - Priority-based Fallback', () => {
   });
 });
 
+describe('RTorrentClient - XML-RPC Protocol', () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    fetchMock = vi.fn();
+    global.fetch = fetchMock;
+  });
+
+  it('should test connection successfully', async () => {
+    const testDownloader: Downloader = {
+      id: 'rtorrent-id',
+      name: 'Test rTorrent',
+      type: 'rtorrent',
+      url: 'http://localhost:8080/rutorrent',
+      username: 'admin',
+      password: 'password',
+      enabled: true,
+      priority: 1,
+      downloadPath: '/downloads',
+      category: 'games',
+      settings: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const xmlResponse = `<?xml version="1.0"?>
+<methodResponse>
+  <params>
+    <param>
+      <value><string>0.9.8</string></value>
+    </param>
+  </params>
+</methodResponse>`;
+
+    const successResponse = {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Headers(),
+      text: async () => xmlResponse,
+    };
+
+    fetchMock.mockResolvedValueOnce(successResponse);
+
+    const { DownloaderManager } = await import('../downloaders.js');
+
+    const result = await DownloaderManager.testDownloader(testDownloader);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe('http://localhost:8080/rutorrent/RPC2');
+    expect(result.success).toBe(true);
+    expect(result.message).toBe('Connected successfully to rTorrent');
+  });
+
+  it('should add torrent successfully', async () => {
+    const testDownloader: Downloader = {
+      id: 'rtorrent-id',
+      name: 'Test rTorrent',
+      type: 'rtorrent',
+      url: 'http://localhost:8080/rutorrent',
+      username: null,
+      password: null,
+      enabled: true,
+      priority: 1,
+      downloadPath: null,
+      category: 'games',
+      settings: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const xmlResponse = `<?xml version="1.0"?>
+<methodResponse>
+  <params>
+    <param>
+      <value><string>ABC123DEF456</string></value>
+    </param>
+  </params>
+</methodResponse>`;
+
+    const successResponse = {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Headers(),
+      text: async () => xmlResponse,
+    };
+
+    fetchMock.mockResolvedValueOnce(successResponse);
+
+    const { DownloaderManager } = await import('../downloaders.js');
+
+    const result = await DownloaderManager.addTorrent(testDownloader, {
+      url: 'magnet:?xt=urn:btih:test123',
+      title: 'Test Game',
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.success).toBe(true);
+    expect(result.id).toBe('ABC123DEF456');
+    expect(result.message).toBe('Torrent added successfully');
+  });
+
+  it('should get all torrents with correct status mapping', async () => {
+    const testDownloader: Downloader = {
+      id: 'rtorrent-id',
+      name: 'Test rTorrent',
+      type: 'rtorrent',
+      url: 'http://localhost:8080/rutorrent',
+      username: null,
+      password: null,
+      enabled: true,
+      priority: 1,
+      downloadPath: null,
+      category: 'games',
+      settings: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    // Mock response with multiple torrents
+    const xmlResponse = `<?xml version="1.0"?>
+<methodResponse>
+  <params>
+    <param>
+      <value>
+        <array>
+          <data>
+            <value>
+              <array>
+                <data>
+                  <value><string>HASH1</string></value>
+                  <value><string>Downloading Game.torrent</string></value>
+                  <value><int>1</int></value>
+                  <value><int>0</int></value>
+                  <value><int>1000000000</int></value>
+                  <value><int>500000000</int></value>
+                  <value><int>102400</int></value>
+                  <value><int>51200</int></value>
+                  <value><int>1500</int></value>
+                  <value><int>10</int></value>
+                  <value><int>5</int></value>
+                  <value><string></string></value>
+                </data>
+              </array>
+            </value>
+            <value>
+              <array>
+                <data>
+                  <value><string>HASH2</string></value>
+                  <value><string>Seeding Game.torrent</string></value>
+                  <value><int>1</int></value>
+                  <value><int>1</int></value>
+                  <value><int>2000000000</int></value>
+                  <value><int>2000000000</int></value>
+                  <value><int>0</int></value>
+                  <value><int>204800</int></value>
+                  <value><int>2000</int></value>
+                  <value><int>8</int></value>
+                  <value><int>8</int></value>
+                  <value><string></string></value>
+                </data>
+              </array>
+            </value>
+            <value>
+              <array>
+                <data>
+                  <value><string>HASH3</string></value>
+                  <value><string>Paused Game.torrent</string></value>
+                  <value><int>0</int></value>
+                  <value><int>0</int></value>
+                  <value><int>3000000000</int></value>
+                  <value><int>1500000000</int></value>
+                  <value><int>0</int></value>
+                  <value><int>0</int></value>
+                  <value><int>500</int></value>
+                  <value><int>0</int></value>
+                  <value><int>0</int></value>
+                  <value><string></string></value>
+                </data>
+              </array>
+            </value>
+          </data>
+        </array>
+      </value>
+    </param>
+  </params>
+</methodResponse>`;
+
+    const successResponse = {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Headers(),
+      text: async () => xmlResponse,
+    };
+
+    fetchMock.mockResolvedValueOnce(successResponse);
+
+    const { DownloaderManager } = await import('../downloaders.js');
+
+    const torrents = await DownloaderManager.getAllTorrents(testDownloader);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(torrents).toHaveLength(3);
+    
+    // Verify first torrent (downloading)
+    expect(torrents[0].id).toBe('HASH1');
+    expect(torrents[0].name).toBe('Downloading Game.torrent');
+    expect(torrents[0].status).toBe('downloading');
+    expect(torrents[0].progress).toBe(50);
+    expect(torrents[0].downloadSpeed).toBe(102400);
+    expect(torrents[0].uploadSpeed).toBe(51200);
+    
+    // Verify second torrent (seeding)
+    expect(torrents[1].id).toBe('HASH2');
+    expect(torrents[1].status).toBe('seeding');
+    expect(torrents[1].progress).toBe(100);
+    
+    // Verify third torrent (paused)
+    expect(torrents[2].id).toBe('HASH3');
+    expect(torrents[2].status).toBe('paused');
+    expect(torrents[2].progress).toBe(50);
+  });
+
+  it('should pause torrent successfully', async () => {
+    const testDownloader: Downloader = {
+      id: 'rtorrent-id',
+      name: 'Test rTorrent',
+      type: 'rtorrent',
+      url: 'http://localhost:8080/rutorrent',
+      username: null,
+      password: null,
+      enabled: true,
+      priority: 1,
+      downloadPath: null,
+      category: 'games',
+      settings: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const xmlResponse = `<?xml version="1.0"?>
+<methodResponse>
+  <params>
+    <param>
+      <value><int>0</int></value>
+    </param>
+  </params>
+</methodResponse>`;
+
+    const successResponse = {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Headers(),
+      text: async () => xmlResponse,
+    };
+
+    fetchMock.mockResolvedValueOnce(successResponse);
+
+    const { DownloaderManager } = await import('../downloaders.js');
+
+    const result = await DownloaderManager.pauseTorrent(testDownloader, 'HASH123');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.success).toBe(true);
+    expect(result.message).toBe('Torrent paused successfully');
+  });
+
+  it('should resume torrent successfully', async () => {
+    const testDownloader: Downloader = {
+      id: 'rtorrent-id',
+      name: 'Test rTorrent',
+      type: 'rtorrent',
+      url: 'http://localhost:8080/rutorrent',
+      username: null,
+      password: null,
+      enabled: true,
+      priority: 1,
+      downloadPath: null,
+      category: 'games',
+      settings: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const xmlResponse = `<?xml version="1.0"?>
+<methodResponse>
+  <params>
+    <param>
+      <value><int>0</int></value>
+    </param>
+  </params>
+</methodResponse>`;
+
+    const successResponse = {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Headers(),
+      text: async () => xmlResponse,
+    };
+
+    fetchMock.mockResolvedValueOnce(successResponse);
+
+    const { DownloaderManager } = await import('../downloaders.js');
+
+    const result = await DownloaderManager.resumeTorrent(testDownloader, 'HASH123');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.success).toBe(true);
+    expect(result.message).toBe('Torrent resumed successfully');
+  });
+
+  it('should remove torrent successfully', async () => {
+    const testDownloader: Downloader = {
+      id: 'rtorrent-id',
+      name: 'Test rTorrent',
+      type: 'rtorrent',
+      url: 'http://localhost:8080/rutorrent',
+      username: null,
+      password: null,
+      enabled: true,
+      priority: 1,
+      downloadPath: null,
+      category: 'games',
+      settings: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const xmlResponse = `<?xml version="1.0"?>
+<methodResponse>
+  <params>
+    <param>
+      <value><int>0</int></value>
+    </param>
+  </params>
+</methodResponse>`;
+
+    const successResponse = {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Headers(),
+      text: async () => xmlResponse,
+    };
+
+    fetchMock.mockResolvedValueOnce(successResponse);
+
+    const { DownloaderManager } = await import('../downloaders.js');
+
+    const result = await DownloaderManager.removeTorrent(testDownloader, 'HASH123', false);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.success).toBe(true);
+    expect(result.message).toBe('Torrent removed successfully');
+  });
+
+  it('should handle XML-RPC fault responses', async () => {
+    const testDownloader: Downloader = {
+      id: 'rtorrent-id',
+      name: 'Test rTorrent',
+      type: 'rtorrent',
+      url: 'http://localhost:8080/rutorrent',
+      username: null,
+      password: null,
+      enabled: true,
+      priority: 1,
+      downloadPath: null,
+      category: 'games',
+      settings: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const faultResponse = `<?xml version="1.0"?>
+<methodResponse>
+  <fault>
+    <value>
+      <struct>
+        <member>
+          <name>faultCode</name>
+          <value><int>-506</int></value>
+        </member>
+        <member>
+          <name>faultString</name>
+          <value><string>Could not add torrent</string></value>
+        </member>
+      </struct>
+    </value>
+  </fault>
+</methodResponse>`;
+
+    const errorResponse = {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Headers(),
+      text: async () => faultResponse,
+    };
+
+    fetchMock.mockResolvedValueOnce(errorResponse);
+
+    const { DownloaderManager } = await import('../downloaders.js');
+
+    const result = await DownloaderManager.addTorrent(testDownloader, {
+      url: 'magnet:?xt=urn:btih:invalid',
+      title: 'Invalid Torrent',
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain('XML-RPC Fault');
+  });
+
+  it('should handle authentication with Basic Auth', async () => {
+    const testDownloader: Downloader = {
+      id: 'rtorrent-id',
+      name: 'Test rTorrent',
+      type: 'rtorrent',
+      url: 'http://localhost:8080/rutorrent',
+      username: 'admin',
+      password: 'secret123',
+      enabled: true,
+      priority: 1,
+      downloadPath: null,
+      category: 'games',
+      settings: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const xmlResponse = `<?xml version="1.0"?>
+<methodResponse>
+  <params>
+    <param>
+      <value><string>0.9.8</string></value>
+    </param>
+  </params>
+</methodResponse>`;
+
+    const successResponse = {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Headers(),
+      text: async () => xmlResponse,
+    };
+
+    fetchMock.mockResolvedValueOnce(successResponse);
+
+    const { DownloaderManager } = await import('../downloaders.js');
+
+    const result = await DownloaderManager.testDownloader(testDownloader);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    
+    // Verify Basic Auth header was set
+    const callHeaders = fetchMock.mock.calls[0][1].headers;
+    expect(callHeaders.Authorization).toBeDefined();
+    expect(callHeaders.Authorization).toMatch(/^Basic /);
+    
+    expect(result.success).toBe(true);
+  });
+});
+

@@ -799,6 +799,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Configuration endpoint - read-only access to key settings
+  app.get("/api/config", async (req, res) => {
+    try {
+      const config = {
+        database: {
+          connected: !!process.env.DATABASE_URL,
+          url: process.env.DATABASE_URL ? process.env.DATABASE_URL.replace(/:[^:@]*@/, ':****@') : undefined, // Mask password
+        },
+        igdb: {
+          configured: !!(process.env.IGDB_CLIENT_ID && process.env.IGDB_CLIENT_SECRET),
+          clientId: process.env.IGDB_CLIENT_ID,
+        },
+        server: {
+          port: parseInt(process.env.PORT || '5000', 10),
+          host: process.env.HOST || 'localhost',
+          nodeEnv: process.env.NODE_ENV || 'development',
+        },
+      };
+      res.json(config);
+    } catch (error) {
+      console.error("Error fetching config:", error);
+      res.status(500).json({ error: "Failed to fetch configuration" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

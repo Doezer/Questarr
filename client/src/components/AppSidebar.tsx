@@ -7,7 +7,8 @@ import {
   Settings, 
   TrendingUp,
   Star,
-  Database
+  Database,
+  HardDrive
 } from "lucide-react";
 import {
   Sidebar,
@@ -72,6 +73,11 @@ const management = [
   {
     title: "Downloaders",
     url: "/downloaders",
+    icon: HardDrive,
+  },
+  {
+    title: "Settings",
+    url: "/settings",
     icon: Settings,
   },
 ];

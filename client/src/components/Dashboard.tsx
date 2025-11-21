@@ -9,9 +9,10 @@ import GameGrid from "./GameGrid";
 import StatsCard from "./StatsCard";
 import DiscoveryFilters from "./DiscoveryFilters";
 import { Library, Download, Star, Calendar } from "lucide-react";
-import { type Game } from "@shared/schema";
+import { type Game, type InsertGame } from "@shared/schema";
 import { type GameStatus } from "./StatusBadge";
 import { useToast } from "@/hooks/use-toast";
+import { mapGameToInsertGame } from "@/lib/utils";
 
 interface DashboardProps {}
 
@@ -115,11 +116,12 @@ export default function Dashboard({}: DashboardProps) {
   // Add game mutation (for Discovery games)
   const addGameMutation = useMutation({
     mutationFn: async ({ game, status }: { game: Game; status: GameStatus }) => {
+      const gameData = mapGameToInsertGame(game);
       const response = await fetch('/api/games', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          ...game,
+          ...gameData,
           status // Set the desired status when adding
         })
       });
@@ -230,11 +232,12 @@ export default function Dashboard({}: DashboardProps) {
   // Track game mutation (for Discovery games)
   const trackGameMutation = useMutation({
     mutationFn: async (game: Game) => {
+      const gameData = mapGameToInsertGame(game);
       const response = await fetch('/api/games', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          ...game,
+          ...gameData,
           status: 'wanted' // Set default status when tracking
         })
       });

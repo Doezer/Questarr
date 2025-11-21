@@ -14,7 +14,8 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Search, Plus, Star } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { type Game } from "@shared/schema";
+import { type Game, type InsertGame } from "@shared/schema";
+import { mapGameToInsertGame } from "@/lib/utils";
 
 interface SearchResult extends Game {
   inCollection?: boolean;
@@ -58,11 +59,11 @@ export default function AddGameModal({ children }: AddGameModalProps) {
 
   // Add game mutation
   const addGameMutation = useMutation({
-    mutationFn: async (game: Game) => {
+    mutationFn: async (gameData: InsertGame) => {
       const response = await fetch('/api/games', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(game)
+        body: JSON.stringify(gameData)
       });
       if (!response.ok) {
         const error = await response.json();
@@ -88,10 +89,9 @@ export default function AddGameModal({ children }: AddGameModalProps) {
   };
 
   const handleAddGame = (searchResult: SearchResult) => {
-    // Filter out client-only fields before sending to server
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { id, isReleased, inCollection, ...gameData } = searchResult;
-    addGameMutation.mutate(gameData as Game);
+    // Map to InsertGame to filter out client-only fields before sending to server
+    const gameData = mapGameToInsertGame(searchResult);
+    addGameMutation.mutate(gameData);
   };
 
   // Mark games already in collection

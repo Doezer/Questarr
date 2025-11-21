@@ -11,6 +11,7 @@ import SearchPage from "@/pages/search";
 import DownloadsPage from "@/pages/downloads";
 import IndexersPage from "@/pages/indexers";
 import DownloadersPage from "@/pages/downloaders";
+import SettingsPage from "@/pages/settings";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -21,6 +22,7 @@ function Router() {
       <Route path="/downloads" component={DownloadsPage} />
       <Route path="/indexers" component={IndexersPage} />
       <Route path="/downloaders" component={DownloadersPage} />
+      <Route path="/settings" component={SettingsPage} />
       <Route component={NotFound} />
     </Switch>
   );

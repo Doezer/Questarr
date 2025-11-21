@@ -99,3 +99,20 @@ export type Indexer = typeof indexers.$inferSelect;
 export type InsertIndexer = z.infer<typeof insertIndexerSchema>;
 export type Downloader = typeof downloaders.$inferSelect;
 export type InsertDownloader = z.infer<typeof insertDownloaderSchema>;
+
+// Application configuration type
+export interface Config {
+  database: {
+    connected: boolean;
+    url?: string;
+  };
+  igdb: {
+    configured: boolean;
+    clientId?: string;
+  };
+  server: {
+    port: number;
+    host: string;
+    nodeEnv: string;
+  };
+}

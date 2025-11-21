@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { igdbClient } from "./igdb";
 import { pool } from "./db";
-import { insertGameSchema, updateGameStatusSchema, insertIndexerSchema, insertDownloaderSchema } from "@shared/schema";
+import { insertGameSchema, updateGameStatusSchema, insertIndexerSchema, insertDownloaderSchema, type Config } from "@shared/schema";
 import { torznabClient } from "./torznab";
 import { DownloaderManager } from "./downloaders";
 import { z } from "zod";
@@ -817,7 +817,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      const config = {
+      const config: Config = {
         database: {
           connected: !!process.env.DATABASE_URL,
           url: maskedDbUrl,

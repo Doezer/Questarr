@@ -2,22 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Settings as SettingsIcon, Database, Server, Key } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-
-interface Config {
-  database: {
-    connected: boolean;
-    url?: string;
-  };
-  igdb: {
-    configured: boolean;
-    clientId?: string;
-  };
-  server: {
-    port: number;
-    host: string;
-    nodeEnv: string;
-  };
-}
+import type { Config } from "@shared/schema";
 
 export default function SettingsPage() {
   const { data: config, isLoading, error } = useQuery<Config>({

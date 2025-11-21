@@ -802,10 +802,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Configuration endpoint - read-only access to key settings
   app.get("/api/config", async (req, res) => {
     try {
+      // Mask password in database URL
+      let maskedDbUrl: string | undefined;
+      if (process.env.DATABASE_URL) {
+        try {
+          const dbUrl = new URL(process.env.DATABASE_URL);
+          if (dbUrl.password) {
+            dbUrl.password = '****';
+          }
+          maskedDbUrl = dbUrl.toString();
+        } catch {
+          // If URL parsing fails, use simple regex fallback
+          maskedDbUrl = process.env.DATABASE_URL.replace(/:[^:@]*@/, ':****@');
+        }
+      }
+
       const config = {
         database: {
           connected: !!process.env.DATABASE_URL,
-          url: process.env.DATABASE_URL ? process.env.DATABASE_URL.replace(/:[^:@]*@/, ':****@') : undefined, // Mask password
+          url: maskedDbUrl,
         },
         igdb: {
           configured: !!(process.env.IGDB_CLIENT_ID && process.env.IGDB_CLIENT_SECRET),

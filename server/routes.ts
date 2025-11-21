@@ -2,6 +2,7 @@ import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { igdbClient } from "./igdb";
+import { pool } from "./db";
 import { insertGameSchema, updateGameStatusSchema, insertIndexerSchema, insertDownloaderSchema } from "@shared/schema";
 import { torznabClient } from "./torznab";
 import { DownloaderManager } from "./downloaders";
@@ -23,6 +24,38 @@ import {
 } from "./middleware";
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Health check endpoint
+  app.get("/api/health", async (req, res) => {
+    const health = {
+      ok: true,
+      db: false,
+      igdb: false,
+    };
+
+    // Check database connectivity
+    try {
+      await pool.query("SELECT 1");
+      health.db = true;
+    } catch (error) {
+      console.error("Database health check failed:", error);
+      health.ok = false;
+    }
+
+    // Check IGDB API connectivity
+    try {
+      // Try to get popular games with a minimal limit to test connectivity
+      await igdbClient.getPopularGames(1);
+      health.igdb = true;
+    } catch (error) {
+      console.error("IGDB health check failed:", error);
+      health.ok = false;
+    }
+
+    // Return 200 if all OK, 500 if any service is down
+    const statusCode = health.ok ? 200 : 500;
+    res.status(statusCode).json(health);
+  });
+
   // Game collection routes
   
   // Get all games in collection

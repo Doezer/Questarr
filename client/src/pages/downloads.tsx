@@ -115,11 +115,11 @@ export default function DownloadsPage() {
       const currentErrorKeys = new Set(errors.map(e => `${e.downloaderId}-${e.error}`));
       setHasShownErrors(prev => {
         const newSet = new Set(prev);
-        for (const key of prev) {
+        Array.from(prev).forEach(key => {
           if (!currentErrorKeys.has(key)) {
             newSet.delete(key);
           }
-        }
+        });
         return newSet;
       });
       

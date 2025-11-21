@@ -800,7 +800,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Configuration endpoint - read-only access to key settings
-  app.get("/api/config", async (req, res) => {
+  app.get("/api/config", sensitiveEndpointLimiter, async (req, res) => {
     try {
       // Mask password in database URL
       let maskedDbUrl: string | undefined;

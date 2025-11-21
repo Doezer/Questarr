@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { Play, Pause, Trash2, Download, MoreHorizontal, RefreshCw } from "lucide-react";
@@ -25,6 +25,17 @@ interface DownloadStatus {
   error?: string;
   downloaderId: string;
   downloaderName: string;
+}
+
+interface DownloaderError {
+  downloaderId: string;
+  downloaderName: string;
+  error: string;
+}
+
+interface DownloadsResponse {
+  torrents: DownloadStatus[];
+  errors: DownloaderError[];
 }
 
 function formatBytes(bytes: number): string {
@@ -84,11 +95,52 @@ function getStatusBadgeVariant(status: DownloadStatus['status']): "default" | "s
 
 export default function DownloadsPage() {
   const { toast } = useToast();
+  const [hasShownErrors, setHasShownErrors] = useState<Set<string>>(new Set());
 
-  const { data: downloads = [], isLoading, refetch } = useQuery<DownloadStatus[]>({
+  const { data: downloadsData, isLoading, refetch } = useQuery<DownloadsResponse>({
     queryKey: ["/api/downloads"],
     refetchInterval: 5000, // Refresh every 5 seconds
   });
+
+  const downloads = downloadsData?.torrents || [];
+  const errors = downloadsData?.errors || [];
+
+  // Show toast notifications for downloader errors
+  // Only show each error once per session to avoid spam
+  useEffect(() => {
+    // Remove resolved errors from tracking
+    if (errors.length === 0) {
+      setHasShownErrors(new Set());
+    } else {
+      const currentErrorKeys = new Set(errors.map(e => `${e.downloaderId}-${e.error}`));
+      setHasShownErrors(prev => {
+        const newSet = new Set(prev);
+        Array.from(prev).forEach(key => {
+          if (!currentErrorKeys.has(key)) {
+            newSet.delete(key);
+          }
+        });
+        return newSet;
+      });
+      
+      // Show new errors
+      errors.forEach((error) => {
+        const errorKey = `${error.downloaderId}-${error.error}`;
+        if (!hasShownErrors.has(errorKey)) {
+          toast({
+            title: `Downloader Error: ${error.downloaderName}`,
+            description: error.error,
+            variant: "destructive",
+          });
+          setHasShownErrors(prev => {
+            const newSet = new Set(prev);
+            newSet.add(errorKey);
+            return newSet;
+          });
+        }
+      });
+    }
+  }, [errors, toast]);
 
   const pauseMutation = useMutation({
     mutationFn: async ({ downloaderId, torrentId }: { downloaderId: string; torrentId: string }) => {

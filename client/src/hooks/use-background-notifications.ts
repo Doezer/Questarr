@@ -12,6 +12,11 @@ interface DownloadStatus {
   downloaderName: string;
 }
 
+interface DownloadsResponse {
+  torrents: DownloadStatus[];
+  errors: Array<{ downloaderId: string; downloaderName: string; error: string }>;
+}
+
 /**
  * Hook to monitor download progress and show toast notifications for background operations
  * Shows notifications when:
@@ -23,11 +28,13 @@ export function useBackgroundNotifications() {
   const previousDownloadsRef = useRef<Map<string, DownloadStatus>>(new Map());
 
   // Poll for downloads every 5 seconds (same as downloads page)
-  const { data: downloads = [] } = useQuery<DownloadStatus[]>({
+  const { data: downloadsData } = useQuery<DownloadsResponse>({
     queryKey: ["/api/downloads"],
     refetchInterval: 5000,
     retry: false, // Don't retry on error to avoid spam
   });
+
+  const downloads = downloadsData?.torrents || [];
 
   useEffect(() => {
     if (downloads.length === 0) {

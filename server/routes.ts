@@ -695,6 +695,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const enabledDownloaders = await storage.getEnabledDownloaders();
       const allTorrents = [];
+      const errors: Array<{ downloaderId: string; downloaderName: string; error: string }> = [];
 
       for (const downloader of enabledDownloaders) {
         try {
@@ -706,11 +707,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }));
           allTorrents.push(...torrentsWithDownloader);
         } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
           console.error(`Error getting torrents from ${downloader.name}:`, error);
+          errors.push({
+            downloaderId: downloader.id,
+            downloaderName: downloader.name,
+            error: errorMessage,
+          });
         }
       }
 
-      res.json(allTorrents);
+      res.json({
+        torrents: allTorrents,
+        errors: errors.length > 0 ? errors : undefined,
+      });
     } catch (error) {
       console.error("Error getting all downloads:", error);
       res.status(500).json({ error: "Failed to get downloads" });

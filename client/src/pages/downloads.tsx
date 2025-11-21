@@ -27,6 +27,17 @@ interface DownloadStatus {
   downloaderName: string;
 }
 
+interface DownloaderError {
+  downloaderId: string;
+  downloaderName: string;
+  error: string;
+}
+
+interface DownloadsResponse {
+  torrents: DownloadStatus[];
+  errors?: DownloaderError[];
+}
+
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
   const k = 1024;
@@ -84,11 +95,31 @@ function getStatusBadgeVariant(status: DownloadStatus['status']): "default" | "s
 
 export default function DownloadsPage() {
   const { toast } = useToast();
+  const [hasShownErrors, setHasShownErrors] = useState<Set<string>>(new Set());
 
-  const { data: downloads = [], isLoading, refetch } = useQuery<DownloadStatus[]>({
+  const { data: downloadsData, isLoading, refetch } = useQuery<DownloadsResponse>({
     queryKey: ["/api/downloads"],
     refetchInterval: 5000, // Refresh every 5 seconds
   });
+
+  const downloads = downloadsData?.torrents || [];
+  const errors = downloadsData?.errors || [];
+
+  // Show toast notifications for downloader errors
+  // Only show each error once per session to avoid spam
+  if (errors.length > 0) {
+    errors.forEach((error) => {
+      const errorKey = `${error.downloaderId}-${error.error}`;
+      if (!hasShownErrors.has(errorKey)) {
+        toast({
+          title: `Downloader Error: ${error.downloaderName}`,
+          description: error.error,
+          variant: "destructive",
+        });
+        setHasShownErrors(prev => new Set(prev).add(errorKey));
+      }
+    });
+  }
 
   const pauseMutation = useMutation({
     mutationFn: async ({ downloaderId, torrentId }: { downloaderId: string; torrentId: string }) => {

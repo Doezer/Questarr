@@ -117,24 +117,19 @@ class TransmissionClient implements DownloaderClient {
   }
 
   async getAllTorrents(): Promise<DownloadStatus[]> {
-    try {
-      const response = await this.makeRequest('torrent-get', {
-        fields: [
-          'id', 'name', 'status', 'percentDone', 'rateDownload', 'rateUpload',
-          'eta', 'totalSize', 'downloadedEver', 'peersSendingToUs', 'peersGettingFromUs',
-          'uploadRatio', 'errorString'
-        ]
-      });
+    const response = await this.makeRequest('torrent-get', {
+      fields: [
+        'id', 'name', 'status', 'percentDone', 'rateDownload', 'rateUpload',
+        'eta', 'totalSize', 'downloadedEver', 'peersSendingToUs', 'peersGettingFromUs',
+        'uploadRatio', 'errorString'
+      ]
+    });
 
-      if (response.arguments.torrents) {
-        return response.arguments.torrents.map((torrent: any) => this.mapTransmissionStatus(torrent));
-      }
-
-      return [];
-    } catch (error) {
-      console.error('Error getting all torrents:', error);
-      return [];
+    if (response.arguments.torrents) {
+      return response.arguments.torrents.map((torrent: any) => this.mapTransmissionStatus(torrent));
     }
+
+    return [];
   }
 
   async pauseTorrent(id: string): Promise<{ success: boolean; message: string }> {
@@ -382,34 +377,29 @@ class RTorrentClient implements DownloaderClient {
   }
 
   async getAllTorrents(): Promise<DownloadStatus[]> {
-    try {
-      // Get all torrents using multicall
-      const result = await this.makeXMLRPCRequest('d.multicall2', [
-        '',
-        'main',
-        'd.hash=',
-        'd.name=',
-        'd.state=',
-        'd.complete=',
-        'd.size_bytes=',
-        'd.completed_bytes=',
-        'd.down.rate=',
-        'd.up.rate=',
-        'd.ratio=',
-        'd.peers_connected=',
-        'd.peers_complete=',
-        'd.message='
-      ]);
+    // Get all torrents using multicall
+    const result = await this.makeXMLRPCRequest('d.multicall2', [
+      '',
+      'main',
+      'd.hash=',
+      'd.name=',
+      'd.state=',
+      'd.complete=',
+      'd.size_bytes=',
+      'd.completed_bytes=',
+      'd.down.rate=',
+      'd.up.rate=',
+      'd.ratio=',
+      'd.peers_connected=',
+      'd.peers_complete=',
+      'd.message='
+    ]);
 
-      if (result) {
-        return result.map((torrent: any) => this.mapRTorrentStatus(torrent));
-      }
-
-      return [];
-    } catch (error) {
-      console.error('Error getting all torrents:', error);
-      return [];
+    if (result) {
+      return result.map((torrent: any) => this.mapRTorrentStatus(torrent));
     }
+
+    return [];
   }
 
   async pauseTorrent(id: string): Promise<{ success: boolean; message: string }> {
@@ -769,13 +759,8 @@ export class DownloaderManager {
   }
 
   static async getAllTorrents(downloader: Downloader): Promise<DownloadStatus[]> {
-    try {
-      const client = this.createClient(downloader);
-      return await client.getAllTorrents();
-    } catch (error) {
-      console.error('Error getting torrents:', error);
-      return [];
-    }
+    const client = this.createClient(downloader);
+    return await client.getAllTorrents();
   }
 
   static async getTorrentStatus(downloader: Downloader, id: string): Promise<DownloadStatus | null> {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { Play, Pause, Trash2, Download, MoreHorizontal, RefreshCw } from "lucide-react";
@@ -107,19 +107,21 @@ export default function DownloadsPage() {
 
   // Show toast notifications for downloader errors
   // Only show each error once per session to avoid spam
-  if (errors.length > 0) {
-    errors.forEach((error) => {
-      const errorKey = `${error.downloaderId}-${error.error}`;
-      if (!hasShownErrors.has(errorKey)) {
-        toast({
-          title: `Downloader Error: ${error.downloaderName}`,
-          description: error.error,
-          variant: "destructive",
-        });
-        setHasShownErrors(prev => new Set(prev).add(errorKey));
-      }
-    });
-  }
+  useEffect(() => {
+    if (errors.length > 0) {
+      errors.forEach((error) => {
+        const errorKey = `${error.downloaderId}-${error.error}`;
+        if (!hasShownErrors.has(errorKey)) {
+          toast({
+            title: `Downloader Error: ${error.downloaderName}`,
+            description: error.error,
+            variant: "destructive",
+          });
+          setHasShownErrors(prev => new Set(prev).add(errorKey));
+        }
+      });
+    }
+  }, [errors, hasShownErrors, toast]);
 
   const pauseMutation = useMutation({
     mutationFn: async ({ downloaderId, torrentId }: { downloaderId: string; torrentId: string }) => {

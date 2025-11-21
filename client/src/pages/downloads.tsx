@@ -35,7 +35,7 @@ interface DownloaderError {
 
 interface DownloadsResponse {
   torrents: DownloadStatus[];
-  errors?: DownloaderError[];
+  errors: DownloaderError[];
 }
 
 function formatBytes(bytes: number): string {
@@ -117,7 +117,11 @@ export default function DownloadsPage() {
             description: error.error,
             variant: "destructive",
           });
-          setHasShownErrors(prev => new Set(prev).add(errorKey));
+          setHasShownErrors(prev => {
+            const newSet = new Set(prev);
+            newSet.add(errorKey);
+            return newSet;
+          });
         }
       });
     }

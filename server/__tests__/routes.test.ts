@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Downloader } from '@shared/schema';
+import { DownloaderManager } from '../downloaders.js';
 
 describe('/api/downloads endpoint', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
@@ -102,8 +103,6 @@ describe('/api/downloads endpoint', () => {
       .mockResolvedValueOnce(successResponse) // First downloader success
       .mockResolvedValueOnce(errorResponse);  // Second downloader fails
 
-    const { DownloaderManager } = await import('../downloaders.js');
-
     // Simulate what the /api/downloads endpoint does
     const enabledDownloaders = [testDownloader1, testDownloader2];
     const allTorrents: any[] = [];
@@ -200,8 +199,6 @@ describe('/api/downloads endpoint', () => {
     fetchMock
       .mockResolvedValueOnce(response409)
       .mockResolvedValueOnce(successResponse);
-
-    const { DownloaderManager } = await import('../downloaders.js');
 
     // Simulate what the /api/downloads endpoint does
     const enabledDownloaders = [testDownloader];

@@ -719,7 +719,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json({
         torrents: allTorrents,
-        errors: errors.length > 0 ? errors : undefined,
+        errors,
       });
     } catch (error) {
       console.error("Error getting all downloads:", error);

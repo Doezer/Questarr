@@ -7,18 +7,21 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertIndexerSchema, type Indexer, type InsertIndexer } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
+import { MultiSelect, type MultiSelectOption } from "@/components/ui/multi-select";
 
 export default function IndexersPage() {
   const { toast } = useToast();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingIndexer, setEditingIndexer] = useState<Indexer | null>(null);
   const [testingIndexerId, setTestingIndexerId] = useState<string | null>(null);
+  const [availableCategories, setAvailableCategories] = useState<MultiSelectOption[]>([]);
+  const [loadingCategories, setLoadingCategories] = useState(false);
 
   const { data: indexers = [], isLoading } = useQuery<Indexer[]>({
     queryKey: ["/api/indexers"],
@@ -153,6 +156,39 @@ export default function IndexersPage() {
     }
   };
 
+  const fetchCategories = async (indexerId: string) => {
+    setLoadingCategories(true);
+    try {
+      const response = await fetch(`/api/indexers/${indexerId}/categories`);
+      if (response.ok) {
+        const categories = await response.json() as { id: string; name: string }[];
+        setAvailableCategories(
+          categories.map((cat) => ({
+            label: `${cat.name} (${cat.id})`,
+            value: cat.id,
+          }))
+        );
+      } else {
+        toast({
+          title: "Failed to fetch categories",
+          description: "Using manual input instead",
+          variant: "destructive",
+        });
+        setAvailableCategories([]);
+      }
+    } catch (error) {
+      console.error("Error fetching categories:", error);
+      toast({
+        title: "Failed to fetch categories",
+        description: "Using manual input instead",
+        variant: "destructive",
+      });
+      setAvailableCategories([]);
+    } finally {
+      setLoadingCategories(false);
+    }
+  };
+
   const handleEdit = (indexer: Indexer) => {
     setEditingIndexer(indexer);
     form.reset({
@@ -166,6 +202,8 @@ export default function IndexersPage() {
       autoSearchEnabled: indexer.autoSearchEnabled,
     });
     setIsDialogOpen(true);
+    // Fetch available categories from the indexer
+    fetchCategories(indexer.id);
   };
 
   const handleAdd = () => {
@@ -180,6 +218,7 @@ export default function IndexersPage() {
       rssEnabled: true,
       autoSearchEnabled: true,
     });
+    setAvailableCategories([]);
     setIsDialogOpen(true);
   };
 
@@ -380,6 +419,38 @@ export default function IndexersPage() {
                         data-testid="input-indexer-priority"
                       />
                     </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="categories"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Categories</FormLabel>
+                    <FormControl>
+                      <MultiSelect
+                        options={availableCategories}
+                        selected={field.value || []}
+                        onChange={field.onChange}
+                        placeholder={
+                          loadingCategories
+                            ? "Loading categories..."
+                            : availableCategories.length > 0
+                            ? "Select categories..."
+                            : "Save indexer first to load categories"
+                        }
+                        emptyMessage="No categories available"
+                        disabled={loadingCategories || (!editingIndexer && availableCategories.length === 0)}
+                        data-testid="multi-select-categories"
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {editingIndexer
+                        ? "Select the Torznab categories to search. Leave empty to use all available categories."
+                        : "Add the indexer first, then edit it to select categories."}
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}

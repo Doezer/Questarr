@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { igdbClient } from "./igdb";
 import { pool } from "./db";
-import { insertGameSchema, updateGameStatusSchema, insertIndexerSchema, insertDownloaderSchema } from "@shared/schema";
+import { insertGameSchema, updateGameStatusSchema, insertIndexerSchema, insertDownloaderSchema, type Config } from "@shared/schema";
 import { torznabClient } from "./torznab";
 import { DownloaderManager } from "./downloaders";
 import { z } from "zod";
@@ -796,6 +796,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ 
         error: "Failed to add download" 
       });
+    }
+  });
+
+  // Configuration endpoint - read-only access to key settings
+  app.get("/api/config", sensitiveEndpointLimiter, async (req, res) => {
+    try {
+      // Mask password in database URL
+      let maskedDbUrl: string | undefined;
+      if (process.env.DATABASE_URL) {
+        try {
+          const dbUrl = new URL(process.env.DATABASE_URL);
+          if (dbUrl.password) {
+            dbUrl.password = '****';
+          }
+          maskedDbUrl = dbUrl.toString();
+        } catch {
+          // If URL parsing fails, use simple regex fallback
+          maskedDbUrl = process.env.DATABASE_URL.replace(/:[^:@]*@/, ':****@');
+        }
+      }
+
+      const config: Config = {
+        database: {
+          connected: !!process.env.DATABASE_URL,
+          url: maskedDbUrl,
+        },
+        igdb: {
+          configured: !!(process.env.IGDB_CLIENT_ID && process.env.IGDB_CLIENT_SECRET),
+          clientId: process.env.IGDB_CLIENT_ID ? process.env.IGDB_CLIENT_ID.substring(0, 8) + '...' : undefined,
+        },
+        server: {
+          port: parseInt(process.env.PORT || '5000', 10),
+          host: process.env.HOST || 'localhost',
+          nodeEnv: process.env.NODE_ENV || 'development',
+        },
+      };
+      res.json(config);
+    } catch (error) {
+      console.error("Error fetching config:", error);
+      res.status(500).json({ error: "Failed to fetch configuration" });
     }
   });
 

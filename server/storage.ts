@@ -303,8 +303,17 @@ export class DatabaseStorage implements IStorage {
 
   async addGame(insertGame: InsertGame): Promise<Game> {
     const gameWithId = {
-      ...insertGame,
       id: randomUUID(),
+      title: insertGame.title,
+      igdbId: insertGame.igdbId ?? null,
+      summary: insertGame.summary ?? null,
+      coverUrl: insertGame.coverUrl ?? null,
+      releaseDate: insertGame.releaseDate ?? null,
+      rating: insertGame.rating ?? null,
+      platforms: insertGame.platforms ?? null,
+      genres: insertGame.genres ?? null,
+      screenshots: insertGame.screenshots ?? null,
+      status: insertGame.status ?? "wanted",
     };
     
     const [game] = await db

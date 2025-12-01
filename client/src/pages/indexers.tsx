@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
+import { asZodType } from "@/lib/utils";
 import { Plus, Edit, Trash2, Check, X, Activity } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -135,7 +136,7 @@ export default function IndexersPage() {
   });
 
   const form = useForm<InsertIndexer>({
-    resolver: zodResolver(insertIndexerSchema),
+    resolver: zodResolver(asZodType<InsertIndexer>(insertIndexerSchema)),
     defaultValues: {
       name: "",
       url: "",

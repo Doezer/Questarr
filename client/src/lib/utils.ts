@@ -1,9 +1,24 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
 import { type Game, type InsertGame } from "@shared/schema"
+import type { z } from "zod"
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
+}
+
+/**
+ * Creates a type-safe wrapper for zodResolver to work with drizzle-zod 0.8.x schemas.
+ * 
+ * drizzle-zod 0.8.x uses zod/v4 types internally, which are not directly compatible
+ * with the standard zod types expected by @hookform/resolvers. This helper provides
+ * the necessary type assertion while maintaining type safety for the output type.
+ * 
+ * @param schema - A drizzle-zod schema or any zod-compatible schema
+ * @returns The schema cast to a standard zod type for use with zodResolver
+ */
+export function asZodType<T>(schema: unknown): z.ZodType<T> {
+  return schema as z.ZodType<T>;
 }
 
 /**

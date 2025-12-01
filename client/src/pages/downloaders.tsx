@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
+import { asZodType } from "@/lib/utils";
 import { Plus, Edit, Trash2, Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -106,7 +107,7 @@ export default function DownloadersPage() {
   });
 
   const form = useForm<InsertDownloader>({
-    resolver: zodResolver(insertDownloaderSchema),
+    resolver: zodResolver(asZodType<InsertDownloader>(insertDownloaderSchema)),
     defaultValues: {
       name: "",
       type: "transmission",

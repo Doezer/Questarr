@@ -14,6 +14,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { insertIndexerSchema, type Indexer, type InsertIndexer } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { MultiSelect, type MultiSelectOption } from "@/components/ui/multi-select";
+import type { z } from "zod";
 
 export default function IndexersPage() {
   const { toast } = useToast();
@@ -135,7 +136,7 @@ export default function IndexersPage() {
   });
 
   const form = useForm<InsertIndexer>({
-    resolver: zodResolver(insertIndexerSchema),
+    resolver: zodResolver(insertIndexerSchema as unknown as z.ZodType<InsertIndexer>),
     defaultValues: {
       name: "",
       url: "",

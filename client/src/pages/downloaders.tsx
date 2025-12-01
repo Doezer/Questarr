@@ -14,6 +14,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertDownloaderSchema, type Downloader, type InsertDownloader } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
+import type { z } from "zod";
 
 const downloaderTypes = [
   { value: "transmission", label: "Transmission" },
@@ -106,7 +107,7 @@ export default function DownloadersPage() {
   });
 
   const form = useForm<InsertDownloader>({
-    resolver: zodResolver(insertDownloaderSchema),
+    resolver: zodResolver(insertDownloaderSchema as unknown as z.ZodType<InsertDownloader>),
     defaultValues: {
       name: "",
       type: "transmission",

@@ -1,5 +1,5 @@
 import { XMLParser } from "fast-xml-parser";
-import type { Indexer } from "@shared/schema";
+import type { Indexer } from "../shared/schema.js";
 
 interface TorznabItem {
   title: string;

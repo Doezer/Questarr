@@ -1,4 +1,4 @@
-import type { Downloader } from "@shared/schema";
+import type { Downloader } from "../shared/schema.js";
 
 interface DownloadRequest {
   url: string;

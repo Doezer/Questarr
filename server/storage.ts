@@ -1,6 +1,6 @@
-import { type User, type InsertUser, type Game, type InsertGame, type UpdateGameStatus, type Indexer, type InsertIndexer, type Downloader, type InsertDownloader, users, games, indexers, downloaders } from "@shared/schema";
+import { type User, type InsertUser, type Game, type InsertGame, type UpdateGameStatus, type Indexer, type InsertIndexer, type Downloader, type InsertDownloader, users, games, indexers, downloaders } from "../shared/schema.js";
 import { randomUUID } from "crypto";
-import { db } from "./db";
+import { db } from "./db.js";
 import { eq, ilike, or, sql } from "drizzle-orm";
 
 export interface IStorage {

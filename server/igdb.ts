@@ -1,4 +1,5 @@
 import { config } from "./config.js";
+import { igdbLogger } from "./logger.js";
 // Configuration constants for search limits
 const MAX_SEARCH_ATTEMPTS = 5;
 
@@ -105,14 +106,14 @@ class IGDBClient {
     for (let i = 0; i < searchApproaches.length && attemptCount < MAX_SEARCH_ATTEMPTS; i++) {
       try {
         attemptCount++;
-        console.log(`IGDB trying approach ${i + 1} for "${query}" (attempt ${attemptCount}/${MAX_SEARCH_ATTEMPTS})`);
+        igdbLogger.debug({ approach: i + 1, query, attempt: attemptCount, maxAttempts: MAX_SEARCH_ATTEMPTS }, `trying approach ${i + 1}`);
         const results = await this.makeRequest('games', searchApproaches[i]);
         if (results.length > 0) {
-          console.log(`IGDB search approach ${i + 1} found ${results.length} results for "${query}"`);
+          igdbLogger.info({ approach: i + 1, query, resultCount: results.length }, `search approach ${i + 1} found ${results.length} results`);
           return results;
         }
       } catch (error) {
-        console.warn(`IGDB search approach ${i + 1} failed for "${query}":`, error);
+        igdbLogger.warn({ approach: i + 1, query, error }, `search approach ${i + 1} failed`);
       }
     }
 
@@ -132,12 +133,12 @@ class IGDBClient {
 
       try {
         attemptCount++;
-        console.log(`IGDB trying word search for: "${word}" (attempt ${attemptCount}/${MAX_SEARCH_ATTEMPTS})`);
+        igdbLogger.debug({ word, attempt: attemptCount, maxAttempts: MAX_SEARCH_ATTEMPTS }, `trying word search`);
         const wordQuery = `fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url; where name ~ *"${word}"*; sort rating desc; limit ${limit};`;
         const wordResults = await this.makeRequest('games', wordQuery);
         
         if (wordResults.length > 0) {
-          console.log(`IGDB word search for "${word}" found ${wordResults.length} results`);
+          igdbLogger.info({ word, resultCount: wordResults.length }, `word search found ${wordResults.length} results`);
           
           // Filter to prefer games containing multiple query words
           const filteredResults = wordResults.filter((game: IGDBGame) => 
@@ -147,11 +148,11 @@ class IGDBClient {
           return filteredResults.length > 0 ? filteredResults : wordResults.slice(0, limit);
         }
       } catch (error) {
-        console.warn(`IGDB word search failed for "${word}":`, error);
+        igdbLogger.warn({ word, error }, `word search failed`);
       }
     }
 
-    console.log(`IGDB search found no results for "${query}"`);
+    igdbLogger.info({ query }, `search found no results`);
     return [];
   }
 
@@ -226,7 +227,7 @@ class IGDBClient {
     try {
       return await this.makeRequest('games', igdbQuery);
     } catch (error) {
-      console.warn(`IGDB genre search failed for genres: ${genres.join(', ')}`, error);
+      igdbLogger.warn({ genres, error }, `genre search failed`);
       return [];
     }
   }
@@ -265,7 +266,7 @@ class IGDBClient {
     try {
       return await this.makeRequest('games', igdbQuery);
     } catch (error) {
-      console.warn(`IGDB platform search failed for platforms: ${platforms.join(', ')}`, error);
+      igdbLogger.warn({ platforms, error }, `platform search failed`);
       return [];
     }
   }
@@ -287,7 +288,7 @@ class IGDBClient {
       .filter(game => game.igdbId)
       .map(game => game.igdbId);
 
-    console.log(`Generating recommendations based on ${userGenres.length} genres and ${userPlatforms.length} platforms, excluding ${userIgdbIds.length} games`);
+    igdbLogger.debug({ genreCount: userGenres.length, platformCount: userPlatforms.length, excludeCount: userIgdbIds.length }, `generating recommendations`);
 
     const recommendations: IGDBGame[] = [];
     
@@ -322,11 +323,11 @@ class IGDBClient {
         index === self.findIndex(g => g.id === game.id)
       );
 
-      console.log(`Generated ${uniqueRecommendations.length} unique recommendations`);
+      igdbLogger.info({ count: uniqueRecommendations.length }, `generated ${uniqueRecommendations.length} unique recommendations`);
       return uniqueRecommendations.slice(0, limit);
 
     } catch (error) {
-      console.error('Error generating recommendations:', error);
+      igdbLogger.error({ error }, `error generating recommendations`);
       // Fallback to popular games
       return this.getPopularGames(limit);
     }

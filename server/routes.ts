@@ -7,6 +7,7 @@ import { insertGameSchema, updateGameStatusSchema, insertIndexerSchema, insertDo
 import { torznabClient } from "./torznab.js";
 import { DownloaderManager } from "./downloaders.js";
 import { z } from "zod";
+import { routesLogger } from "./logger.js";
 import {
   igdbRateLimiter,
   sensitiveEndpointLimiter,
@@ -81,7 +82,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await pool.query("SELECT 1");
       health.db = true;
     } catch (error) {
-      console.error("Database health check failed:", error);
+      routesLogger.error({ error }, "database health check failed");
       health.ok = false;
     }
 
@@ -91,7 +92,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await igdbClient.getPopularGames(1);
       health.igdb = true;
     } catch (error) {
-      console.error("IGDB health check failed:", error);
+      routesLogger.error({ error }, "IGDB health check failed");
       health.ok = false;
     }
 
@@ -116,7 +117,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(games);
     } catch (error) {
-      console.error("Error fetching games:", error);
+      routesLogger.error({ error }, "error fetching games");
       res.status(500).json({ error: "Failed to fetch games" });
     }
   });
@@ -128,7 +129,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const games = await storage.getGamesByStatus(status);
       res.json(games);
     } catch (error) {
-      console.error("Error fetching games by status:", error);
+      routesLogger.error({ error }, "error fetching games by status");
       res.status(500).json({ error: "Failed to fetch games" });
     }
   });
@@ -143,7 +144,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const games = await storage.searchGames(q);
       res.json(games);
     } catch (error) {
-      console.error("Error searching games:", error);
+      routesLogger.error({ error }, "error searching games");
       res.status(500).json({ error: "Failed to search games" });
     }
   });
@@ -151,7 +152,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Add game to collection
   app.post("/api/games", sensitiveEndpointLimiter, sanitizeGameData, validateRequest, async (req: Request, res: Response) => {
     try {
-      console.log("Received game data:", JSON.stringify(req.body, null, 2));
+      routesLogger.debug({ body: req.body }, "received game data");
       const gameData = insertGameSchema.parse(req.body);
       
       // Check if game already exists by IGDB ID
@@ -167,10 +168,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(game);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        console.error("Validation error:", JSON.stringify(error.errors, null, 2));
+        routesLogger.warn({ errors: error.errors }, "validation error");
         return res.status(400).json({ error: "Invalid game data", details: error.errors });
       }
-      console.error("Error adding game:", error);
+      routesLogger.error({ error }, "error adding game");
       res.status(500).json({ error: "Failed to add game" });
     }
   });
@@ -191,7 +192,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: "Invalid status data", details: error.errors });
       }
-      console.error("Error updating game status:", error);
+      routesLogger.error({ error }, "error updating game status");
       res.status(500).json({ error: "Failed to update game status" });
     }
   });
@@ -208,7 +209,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.status(204).send();
     } catch (error) {
-      console.error("Error removing game:", error);
+      routesLogger.error({ error }, "error removing game");
       res.status(500).json({ error: "Failed to remove game" });
     }
   });
@@ -229,7 +230,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(formattedGames);
     } catch (error) {
-      console.error("Error searching IGDB:", error);
+      routesLogger.error({ error }, "error searching IGDB");
       res.status(500).json({ error: "Failed to search games" });
     }
   });
@@ -248,7 +249,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(formattedGames);
     } catch (error) {
-      console.error("Error getting game recommendations:", error);
+      routesLogger.error({ error }, "error getting game recommendations");
       res.status(500).json({ error: "Failed to get recommendations" });
     }
   });
@@ -264,7 +265,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(formattedGames);
     } catch (error) {
-      console.error("Error fetching popular games:", error);
+      routesLogger.error({ error }, "error fetching popular games");
       res.status(500).json({ error: "Failed to fetch popular games" });
     }
   });
@@ -280,7 +281,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(formattedGames);
     } catch (error) {
-      console.error("Error fetching recent releases:", error);
+      routesLogger.error({ error }, "error fetching recent releases");
       res.status(500).json({ error: "Failed to fetch recent releases" });
     }
   });
@@ -296,7 +297,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(formattedGames);
     } catch (error) {
-      console.error("Error fetching upcoming releases:", error);
+      routesLogger.error({ error }, "error fetching upcoming releases");
       res.status(500).json({ error: "Failed to fetch upcoming releases" });
     }
   });
@@ -319,7 +320,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const formattedGame = igdbClient.formatGameData(igdbGame);
       res.json(formattedGame);
     } catch (error) {
-      console.error("Error fetching game details:", error);
+      routesLogger.error({ error }, "error fetching game details");
       res.status(500).json({ error: "Failed to fetch game details" });
     }
   });
@@ -332,7 +333,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const indexers = await storage.getAllIndexers();
       res.json(indexers);
     } catch (error) {
-      console.error("Error fetching indexers:", error);
+      routesLogger.error({ error }, "error fetching indexers");
       res.status(500).json({ error: "Failed to fetch indexers" });
     }
   });
@@ -343,7 +344,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const indexers = await storage.getEnabledIndexers();
       res.json(indexers);
     } catch (error) {
-      console.error("Error fetching enabled indexers:", error);
+      routesLogger.error({ error }, "error fetching enabled indexers");
       res.status(500).json({ error: "Failed to fetch enabled indexers" });
     }
   });
@@ -361,7 +362,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json(indexer);
     } catch (error) {
-      console.error("Error fetching indexer:", error);
+      routesLogger.error({ error }, "error fetching indexer");
       res.status(500).json({ error: "Failed to fetch indexer" });
     }
   });
@@ -376,7 +377,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: "Invalid indexer data", details: error.errors });
       }
-      console.error("Error adding indexer:", error);
+      routesLogger.error({ error }, "error adding indexer");
       res.status(500).json({ error: "Failed to add indexer" });
     }
   });
@@ -392,7 +393,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json(indexer);
     } catch (error) {
-      console.error("Error updating indexer:", error);
+      routesLogger.error({ error }, "error updating indexer");
       res.status(500).json({ error: "Failed to update indexer" });
     }
   });
@@ -407,7 +408,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.status(204).send();
     } catch (error) {
-      console.error("Error deleting indexer:", error);
+      routesLogger.error({ error }, "error deleting indexer");
       res.status(500).json({ error: "Failed to delete indexer" });
     }
   });
@@ -420,7 +421,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const downloaders = await storage.getAllDownloaders();
       res.json(downloaders);
     } catch (error) {
-      console.error("Error fetching downloaders:", error);
+      routesLogger.error({ error }, "error fetching downloaders");
       res.status(500).json({ error: "Failed to fetch downloaders" });
     }
   });
@@ -431,7 +432,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const downloaders = await storage.getEnabledDownloaders();
       res.json(downloaders);
     } catch (error) {
-      console.error("Error fetching enabled downloaders:", error);
+      routesLogger.error({ error }, "error fetching enabled downloaders");
       res.status(500).json({ error: "Failed to fetch enabled downloaders" });
     }
   });
@@ -446,7 +447,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json(downloader);
     } catch (error) {
-      console.error("Error fetching downloader:", error);
+      routesLogger.error({ error }, "error fetching downloader");
       res.status(500).json({ error: "Failed to fetch downloader" });
     }
   });
@@ -461,7 +462,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: "Invalid downloader data", details: error.errors });
       }
-      console.error("Error adding downloader:", error);
+      routesLogger.error({ error }, "error adding downloader");
       res.status(500).json({ error: "Failed to add downloader" });
     }
   });
@@ -477,7 +478,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json(downloader);
     } catch (error) {
-      console.error("Error updating downloader:", error);
+      routesLogger.error({ error }, "error updating downloader");
       res.status(500).json({ error: "Failed to update downloader" });
     }
   });
@@ -492,7 +493,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.status(204).send();
     } catch (error) {
-      console.error("Error deleting downloader:", error);
+      routesLogger.error({ error }, "error deleting downloader");
       res.status(500).json({ error: "Failed to delete downloader" });
     }
   });
@@ -515,7 +516,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const result = await torznabClient.testConnection(indexer);
       res.json(result);
     } catch (error) {
-      console.error("Error testing indexer:", error);
+      routesLogger.error({ error }, "error testing indexer");
       res.status(500).json({ 
         error: "Failed to test indexer connection" 
       });
@@ -535,7 +536,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const categories = await torznabClient.getCategories(indexer);
       res.json(categories);
     } catch (error) {
-      console.error("Error getting categories:", error);
+      routesLogger.error({ error }, "error getting categories");
       res.status(500).json({ error: "Failed to get categories" });
     }
   });
@@ -565,7 +566,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const results = await torznabClient.searchGames(indexer, searchParams);
       res.json(results);
     } catch (error) {
-      console.error("Error searching specific indexer:", error);
+      routesLogger.error({ error }, "error searching specific indexer");
       res.status(500).json({ error: "Failed to search indexer" });
     }
   });
@@ -585,7 +586,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const result = await DownloaderManager.testDownloader(downloader);
       res.json(result);
     } catch (error) {
-      console.error("Error testing downloader:", error);
+      routesLogger.error({ error }, "error testing downloader");
       res.status(500).json({ 
         error: "Failed to test downloader connection" 
       });
@@ -621,7 +622,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(result);
     } catch (error) {
-      console.error("Error adding torrent:", error);
+      routesLogger.error({ error }, "error adding torrent");
       res.status(500).json({ 
         error: "Failed to add torrent" 
       });
@@ -641,7 +642,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const torrents = await DownloaderManager.getAllTorrents(downloader);
       res.json(torrents);
     } catch (error) {
-      console.error("Error getting torrents:", error);
+      routesLogger.error({ error }, "error getting torrents");
       res.status(500).json({ error: "Failed to get torrents" });
     }
   });
@@ -663,7 +664,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(torrent);
     } catch (error) {
-      console.error("Error getting torrent status:", error);
+      routesLogger.error({ error }, "error getting torrent status");
       res.status(500).json({ error: "Failed to get torrent status" });
     }
   });
@@ -703,7 +704,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const result = await DownloaderManager.pauseTorrent(downloader, torrentId);
       res.json(result);
     } catch (error) {
-      console.error("Error pausing torrent:", error);
+      routesLogger.error({ error }, "error pausing torrent");
       res.status(500).json({ 
         error: "Failed to pause torrent" 
       });
@@ -723,7 +724,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const result = await DownloaderManager.resumeTorrent(downloader, torrentId);
       res.json(result);
     } catch (error) {
-      console.error("Error resuming torrent:", error);
+      routesLogger.error({ error }, "error resuming torrent");
       res.status(500).json({ 
         error: "Failed to resume torrent" 
       });
@@ -749,7 +750,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(result);
     } catch (error) {
-      console.error("Error removing torrent:", error);
+      routesLogger.error({ error }, "error removing torrent");
       res.status(500).json({ 
         error: "Failed to remove torrent" 
       });
@@ -774,7 +775,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           allTorrents.push(...torrentsWithDownloader);
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-          console.error(`Error getting torrents from ${downloader.name}:`, error);
+          routesLogger.error({ downloaderName: downloader.name, error }, `error getting torrents from ${downloader.name}`);
           errors.push({
             downloaderId: downloader.id,
             downloaderName: downloader.name,
@@ -788,7 +789,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         errors,
       });
     } catch (error) {
-      console.error("Error getting all downloads:", error);
+      routesLogger.error({ error }, "error getting all downloads");
       res.status(500).json({ error: "Failed to get downloads" });
     }
   });
@@ -825,7 +826,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json(result);
     } catch (error) {
-      console.error("Error adding download:", error);
+      routesLogger.error({ error }, "error adding download");
       res.status(500).json({ 
         error: "Failed to add download" 
       });
@@ -868,7 +869,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
       res.json(config);
     } catch (error) {
-      console.error("Error fetching config:", error);
+      routesLogger.error({ error }, "error fetching config");
       res.status(500).json({ error: "Failed to fetch configuration" });
     }
   });

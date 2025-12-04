@@ -1,3 +1,5 @@
+import { config } from "./config.js";
+
 interface IGDBGame {
   id: number;
   name: string;
@@ -37,8 +39,8 @@ class IGDBClient {
       return this.accessToken;
     }
 
-    const clientId = process.env.IGDB_CLIENT_ID;
-    const clientSecret = process.env.IGDB_CLIENT_SECRET;
+    const clientId = config.igdb.clientId;
+    const clientSecret = config.igdb.clientSecret;
 
     if (!clientId || !clientSecret) {
       throw new Error('IGDB credentials not configured');
@@ -61,7 +63,7 @@ class IGDBClient {
 
   private async makeRequest(endpoint: string, query: string): Promise<any> {
     const token = await this.authenticate();
-    const clientId = process.env.IGDB_CLIENT_ID;
+    const clientId = config.igdb.clientId;
 
     const response = await fetch(`https://api.igdb.com/v4/${endpoint}`, {
       method: 'POST',

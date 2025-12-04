@@ -33,6 +33,28 @@ interface IGDBAuthResponse {
   token_type: string;
 }
 
+/**
+ * Sanitizes user input for use in IGDB API queries.
+ * Removes characters that could be used for query injection.
+ * IGDB uses a custom query language (Apicalypse), so we need to escape
+ * special characters like quotes, semicolons, and operators.
+ */
+function sanitizeIgdbInput(input: string): string {
+  // Remove or escape characters that have special meaning in IGDB queries:
+  // - quotes (single and double)
+  // - semicolons (statement separator)
+  // - ampersands and pipes (logical operators)
+  // - asterisks (wildcard, but we control their placement)
+  // - parentheses (grouping)
+  // - angle brackets
+  // - backticks
+  return input
+    .replace(/['"`;|&*()<>\\`]/g, '') // Remove special characters
+    .replace(/\s+/g, ' ')              // Normalize whitespace
+    .trim()
+    .slice(0, 100);                     // Limit length to prevent abuse
+}
+
 class IGDBClient {
   private accessToken: string | null = null;
   private tokenExpiry: number = 0;
@@ -86,45 +108,49 @@ class IGDBClient {
   }
 
   async searchGames(query: string, limit: number = 20): Promise<IGDBGame[]> {
+    // Sanitize the search query to prevent query injection
+    const sanitizedQuery = sanitizeIgdbInput(query);
+    if (!sanitizedQuery) return [];
+    
     let attemptCount = 0;
 
     // Try multiple search approaches to maximize results
     const searchApproaches = [
       // Approach 1: Full text search without category filter  
-      `search "${query}"; fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url; limit ${limit};`,
+      `search "${sanitizedQuery}"; fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url; limit ${limit};`,
       
       // Approach 2: Full text search with category filter
-      `search "${query}"; fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url; where category = 0; limit ${limit};`,
+      `search "${sanitizedQuery}"; fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url; where category = 0; limit ${limit};`,
       
       // Approach 3: Case-insensitive name matching without category
-      `fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url; where name ~= "${query}"; limit ${limit};`,
+      `fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url; where name ~= "${sanitizedQuery}"; limit ${limit};`,
       
       // Approach 4: Partial name matching without category
-      `fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url; where name ~ *"${query}"*; sort rating desc; limit ${limit};`
+      `fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url; where name ~ *"${sanitizedQuery}"*; sort rating desc; limit ${limit};`
     ];
 
     for (let i = 0; i < searchApproaches.length && attemptCount < MAX_SEARCH_ATTEMPTS; i++) {
       try {
         attemptCount++;
-        igdbLogger.debug({ approach: i + 1, query, attempt: attemptCount, maxAttempts: MAX_SEARCH_ATTEMPTS }, `trying approach ${i + 1}`);
+        igdbLogger.debug({ approach: i + 1, query: sanitizedQuery, attempt: attemptCount, maxAttempts: MAX_SEARCH_ATTEMPTS }, `trying approach ${i + 1}`);
         const results = await this.makeRequest('games', searchApproaches[i]);
         if (results.length > 0) {
-          igdbLogger.info({ approach: i + 1, query, resultCount: results.length }, `search approach ${i + 1} found ${results.length} results`);
+          igdbLogger.info({ approach: i + 1, query: sanitizedQuery, resultCount: results.length }, `search approach ${i + 1} found ${results.length} results`);
           return results;
         }
       } catch (error) {
-        igdbLogger.warn({ approach: i + 1, query, error }, `search approach ${i + 1} failed`);
+        igdbLogger.warn({ approach: i + 1, query: sanitizedQuery, error }, `search approach ${i + 1} failed`);
       }
     }
 
     // Check if we've reached the max attempts before trying word search
     if (attemptCount >= MAX_SEARCH_ATTEMPTS) {
-      console.log(`IGDB search reached max attempts (${MAX_SEARCH_ATTEMPTS}) for "${query}"`);
+      igdbLogger.info({ query: sanitizedQuery, maxAttempts: MAX_SEARCH_ATTEMPTS }, `search reached max attempts`);
       return [];
     }
 
     // If no full-phrase results, try individual words without category filter
-    const words = query.toLowerCase().split(' ').filter(word => word.length > 2);
+    const words = sanitizedQuery.toLowerCase().split(' ').filter(word => word.length > 2);
     for (const word of words) {
       if (attemptCount >= MAX_SEARCH_ATTEMPTS) {
         console.log(`IGDB search reached max attempts (${MAX_SEARCH_ATTEMPTS}) during word search for "${query}"`);
@@ -133,8 +159,11 @@ class IGDBClient {
 
       try {
         attemptCount++;
-        igdbLogger.debug({ word, attempt: attemptCount, maxAttempts: MAX_SEARCH_ATTEMPTS }, `trying word search`);
-        const wordQuery = `fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url; where name ~ *"${word}"*; sort rating desc; limit ${limit};`;
+        const sanitizedWord = sanitizeIgdbInput(word);
+        if (!sanitizedWord) continue;
+        
+        igdbLogger.debug({ word: sanitizedWord, attempt: attemptCount, maxAttempts: MAX_SEARCH_ATTEMPTS }, `trying word search`);
+        const wordQuery = `fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url; where name ~ *"${sanitizedWord}"*; sort rating desc; limit ${limit};`;
         const wordResults = await this.makeRequest('games', wordQuery);
         
         if (wordResults.length > 0) {
@@ -152,7 +181,7 @@ class IGDBClient {
       }
     }
 
-    igdbLogger.info({ query }, `search found no results`);
+    igdbLogger.info({ query: sanitizedQuery }, `search found no results`);
     return [];
   }
 
@@ -210,10 +239,13 @@ class IGDBClient {
 
     // Convert genre names to a query format - use regex matching for better results
     const genreConditions = genres.slice(0, 3).map(genre => {
-      // Handle special characters in genre names
-      const cleanGenre = genre.replace(/[()]/g, '').replace(/\s+/g, ' ').trim();
-      return `genres.name ~ *"${cleanGenre}"*`;
-    });
+      // Sanitize genre names to prevent query injection
+      const cleanGenre = sanitizeIgdbInput(genre);
+      return cleanGenre ? `genres.name ~ *"${cleanGenre}"*` : null;
+    }).filter(Boolean);
+    
+    if (genreConditions.length === 0) return [];
+    
     const genreCondition = genreConditions.join(' | ');
     const excludeCondition = excludeIds.length > 0 ? ` & id != (${excludeIds.join(',')})` : '';
 
@@ -250,9 +282,14 @@ class IGDBClient {
     );
     const uniquePlatforms = Array.from(new Set(mappedPlatforms));
     
-    const platformConditions = uniquePlatforms.map(platform => 
-      `platforms.name ~ *"${platform}"*`
-    );
+    const platformConditions = uniquePlatforms.map(platform => {
+      // Sanitize platform names to prevent query injection
+      const cleanPlatform = sanitizeIgdbInput(platform);
+      return cleanPlatform ? `platforms.name ~ *"${cleanPlatform}"*` : null;
+    }).filter(Boolean);
+    
+    if (platformConditions.length === 0) return [];
+    
     const platformCondition = platformConditions.join(' | ');
     const excludeCondition = excludeIds.length > 0 ? ` & id != (${excludeIds.join(',')})` : '';
 
@@ -334,8 +371,9 @@ class IGDBClient {
   }
 
   async getGamesByGenre(genre: string, limit: number = 20, offset: number = 0): Promise<IGDBGame[]> {
-    // Sanitize and escape the genre name for IGDB query
-    const cleanGenre = genre.replace(/[()]/g, '').replace(/\s+/g, ' ').trim();
+    // Sanitize the genre name to prevent query injection
+    const cleanGenre = sanitizeIgdbInput(genre);
+    if (!cleanGenre) return [];
     
     const igdbQuery = `
       fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url;
@@ -354,8 +392,9 @@ class IGDBClient {
   }
 
   async getGamesByPlatform(platform: string, limit: number = 20, offset: number = 0): Promise<IGDBGame[]> {
-    // Sanitize the platform name for IGDB query
-    const cleanPlatform = platform.replace(/[()]/g, '').replace(/\s+/g, ' ').trim();
+    // Sanitize the platform name to prevent query injection
+    const cleanPlatform = sanitizeIgdbInput(platform);
+    if (!cleanPlatform) return [];
     
     const igdbQuery = `
       fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url;

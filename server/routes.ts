@@ -657,6 +657,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get detailed torrent information (files, trackers, etc.)
+  app.get("/api/downloaders/:id/torrents/:torrentId/details", async (req, res) => {
+    try {
+      const { id, torrentId } = req.params;
+      const downloader = await storage.getDownloader(id);
+      
+      if (!downloader) {
+        return res.status(404).json({ error: "Downloader not found" });
+      }
+
+      const details = await DownloaderManager.getTorrentDetails(downloader, torrentId);
+      if (!details) {
+        return res.status(404).json({ error: "Torrent not found" });
+      }
+
+      res.json(details);
+    } catch (error) {
+      console.error("Error getting torrent details:", error);
+      res.status(500).json({ error: "Failed to get torrent details" });
+    }
+  });
+
   // Pause torrent
   app.post("/api/downloaders/:id/torrents/:torrentId/pause", async (req, res) => {
     try {

@@ -8,8 +8,8 @@ import SearchBar from "./SearchBar";
 import GameGrid from "./GameGrid";
 import StatsCard from "./StatsCard";
 import DiscoveryFilters from "./DiscoveryFilters";
-import { Library, Download, Star, Calendar } from "lucide-react";
-import { type Game, type InsertGame } from "@shared/schema";
+import { Library, Star, Gamepad2, Tags } from "lucide-react";
+import { type Game } from "@shared/schema";
 import { type GameStatus } from "./StatusBadge";
 import { useToast } from "@/hooks/use-toast";
 import { mapGameToInsertGame } from "@/lib/utils";
@@ -138,34 +138,35 @@ export default function Dashboard({}: DashboardProps) {
     }
   });
 
+  // Calculate unique genres and platforms from user's game collection
+  const uniqueGenres = new Set(games.flatMap((g) => g.genres || []));
+  const uniquePlatforms = new Set(games.flatMap((g) => g.platforms || []));
+
   const stats = [
     {
       title: "Total Games",
       value: games.length,
       subtitle: "in your library",
       icon: Library,
-      trend: { value: 12, label: "from last month" }
     },
     {
-      title: "Downloads", 
-      value: games.filter((g) => g.status === "downloading").length,
-      subtitle: "in progress",
-      icon: Download
+      title: "Genres",
+      value: uniqueGenres.size,
+      subtitle: "unique genres",
+      icon: Tags,
+    },
+    {
+      title: "Platforms",
+      value: uniquePlatforms.size,
+      subtitle: "unique platforms",
+      icon: Gamepad2,
     },
     {
       title: "Wishlist",
       value: games.filter((g) => g.status === "wanted").length,
-      subtitle: "wanted games", 
+      subtitle: "wanted games",
       icon: Star,
-      trend: { value: -2, label: "from last week" }
     },
-    {
-      title: "Releases",
-      value: 8,
-      subtitle: "this month",
-      icon: Calendar,
-      trend: { value: 5, label: "vs last month" }
-    }
   ];
 
   const sidebarStyle = {
@@ -300,7 +301,6 @@ export default function Dashboard({}: DashboardProps) {
                       value={stat.value}
                       subtitle={stat.subtitle}
                       icon={stat.icon}
-                      trend={stat.trend}
                     />
                   ))}
                 </div>

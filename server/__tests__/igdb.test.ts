@@ -1,5 +1,27 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+// Mock the config module before importing igdb
+vi.mock('../config.js', () => ({
+  config: {
+    database: {
+      url: 'postgresql://test:test@localhost/test',
+    },
+    igdb: {
+      clientId: 'test-client-id',
+      clientSecret: 'test-client-secret',
+      isConfigured: true,
+    },
+    server: {
+      port: 5000,
+      host: 'localhost',
+      nodeEnv: 'test',
+      isDevelopment: false,
+      isProduction: false,
+      isTest: true,
+    },
+  },
+}));
+
 // Mock the IGDBClient by testing the fallback behavior
 describe('IGDBClient - Fallback Mechanism', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
@@ -12,10 +34,6 @@ describe('IGDBClient - Fallback Mechanism', () => {
   });
 
   it('should try multiple search approaches when first approach returns no results', async () => {
-    // Mock environment variables
-    process.env.IGDB_CLIENT_ID = 'test-client-id';
-    process.env.IGDB_CLIENT_SECRET = 'test-client-secret';
-
     // Mock authentication response
     const authResponse = {
       ok: true,
@@ -74,10 +92,6 @@ describe('IGDBClient - Fallback Mechanism', () => {
   });
 
   it('should return empty array when all search approaches fail', async () => {
-    // Mock environment variables
-    process.env.IGDB_CLIENT_ID = 'test-client-id';
-    process.env.IGDB_CLIENT_SECRET = 'test-client-secret';
-
     // Mock authentication response
     const authResponse = {
       ok: true,

@@ -24,6 +24,45 @@ import {
 } from "./middleware.js";
 import { config as appConfig } from "./config.js";
 
+// Helper function for aggregated indexer search
+async function handleAggregatedIndexerSearch(req: Request, res: Response) {
+  try {
+    const { query, category, limit = 50, offset = 0 } = req.query;
+    
+    if (!query || typeof query !== "string") {
+      return res.status(400).json({ error: "Search query required" });
+    }
+
+    // Get enabled indexers
+    const enabledIndexers = await storage.getEnabledIndexers();
+    if (enabledIndexers.length === 0) {
+      return res.status(400).json({ error: "No indexers configured" });
+    }
+
+    const searchParams = {
+      query: query.trim(),
+      category: category && typeof category === "string" ? category.split(",") : undefined,
+      limit: parseInt(limit as string) || 50,
+      offset: parseInt(offset as string) || 0,
+    };
+
+    const { results, errors } = await torznabClient.searchMultipleIndexers(
+      enabledIndexers,
+      searchParams
+    );
+
+    res.json({
+      items: results.items,
+      total: results.total,
+      offset: results.offset,
+      errors: errors.length > 0 ? errors : undefined,
+    });
+  } catch (error) {
+    console.error("Error searching indexers:", error);
+    res.status(500).json({ error: "Failed to search indexers" });
+  }
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Health check endpoint
   app.get("/api/health", async (req, res) => {
@@ -306,43 +345,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Aggregated search across all enabled indexers
-  app.get("/api/indexers/search", async (req, res) => {
-    try {
-      const { query, category, limit = 50, offset = 0 } = req.query;
-      
-      if (!query || typeof query !== "string") {
-        return res.status(400).json({ error: "Search query required" });
-      }
-
-      // Get enabled indexers
-      const enabledIndexers = await storage.getEnabledIndexers();
-      if (enabledIndexers.length === 0) {
-        return res.status(400).json({ error: "No indexers configured" });
-      }
-
-      const searchParams = {
-        query: query.trim(),
-        category: category && typeof category === "string" ? category.split(",") : undefined,
-        limit: parseInt(limit as string) || 50,
-        offset: parseInt(offset as string) || 0,
-      };
-
-      const { results, errors } = await torznabClient.searchMultipleIndexers(
-        enabledIndexers,
-        searchParams
-      );
-
-      res.json({
-        items: results.items,
-        total: results.total,
-        offset: results.offset,
-        errors: errors.length > 0 ? errors : undefined,
-      });
-    } catch (error) {
-      console.error("Error searching indexers:", error);
-      res.status(500).json({ error: "Failed to search indexers" });
-    }
-  });
+  app.get("/api/indexers/search", handleAggregatedIndexerSearch);
 
   // Get single indexer
   app.get("/api/indexers/:id", async (req, res) => {
@@ -492,44 +495,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Torznab search routes
   
-  // Search for games using configured indexers
-  app.get("/api/search", async (req, res) => {
-    try {
-      const { query, category, limit = 50, offset = 0 } = req.query;
-      
-      if (!query || typeof query !== "string") {
-        return res.status(400).json({ error: "Search query required" });
-      }
-
-      // Get enabled indexers
-      const enabledIndexers = await storage.getEnabledIndexers();
-      if (enabledIndexers.length === 0) {
-        return res.status(400).json({ error: "No indexers configured" });
-      }
-
-      const searchParams = {
-        query: query.trim(),
-        category: category && typeof category === "string" ? category.split(",") : undefined,
-        limit: parseInt(limit as string) || 50,
-        offset: parseInt(offset as string) || 0,
-      };
-
-      const { results, errors } = await torznabClient.searchMultipleIndexers(
-        enabledIndexers,
-        searchParams
-      );
-
-      res.json({
-        items: results.items,
-        total: results.total,
-        offset: results.offset,
-        errors: errors.length > 0 ? errors : undefined,
-      });
-    } catch (error) {
-      console.error("Error searching indexers:", error);
-      res.status(500).json({ error: "Failed to search indexers" });
-    }
-  });
+  // Search for games using configured indexers (alias for /api/indexers/search)
+  app.get("/api/search", handleAggregatedIndexerSearch);
 
   // Test indexer connection
   app.post("/api/indexers/:id/test", async (req, res) => {

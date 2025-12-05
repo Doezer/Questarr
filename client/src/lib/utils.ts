@@ -8,6 +8,17 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
+ * Formats bytes to a human-readable string (e.g., "1.5 GB")
+ */
+export function formatBytes(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+}
+
+/**
  * Creates a type-safe wrapper for zodResolver to work with drizzle-zod 0.8.x schemas.
  * 
  * drizzle-zod 0.8.x uses zod/v4 types internally, which are not directly compatible

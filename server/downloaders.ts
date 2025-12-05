@@ -1,4 +1,4 @@
-import type { Downloader } from "../shared/schema.js";
+import type { Downloader, DownloadStatus, TorrentFile, TorrentTracker, TorrentDetails } from "../shared/schema.js";
 
 interface DownloadRequest {
   url: string;
@@ -6,54 +6,6 @@ interface DownloadRequest {
   category?: string;
   downloadPath?: string;
   priority?: number;
-}
-
-interface DownloadStatus {
-  id: string;
-  name: string;
-  status: 'downloading' | 'seeding' | 'completed' | 'paused' | 'error';
-  progress: number; // 0-100
-  downloadSpeed?: number; // bytes per second
-  uploadSpeed?: number; // bytes per second
-  eta?: number; // seconds
-  size?: number; // total bytes
-  downloaded?: number; // bytes downloaded
-  seeders?: number;
-  leechers?: number;
-  ratio?: number;
-  error?: string;
-}
-
-interface TorrentFile {
-  name: string;
-  size: number;
-  progress: number; // 0-100
-  priority: 'low' | 'normal' | 'high';
-  wanted: boolean;
-}
-
-interface TorrentTracker {
-  url: string;
-  tier: number;
-  status: 'working' | 'updating' | 'error' | 'inactive';
-  seeders?: number;
-  leechers?: number;
-  lastAnnounce?: string;
-  nextAnnounce?: string;
-  error?: string;
-}
-
-interface TorrentDetails extends DownloadStatus {
-  hash?: string;
-  addedDate?: string;
-  completedDate?: string;
-  downloadDir?: string;
-  comment?: string;
-  creator?: string;
-  files: TorrentFile[];
-  trackers: TorrentTracker[];
-  totalPeers?: number;
-  connectedPeers?: number;
 }
 
 interface DownloaderClient {
@@ -275,9 +227,15 @@ class TransmissionClient implements DownloaderClient {
         const stats = torrent.fileStats[i];
         
         // Transmission priority: -1=low, 0=normal, 1=high
+        // If file is not wanted, mark as 'off'
         let priority: TorrentFile['priority'] = 'normal';
-        if (stats.priority === -1) priority = 'low';
-        else if (stats.priority === 1) priority = 'high';
+        if (!stats.wanted) {
+          priority = 'off';
+        } else if (stats.priority === -1) {
+          priority = 'low';
+        } else if (stats.priority === 1) {
+          priority = 'high';
+        }
         
         const fileProgress = file.length > 0 
           ? Math.round((stats.bytesCompleted / file.length) * 100) 
@@ -574,11 +532,13 @@ class RTorrentClient implements DownloaderClient {
       const progress = sizeBytes > 0 ? Math.round((completedBytes / sizeBytes) * 100) : 0;
 
       // Map files
+      // rTorrent priority: 0 = don't download (off), 1 = normal, 2 = high
       const files: TorrentFile[] = (filesResult || []).map((file: any) => {
         const [path, size, completedChunks, totalChunks, priority] = file;
         const fileProgress = totalChunks > 0 ? Math.round((completedChunks / totalChunks) * 100) : 0;
         let filePriority: TorrentFile['priority'] = 'normal';
-        if (priority === 0) filePriority = 'low';
+        if (priority === 0) filePriority = 'off';
+        else if (priority === 1) filePriority = 'normal';
         else if (priority === 2) filePriority = 'high';
         
         return {
@@ -586,19 +546,31 @@ class RTorrentClient implements DownloaderClient {
           size,
           progress: fileProgress,
           priority: filePriority,
-          wanted: priority > 0,
+          wanted: priority !== 0,
         };
       });
 
       // Map trackers
       const trackers: TorrentTracker[] = (trackersResult || []).map((tracker: any) => {
-        const [url, group, isEnabled, seeders, leechers] = tracker;
+        // rTorrent tracker tuple: [url, group, isEnabled, seeders, leechers, ...optional fields]
+        const [url, group, isEnabled, seeders, leechers, lastScrape, lastAnnounce, lastError] = tracker;
+        let trackerStatus: TorrentTracker['status'] = 'inactive';
+        if (isEnabled) {
+          if (lastError && typeof lastError === 'string' && lastError.length > 0) {
+            trackerStatus = 'error';
+          } else if (lastScrape === 0 || lastAnnounce === 0) {
+            trackerStatus = 'updating';
+          } else {
+            trackerStatus = 'working';
+          }
+        }
         return {
           url,
           tier: group,
-          status: isEnabled ? 'working' as const : 'inactive' as const,
+          status: trackerStatus,
           seeders: seeders >= 0 ? seeders : undefined,
           leechers: leechers >= 0 ? leechers : undefined,
+          error: lastError && typeof lastError === 'string' && lastError.length > 0 ? lastError : undefined,
         };
       });
 
@@ -1127,4 +1099,4 @@ export class DownloaderManager {
   }
 }
 
-export { DownloadRequest, DownloadStatus, TorrentFile, TorrentTracker, TorrentDetails, DownloaderClient };
+export { DownloadRequest, DownloaderClient };

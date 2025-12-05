@@ -22,51 +22,8 @@ import {
   Calendar,
   Users,
 } from "lucide-react";
-
-interface TorrentFile {
-  name: string;
-  size: number;
-  progress: number;
-  priority: 'low' | 'normal' | 'high';
-  wanted: boolean;
-}
-
-interface TorrentTracker {
-  url: string;
-  tier: number;
-  status: 'working' | 'updating' | 'error' | 'inactive';
-  seeders?: number;
-  leechers?: number;
-  lastAnnounce?: string;
-  nextAnnounce?: string;
-  error?: string;
-}
-
-interface TorrentDetails {
-  id: string;
-  name: string;
-  status: 'downloading' | 'seeding' | 'completed' | 'paused' | 'error';
-  progress: number;
-  downloadSpeed?: number;
-  uploadSpeed?: number;
-  eta?: number;
-  size?: number;
-  downloaded?: number;
-  seeders?: number;
-  leechers?: number;
-  ratio?: number;
-  error?: string;
-  hash?: string;
-  addedDate?: string;
-  completedDate?: string;
-  downloadDir?: string;
-  comment?: string;
-  creator?: string;
-  files: TorrentFile[];
-  trackers: TorrentTracker[];
-  totalPeers?: number;
-  connectedPeers?: number;
-}
+import { formatBytes } from "@/lib/utils";
+import type { TorrentFile, TorrentTracker, TorrentDetails } from "@shared/schema";
 
 interface TorrentDetailsModalProps {
   downloaderId: string;
@@ -74,14 +31,6 @@ interface TorrentDetailsModalProps {
   torrentName: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
 }
 
 function formatDate(isoString: string | undefined): string {
@@ -107,13 +56,16 @@ function getTrackerStatusColor(status: TorrentTracker['status']): string {
   }
 }
 
-function getPriorityBadgeVariant(priority: TorrentFile['priority']): "default" | "secondary" | "outline" {
+function getPriorityBadgeVariant(priority: TorrentFile['priority']): "default" | "secondary" | "outline" | "destructive" {
   switch (priority) {
     case 'high':
       return 'default';
     case 'normal':
       return 'secondary';
     case 'low':
+      return 'outline';
+    case 'off':
+      return 'destructive';
     default:
       return 'outline';
   }
@@ -129,7 +81,9 @@ export default function TorrentDetailsModal({
   const { data: details, isLoading, error } = useQuery<TorrentDetails>({
     queryKey: [`/api/downloaders/${downloaderId}/torrents/${torrentId}/details`],
     enabled: open && !!downloaderId && !!torrentId,
-    refetchInterval: 5000,
+    refetchInterval: (query) => query.state.error ? false : 5000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: false,
   });
 
   return (

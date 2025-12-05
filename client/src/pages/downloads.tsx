@@ -1,13 +1,14 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
-import { Play, Pause, Trash2, Download, MoreHorizontal, RefreshCw, Info } from "lucide-react";
+import { Play, Pause, Trash2, MoreHorizontal, RefreshCw, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
+import { formatBytes } from "@/lib/utils";
 import TorrentDetailsModal from "@/components/TorrentDetailsModal";
 
 interface DownloadStatus {
@@ -37,14 +38,6 @@ interface DownloaderError {
 interface DownloadsResponse {
   torrents: DownloadStatus[];
   errors: DownloaderError[];
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
 }
 
 function formatSpeed(bytesPerSecond: number): string {

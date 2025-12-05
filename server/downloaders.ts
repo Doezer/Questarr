@@ -1,4 +1,4 @@
-import type { Downloader } from "../shared/schema.js";
+import type { Downloader, DownloadStatus, TorrentFile, TorrentTracker, TorrentDetails } from "../shared/schema.js";
 
 interface DownloadRequest {
   url: string;
@@ -8,26 +8,11 @@ interface DownloadRequest {
   priority?: number;
 }
 
-interface DownloadStatus {
-  id: string;
-  name: string;
-  status: 'downloading' | 'seeding' | 'completed' | 'paused' | 'error';
-  progress: number; // 0-100
-  downloadSpeed?: number; // bytes per second
-  uploadSpeed?: number; // bytes per second
-  eta?: number; // seconds
-  size?: number; // total bytes
-  downloaded?: number; // bytes downloaded
-  seeders?: number;
-  leechers?: number;
-  ratio?: number;
-  error?: string;
-}
-
 interface DownloaderClient {
   testConnection(): Promise<{ success: boolean; message: string }>;
   addTorrent(request: DownloadRequest): Promise<{ success: boolean; id?: string; message: string }>;
   getTorrentStatus(id: string): Promise<DownloadStatus | null>;
+  getTorrentDetails(id: string): Promise<TorrentDetails | null>;
   getAllTorrents(): Promise<DownloadStatus[]>;
   pauseTorrent(id: string): Promise<{ success: boolean; message: string }>;
   resumeTorrent(id: string): Promise<{ success: boolean; message: string }>;
@@ -112,6 +97,31 @@ class TransmissionClient implements DownloaderClient {
       return null;
     } catch (error) {
       console.error('Error getting torrent status:', error);
+      return null;
+    }
+  }
+
+  async getTorrentDetails(id: string): Promise<TorrentDetails | null> {
+    try {
+      const response = await this.makeRequest('torrent-get', {
+        ids: [parseInt(id)],
+        fields: [
+          'id', 'name', 'status', 'percentDone', 'rateDownload', 'rateUpload',
+          'eta', 'totalSize', 'downloadedEver', 'peersSendingToUs', 'peersGettingFromUs',
+          'uploadRatio', 'errorString', 'hashString', 'addedDate', 'doneDate',
+          'downloadDir', 'comment', 'creator', 'files', 'fileStats', 'trackers',
+          'trackerStats', 'peersConnected'
+        ]
+      });
+
+      if (response.arguments.torrents && response.arguments.torrents.length > 0) {
+        const torrent = response.arguments.torrents[0];
+        return this.mapTransmissionDetails(torrent);
+      }
+
+      return null;
+    } catch (error) {
+      console.error('Error getting torrent details:', error);
       return null;
     }
   }
@@ -202,6 +212,96 @@ class TransmissionClient implements DownloaderClient {
       leechers: torrent.peersGettingFromUs,
       ratio: torrent.uploadRatio,
       error: torrent.errorString || undefined,
+    };
+  }
+
+  private mapTransmissionDetails(torrent: any): TorrentDetails {
+    // Get base status first
+    const baseStatus = this.mapTransmissionStatus(torrent);
+    
+    // Map files
+    const files: TorrentFile[] = [];
+    if (torrent.files && torrent.fileStats) {
+      for (let i = 0; i < torrent.files.length; i++) {
+        const file = torrent.files[i];
+        const stats = torrent.fileStats[i];
+        
+        // Transmission priority: -1=low, 0=normal, 1=high
+        // If file is not wanted, mark as 'off'
+        let priority: TorrentFile['priority'] = 'normal';
+        if (!stats.wanted) {
+          priority = 'off';
+        } else if (stats.priority === -1) {
+          priority = 'low';
+        } else if (stats.priority === 1) {
+          priority = 'high';
+        }
+        
+        const fileProgress = file.length > 0 
+          ? Math.round((stats.bytesCompleted / file.length) * 100) 
+          : 0;
+        
+        files.push({
+          name: file.name,
+          size: file.length,
+          progress: fileProgress,
+          priority,
+          wanted: stats.wanted,
+        });
+      }
+    }
+    
+    // Map trackers
+    const trackers: TorrentTracker[] = [];
+    if (torrent.trackerStats) {
+      for (const tracker of torrent.trackerStats) {
+        // Transmission tracker status: 0=inactive, 1=waiting, 2=queued, 3=active
+        let trackerStatus: TorrentTracker['status'] = 'inactive';
+        if (tracker.lastAnnounceSucceeded) {
+          trackerStatus = 'working';
+        } else if (tracker.isBackup) {
+          trackerStatus = 'inactive';
+        } else if (tracker.lastAnnounceResult && tracker.lastAnnounceResult !== 'Success') {
+          trackerStatus = 'error';
+        } else if (tracker.announceState === 1 || tracker.announceState === 2) {
+          trackerStatus = 'updating';
+        }
+        
+        trackers.push({
+          url: tracker.announce,
+          tier: tracker.tier,
+          status: trackerStatus,
+          seeders: tracker.seederCount >= 0 ? tracker.seederCount : undefined,
+          leechers: tracker.leecherCount >= 0 ? tracker.leecherCount : undefined,
+          lastAnnounce: tracker.lastAnnounceTime > 0 
+            ? new Date(tracker.lastAnnounceTime * 1000).toISOString() 
+            : undefined,
+          nextAnnounce: tracker.nextAnnounceTime > 0 
+            ? new Date(tracker.nextAnnounceTime * 1000).toISOString() 
+            : undefined,
+          error: tracker.lastAnnounceResult && tracker.lastAnnounceResult !== 'Success' 
+            ? tracker.lastAnnounceResult 
+            : undefined,
+        });
+      }
+    }
+    
+    return {
+      ...baseStatus,
+      hash: torrent.hashString,
+      addedDate: torrent.addedDate > 0 
+        ? new Date(torrent.addedDate * 1000).toISOString() 
+        : undefined,
+      completedDate: torrent.doneDate > 0 
+        ? new Date(torrent.doneDate * 1000).toISOString() 
+        : undefined,
+      downloadDir: torrent.downloadDir,
+      comment: torrent.comment || undefined,
+      creator: torrent.creator || undefined,
+      files,
+      trackers,
+      totalPeers: torrent.peersConnected,
+      connectedPeers: torrent.peersConnected,
     };
   }
 
@@ -372,6 +472,131 @@ class RTorrentClient implements DownloaderClient {
       return null;
     } catch (error) {
       console.error('Error getting torrent status:', error);
+      return null;
+    }
+  }
+
+  async getTorrentDetails(id: string): Promise<TorrentDetails | null> {
+    try {
+      // Get basic torrent info
+      const basicInfo = await Promise.all([
+        this.makeXMLRPCRequest('d.hash', [id]),
+        this.makeXMLRPCRequest('d.name', [id]),
+        this.makeXMLRPCRequest('d.state', [id]),
+        this.makeXMLRPCRequest('d.complete', [id]),
+        this.makeXMLRPCRequest('d.size_bytes', [id]),
+        this.makeXMLRPCRequest('d.completed_bytes', [id]),
+        this.makeXMLRPCRequest('d.down.rate', [id]),
+        this.makeXMLRPCRequest('d.up.rate', [id]),
+        this.makeXMLRPCRequest('d.ratio', [id]),
+        this.makeXMLRPCRequest('d.peers_connected', [id]),
+        this.makeXMLRPCRequest('d.peers_complete', [id]),
+        this.makeXMLRPCRequest('d.message', [id]),
+        this.makeXMLRPCRequest('d.directory', [id]),
+        this.makeXMLRPCRequest('d.creation_date', [id]),
+      ]);
+
+      const [hash, name, state, complete, sizeBytes, completedBytes, downRate, upRate, ratio, peersConnected, peersComplete, message, directory, creationDate] = basicInfo;
+
+      // Get files using f.multicall
+      const filesResult = await this.makeXMLRPCRequest('f.multicall', [
+        id, '',
+        'f.path=',
+        'f.size_bytes=',
+        'f.completed_chunks=',
+        'f.size_chunks=',
+        'f.priority='
+      ]);
+
+      // Get trackers using t.multicall
+      const trackersResult = await this.makeXMLRPCRequest('t.multicall', [
+        id, '',
+        't.url=',
+        't.group=',
+        't.is_enabled=',
+        't.scrape_complete=',
+        't.scrape_incomplete='
+      ]);
+
+      // Map status
+      let status: DownloadStatus['status'];
+      if (state === 1) {
+        status = complete === 1 ? 'seeding' : 'downloading';
+      } else {
+        status = complete === 1 ? 'completed' : 'paused';
+      }
+      if (message && message.length > 0) {
+        status = 'error';
+      }
+
+      const progress = sizeBytes > 0 ? Math.round((completedBytes / sizeBytes) * 100) : 0;
+
+      // Map files
+      // rTorrent priority: 0 = don't download (off), 1 = normal, 2 = high
+      const files: TorrentFile[] = (filesResult || []).map((file: any) => {
+        const [path, size, completedChunks, totalChunks, priority] = file;
+        const fileProgress = totalChunks > 0 ? Math.round((completedChunks / totalChunks) * 100) : 0;
+        let filePriority: TorrentFile['priority'] = 'normal';
+        if (priority === 0) filePriority = 'off';
+        else if (priority === 1) filePriority = 'normal';
+        else if (priority === 2) filePriority = 'high';
+        
+        return {
+          name: path,
+          size,
+          progress: fileProgress,
+          priority: filePriority,
+          wanted: priority !== 0,
+        };
+      });
+
+      // Map trackers
+      const trackers: TorrentTracker[] = (trackersResult || []).map((tracker: any) => {
+        // rTorrent tracker tuple: [url, group, isEnabled, seeders, leechers, ...optional fields]
+        const [url, group, isEnabled, seeders, leechers, lastScrape, lastAnnounce, lastError] = tracker;
+        let trackerStatus: TorrentTracker['status'] = 'inactive';
+        if (isEnabled) {
+          if (lastError && typeof lastError === 'string' && lastError.length > 0) {
+            trackerStatus = 'error';
+          } else if (lastScrape === 0 || lastAnnounce === 0) {
+            trackerStatus = 'updating';
+          } else {
+            trackerStatus = 'working';
+          }
+        }
+        return {
+          url,
+          tier: group,
+          status: trackerStatus,
+          seeders: seeders >= 0 ? seeders : undefined,
+          leechers: leechers >= 0 ? leechers : undefined,
+          error: lastError && typeof lastError === 'string' && lastError.length > 0 ? lastError : undefined,
+        };
+      });
+
+      return {
+        id: hash,
+        name,
+        status,
+        progress,
+        downloadSpeed: downRate,
+        uploadSpeed: upRate,
+        size: sizeBytes,
+        downloaded: completedBytes,
+        seeders: peersComplete,
+        leechers: Math.max(0, peersConnected - peersComplete),
+        ratio: ratio / 1000,
+        error: message || undefined,
+        hash,
+        downloadDir: directory,
+        addedDate: creationDate > 0 ? new Date(creationDate * 1000).toISOString() : undefined,
+        files,
+        trackers,
+        totalPeers: peersConnected,
+        connectedPeers: peersConnected,
+      };
+    } catch (error) {
+      console.error('Error getting torrent details:', error);
       return null;
     }
   }
@@ -704,6 +929,10 @@ class QBittorrentClient implements DownloaderClient {
     return null;
   }
 
+  async getTorrentDetails(id: string): Promise<TorrentDetails | null> {
+    return null;
+  }
+
   async getAllTorrents(): Promise<DownloadStatus[]> {
     return [];
   }
@@ -769,6 +998,16 @@ export class DownloaderManager {
       return await client.getTorrentStatus(id);
     } catch (error) {
       console.error('Error getting torrent status:', error);
+      return null;
+    }
+  }
+
+  static async getTorrentDetails(downloader: Downloader, id: string): Promise<TorrentDetails | null> {
+    try {
+      const client = this.createClient(downloader);
+      return await client.getTorrentDetails(id);
+    } catch (error) {
+      console.error('Error getting torrent details:', error);
       return null;
     }
   }
@@ -860,4 +1099,4 @@ export class DownloaderManager {
   }
 }
 
-export { DownloadRequest, DownloadStatus, DownloaderClient };
+export { DownloadRequest, DownloaderClient };

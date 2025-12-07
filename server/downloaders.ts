@@ -1,5 +1,21 @@
 import type { Downloader } from "../shared/schema.js";
 
+/**
+ * Extract torrent info hash from a magnet URI.
+ * Standardizes to lowercase as per BitTorrent specification (case-insensitive hex encoding).
+ * 
+ * @param url - The magnet URI or torrent URL
+ * @returns The info hash in lowercase, or null if not found
+ */
+function extractHashFromUrl(url: string): string | null {
+  // Extract hash from magnet link - supports both hex (40 chars) and base32 (32 chars) formats
+  const magnetMatch = url.match(/xt=urn:btih:([a-fA-F0-9]{40}|[a-zA-Z2-7]{32})/i);
+  if (magnetMatch) {
+    return magnetMatch[1].toLowerCase();
+  }
+  return null;
+}
+
 interface DownloadRequest {
   url: string;
   title: string;
@@ -315,7 +331,7 @@ class RTorrentClient implements DownloaderClient {
           hash = result;
         } else {
           // Extract hash from magnet link or torrent URL
-          hash = this.extractHashFromUrl(request.url) || 'unknown';
+          hash = extractHashFromUrl(request.url) || 'unknown';
         }
         
         return { 
@@ -333,15 +349,6 @@ class RTorrentClient implements DownloaderClient {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       return { success: false, message: `Failed to add torrent: ${errorMessage}` };
     }
-  }
-
-  private extractHashFromUrl(url: string): string | null {
-    // Extract hash from magnet link
-    const magnetMatch = url.match(/xt=urn:btih:([a-fA-F0-9]{40}|[a-zA-Z2-7]{32})/i);
-    if (magnetMatch) {
-      return magnetMatch[1].toUpperCase();
-    }
-    return null;
   }
 
   async getTorrentStatus(id: string): Promise<DownloadStatus | null> {
@@ -749,7 +756,7 @@ class QBittorrentClient implements DownloaderClient {
       
       if (response.ok && (responseText === 'Ok.' || responseText === '')) {
         // Extract hash from magnet or generate a placeholder
-        const hash = this.extractHashFromUrl(request.url);
+        const hash = extractHashFromUrl(request.url);
         return { 
           success: true, 
           id: hash || 'added', 
@@ -770,15 +777,6 @@ class QBittorrentClient implements DownloaderClient {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       return { success: false, message: `Failed to add torrent: ${errorMessage}` };
     }
-  }
-
-  private extractHashFromUrl(url: string): string | null {
-    // Extract hash from magnet link
-    const magnetMatch = url.match(/xt=urn:btih:([a-fA-F0-9]{40}|[a-zA-Z2-7]{32})/i);
-    if (magnetMatch) {
-      return magnetMatch[1].toLowerCase();
-    }
-    return null;
   }
 
   async getTorrentStatus(id: string): Promise<DownloadStatus | null> {

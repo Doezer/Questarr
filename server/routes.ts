@@ -68,6 +68,17 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
   }
 }
 
+/**
+ * Validates and sanitizes pagination parameters from query string.
+ * @param query - The query parameters object
+ * @returns Validated limit and offset values
+ */
+function validatePaginationParams(query: { limit?: string; offset?: string }): { limit: number; offset: number } {
+  const limit = Math.min(Math.max(1, parseInt(query.limit as string) || 20), 100);
+  const offset = Math.max(0, parseInt(query.offset as string) || 0);
+  return { limit, offset };
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Health check endpoint
   app.get("/api/health", async (req, res) => {
@@ -306,18 +317,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/igdb/genre/:genre", igdbRateLimiter, async (req, res) => {
     try {
       const { genre } = req.params;
-      const { limit, offset } = req.query;
-      
-      // Validate and sanitize pagination parameters
-      const limitNum = Math.min(Math.max(1, parseInt(limit as string) || 20), 100);
-      const offsetNum = Math.max(0, parseInt(offset as string) || 0);
+      const { limit, offset } = validatePaginationParams(req.query as { limit?: string; offset?: string });
       
       // Basic validation for genre parameter
       if (!genre || genre.length > 100) {
         return res.status(400).json({ error: "Invalid genre parameter" });
       }
       
-      const igdbGames = await igdbClient.getGamesByGenre(genre, limitNum, offsetNum);
+      const igdbGames = await igdbClient.getGamesByGenre(genre, limit, offset);
       const formattedGames = igdbGames.map(game => igdbClient.formatGameData(game));
       
       res.json(formattedGames);
@@ -331,18 +338,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/igdb/platform/:platform", igdbRateLimiter, async (req, res) => {
     try {
       const { platform } = req.params;
-      const { limit, offset } = req.query;
-      
-      // Validate and sanitize pagination parameters
-      const limitNum = Math.min(Math.max(1, parseInt(limit as string) || 20), 100);
-      const offsetNum = Math.max(0, parseInt(offset as string) || 0);
+      const { limit, offset } = validatePaginationParams(req.query as { limit?: string; offset?: string });
       
       // Basic validation for platform parameter
       if (!platform || platform.length > 100) {
         return res.status(400).json({ error: "Invalid platform parameter" });
       }
       
-      const igdbGames = await igdbClient.getGamesByPlatform(platform, limitNum, offsetNum);
+      const igdbGames = await igdbClient.getGamesByPlatform(platform, limit, offset);
       const formattedGames = igdbGames.map(game => igdbClient.formatGameData(game));
       
       res.json(formattedGames);

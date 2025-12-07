@@ -7,6 +7,7 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import AppSidebar from "@/components/AppSidebar";
 import { useBackgroundNotifications } from "@/hooks/use-background-notifications";
 import Dashboard from "@/components/Dashboard";
+import DiscoverPage from "@/pages/discover";
 import SearchPage from "@/pages/search";
 import DownloadsPage from "@/pages/downloads";
 import IndexersPage from "@/pages/indexers";
@@ -18,6 +19,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Dashboard} />
+      <Route path="/discover" component={DiscoverPage} />
       <Route path="/search" component={SearchPage} />
       <Route path="/downloads" component={DownloadsPage} />
       <Route path="/indexers" component={IndexersPage} />

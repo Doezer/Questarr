@@ -1,13 +1,15 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
-import { Play, Pause, Trash2, Download, MoreHorizontal, RefreshCw } from "lucide-react";
+import { Play, Pause, Trash2, MoreHorizontal, RefreshCw, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
+import { formatBytes } from "@/lib/utils";
+import TorrentDetailsModal from "@/components/TorrentDetailsModal";
 
 interface DownloadStatus {
   id: string;
@@ -36,14 +38,6 @@ interface DownloaderError {
 interface DownloadsResponse {
   torrents: DownloadStatus[];
   errors: DownloaderError[];
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
 }
 
 function formatSpeed(bytesPerSecond: number): string {
@@ -96,6 +90,8 @@ function getStatusBadgeVariant(status: DownloadStatus['status']): "default" | "s
 export default function DownloadsPage() {
   const { toast } = useToast();
   const [hasShownErrors, setHasShownErrors] = useState<Set<string>>(new Set());
+  const [selectedTorrent, setSelectedTorrent] = useState<DownloadStatus | null>(null);
+  const [detailsModalOpen, setDetailsModalOpen] = useState(false);
 
   const { data: downloadsData, isLoading, refetch } = useQuery<DownloadsResponse>({
     queryKey: ["/api/downloads"],
@@ -141,6 +137,11 @@ export default function DownloadsPage() {
       });
     }
   }, [errors, toast]);
+
+  const handleShowDetails = (download: DownloadStatus) => {
+    setSelectedTorrent(download);
+    setDetailsModalOpen(true);
+  };
 
   const pauseMutation = useMutation({
     mutationFn: async ({ downloaderId, torrentId }: { downloaderId: string; torrentId: string }) => {
@@ -330,6 +331,13 @@ export default function DownloadsPage() {
                       </DropdownMenuTrigger>
                       <DropdownMenuContent>
                         <DropdownMenuItem
+                          onClick={() => handleShowDetails(download)}
+                          data-testid={`button-details-${download.id}`}
+                        >
+                          <Info className="h-4 w-4 mr-2" />
+                          View Details
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
                           onClick={() => handleRemove(download, false)}
                           data-testid={`button-remove-${download.id}`}
                         >
@@ -376,6 +384,17 @@ export default function DownloadsPage() {
           </Card>
         )}
       </div>
+
+      {/* Torrent Details Modal */}
+      {selectedTorrent && (
+        <TorrentDetailsModal
+          downloaderId={selectedTorrent.downloaderId}
+          torrentId={selectedTorrent.id}
+          torrentName={selectedTorrent.name}
+          open={detailsModalOpen}
+          onOpenChange={setDetailsModalOpen}
+        />
+      )}
     </div>
   );
 }

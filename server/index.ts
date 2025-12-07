@@ -4,6 +4,7 @@ import { registerRoutes } from "./routes.js";
 import { setupVite, serveStatic, log } from "./vite.js";
 import { generalApiLimiter } from "./middleware.js";
 import { config } from "./config.js";
+import { expressLogger } from "./logger.js";
 
 const app = express();
 app.use(express.json());
@@ -26,16 +27,13 @@ app.use((req, res, next) => {
   res.on("finish", () => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
-
-      if (logLine.length > 80) {
-        logLine = logLine.slice(0, 79) + "…";
-      }
-
-      log(logLine);
+      expressLogger.info({
+        method: req.method,
+        path,
+        statusCode: res.statusCode,
+        duration,
+        response: capturedJsonResponse,
+      }, `${req.method} ${path} ${res.statusCode} in ${duration}ms`);
     }
   });
 

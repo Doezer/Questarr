@@ -1,4 +1,5 @@
 import type { Downloader, DownloadStatus, TorrentFile, TorrentTracker, TorrentDetails } from "../shared/schema.js";
+import { downloadersLogger } from "./logger.js";
 
 /**
  * Extract torrent info hash from a magnet URI.
@@ -112,7 +113,7 @@ class TransmissionClient implements DownloaderClient {
 
       return null;
     } catch (error) {
-      console.error('Error getting torrent status:', error);
+      downloadersLogger.error({ error }, "error getting torrent status (transmission)");
       return null;
     }
   }
@@ -478,7 +479,7 @@ class RTorrentClient implements DownloaderClient {
 
       return null;
     } catch (error) {
-      console.error('Error getting torrent status:', error);
+      downloadersLogger.error({ error }, "error getting torrent status (rtorrent)");
       return null;
     }
   }
@@ -1312,7 +1313,7 @@ export class DownloaderManager {
       const client = this.createClient(downloader);
       return await client.getTorrentStatus(id);
     } catch (error) {
-      console.error('Error getting torrent status:', error);
+      downloadersLogger.error({ error }, "error getting torrent status");
       return null;
     }
   }

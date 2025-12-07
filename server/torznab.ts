@@ -1,5 +1,6 @@
 import { XMLParser } from "fast-xml-parser";
 import type { Indexer } from "../shared/schema.js";
+import { torznabLogger } from "./logger.js";
 
 interface TorznabItem {
   title: string;
@@ -73,7 +74,7 @@ export class TorznabClient {
       const xmlData = await response.text();
       return this.parseResponse(xmlData);
     } catch (error) {
-      console.error(`Error searching ${indexer.name}:`, error);
+      torznabLogger.error({ indexerName: indexer.name, error }, `error searching indexer`);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       throw new Error(`Failed to search indexer ${indexer.name}: ${errorMessage}`);
     }
@@ -207,7 +208,7 @@ export class TorznabClient {
         offset: 0,
       };
     } catch (error) {
-      console.error('Error parsing Torznab response:', error);
+      torznabLogger.error({ error }, "error parsing Torznab response");
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       throw new Error(`Failed to parse response: ${errorMessage}`);
     }
@@ -339,7 +340,7 @@ export class TorznabClient {
 
       return categories;
     } catch (error) {
-      console.error(`Error getting categories from ${indexer.name}:`, error);
+      torznabLogger.error({ indexerName: indexer.name, error }, `error getting categories`);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       throw new Error(`Failed to get categories: ${errorMessage}`);
     }

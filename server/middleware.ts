@@ -317,3 +317,26 @@ export const sanitizeTorrentData = [
     .withMessage("Priority must be between 0 and 10")
     .toInt(),
 ];
+
+// Sanitization rules for indexer search queries
+export const sanitizeIndexerSearchQuery = [
+  query("query")
+    .trim()
+    .isLength({ min: 1, max: 200 })
+    .withMessage("Search query must be between 1 and 200 characters"),
+  query("category")
+    .optional()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage("Category must be at most 500 characters"),
+  query("limit")
+    .optional()
+    .isInt({ min: 1, max: 100 })
+    .withMessage("Limit must be between 1 and 100")
+    .toInt(),
+  query("offset")
+    .optional()
+    .isInt({ min: 0 })
+    .withMessage("Offset must be a non-negative integer")
+    .toInt(),
+];

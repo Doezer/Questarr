@@ -10,6 +10,7 @@ import {
   sanitizeIndexerData,
   sanitizeDownloaderData,
   sanitizeTorrentData,
+  sanitizeIndexerSearchQuery,
 } from "../middleware";
 
 // Mock request and response objects
@@ -434,6 +435,118 @@ describe("Middleware - Input Sanitization", () => {
       validateRequest(req as Request, res as Response, next);
 
       expect(res.status).toHaveBeenCalledWith(400);
+    });
+  });
+
+  describe("sanitizeIndexerSearchQuery", () => {
+    it("should allow valid search query", async () => {
+      const req = createMockRequest({ query: { query: "game search" } });
+      const res = createMockResponse();
+      const next = createMockNext();
+
+      for (const validator of sanitizeIndexerSearchQuery) {
+        await validator(req as Request, res as Response, next);
+      }
+
+      validateRequest(req as Request, res as Response, next);
+
+      expect(next).toHaveBeenCalled();
+      expect(res.status).not.toHaveBeenCalled();
+    });
+
+    it("should reject search query that is too long", async () => {
+      const longQuery = "a".repeat(201);
+      const req = createMockRequest({ query: { query: longQuery } });
+      const res = createMockResponse();
+      const next = createMockNext();
+
+      for (const validator of sanitizeIndexerSearchQuery) {
+        await validator(req as Request, res as Response, next);
+      }
+
+      validateRequest(req as Request, res as Response, next);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          error: "Validation failed",
+        })
+      );
+    });
+
+    it("should reject limit greater than 100", async () => {
+      const req = createMockRequest({ query: { query: "test", limit: "150" } });
+      const res = createMockResponse();
+      const next = createMockNext();
+
+      for (const validator of sanitizeIndexerSearchQuery) {
+        await validator(req as Request, res as Response, next);
+      }
+
+      validateRequest(req as Request, res as Response, next);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          error: "Validation failed",
+        })
+      );
+    });
+
+    it("should reject limit less than 1", async () => {
+      const req = createMockRequest({ query: { query: "test", limit: "0" } });
+      const res = createMockResponse();
+      const next = createMockNext();
+
+      for (const validator of sanitizeIndexerSearchQuery) {
+        await validator(req as Request, res as Response, next);
+      }
+
+      validateRequest(req as Request, res as Response, next);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it("should reject negative offset", async () => {
+      const req = createMockRequest({ query: { query: "test", offset: "-5" } });
+      const res = createMockResponse();
+      const next = createMockNext();
+
+      for (const validator of sanitizeIndexerSearchQuery) {
+        await validator(req as Request, res as Response, next);
+      }
+
+      validateRequest(req as Request, res as Response, next);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it("should allow valid limit and offset", async () => {
+      const req = createMockRequest({ query: { query: "test", limit: "50", offset: "10" } });
+      const res = createMockResponse();
+      const next = createMockNext();
+
+      for (const validator of sanitizeIndexerSearchQuery) {
+        await validator(req as Request, res as Response, next);
+      }
+
+      validateRequest(req as Request, res as Response, next);
+
+      expect(next).toHaveBeenCalled();
+      expect(res.status).not.toHaveBeenCalled();
+    });
+
+    it("should convert limit and offset to integers", async () => {
+      const req = createMockRequest({ query: { query: "test", limit: "50", offset: "10" } });
+      const res = createMockResponse();
+      const next = createMockNext();
+
+      for (const validator of sanitizeIndexerSearchQuery) {
+        await validator(req as Request, res as Response, next);
+      }
+
+      expect(req.query?.limit).toBe(50);
+      expect(req.query?.offset).toBe(10);
     });
   });
 });

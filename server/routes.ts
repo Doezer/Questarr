@@ -21,13 +21,17 @@ import {
   sanitizeDownloaderData,
   sanitizeDownloaderUpdateData,
   sanitizeTorrentData,
+  sanitizeIndexerSearchQuery,
 } from "./middleware.js";
 import { config as appConfig } from "./config.js";
 
 // Helper function for aggregated indexer search
 async function handleAggregatedIndexerSearch(req: Request, res: Response) {
   try {
-    const { query, category, limit = 50, offset = 0 } = req.query;
+    const { query, category } = req.query;
+    // Use validated values from middleware (already converted to integers by .toInt())
+    const limit = (req.query.limit as unknown as number) || 50;
+    const offset = (req.query.offset as unknown as number) || 0;
     
     if (!query || typeof query !== "string") {
       return res.status(400).json({ error: "Search query required" });
@@ -42,8 +46,8 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
     const searchParams = {
       query: query.trim(),
       category: category && typeof category === "string" ? category.split(",") : undefined,
-      limit: parseInt(limit as string) || 50,
-      offset: parseInt(offset as string) || 0,
+      limit,
+      offset,
     };
 
     const { results, errors } = await torznabClient.searchMultipleIndexers(
@@ -345,7 +349,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Aggregated search across all enabled indexers
-  app.get("/api/indexers/search", handleAggregatedIndexerSearch);
+  app.get("/api/indexers/search", sanitizeIndexerSearchQuery, validateRequest, handleAggregatedIndexerSearch);
 
   // Get single indexer
   app.get("/api/indexers/:id", async (req, res) => {
@@ -496,7 +500,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Torznab search routes
   
   // Search for games using configured indexers (alias for /api/indexers/search)
-  app.get("/api/search", handleAggregatedIndexerSearch);
+  app.get("/api/search", sanitizeIndexerSearchQuery, validateRequest, handleAggregatedIndexerSearch);
 
   // Test indexer connection
   app.post("/api/indexers/:id/test", async (req, res) => {

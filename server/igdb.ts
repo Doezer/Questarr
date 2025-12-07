@@ -35,25 +35,39 @@ interface IGDBAuthResponse {
 
 /**
  * Sanitizes user input for use in IGDB API queries.
- * Removes characters that could be used for query injection.
- * IGDB uses a custom query language (Apicalypse), so we need to escape
- * special characters like quotes, semicolons, and operators.
+ * 
+ * IGDB uses a custom query language called Apicalypse. This function provides
+ * defense-in-depth by removing characters that could be used for query injection,
+ * complementing backend validation at the route level.
+ * 
+ * Characters removed and rationale:
+ * - Quotes (' "): String delimiters that could break out of string context
+ * - Semicolons (;): Statement separators that could inject additional commands
+ * - Ampersands (&) and Pipes (|): Logical operators for query conditions
+ * - Asterisks (*): Wildcard operators (we control their placement in queries)
+ * - Parentheses (()): Grouping operators for complex conditions
+ * - Angle brackets (<>): Comparison operators
+ * - Backslashes (\): Escape characters
+ * - Square brackets ([]): Array/collection operators
+ * 
+ * The 100-character limit prevents abuse through extremely long inputs that
+ * could cause performance issues or circumvent other security measures.
  */
 function sanitizeIgdbInput(input: string): string {
-  // Remove or escape characters that have special meaning in IGDB queries:
-  // - quotes (single and double)
-  // - semicolons (statement separator)
-  // - ampersands and pipes (logical operators)
-  // - asterisks (wildcard, but we control their placement)
-  // - parentheses (grouping)
-  // - angle brackets
-  // - backticks
   return input
-    .replace(/['"`;|&*()<>\\`]/g, '') // Remove special characters
-    .replace(/\s+/g, ' ')              // Normalize whitespace
+    .replace(/['"`;|&*()<>\\[\]]/g, '') // Remove special characters including square brackets
+    .replace(/\s+/g, ' ')                // Normalize whitespace
     .trim()
-    .slice(0, 100);                     // Limit length to prevent abuse
+    .slice(0, 100);                      // Limit length to prevent abuse
 }
+
+// Constants for query thresholds
+const MIN_RATING_THRESHOLD = 60;
+const MIN_RATING_COUNT = 3;
+const HIGH_RATING_THRESHOLD = 70;
+const HIGH_RATING_COUNT = 5;
+const MAX_LIMIT = 100;
+const MAX_OFFSET = 10000;
 
 class IGDBClient {
   private accessToken: string | null = null;
@@ -251,7 +265,7 @@ class IGDBClient {
 
     const igdbQuery = `
       fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url;
-      where (${genreCondition}) & rating > 70 & rating_count > 5${excludeCondition};
+      where (${genreCondition}) & rating > ${HIGH_RATING_THRESHOLD} & rating_count > ${HIGH_RATING_COUNT}${excludeCondition};
       sort rating desc;
       limit ${limit};
     `;
@@ -295,7 +309,7 @@ class IGDBClient {
 
     const igdbQuery = `
       fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url;
-      where (${platformCondition}) & rating > 70 & rating_count > 5${excludeCondition};
+      where (${platformCondition}) & rating > ${HIGH_RATING_THRESHOLD} & rating_count > ${HIGH_RATING_COUNT}${excludeCondition};
       sort rating desc;
       limit ${limit};
     `;
@@ -375,12 +389,16 @@ class IGDBClient {
     const cleanGenre = sanitizeIgdbInput(genre);
     if (!cleanGenre) return [];
     
+    // Validate pagination parameters
+    const validLimit = Math.min(Math.max(1, limit), MAX_LIMIT);
+    const validOffset = Math.min(Math.max(0, offset), MAX_OFFSET);
+    
     const igdbQuery = `
       fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url;
-      where genres.name ~ *"${cleanGenre}"* & rating > 60 & rating_count > 3;
+      where genres.name ~ *"${cleanGenre}"* & rating > ${MIN_RATING_THRESHOLD} & rating_count > ${MIN_RATING_COUNT};
       sort rating desc;
-      limit ${limit};
-      offset ${offset};
+      limit ${validLimit};
+      offset ${validOffset};
     `;
 
     try {
@@ -396,12 +414,16 @@ class IGDBClient {
     const cleanPlatform = sanitizeIgdbInput(platform);
     if (!cleanPlatform) return [];
     
+    // Validate pagination parameters
+    const validLimit = Math.min(Math.max(1, limit), MAX_LIMIT);
+    const validOffset = Math.min(Math.max(0, offset), MAX_OFFSET);
+    
     const igdbQuery = `
       fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url;
-      where platforms.name ~ *"${cleanPlatform}"* & rating > 60 & rating_count > 3;
+      where platforms.name ~ *"${cleanPlatform}"* & rating > ${MIN_RATING_THRESHOLD} & rating_count > ${MIN_RATING_COUNT};
       sort rating desc;
-      limit ${limit};
-      offset ${offset};
+      limit ${validLimit};
+      offset ${validOffset};
     `;
 
     try {

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Carousel,
@@ -36,7 +36,7 @@ export default function GameCarouselSection({
   const [canScrollPrev, setCanScrollPrev] = useState(false);
   const [canScrollNext, setCanScrollNext] = useState(false);
 
-  const { data: games = [], isLoading } = useQuery<Game[]>({
+  const { data: games = [], isLoading, isError, error } = useQuery<Game[]>({
     queryKey,
     queryFn,
   });
@@ -82,6 +82,20 @@ export default function GameCarouselSection({
     );
   }
 
+  if (isError) {
+    return (
+      <div className="space-y-4" data-testid={`carousel-section-${title.toLowerCase().replace(/\s+/g, '-')}-error`}>
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-semibold">{title}</h2>
+        </div>
+        <div className="flex items-center gap-2 text-muted-foreground p-4 border rounded-md">
+          <AlertCircle className="h-5 w-5" />
+          <span>Failed to load games. Please try again later.</span>
+        </div>
+      </div>
+    );
+  }
+
   if (games.length === 0) {
     return null;
   }
@@ -94,7 +108,7 @@ export default function GameCarouselSection({
           <Button
             variant="outline"
             size="icon"
-            className="h-8 w-8"
+            className="h-8 w-8 disabled:opacity-50"
             onClick={scrollPrev}
             disabled={!canScrollPrev}
             aria-label="Previous"
@@ -105,7 +119,7 @@ export default function GameCarouselSection({
           <Button
             variant="outline"
             size="icon"
-            className="h-8 w-8"
+            className="h-8 w-8 disabled:opacity-50"
             onClick={scrollNext}
             disabled={!canScrollNext}
             aria-label="Next"

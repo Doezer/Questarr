@@ -23,31 +23,76 @@ interface Platform {
   name: string;
 }
 
+// Default genres used as fallback when API fails or returns empty
+// These are common game genres that provide a good starting point
+const DEFAULT_GENRES: Genre[] = [
+  { id: 1, name: "Action" },
+  { id: 2, name: "Adventure" },
+  { id: 3, name: "RPG" },
+  { id: 4, name: "Strategy" },
+  { id: 5, name: "Shooter" },
+  { id: 6, name: "Puzzle" },
+  { id: 7, name: "Racing" },
+  { id: 8, name: "Sports" },
+  { id: 9, name: "Simulation" },
+  { id: 10, name: "Fighting" },
+];
+
+// Default platforms used as fallback when API fails or returns empty
+// These represent the major gaming platforms
+const DEFAULT_PLATFORMS: Platform[] = [
+  { id: 1, name: "PC" },
+  { id: 2, name: "PlayStation" },
+  { id: 3, name: "Xbox" },
+  { id: 4, name: "Nintendo" },
+];
+
+// Cache duration for relatively static data (1 hour)
+const STATIC_DATA_STALE_TIME = 1000 * 60 * 60;
+
 export default function DiscoverPage() {
   const [selectedGenre, setSelectedGenre] = useState<string>("Action");
   const [selectedPlatform, setSelectedPlatform] = useState<string>("PC");
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  // Fetch available genres
-  const { data: genres = [] } = useQuery<Genre[]>({
+  // Fetch available genres with caching and error handling
+  const { data: genres = [], isError: genresError } = useQuery<Genre[]>({
     queryKey: ["/api/igdb/genres"],
     queryFn: async () => {
       const response = await fetch("/api/igdb/genres");
       if (!response.ok) throw new Error("Failed to fetch genres");
       return response.json();
     },
+    staleTime: STATIC_DATA_STALE_TIME,
+    retry: 2,
   });
 
-  // Fetch available platforms
-  const { data: platforms = [] } = useQuery<Platform[]>({
+  // Fetch available platforms with caching and error handling
+  const { data: platforms = [], isError: platformsError } = useQuery<Platform[]>({
     queryKey: ["/api/igdb/platforms"],
     queryFn: async () => {
       const response = await fetch("/api/igdb/platforms");
       if (!response.ok) throw new Error("Failed to fetch platforms");
       return response.json();
     },
+    staleTime: STATIC_DATA_STALE_TIME,
+    retry: 2,
   });
+
+  // Show toast notification for API errors
+  if (genresError) {
+    toast({
+      description: "Failed to load genres, using defaults",
+      variant: "destructive",
+    });
+  }
+  if (platformsError) {
+    toast({
+      description: "Failed to load platforms, using defaults",
+      variant: "destructive",
+    });
+  }
 
   // Track game mutation (for Discovery games)
   const trackGameMutation = useMutation({
@@ -131,10 +176,6 @@ export default function DiscoverPage() {
     trackGameMutation.mutate(game);
   };
 
-  const handleViewDetails = (gameId: string) => {
-    console.log(`View details: ${gameId}`);
-  };
-
   // Common query functions
   const fetchPopularGames = async (): Promise<Game[]> => {
     const response = await fetch("/api/igdb/popular?limit=20");
@@ -155,6 +196,13 @@ export default function DiscoverPage() {
   };
 
   const fetchGamesByGenre = async (): Promise<Game[]> => {
+    // Validate selectedGenre against known genres before making API call
+    const validGenres = genres.length > 0 ? genres : DEFAULT_GENRES;
+    const isValidGenre = validGenres.some((g) => g.name === selectedGenre);
+    if (!isValidGenre) {
+      throw new Error("Invalid genre selected");
+    }
+    
     const response = await fetch(
       `/api/igdb/genre/${encodeURIComponent(selectedGenre)}?limit=20`
     );
@@ -163,6 +211,13 @@ export default function DiscoverPage() {
   };
 
   const fetchGamesByPlatform = async (): Promise<Game[]> => {
+    // Validate selectedPlatform against known platforms before making API call
+    const validPlatforms = platforms.length > 0 ? platforms : DEFAULT_PLATFORMS;
+    const isValidPlatform = validPlatforms.some((p) => p.name === selectedPlatform);
+    if (!isValidPlatform) {
+      throw new Error("Invalid platform selected");
+    }
+    
     const response = await fetch(
       `/api/igdb/platform/${encodeURIComponent(selectedPlatform)}?limit=20`
     );
@@ -170,29 +225,8 @@ export default function DiscoverPage() {
     return response.json();
   };
 
-  // Default popular genres and platforms for dropdowns if API fails
-  const defaultGenres = [
-    { id: 1, name: "Action" },
-    { id: 2, name: "Adventure" },
-    { id: 3, name: "RPG" },
-    { id: 4, name: "Strategy" },
-    { id: 5, name: "Shooter" },
-    { id: 6, name: "Puzzle" },
-    { id: 7, name: "Racing" },
-    { id: 8, name: "Sports" },
-    { id: 9, name: "Simulation" },
-    { id: 10, name: "Fighting" },
-  ];
-
-  const defaultPlatforms = [
-    { id: 1, name: "PC" },
-    { id: 2, name: "PlayStation" },
-    { id: 3, name: "Xbox" },
-    { id: 4, name: "Nintendo" },
-  ];
-
-  const displayGenres = genres.length > 0 ? genres : defaultGenres;
-  const displayPlatforms = platforms.length > 0 ? platforms : defaultPlatforms;
+  const displayGenres = genres.length > 0 ? genres : DEFAULT_GENRES;
+  const displayPlatforms = platforms.length > 0 ? platforms : DEFAULT_PLATFORMS;
 
   return (
     <div className="h-full overflow-auto p-6 space-y-8" data-testid="discover-page">
@@ -209,7 +243,6 @@ export default function DiscoverPage() {
         queryKey={["/api/igdb/popular"]}
         queryFn={fetchPopularGames}
         onStatusChange={handleStatusChange}
-        onViewDetails={handleViewDetails}
         onTrackGame={handleTrackGame}
         isDiscovery={true}
       />
@@ -220,7 +253,6 @@ export default function DiscoverPage() {
         queryKey={["/api/igdb/recent"]}
         queryFn={fetchRecentGames}
         onStatusChange={handleStatusChange}
-        onViewDetails={handleViewDetails}
         onTrackGame={handleTrackGame}
         isDiscovery={true}
       />
@@ -231,7 +263,6 @@ export default function DiscoverPage() {
         queryKey={["/api/igdb/upcoming"]}
         queryFn={fetchUpcomingGames}
         onStatusChange={handleStatusChange}
-        onViewDetails={handleViewDetails}
         onTrackGame={handleTrackGame}
         isDiscovery={true}
       />
@@ -258,7 +289,6 @@ export default function DiscoverPage() {
           queryKey={["/api/igdb/genre", selectedGenre]}
           queryFn={fetchGamesByGenre}
           onStatusChange={handleStatusChange}
-          onViewDetails={handleViewDetails}
           onTrackGame={handleTrackGame}
           isDiscovery={true}
         />
@@ -286,7 +316,6 @@ export default function DiscoverPage() {
           queryKey={["/api/igdb/platform", selectedPlatform]}
           queryFn={fetchGamesByPlatform}
           onStatusChange={handleStatusChange}
-          onViewDetails={handleViewDetails}
           onTrackGame={handleTrackGame}
           isDiscovery={true}
         />

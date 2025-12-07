@@ -106,10 +106,6 @@ export default function Dashboard({}: DashboardProps) {
     statusMutation.mutate({ gameId, status: newStatus });
   };
 
-  const handleViewDetails = (gameId: string) => {
-    console.log(`View details: ${gameId}`);
-  };
-
   return (
     <div className="h-full overflow-auto p-6" data-testid="layout-dashboard">
       <div className="space-y-6">
@@ -137,7 +133,6 @@ export default function Dashboard({}: DashboardProps) {
           <GameGrid
             games={games}
             onStatusChange={handleStatusChange}
-            onViewDetails={handleViewDetails}
             isLoading={isLoading}
           />
         </div>

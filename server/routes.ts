@@ -307,8 +307,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { genre } = req.params;
       const { limit, offset } = req.query;
-      const limitNum = limit ? parseInt(limit as string) : 20;
-      const offsetNum = offset ? parseInt(offset as string) : 0;
+      
+      // Validate and sanitize pagination parameters
+      const limitNum = Math.min(Math.max(1, parseInt(limit as string) || 20), 100);
+      const offsetNum = Math.max(0, parseInt(offset as string) || 0);
+      
+      // Basic validation for genre parameter
+      if (!genre || genre.length > 100) {
+        return res.status(400).json({ error: "Invalid genre parameter" });
+      }
       
       const igdbGames = await igdbClient.getGamesByGenre(genre, limitNum, offsetNum);
       const formattedGames = igdbGames.map(game => igdbClient.formatGameData(game));
@@ -325,8 +332,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { platform } = req.params;
       const { limit, offset } = req.query;
-      const limitNum = limit ? parseInt(limit as string) : 20;
-      const offsetNum = offset ? parseInt(offset as string) : 0;
+      
+      // Validate and sanitize pagination parameters
+      const limitNum = Math.min(Math.max(1, parseInt(limit as string) || 20), 100);
+      const offsetNum = Math.max(0, parseInt(offset as string) || 0);
+      
+      // Basic validation for platform parameter
+      if (!platform || platform.length > 100) {
+        return res.status(400).json({ error: "Invalid platform parameter" });
+      }
       
       const igdbGames = await igdbClient.getGamesByPlatform(platform, limitNum, offsetNum);
       const formattedGames = igdbGames.map(game => igdbClient.formatGameData(game));

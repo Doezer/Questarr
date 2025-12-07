@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import GameCarouselSection from "@/components/GameCarouselSection";
 import { type Game } from "@shared/schema";
@@ -80,19 +80,34 @@ export default function DiscoverPage() {
     retry: 2,
   });
 
-  // Show toast notification for API errors
-  if (genresError) {
-    toast({
-      description: "Failed to load genres, using defaults",
-      variant: "destructive",
-    });
-  }
-  if (platformsError) {
-    toast({
-      description: "Failed to load platforms, using defaults",
-      variant: "destructive",
-    });
-  }
+  // Track if error toasts have been shown to prevent duplicate notifications
+  const genresErrorShown = useRef(false);
+  const platformsErrorShown = useRef(false);
+
+  // Show toast notification for API errors (only once per error state)
+  useEffect(() => {
+    if (genresError && !genresErrorShown.current) {
+      genresErrorShown.current = true;
+      toast({
+        description: "Failed to load genres, using defaults",
+        variant: "destructive",
+      });
+    } else if (!genresError) {
+      genresErrorShown.current = false;
+    }
+  }, [genresError, toast]);
+
+  useEffect(() => {
+    if (platformsError && !platformsErrorShown.current) {
+      platformsErrorShown.current = true;
+      toast({
+        description: "Failed to load platforms, using defaults",
+        variant: "destructive",
+      });
+    } else if (!platformsError) {
+      platformsErrorShown.current = false;
+    }
+  }, [platformsError, toast]);
 
   // Track game mutation (for Discovery games)
   const trackGameMutation = useMutation({

@@ -180,7 +180,7 @@ export default function DownloadersPage() {
       <div className="flex justify-between items-center mb-8">
         <div>
           <h1 className="text-3xl font-bold">Downloaders</h1>
-          <p className="text-muted-foreground">Manage torrent clients for automated downloads</p>
+          <p className="text-muted-foreground">Manage torrent clients for automated downloads. Downloads are sent to enabled clients in priority order (lowest number first), with automatic fallback if a client fails.</p>
         </div>
         <Button onClick={handleAdd} data-testid="button-add-downloader">
           <Plus className="h-4 w-4 mr-2" />
@@ -417,6 +417,9 @@ export default function DownloadersPage() {
                         data-testid="input-downloader-priority"
                       />
                     </FormControl>
+                    <p className="text-xs text-muted-foreground">
+                      Lower number = higher priority. Downloads are sent to the highest priority downloader first, with automatic fallback to the next if it fails.
+                    </p>
                     <FormMessage />
                   </FormItem>
                 )}

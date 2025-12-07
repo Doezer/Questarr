@@ -14,7 +14,7 @@ import {
   shouldShowPeersBadge,
   type DownloadStatusType,
 } from "@/lib/downloads-utils";
-import { Play, Pause, Trash2, MoreHorizontal, RefreshCw } from "lucide-react";
+import { Play, Pause, Trash2, MoreHorizontal, RefreshCw, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -22,6 +22,8 @@ import { Progress } from "@/components/ui/progress";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
+import { formatBytes } from "@/lib/utils";
+import TorrentDetailsModal from "@/components/TorrentDetailsModal";
 
 interface DownloadStatus {
   id: string;
@@ -52,9 +54,58 @@ interface DownloadsResponse {
   errors: DownloaderError[];
 }
 
+function formatSpeed(bytesPerSecond: number): string {
+  return formatBytes(bytesPerSecond) + "/s";
+}
+
+function formatETA(seconds: number): string {
+  if (seconds <= 0) return "∞";
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  return `${minutes}m`;
+}
+
+function getStatusColor(status: DownloadStatus['status']): string {
+  switch (status) {
+    case 'downloading':
+      return 'bg-blue-500';
+    case 'seeding':
+      return 'bg-green-500';
+    case 'completed':
+      return 'bg-green-600';
+    case 'paused':
+      return 'bg-yellow-500';
+    case 'error':
+      return 'bg-red-500';
+    default:
+      return 'bg-gray-500';
+  }
+}
+
+function getStatusBadgeVariant(status: DownloadStatus['status']): "default" | "secondary" | "destructive" | "outline" {
+  switch (status) {
+    case 'downloading':
+    case 'seeding':
+      return 'default';
+    case 'completed':
+      return 'outline';
+    case 'paused':
+      return 'secondary';
+    case 'error':
+      return 'destructive';
+    default:
+      return 'outline';
+  }
+}
+
 export default function DownloadsPage() {
   const { toast } = useToast();
   const [hasShownErrors, setHasShownErrors] = useState<Set<string>>(new Set());
+  const [selectedTorrent, setSelectedTorrent] = useState<DownloadStatus | null>(null);
+  const [detailsModalOpen, setDetailsModalOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<DownloadStatusType | 'all'>('all');
 
   const { data: downloadsData, isLoading, refetch } = useQuery<DownloadsResponse>({
@@ -104,6 +155,11 @@ export default function DownloadsPage() {
       });
     }
   }, [errors, toast]);
+
+  const handleShowDetails = (download: DownloadStatus) => {
+    setSelectedTorrent(download);
+    setDetailsModalOpen(true);
+  };
 
   const pauseMutation = useMutation({
     mutationFn: async ({ downloaderId, torrentId }: { downloaderId: string; torrentId: string }) => {
@@ -310,6 +366,13 @@ export default function DownloadsPage() {
                       </DropdownMenuTrigger>
                       <DropdownMenuContent>
                         <DropdownMenuItem
+                          onClick={() => handleShowDetails(download)}
+                          data-testid={`button-details-${download.id}`}
+                        >
+                          <Info className="h-4 w-4 mr-2" />
+                          View Details
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
                           onClick={() => handleRemove(download, false)}
                           data-testid={`button-remove-${download.id}`}
                         >
@@ -365,6 +428,17 @@ export default function DownloadsPage() {
           </Card>
         )}
       </div>
+
+      {/* Torrent Details Modal */}
+      {selectedTorrent && (
+        <TorrentDetailsModal
+          downloaderId={selectedTorrent.downloaderId}
+          torrentId={selectedTorrent.id}
+          torrentName={selectedTorrent.name}
+          open={detailsModalOpen}
+          onOpenChange={setDetailsModalOpen}
+        />
+      )}
     </div>
   );
 }

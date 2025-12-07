@@ -166,3 +166,52 @@ export interface Config {
     nodeEnv: string;
   };
 }
+
+// Torrent-related types shared between frontend and backend
+export interface TorrentFile {
+  name: string;
+  size: number;
+  progress: number; // 0-100
+  priority: 'off' | 'low' | 'normal' | 'high';
+  wanted: boolean;
+}
+
+export interface TorrentTracker {
+  url: string;
+  tier: number;
+  status: 'working' | 'updating' | 'error' | 'inactive';
+  seeders?: number;
+  leechers?: number;
+  lastAnnounce?: string;
+  nextAnnounce?: string;
+  error?: string;
+}
+
+export interface DownloadStatus {
+  id: string;
+  name: string;
+  status: 'downloading' | 'seeding' | 'completed' | 'paused' | 'error';
+  progress: number; // 0-100
+  downloadSpeed?: number; // bytes per second
+  uploadSpeed?: number; // bytes per second
+  eta?: number; // seconds
+  size?: number; // total bytes
+  downloaded?: number; // bytes downloaded
+  seeders?: number;
+  leechers?: number;
+  ratio?: number;
+  error?: string;
+}
+
+export interface TorrentDetails extends DownloadStatus {
+  hash?: string;
+  addedDate?: string;
+  completedDate?: string;
+  downloadDir?: string;
+  comment?: string;
+  creator?: string;
+  files: TorrentFile[];
+  trackers: TorrentTracker[];
+  totalPeers?: number;
+  connectedPeers?: number;
+}

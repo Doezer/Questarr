@@ -22,6 +22,7 @@ import {
   sanitizeDownloaderUpdateData,
   sanitizeTorrentData,
 } from "./middleware.js";
+import { config as appConfig } from "./config.js";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Health check endpoint
@@ -657,6 +658,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get detailed torrent information (files, trackers, etc.)
+  app.get("/api/downloaders/:id/torrents/:torrentId/details", async (req, res) => {
+    try {
+      const { id, torrentId } = req.params;
+      const downloader = await storage.getDownloader(id);
+      
+      if (!downloader) {
+        return res.status(404).json({ error: "Downloader not found" });
+      }
+
+      const details = await DownloaderManager.getTorrentDetails(downloader, torrentId);
+      if (!details) {
+        return res.status(404).json({ error: "Torrent not found" });
+      }
+
+      res.json(details);
+    } catch (error) {
+      console.error("Error getting torrent details:", error);
+      res.status(500).json({ error: "Failed to get torrent details" });
+    }
+  });
+
   // Pause torrent
   app.post("/api/downloaders/:id/torrents/:torrentId/pause", async (req, res) => {
     try {
@@ -804,32 +827,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       // Mask password in database URL
       let maskedDbUrl: string | undefined;
-      if (process.env.DATABASE_URL) {
+      const dbUrl = appConfig.database.url;
+      if (dbUrl) {
         try {
-          const dbUrl = new URL(process.env.DATABASE_URL);
-          if (dbUrl.password) {
-            dbUrl.password = '****';
+          const parsedUrl = new URL(dbUrl);
+          if (parsedUrl.password) {
+            parsedUrl.password = '****';
           }
-          maskedDbUrl = dbUrl.toString();
+          maskedDbUrl = parsedUrl.toString();
         } catch {
           // If URL parsing fails, use simple regex fallback
-          maskedDbUrl = process.env.DATABASE_URL.replace(/:[^:@]*@/, ':****@');
+          maskedDbUrl = dbUrl.replace(/:[^:@]*@/, ':****@');
         }
       }
 
       const config: Config = {
         database: {
-          connected: !!process.env.DATABASE_URL,
+          connected: !!appConfig.database.url,
           url: maskedDbUrl,
         },
         igdb: {
-          configured: !!(process.env.IGDB_CLIENT_ID && process.env.IGDB_CLIENT_SECRET),
-          clientId: process.env.IGDB_CLIENT_ID ? process.env.IGDB_CLIENT_ID.substring(0, 8) + '...' : undefined,
+          configured: appConfig.igdb.isConfigured,
+          clientId: appConfig.igdb.clientId ? appConfig.igdb.clientId.substring(0, 8) + '...' : undefined,
         },
         server: {
-          port: parseInt(process.env.PORT || '5000', 10),
-          host: process.env.HOST || 'localhost',
-          nodeEnv: process.env.NODE_ENV || 'development',
+          port: appConfig.server.port,
+          host: appConfig.server.host,
+          nodeEnv: appConfig.server.nodeEnv,
         },
       };
       res.json(config);

@@ -8,7 +8,8 @@ import {
   TrendingUp,
   Star,
   Database,
-  HardDrive
+  HardDrive,
+  Compass
 } from "lucide-react";
 import {
   Sidebar,
@@ -32,7 +33,7 @@ const navigation = [
   {
     title: "Discover",
     url: "/discover",
-    icon: Search,
+    icon: Compass,
   },
   {
     title: "Library",

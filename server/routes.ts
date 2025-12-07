@@ -68,6 +68,17 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
   }
 }
 
+/**
+ * Validates and sanitizes pagination parameters from query string.
+ * @param query - The query parameters object
+ * @returns Validated limit and offset values
+ */
+function validatePaginationParams(query: { limit?: string; offset?: string }): { limit: number; offset: number } {
+  const limit = Math.min(Math.max(1, parseInt(query.limit as string) || 20), 100);
+  const offset = Math.max(0, parseInt(query.offset as string) || 0);
+  return { limit, offset };
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Health check endpoint
   app.get("/api/health", async (req, res) => {
@@ -299,6 +310,70 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       routesLogger.error({ error }, "error fetching upcoming releases");
       res.status(500).json({ error: "Failed to fetch upcoming releases" });
+    }
+  });
+
+  // Get games by genre
+  app.get("/api/igdb/genre/:genre", igdbRateLimiter, async (req, res) => {
+    try {
+      const { genre } = req.params;
+      const { limit, offset } = validatePaginationParams(req.query as { limit?: string; offset?: string });
+      
+      // Basic validation for genre parameter
+      if (!genre || genre.length > 100) {
+        return res.status(400).json({ error: "Invalid genre parameter" });
+      }
+      
+      const igdbGames = await igdbClient.getGamesByGenre(genre, limit, offset);
+      const formattedGames = igdbGames.map(game => igdbClient.formatGameData(game));
+      
+      res.json(formattedGames);
+    } catch (error) {
+      console.error("Error fetching games by genre:", error);
+      res.status(500).json({ error: "Failed to fetch games by genre" });
+    }
+  });
+
+  // Get games by platform
+  app.get("/api/igdb/platform/:platform", igdbRateLimiter, async (req, res) => {
+    try {
+      const { platform } = req.params;
+      const { limit, offset } = validatePaginationParams(req.query as { limit?: string; offset?: string });
+      
+      // Basic validation for platform parameter
+      if (!platform || platform.length > 100) {
+        return res.status(400).json({ error: "Invalid platform parameter" });
+      }
+      
+      const igdbGames = await igdbClient.getGamesByPlatform(platform, limit, offset);
+      const formattedGames = igdbGames.map(game => igdbClient.formatGameData(game));
+      
+      res.json(formattedGames);
+    } catch (error) {
+      console.error("Error fetching games by platform:", error);
+      res.status(500).json({ error: "Failed to fetch games by platform" });
+    }
+  });
+
+  // Get available genres (for UI dropdowns/filters)
+  app.get("/api/igdb/genres", igdbRateLimiter, async (req, res) => {
+    try {
+      const genres = await igdbClient.getGenres();
+      res.json(genres);
+    } catch (error) {
+      console.error("Error fetching genres:", error);
+      res.status(500).json({ error: "Failed to fetch genres" });
+    }
+  });
+
+  // Get available platforms (for UI dropdowns/filters)
+  app.get("/api/igdb/platforms", igdbRateLimiter, async (req, res) => {
+    try {
+      const platforms = await igdbClient.getPlatforms();
+      res.json(platforms);
+    } catch (error) {
+      console.error("Error fetching platforms:", error);
+      res.status(500).json({ error: "Failed to fetch platforms" });
     }
   });
 

@@ -1,3 +1,6 @@
+// Configuration constants for search limits
+const MAX_SEARCH_ATTEMPTS = 5;
+
 interface IGDBGame {
   id: number;
   name: string;
@@ -81,6 +84,8 @@ class IGDBClient {
   }
 
   async searchGames(query: string, limit: number = 20): Promise<IGDBGame[]> {
+    let attemptCount = 0;
+
     // Try multiple search approaches to maximize results
     const searchApproaches = [
       // Approach 1: Full text search without category filter  
@@ -96,9 +101,10 @@ class IGDBClient {
       `fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url; where name ~ *"${query}"*; sort rating desc; limit ${limit};`
     ];
 
-    for (let i = 0; i < searchApproaches.length; i++) {
+    for (let i = 0; i < searchApproaches.length && attemptCount < MAX_SEARCH_ATTEMPTS; i++) {
       try {
-        console.log(`IGDB trying approach ${i + 1} for "${query}"`);
+        attemptCount++;
+        console.log(`IGDB trying approach ${i + 1} for "${query}" (attempt ${attemptCount}/${MAX_SEARCH_ATTEMPTS})`);
         const results = await this.makeRequest('games', searchApproaches[i]);
         if (results.length > 0) {
           console.log(`IGDB search approach ${i + 1} found ${results.length} results for "${query}"`);
@@ -109,11 +115,23 @@ class IGDBClient {
       }
     }
 
+    // Check if we've reached the max attempts before trying word search
+    if (attemptCount >= MAX_SEARCH_ATTEMPTS) {
+      console.log(`IGDB search reached max attempts (${MAX_SEARCH_ATTEMPTS}) for "${query}"`);
+      return [];
+    }
+
     // If no full-phrase results, try individual words without category filter
     const words = query.toLowerCase().split(' ').filter(word => word.length > 2);
     for (const word of words) {
+      if (attemptCount >= MAX_SEARCH_ATTEMPTS) {
+        console.log(`IGDB search reached max attempts (${MAX_SEARCH_ATTEMPTS}) during word search for "${query}"`);
+        break;
+      }
+
       try {
-        console.log(`IGDB trying word search for: "${word}"`);
+        attemptCount++;
+        console.log(`IGDB trying word search for: "${word}" (attempt ${attemptCount}/${MAX_SEARCH_ATTEMPTS})`);
         const wordQuery = `fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url; where name ~ *"${word}"*; sort rating desc; limit ${limit};`;
         const wordResults = await this.makeRequest('games', wordQuery);
         

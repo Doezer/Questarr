@@ -5,11 +5,19 @@ describe('IGDBClient - Fallback Mechanism', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
-    // Reset mocks before each test
+    // Reset mocks and modules before each test to ensure fresh IGDBClient instance
     vi.clearAllMocks();
+    vi.resetModules();
     fetchMock = vi.fn();
     global.fetch = fetchMock;
   });
+
+  // Helper function to count IGDB API search calls (excluding auth calls)
+  function countIgdbSearchCalls(mockCalls: any[]): number {
+    return mockCalls.filter(call => 
+      typeof call[0] === 'string' && call[0].includes('api.igdb.com/v4/games')
+    ).length;
+  }
 
   it('should try multiple search approaches when first approach returns no results', async () => {
     // Mock environment variables
@@ -107,6 +115,49 @@ describe('IGDBClient - Fallback Mechanism', () => {
 
     // Verify that fetch was called multiple times
     expect(fetchMock.mock.calls.length).toBeGreaterThan(1);
+
+    // Verify the results are empty
+    expect(results).toHaveLength(0);
+  });
+
+  it('should cap total search attempts at MAX_SEARCH_ATTEMPTS (5)', async () => {
+    // Mock environment variables
+    process.env.IGDB_CLIENT_ID = 'test-client-id';
+    process.env.IGDB_CLIENT_SECRET = 'test-client-secret';
+
+    // Mock authentication response
+    const authResponse = {
+      ok: true,
+      json: async () => ({
+        access_token: 'test-token',
+        expires_in: 3600,
+        token_type: 'bearer',
+      }),
+    };
+
+    // Mock empty responses for all attempts
+    const emptyResponse = {
+      ok: true,
+      json: async () => [],
+    };
+
+    // Setup fetch mock - auth + all empty search attempts
+    fetchMock
+      .mockResolvedValueOnce(authResponse) // Auth call
+      .mockResolvedValue(emptyResponse); // All search attempts return empty
+
+    // Import the IGDBClient (vi.resetModules ensures fresh instance)
+    const { igdbClient } = await import('../igdb.js');
+
+    // Use a query with many words to verify the cap works
+    // Without the cap, this would try: 4 approaches + 6 word searches = 10 attempts
+    const results = await igdbClient.searchGames('word one two three four five six', 20);
+
+    // Count only IGDB API search calls (excluding auth calls to Twitch)
+    const igdbSearchCalls = countIgdbSearchCalls(fetchMock.mock.calls);
+    
+    // Verify exactly 5 search attempts were made (the MAX_SEARCH_ATTEMPTS cap)
+    expect(igdbSearchCalls).toBe(5);
 
     // Verify the results are empty
     expect(results).toHaveLength(0);

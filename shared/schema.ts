@@ -42,7 +42,7 @@ export const indexers = pgTable("indexers", {
 export const downloaders = pgTable("downloaders", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
-  type: text("type", { enum: ["transmission", "rtorrent", "utorrent", "vuze", "qbittorrent"] }).notNull(),
+  type: text("type", { enum: ["transmission", "rtorrent", "qbittorrent"] }).notNull(),
   url: text("url").notNull(),
   username: text("username"),
   password: text("password"),
@@ -139,7 +139,7 @@ export type InsertIndexer = {
 export type Downloader = typeof downloaders.$inferSelect;
 export type InsertDownloader = {
   name: string;
-  type: "transmission" | "rtorrent" | "utorrent" | "vuze" | "qbittorrent";
+  type: "transmission" | "rtorrent" | "qbittorrent";
   url: string;
   username?: string | null;
   password?: string | null;

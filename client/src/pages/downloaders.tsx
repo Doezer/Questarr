@@ -19,8 +19,6 @@ import { useToast } from "@/hooks/use-toast";
 const downloaderTypes = [
   { value: "transmission", label: "Transmission" },
   { value: "rtorrent", label: "rTorrent" },
-  { value: "utorrent", label: "uTorrent" },
-  { value: "vuze", label: "Vuze" },
   { value: "qbittorrent", label: "qBittorrent" },
 ] as const;
 
@@ -269,7 +267,7 @@ export default function DownloadersPage() {
             <CardHeader>
               <CardTitle>No Downloaders Configured</CardTitle>
               <CardDescription>
-                Add your first downloader client to enable automated downloads. Supported clients include Transmission, qBittorrent, rTorrent, uTorrent, and Vuze.
+                Add your first downloader client to enable automated downloads. Supported clients include Transmission, rTorrent, and qBittorrent.
               </CardDescription>
             </CardHeader>
           </Card>

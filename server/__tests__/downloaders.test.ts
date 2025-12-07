@@ -997,3 +997,487 @@ describe('RTorrentClient - XML-RPC Protocol', () => {
   });
 });
 
+describe('QBittorrentClient - Web API v2', () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    fetchMock = vi.fn();
+    global.fetch = fetchMock;
+  });
+
+  it('should test connection successfully', async () => {
+    const testDownloader: Downloader = {
+      id: 'qbittorrent-id',
+      name: 'Test qBittorrent',
+      type: 'qbittorrent',
+      url: 'http://localhost:8080',
+      username: 'admin',
+      password: 'adminadmin',
+      enabled: true,
+      priority: 1,
+      downloadPath: '/downloads',
+      category: 'games',
+      settings: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    // Mock login response
+    const loginResponse = {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Headers([['set-cookie', 'SID=abc123; path=/']]),
+      text: async () => 'Ok.',
+    };
+
+    // Mock version response
+    const versionResponse = {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Headers(),
+      text: async () => 'v4.6.2',
+    };
+
+    fetchMock
+      .mockResolvedValueOnce(loginResponse)
+      .mockResolvedValueOnce(versionResponse);
+
+    const { DownloaderManager } = await import('../downloaders.js');
+
+    const result = await DownloaderManager.testDownloader(testDownloader);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0][0]).toBe('http://localhost:8080/api/v2/auth/login');
+    expect(fetchMock.mock.calls[1][0]).toBe('http://localhost:8080/api/v2/app/version');
+    expect(result.success).toBe(true);
+    expect(result.message).toBe('Connected successfully to qBittorrent v4.6.2');
+  });
+
+  it('should test connection without authentication', async () => {
+    const testDownloader: Downloader = {
+      id: 'qbittorrent-id',
+      name: 'Test qBittorrent',
+      type: 'qbittorrent',
+      url: 'http://localhost:8080',
+      username: null,
+      password: null,
+      enabled: true,
+      priority: 1,
+      downloadPath: null,
+      category: 'games',
+      settings: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    // Mock version response (no auth needed)
+    const versionResponse = {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Headers(),
+      text: async () => 'v4.6.2',
+    };
+
+    fetchMock.mockResolvedValueOnce(versionResponse);
+
+    const { DownloaderManager } = await import('../downloaders.js');
+
+    const result = await DownloaderManager.testDownloader(testDownloader);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.success).toBe(true);
+  });
+
+  it('should add torrent successfully', async () => {
+    const testDownloader: Downloader = {
+      id: 'qbittorrent-id',
+      name: 'Test qBittorrent',
+      type: 'qbittorrent',
+      url: 'http://localhost:8080',
+      username: null,
+      password: null,
+      enabled: true,
+      priority: 1,
+      downloadPath: '/downloads/games',
+      category: 'games',
+      settings: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const successResponse = {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Headers(),
+      text: async () => 'Ok.',
+    };
+
+    fetchMock.mockResolvedValueOnce(successResponse);
+
+    const { DownloaderManager } = await import('../downloaders.js');
+
+    const result = await DownloaderManager.addTorrent(testDownloader, {
+      url: 'magnet:?xt=urn:btih:abc123def456789abc123def456789abc123def4',
+      title: 'Test Game',
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe('http://localhost:8080/api/v2/torrents/add');
+    expect(result.success).toBe(true);
+    expect(result.id).toBe('abc123def456789abc123def456789abc123def4');
+    expect(result.message).toBe('Torrent added successfully');
+  });
+
+  it('should handle duplicate torrent error', async () => {
+    const testDownloader: Downloader = {
+      id: 'qbittorrent-id',
+      name: 'Test qBittorrent',
+      type: 'qbittorrent',
+      url: 'http://localhost:8080',
+      username: null,
+      password: null,
+      enabled: true,
+      priority: 1,
+      downloadPath: null,
+      category: null,
+      settings: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const failResponse = {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Headers(),
+      text: async () => 'Fails.',
+    };
+
+    fetchMock.mockResolvedValueOnce(failResponse);
+
+    const { DownloaderManager } = await import('../downloaders.js');
+
+    const result = await DownloaderManager.addTorrent(testDownloader, {
+      url: 'magnet:?xt=urn:btih:abc123',
+      title: 'Test Game',
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.message).toBe('Torrent already exists or invalid torrent');
+  });
+
+  it('should get all torrents with correct status mapping', async () => {
+    const testDownloader: Downloader = {
+      id: 'qbittorrent-id',
+      name: 'Test qBittorrent',
+      type: 'qbittorrent',
+      url: 'http://localhost:8080',
+      username: null,
+      password: null,
+      enabled: true,
+      priority: 1,
+      downloadPath: null,
+      category: 'games',
+      settings: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const torrentsResponse = {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Headers(),
+      json: async () => [
+        {
+          hash: 'hash1',
+          name: 'Downloading Game',
+          state: 'downloading',
+          progress: 0.5,
+          dlspeed: 102400,
+          upspeed: 51200,
+          eta: 3600,
+          size: 1000000000,
+          downloaded: 500000000,
+          num_seeds: 10,
+          num_leechs: 5,
+          ratio: 0.5,
+        },
+        {
+          hash: 'hash2',
+          name: 'Seeding Game',
+          state: 'uploading',
+          progress: 1,
+          dlspeed: 0,
+          upspeed: 204800,
+          eta: -1,
+          size: 2000000000,
+          downloaded: 2000000000,
+          num_seeds: 8,
+          num_leechs: 2,
+          ratio: 2.5,
+        },
+        {
+          hash: 'hash3',
+          name: 'Paused Game',
+          state: 'pausedDL',
+          progress: 0.75,
+          dlspeed: 0,
+          upspeed: 0,
+          eta: -1,
+          size: 3000000000,
+          downloaded: 2250000000,
+          num_seeds: 0,
+          num_leechs: 0,
+          ratio: 0,
+        },
+      ],
+    };
+
+    fetchMock.mockResolvedValueOnce(torrentsResponse);
+
+    const { DownloaderManager } = await import('../downloaders.js');
+
+    const torrents = await DownloaderManager.getAllTorrents(testDownloader);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(torrents).toHaveLength(3);
+    
+    // Verify first torrent (downloading)
+    expect(torrents[0].id).toBe('hash1');
+    expect(torrents[0].name).toBe('Downloading Game');
+    expect(torrents[0].status).toBe('downloading');
+    expect(torrents[0].progress).toBe(50);
+    expect(torrents[0].downloadSpeed).toBe(102400);
+    expect(torrents[0].uploadSpeed).toBe(51200);
+    
+    // Verify second torrent (seeding)
+    expect(torrents[1].id).toBe('hash2');
+    expect(torrents[1].status).toBe('seeding');
+    expect(torrents[1].progress).toBe(100);
+    
+    // Verify third torrent (paused)
+    expect(torrents[2].id).toBe('hash3');
+    expect(torrents[2].status).toBe('paused');
+    expect(torrents[2].progress).toBe(75);
+  });
+
+  it('should pause torrent successfully', async () => {
+    const testDownloader: Downloader = {
+      id: 'qbittorrent-id',
+      name: 'Test qBittorrent',
+      type: 'qbittorrent',
+      url: 'http://localhost:8080',
+      username: null,
+      password: null,
+      enabled: true,
+      priority: 1,
+      downloadPath: null,
+      category: 'games',
+      settings: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const successResponse = {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Headers(),
+      text: async () => '',
+    };
+
+    fetchMock.mockResolvedValueOnce(successResponse);
+
+    const { DownloaderManager } = await import('../downloaders.js');
+
+    const result = await DownloaderManager.pauseTorrent(testDownloader, 'hash123');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe('http://localhost:8080/api/v2/torrents/pause');
+    expect(result.success).toBe(true);
+    expect(result.message).toBe('Torrent paused successfully');
+  });
+
+  it('should resume torrent successfully', async () => {
+    const testDownloader: Downloader = {
+      id: 'qbittorrent-id',
+      name: 'Test qBittorrent',
+      type: 'qbittorrent',
+      url: 'http://localhost:8080',
+      username: null,
+      password: null,
+      enabled: true,
+      priority: 1,
+      downloadPath: null,
+      category: 'games',
+      settings: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const successResponse = {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Headers(),
+      text: async () => '',
+    };
+
+    fetchMock.mockResolvedValueOnce(successResponse);
+
+    const { DownloaderManager } = await import('../downloaders.js');
+
+    const result = await DownloaderManager.resumeTorrent(testDownloader, 'hash123');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe('http://localhost:8080/api/v2/torrents/resume');
+    expect(result.success).toBe(true);
+    expect(result.message).toBe('Torrent resumed successfully');
+  });
+
+  it('should remove torrent successfully', async () => {
+    const testDownloader: Downloader = {
+      id: 'qbittorrent-id',
+      name: 'Test qBittorrent',
+      type: 'qbittorrent',
+      url: 'http://localhost:8080',
+      username: null,
+      password: null,
+      enabled: true,
+      priority: 1,
+      downloadPath: null,
+      category: 'games',
+      settings: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const successResponse = {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Headers(),
+      text: async () => '',
+    };
+
+    fetchMock.mockResolvedValueOnce(successResponse);
+
+    const { DownloaderManager } = await import('../downloaders.js');
+
+    const result = await DownloaderManager.removeTorrent(testDownloader, 'hash123', true);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe('http://localhost:8080/api/v2/torrents/delete');
+    expect(result.success).toBe(true);
+    expect(result.message).toBe('Torrent removed successfully');
+  });
+
+  it('should handle authentication failure', async () => {
+    const testDownloader: Downloader = {
+      id: 'qbittorrent-id',
+      name: 'Test qBittorrent',
+      type: 'qbittorrent',
+      url: 'http://localhost:8080',
+      username: 'admin',
+      password: 'wrongpassword',
+      enabled: true,
+      priority: 1,
+      downloadPath: null,
+      category: 'games',
+      settings: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const failResponse = {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Headers(),
+      text: async () => 'Fails.',
+    };
+
+    fetchMock.mockResolvedValueOnce(failResponse);
+
+    const { DownloaderManager } = await import('../downloaders.js');
+
+    const result = await DownloaderManager.testDownloader(testDownloader);
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain('Authentication failed');
+  });
+
+  it('should handle session expiration and re-authenticate', async () => {
+    const testDownloader: Downloader = {
+      id: 'qbittorrent-id',
+      name: 'Test qBittorrent',
+      type: 'qbittorrent',
+      url: 'http://localhost:8080',
+      username: 'admin',
+      password: 'adminadmin',
+      enabled: true,
+      priority: 1,
+      downloadPath: null,
+      category: 'games',
+      settings: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    // Mock login response
+    const loginResponse = {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Headers([['set-cookie', 'SID=abc123; path=/']]),
+      text: async () => 'Ok.',
+    };
+
+    // Mock 403 response (session expired)
+    const forbiddenResponse = {
+      ok: false,
+      status: 403,
+      statusText: 'Forbidden',
+      headers: new Headers(),
+      text: async () => 'Forbidden',
+    };
+
+    // Mock successful response after re-auth
+    const successResponse = {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Headers(),
+      text: async () => 'v4.6.2',
+    };
+
+    // Second login response for re-authentication
+    const loginResponse2 = {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Headers([['set-cookie', 'SID=def456; path=/']]),
+      text: async () => 'Ok.',
+    };
+
+    fetchMock
+      .mockResolvedValueOnce(loginResponse)      // Initial login
+      .mockResolvedValueOnce(forbiddenResponse)  // First request fails with 403
+      .mockResolvedValueOnce(loginResponse2)     // Re-login
+      .mockResolvedValueOnce(successResponse);   // Retry succeeds
+
+    const { DownloaderManager } = await import('../downloaders.js');
+
+    const result = await DownloaderManager.testDownloader(testDownloader);
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(result.success).toBe(true);
+  });
+});
+

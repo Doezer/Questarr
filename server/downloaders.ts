@@ -1,5 +1,21 @@
 import type { Downloader, DownloadStatus, TorrentFile, TorrentTracker, TorrentDetails } from "../shared/schema.js";
 
+/**
+ * Extract torrent info hash from a magnet URI.
+ * Standardizes to lowercase as per BitTorrent specification (case-insensitive hex encoding).
+ * 
+ * @param url - The magnet URI or torrent URL
+ * @returns The info hash in lowercase, or null if not found
+ */
+function extractHashFromUrl(url: string): string | null {
+  // Extract hash from magnet link - supports both hex (40 chars) and base32 (32 chars) formats
+  const magnetMatch = url.match(/xt=urn:btih:([a-fA-F0-9]{40}|[a-zA-Z2-7]{32})/i);
+  if (magnetMatch) {
+    return magnetMatch[1].toLowerCase();
+  }
+  return null;
+}
+
 interface DownloadRequest {
   url: string;
   title: string;
@@ -415,7 +431,7 @@ class RTorrentClient implements DownloaderClient {
           hash = result;
         } else {
           // Extract hash from magnet link or torrent URL
-          hash = this.extractHashFromUrl(request.url) || 'unknown';
+          hash = extractHashFromUrl(request.url) || 'unknown';
         }
         
         return { 
@@ -433,15 +449,6 @@ class RTorrentClient implements DownloaderClient {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       return { success: false, message: `Failed to add torrent: ${errorMessage}` };
     }
-  }
-
-  private extractHashFromUrl(url: string): string | null {
-    // Extract hash from magnet link
-    const magnetMatch = url.match(/xt=urn:btih:([a-fA-F0-9]{40}|[a-zA-Z2-7]{32})/i);
-    if (magnetMatch) {
-      return magnetMatch[1].toUpperCase();
-    }
-    return null;
   }
 
   async getTorrentStatus(id: string): Promise<DownloadStatus | null> {
@@ -909,24 +916,110 @@ class RTorrentClient implements DownloaderClient {
   }
 }
 
-// Placeholder implementations for other client types
+/**
+ * qBittorrent client implementation using Web API v2.
+ * 
+ * @remarks
+ * - Uses cookie-based authentication via /api/v2/auth/login
+ * - All torrent operations use /api/v2/torrents/* endpoints
+ * - Status mapping: state field from API response
+ * - Supports username/password authentication
+ */
 class QBittorrentClient implements DownloaderClient {
   private downloader: Downloader;
+  private cookie: string | null = null;
+  
+  // Maximum ETA value to consider valid (100 days in seconds)
+  // qBittorrent returns very large values when ETA is essentially infinite
+  private static readonly MAX_VALID_ETA_SECONDS = 8640000;
 
   constructor(downloader: Downloader) {
     this.downloader = downloader;
   }
 
   async testConnection(): Promise<{ success: boolean; message: string }> {
-    return { success: false, message: 'qBittorrent client not yet implemented' };
+    try {
+      await this.authenticate();
+      // Test by getting app version
+      const response = await this.makeRequest('GET', '/api/v2/app/version');
+      const version = await response.text();
+      return { success: true, message: `Connected successfully to qBittorrent ${version}` };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      return { success: false, message: `Failed to connect to qBittorrent: ${errorMessage}` };
+    }
   }
 
   async addTorrent(request: DownloadRequest): Promise<{ success: boolean; id?: string; message: string }> {
-    return { success: false, message: 'qBittorrent client not yet implemented' };
+    try {
+      if (!request.url) {
+        return { 
+          success: false, 
+          message: 'Torrent URL is required' 
+        };
+      }
+
+      await this.authenticate();
+
+      // Build form data for adding torrent
+      const formData = new URLSearchParams();
+      formData.append('urls', request.url);
+      
+      if (request.downloadPath || this.downloader.downloadPath) {
+        formData.append('savepath', request.downloadPath || this.downloader.downloadPath || '');
+      }
+      
+      if (request.category || this.downloader.category) {
+        formData.append('category', request.category || this.downloader.category || '');
+      }
+
+      const response = await this.makeRequest('POST', '/api/v2/torrents/add', formData.toString(), {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      });
+
+      const responseText = await response.text();
+      
+      if (response.ok && (responseText === 'Ok.' || responseText === '')) {
+        // Extract hash from magnet or generate a placeholder
+        const hash = extractHashFromUrl(request.url);
+        return { 
+          success: true, 
+          id: hash || 'added', 
+          message: 'Torrent added successfully' 
+        };
+      } else if (responseText === 'Fails.') {
+        return { 
+          success: false, 
+          message: 'Torrent already exists or invalid torrent' 
+        };
+      } else {
+        return { 
+          success: false, 
+          message: `Failed to add torrent: ${responseText}` 
+        };
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      return { success: false, message: `Failed to add torrent: ${errorMessage}` };
+    }
   }
 
   async getTorrentStatus(id: string): Promise<DownloadStatus | null> {
-    return null;
+    try {
+      await this.authenticate();
+      
+      const response = await this.makeRequest('GET', `/api/v2/torrents/info?hashes=${id}`);
+      const torrents = await response.json() as any[];
+      
+      if (torrents && torrents.length > 0) {
+        return this.mapQBittorrentStatus(torrents[0]);
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error getting torrent status:', error);
+      return null;
+    }
   }
 
   async getTorrentDetails(id: string): Promise<TorrentDetails | null> {
@@ -934,19 +1027,241 @@ class QBittorrentClient implements DownloaderClient {
   }
 
   async getAllTorrents(): Promise<DownloadStatus[]> {
-    return [];
+    try {
+      await this.authenticate();
+      
+      const response = await this.makeRequest('GET', '/api/v2/torrents/info');
+      const torrents = await response.json() as any[];
+      
+      if (torrents) {
+        return torrents.map((torrent: any) => this.mapQBittorrentStatus(torrent));
+      }
+      
+      return [];
+    } catch (error) {
+      console.error('Error getting all torrents:', error);
+      return [];
+    }
   }
 
   async pauseTorrent(id: string): Promise<{ success: boolean; message: string }> {
-    return { success: false, message: 'qBittorrent client not yet implemented' };
+    try {
+      await this.authenticate();
+      
+      const formData = new URLSearchParams();
+      formData.append('hashes', id);
+      
+      await this.makeRequest('POST', '/api/v2/torrents/pause', formData.toString(), {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      });
+      
+      return { success: true, message: 'Torrent paused successfully' };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      return { success: false, message: `Failed to pause torrent: ${errorMessage}` };
+    }
   }
 
   async resumeTorrent(id: string): Promise<{ success: boolean; message: string }> {
-    return { success: false, message: 'qBittorrent client not yet implemented' };
+    try {
+      await this.authenticate();
+      
+      const formData = new URLSearchParams();
+      formData.append('hashes', id);
+      
+      await this.makeRequest('POST', '/api/v2/torrents/resume', formData.toString(), {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      });
+      
+      return { success: true, message: 'Torrent resumed successfully' };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      return { success: false, message: `Failed to resume torrent: ${errorMessage}` };
+    }
   }
 
-  async removeTorrent(id: string, deleteFiles?: boolean): Promise<{ success: boolean; message: string }> {
-    return { success: false, message: 'qBittorrent client not yet implemented' };
+  async removeTorrent(id: string, deleteFiles = false): Promise<{ success: boolean; message: string }> {
+    try {
+      await this.authenticate();
+      
+      const formData = new URLSearchParams();
+      formData.append('hashes', id);
+      formData.append('deleteFiles', deleteFiles.toString());
+      
+      await this.makeRequest('POST', '/api/v2/torrents/delete', formData.toString(), {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      });
+      
+      return { success: true, message: 'Torrent removed successfully' };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      return { success: false, message: `Failed to remove torrent: ${errorMessage}` };
+    }
+  }
+
+  private mapQBittorrentStatus(torrent: any): DownloadStatus {
+    // qBittorrent state values:
+    // uploading, stalledUP, checkingUP, pausedUP, queuedUP, forcedUP - seeding states
+    // downloading, stalledDL, checkingDL, pausedDL, queuedDL, forcedDL - downloading states
+    // allocating, metaDL, checkingResumeData - downloading states
+    // error, missingFiles, unknown - error states
+    let status: DownloadStatus['status'];
+    
+    switch (torrent.state) {
+      case 'uploading':
+      case 'stalledUP':
+      case 'checkingUP':
+      case 'forcedUP':
+      case 'queuedUP':
+        status = 'seeding';
+        break;
+      case 'pausedUP':
+        status = 'completed';
+        break;
+      case 'downloading':
+      case 'stalledDL':
+      case 'checkingDL':
+      case 'forcedDL':
+      case 'queuedDL':
+      case 'allocating':
+      case 'metaDL':
+      case 'checkingResumeData':
+        status = 'downloading';
+        break;
+      case 'pausedDL':
+        status = 'paused';
+        break;
+      case 'error':
+      case 'missingFiles':
+      case 'unknown':
+      default:
+        status = 'error';
+        break;
+    }
+
+    // Check if completed
+    if (torrent.progress === 1 && status === 'paused') {
+      status = 'completed';
+    }
+
+    return {
+      id: torrent.hash,
+      name: torrent.name,
+      status,
+      progress: Math.round(torrent.progress * 100),
+      downloadSpeed: torrent.dlspeed,
+      uploadSpeed: torrent.upspeed,
+      eta: torrent.eta > 0 && torrent.eta < QBittorrentClient.MAX_VALID_ETA_SECONDS ? torrent.eta : undefined,
+      size: torrent.size,
+      downloaded: torrent.downloaded,
+      seeders: torrent.num_seeds,
+      leechers: torrent.num_leechs,
+      ratio: torrent.ratio,
+      error: torrent.state === 'error' ? 'Torrent error' : undefined,
+    };
+  }
+
+  private async authenticate(): Promise<void> {
+    if (this.cookie) {
+      return; // Already authenticated
+    }
+
+    if (!this.downloader.username || !this.downloader.password) {
+      // Try without authentication
+      return;
+    }
+
+    const url = this.getBaseUrl() + '/api/v2/auth/login';
+    
+    const formData = new URLSearchParams();
+    formData.append('username', this.downloader.username);
+    formData.append('password', this.downloader.password);
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'GameRadarr/1.0',
+      },
+      body: formData.toString(),
+      signal: AbortSignal.timeout(30000),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Authentication failed: ${response.status} ${response.statusText}`);
+    }
+
+    const responseText = await response.text();
+    if (responseText !== 'Ok.') {
+      throw new Error('Authentication failed: Invalid credentials');
+    }
+
+    // Extract session cookie
+    const setCookie = response.headers.get('set-cookie');
+    if (setCookie) {
+      const match = setCookie.match(/SID=([^;]+)/);
+      if (match) {
+        this.cookie = `SID=${match[1]}`;
+      }
+    }
+  }
+
+  private getBaseUrl(): string {
+    let url = this.downloader.url;
+    // Remove trailing slash
+    if (url.endsWith('/')) {
+      url = url.slice(0, -1);
+    }
+    return url;
+  }
+
+  private async makeRequest(
+    method: string, 
+    path: string, 
+    body?: string,
+    additionalHeaders?: Record<string, string>
+  ): Promise<Response> {
+    const url = this.getBaseUrl() + path;
+
+    const headers: Record<string, string> = {
+      'User-Agent': 'GameRadarr/1.0',
+      ...additionalHeaders,
+    };
+
+    if (this.cookie) {
+      headers['Cookie'] = this.cookie;
+    }
+
+    const response = await fetch(url, {
+      method,
+      headers,
+      body: method !== 'GET' ? body : undefined,
+      signal: AbortSignal.timeout(30000),
+    });
+
+    if (response.status === 403) {
+      // Session expired, re-authenticate
+      this.cookie = null;
+      await this.authenticate();
+      
+      // Retry with new cookie
+      if (this.cookie) {
+        headers['Cookie'] = this.cookie;
+      }
+      
+      return fetch(url, {
+        method,
+        headers,
+        body: method !== 'GET' ? body : undefined,
+        signal: AbortSignal.timeout(30000),
+      });
+    }
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    return response;
   }
 }
 

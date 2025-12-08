@@ -8,7 +8,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 
 interface HeaderProps {
   title?: string;
-  onAddGame?: () => void;
+  _onAddGame?: () => void;
   onToggleTheme?: () => void;
   isDarkMode?: boolean;
   notificationCount?: number;
@@ -16,30 +16,15 @@ interface HeaderProps {
 
 export default function Header({ 
   title = "Dashboard", 
-  onAddGame, 
   onToggleTheme,
   isDarkMode = true,
   notificationCount = 0
 }: HeaderProps) {
   const [showNotifications, setShowNotifications] = useState(false);
 
-  const handleAddGame = () => {
-    console.log("Add game triggered");
-    onAddGame?.();
-  };
-
   const handleThemeToggle = () => {
-    console.log("Theme toggle triggered");
+    console.warn("Theme toggle triggered");
     onToggleTheme?.();
-  };
-
-  const handleNotificationClick = () => {
-    console.log("Notifications triggered");
-    setShowNotifications(!showNotifications);
-  };
-
-  const handleProfileClick = () => {
-    console.log("Profile triggered");
   };
 
   return (

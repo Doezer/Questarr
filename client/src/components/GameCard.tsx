@@ -20,20 +20,20 @@ export default function GameCard({ game, onStatusChange, onViewDetails, onTrackG
   const [downloadOpen, setDownloadOpen] = useState(false);
 
   const handleStatusClick = () => {
-    console.log(`Status change triggered for game: ${game.title}`);
+    console.warn(`Status change triggered for game: ${game.title}`);
     const nextStatus: GameStatus = game.status === "wanted" ? "owned" : 
                                    game.status === "owned" ? "completed" : "wanted";
     onStatusChange?.(game.id, nextStatus);
   };
 
   const handleDetailsClick = () => {
-    console.log(`View details triggered for game: ${game.title}`);
+    console.warn(`View details triggered for game: ${game.title}`);
     setDetailsOpen(true);
     onViewDetails?.(game.id);
   };
 
   const handleDownloadClick = () => {
-    console.log(`Download triggered for game: ${game.title}`);
+    console.warn(`Download triggered for game: ${game.title}`);
     setDownloadOpen(true);
   };
 

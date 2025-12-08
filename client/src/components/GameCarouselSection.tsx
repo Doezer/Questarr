@@ -36,7 +36,7 @@ export default function GameCarouselSection({
   const [canScrollPrev, setCanScrollPrev] = useState(false);
   const [canScrollNext, setCanScrollNext] = useState(false);
 
-  const { data: games = [], isLoading, isError, error } = useQuery<Game[]>({
+  const { data: games = [], isLoading, isError, error: _error } = useQuery<Game[]>({
     queryKey,
     queryFn,
   });

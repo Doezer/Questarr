@@ -23,7 +23,7 @@ export default function SearchBar({
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    console.log(`Search triggered: ${searchQuery}`);
+    console.warn(`Search triggered: ${searchQuery}`);
     onSearch?.(searchQuery);
   };
 
@@ -31,17 +31,17 @@ export default function SearchBar({
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setSearchQuery(value);
-    console.log(`Search input change: ${value}`);
+    console.warn(`Search input change: ${value}`);
     onSearch?.(value);
   };
 
   const handleFilterClick = () => {
-    console.log("Filter toggle triggered");
+    console.warn("Filter toggle triggered");
     onFilterToggle?.();
   };
 
   const handleRemoveFilter = (filter: string) => {
-    console.log(`Remove filter triggered: ${filter}`);
+    console.warn(`Remove filter triggered: ${filter}`);
     onRemoveFilter?.(filter);
   };
 

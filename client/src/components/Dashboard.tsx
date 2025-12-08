@@ -8,9 +8,7 @@ import { type Game } from "@shared/schema";
 import { type GameStatus } from "./StatusBadge";
 import { useToast } from "@/hooks/use-toast";
 
-interface DashboardProps {}
-
-export default function Dashboard({}: DashboardProps) {
+export default function Dashboard() {
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
@@ -95,7 +93,7 @@ export default function Dashboard({}: DashboardProps) {
   };
 
   const handleFilterToggle = () => {
-    console.log("Filter panel toggled");
+    console.warn("Filter panel toggled");
   };
 
   const handleRemoveFilter = (filter: string) => {

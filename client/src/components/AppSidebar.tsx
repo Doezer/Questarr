@@ -1,7 +1,6 @@
-import { 
-  Home, 
-  Search, 
-  Library, 
+import {
+  Home,
+  Library,
   Download, 
   Calendar, 
   Settings, 
@@ -90,7 +89,7 @@ interface AppSidebarProps {
 
 export default function AppSidebar({ activeItem = "/", onNavigate }: AppSidebarProps) {
   const handleNavigation = (url: string) => {
-    console.log(`Navigation triggered: ${url}`);
+    console.warn(`Navigation triggered: ${url}`);
     onNavigate?.(url);
   };
 

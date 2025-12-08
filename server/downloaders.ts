@@ -1,6 +1,85 @@
 import type { Downloader, DownloadStatus, TorrentFile, TorrentTracker, TorrentDetails } from "../shared/schema.js";
 import { downloadersLogger } from "./logger.js";
 
+// Type definitions for API responses
+interface TransmissionTorrent {
+  id: number;
+  name: string;
+  status: number;
+  percentDone: number;
+  rateDownload: number;
+  rateUpload: number;
+  eta: number;
+  totalSize: number;
+  downloadedEver: number;
+  uploadedEver: number;
+  uploadRatio: number;
+  error: number;
+  errorString: string;
+  peersConnected: number;
+  downloadDir: string;
+  isFinished: boolean;
+  peersSendingToUs?: number;
+  peersGettingFromUs?: number;
+  hashString?: string;
+  addedDate?: number;
+  doneDate?: number;
+  comment?: string;
+  creator?: string;
+  files?: Array<{
+    name: string;
+    length: number;
+    bytesCompleted: number;
+  }>;
+  fileStats?: Array<{
+    bytesCompleted: number;
+    wanted: boolean;
+    priority: number;
+  }>;
+  trackers?: Array<{
+    announce: string;
+    tier: number;
+  }>;
+  trackerStats?: Array<{
+    announce: string;
+    tier: number;
+    lastAnnounceSucceeded: boolean;
+    isBackup: boolean;
+    lastAnnounceResult: string;
+    announceState: number;
+    seederCount: number;
+    leecherCount: number;
+    lastAnnounceTime: number;
+    nextAnnounceTime?: number;
+  }>;
+  [key: string]: unknown;
+}
+
+// RTorrentTorrent is not directly used, but serves as documentation for the rTorrent API response structure
+
+interface QBittorrentTorrent {
+  hash: string;
+  name: string;
+  state: string;
+  progress: number;
+  dlspeed: number;
+  upspeed: number;
+  eta: number;
+  size: number;
+  downloaded: number;
+  uploaded: number;
+  ratio: number;
+  num_seeds: number;
+  num_leechs: number;
+  category?: string;
+  save_path?: string;
+  [key: string]: unknown;
+}
+
+// XML response value can be primitive, array, or object
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type XMLValue = any;
+
 /**
  * Extract torrent info hash from a magnet URI.
  * Standardizes to lowercase as per BitTorrent specification (case-insensitive hex encoding).
@@ -46,7 +125,7 @@ class TransmissionClient implements DownloaderClient {
 
   async testConnection(): Promise<{ success: boolean; message: string }> {
     try {
-      const response = await this.makeRequest('session-get', {});
+      const _response = await this.makeRequest('session-get', {});
       return { success: true, message: 'Connected successfully to Transmission' };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -56,6 +135,7 @@ class TransmissionClient implements DownloaderClient {
 
   async addTorrent(request: DownloadRequest): Promise<{ success: boolean; id?: string; message: string }> {
     try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const args: any = {
         filename: request.url,
       };
@@ -153,7 +233,7 @@ class TransmissionClient implements DownloaderClient {
     });
 
     if (response.arguments.torrents) {
-      return response.arguments.torrents.map((torrent: any) => this.mapTransmissionStatus(torrent));
+      return response.arguments.torrents.map((torrent: TransmissionTorrent) => this.mapTransmissionStatus(torrent));
     }
 
     return [];
@@ -192,7 +272,7 @@ class TransmissionClient implements DownloaderClient {
     }
   }
 
-  private mapTransmissionStatus(torrent: any): DownloadStatus {
+  private mapTransmissionStatus(torrent: TransmissionTorrent): DownloadStatus {
     // Transmission status codes: 0=stopped, 1=check pending, 2=checking, 3=download pending, 4=downloading, 5=seed pending, 6=seeding
     let status: DownloadStatus['status'] = 'paused';
     
@@ -232,7 +312,7 @@ class TransmissionClient implements DownloaderClient {
     };
   }
 
-  private mapTransmissionDetails(torrent: any): TorrentDetails {
+  private mapTransmissionDetails(torrent: TransmissionTorrent): TorrentDetails {
     // Get base status first
     const baseStatus = this.mapTransmissionStatus(torrent);
     
@@ -293,8 +373,8 @@ class TransmissionClient implements DownloaderClient {
           lastAnnounce: tracker.lastAnnounceTime > 0 
             ? new Date(tracker.lastAnnounceTime * 1000).toISOString() 
             : undefined,
-          nextAnnounce: tracker.nextAnnounceTime > 0 
-            ? new Date(tracker.nextAnnounceTime * 1000).toISOString() 
+          nextAnnounce: (tracker.nextAnnounceTime && tracker.nextAnnounceTime > 0)
+            ? new Date(tracker.nextAnnounceTime * 1000).toISOString()
             : undefined,
           error: tracker.lastAnnounceResult && tracker.lastAnnounceResult !== 'Success' 
             ? tracker.lastAnnounceResult 
@@ -305,12 +385,12 @@ class TransmissionClient implements DownloaderClient {
     
     return {
       ...baseStatus,
-      hash: torrent.hashString,
-      addedDate: torrent.addedDate > 0 
-        ? new Date(torrent.addedDate * 1000).toISOString() 
+      hash: torrent.hashString ?? '',
+      addedDate: (torrent.addedDate && torrent.addedDate > 0)
+        ? new Date(torrent.addedDate * 1000).toISOString()
         : undefined,
-      completedDate: torrent.doneDate > 0 
-        ? new Date(torrent.doneDate * 1000).toISOString() 
+      completedDate: (torrent.doneDate && torrent.doneDate > 0)
+        ? new Date(torrent.doneDate * 1000).toISOString()
         : undefined,
       downloadDir: torrent.downloadDir,
       comment: torrent.comment || undefined,
@@ -322,6 +402,8 @@ class TransmissionClient implements DownloaderClient {
     };
   }
 
+  // Transmission API response structure
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private async makeRequest(method: string, arguments_: any): Promise<any> {
     const url = this.downloader.url.endsWith('/') 
       ? this.downloader.url 
@@ -420,9 +502,12 @@ class RTorrentClient implements DownloaderClient {
         };
       }
 
-      // rTorrent uses load.start for adding and starting torrents
+      // Determine which method to use based on addStopped setting
+      const addMethod = this.downloader.addStopped ? 'load.normal' : 'load.start';
+      
+      // rTorrent uses load.start for adding and starting torrents, or load.normal for stopped torrents
       // The method returns 0 on success (or sometimes the hash as a string)
-      const result = await this.makeXMLRPCRequest('load.start', ['', request.url]);
+      const result = await this.makeXMLRPCRequest(addMethod, ['', request.url]);
       
       // Handle both 0 (success) and string hash responses
       if (result === 0 || typeof result === 'string') {
@@ -435,10 +520,20 @@ class RTorrentClient implements DownloaderClient {
           hash = extractHashFromUrl(request.url) || 'unknown';
         }
         
+        // Set category/label if specified
+        const category = request.category || this.downloader.category;
+        if (category && hash !== 'unknown') {
+          try {
+            await this.makeXMLRPCRequest('d.custom1.set', [hash, category]);
+          } catch (error) {
+            downloadersLogger.warn({ error, hash, category }, "Failed to set category on torrent");
+          }
+        }
+        
         return { 
           success: true, 
           id: hash, 
-          message: 'Torrent added successfully' 
+          message: `Torrent added successfully${this.downloader.addStopped ? ' (stopped)' : ''}` 
         };
       } else {
         return { 
@@ -541,25 +636,25 @@ class RTorrentClient implements DownloaderClient {
 
       // Map files
       // rTorrent priority: 0 = don't download (off), 1 = normal, 2 = high
-      const files: TorrentFile[] = (filesResult || []).map((file: any) => {
+      const files: TorrentFile[] = (filesResult || []).map((file: unknown[]) => {
         const [path, size, completedChunks, totalChunks, priority] = file;
-        const fileProgress = totalChunks > 0 ? Math.round((completedChunks / totalChunks) * 100) : 0;
+        const fileProgress = (totalChunks as number) > 0 ? Math.round(((completedChunks as number) / (totalChunks as number)) * 100) : 0;
         let filePriority: TorrentFile['priority'] = 'normal';
-        if (priority === 0) filePriority = 'off';
-        else if (priority === 1) filePriority = 'normal';
-        else if (priority === 2) filePriority = 'high';
+        if ((priority as number) === 0) filePriority = 'off';
+        else if ((priority as number) === 1) filePriority = 'normal';
+        else if ((priority as number) === 2) filePriority = 'high';
         
         return {
-          name: path,
-          size,
+          name: path as string,
+          size: size as number,
           progress: fileProgress,
           priority: filePriority,
-          wanted: priority !== 0,
+          wanted: (priority as number) !== 0,
         };
       });
 
       // Map trackers
-      const trackers: TorrentTracker[] = (trackersResult || []).map((tracker: any) => {
+      const trackers: TorrentTracker[] = (trackersResult || []).map((tracker: unknown[]) => {
         // rTorrent tracker tuple: [url, group, isEnabled, seeders, leechers, ...optional fields]
         const [url, group, isEnabled, seeders, leechers, lastScrape, lastAnnounce, lastError] = tracker;
         let trackerStatus: TorrentTracker['status'] = 'inactive';
@@ -573,11 +668,11 @@ class RTorrentClient implements DownloaderClient {
           }
         }
         return {
-          url,
-          tier: group,
+          url: url as string,
+          tier: group as number,
           status: trackerStatus,
-          seeders: seeders >= 0 ? seeders : undefined,
-          leechers: leechers >= 0 ? leechers : undefined,
+          seeders: (seeders as number) >= 0 ? (seeders as number) : undefined,
+          leechers: (leechers as number) >= 0 ? (leechers as number) : undefined,
           error: lastError && typeof lastError === 'string' && lastError.length > 0 ? lastError : undefined,
         };
       });
@@ -629,7 +724,7 @@ class RTorrentClient implements DownloaderClient {
     ]);
 
     if (result) {
-      return result.map((torrent: any) => this.mapRTorrentStatus(torrent));
+      return result.map((torrent: unknown[]) => this.mapRTorrentStatus(torrent));
     }
 
     return [];
@@ -673,7 +768,7 @@ class RTorrentClient implements DownloaderClient {
     }
   }
 
-  private mapRTorrentStatus(torrent: any): DownloadStatus {
+  private mapRTorrentStatus(torrent: unknown[]): DownloadStatus {
     // torrent is an array: [hash, name, state, complete, size, completed, down_rate, up_rate, ratio, peers_connected, peers_complete, message]
     const [hash, name, state, complete, sizeBytes, completedBytes, downRate, upRate, ratio, peersConnected, peersComplete, message] = torrent;
     
@@ -681,46 +776,67 @@ class RTorrentClient implements DownloaderClient {
     // complete: 0=incomplete, 1=complete
     let status: DownloadStatus['status'];
     
-    if (state === 1) {
-      if (complete === 1) {
+    if ((state as number) === 1) {
+      if ((complete as number) === 1) {
         status = 'seeding';
       } else {
         status = 'downloading';
       }
     } else {
-      if (complete === 1) {
+      if ((complete as number) === 1) {
         status = 'completed';
       } else {
         status = 'paused';
       }
     }
 
-    if (message && message.length > 0) {
+    if (message && (message as string).length > 0) {
       status = 'error';
     }
 
-    const progress = sizeBytes > 0 ? Math.round((completedBytes / sizeBytes) * 100) : 0;
+    const progress = (sizeBytes as number) > 0 ? Math.round(((completedBytes as number) / (sizeBytes as number)) * 100) : 0;
 
     return {
-      id: hash,
-      name,
+      id: hash as string,
+      name: name as string,
       status,
       progress,
-      downloadSpeed: downRate,
-      uploadSpeed: upRate,
-      size: sizeBytes,
-      downloaded: completedBytes,
-      seeders: peersComplete,
-      leechers: Math.max(0, peersConnected - peersComplete),
-      ratio: ratio / 1000, // rTorrent returns ratio * 1000
-      error: message || undefined,
+      downloadSpeed: downRate as number,
+      uploadSpeed: upRate as number,
+      size: sizeBytes as number,
+      downloaded: completedBytes as number,
+      seeders: peersComplete as number,
+      leechers: Math.max(0, (peersConnected as number) - (peersComplete as number)),
+      ratio: (ratio as number) / 1000, // rTorrent returns ratio * 1000
+      error: (message as string) || undefined,
     };
   }
 
-  private async makeXMLRPCRequest(method: string, params: any[]): Promise<any> {
-    const url = this.downloader.url.endsWith('/') 
-      ? this.downloader.url + 'RPC2' 
-      : this.downloader.url + '/RPC2';
+  private async makeXMLRPCRequest(method: string, params: unknown[]): Promise<XMLValue> {
+    // Build the complete URL with protocol, host, port, and path
+    let baseUrl = this.downloader.url;
+    
+    // Remove trailing slash from base URL
+    baseUrl = baseUrl.replace(/\/+$/, '');
+    
+    // Add protocol if not present
+    if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
+      const protocol = this.downloader.useSsl ? 'https://' : 'http://';
+      baseUrl = protocol + baseUrl;
+    }
+    
+    // Add port if specified
+    if (this.downloader.port) {
+      // Check if URL already has a port
+      const urlObj = new URL(baseUrl);
+      if (!urlObj.port) {
+        baseUrl = `${urlObj.protocol}//${urlObj.hostname}:${this.downloader.port}${urlObj.pathname}`;
+      }
+    }
+    
+    // Add URL path (defaults to RPC2 if not specified)
+    const urlPath = this.downloader.urlPath || 'RPC2';
+    const url = `${baseUrl}/${urlPath}`;
 
     // Build XML-RPC request
     const xmlParams = params.map(param => {
@@ -765,7 +881,7 @@ class RTorrentClient implements DownloaderClient {
     return this.parseXMLRPCResponse(responseText);
   }
 
-  private parseXMLRPCResponse(xml: string): any {
+  private parseXMLRPCResponse(xml: string): XMLValue {
     // Simple XML-RPC response parser
     // Extract the value from <methodResponse><params><param><value>...</value></param></params></methodResponse>
     
@@ -812,8 +928,8 @@ class RTorrentClient implements DownloaderClient {
     return null;
   }
 
-  private parseXMLArray(arrayXml: string): any[] {
-    const result: any[] = [];
+  private parseXMLArray(arrayXml: string): XMLValue[] {
+    const result: XMLValue[] = [];
     
     // Extract the data section from <array><data>...</data></array>
     const dataMatch = arrayXml.match(/<array>\s*<data>([\s\S]*)<\/data>\s*<\/array>/);
@@ -863,7 +979,7 @@ class RTorrentClient implements DownloaderClient {
     return result;
   }
 
-  private parseXMLValue(valueXml: string): any {
+  private parseXMLValue(valueXml: string): XMLValue {
     // Extract content between <value> and </value>
     const contentMatch = valueXml.match(/<value>([\s\S]*)<\/value>/);
     if (!contentMatch) {
@@ -1010,6 +1126,7 @@ class QBittorrentClient implements DownloaderClient {
       await this.authenticate();
       
       const response = await this.makeRequest('GET', `/api/v2/torrents/info?hashes=${id}`);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const torrents = await response.json() as any[];
       
       if (torrents && torrents.length > 0) {
@@ -1023,7 +1140,7 @@ class QBittorrentClient implements DownloaderClient {
     }
   }
 
-  async getTorrentDetails(id: string): Promise<TorrentDetails | null> {
+  async getTorrentDetails(_id: string): Promise<TorrentDetails | null> {
     return null;
   }
 
@@ -1032,10 +1149,11 @@ class QBittorrentClient implements DownloaderClient {
       await this.authenticate();
       
       const response = await this.makeRequest('GET', '/api/v2/torrents/info');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const torrents = await response.json() as any[];
       
       if (torrents) {
-        return torrents.map((torrent: any) => this.mapQBittorrentStatus(torrent));
+        return torrents.map((torrent: QBittorrentTorrent) => this.mapQBittorrentStatus(torrent));
       }
       
       return [];
@@ -1100,7 +1218,7 @@ class QBittorrentClient implements DownloaderClient {
     }
   }
 
-  private mapQBittorrentStatus(torrent: any): DownloadStatus {
+  private mapQBittorrentStatus(torrent: QBittorrentTorrent): DownloadStatus {
     // qBittorrent state values:
     // uploading, stalledUP, checkingUP, pausedUP, queuedUP, forcedUP - seeding states
     // downloading, stalledDL, checkingDL, pausedDL, queuedDL, forcedDL - downloading states

@@ -16,6 +16,7 @@ app.use("/api", generalApiLimiter);
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let capturedJsonResponse: Record<string, any> | undefined = undefined;
 
   const originalResJson = res.json;
@@ -43,11 +44,14 @@ app.use((req, res, next) => {
 (async () => {
   const server = await registerRoutes(app);
 
+  // Error handler must handle various error shapes
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const error = err.message || "Internal Server Error";
     
     // Include details if available (e.g., validation errors)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const response: { error: string; details?: any } = { error };
     if (err.details) {
       response.details = err.details;

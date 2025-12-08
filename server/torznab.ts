@@ -200,7 +200,7 @@ export class TorznabClient {
       const channel = parsed.rss.channel;
       const items = Array.isArray(channel.item) ? channel.item : (channel.item ? [channel.item] : []);
 
-      const torznabItems: TorznabItem[] = items.map((item: any) => this.parseItem(item));
+      const torznabItems: TorznabItem[] = items.map((item: any) => this.parseItem(item)); // eslint-disable-line @typescript-eslint/no-explicit-any
 
       return {
         items: torznabItems,
@@ -217,6 +217,8 @@ export class TorznabClient {
   /**
    * Parse individual Torznab item
    */
+  // XML parsing requires any due to dynamic structure
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private parseItem(item: any): TorznabItem {
     const torznabItem: TorznabItem = {
       title: item.title || 'Unknown',
@@ -239,6 +241,7 @@ export class TorznabClient {
 
       const parsedAttributes: { [key: string]: string } = {};
       
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       attributes.forEach((attr: any) => {
         const name = attr['@_name'];
         const value = attr['@_value'];
@@ -329,6 +332,7 @@ export class TorznabClient {
           ? parsed.caps.categories.category
           : [parsed.caps.categories.category];
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         cats.forEach((cat: any) => {
           const id = cat['@_id'];
           const name = cat['@_name'] || cat['#text'] || `Category ${id}`;

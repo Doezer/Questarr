@@ -214,12 +214,19 @@ export class MemStorage implements IStorage {
       name: insertDownloader.name,
       type: insertDownloader.type,
       url: insertDownloader.url,
+      port: insertDownloader.port ?? null,
+      useSsl: insertDownloader.useSsl ?? false,
+      urlPath: insertDownloader.urlPath ?? null,
       username: insertDownloader.username ?? null,
       password: insertDownloader.password ?? null,
       enabled: insertDownloader.enabled ?? true,
       priority: insertDownloader.priority ?? 1,
       downloadPath: insertDownloader.downloadPath ?? null,
       category: insertDownloader.category ?? "games",
+      label: insertDownloader.label ?? "GameRadarr",
+      addStopped: insertDownloader.addStopped ?? false,
+      removeCompleted: insertDownloader.removeCompleted ?? false,
+      postImportCategory: insertDownloader.postImportCategory ?? null,
       settings: insertDownloader.settings ?? null,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -284,6 +291,7 @@ export class DatabaseStorage implements IStorage {
 
   async getGamesByStatus(status: string): Promise<Game[]> {
     return db.select().from(games)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .where(eq(games.status, status as any))
       .orderBy(sql`${games.addedAt} DESC`);
   }
@@ -337,7 +345,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async removeGame(id: string): Promise<boolean> {
-    const result = await db.delete(games).where(eq(games.id, id));
+    const _result = await db.delete(games).where(eq(games.id, id));
     // For Drizzle, we assume success if no error is thrown
     return true;
   }

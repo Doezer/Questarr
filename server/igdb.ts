@@ -100,6 +100,8 @@ class IGDBClient {
     return this.accessToken;
   }
 
+  // IGDB API returns dynamic JSON structures
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private async makeRequest(endpoint: string, query: string): Promise<any> {
     const token = await this.authenticate();
     const clientId = config.igdb.clientId;
@@ -167,7 +169,7 @@ class IGDBClient {
     const words = sanitizedQuery.toLowerCase().split(' ').filter(word => word.length > 2);
     for (const word of words) {
       if (attemptCount >= MAX_SEARCH_ATTEMPTS) {
-        console.log(`IGDB search reached max attempts (${MAX_SEARCH_ATTEMPTS}) during word search for "${query}"`);
+        console.warn(`IGDB search reached max attempts (${MAX_SEARCH_ATTEMPTS}) during word search for "${query}"`);
         break;
       }
 
@@ -322,7 +324,7 @@ class IGDBClient {
     }
   }
 
-  async getRecommendations(userGames: any[], limit: number = 20): Promise<IGDBGame[]> {
+  async getRecommendations(userGames: Array<{ genres?: string[]; platforms?: string[]; igdbId?: number }>, limit: number = 20): Promise<IGDBGame[]> {
     if (userGames.length === 0) {
       // If user has no games, show popular games
       return this.getPopularGames(limit);
@@ -336,8 +338,8 @@ class IGDBClient {
       userGames.flatMap(game => game.platforms || [])
     ));
     const userIgdbIds = userGames
-      .filter(game => game.igdbId)
-      .map(game => game.igdbId);
+      .filter(game => game.igdbId !== undefined)
+      .map(game => game.igdbId!);
 
     igdbLogger.debug({ genreCount: userGenres.length, platformCount: userPlatforms.length, excludeCount: userIgdbIds.length }, `generating recommendations`);
 
@@ -466,7 +468,7 @@ class IGDBClient {
     }
   }
 
-  formatGameData(igdbGame: IGDBGame): any {
+  formatGameData(igdbGame: IGDBGame): Record<string, unknown> {
     const releaseDate = igdbGame.first_release_date 
       ? new Date(igdbGame.first_release_date * 1000)
       : null;

@@ -2,14 +2,15 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { asZodType } from "@/lib/utils";
-import { Plus, Edit, Trash2, Check, X } from "lucide-react";
+import { Plus, Edit, Trash2, Check, X, Activity } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -26,6 +27,7 @@ export default function DownloadersPage() {
   const { toast } = useToast();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingDownloader, setEditingDownloader] = useState<Downloader | null>(null);
+  const [testingDownloaderId, setTestingDownloaderId] = useState<string | null>(null);
 
   const { data: downloaders = [], isLoading } = useQuery<Downloader[]>({
     queryKey: ["/api/downloaders"],
@@ -104,18 +106,75 @@ export default function DownloadersPage() {
     },
   });
 
+  const testConnectionMutation = useMutation({
+    mutationFn: async (data: { id?: string; formData?: InsertDownloader }) => {
+      if (data.id) {
+        // Test existing downloader by ID
+        const response = await fetch(`/api/downloaders/${data.id}/test`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        });
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || "Failed to test downloader connection");
+        }
+        return response.json() as Promise<{ success: boolean; message: string }>;
+      } else if (data.formData) {
+        // Test with form data (new downloader)
+        const response = await fetch(`/api/downloaders/test`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data.formData),
+        });
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || "Failed to test downloader connection");
+        }
+        return response.json() as Promise<{ success: boolean; message: string }>;
+      } else {
+        throw new Error("Either id or formData must be provided");
+      }
+    },
+    onMutate: (data) => {
+      setTestingDownloaderId(data.id || "new");
+    },
+    onSuccess: (data) => {
+      if (data.success) {
+        toast({ title: "Connection successful", description: data.message });
+      } else {
+        toast({ title: "Connection failed", description: data.message, variant: "destructive" });
+      }
+    },
+    onError: (error) => {
+      toast({ 
+        title: "Test failed", 
+        description: error instanceof Error ? error.message : "Unknown error",
+        variant: "destructive" 
+      });
+    },
+    onSettled: () => {
+      setTestingDownloaderId(null);
+    },
+  });
+
   const form = useForm<InsertDownloader>({
     resolver: zodResolver(asZodType<InsertDownloader>(insertDownloaderSchema)),
     defaultValues: {
       name: "",
       type: "transmission",
       url: "",
+      port: undefined,
+      useSsl: false,
+      urlPath: "",
       username: "",
       password: "",
       enabled: true,
       priority: 1,
       downloadPath: "",
       category: "games",
+      addStopped: false,
+      removeCompleted: false,
+      postImportCategory: "",
       settings: "",
     },
   });
@@ -134,12 +193,18 @@ export default function DownloadersPage() {
       name: downloader.name,
       type: downloader.type,
       url: downloader.url,
+      port: downloader.port ?? undefined,
+      useSsl: downloader.useSsl ?? false,
+      urlPath: downloader.urlPath ?? "",
       username: downloader.username ?? "",
       password: downloader.password ?? "",
       enabled: downloader.enabled,
       priority: downloader.priority,
       downloadPath: downloader.downloadPath ?? "",
       category: downloader.category ?? "games",
+      addStopped: downloader.addStopped ?? false,
+      removeCompleted: downloader.removeCompleted ?? false,
+      postImportCategory: downloader.postImportCategory ?? "",
       settings: downloader.settings ?? "",
     });
     setIsDialogOpen(true);
@@ -151,12 +216,18 @@ export default function DownloadersPage() {
       name: "",
       type: "transmission",
       url: "",
+      port: undefined,
+      useSsl: false,
+      urlPath: "",
       username: "",
       password: "",
       enabled: true,
       priority: 1,
       downloadPath: "",
       category: "games",
+      addStopped: false,
+      removeCompleted: false,
+      postImportCategory: "",
       settings: "",
     });
     setIsDialogOpen(true);
@@ -216,6 +287,16 @@ export default function DownloadersPage() {
                     <Badge variant="outline">Priority {downloader.priority}</Badge>
                   </div>
                   <div className="flex items-center space-x-2">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => testConnectionMutation.mutate({ id: downloader.id })}
+                      disabled={testingDownloaderId === downloader.id}
+                      title="Test connection"
+                      data-testid={`button-test-downloader-${downloader.id}`}
+                    >
+                      <Activity className="h-4 w-4" />
+                    </Button>
                     <Switch
                       checked={downloader.enabled}
                       onCheckedChange={(enabled) =>
@@ -275,7 +356,7 @@ export default function DownloadersPage() {
       </div>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>
               {editingDownloader ? "Edit Downloader" : "Add Downloader"}
@@ -285,7 +366,8 @@ export default function DownloadersPage() {
             </DialogDescription>
           </DialogHeader>
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-4 overflow-hidden">
+              <div className="overflow-y-auto px-1 space-y-3 max-h-[calc(90vh-12rem)]">
               <FormField
                 control={form.control}
                 name="name"
@@ -332,18 +414,95 @@ export default function DownloadersPage() {
                 name="url"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>URL</FormLabel>
+                    <FormLabel>
+                      {form.watch("type") === "rtorrent" ? "Host URL" : "URL"}
+                    </FormLabel>
                     <FormControl>
                       <Input
-                        placeholder="http://localhost:9091/transmission/rpc"
+                        placeholder={
+                          form.watch("type") === "rtorrent"
+                            ? "localhost or 192.168.1.100"
+                            : "http://localhost:9091/transmission/rpc"
+                        }
                         {...field}
                         data-testid="input-downloader-url"
                       />
                     </FormControl>
+                    {form.watch("type") === "rtorrent" && (
+                      <FormDescription className="text-xs">
+                        Enter hostname or IP address without protocol or port
+                      </FormDescription>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )}
               />
+              {form.watch("type") === "rtorrent" && (
+                <>
+                  <FormField
+                    control={form.control}
+                    name="port"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Port</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            placeholder="80 or 443"
+                            {...field}
+                            value={field.value || ""}
+                            onChange={(e) => field.onChange(e.target.value ? parseInt(e.target.value) : undefined)}
+                            data-testid="input-downloader-port"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="useSsl"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-2">
+                        <div className="space-y-0">
+                          <FormLabel className="text-sm">Use SSL</FormLabel>
+                          <FormDescription className="text-xs">
+                            Enable HTTPS
+                          </FormDescription>
+                        </div>
+                        <FormControl>
+                          <Checkbox
+                            checked={!!field.value}
+                            onCheckedChange={field.onChange}
+                            data-testid="checkbox-downloader-usessl"
+                          />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="urlPath"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>URL Path</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder="RPC2 or plugins/rpc/rpc.php"
+                            {...field}
+                            value={field.value || ""}
+                            data-testid="input-downloader-urlpath"
+                          />
+                        </FormControl>
+                        <FormDescription className="text-xs">
+                          Path to XMLRPC endpoint (e.g., "RPC2" or "plugins/rpc/rpc.php")
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </>
+              )}
               <FormField
                 control={form.control}
                 name="username"
@@ -401,6 +560,27 @@ export default function DownloadersPage() {
               />
               <FormField
                 control={form.control}
+                name="category"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Category</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="games"
+                        {...field}
+                        value={field.value || ""}
+                        data-testid="input-downloader-category"
+                      />
+                    </FormControl>
+                    <FormDescription className="text-xs">
+                      Label for torrents in downloader
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
                 name="priority"
                 render={({ field }) => (
                   <FormItem>
@@ -415,14 +595,85 @@ export default function DownloadersPage() {
                         data-testid="input-downloader-priority"
                       />
                     </FormControl>
-                    <p className="text-xs text-muted-foreground">
-                      Lower number = higher priority. Downloads are sent to the highest priority downloader first, with automatic fallback to the next if it fails.
-                    </p>
+                    <FormDescription className="text-xs">
+                      Lower = higher priority. Auto-fallback if fails.
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-              <div className="flex justify-end space-x-2">
+              <div className="space-y-2 rounded-lg border p-3 bg-muted/30">
+                <h3 className="text-sm font-semibold mb-2">Advanced Settings</h3>
+                {form.watch("type") === "rtorrent" && (
+                  <>
+                    <FormField
+                      control={form.control}
+                      name="addStopped"
+                      render={({ field }) => (
+                        <FormItem className="flex flex-row items-center justify-between rounded-lg border p-2 bg-background">
+                          <div className="space-y-0">
+                            <FormLabel className="text-sm">Add Stopped</FormLabel>
+                            <FormDescription className="text-xs">
+                              Add torrents in paused state
+                            </FormDescription>
+                          </div>
+                          <FormControl>
+                            <Checkbox
+                              checked={!!field.value}
+                              onCheckedChange={field.onChange}
+                              data-testid="checkbox-downloader-addstopped"
+                            />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="removeCompleted"
+                      render={({ field }) => (
+                        <FormItem className="flex flex-row items-center justify-between rounded-lg border p-2 bg-background">
+                          <div className="space-y-0">
+                            <FormLabel className="text-sm">Remove Completed</FormLabel>
+                            <FormDescription className="text-xs">
+                              Remove torrents from downloader after completion
+                            </FormDescription>
+                          </div>
+                          <FormControl>
+                            <Checkbox
+                              checked={!!field.value}
+                              onCheckedChange={field.onChange}
+                              data-testid="checkbox-downloader-removecompleted"
+                            />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="postImportCategory"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Post-Import Category (Optional)</FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder="completed-games"
+                              {...field}
+                              value={field.value || ""}
+                              data-testid="input-downloader-postimportcategory"
+                            />
+                          </FormControl>
+                          <FormDescription className="text-xs">
+                            Category after download completes
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </>
+                )}
+              </div>
+              </div>
+              <div className="flex justify-end space-x-2 pt-2 border-t">
                 <Button
                   type="button"
                   variant="outline"
@@ -430,6 +681,26 @@ export default function DownloadersPage() {
                   data-testid="button-cancel"
                 >
                   Cancel
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    const formData = form.getValues();
+                    
+                    if (editingDownloader) {
+                      // Test existing downloader
+                      testConnectionMutation.mutate({ id: editingDownloader.id });
+                    } else {
+                      // Test with form data for new downloader
+                      testConnectionMutation.mutate({ formData });
+                    }
+                  }}
+                  disabled={testingDownloaderId !== null}
+                  data-testid="button-test-connection-dialog"
+                >
+                  <Activity className="h-4 w-4 mr-2" />
+                  {testingDownloaderId === "new" ? "Testing..." : "Test Connection"}
                 </Button>
                 <Button
                   type="submit"

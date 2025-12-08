@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { useForm } from "react-hook-form";
@@ -102,19 +102,36 @@ export default function IndexersPage() {
   });
 
   const testConnectionMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const response = await fetch(`/api/indexers/${id}/test`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Failed to test indexer connection");
+    mutationFn: async (data: { id?: string; formData?: InsertIndexer }) => {
+      if (data.id) {
+        // Test existing indexer by ID
+        const response = await fetch(`/api/indexers/${data.id}/test`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        });
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || "Failed to test indexer connection");
+        }
+        return response.json() as Promise<{ success: boolean; message: string }>;
+      } else if (data.formData) {
+        // Test with form data (new indexer)
+        const response = await fetch(`/api/indexers/test`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data.formData),
+        });
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || "Failed to test indexer connection");
+        }
+        return response.json() as Promise<{ success: boolean; message: string }>;
+      } else {
+        throw new Error("Either id or formData must be provided");
       }
-      return response.json() as Promise<{ success: boolean; message: string }>;
     },
-    onMutate: (id) => {
-      setTestingIndexerId(id);
+    onMutate: (data) => {
+      setTestingIndexerId(data.id || "new");
     },
     onSuccess: (data) => {
       if (data.success) {
@@ -277,7 +294,7 @@ export default function IndexersPage() {
                     <Button
                       variant="outline"
                       size="icon"
-                      onClick={() => testConnectionMutation.mutate(indexer.id)}
+                      onClick={() => testConnectionMutation.mutate({ id: indexer.id })}
                       disabled={testingIndexerId === indexer.id}
                       title="Test connection"
                       data-testid={`button-test-indexer-${indexer.id}`}
@@ -464,6 +481,26 @@ export default function IndexersPage() {
                   data-testid="button-cancel"
                 >
                   Cancel
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    const formData = form.getValues();
+                    
+                    if (editingIndexer) {
+                      // Test existing indexer
+                      testConnectionMutation.mutate({ id: editingIndexer.id });
+                    } else {
+                      // Test with form data for new indexer
+                      testConnectionMutation.mutate({ formData });
+                    }
+                  }}
+                  disabled={testingIndexerId !== null}
+                  data-testid="button-test-connection-dialog"
+                >
+                  <Activity className="h-4 w-4 mr-2" />
+                  {testingIndexerId === "new" ? "Testing..." : "Test Connection"}
                 </Button>
                 <Button
                   type="submit"

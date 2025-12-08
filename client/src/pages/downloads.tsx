@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { 
@@ -53,23 +53,6 @@ interface DownloadsResponse {
   errors: DownloaderError[];
 }
 
-function getStatusColor(status: DownloadStatus['status']): string {
-  switch (status) {
-    case 'downloading':
-      return 'bg-blue-500';
-    case 'seeding':
-      return 'bg-green-500';
-    case 'completed':
-      return 'bg-green-600';
-    case 'paused':
-      return 'bg-yellow-500';
-    case 'error':
-      return 'bg-red-500';
-    default:
-      return 'bg-gray-500';
-  }
-}
-
 export default function Downloads() {
   const { toast } = useToast();
   const [hasShownErrors, setHasShownErrors] = useState<Set<string>>(new Set());
@@ -83,7 +66,9 @@ export default function Downloads() {
   });
 
   const downloads = downloadsData?.torrents || [];
-  const errors = downloadsData?.errors || [];
+  
+  // Memoize errors to avoid recreating array on every render
+  const errors = useMemo(() => downloadsData?.errors || [], [downloadsData?.errors]);
   
   // Filter downloads based on selected status using utility function
   const filteredDownloads = filterDownloadsByStatus(downloads, statusFilter);
@@ -123,7 +108,7 @@ export default function Downloads() {
         }
       });
     }
-  }, [errors, toast]);
+  }, [errors, hasShownErrors, toast]);
 
   const handleShowDetails = (download: DownloadStatus) => {
     setSelectedTorrent(download);

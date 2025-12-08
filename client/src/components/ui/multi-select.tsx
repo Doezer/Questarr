@@ -31,7 +31,7 @@ interface MultiSelectProps {
   className?: string;
   disabled?: boolean;
   // Support additional HTML attributes like data-testid
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export function MultiSelect({

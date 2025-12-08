@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage.js";
 import { igdbClient } from "./igdb.js";
 import { pool } from "./db.js";
-import { insertGameSchema, updateGameStatusSchema, insertIndexerSchema, insertDownloaderSchema, type Config } from "../shared/schema.js";
+import { insertGameSchema, updateGameStatusSchema, insertIndexerSchema, insertDownloaderSchema, type Config, type Indexer, type Downloader } from "../shared/schema.js";
 import { torznabClient } from "./torznab.js";
 import { DownloaderManager } from "./downloaders.js";
 import { z } from "zod";
@@ -254,8 +254,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get user's current games for recommendations
       const userGames = await storage.getAllGames();
       
-      // Get recommendations from IGDB
-      const igdbGames = await igdbClient.getRecommendations(userGames, limit);
+      // Get recommendations from IGDB  
+      const igdbGames = await igdbClient.getRecommendations(
+        userGames.map(g => ({ 
+          genres: g.genres || undefined, 
+          platforms: g.platforms || undefined, 
+          igdbId: g.igdbId ?? undefined 
+        })), 
+        limit
+      );
       const formattedGames = igdbGames.map(game => igdbClient.formatGameData(game));
       
       res.json(formattedGames);
@@ -578,7 +585,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Search for games using configured indexers (alias for /api/indexers/search)
   app.get("/api/search", sanitizeIndexerSearchQuery, validateRequest, handleAggregatedIndexerSearch);
 
-  // Test indexer connection
+  // Test indexer connection with provided configuration (doesn't require saving first)
+  app.post("/api/indexers/test", async (req, res) => {
+    try {
+      const { name, url, apiKey, enabled, priority, categories, rssEnabled, autoSearchEnabled } = req.body;
+      
+      if (!url || !apiKey) {
+        return res.status(400).json({ error: "URL and API key are required" });
+      }
+
+      // Create a temporary indexer object for testing
+      const tempIndexer: Indexer = {
+        id: "test",
+        name: name || "Test Connection",
+        url,
+        apiKey,
+        enabled: enabled ?? true,
+        priority: priority ?? 1,
+        categories: categories || [],
+        rssEnabled: rssEnabled ?? true,
+        autoSearchEnabled: autoSearchEnabled ?? true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      const result = await torznabClient.testConnection(tempIndexer);
+      res.json(result);
+    } catch (error) {
+      routesLogger.error({ error }, "error testing indexer");
+      res.status(500).json({ 
+        error: "Failed to test indexer connection" 
+      });
+    }
+  });
+
+  // Test existing indexer connection by ID
   app.post("/api/indexers/:id/test", async (req, res) => {
     try {
       const { id } = req.params;
@@ -648,7 +689,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Downloader integration routes
   
-  // Test downloader connection
+  // Test downloader connection with provided configuration (doesn't require saving first)
+  app.post("/api/downloaders/test", async (req, res) => {
+    try {
+      const { type, url, port, useSsl, urlPath, username, password, downloadPath, category, label, addStopped, removeCompleted, postImportCategory, settings } = req.body;
+      
+      if (!type || !url) {
+        return res.status(400).json({ error: "Type and URL are required" });
+      }
+
+      // Create a temporary downloader object for testing
+      const tempDownloader: Downloader = {
+        id: "test",
+        name: "Test Connection",
+        type,
+        url,
+        port: port || null,
+        useSsl: useSsl ?? false,
+        urlPath: urlPath || null,
+        username: username || null,
+        password: password || null,
+        enabled: true,
+        priority: 1,
+        downloadPath: downloadPath || null,
+        category: category || null,
+        label: label || "GameRadarr",
+        addStopped: addStopped ?? false,
+        removeCompleted: removeCompleted ?? false,
+        postImportCategory: postImportCategory || null,
+        settings: settings || null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      const result = await DownloaderManager.testDownloader(tempDownloader);
+      res.json(result);
+    } catch (error) {
+      routesLogger.error({ error }, "error testing downloader");
+      res.status(500).json({ 
+        error: "Failed to test downloader connection" 
+      });
+    }
+  });
+  
+  // Test existing downloader connection by ID
   app.post("/api/downloaders/:id/test", async (req, res) => {
     try {
       const { id } = req.params;

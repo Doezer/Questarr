@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Search, Filter, X } from "lucide-react";
@@ -12,12 +12,12 @@ interface SearchBarProps {
   onRemoveFilter?: (filter: string) => void;
 }
 
-export default function SearchBar({ 
-  onSearch, 
-  onFilterToggle, 
+export default function SearchBar({
+  onSearch,
+  onFilterToggle,
   placeholder = "Search games...",
   activeFilters = [],
-  onRemoveFilter
+  onRemoveFilter,
 }: SearchBarProps) {
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -59,27 +59,28 @@ export default function SearchBar({
             data-testid="input-search"
           />
         </div>
-        <Button type="submit" variant="default" data-testid="button-search">
+        <Button type="submit" variant="default" data-testid="button-search" aria-label="Search">
           <Search className="w-4 h-4" />
         </Button>
-        <Button 
-          type="button" 
-          variant="outline" 
+        <Button
+          type="button"
+          variant="outline"
           onClick={handleFilterClick}
           data-testid="button-filter"
+          aria-label="Toggle filters"
         >
           <Filter className="w-4 h-4" />
         </Button>
       </form>
-      
+
       {activeFilters.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {activeFilters.map((filter) => (
-            <Badge 
-              key={filter} 
-              variant="secondary" 
+            <Badge
+              key={filter}
+              variant="secondary"
               className="gap-1"
-              data-testid={`filter-${filter.toLowerCase().replace(/\s+/g, '-')}`}
+              data-testid={`filter-${filter.toLowerCase().replace(/\s+/g, "-")}`}
             >
               {filter}
               <Button
@@ -87,7 +88,8 @@ export default function SearchBar({
                 size="icon"
                 className="w-3 h-3 p-0 hover:bg-transparent"
                 onClick={() => handleRemoveFilter(filter)}
-                data-testid={`button-remove-filter-${filter.toLowerCase().replace(/\s+/g, '-')}`}
+                aria-label={`Remove filter: ${filter}`}
+                data-testid={`button-remove-filter-${filter.toLowerCase().replace(/\s+/g, "-")}`}
               >
                 <X className="w-3 h-3" />
               </Button>

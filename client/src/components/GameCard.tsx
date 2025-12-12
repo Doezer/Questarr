@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Download, Info, Star, Calendar } from "lucide-react";
 import StatusBadge, { type GameStatus } from "./StatusBadge";
 import { type Game } from "@shared/schema";
-import { useState } from "react";
+import { useState, memo } from "react";
 import GameDetailsModal from "./GameDetailsModal";
 import GameDownloadDialog from "./GameDownloadDialog";
 
@@ -15,7 +15,10 @@ interface GameCardProps {
   isDiscovery?: boolean;
 }
 
-export default function GameCard({ game, onStatusChange, onViewDetails, onTrackGame, isDiscovery = false }: GameCardProps) {
+// ⚡ Bolt: Using React.memo to prevent unnecessary re-renders of the GameCard
+// when parent components update but this card's props remain unchanged.
+// This is particularly effective in grids or lists where many cards are rendered.
+const GameCard = ({ game, onStatusChange, onViewDetails, onTrackGame, isDiscovery = false }: GameCardProps) => {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [downloadOpen, setDownloadOpen] = useState(false);
 
@@ -138,4 +141,6 @@ export default function GameCard({ game, onStatusChange, onViewDetails, onTrackG
       />
     </Card>
   );
-}
+};
+
+export default memo(GameCard);

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Dialog,
@@ -67,6 +67,7 @@ export default function GameDownloadDialog({
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
+  const [downloadingGuid, setDownloadingGuid] = useState<string | null>(null);
 
   // Auto-populate search when dialog opens with game title
   useEffect(() => {
@@ -128,9 +129,14 @@ export default function GameDownloadDialog({
         variant: "destructive",
       });
     },
+    onSettled: () => {
+      setDownloadingGuid(null);
+    },
   });
 
   const handleDownload = (torrent: TorrentItem) => {
+    const guid = torrent.guid || torrent.link;
+    setDownloadingGuid(guid);
     downloadMutation.mutate(torrent);
   };
 
@@ -205,11 +211,17 @@ export default function GameDownloadDialog({
                         <Button
                           size="sm"
                           onClick={() => handleDownload(torrent)}
-                          disabled={downloadMutation.isPending}
-                          className="flex-shrink-0"
+                          disabled={downloadingGuid !== null}
+                          className="flex-shrink-0 w-[120px]"
                         >
-                          <Download className="h-4 w-4 mr-1" />
-                          Download
+                          {downloadingGuid === (torrent.guid || torrent.link) ? (
+                            <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                          ) : (
+                            <Download className="h-4 w-4 mr-1" />
+                          )}
+                          {downloadingGuid === (torrent.guid || torrent.link)
+                            ? "Downloading..."
+                            : "Download"}
                         </Button>
                       </div>
                     </CardHeader>

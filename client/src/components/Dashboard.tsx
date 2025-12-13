@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import SearchBar from "./SearchBar";
 import GameGrid from "./GameGrid";
@@ -100,9 +100,15 @@ export default function Dashboard() {
     setActiveFilters(prev => prev.filter(f => f !== filter));
   };
 
-  const handleStatusChange = (gameId: string, newStatus: GameStatus) => {
+  // ⚡ Bolt: Memoize `handleStatusChange` with `useCallback`.
+  // This function is passed down through `GameGrid` to `GameCard` components.
+  // Since `GameCard` is wrapped in `React.memo`, passing a stable function
+  // reference is crucial to prevent every card from re-rendering whenever
+  // the `Dashboard` component re-renders. Without `useCallback`, a new
+  // function would be created on each render, defeating the purpose of memoization.
+  const handleStatusChange = useCallback((gameId: string, newStatus: GameStatus) => {
     statusMutation.mutate({ gameId, status: newStatus });
-  };
+  }, [statusMutation]);
 
   return (
     <div className="h-full overflow-auto p-6" data-testid="layout-dashboard">

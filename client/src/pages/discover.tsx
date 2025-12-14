@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import GameCarouselSection from "@/components/GameCarouselSection";
 import { type Game } from "@shared/schema";
@@ -163,7 +163,10 @@ export default function DiscoverPage() {
     },
   });
 
-  const handleStatusChange = (gameId: string, newStatus: GameStatus) => {
+  // ⚡ Bolt: Using useCallback to memoize event handlers, preventing unnecessary
+  // re-renders in child components like `GameCard` that rely on stable function
+  // references for their `React.memo` optimization.
+  const handleStatusChange = useCallback((gameId: string, newStatus: GameStatus) => {
     // For Discovery games (IGDB games not in collection yet)
     const findGameInQueries = (): Game | undefined => {
       // Search in all cached query data
@@ -185,11 +188,11 @@ export default function DiscoverPage() {
     if (game) {
       addGameMutation.mutate({ game, status: newStatus });
     }
-  };
+  }, [queryClient, addGameMutation]);
 
-  const handleTrackGame = (game: Game) => {
+  const handleTrackGame = useCallback((game: Game) => {
     trackGameMutation.mutate(game);
-  };
+  }, [trackGameMutation]);
 
   // Common query functions
   const fetchPopularGames = async (): Promise<Game[]> => {

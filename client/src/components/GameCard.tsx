@@ -77,6 +77,7 @@ const GameCard = ({ game, onStatusChange, onViewDetails, onTrackGame, isDiscover
             size="icon" 
             variant="secondary"
             onClick={handleDetailsClick}
+            aria-label="View details"
             data-testid={`button-details-${game.id}`}
           >
             <Info className="w-4 h-4" />

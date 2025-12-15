@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, memo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -23,7 +23,9 @@ interface GameCarouselSectionProps {
   isDiscovery?: boolean;
 }
 
-export default function GameCarouselSection({
+// ⚡ Bolt: Using React.memo to prevent unnecessary re-renders of the carousel
+// when the parent component (e.g., DiscoverPage) updates its state.
+const GameCarouselSection = memo(({
   title,
   queryKey,
   queryFn,
@@ -31,7 +33,7 @@ export default function GameCarouselSection({
   onViewDetails,
   onTrackGame,
   isDiscovery = true,
-}: GameCarouselSectionProps) {
+}: GameCarouselSectionProps) => {
   const [api, setApi] = useState<CarouselApi>();
   const [canScrollPrev, setCanScrollPrev] = useState(false);
   const [canScrollNext, setCanScrollNext] = useState(false);
@@ -156,4 +158,6 @@ export default function GameCarouselSection({
       </Carousel>
     </div>
   );
-}
+});
+
+export default GameCarouselSection;

@@ -1,6 +1,6 @@
 import { useState, useEffect, memo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, AlertCircle } from "lucide-react";
+import { ChevronLeft, ChevronRight, AlertCircle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Carousel,
@@ -39,7 +39,7 @@ const GameCarouselSection = ({
   const [canScrollPrev, setCanScrollPrev] = useState(false);
   const [canScrollNext, setCanScrollNext] = useState(false);
 
-  const { data: games = [], isLoading, isError, error: _error } = useQuery<Game[]>({
+  const { data: games = [], isLoading, isFetching, isError, error: _error } = useQuery<Game[]>({
     queryKey,
     queryFn,
   });
@@ -132,31 +132,38 @@ const GameCarouselSection = ({
           </Button>
         </div>
       </div>
-      <Carousel
-        opts={{
-          align: "start",
-          loop: false,
-        }}
-        setApi={setApi}
-        className="w-full"
-      >
-        <CarouselContent className="-ml-4">
-          {games.map((game) => (
-            <CarouselItem
-              key={game.id}
-              className="pl-4 basis-1/2 sm:basis-1/3 md:basis-1/4 lg:basis-1/5 xl:basis-1/6"
-            >
-              <GameCard
-                game={game}
-                onStatusChange={onStatusChange}
-                onViewDetails={onViewDetails}
-                onTrackGame={onTrackGame}
-                isDiscovery={isDiscovery}
-              />
-            </CarouselItem>
-          ))}
-        </CarouselContent>
-      </Carousel>
+      <div className="relative" aria-busy={isFetching && !isLoading}>
+        {isFetching && !isLoading && (
+          <div className="absolute inset-0 bg-background/50 backdrop-blur-[2px] z-10 flex items-center justify-center">
+            <Loader2 className="h-8 w-8 animate-spin" />
+          </div>
+        )}
+        <Carousel
+          opts={{
+            align: "start",
+            loop: false,
+          }}
+          setApi={setApi}
+          className="w-full"
+        >
+          <CarouselContent className="-ml-4">
+            {games.map((game) => (
+              <CarouselItem
+                key={game.id}
+                className="pl-4 basis-1/2 sm:basis-1/3 md:basis-1/4 lg:basis-1/5 xl:basis-1/6"
+              >
+                <GameCard
+                  game={game}
+                  onStatusChange={onStatusChange}
+                  onViewDetails={onViewDetails}
+                  onTrackGame={onTrackGame}
+                  isDiscovery={isDiscovery}
+                />
+              </CarouselItem>
+            ))}
+          </CarouselContent>
+        </Carousel>
+      </div>
     </div>
   );
 };

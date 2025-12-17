@@ -88,17 +88,20 @@ export default function Dashboard() {
     },
   ];
 
-  const handleSearch = (query: string) => {
+  // ⚡ Bolt: Memoize event handlers with `useCallback` to prevent unnecessary
+  // re-renders in child components like `SearchBar` that depend on stable
+  // function references.
+  const handleSearch = useCallback((query: string) => {
     setSearchQuery(query);
-  };
+  }, []);
 
-  const handleFilterToggle = () => {
+  const handleFilterToggle = useCallback(() => {
     console.warn("Filter panel toggled");
-  };
+  }, []);
 
-  const handleRemoveFilter = (filter: string) => {
+  const handleRemoveFilter = useCallback((filter: string) => {
     setActiveFilters(prev => prev.filter(f => f !== filter));
-  };
+  }, []);
 
   // ⚡ Bolt: Memoize `handleStatusChange` with `useCallback`.
   // This function is passed down through `GameGrid` to `GameCard` components.

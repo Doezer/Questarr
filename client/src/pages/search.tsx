@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -302,15 +303,23 @@ export default function SearchPage() {
                         </CardDescription>
                       </div>
                       <div className="flex items-center space-x-2 ml-4">
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          onClick={() => handleDownload(torrent)}
-                          disabled={downloaders.length === 0}
-                          data-testid={`button-download-${index}`}
-                        >
-                          <Download className="h-4 w-4" />
-                        </Button>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => handleDownload(torrent)}
+                              disabled={downloaders.length === 0}
+                              data-testid={`button-download-${index}`}
+                              aria-label="Start download"
+                            >
+                              <Download className="h-4 w-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Start download</p>
+                          </TooltipContent>
+                        </Tooltip>
                       </div>
                     </div>
                   </CardHeader>

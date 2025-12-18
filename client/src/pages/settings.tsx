@@ -62,14 +62,6 @@ export default function SettingsPage() {
                 {config?.database.connected ? "Connected" : "Disconnected"}
               </Badge>
             </div>
-            {config?.database.url && (
-              <div className="space-y-1">
-                <span className="text-sm font-medium">Connection URL</span>
-                <p className="text-sm text-muted-foreground font-mono break-all">
-                  {config.database.url}
-                </p>
-              </div>
-            )}
           </CardContent>
         </Card>
 

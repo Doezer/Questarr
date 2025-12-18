@@ -995,26 +995,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Configuration endpoint - read-only access to key settings
   app.get("/api/config", sensitiveEndpointLimiter, async (req, res) => {
     try {
-      // Mask password in database URL
-      let maskedDbUrl: string | undefined;
-      const dbUrl = appConfig.database.url;
-      if (dbUrl) {
-        try {
-          const parsedUrl = new URL(dbUrl);
-          if (parsedUrl.password) {
-            parsedUrl.password = '****';
-          }
-          maskedDbUrl = parsedUrl.toString();
-        } catch {
-          // If URL parsing fails, use simple regex fallback
-          maskedDbUrl = dbUrl.replace(/:[^:@]*@/, ':****@');
-        }
-      }
-
       const config: Config = {
         database: {
           connected: !!appConfig.database.url,
-          url: maskedDbUrl,
         },
         igdb: {
           configured: appConfig.igdb.isConfigured,

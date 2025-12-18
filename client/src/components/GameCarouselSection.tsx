@@ -145,6 +145,7 @@ const GameCarouselSection = ({
           }}
           setApi={setApi}
           className="w-full"
+          aria-hidden={isFetching && !isLoading}
         >
           <CarouselContent className="-ml-4">
             {games.map((game) => (

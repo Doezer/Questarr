@@ -43,10 +43,13 @@ const GameCard = ({ game, onStatusChange, onViewDetails, onTrackGame, isDiscover
   return (
     <Card className="group hover-elevate transition-all duration-200" data-testid={`card-game-${game.id}`}>
       <div className="relative">
+        {/* ⚡ Bolt: Lazy loading images prevents fetching all game covers upfront,
+            improving initial page load speed, especially on pages with many carousels. */}
         <img 
           src={game.coverUrl || "/placeholder-game-cover.jpg"} 
           alt={`${game.title} cover`}
           className="w-full aspect-[3/4] object-cover rounded-t-md"
+          loading="lazy"
           data-testid={`img-cover-${game.id}`}
         />
         {!isDiscovery && game.status && (

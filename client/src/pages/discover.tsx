@@ -53,6 +53,8 @@ const STATIC_DATA_STALE_TIME = 1000 * 60 * 60;
 export default function DiscoverPage() {
   const [selectedGenre, setSelectedGenre] = useState<string>("Action");
   const [selectedPlatform, setSelectedPlatform] = useState<string>("PC");
+  const [debouncedGenre, setDebouncedGenre] = useState<string>(selectedGenre);
+  const [debouncedPlatform, setDebouncedPlatform] = useState<string>(selectedPlatform);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -85,6 +87,34 @@ export default function DiscoverPage() {
   const platformsErrorShown = useRef(false);
 
   // Show toast notification for API errors (only once per error state)
+  useEffect(() => {
+    // ⚡ Bolt: Debounce the genre selection to prevent excessive API calls.
+    // The API request is only sent after the user has stopped selecting a new
+    // genre for 300ms, reducing backend load and preventing rapid UI updates.
+    const handler = setTimeout(() => {
+      setDebouncedGenre(selectedGenre);
+    }, 300);
+
+    // Cleanup the timeout if the user selects another genre before 300ms
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [selectedGenre]);
+
+  useEffect(() => {
+    // ⚡ Bolt: Debounce the platform selection to prevent excessive API calls.
+    // The API request is only sent after the user has stopped selecting a new
+    // platform for 300ms, reducing backend load and preventing rapid UI updates.
+    const handler = setTimeout(() => {
+      setDebouncedPlatform(selectedPlatform);
+    }, 300);
+
+    // Cleanup the timeout if the user selects another platform before 300ms
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [selectedPlatform]);
+
   useEffect(() => {
     if (genresError && !genresErrorShown.current) {
       genresErrorShown.current = true;
@@ -219,34 +249,34 @@ export default function DiscoverPage() {
   const fetchGamesByGenre = useCallback(async (): Promise<Game[]> => {
     // Validate selectedGenre against known genres before making API call
     const validGenres = genres.length > 0 ? genres : DEFAULT_GENRES;
-    const isValidGenre = validGenres.some((g) => g.name === selectedGenre);
+    const isValidGenre = validGenres.some((g) => g.name === debouncedGenre);
     if (!isValidGenre) {
       // This case should ideally not be hit if UI is synced with state
       return []; // Return empty instead of throwing to prevent crash
     }
     
     const response = await fetch(
-      `/api/igdb/genre/${encodeURIComponent(selectedGenre)}?limit=20`
+      `/api/igdb/genre/${encodeURIComponent(debouncedGenre)}?limit=20`
     );
     if (!response.ok) throw new Error("Failed to fetch games by genre");
     return response.json();
-  }, [selectedGenre, genres]);
+  }, [debouncedGenre, genres]);
 
   const fetchGamesByPlatform = useCallback(async (): Promise<Game[]> => {
     // Validate selectedPlatform against known platforms before making API call
     const validPlatforms = platforms.length > 0 ? platforms : DEFAULT_PLATFORMS;
-    const isValidPlatform = validPlatforms.some((p) => p.name === selectedPlatform);
+    const isValidPlatform = validPlatforms.some((p) => p.name === debouncedPlatform);
     if (!isValidPlatform) {
       // This case should ideally not be hit if UI is synced with state
       return []; // Return empty instead of throwing to prevent crash
     }
     
     const response = await fetch(
-      `/api/igdb/platform/${encodeURIComponent(selectedPlatform)}?limit=20`
+      `/api/igdb/platform/${encodeURIComponent(debouncedPlatform)}?limit=20`
     );
     if (!response.ok) throw new Error("Failed to fetch games by platform");
     return response.json();
-  }, [selectedPlatform, platforms]);
+  }, [debouncedPlatform, platforms]);
 
   const displayGenres = genres.length > 0 ? genres : DEFAULT_GENRES;
   const displayPlatforms = platforms.length > 0 ? platforms : DEFAULT_PLATFORMS;
@@ -309,7 +339,7 @@ export default function DiscoverPage() {
         </div>
         <GameCarouselSection
           title={`${selectedGenre} Games`}
-          queryKey={["/api/igdb/genre", selectedGenre]}
+          queryKey={["/api/igdb/genre", debouncedGenre]}
           queryFn={fetchGamesByGenre}
           onStatusChange={handleStatusChange}
           onTrackGame={handleTrackGame}
@@ -336,7 +366,7 @@ export default function DiscoverPage() {
         </div>
         <GameCarouselSection
           title={`${selectedPlatform} Games`}
-          queryKey={["/api/igdb/platform", selectedPlatform]}
+          queryKey={["/api/igdb/platform", debouncedPlatform]}
           queryFn={fetchGamesByPlatform}
           onStatusChange={handleStatusChange}
           onTrackGame={handleTrackGame}

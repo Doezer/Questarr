@@ -8,6 +8,7 @@ import {
   CarouselItem,
   type CarouselApi,
 } from "@/components/ui/carousel";
+import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import GameCard from "./GameCard";
 import { type Game } from "@shared/schema";
@@ -144,7 +145,9 @@ const GameCarouselSection = ({
             loop: false,
           }}
           setApi={setApi}
-          className="w-full"
+          className={cn("w-full transition-opacity", {
+            "opacity-50": isFetching && !isLoading,
+          })}
           aria-hidden={isFetching && !isLoading}
         >
           <CarouselContent className="-ml-4">

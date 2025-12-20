@@ -1005,11 +1005,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         igdb: {
           configured: appConfig.igdb.isConfigured,
         },
-        server: {
-          port: appConfig.server.port,
-          host: appConfig.server.host,
-          nodeEnv: appConfig.server.nodeEnv,
-        },
       };
       res.json(config);
     } catch (error) {

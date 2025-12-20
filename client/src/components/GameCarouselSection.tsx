@@ -39,6 +39,7 @@ const GameCarouselSection = ({
   const [api, setApi] = useState<CarouselApi>();
   const [canScrollPrev, setCanScrollPrev] = useState(false);
   const [canScrollNext, setCanScrollNext] = useState(false);
+  const [displayedTitle, setDisplayedTitle] = useState(title);
 
   const { data: games = [], isLoading, isFetching, isError, error: _error } = useQuery<Game[]>({
     queryKey,
@@ -63,6 +64,15 @@ const GameCarouselSection = ({
       api.off("select", updateScrollState);
     };
   }, [api]);
+
+  // 🎨 Palette: Prevent title/content mismatch during re-fetch.
+  // The title is now updated only *after* the new data has been fetched,
+  // ensuring the heading and the game list content always match.
+  useEffect(() => {
+    if (!isFetching) {
+      setDisplayedTitle(title);
+    }
+  }, [isFetching, title]);
 
   const scrollPrev = () => api?.scrollPrev();
   const scrollNext = () => api?.scrollNext();
@@ -107,7 +117,7 @@ const GameCarouselSection = ({
   return (
     <div className="space-y-4" data-testid={`carousel-section-${title.toLowerCase().replace(/\s+/g, '-')}`}>
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold">{title}</h2>
+        <h2 className="text-xl font-semibold">{displayedTitle}</h2>
         <div className="flex gap-2">
           <Button
             variant="outline"

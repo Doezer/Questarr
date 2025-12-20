@@ -995,30 +995,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Configuration endpoint - read-only access to key settings
   app.get("/api/config", sensitiveEndpointLimiter, async (req, res) => {
     try {
-      // Mask password in database URL
-      let maskedDbUrl: string | undefined;
-      const dbUrl = appConfig.database.url;
-      if (dbUrl) {
-        try {
-          const parsedUrl = new URL(dbUrl);
-          if (parsedUrl.password) {
-            parsedUrl.password = '****';
-          }
-          maskedDbUrl = parsedUrl.toString();
-        } catch {
-          // If URL parsing fails, use simple regex fallback
-          maskedDbUrl = dbUrl.replace(/:[^:@]*@/, ':****@');
-        }
-      }
-
+      // 🛡️ Sentinel: Harden config endpoint to prevent information disclosure.
+      // Only expose boolean flags indicating if services are configured, not
+      // sensitive details like database URLs or partial API keys.
       const config: Config = {
         database: {
           connected: !!appConfig.database.url,
-          url: maskedDbUrl,
         },
         igdb: {
           configured: appConfig.igdb.isConfigured,
-          clientId: appConfig.igdb.clientId ? appConfig.igdb.clientId.substring(0, 8) + '...' : undefined,
         },
         server: {
           port: appConfig.server.port,

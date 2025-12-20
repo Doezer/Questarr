@@ -172,11 +172,6 @@ export interface Config {
   igdb: {
     configured: boolean;
   };
-  server: {
-    port: number;
-    host: string;
-    nodeEnv: string;
-  };
 }
 
 // Torrent-related types shared between frontend and backend

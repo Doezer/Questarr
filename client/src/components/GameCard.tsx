@@ -131,18 +131,26 @@ const GameCard = ({ game, onStatusChange, onViewDetails, onTrackGame, isDiscover
         )}
       </CardContent>
       
-      <GameDetailsModal
-        game={game}
-        open={detailsOpen}
-        onOpenChange={setDetailsOpen}
-        onStatusChange={onStatusChange}
-      />
-      
-      <GameDownloadDialog
-        game={game}
-        open={downloadOpen}
-        onOpenChange={setDownloadOpen}
-      />
+      {/* ⚡ Bolt: Conditionally render modals only when they are active.
+          This prevents rendering hundreds of hidden, complex components on pages
+          with many game cards, significantly improving initial render performance
+          and reducing memory usage. */}
+      {detailsOpen && (
+        <GameDetailsModal
+          game={game}
+          open={detailsOpen}
+          onOpenChange={setDetailsOpen}
+          onStatusChange={onStatusChange}
+        />
+      )}
+
+      {downloadOpen && (
+        <GameDownloadDialog
+          game={game}
+          open={downloadOpen}
+          onOpenChange={setDownloadOpen}
+        />
+      )}
     </Card>
   );
 };

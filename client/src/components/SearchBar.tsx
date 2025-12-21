@@ -35,6 +35,11 @@ export default function SearchBar({
     onSearch?.(value);
   };
 
+  const handleClearSearch = () => {
+    setSearchQuery("");
+    onSearch?.("");
+  };
+
   const handleFilterClick = () => {
     console.warn("Filter toggle triggered");
     onFilterToggle?.();
@@ -55,9 +60,23 @@ export default function SearchBar({
             placeholder={placeholder}
             value={searchQuery}
             onChange={handleInputChange}
-            className="pl-10"
+            className="pl-10 pr-10"
             data-testid="input-search"
+            aria-label="Search games"
           />
+          {searchQuery && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="absolute right-3 top-1/2 h-6 w-6 -translate-y-1/2 p-0 hover:bg-transparent"
+              onClick={handleClearSearch}
+              aria-label="Clear search"
+              data-testid="button-clear-search"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          )}
         </div>
         <Button type="submit" variant="default" data-testid="button-search" aria-label="Search">
           <Search className="w-4 h-4" />

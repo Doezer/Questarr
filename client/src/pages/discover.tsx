@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useDebounce } from "@/hooks/use-debounce";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import GameCarouselSection from "@/components/GameCarouselSection";
 import { type Game } from "@shared/schema";
@@ -53,8 +54,10 @@ const STATIC_DATA_STALE_TIME = 1000 * 60 * 60;
 export default function DiscoverPage() {
   const [selectedGenre, setSelectedGenre] = useState<string>("Action");
   const [selectedPlatform, setSelectedPlatform] = useState<string>("PC");
-  const [debouncedGenre, setDebouncedGenre] = useState<string>(selectedGenre);
-  const [debouncedPlatform, setDebouncedPlatform] = useState<string>(selectedPlatform);
+  // ⚡ Bolt: Using the useDebounce hook centralizes and reuses debounce logic,
+  // making the component cleaner and preventing duplicate timers.
+  const debouncedGenre = useDebounce(selectedGenre, 300);
+  const debouncedPlatform = useDebounce(selectedPlatform, 300);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -87,34 +90,6 @@ export default function DiscoverPage() {
   const platformsErrorShown = useRef(false);
 
   // Show toast notification for API errors (only once per error state)
-  useEffect(() => {
-    // ⚡ Bolt: Debounce the genre selection to prevent excessive API calls.
-    // The API request is only sent after the user has stopped selecting a new
-    // genre for 300ms, reducing backend load and preventing rapid UI updates.
-    const handler = setTimeout(() => {
-      setDebouncedGenre(selectedGenre);
-    }, 300);
-
-    // Cleanup the timeout if the user selects another genre before 300ms
-    return () => {
-      clearTimeout(handler);
-    };
-  }, [selectedGenre]);
-
-  useEffect(() => {
-    // ⚡ Bolt: Debounce the platform selection to prevent excessive API calls.
-    // The API request is only sent after the user has stopped selecting a new
-    // platform for 300ms, reducing backend load and preventing rapid UI updates.
-    const handler = setTimeout(() => {
-      setDebouncedPlatform(selectedPlatform);
-    }, 300);
-
-    // Cleanup the timeout if the user selects another platform before 300ms
-    return () => {
-      clearTimeout(handler);
-    };
-  }, [selectedPlatform]);
-
   useEffect(() => {
     if (genresError && !genresErrorShown.current) {
       genresErrorShown.current = true;

@@ -82,34 +82,30 @@ function validatePaginationParams(query: { limit?: string; offset?: string }): {
 export async function registerRoutes(app: Express): Promise<Server> {
   // Health check endpoint
   app.get("/api/health", async (req, res) => {
-    const health = {
-      ok: true,
-      db: false,
-      igdb: false,
-    };
+    let isHealthy = true;
 
     // Check database connectivity
     try {
       await pool.query("SELECT 1");
-      health.db = true;
     } catch (error) {
       routesLogger.error({ error }, "database health check failed");
-      health.ok = false;
+      isHealthy = false;
     }
 
     // Check IGDB API connectivity
     try {
       // Try to get popular games with a minimal limit to test connectivity
       await igdbClient.getPopularGames(1);
-      health.igdb = true;
     } catch (error) {
       routesLogger.error({ error }, "igdb health check failed");
-      health.ok = false;
+      isHealthy = false;
     }
 
-    // Return 200 if all OK, 500 if any service is down
-    const statusCode = health.ok ? 200 : 500;
-    res.status(statusCode).json(health);
+    if (isHealthy) {
+      res.status(200).json({ status: "ok" });
+    } else {
+      res.status(503).json({ status: "error" });
+    }
   });
 
   // Game collection routes

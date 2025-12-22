@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useDebounce } from "@/hooks/use-debounce";
 import { queryClient } from "@/lib/queryClient";
 import { Search, Download, Calendar, Users, HardDrive } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -72,19 +73,20 @@ function formatDate(dateString: string): string {
 export default function SearchPage() {
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
+  const debouncedSearchQuery = useDebounce(searchQuery, 500);
   const [selectedTorrent, setSelectedTorrent] = useState<TorrentItem | null>(null);
   const [isDownloadDialogOpen, setIsDownloadDialogOpen] = useState(false);
   const [lastSearchQuery, setLastSearchQuery] = useState("");
 
   const { data: searchResults, isLoading: isSearching, error: searchError } = useQuery<SearchResult>({
-    queryKey: ["/api/search", searchQuery],
-    enabled: searchQuery.trim().length > 0,
+    queryKey: ["/api/search", debouncedSearchQuery],
+    enabled: debouncedSearchQuery.trim().length > 0,
   });
 
   // Show toast notification when search completes
   useEffect(() => {
     // Only show notification if we actually performed a search
-    if (searchQuery && searchQuery !== lastSearchQuery && !isSearching) {
+    if (debouncedSearchQuery && debouncedSearchQuery !== lastSearchQuery && !isSearching) {
       if (searchError) {
         toast({
           title: "Search failed",
@@ -114,9 +116,9 @@ export default function SearchPage() {
           });
         }
       }
-      setLastSearchQuery(searchQuery);
+      setLastSearchQuery(debouncedSearchQuery);
     }
-  }, [searchResults, isSearching, searchError, searchQuery, lastSearchQuery, toast]);
+  }, [searchResults, isSearching, searchError, debouncedSearchQuery, lastSearchQuery, toast]);
 
   const { data: downloaders = [] } = useQuery<Downloader[]>({
     queryKey: ["/api/downloaders/enabled"],

@@ -63,25 +63,17 @@ export const downloaders = pgTable("downloaders", {
 });
 
 // Validation schemas using drizzle-zod for runtime validation
-// Note: drizzle-zod 0.8.x uses zod/v4 internally, but schemas work at runtime
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
   password: true,
 });
 
-// For insertGameSchema, we define it manually using plain zod to avoid TypeScript compatibility
-// issues with drizzle-zod 0.8.x (which uses zod/v4 types internally)
-export const insertGameSchema = z.object({
-  igdbId: z.number().nullable().optional(),
-  title: z.string(),
-  summary: z.string().nullable().optional(),
-  coverUrl: z.string().nullable().optional(),
-  releaseDate: z.string().nullable().optional(),
-  rating: z.number().nullable().optional(),
-  platforms: z.array(z.string()).nullable().optional(),
-  genres: z.array(z.string()).nullable().optional(),
-  screenshots: z.array(z.string()).nullable().optional(),
-  status: z.enum(["wanted", "owned", "completed", "downloading"]).nullable().transform(val => val ?? "wanted"),
+export const insertGameSchema = createInsertSchema(games, {
+  status: (schema) => schema.nullable().optional().transform((val) => val ?? "wanted"),
+}).omit({
+  id: true,
+  addedAt: true,
+  completedAt: true,
 });
 
 export const updateGameStatusSchema = z.object({
@@ -102,13 +94,8 @@ export const insertDownloaderSchema = createInsertSchema(downloaders).omit({
 });
 
 // Type definitions - using Drizzle's table inference for select types
-// and explicit interfaces for insert types to avoid TypeScript compatibility
-// issues with drizzle-zod 0.8.x (which uses zod/v4 types internally)
 export type User = typeof users.$inferSelect;
-export type InsertUser = {
-  username: string;
-  password: string;
-};
+export type InsertUser = z.infer<typeof insertUserSchema>;
 
 export type Game = typeof games.$inferSelect & {
   // Additional fields for Discovery games
@@ -116,53 +103,15 @@ export type Game = typeof games.$inferSelect & {
   releaseYear?: number | null;
 };
 
-export type InsertGame = {
-  igdbId?: number | null;
-  title: string;
-  summary?: string | null;
-  coverUrl?: string | null;
-  releaseDate?: string | null;
-  rating?: number | null;
-  platforms?: string[] | null;
-  genres?: string[] | null;
-  screenshots?: string[] | null;
-  status?: "wanted" | "owned" | "completed" | "downloading";
-};
+export type InsertGame = z.infer<typeof insertGameSchema>;
 
 export type UpdateGameStatus = z.infer<typeof updateGameStatusSchema>;
 
 export type Indexer = typeof indexers.$inferSelect;
-export type InsertIndexer = {
-  name: string;
-  url: string;
-  apiKey: string;
-  enabled?: boolean;
-  priority?: number;
-  categories?: string[] | null;
-  rssEnabled?: boolean;
-  autoSearchEnabled?: boolean;
-};
+export type InsertIndexer = z.infer<typeof insertIndexerSchema>;
 
 export type Downloader = typeof downloaders.$inferSelect;
-export type InsertDownloader = {
-  name: string;
-  type: "transmission" | "rtorrent" | "qbittorrent";
-  url: string;
-  port?: number | null;
-  useSsl?: boolean | null;
-  urlPath?: string | null;
-  username?: string | null;
-  password?: string | null;
-  enabled?: boolean;
-  priority?: number;
-  downloadPath?: string | null;
-  category?: string | null;
-  label?: string | null;
-  addStopped?: boolean | null;
-  removeCompleted?: boolean | null;
-  postImportCategory?: string | null;
-  settings?: string | null;
-};
+export type InsertDownloader = z.infer<typeof insertDownloaderSchema>;
 
 // Application configuration type
 export interface Config {

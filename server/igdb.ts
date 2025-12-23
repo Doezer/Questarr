@@ -69,9 +69,17 @@ const HIGH_RATING_COUNT = 5;
 const MAX_LIMIT = 100;
 const MAX_OFFSET = 10000;
 
+// ⚡ Bolt: Define a cache entry interface for in-memory caching.
+interface CacheEntry<T> {
+  data: T;
+  expiry: number;
+}
+
 class IGDBClient {
   private accessToken: string | null = null;
   private tokenExpiry: number = 0;
+  // ⚡ Bolt: Use a Map for in-memory caching to store API responses and reduce redundant calls.
+  private cache = new Map<string, CacheEntry<any>>();
 
   private async authenticate(): Promise<string> {
     if (this.accessToken && Date.now() < this.tokenExpiry) {
@@ -102,7 +110,22 @@ class IGDBClient {
 
   // IGDB API returns dynamic JSON structures
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private async makeRequest(endpoint: string, query: string): Promise<any> {
+  private async makeRequest(endpoint: string, query: string, ttl: number = 0): Promise<any> {
+    // ⚡ Bolt: Generate a unique cache key based on the endpoint and query.
+    const cacheKey = `${endpoint}:${query}`;
+
+    // ⚡ Bolt: Check for a valid, non-expired cache entry first.
+    if (this.cache.has(cacheKey)) {
+      const entry = this.cache.get(cacheKey)!;
+      if (Date.now() < entry.expiry) {
+        igdbLogger.debug({ cacheKey }, "cache hit");
+        return entry.data;
+      }
+      igdbLogger.debug({ cacheKey }, "cache expired");
+      this.cache.delete(cacheKey);
+    }
+    igdbLogger.debug({ cacheKey }, "cache miss");
+
     const token = await this.authenticate();
     const clientId = config.igdb.clientId;
 
@@ -120,7 +143,16 @@ class IGDBClient {
       throw new Error(`IGDB API error: ${response.status}`);
     }
 
-    return response.json();
+    const data = await response.json();
+
+    // ⚡ Bolt: If a TTL is specified, store the response in the cache.
+    if (ttl > 0) {
+      const expiry = Date.now() + ttl;
+      this.cache.set(cacheKey, { data, expiry });
+      igdbLogger.debug({ cacheKey, ttl }, "cached response");
+    }
+
+    return data;
   }
 
   async searchGames(query: string, limit: number = 20): Promise<IGDBGame[]> {
@@ -207,7 +239,8 @@ class IGDBClient {
       where id = ${id};
     `;
 
-    const results = await this.makeRequest('games', igdbQuery);
+    // ⚡ Bolt: Cache game data for 24 hours as it's unlikely to change frequently.
+    const results = await this.makeRequest('games', igdbQuery, 24 * 60 * 60 * 1000);
     return results.length > 0 ? results[0] : null;
   }
 
@@ -219,7 +252,8 @@ class IGDBClient {
       limit ${limit};
     `;
 
-    return this.makeRequest('games', igdbQuery);
+    // ⚡ Bolt: Cache popular games for 1 hour to reduce load during high traffic.
+    return this.makeRequest('games', igdbQuery, 60 * 60 * 1000);
   }
 
   async getRecentReleases(limit: number = 20): Promise<IGDBGame[]> {
@@ -233,7 +267,8 @@ class IGDBClient {
       limit ${limit};
     `;
 
-    return this.makeRequest('games', igdbQuery);
+    // ⚡ Bolt: Cache recent releases for 1 hour.
+    return this.makeRequest('games', igdbQuery, 60 * 60 * 1000);
   }
 
   async getUpcomingReleases(limit: number = 20): Promise<IGDBGame[]> {
@@ -247,7 +282,8 @@ class IGDBClient {
       limit ${limit};
     `;
 
-    return this.makeRequest('games', igdbQuery);
+    // ⚡ Bolt: Cache upcoming releases for 1 hour.
+    return this.makeRequest('games', igdbQuery, 60 * 60 * 1000);
   }
 
   async getGamesByGenres(genres: string[], excludeIds: number[] = [], limit: number = 20): Promise<IGDBGame[]> {
@@ -273,7 +309,8 @@ class IGDBClient {
     `;
 
     try {
-      return await this.makeRequest('games', igdbQuery);
+      // ⚡ Bolt: Cache genre-based searches for 1 hour.
+      return await this.makeRequest('games', igdbQuery, 60 * 60 * 1000);
     } catch (error) {
       igdbLogger.warn({ genres, error }, `genre search failed`);
       return [];
@@ -317,7 +354,8 @@ class IGDBClient {
     `;
 
     try {
-      return await this.makeRequest('games', igdbQuery);
+      // ⚡ Bolt: Cache platform-based searches for 1 hour.
+      return await this.makeRequest('games', igdbQuery, 60 * 60 * 1000);
     } catch (error) {
       igdbLogger.warn({ platforms, error }, `platform search failed`);
       return [];
@@ -404,7 +442,8 @@ class IGDBClient {
     `;
 
     try {
-      return await this.makeRequest('games', igdbQuery);
+      // ⚡ Bolt: Cache genre search results for 1 hour.
+      return await this.makeRequest('games', igdbQuery, 60 * 60 * 1000);
     } catch (error) {
       console.warn(`IGDB genre search failed for genre: ${genre}`, error);
       return [];
@@ -429,7 +468,8 @@ class IGDBClient {
     `;
 
     try {
-      return await this.makeRequest('games', igdbQuery);
+      // ⚡ Bolt: Cache platform search results for 1 hour.
+      return await this.makeRequest('games', igdbQuery, 60 * 60 * 1000);
     } catch (error) {
       console.warn(`IGDB platform search failed for platform: ${platform}`, error);
       return [];
@@ -444,7 +484,8 @@ class IGDBClient {
     `;
 
     try {
-      return await this.makeRequest('genres', igdbQuery);
+      // ⚡ Bolt: Cache genres for 24 hours as they are static.
+      return await this.makeRequest('genres', igdbQuery, 24 * 60 * 60 * 1000);
     } catch (error) {
       console.warn('IGDB genres fetch failed:', error);
       return [];
@@ -461,7 +502,8 @@ class IGDBClient {
     `;
 
     try {
-      return await this.makeRequest('platforms', igdbQuery);
+      // ⚡ Bolt: Cache platforms for 24 hours as they are static.
+      return await this.makeRequest('platforms', igdbQuery, 24 * 60 * 60 * 1000);
     } catch (error) {
       console.warn('IGDB platforms fetch failed:', error);
       return [];

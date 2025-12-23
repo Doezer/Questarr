@@ -82,6 +82,13 @@ function validatePaginationParams(query: { limit?: string; offset?: string }): {
 export async function registerRoutes(app: Express): Promise<Server> {
   // Health check endpoint
   app.get("/api/health", async (req, res) => {
+    // 🛡️ Sentinel: Harden health check endpoint.
+    // This liveness probe only confirms the server is responsive.
+    // For readiness checks (e.g., database connectivity), use the /api/ready endpoint.
+    res.status(200).json({ status: "ok" });
+  });
+
+  app.get("/api/ready", async (req, res) => {
     let isHealthy = true;
 
     // Check database connectivity

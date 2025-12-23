@@ -1,6 +1,11 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Download, Info, Star, Calendar } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import StatusBadge, { type GameStatus } from "./StatusBadge";
 import { type Game } from "@shared/schema";
 import { useState, memo } from "react";
@@ -92,10 +97,28 @@ const GameCard = ({ game, onStatusChange, onViewDetails, onTrackGame, isDiscover
           {game.title}
         </h3>
         <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
-          <Star className="w-3 h-3 text-accent" />
-          <span data-testid={`text-rating-${game.id}`}>{game.rating ? `${game.rating}/10` : "N/A"}</span>
-          <Calendar className="w-3 h-3 ml-2" />
-          <span data-testid={`text-release-${game.id}`}>{game.releaseDate || "TBA"}</span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="flex items-center gap-1" tabIndex={0}>
+                <Star className="w-3 h-3 text-accent" aria-hidden="true" />
+                <span data-testid={`text-rating-${game.id}`}>{game.rating ? `${game.rating}/10` : "N/A"}</span>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Rating</p>
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="flex items-center gap-1" tabIndex={0}>
+                <Calendar className="w-3 h-3" aria-hidden="true" />
+                <span data-testid={`text-release-${game.id}`}>{game.releaseDate || "TBA"}</span>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Release Date</p>
+            </TooltipContent>
+          </Tooltip>
         </div>
         <div className="flex flex-wrap gap-1 mb-3">
           {game.genres?.slice(0, 2).map((genre) => (

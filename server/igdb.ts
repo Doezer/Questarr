@@ -111,8 +111,10 @@ class IGDBClient {
   // IGDB API returns dynamic JSON structures
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private async makeRequest(endpoint: string, query: string, ttl: number = 0): Promise<any> {
-    // ⚡ Bolt: Generate a unique cache key based on the endpoint and query.
-    const cacheKey = `${endpoint}:${query}`;
+    // ⚡ Bolt: Generate a unique cache key based on the endpoint and a normalized query.
+    // Normalizing whitespace ensures that semantically identical queries
+    // with different formatting hit the same cache entry.
+    const cacheKey = `${endpoint}:${query.replace(/\s+/g, " ").trim()}`;
 
     // ⚡ Bolt: Check for a valid, non-expired cache entry first.
     if (this.cache.has(cacheKey)) {

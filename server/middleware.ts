@@ -288,7 +288,11 @@ export const sanitizeDownloaderUpdateData = [
     .optional()
     .trim()
     .isLength({ max: 500 })
-    .withMessage("Download path must be at most 500 characters"),
+    .withMessage("Download path must be at most 500 characters")
+    // 🛡️ Sentinel: Add path traversal validation.
+    // Disallow '..' in download paths to prevent writing files outside the intended directory.
+    .custom((value) => !value.includes('..'))
+    .withMessage("Download path cannot contain '..'"),
   body("category")
     .optional()
     .trim()
@@ -320,7 +324,11 @@ export const sanitizeTorrentData = [
     .optional()
     .trim()
     .isLength({ max: 500 })
-    .withMessage("Download path must be at most 500 characters"),
+    .withMessage("Download path must be at most 500 characters")
+    // 🛡️ Sentinel: Add path traversal validation.
+    // Disallow '..' in download paths to prevent writing files outside the intended directory.
+    .custom((value) => !value.includes('..'))
+    .withMessage("Download path cannot contain '..'"),
   body("priority")
     .optional()
     .isInt({ min: 0, max: 10 })

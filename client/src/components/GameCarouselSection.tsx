@@ -1,4 +1,4 @@
-import { useState, useEffect, memo } from "react";
+import React, { useState, useEffect, memo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, AlertCircle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -111,7 +111,17 @@ const GameCarouselSection = ({
   }
 
   if (games.length === 0) {
-    return null;
+    return (
+      <div className="space-y-4" data-testid={`carousel-section-${title.toLowerCase().replace(/\s+/g, '-')}-empty`}>
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-semibold">{displayedTitle}</h2>
+        </div>
+        <div className="flex items-center gap-2 text-muted-foreground p-4 border rounded-md">
+          <AlertCircle className="h-5 w-5" />
+          <span>No games found.</span>
+        </div>
+      </div>
+    );
   }
 
   return (

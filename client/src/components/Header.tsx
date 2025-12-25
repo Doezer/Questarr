@@ -53,6 +53,7 @@ export default function Header({
               variant="ghost"
               size="icon"
               data-testid="button-notifications"
+              aria-label="Notifications"
             >
               <Bell className="w-4 h-4" />
               {notificationCount > 0 && (
@@ -81,6 +82,7 @@ export default function Header({
           size="icon"
           onClick={handleThemeToggle}
           data-testid="button-theme-toggle"
+          aria-label="Toggle theme"
         >
           {isDarkMode ? (
             <Sun className="w-4 h-4" />

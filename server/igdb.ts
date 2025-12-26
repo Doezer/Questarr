@@ -300,7 +300,9 @@ class IGDBClient {
     
     if (genreConditions.length === 0) return [];
     
-    const genreCondition = genreConditions.join(' | ');
+    // ⚡ Bolt: Sort conditions alphabetically to ensure a consistent cache key
+    // regardless of the original order of genres.
+    const genreCondition = genreConditions.sort().join(' | ');
     const excludeCondition = excludeIds.length > 0 ? ` & id != (${excludeIds.join(',')})` : '';
 
     const igdbQuery = `
@@ -345,7 +347,9 @@ class IGDBClient {
     
     if (platformConditions.length === 0) return [];
     
-    const platformCondition = platformConditions.join(' | ');
+    // ⚡ Bolt: Sort conditions alphabetically to ensure a consistent cache key
+    // regardless of the original order of platforms.
+    const platformCondition = platformConditions.sort().join(' | ');
     const excludeCondition = excludeIds.length > 0 ? ` & id != (${excludeIds.join(',')})` : '';
 
     const igdbQuery = `

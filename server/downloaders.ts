@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { Downloader, DownloadStatus, TorrentFile, TorrentTracker, TorrentDetails } from "../shared/schema.js";
 import { downloadersLogger } from "./logger.js";
 
@@ -96,6 +97,21 @@ function extractHashFromUrl(url: string): string | null {
   return null;
 }
 
+/**
+ * 🛡️ Sentinel: Securely validates a file path to prevent traversal vulnerabilities.
+ * It checks if resolving the path goes "up" the directory tree, which is
+ * a sign of a malicious attempt to access restricted files.
+ *
+ * @param downloadPath - The user-provided path to validate.
+ * @returns `true` if path traversal is detected, `false` otherwise.
+ */
+function isPathTraversal(downloadPath: string): boolean {
+  const normalizedPath = path.normalize(downloadPath);
+  // After normalization, any ".." segments indicate an attempt to traverse up the directory tree.
+  // We also disallow absolute paths to ensure downloads are contained within the expected directory.
+  return normalizedPath.includes('..') || path.isAbsolute(downloadPath);
+}
+
 interface DownloadRequest {
   url: string;
   title: string;
@@ -145,6 +161,11 @@ class TransmissionClient implements DownloaderClient {
 
   async addTorrent(request: DownloadRequest): Promise<{ success: boolean; id?: string; message: string }> {
     try {
+      // 🛡️ Sentinel: Validate downloadPath to prevent path traversal.
+      if (request.downloadPath && isPathTraversal(request.downloadPath)) {
+        return { success: false, message: 'Invalid download path' };
+      }
+
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const args: any = {
         filename: request.url,
@@ -551,6 +572,11 @@ class RTorrentClient implements DownloaderClient {
 
   async addTorrent(request: DownloadRequest): Promise<{ success: boolean; id?: string; message: string }> {
     try {
+      // 🛡️ Sentinel: Validate downloadPath to prevent path traversal.
+      if (request.downloadPath && isPathTraversal(request.downloadPath)) {
+        return { success: false, message: 'Invalid download path' };
+      }
+
       if (!request.url) {
         return { 
           success: false, 

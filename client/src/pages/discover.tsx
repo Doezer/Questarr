@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useDebounce } from "@/hooks/use-debounce";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Loader2 } from "lucide-react";
 import GameCarouselSection from "@/components/GameCarouselSection";
 import { type Game } from "@shared/schema";
 import { type GameStatus } from "@/components/StatusBadge";
@@ -51,6 +52,24 @@ const DEFAULT_PLATFORMS: Platform[] = [
 // Cache duration for relatively static data (1 hour)
 const STATIC_DATA_STALE_TIME = 1000 * 60 * 60;
 
+// 🎨 Palette: Custom SelectTrigger that shows a loading spinner.
+// This gives users immediate feedback that the dropdown content is loading,
+// preventing confusion when the initial default list is shown.
+const SelectTriggerWithSpinner = ({
+  loading,
+  children,
+  ...props
+}: React.ComponentProps<typeof SelectTrigger> & { loading: boolean }) => {
+  return (
+    <SelectTrigger {...props}>
+      {children}
+      {loading && (
+        <Loader2 className="h-4 w-4 animate-spin" />
+      )}
+    </SelectTrigger>
+  );
+};
+
 export default function DiscoverPage() {
   const [selectedGenre, setSelectedGenre] = useState<string>("Action");
   const [selectedPlatform, setSelectedPlatform] = useState<string>("PC");
@@ -62,7 +81,7 @@ export default function DiscoverPage() {
   const queryClient = useQueryClient();
 
   // Fetch available genres with caching and error handling
-  const { data: genres = [], isError: genresError } = useQuery<Genre[]>({
+  const { data: genres = [], isError: genresError, isFetching: isFetchingGenres } = useQuery<Genre[]>({
     queryKey: ["/api/igdb/genres"],
     queryFn: async () => {
       const response = await fetch("/api/igdb/genres");
@@ -74,7 +93,11 @@ export default function DiscoverPage() {
   });
 
   // Fetch available platforms with caching and error handling
-  const { data: platforms = [], isError: platformsError } = useQuery<Platform[]>({
+  const {
+    data: platforms = [],
+    isError: platformsError,
+    isFetching: isFetchingPlatforms,
+  } = useQuery<Platform[]>({
     queryKey: ["/api/igdb/platforms"],
     queryFn: async () => {
       const response = await fetch("/api/igdb/platforms");
@@ -300,9 +323,13 @@ export default function DiscoverPage() {
         <div className="flex items-center gap-4">
           <h2 className="text-xl font-semibold">By Genre</h2>
           <Select value={selectedGenre} onValueChange={setSelectedGenre}>
-            <SelectTrigger className="w-[180px]" data-testid="select-genre">
+            <SelectTriggerWithSpinner
+              className="w-[180px]"
+              data-testid="select-genre"
+              loading={isFetchingGenres}
+            >
               <SelectValue placeholder="Select genre" />
-            </SelectTrigger>
+            </SelectTriggerWithSpinner>
             <SelectContent>
               {displayGenres.map((genre) => (
                 <SelectItem key={genre.id} value={genre.name}>
@@ -327,9 +354,13 @@ export default function DiscoverPage() {
         <div className="flex items-center gap-4">
           <h2 className="text-xl font-semibold">By Platform</h2>
           <Select value={selectedPlatform} onValueChange={setSelectedPlatform}>
-            <SelectTrigger className="w-[180px]" data-testid="select-platform">
+            <SelectTriggerWithSpinner
+              className="w-[180px]"
+              data-testid="select-platform"
+              loading={isFetchingPlatforms}
+            >
               <SelectValue placeholder="Select platform" />
-            </SelectTrigger>
+            </SelectTriggerWithSpinner>
             <SelectContent>
               {displayPlatforms.map((platform) => (
                 <SelectItem key={platform.id} value={platform.name}>

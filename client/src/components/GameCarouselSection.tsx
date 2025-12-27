@@ -3,6 +3,11 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, AlertCircle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Carousel,
   CarouselContent,
   CarouselItem,
@@ -129,28 +134,38 @@ const GameCarouselSection = ({
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold">{displayedTitle}</h2>
         <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-8 w-8 disabled:opacity-50"
-            onClick={scrollPrev}
-            disabled={!canScrollPrev}
-            aria-label="Previous"
-            data-testid={`carousel-prev-${title.toLowerCase().replace(/\s+/g, '-')}`}
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-8 w-8 disabled:opacity-50"
-            onClick={scrollNext}
-            disabled={!canScrollNext}
-            aria-label="Next"
-            data-testid={`carousel-next-${title.toLowerCase().replace(/\s+/g, '-')}`}
-          >
-            <ChevronRight className="h-4 w-4" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-8 w-8 disabled:opacity-50"
+                onClick={scrollPrev}
+                disabled={!canScrollPrev}
+                aria-label="Previous"
+                data-testid={`carousel-prev-${title.toLowerCase().replace(/\s+/g, '-')}`}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Previous</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-8 w-8 disabled:opacity-50"
+                onClick={scrollNext}
+                disabled={!canScrollNext}
+                aria-label="Next"
+                data-testid={`carousel-next-${title.toLowerCase().replace(/\s+/g, '-')}`}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Next</TooltipContent>
+          </Tooltip>
         </div>
       </div>
       <div className="relative" aria-busy={isFetching && !isLoading}>

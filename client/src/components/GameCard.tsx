@@ -6,7 +6,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import StatusBadge, { type GameStatus } from "./StatusBadge";
+import React, { memo } from "react";
 import { type Game } from "@shared/schema";
 import { useState, memo } from "react";
 import GameDetailsModal from "./GameDetailsModal";

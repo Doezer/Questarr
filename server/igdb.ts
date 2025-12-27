@@ -161,6 +161,18 @@ class IGDBClient {
     // Sanitize the search query to prevent query injection
     const sanitizedQuery = sanitizeIgdbInput(query);
     if (!sanitizedQuery) return [];
+
+    // ⚡ Bolt: Cache search results for 15 minutes to reduce redundant API calls for common queries.
+    const cacheKey = `searchGames:${sanitizedQuery}:${limit}`;
+    if (this.cache.has(cacheKey)) {
+      const entry = this.cache.get(cacheKey)!;
+      if (Date.now() < entry.expiry) {
+        igdbLogger.debug({ cacheKey }, "search cache hit");
+        return entry.data;
+      }
+      this.cache.delete(cacheKey);
+    }
+    igdbLogger.debug({ cacheKey }, "search cache miss");
     
     let attemptCount = 0;
 
@@ -186,6 +198,11 @@ class IGDBClient {
         const results = await this.makeRequest('games', searchApproaches[i]);
         if (results.length > 0) {
           igdbLogger.info({ approach: i + 1, query: sanitizedQuery, resultCount: results.length }, `search approach ${i + 1} found ${results.length} results`);
+
+          // ⚡ Bolt: Cache the successful result.
+          const expiry = Date.now() + 15 * 60 * 1000; // 15 minutes TTL
+          this.cache.set(cacheKey, { data: results, expiry });
+
           return results;
         }
       } catch (error) {
@@ -224,7 +241,15 @@ class IGDBClient {
             words.filter(w => game.name.toLowerCase().includes(w)).length >= Math.min(2, words.length)
           );
           
-          return filteredResults.length > 0 ? filteredResults : wordResults.slice(0, limit);
+          const finalResults = filteredResults.length > 0 ? filteredResults : wordResults.slice(0, limit);
+
+          if (finalResults.length > 0) {
+            // ⚡ Bolt: Cache the successful result from word search.
+            const expiry = Date.now() + 15 * 60 * 1000; // 15 minutes TTL
+            this.cache.set(cacheKey, { data: finalResults, expiry });
+          }
+
+          return finalResults;
         }
       } catch (error) {
         igdbLogger.warn({ word, error }, `word search failed`);

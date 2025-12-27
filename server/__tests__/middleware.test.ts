@@ -63,6 +63,46 @@ describe("Middleware - Input Sanitization", () => {
       validateRequest(req as Request, res as Response, next);
 
       expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it("should reject torrent with absolute download path", async () => {
+      const req = createMockRequest({
+        body: {
+          url: "https://example.com/torrent.torrent",
+          title: "Test",
+          downloadPath: "/etc/passwd",
+        },
+      });
+      const res = createMockResponse();
+      const next = createMockNext();
+
+      for (const validator of sanitizeTorrentData) {
+        await validator(req as Request, res as Response, next);
+      }
+
+      validateRequest(req as Request, res as Response, next);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it("should reject torrent with path traversal", async () => {
+      const req = createMockRequest({
+        body: {
+          url: "https://example.com/torrent.torrent",
+          title: "Test",
+          downloadPath: "../../../root",
+        },
+      });
+      const res = createMockResponse();
+      const next = createMockNext();
+
+      for (const validator of sanitizeTorrentData) {
+        await validator(req as Request, res as Response, next);
+      }
+
+      validateRequest(req as Request, res as Response, next);
+
+      expect(res.status).toHaveBeenCalledWith(400);
       expect(res.json).toHaveBeenCalledWith(
         expect.objectContaining({
           error: "Validation failed",
@@ -383,7 +423,7 @@ describe("Middleware - Input Sanitization", () => {
         url: "https://example.com/torrent.torrent",
         title: "Test Torrent",
         category: "games",
-        downloadPath: "/downloads/games",
+        downloadPath: "downloads/games",
         priority: 5,
       };
 

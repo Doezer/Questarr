@@ -1,3 +1,4 @@
+import path from "path";
 import rateLimit from "express-rate-limit";
 import { body, param, query, validationResult } from "express-validator";
 import type { Request, Response, NextFunction } from "express";
@@ -289,10 +290,22 @@ export const sanitizeDownloaderUpdateData = [
     .trim()
     .isLength({ max: 500 })
     .withMessage("Download path must be at most 500 characters")
-    // 🛡️ Sentinel: Add path traversal validation.
-    // Disallow '..' in download paths to prevent writing files outside the intended directory.
-    .custom((value) => !value.includes('..'))
-    .withMessage("Download path cannot contain '..'"),
+    // 🛡️ Sentinel: Harden path traversal validation.
+    // Disallow absolute paths and '..' segments to prevent writing files outside the intended directory.
+    .custom((value) => {
+      if (path.isAbsolute(value)) {
+        return false;
+      }
+      // Normalize the path to resolve segments like './' and '/../'
+      const normalizedPath = path.normalize(value);
+      // After normalization, a safe relative path should not start with '..' or be absolute.
+      // This check prevents climbing up from the base directory.
+      if (normalizedPath.startsWith('..') || path.isAbsolute(normalizedPath)) {
+        return false;
+      }
+      return true;
+    })
+    .withMessage("Invalid download path: must be a relative path without traversal characters ('..')"),
   body("category")
     .optional()
     .trim()
@@ -325,10 +338,22 @@ export const sanitizeTorrentData = [
     .trim()
     .isLength({ max: 500 })
     .withMessage("Download path must be at most 500 characters")
-    // 🛡️ Sentinel: Add path traversal validation.
-    // Disallow '..' in download paths to prevent writing files outside the intended directory.
-    .custom((value) => !value.includes('..'))
-    .withMessage("Download path cannot contain '..'"),
+    // 🛡️ Sentinel: Harden path traversal validation.
+    // Disallow absolute paths and '..' segments to prevent writing files outside the intended directory.
+    .custom((value) => {
+      if (path.isAbsolute(value)) {
+        return false;
+      }
+      // Normalize the path to resolve segments like './' and '/../'
+      const normalizedPath = path.normalize(value);
+      // After normalization, a safe relative path should not start with '..' or be absolute.
+      // This check prevents climbing up from the base directory.
+      if (normalizedPath.startsWith('..') || path.isAbsolute(normalizedPath)) {
+        return false;
+      }
+      return true;
+    })
+    .withMessage("Invalid download path: must be a relative path without traversal characters ('..')"),
   body("priority")
     .optional()
     .isInt({ min: 0, max: 10 })

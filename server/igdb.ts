@@ -161,6 +161,18 @@ class IGDBClient {
     // Sanitize the search query to prevent query injection
     const sanitizedQuery = sanitizeIgdbInput(query);
     if (!sanitizedQuery) return [];
+
+    // ⚡ Bolt: Add caching to the search function to reduce redundant API calls for popular queries.
+    // A 5-minute TTL is a good balance between performance and data freshness for search results.
+    const cacheKey = `search:${sanitizedQuery}:${limit}`;
+    if (this.cache.has(cacheKey)) {
+      const entry = this.cache.get(cacheKey)!;
+      if (Date.now() < entry.expiry) {
+        igdbLogger.debug({ cacheKey }, "search cache hit");
+        return entry.data;
+      }
+      this.cache.delete(cacheKey);
+    }
     
     let attemptCount = 0;
 
@@ -186,6 +198,7 @@ class IGDBClient {
         const results = await this.makeRequest('games', searchApproaches[i]);
         if (results.length > 0) {
           igdbLogger.info({ approach: i + 1, query: sanitizedQuery, resultCount: results.length }, `search approach ${i + 1} found ${results.length} results`);
+          this.cache.set(cacheKey, { data: results, expiry: Date.now() + 5 * 60 * 1000 });
           return results;
         }
       } catch (error) {
@@ -223,8 +236,9 @@ class IGDBClient {
           const filteredResults = wordResults.filter((game: IGDBGame) => 
             words.filter(w => game.name.toLowerCase().includes(w)).length >= Math.min(2, words.length)
           );
-          
-          return filteredResults.length > 0 ? filteredResults : wordResults.slice(0, limit);
+          const finalResults = filteredResults.length > 0 ? filteredResults : wordResults.slice(0, limit);
+          this.cache.set(cacheKey, { data: finalResults, expiry: Date.now() + 5 * 60 * 1000 });
+          return finalResults;
         }
       } catch (error) {
         igdbLogger.warn({ word, error }, `word search failed`);
@@ -232,7 +246,11 @@ class IGDBClient {
     }
 
     igdbLogger.info({ query: sanitizedQuery }, `search found no results`);
-    return [];
+    const results: IGDBGame[] = [];
+
+    // Cache the empty result to prevent re-searching for terms with no hits
+    this.cache.set(cacheKey, { data: results, expiry: Date.now() + 5 * 60 * 1000 });
+    return results;
   }
 
   async getGameById(id: number): Promise<IGDBGame | null> {

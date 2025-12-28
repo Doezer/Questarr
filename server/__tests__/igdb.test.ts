@@ -176,4 +176,48 @@ describe('IGDBClient - Fallback Mechanism', () => {
     // Verify the results are empty
     expect(results).toHaveLength(0);
   });
+
+  it('should cache search results to avoid redundant API calls', async () => {
+    // Mock authentication response
+    const authResponse = {
+      ok: true,
+      json: async () => ({
+        access_token: 'test-token',
+        expires_in: 3600,
+        token_type: 'bearer',
+      }),
+    };
+
+    // Mock a successful search response
+    const successResponse = {
+      ok: true,
+      json: async () => [{ id: 1, name: 'Cached Game' }],
+    };
+
+    // Setup fetch mock
+    fetchMock
+      .mockResolvedValueOnce(authResponse) // Auth call for the first search
+      .mockResolvedValueOnce(successResponse); // The actual search call
+
+    // Import the IGDBClient
+    const { igdbClient } = await import('../igdb.js');
+
+    // First call - should hit the API
+    const firstResults = await igdbClient.searchGames('cached-query');
+    expect(firstResults).toHaveLength(1);
+    expect(firstResults[0].name).toBe('Cached Game');
+
+    // Verify fetch was called for auth and for the search
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const igdbSearchCallsAfterFirst = countIgdbSearchCalls(fetchMock.mock.calls);
+    expect(igdbSearchCallsAfterFirst).toBe(1);
+
+    // Second call - should hit the cache
+    const secondResults = await igdbClient.searchGames('cached-query');
+    expect(secondResults).toEqual(firstResults);
+
+    // Verify fetch was NOT called again for the search
+    const igdbSearchCallsAfterSecond = countIgdbSearchCalls(fetchMock.mock.calls);
+    expect(igdbSearchCallsAfterSecond).toBe(1); // Should still be 1
+  });
 });

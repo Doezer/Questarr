@@ -1,6 +1,11 @@
 import React, { useState, useEffect, memo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, AlertCircle, Loader2 } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import {
   Carousel,
@@ -129,28 +134,50 @@ const GameCarouselSection = ({
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold">{displayedTitle}</h2>
         <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-8 w-8 disabled:opacity-50"
-            onClick={scrollPrev}
-            disabled={!canScrollPrev}
-            aria-label="Previous"
-            data-testid={`carousel-prev-${title.toLowerCase().replace(/\s+/g, '-')}`}
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-8 w-8 disabled:opacity-50"
-            onClick={scrollNext}
-            disabled={!canScrollNext}
-            aria-label="Next"
-            data-testid={`carousel-next-${title.toLowerCase().replace(/\s+/g, '-')}`}
-          >
-            <ChevronRight className="h-4 w-4" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span tabIndex={0} className="inline-block">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8 disabled:opacity-50"
+                  onClick={scrollPrev}
+                  disabled={!canScrollPrev}
+                  aria-label="Previous"
+                  data-testid={`carousel-prev-${title.toLowerCase().replace(/\s+/g, '-')}`}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+              </span>
+            </TooltipTrigger>
+            {!canScrollPrev && (
+              <TooltipContent>
+                <p>Already at the beginning</p>
+              </TooltipContent>
+            )}
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span tabIndex={0} className="inline-block">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8 disabled:opacity-50"
+                  onClick={scrollNext}
+                  disabled={!canScrollNext}
+                  aria-label="Next"
+                  data-testid={`carousel-next-${title.toLowerCase().replace(/\s+/g, '-')}`}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </span>
+            </TooltipTrigger>
+            {!canScrollNext && (
+              <TooltipContent>
+                <p>Already at the end</p>
+              </TooltipContent>
+            )}
+          </Tooltip>
         </div>
       </div>
       <div className="relative" aria-busy={isFetching && !isLoading}>

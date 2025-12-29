@@ -1,6 +1,7 @@
 import rateLimit from "express-rate-limit";
 import { body, param, query, validationResult } from "express-validator";
 import type { Request, Response, NextFunction } from "express";
+import path from "node:path";
 
 // Rate limiter for IGDB API endpoints to prevent blacklisting
 // IGDB has a limit of 4 requests per second, so we'll be conservative
@@ -168,6 +169,26 @@ export const sanitizeIndexerData = [
     .toBoolean(),
 ];
 
+// 🛡️ Sentinel: Validator for download paths to prevent path traversal.
+// Checks that a path is relative and does not contain '..' segments
+// which could be used to write files outside the intended directory.
+export const sanitizeDownloadPath = body("downloadPath")
+  .optional()
+  .trim()
+  .isLength({ max: 500 })
+  .withMessage("Download path must be at most 500 characters")
+  .custom((value) => {
+    // Disallow absolute paths to prevent writing to arbitrary locations.
+    if (path.isAbsolute(value)) {
+      throw new Error("Download path cannot be an absolute path.");
+    }
+    // After normalizing, check if the path attempts to go "up" from the root.
+    if (path.normalize(value).startsWith("..")) {
+      throw new Error("Path traversal detected in download path.");
+    }
+    return true;
+  });
+
 // Sanitization rules for partial indexer updates (PATCH)
 export const sanitizeIndexerUpdateData = [
   body("name")
@@ -284,15 +305,7 @@ export const sanitizeDownloaderUpdateData = [
     .isInt({ min: 1 })
     .withMessage("Priority must be a positive integer")
     .toInt(),
-  body("downloadPath")
-    .optional()
-    .trim()
-    .isLength({ max: 500 })
-    .withMessage("Download path must be at most 500 characters")
-    // 🛡️ Sentinel: Add path traversal validation.
-    // Disallow '..' in download paths to prevent writing files outside the intended directory.
-    .custom((value) => !value.includes('..'))
-    .withMessage("Download path cannot contain '..'"),
+  sanitizeDownloadPath,
   body("category")
     .optional()
     .trim()
@@ -320,15 +333,7 @@ export const sanitizeTorrentData = [
     .trim()
     .isLength({ max: 100 })
     .withMessage("Category must be at most 100 characters"),
-  body("downloadPath")
-    .optional()
-    .trim()
-    .isLength({ max: 500 })
-    .withMessage("Download path must be at most 500 characters")
-    // 🛡️ Sentinel: Add path traversal validation.
-    // Disallow '..' in download paths to prevent writing files outside the intended directory.
-    .custom((value) => !value.includes('..'))
-    .withMessage("Download path cannot contain '..'"),
+  sanitizeDownloadPath,
   body("priority")
     .optional()
     .isInt({ min: 0, max: 10 })

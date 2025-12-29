@@ -383,7 +383,7 @@ describe("Middleware - Input Sanitization", () => {
         url: "https://example.com/torrent.torrent",
         title: "Test Torrent",
         category: "games",
-        downloadPath: "/downloads/games",
+        downloadPath: "downloads/games",
         priority: 5,
       };
 

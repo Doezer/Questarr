@@ -158,9 +158,32 @@ class IGDBClient {
   }
 
   async searchGames(query: string, limit: number = 20): Promise<IGDBGame[]> {
-    // Sanitize the search query to prevent query injection
+    // ⚡ Bolt: Cache search results, including empty ones, for 5 minutes.
+    // This prevents redundant, expensive multi-step searches for the same term.
     const sanitizedQuery = sanitizeIgdbInput(query);
-    if (!sanitizedQuery) return [];
+
+    const cacheKey = `searchGames:${sanitizedQuery}:${limit}`;
+    const ttl = 5 * 60 * 1000; // 5 minutes
+
+    if (this.cache.has(cacheKey)) {
+      const entry = this.cache.get(cacheKey)!;
+      if (Date.now() < entry.expiry) {
+        igdbLogger.debug({ cacheKey }, "searchGames cache hit");
+        return entry.data;
+      }
+      this.cache.delete(cacheKey);
+    }
+
+    const cacheAndReturn = (result: IGDBGame[]): IGDBGame[] => {
+      this.cache.set(cacheKey, { data: result, expiry: Date.now() + ttl });
+      igdbLogger.debug({ cacheKey, ttl, resultCount: result.length }, "cached searchGames response");
+      return result;
+    };
+
+    // ⚡ Bolt: Address code review feedback to cache empty results for invalid queries.
+    if (!sanitizedQuery) {
+      return cacheAndReturn([]);
+    }
     
     let attemptCount = 0;
 
@@ -186,7 +209,7 @@ class IGDBClient {
         const results = await this.makeRequest('games', searchApproaches[i]);
         if (results.length > 0) {
           igdbLogger.info({ approach: i + 1, query: sanitizedQuery, resultCount: results.length }, `search approach ${i + 1} found ${results.length} results`);
-          return results;
+          return cacheAndReturn(results);
         }
       } catch (error) {
         igdbLogger.warn({ approach: i + 1, query: sanitizedQuery, error }, `search approach ${i + 1} failed`);
@@ -196,7 +219,7 @@ class IGDBClient {
     // Check if we've reached the max attempts before trying word search
     if (attemptCount >= MAX_SEARCH_ATTEMPTS) {
       igdbLogger.info({ query: sanitizedQuery, maxAttempts: MAX_SEARCH_ATTEMPTS }, `search reached max attempts`);
-      return [];
+      return cacheAndReturn([]);
     }
 
     // If no full-phrase results, try individual words without category filter
@@ -224,7 +247,7 @@ class IGDBClient {
             words.filter(w => game.name.toLowerCase().includes(w)).length >= Math.min(2, words.length)
           );
           
-          return filteredResults.length > 0 ? filteredResults : wordResults.slice(0, limit);
+          return cacheAndReturn(filteredResults.length > 0 ? filteredResults : wordResults.slice(0, limit));
         }
       } catch (error) {
         igdbLogger.warn({ word, error }, `word search failed`);
@@ -232,7 +255,7 @@ class IGDBClient {
     }
 
     igdbLogger.info({ query: sanitizedQuery }, `search found no results`);
-    return [];
+    return cacheAndReturn([]);
   }
 
   async getGameById(id: number): Promise<IGDBGame | null> {

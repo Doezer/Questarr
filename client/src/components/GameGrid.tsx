@@ -1,6 +1,7 @@
 import GameCard from "./GameCard";
 import { type Game } from "@shared/schema";
 import { type GameStatus } from "./StatusBadge";
+import { cn } from "@/lib/utils";
 
 interface GameGridProps {
   games: Game[];
@@ -9,15 +10,17 @@ interface GameGridProps {
   onTrackGame?: (game: Game) => void;
   isDiscovery?: boolean;
   isLoading?: boolean;
+  isUpdating?: boolean;
 }
 
-export default function GameGrid({ 
-  games, 
-  onStatusChange, 
-  onViewDetails, 
-  onTrackGame, 
-  isDiscovery = false, 
-  isLoading = false 
+export default function GameGrid({
+  games,
+  onStatusChange,
+  onViewDetails,
+  onTrackGame,
+  isDiscovery = false,
+  isLoading = false,
+  isUpdating = false,
 }: GameGridProps) {
   if (isLoading) {
     return (
@@ -45,7 +48,16 @@ export default function GameGrid({
   }
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4" data-testid="grid-games">
+    <div
+      className={cn(
+        "grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4",
+        {
+          "opacity-50 pointer-events-none": isUpdating,
+        }
+      )}
+      data-testid="grid-games"
+      aria-busy={isUpdating}
+    >
       {games.map((game) => (
         <GameCard
           key={game.id}

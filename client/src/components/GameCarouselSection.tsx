@@ -1,4 +1,4 @@
-import React, { useState, useEffect, memo } from "react";
+import React, { useState, useEffect, memo, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, AlertCircle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -39,7 +39,10 @@ const GameCarouselSection = ({
   const [api, setApi] = useState<CarouselApi>();
   const [canScrollPrev, setCanScrollPrev] = useState(false);
   const [canScrollNext, setCanScrollNext] = useState(false);
-  const [displayedTitle, setDisplayedTitle] = useState(title);
+  // ⚡ Bolt: Use a ref to track the committed title. This prevents an extra
+  // re-render that was caused by using useState to update the title after
+  // a data fetch, improving rendering efficiency.
+  const committedTitle = useRef(title);
 
   const { data: games = [], isLoading, isFetching, isError, error: _error } = useQuery<Game[]>({
     queryKey,
@@ -68,14 +71,20 @@ const GameCarouselSection = ({
   // 🎨 Palette: Prevent title/content mismatch during re-fetch.
   // The title is now updated only *after* the new data has been fetched,
   // ensuring the heading and the game list content always match.
+  // ⚡ Bolt: This effect now updates a ref instead of state, avoiding a re-render.
   useEffect(() => {
     if (!isFetching) {
-      setDisplayedTitle(title);
+      committedTitle.current = title;
     }
   }, [isFetching, title]);
 
   const scrollPrev = () => api?.scrollPrev();
   const scrollNext = () => api?.scrollNext();
+
+  // ⚡ Bolt: The displayed title is now derived during render. It shows the
+  // previous title while fetching and the new title once done. This avoids
+  // the need for a state update and an extra render cycle.
+  const displayedTitle = isFetching ? committedTitle.current : title;
 
   if (isLoading) {
     return (

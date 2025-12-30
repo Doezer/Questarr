@@ -1,11 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Downloader } from '@shared/schema';
+import { lookup } from 'node:dns/promises';
+
+vi.mock('node:dns/promises', () => ({
+  lookup: vi.fn(),
+}));
 
 describe('TransmissionClient - 409 Retry Mechanism', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    (lookup as ReturnType<typeof vi.fn>).mockResolvedValue({ address: '1.2.3.4', family: 4 });
     fetchMock = vi.fn();
     global.fetch = fetchMock;
   });
@@ -167,6 +173,7 @@ describe('DownloaderManager - Priority-based Fallback', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    (lookup as ReturnType<typeof vi.fn>).mockResolvedValue({ address: '1.2.3.4', family: 4 });
     fetchMock = vi.fn();
     global.fetch = fetchMock;
   });
@@ -534,6 +541,7 @@ describe('RTorrentClient - XML-RPC Protocol', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    (lookup as ReturnType<typeof vi.fn>).mockResolvedValue({ address: '1.2.3.4', family: 4 });
     fetchMock = vi.fn();
     global.fetch = fetchMock;
   });
@@ -1006,6 +1014,7 @@ describe('QBittorrentClient - Web API v2', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    (lookup as ReturnType<typeof vi.fn>).mockResolvedValue({ address: '1.2.3.4', family: 4 });
     fetchMock = vi.fn();
     global.fetch = fetchMock;
   });
@@ -1490,6 +1499,7 @@ describe('Authentication - HTTP Basic Auth Encoding', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    (lookup as ReturnType<typeof vi.fn>).mockResolvedValue({ address: '1.2.3.4', family: 4 });
     fetchMock = vi.fn();
     global.fetch = fetchMock;
   });

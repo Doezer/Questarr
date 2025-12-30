@@ -1,5 +1,34 @@
+import { lookup } from "node:dns/promises";
+import { isIPv4 } from "node:net";
+import { URL } from "node:url";
 import type { Downloader, DownloadStatus, TorrentFile, TorrentTracker, TorrentDetails } from "../shared/schema.js";
 import { downloadersLogger } from "./logger.js";
+
+/**
+ * 🛡️ Sentinel: Helper function to check for private/reserved IP ranges to prevent SSRF.
+ * This is a critical security measure to stop the server from being used to scan internal networks.
+ * @param ip - The IP address to check.
+ * @returns True if the IP is in a private, loopback, or link-local range.
+ */
+function isPrivateAddress(ip: string): boolean {
+  // Use `isIPv4` for accuracy, then check against known private ranges.
+  if (isIPv4(ip)) {
+    const parts = ip.split(".").map(Number);
+    // Check for 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8, 169.254.0.0/16
+    return parts[0] === 10 ||
+           (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) ||
+           (parts[0] === 192 && parts[1] === 168) ||
+           parts[0] === 127 ||
+           (parts[0] === 169 && parts[1] === 254);
+  }
+
+  // Basic IPv6 private address checks for loopback (::1), unique local (fc00::/7), and link-local (fe80::/10).
+  const lowerCaseIp = ip.toLowerCase();
+  return lowerCaseIp === "::1" ||
+         lowerCaseIp.startsWith("fc") ||
+         lowerCaseIp.startsWith("fd") ||
+         lowerCaseIp.startsWith("fe8"); // Simplified check for link-local
+}
 
 // Type definitions for API responses
 interface TransmissionTorrent {
@@ -1470,6 +1499,20 @@ export class DownloaderManager {
   }
 
   static async testDownloader(downloader: Downloader): Promise<{ success: boolean; message: string }> {
+    // 🛡️ Sentinel: Prevent SSRF by resolving the hostname and checking the IP address.
+    try {
+      const url = new URL(downloader.url);
+      // Resolve the hostname to an IP address. This is crucial for the security check.
+      const { address } = await lookup(url.hostname);
+
+      if (isPrivateAddress(address)) {
+        return { success: false, message: "Connections to private or reserved IP addresses are not allowed." };
+      }
+    } catch (error) {
+      // This handles cases where the URL is malformed or the hostname cannot be resolved.
+      return { success: false, message: `Invalid downloader URL or hostname: ${(error as Error).message}` };
+    }
+
     try {
       const client = this.createClient(downloader);
       return await client.testConnection();

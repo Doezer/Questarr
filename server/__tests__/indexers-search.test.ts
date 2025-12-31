@@ -171,6 +171,7 @@ describe("GET /api/indexers/search - Aggregated multi-indexer search", () => {
       ok: false,
       status: 500,
       statusText: "Internal Server Error",
+      text: async () => "Internal Server Error",
     };
 
     fetchMock.mockResolvedValueOnce(successResponse).mockResolvedValueOnce(errorResponse);
@@ -232,6 +233,7 @@ describe("GET /api/indexers/search - Aggregated multi-indexer search", () => {
       ok: false,
       status: 503,
       statusText: "Service Unavailable",
+      text: async () => "Service Unavailable",
     };
 
     fetchMock.mockResolvedValueOnce(errorResponse).mockResolvedValueOnce(errorResponse);

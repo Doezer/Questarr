@@ -492,14 +492,8 @@ export default function IndexersPage() {
                   variant="outline"
                   onClick={() => {
                     const formData = form.getValues();
-
-                    if (editingIndexer) {
-                      // Test existing indexer
-                      testConnectionMutation.mutate({ id: editingIndexer.id });
-                    } else {
-                      // Test with form data for new indexer
-                      testConnectionMutation.mutate({ formData });
-                    }
+                    // Always test with form data to ensure we test the current inputs
+                    testConnectionMutation.mutate({ formData });
                   }}
                   disabled={testingIndexerId !== null}
                   data-testid="button-test-connection-dialog"

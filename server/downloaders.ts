@@ -506,7 +506,7 @@ class TransmissionClient implements DownloaderClient {
     if (this.downloader.username && this.downloader.password) {
       const auth = Buffer.from(
         `${this.downloader.username}:${this.downloader.password}`,
-        "latin1"
+        "utf-8"
       ).toString("base64");
       headers["Authorization"] = `Basic ${auth}`;
     }
@@ -1058,7 +1058,7 @@ class RTorrentClient implements DownloaderClient {
     if (this.downloader.username && this.downloader.password) {
       const auth = Buffer.from(
         `${this.downloader.username}:${this.downloader.password}`,
-        "latin1"
+        "utf-8"
       ).toString("base64");
       headers["Authorization"] = `Basic ${auth}`;
     }

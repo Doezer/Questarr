@@ -1474,7 +1474,7 @@ describe("Authentication - HTTP Basic Auth Encoding", () => {
   });
 
   describe("TransmissionClient", () => {
-    it("should encode credentials with latin1 encoding for HTTP Basic Auth", async () => {
+    it("should encode credentials with UTF-8 encoding for HTTP Basic Auth", async () => {
       const testDownloader: Downloader = {
         id: "test-id",
         name: "Test Transmission",
@@ -1514,9 +1514,9 @@ describe("Authentication - HTTP Basic Auth Encoding", () => {
       expect(callHeaders["Authorization"]).toBeDefined();
       expect(callHeaders["Authorization"]).toMatch(/^Basic /);
 
-      // Verify the encoding matches latin1 (ISO-8859-1) standard
-      // admin:test123 in latin1 base64 = YWRtaW46dGVzdDEyMw==
-      const expectedAuth = Buffer.from("admin:test123", "latin1").toString("base64");
+      // Verify the encoding uses UTF-8 (default for Buffer.from)
+      // admin:test123 in base64 = YWRtaW46dGVzdDEyMw==
+      const expectedAuth = Buffer.from("admin:test123", "utf-8").toString("base64");
       expect(callHeaders["Authorization"]).toBe(`Basic ${expectedAuth}`);
     });
 
@@ -1590,18 +1590,18 @@ describe("Authentication - HTTP Basic Auth Encoding", () => {
 
       const callHeaders = fetchMock.mock.calls[0][1].headers;
 
-      // Verify latin1 encoding for special characters
-      const expectedAuth = Buffer.from("admin:pàss@wörd!", "latin1").toString("base64");
+      // Verify UTF-8 encoding for special characters
+      const expectedAuth = Buffer.from("admin:pàss@wörd!", "utf-8").toString("base64");
       expect(callHeaders["Authorization"]).toBe(`Basic ${expectedAuth}`);
 
-      // Verify it differs from UTF-8 encoding (which would be incorrect)
-      const utf8Auth = Buffer.from("admin:pàss@wörd!", "utf8").toString("base64");
-      expect(callHeaders["Authorization"]).not.toBe(`Basic ${utf8Auth}`);
+      // Verify it differs from Latin-1 encoding
+      const latin1Auth = Buffer.from("admin:pàss@wörd!", "latin1").toString("base64");
+      expect(callHeaders["Authorization"]).not.toBe(`Basic ${latin1Auth}`);
     });
   });
 
   describe("RTorrentClient", () => {
-    it("should encode credentials with latin1 encoding for HTTP Basic Auth", async () => {
+    it("should encode credentials with UTF-8 encoding for HTTP Basic Auth", async () => {
       const testDownloader: Downloader = {
         id: "test-id",
         name: "Test rTorrent",
@@ -1642,8 +1642,8 @@ describe("Authentication - HTTP Basic Auth Encoding", () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
       const callHeaders = fetchMock.mock.calls[0][1].headers;
 
-      // Verify Authorization header uses latin1 encoding
-      const expectedAuth = Buffer.from("admin:test123", "latin1").toString("base64");
+      // Verify Authorization header uses UTF-8 encoding
+      const expectedAuth = Buffer.from("admin:test123", "utf-8").toString("base64");
       expect(callHeaders["Authorization"]).toBe(`Basic ${expectedAuth}`);
       expect(callHeaders["Content-Type"]).toBe("text/xml");
     });
@@ -1724,13 +1724,13 @@ describe("Authentication - HTTP Basic Auth Encoding", () => {
 
       const callHeaders = fetchMock.mock.calls[0][1].headers;
 
-      // Verify latin1 encoding for special characters
-      const expectedAuth = Buffer.from("admin:pàss@wörd!", "latin1").toString("base64");
+      // Verify UTF-8 encoding for special characters
+      const expectedAuth = Buffer.from("admin:pàss@wörd!", "utf-8").toString("base64");
       expect(callHeaders["Authorization"]).toBe(`Basic ${expectedAuth}`);
 
-      // Verify it differs from UTF-8 encoding (which would be incorrect)
-      const utf8Auth = Buffer.from("admin:pàss@wörd!", "utf8").toString("base64");
-      expect(callHeaders["Authorization"]).not.toBe(`Basic ${utf8Auth}`);
+      // Verify it differs from Latin-1 encoding
+      const latin1Auth = Buffer.from("admin:pàss@wörd!", "latin1").toString("base64");
+      expect(callHeaders["Authorization"]).not.toBe(`Basic ${latin1Auth}`);
     });
 
     it("should correctly format XML-RPC request with authentication", async () => {
@@ -1794,10 +1794,10 @@ describe("Authentication - HTTP Basic Auth Encoding", () => {
       const username = "admin";
       const password = "café"; // Contains non-ASCII character
 
-      // Latin-1 (ISO-8859-1) encoding - CORRECT per RFC 7617
+      // Latin-1 (ISO-8859-1) encoding
       const latin1Auth = Buffer.from(`${username}:${password}`, "latin1").toString("base64");
 
-      // UTF-8 encoding - INCORRECT for HTTP Basic Auth
+      // UTF-8 encoding - We now use this as it supports full unicode set
       const utf8Auth = Buffer.from(`${username}:${password}`, "utf8").toString("base64");
 
       // They should be different

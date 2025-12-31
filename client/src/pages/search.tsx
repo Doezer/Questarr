@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useDebounce } from "@/hooks/use-debounce";
 import { queryClient } from "@/lib/queryClient";
@@ -76,49 +76,56 @@ export default function SearchPage() {
   const debouncedSearchQuery = useDebounce(searchQuery, 500);
   const [selectedTorrent, setSelectedTorrent] = useState<TorrentItem | null>(null);
   const [isDownloadDialogOpen, setIsDownloadDialogOpen] = useState(false);
-  const [lastSearchQuery, setLastSearchQuery] = useState("");
+  // ⚡ Bolt: Use a ref to track the last notified query. This is more efficient
+  // than useState as it doesn't trigger a re-render on change. It prevents
+  // duplicate notifications when the query is re-fetched in the background.
+  const lastNotifiedQuery = useRef<string | null>(null);
 
   const { data: searchResults, isLoading: isSearching, error: searchError } = useQuery<SearchResult>({
     queryKey: ["/api/search", debouncedSearchQuery],
     enabled: debouncedSearchQuery.trim().length > 0,
-  });
+    onSuccess: (data) => {
+      // Don't show toast for background refetches, only new searches
+      if (debouncedSearchQuery === lastNotifiedQuery.current) {
+        return;
+      }
 
-  // Show toast notification when search completes
-  useEffect(() => {
-    // Only show notification if we actually performed a search
-    if (debouncedSearchQuery && debouncedSearchQuery !== lastSearchQuery && !isSearching) {
-      if (searchError) {
+      const itemCount = data.items.length;
+      if (itemCount > 0) {
         toast({
-          title: "Search failed",
-          description: "Unable to search indexers. Please check your configuration.",
+          title: "Search completed",
+          description: `Found ${itemCount} result${itemCount !== 1 ? "s" : ""}`,
+        });
+      } else {
+        toast({
+          title: "No results found",
+          description: "Try a different search query",
+        });
+      }
+
+      // Show warning if there were indexer errors
+      if (data.errors && data.errors.length > 0) {
+        toast({
+          title: "Some indexers failed",
+          description: `${data.errors.length} indexer(s) encountered errors`,
           variant: "destructive",
         });
-      } else if (searchResults) {
-        const itemCount = searchResults.items.length;
-        if (itemCount > 0) {
-          toast({
-            title: "Search completed",
-            description: `Found ${itemCount} result${itemCount !== 1 ? 's' : ''}`,
-          });
-        } else {
-          toast({
-            title: "No results found",
-            description: "Try a different search query",
-          });
-        }
-        
-        // Show warning if there were indexer errors
-        if (searchResults.errors && searchResults.errors.length > 0) {
-          toast({
-            title: "Some indexers failed",
-            description: `${searchResults.errors.length} indexer(s) encountered errors`,
-            variant: "destructive",
-          });
-        }
       }
-      setLastSearchQuery(debouncedSearchQuery);
-    }
-  }, [searchResults, isSearching, searchError, debouncedSearchQuery, lastSearchQuery, toast]);
+      lastNotifiedQuery.current = debouncedSearchQuery;
+    },
+    onError: () => {
+      // Don't show toast for background refetches, only new searches
+      if (debouncedSearchQuery === lastNotifiedQuery.current) {
+        return;
+      }
+      toast({
+        title: "Search failed",
+        description: "Unable to search indexers. Please check your configuration.",
+        variant: "destructive",
+      });
+      lastNotifiedQuery.current = debouncedSearchQuery;
+    },
+  });
 
   const { data: downloaders = [] } = useQuery<Downloader[]>({
     queryKey: ["/api/downloaders/enabled"],

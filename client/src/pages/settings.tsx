@@ -64,12 +64,6 @@ export default function SettingsPage() {
                 {config?.igdb.configured ? "Configured" : "Not Configured"}
               </Badge>
             </div>
-            {config?.igdb.clientId && (
-              <div className="space-y-1">
-                <span className="text-sm font-medium">Client ID</span>
-                <p className="text-sm text-muted-foreground font-mono">{config.igdb.clientId}</p>
-              </div>
-            )}
             {!config?.igdb.configured && (
               <p className="text-sm text-muted-foreground">
                 Set IGDB_CLIENT_ID and IGDB_CLIENT_SECRET environment variables to enable IGDB

@@ -1787,6 +1787,45 @@ describe("Authentication - HTTP Basic Auth Encoding", () => {
       expect(options.body).toContain("<methodCall>");
       expect(options.body).toContain("<methodName>system.client_version</methodName>");
     });
+
+    it("should clean URL double slashes in XML-RPC request", async () => {
+      const testDownloader: Downloader = {
+        id: "test-id-double-slash",
+        name: "Test rTorrent Double Slash",
+        type: "rtorrent",
+        url: "https://example.com/rutorrent/",
+        urlPath: "/plugins/httprpc/action.php",
+        username: "admin",
+        password: "password",
+        enabled: true,
+        priority: 1,
+        downloadPath: null,
+        category: null,
+        settings: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      const successResponse = {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        headers: new Headers(),
+        text: async () => `<?xml version="1.0"?>
+<methodResponse><params><param><value><string>0.9.8</string></value></param></params></methodResponse>`,
+      };
+
+      fetchMock.mockResolvedValueOnce(successResponse);
+
+      const { DownloaderManager } = await import("../downloaders.js");
+      await DownloaderManager.testDownloader(testDownloader);
+
+      const call = fetchMock.mock.calls[0];
+      const [url] = call;
+
+      // Expect single slash between path components
+      expect(url).toBe("https://example.com/rutorrent/plugins/httprpc/action.php");
+    });
   });
 
   describe("Encoding Comparison Tests", () => {

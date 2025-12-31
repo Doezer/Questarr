@@ -1008,27 +1008,44 @@ class RTorrentClient implements DownloaderClient {
     // Build the complete URL with protocol, host, port, and path
     let baseUrl = this.downloader.url;
 
-    // Remove trailing slash from base URL
-    baseUrl = baseUrl.replace(/\/+$/, "");
-
     // Add protocol if not present
     if (!baseUrl.startsWith("http://") && !baseUrl.startsWith("https://")) {
       const protocol = this.downloader.useSsl ? "https://" : "http://";
       baseUrl = protocol + baseUrl;
     }
 
-    // Add port if specified
+    // Parse URL to handle port and path correctly
+    let urlObj: URL;
+    try {
+      urlObj = new URL(baseUrl);
+    } catch (e) {
+      // Fallback for invalid URLs, though they should be validated before
+      urlObj = new URL(`http://${baseUrl}`);
+    }
+
+    // Add/Update port if specified
     if (this.downloader.port) {
-      // Check if URL already has a port
-      const urlObj = new URL(baseUrl);
-      if (!urlObj.port) {
-        baseUrl = `${urlObj.protocol}//${urlObj.hostname}:${this.downloader.port}${urlObj.pathname}`;
-      }
+      urlObj.port = this.downloader.port.toString();
+    }
+
+    // Get the base path from the URL (e.g., /rutorrent from https://host/rutorrent)
+    // Remove trailing slash if present
+    let basePath = urlObj.pathname;
+    if (basePath.endsWith("/")) {
+      basePath = basePath.slice(0, -1);
     }
 
     // Add URL path (defaults to RPC2 if not specified)
-    const urlPath = this.downloader.urlPath || "RPC2";
-    const url = `${baseUrl}/${urlPath}`;
+    // Ensure urlPath doesn't start with / to avoid double slashes when joining
+    let urlPath = this.downloader.urlPath || "RPC2";
+    if (urlPath.startsWith("/")) {
+      urlPath = urlPath.substring(1);
+    }
+
+    // Construct final URL
+    // Format: protocol://host:port/basePath/urlPath
+    urlObj.pathname = `${basePath}/${urlPath}`;
+    const url = urlObj.toString();
 
     // Build XML-RPC request
     const xmlParams = params

@@ -1,3 +1,4 @@
+import path from "path";
 import rateLimit from "express-rate-limit";
 import { body, param, query, validationResult } from "express-validator";
 import type { Request, Response, NextFunction } from "express";
@@ -291,8 +292,17 @@ export const sanitizeDownloaderUpdateData = [
     .withMessage("Download path must be at most 500 characters")
     // 🛡️ Sentinel: Add path traversal validation.
     // Disallow '..' in download paths to prevent writing files outside the intended directory.
-    .custom((value) => !value.includes('..'))
-    .withMessage("Download path cannot contain '..'"),
+    .custom((value) => {
+      // 🛡️ Sentinel: Harden path traversal validation.
+      // Disallow absolute paths and ensure the normalized path does not attempt to traverse upwards.
+      if (path.isAbsolute(value)) {
+        throw new Error("Download path cannot be an absolute path");
+      }
+      if (path.normalize(value).startsWith("..")) {
+        throw new Error("Download path cannot contain '..'");
+      }
+      return true;
+    }),
   body("category")
     .optional()
     .trim()
@@ -327,8 +337,17 @@ export const sanitizeTorrentData = [
     .withMessage("Download path must be at most 500 characters")
     // 🛡️ Sentinel: Add path traversal validation.
     // Disallow '..' in download paths to prevent writing files outside the intended directory.
-    .custom((value) => !value.includes('..'))
-    .withMessage("Download path cannot contain '..'"),
+    .custom((value) => {
+      // 🛡️ Sentinel: Harden path traversal validation.
+      // Disallow absolute paths and ensure the normalized path does not attempt to traverse upwards.
+      if (path.isAbsolute(value)) {
+        throw new Error("Download path cannot be an absolute path");
+      }
+      if (path.normalize(value).startsWith("..")) {
+        throw new Error("Download path cannot contain '..'");
+      }
+      return true;
+    }),
   body("priority")
     .optional()
     .isInt({ min: 0, max: 10 })

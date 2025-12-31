@@ -35,11 +35,11 @@ interface IGDBAuthResponse {
 
 /**
  * Sanitizes user input for use in IGDB API queries.
- * 
+ *
  * IGDB uses a custom query language called Apicalypse. This function provides
  * defense-in-depth by removing characters that could be used for query injection,
  * complementing backend validation at the route level.
- * 
+ *
  * Characters removed and rationale:
  * - Quotes (' "): String delimiters that could break out of string context
  * - Semicolons (;): Statement separators that could inject additional commands
@@ -49,16 +49,16 @@ interface IGDBAuthResponse {
  * - Angle brackets (<>): Comparison operators
  * - Backslashes (\): Escape characters
  * - Square brackets ([]): Array/collection operators
- * 
+ *
  * The 100-character limit prevents abuse through extremely long inputs that
  * could cause performance issues or circumvent other security measures.
  */
 function sanitizeIgdbInput(input: string): string {
   return input
-    .replace(/['"`;|&*()<>\\[\]]/g, '') // Remove special characters including square brackets
-    .replace(/\s+/g, ' ')                // Normalize whitespace
+    .replace(/['"`;|&*()<>\\[\]]/g, "") // Remove special characters including square brackets
+    .replace(/\s+/g, " ") // Normalize whitespace
     .trim()
-    .slice(0, 100);                      // Limit length to prevent abuse
+    .slice(0, 100); // Limit length to prevent abuse
 }
 
 // Constants for query thresholds
@@ -90,12 +90,15 @@ class IGDBClient {
     const clientSecret = config.igdb.clientSecret;
 
     if (!clientId || !clientSecret) {
-      throw new Error('IGDB credentials not configured');
+      throw new Error("IGDB credentials not configured");
     }
 
-    const response = await fetch(`https://id.twitch.tv/oauth2/token?client_id=${clientId}&client_secret=${clientSecret}&grant_type=client_credentials`, {
-      method: 'POST',
-    });
+    const response = await fetch(
+      `https://id.twitch.tv/oauth2/token?client_id=${clientId}&client_secret=${clientSecret}&grant_type=client_credentials`,
+      {
+        method: "POST",
+      }
+    );
 
     if (!response.ok) {
       throw new Error(`IGDB authentication failed: ${response.status}`);
@@ -103,7 +106,7 @@ class IGDBClient {
 
     const data: IGDBAuthResponse = await response.json();
     this.accessToken = data.access_token;
-    this.tokenExpiry = Date.now() + (data.expires_in * 1000) - 60000; // Refresh 1 minute early
+    this.tokenExpiry = Date.now() + data.expires_in * 1000 - 60000; // Refresh 1 minute early
 
     return this.accessToken;
   }
@@ -132,11 +135,11 @@ class IGDBClient {
     const clientId = config.igdb.clientId;
 
     const response = await fetch(`https://api.igdb.com/v4/${endpoint}`, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Accept': 'application/json',
-        'Client-ID': clientId!,
-        'Authorization': `Bearer ${token}`,
+        Accept: "application/json",
+        "Client-ID": clientId!,
+        Authorization: `Bearer ${token}`,
       },
       body: query,
     });
@@ -161,49 +164,71 @@ class IGDBClient {
     // Sanitize the search query to prevent query injection
     const sanitizedQuery = sanitizeIgdbInput(query);
     if (!sanitizedQuery) return [];
-    
+
     let attemptCount = 0;
 
     // Try multiple search approaches to maximize results
     const searchApproaches = [
-      // Approach 1: Full text search without category filter  
+      // Approach 1: Full text search without category filter
       `search "${sanitizedQuery}"; fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url; limit ${limit};`,
-      
+
       // Approach 2: Full text search with category filter
       `search "${sanitizedQuery}"; fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url; where category = 0; limit ${limit};`,
-      
+
       // Approach 3: Case-insensitive name matching without category
       `fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url; where name ~= "${sanitizedQuery}"; limit ${limit};`,
-      
+
       // Approach 4: Partial name matching without category
-      `fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url; where name ~ *"${sanitizedQuery}"*; sort rating desc; limit ${limit};`
+      `fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url; where name ~ *"${sanitizedQuery}"*; sort rating desc; limit ${limit};`,
     ];
 
     for (let i = 0; i < searchApproaches.length && attemptCount < MAX_SEARCH_ATTEMPTS; i++) {
       try {
         attemptCount++;
-        igdbLogger.debug({ approach: i + 1, query: sanitizedQuery, attempt: attemptCount, maxAttempts: MAX_SEARCH_ATTEMPTS }, `trying approach ${i + 1}`);
-        const results = await this.makeRequest('games', searchApproaches[i]);
+        igdbLogger.debug(
+          {
+            approach: i + 1,
+            query: sanitizedQuery,
+            attempt: attemptCount,
+            maxAttempts: MAX_SEARCH_ATTEMPTS,
+          },
+          `trying approach ${i + 1}`
+        );
+        const results = await this.makeRequest("games", searchApproaches[i]);
         if (results.length > 0) {
-          igdbLogger.info({ approach: i + 1, query: sanitizedQuery, resultCount: results.length }, `search approach ${i + 1} found ${results.length} results`);
+          igdbLogger.info(
+            { approach: i + 1, query: sanitizedQuery, resultCount: results.length },
+            `search approach ${i + 1} found ${results.length} results`
+          );
           return results;
         }
       } catch (error) {
-        igdbLogger.warn({ approach: i + 1, query: sanitizedQuery, error }, `search approach ${i + 1} failed`);
+        igdbLogger.warn(
+          { approach: i + 1, query: sanitizedQuery, error },
+          `search approach ${i + 1} failed`
+        );
       }
     }
 
     // Check if we've reached the max attempts before trying word search
     if (attemptCount >= MAX_SEARCH_ATTEMPTS) {
-      igdbLogger.info({ query: sanitizedQuery, maxAttempts: MAX_SEARCH_ATTEMPTS }, `search reached max attempts`);
+      igdbLogger.info(
+        { query: sanitizedQuery, maxAttempts: MAX_SEARCH_ATTEMPTS },
+        `search reached max attempts`
+      );
       return [];
     }
 
     // If no full-phrase results, try individual words without category filter
-    const words = sanitizedQuery.toLowerCase().split(' ').filter(word => word.length > 2);
+    const words = sanitizedQuery
+      .toLowerCase()
+      .split(" ")
+      .filter((word) => word.length > 2);
     for (const word of words) {
       if (attemptCount >= MAX_SEARCH_ATTEMPTS) {
-        console.warn(`IGDB search reached max attempts (${MAX_SEARCH_ATTEMPTS}) during word search for "${query}"`);
+        console.warn(
+          `IGDB search reached max attempts (${MAX_SEARCH_ATTEMPTS}) during word search for "${query}"`
+        );
         break;
       }
 
@@ -211,19 +236,27 @@ class IGDBClient {
         attemptCount++;
         const sanitizedWord = sanitizeIgdbInput(word);
         if (!sanitizedWord) continue;
-        
-        igdbLogger.debug({ word: sanitizedWord, attempt: attemptCount, maxAttempts: MAX_SEARCH_ATTEMPTS }, `trying word search`);
+
+        igdbLogger.debug(
+          { word: sanitizedWord, attempt: attemptCount, maxAttempts: MAX_SEARCH_ATTEMPTS },
+          `trying word search`
+        );
         const wordQuery = `fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url; where name ~ *"${sanitizedWord}"*; sort rating desc; limit ${limit};`;
-        const wordResults = await this.makeRequest('games', wordQuery);
-        
+        const wordResults = await this.makeRequest("games", wordQuery);
+
         if (wordResults.length > 0) {
-          igdbLogger.info({ word, resultCount: wordResults.length }, `word search found ${wordResults.length} results`);
-          
-          // Filter to prefer games containing multiple query words
-          const filteredResults = wordResults.filter((game: IGDBGame) => 
-            words.filter(w => game.name.toLowerCase().includes(w)).length >= Math.min(2, words.length)
+          igdbLogger.info(
+            { word, resultCount: wordResults.length },
+            `word search found ${wordResults.length} results`
           );
-          
+
+          // Filter to prefer games containing multiple query words
+          const filteredResults = wordResults.filter(
+            (game: IGDBGame) =>
+              words.filter((w) => game.name.toLowerCase().includes(w)).length >=
+              Math.min(2, words.length)
+          );
+
           return filteredResults.length > 0 ? filteredResults : wordResults.slice(0, limit);
         }
       } catch (error) {
@@ -242,7 +275,7 @@ class IGDBClient {
     `;
 
     // ⚡ Bolt: Cache game data for 24 hours as it's unlikely to change frequently.
-    const results = await this.makeRequest('games', igdbQuery, 24 * 60 * 60 * 1000);
+    const results = await this.makeRequest("games", igdbQuery, 24 * 60 * 60 * 1000);
     return results.length > 0 ? results[0] : null;
   }
 
@@ -255,7 +288,7 @@ class IGDBClient {
     `;
 
     // ⚡ Bolt: Cache popular games for 1 hour to reduce load during high traffic.
-    return this.makeRequest('games', igdbQuery, 60 * 60 * 1000);
+    return this.makeRequest("games", igdbQuery, 60 * 60 * 1000);
   }
 
   async getRecentReleases(limit: number = 20): Promise<IGDBGame[]> {
@@ -270,7 +303,7 @@ class IGDBClient {
     `;
 
     // ⚡ Bolt: Cache recent releases for 1 hour.
-    return this.makeRequest('games', igdbQuery, 60 * 60 * 1000);
+    return this.makeRequest("games", igdbQuery, 60 * 60 * 1000);
   }
 
   async getUpcomingReleases(limit: number = 20): Promise<IGDBGame[]> {
@@ -285,25 +318,32 @@ class IGDBClient {
     `;
 
     // ⚡ Bolt: Cache upcoming releases for 1 hour.
-    return this.makeRequest('games', igdbQuery, 60 * 60 * 1000);
+    return this.makeRequest("games", igdbQuery, 60 * 60 * 1000);
   }
 
-  async getGamesByGenres(genres: string[], excludeIds: number[] = [], limit: number = 20): Promise<IGDBGame[]> {
+  async getGamesByGenres(
+    genres: string[],
+    excludeIds: number[] = [],
+    limit: number = 20
+  ): Promise<IGDBGame[]> {
     if (genres.length === 0) return [];
 
     // Convert genre names to a query format - use regex matching for better results
-    const genreConditions = genres.slice(0, 3).map(genre => {
-      // Sanitize genre names to prevent query injection
-      const cleanGenre = sanitizeIgdbInput(genre);
-      return cleanGenre ? `genres.name ~ *"${cleanGenre}"*` : null;
-    }).filter(Boolean);
-    
+    const genreConditions = genres
+      .slice(0, 3)
+      .map((genre) => {
+        // Sanitize genre names to prevent query injection
+        const cleanGenre = sanitizeIgdbInput(genre);
+        return cleanGenre ? `genres.name ~ *"${cleanGenre}"*` : null;
+      })
+      .filter(Boolean);
+
     if (genreConditions.length === 0) return [];
-    
+
     // ⚡ Bolt: Sort conditions alphabetically to ensure a consistent cache key
     // regardless of the original order of genres.
-    const genreCondition = genreConditions.sort().join(' | ');
-    const excludeCondition = excludeIds.length > 0 ? ` & id != (${excludeIds.join(',')})` : '';
+    const genreCondition = genreConditions.sort().join(" | ");
+    const excludeCondition = excludeIds.length > 0 ? ` & id != (${excludeIds.join(",")})` : "";
 
     const igdbQuery = `
       fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url;
@@ -314,14 +354,18 @@ class IGDBClient {
 
     try {
       // ⚡ Bolt: Cache genre-based searches for 1 hour.
-      return await this.makeRequest('games', igdbQuery, 60 * 60 * 1000);
+      return await this.makeRequest("games", igdbQuery, 60 * 60 * 1000);
     } catch (error) {
       igdbLogger.warn({ genres, error }, `genre search failed`);
       return [];
     }
   }
 
-  async getGamesByPlatforms(platforms: string[], excludeIds: number[] = [], limit: number = 20): Promise<IGDBGame[]> {
+  async getGamesByPlatforms(
+    platforms: string[],
+    excludeIds: number[] = [],
+    limit: number = 20
+  ): Promise<IGDBGame[]> {
     if (platforms.length === 0) return [];
 
     // Use common platform names for better matching
@@ -331,26 +375,28 @@ class IGDBClient {
       "PlayStation 4": "PlayStation",
       "Xbox Series X|S": "Xbox",
       "Xbox One": "Xbox",
-      "Nintendo Switch": "Nintendo"
+      "Nintendo Switch": "Nintendo",
     };
 
-    const mappedPlatforms = platforms.slice(0, 3).map(platform => 
-      platformMap[platform] || platform.split(' ')[0] // Use first word if no mapping
+    const mappedPlatforms = platforms.slice(0, 3).map(
+      (platform) => platformMap[platform] || platform.split(" ")[0] // Use first word if no mapping
     );
     const uniquePlatforms = Array.from(new Set(mappedPlatforms));
-    
-    const platformConditions = uniquePlatforms.map(platform => {
-      // Sanitize platform names to prevent query injection
-      const cleanPlatform = sanitizeIgdbInput(platform);
-      return cleanPlatform ? `platforms.name ~ *"${cleanPlatform}"*` : null;
-    }).filter(Boolean);
-    
+
+    const platformConditions = uniquePlatforms
+      .map((platform) => {
+        // Sanitize platform names to prevent query injection
+        const cleanPlatform = sanitizeIgdbInput(platform);
+        return cleanPlatform ? `platforms.name ~ *"${cleanPlatform}"*` : null;
+      })
+      .filter(Boolean);
+
     if (platformConditions.length === 0) return [];
-    
+
     // ⚡ Bolt: Sort conditions alphabetically to ensure a consistent cache key
     // regardless of the original order of platforms.
-    const platformCondition = platformConditions.sort().join(' | ');
-    const excludeCondition = excludeIds.length > 0 ? ` & id != (${excludeIds.join(',')})` : '';
+    const platformCondition = platformConditions.sort().join(" | ");
+    const excludeCondition = excludeIds.length > 0 ? ` & id != (${excludeIds.join(",")})` : "";
 
     const igdbQuery = `
       fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url;
@@ -361,39 +407,49 @@ class IGDBClient {
 
     try {
       // ⚡ Bolt: Cache platform-based searches for 1 hour.
-      return await this.makeRequest('games', igdbQuery, 60 * 60 * 1000);
+      return await this.makeRequest("games", igdbQuery, 60 * 60 * 1000);
     } catch (error) {
       igdbLogger.warn({ platforms, error }, `platform search failed`);
       return [];
     }
   }
 
-  async getRecommendations(userGames: Array<{ genres?: string[]; platforms?: string[]; igdbId?: number }>, limit: number = 20): Promise<IGDBGame[]> {
+  async getRecommendations(
+    userGames: Array<{ genres?: string[]; platforms?: string[]; igdbId?: number }>,
+    limit: number = 20
+  ): Promise<IGDBGame[]> {
     if (userGames.length === 0) {
       // If user has no games, show popular games
       return this.getPopularGames(limit);
     }
 
     // Extract genres and platforms from user's games
-    const userGenres = Array.from(new Set(
-      userGames.flatMap(game => game.genres || [])
-    ));
-    const userPlatforms = Array.from(new Set(
-      userGames.flatMap(game => game.platforms || [])
-    ));
+    const userGenres = Array.from(new Set(userGames.flatMap((game) => game.genres || [])));
+    const userPlatforms = Array.from(new Set(userGames.flatMap((game) => game.platforms || [])));
     const userIgdbIds = userGames
-      .filter(game => game.igdbId !== undefined)
-      .map(game => game.igdbId!);
+      .filter((game) => game.igdbId !== undefined)
+      .map((game) => game.igdbId!);
 
-    igdbLogger.debug({ genreCount: userGenres.length, platformCount: userPlatforms.length, excludeCount: userIgdbIds.length }, `generating recommendations`);
+    igdbLogger.debug(
+      {
+        genreCount: userGenres.length,
+        platformCount: userPlatforms.length,
+        excludeCount: userIgdbIds.length,
+      },
+      `generating recommendations`
+    );
 
     const recommendations: IGDBGame[] = [];
-    
+
     try {
       // Get games by favorite genres (60% of results)
       if (userGenres.length > 0) {
         const topGenres = userGenres.slice(0, 5); // Use top 5 genres
-        const genreGames = await this.getGamesByGenres(topGenres, userIgdbIds, Math.ceil(limit * 0.6));
+        const genreGames = await this.getGamesByGenres(
+          topGenres,
+          userIgdbIds,
+          Math.ceil(limit * 0.6)
+        );
         recommendations.push(...genreGames);
       }
 
@@ -408,21 +464,23 @@ class IGDBClient {
       if (recommendations.length < limit) {
         const remaining = limit - recommendations.length;
         const popularGames = await this.getPopularGames(remaining + 10); // Get extra to filter duplicates
-        const filteredPopular = popularGames.filter(game => 
-          !userIgdbIds.includes(game.id) && 
-          !recommendations.some(rec => rec.id === game.id)
+        const filteredPopular = popularGames.filter(
+          (game) =>
+            !userIgdbIds.includes(game.id) && !recommendations.some((rec) => rec.id === game.id)
         );
         recommendations.push(...filteredPopular.slice(0, remaining));
       }
 
       // Remove duplicates and return
-      const uniqueRecommendations = recommendations.filter((game, index, self) => 
-        index === self.findIndex(g => g.id === game.id)
+      const uniqueRecommendations = recommendations.filter(
+        (game, index, self) => index === self.findIndex((g) => g.id === game.id)
       );
 
-      igdbLogger.info({ count: uniqueRecommendations.length }, `generated ${uniqueRecommendations.length} unique recommendations`);
+      igdbLogger.info(
+        { count: uniqueRecommendations.length },
+        `generated ${uniqueRecommendations.length} unique recommendations`
+      );
       return uniqueRecommendations.slice(0, limit);
-
     } catch (error) {
       igdbLogger.error({ error }, `error generating recommendations`);
       // Fallback to popular games
@@ -430,15 +488,19 @@ class IGDBClient {
     }
   }
 
-  async getGamesByGenre(genre: string, limit: number = 20, offset: number = 0): Promise<IGDBGame[]> {
+  async getGamesByGenre(
+    genre: string,
+    limit: number = 20,
+    offset: number = 0
+  ): Promise<IGDBGame[]> {
     // Sanitize the genre name to prevent query injection
     const cleanGenre = sanitizeIgdbInput(genre);
     if (!cleanGenre) return [];
-    
+
     // Validate pagination parameters
     const validLimit = Math.min(Math.max(1, limit), MAX_LIMIT);
     const validOffset = Math.min(Math.max(0, offset), MAX_OFFSET);
-    
+
     const igdbQuery = `
       fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url;
       where genres.name ~ *"${cleanGenre}"* & rating > ${MIN_RATING_THRESHOLD} & rating_count > ${MIN_RATING_COUNT};
@@ -449,22 +511,26 @@ class IGDBClient {
 
     try {
       // ⚡ Bolt: Cache genre search results for 1 hour.
-      return await this.makeRequest('games', igdbQuery, 60 * 60 * 1000);
+      return await this.makeRequest("games", igdbQuery, 60 * 60 * 1000);
     } catch (error) {
       console.warn(`IGDB genre search failed for genre: ${genre}`, error);
       return [];
     }
   }
 
-  async getGamesByPlatform(platform: string, limit: number = 20, offset: number = 0): Promise<IGDBGame[]> {
+  async getGamesByPlatform(
+    platform: string,
+    limit: number = 20,
+    offset: number = 0
+  ): Promise<IGDBGame[]> {
     // Sanitize the platform name to prevent query injection
     const cleanPlatform = sanitizeIgdbInput(platform);
     if (!cleanPlatform) return [];
-    
+
     // Validate pagination parameters
     const validLimit = Math.min(Math.max(1, limit), MAX_LIMIT);
     const validOffset = Math.min(Math.max(0, offset), MAX_OFFSET);
-    
+
     const igdbQuery = `
       fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url;
       where platforms.name ~ *"${cleanPlatform}"* & rating > ${MIN_RATING_THRESHOLD} & rating_count > ${MIN_RATING_COUNT};
@@ -475,7 +541,7 @@ class IGDBClient {
 
     try {
       // ⚡ Bolt: Cache platform search results for 1 hour.
-      return await this.makeRequest('games', igdbQuery, 60 * 60 * 1000);
+      return await this.makeRequest("games", igdbQuery, 60 * 60 * 1000);
     } catch (error) {
       console.warn(`IGDB platform search failed for platform: ${platform}`, error);
       return [];
@@ -491,9 +557,9 @@ class IGDBClient {
 
     try {
       // ⚡ Bolt: Cache genres for 24 hours as they are static.
-      return await this.makeRequest('genres', igdbQuery, 24 * 60 * 60 * 1000);
+      return await this.makeRequest("genres", igdbQuery, 24 * 60 * 60 * 1000);
     } catch (error) {
-      console.warn('IGDB genres fetch failed:', error);
+      console.warn("IGDB genres fetch failed:", error);
       return [];
     }
   }
@@ -509,32 +575,36 @@ class IGDBClient {
 
     try {
       // ⚡ Bolt: Cache platforms for 24 hours as they are static.
-      return await this.makeRequest('platforms', igdbQuery, 24 * 60 * 60 * 1000);
+      return await this.makeRequest("platforms", igdbQuery, 24 * 60 * 60 * 1000);
     } catch (error) {
-      console.warn('IGDB platforms fetch failed:', error);
+      console.warn("IGDB platforms fetch failed:", error);
       return [];
     }
   }
 
   formatGameData(igdbGame: IGDBGame): Record<string, unknown> {
-    const releaseDate = igdbGame.first_release_date 
+    const releaseDate = igdbGame.first_release_date
       ? new Date(igdbGame.first_release_date * 1000)
       : null;
-    
+
     const now = new Date();
     const isReleased = releaseDate ? releaseDate <= now : false;
-    
+
     return {
       id: `igdb-${igdbGame.id}`,
       igdbId: igdbGame.id,
       title: igdbGame.name,
-      summary: igdbGame.summary || '',
-      coverUrl: igdbGame.cover?.url ? `https:${igdbGame.cover.url.replace('t_thumb', 't_cover_big')}` : '',
-      releaseDate: releaseDate ? releaseDate.toISOString().split('T')[0] : '',
+      summary: igdbGame.summary || "",
+      coverUrl: igdbGame.cover?.url
+        ? `https:${igdbGame.cover.url.replace("t_thumb", "t_cover_big")}`
+        : "",
+      releaseDate: releaseDate ? releaseDate.toISOString().split("T")[0] : "",
       rating: igdbGame.rating ? Math.round(igdbGame.rating) / 10 : 0,
-      platforms: igdbGame.platforms?.map(p => p.name) || [],
-      genres: igdbGame.genres?.map(g => g.name) || [],
-      screenshots: igdbGame.screenshots?.map(s => `https:${s.url.replace('t_thumb', 't_screenshot_big')}`) || [],
+      platforms: igdbGame.platforms?.map((p) => p.name) || [],
+      genres: igdbGame.genres?.map((g) => g.name) || [],
+      screenshots:
+        igdbGame.screenshots?.map((s) => `https:${s.url.replace("t_thumb", "t_screenshot_big")}`) ||
+        [],
       // For Discovery games, don't set a status since they're not in collection yet
       status: null,
       isReleased,

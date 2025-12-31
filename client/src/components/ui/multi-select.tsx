@@ -9,11 +9,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
@@ -58,9 +54,7 @@ export function MultiSelect({
     onChange(selected.filter((item) => item !== value));
   };
 
-  const selectedOptions = options.filter((option) =>
-    selected.includes(option.value)
-  );
+  const selectedOptions = options.filter((option) => selected.includes(option.value));
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -76,11 +70,7 @@ export function MultiSelect({
           <div className="flex gap-1 flex-wrap">
             {selectedOptions.length > 0 ? (
               selectedOptions.map((option) => (
-                <Badge
-                  variant="secondary"
-                  key={option.value}
-                  className="flex items-center"
-                >
+                <Badge variant="secondary" key={option.value} className="flex items-center">
                   {option.label}
                   <button
                     type="button"
@@ -117,10 +107,7 @@ export function MultiSelect({
                     onSelect={() => handleToggle(option.value)}
                   >
                     <Check
-                      className={cn(
-                        "mr-2 h-4 w-4",
-                        isSelected ? "opacity-100" : "opacity-0"
-                      )}
+                      className={cn("mr-2 h-4 w-4", isSelected ? "opacity-100" : "opacity-0")}
                     />
                     {option.label}
                   </CommandItem>

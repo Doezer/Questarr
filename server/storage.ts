@@ -1,4 +1,18 @@
-import { type User, type InsertUser, type Game, type InsertGame, type UpdateGameStatus, type Indexer, type InsertIndexer, type Downloader, type InsertDownloader, users, games, indexers, downloaders } from "../shared/schema.js";
+import {
+  type User,
+  type InsertUser,
+  type Game,
+  type InsertGame,
+  type UpdateGameStatus,
+  type Indexer,
+  type InsertIndexer,
+  type Downloader,
+  type InsertDownloader,
+  users,
+  games,
+  indexers,
+  downloaders,
+} from "../shared/schema.js";
 import { randomUUID } from "crypto";
 import { db } from "./db.js";
 import { eq, ilike, or, sql } from "drizzle-orm";
@@ -8,7 +22,7 @@ export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
-  
+
   // Game methods
   getGame(id: string): Promise<Game | undefined>;
   getGameByIgdbId(igdbId: number): Promise<Game | undefined>;
@@ -55,9 +69,7 @@ export class MemStorage implements IStorage {
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.username === username,
-    );
+    return Array.from(this.users.values()).find((user) => user.username === username);
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
@@ -73,14 +85,12 @@ export class MemStorage implements IStorage {
   }
 
   async getGameByIgdbId(igdbId: number): Promise<Game | undefined> {
-    return Array.from(this.games.values()).find(
-      (game) => game.igdbId === igdbId,
-    );
+    return Array.from(this.games.values()).find((game) => game.igdbId === igdbId);
   }
 
   async getAllGames(): Promise<Game[]> {
-    return Array.from(this.games.values()).sort((a, b) => 
-      new Date(b.addedAt || 0).getTime() - new Date(a.addedAt || 0).getTime()
+    return Array.from(this.games.values()).sort(
+      (a, b) => new Date(b.addedAt || 0).getTime() - new Date(a.addedAt || 0).getTime()
     );
   }
 
@@ -93,18 +103,19 @@ export class MemStorage implements IStorage {
   async searchGames(query: string): Promise<Game[]> {
     const lowercaseQuery = query.toLowerCase();
     return Array.from(this.games.values())
-      .filter((game) => 
-        game.title.toLowerCase().includes(lowercaseQuery) ||
-        game.genres?.some((genre) => genre.toLowerCase().includes(lowercaseQuery)) ||
-        game.platforms?.some((platform) => platform.toLowerCase().includes(lowercaseQuery))
+      .filter(
+        (game) =>
+          game.title.toLowerCase().includes(lowercaseQuery) ||
+          game.genres?.some((genre) => genre.toLowerCase().includes(lowercaseQuery)) ||
+          game.platforms?.some((platform) => platform.toLowerCase().includes(lowercaseQuery))
       )
       .sort((a, b) => new Date(b.addedAt || 0).getTime() - new Date(a.addedAt || 0).getTime());
   }
 
   async addGame(insertGame: InsertGame): Promise<Game> {
     const id = randomUUID();
-    const game: Game = { 
-      ...insertGame, 
+    const game: Game = {
+      ...insertGame,
       id,
       status: insertGame.status || "wanted",
       summary: insertGame.summary || null,
@@ -116,7 +127,7 @@ export class MemStorage implements IStorage {
       screenshots: insertGame.screenshots || null,
       igdbId: insertGame.igdbId || null,
       addedAt: new Date(),
-      completedAt: null
+      completedAt: null,
     };
     this.games.set(id, game);
     return game;
@@ -151,7 +162,7 @@ export class MemStorage implements IStorage {
 
   async getEnabledIndexers(): Promise<Indexer[]> {
     return Array.from(this.indexers.values())
-      .filter(indexer => indexer.enabled)
+      .filter((indexer) => indexer.enabled)
       .sort((a, b) => a.priority - b.priority);
   }
 
@@ -203,7 +214,7 @@ export class MemStorage implements IStorage {
 
   async getEnabledDownloaders(): Promise<Downloader[]> {
     return Array.from(this.downloaders.values())
-      .filter(downloader => downloader.enabled)
+      .filter((downloader) => downloader.enabled)
       .sort((a, b) => a.priority - b.priority);
   }
 
@@ -235,7 +246,10 @@ export class MemStorage implements IStorage {
     return downloader;
   }
 
-  async updateDownloader(id: string, updates: Partial<InsertDownloader>): Promise<Downloader | undefined> {
+  async updateDownloader(
+    id: string,
+    updates: Partial<InsertDownloader>
+  ): Promise<Downloader | undefined> {
     const downloader = this.downloaders.get(id);
     if (!downloader) return undefined;
 
@@ -267,10 +281,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const [user] = await db
-      .insert(users)
-      .values(insertUser)
-      .returning();
+    const [user] = await db.insert(users).values(insertUser).returning();
     return user;
   }
 
@@ -286,19 +297,28 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getAllGames(): Promise<Game[]> {
-    return db.select().from(games).orderBy(sql`${games.addedAt} DESC`);
+    return db
+      .select()
+      .from(games)
+      .orderBy(sql`${games.addedAt} DESC`);
   }
 
   async getGamesByStatus(status: string): Promise<Game[]> {
-    return db.select().from(games)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .where(eq(games.status, status as any))
-      .orderBy(sql`${games.addedAt} DESC`);
+    return (
+      db
+        .select()
+        .from(games)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .where(eq(games.status, status as any))
+        .orderBy(sql`${games.addedAt} DESC`)
+    );
   }
 
   async searchGames(query: string): Promise<Game[]> {
     const searchTerm = `%${query.toLowerCase()}%`;
-    return db.select().from(games)
+    return db
+      .select()
+      .from(games)
       .where(
         or(
           ilike(games.title, searchTerm),
@@ -323,11 +343,8 @@ export class DatabaseStorage implements IStorage {
       screenshots: insertGame.screenshots ?? null,
       status: insertGame.status ?? "wanted",
     };
-    
-    const [game] = await db
-      .insert(games)
-      .values(gameWithId)
-      .returning();
+
+    const [game] = await db.insert(games).values(gameWithId).returning();
     return game;
   }
 
@@ -340,7 +357,7 @@ export class DatabaseStorage implements IStorage {
       })
       .where(eq(games.id, id))
       .returning();
-    
+
     return updatedGame || undefined;
   }
 
@@ -361,16 +378,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getEnabledIndexers(): Promise<Indexer[]> {
-    return db.select().from(indexers)
-      .where(eq(indexers.enabled, true))
-      .orderBy(indexers.priority);
+    return db.select().from(indexers).where(eq(indexers.enabled, true)).orderBy(indexers.priority);
   }
 
   async addIndexer(insertIndexer: InsertIndexer): Promise<Indexer> {
-    const [indexer] = await db
-      .insert(indexers)
-      .values(insertIndexer)
-      .returning();
+    const [indexer] = await db.insert(indexers).values(insertIndexer).returning();
     return indexer;
   }
 
@@ -380,7 +392,7 @@ export class DatabaseStorage implements IStorage {
       .set({ ...updates, updatedAt: new Date() })
       .where(eq(indexers.id, id))
       .returning();
-    
+
     return updatedIndexer || undefined;
   }
 
@@ -400,26 +412,28 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getEnabledDownloaders(): Promise<Downloader[]> {
-    return db.select().from(downloaders)
+    return db
+      .select()
+      .from(downloaders)
       .where(eq(downloaders.enabled, true))
       .orderBy(downloaders.priority);
   }
 
   async addDownloader(insertDownloader: InsertDownloader): Promise<Downloader> {
-    const [downloader] = await db
-      .insert(downloaders)
-      .values(insertDownloader)
-      .returning();
+    const [downloader] = await db.insert(downloaders).values(insertDownloader).returning();
     return downloader;
   }
 
-  async updateDownloader(id: string, updates: Partial<InsertDownloader>): Promise<Downloader | undefined> {
+  async updateDownloader(
+    id: string,
+    updates: Partial<InsertDownloader>
+  ): Promise<Downloader | undefined> {
     const [updatedDownloader] = await db
       .update(downloaders)
       .set({ ...updates, updatedAt: new Date() })
       .where(eq(downloaders.id, id))
       .returning();
-    
+
     return updatedDownloader || undefined;
   }
 

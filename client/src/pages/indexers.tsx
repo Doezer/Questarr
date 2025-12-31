@@ -7,8 +7,22 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+  FormDescription,
+} from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -141,10 +155,10 @@ export default function IndexersPage() {
       }
     },
     onError: (error) => {
-      toast({ 
-        title: "Test failed", 
+      toast({
+        title: "Test failed",
         description: error instanceof Error ? error.message : "Unknown error",
-        variant: "destructive" 
+        variant: "destructive",
       });
     },
     onSettled: () => {
@@ -179,7 +193,7 @@ export default function IndexersPage() {
     try {
       const response = await fetch(`/api/indexers/${indexerId}/categories`);
       if (response.ok) {
-        const categories = await response.json() as { id: string; name: string }[];
+        const categories = (await response.json()) as { id: string; name: string }[];
         setAvailableCategories(
           categories.map((cat) => ({
             label: `${cat.name} (${cat.id})`,
@@ -330,16 +344,10 @@ export default function IndexersPage() {
               </CardHeader>
               <CardContent>
                 <div className="flex flex-wrap gap-2">
-                  {indexer.rssEnabled && (
-                    <Badge variant="outline">RSS Enabled</Badge>
-                  )}
-                  {indexer.autoSearchEnabled && (
-                    <Badge variant="outline">Auto Search</Badge>
-                  )}
+                  {indexer.rssEnabled && <Badge variant="outline">RSS Enabled</Badge>}
+                  {indexer.autoSearchEnabled && <Badge variant="outline">Auto Search</Badge>}
                   {indexer.categories && indexer.categories.length > 0 && (
-                    <Badge variant="outline">
-                      {indexer.categories.length} Categories
-                    </Badge>
+                    <Badge variant="outline">{indexer.categories.length} Categories</Badge>
                   )}
                 </div>
               </CardContent>
@@ -350,7 +358,8 @@ export default function IndexersPage() {
             <CardHeader>
               <CardTitle>No Indexers Configured</CardTitle>
               <CardDescription>
-                Add your first Torznab indexer to start discovering games. Popular options include Jackett, Prowlarr, or direct Torznab-compatible trackers.
+                Add your first Torznab indexer to start discovering games. Popular options include
+                Jackett, Prowlarr, or direct Torznab-compatible trackers.
               </CardDescription>
             </CardHeader>
           </Card>
@@ -360,9 +369,7 @@ export default function IndexersPage() {
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>
-              {editingIndexer ? "Edit Indexer" : "Add Indexer"}
-            </DialogTitle>
+            <DialogTitle>{editingIndexer ? "Edit Indexer" : "Add Indexer"}</DialogTitle>
             <DialogDescription>
               Configure a Torznab indexer for game discovery and downloads.
             </DialogDescription>
@@ -376,11 +383,7 @@ export default function IndexersPage() {
                   <FormItem>
                     <FormLabel>Name</FormLabel>
                     <FormControl>
-                      <Input
-                        placeholder="Jackett"
-                        {...field}
-                        data-testid="input-indexer-name"
-                      />
+                      <Input placeholder="Jackett" {...field} data-testid="input-indexer-name" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -456,11 +459,13 @@ export default function IndexersPage() {
                           loadingCategories
                             ? "Loading categories..."
                             : availableCategories.length > 0
-                            ? "Select categories..."
-                            : "Save indexer first to load categories"
+                              ? "Select categories..."
+                              : "Save indexer first to load categories"
                         }
                         emptyMessage="No categories available"
-                        disabled={loadingCategories || (!editingIndexer && availableCategories.length === 0)}
+                        disabled={
+                          loadingCategories || (!editingIndexer && availableCategories.length === 0)
+                        }
                         data-testid="multi-select-categories"
                       />
                     </FormControl>
@@ -487,7 +492,7 @@ export default function IndexersPage() {
                   variant="outline"
                   onClick={() => {
                     const formData = form.getValues();
-                    
+
                     if (editingIndexer) {
                       // Test existing indexer
                       testConnectionMutation.mutate({ id: editingIndexer.id });
@@ -510,8 +515,8 @@ export default function IndexersPage() {
                   {addMutation.isPending || updateMutation.isPending
                     ? "Saving..."
                     : editingIndexer
-                    ? "Update"
-                    : "Add"}
+                      ? "Update"
+                      : "Add"}
                 </Button>
               </div>
             </form>

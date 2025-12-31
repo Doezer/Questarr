@@ -63,9 +63,7 @@ const SelectTriggerWithSpinner = ({
   return (
     <SelectTrigger {...props}>
       {children}
-      {loading && (
-        <Loader2 className="h-4 w-4 animate-spin" />
-      )}
+      {loading && <Loader2 className="h-4 w-4 animate-spin" />}
     </SelectTrigger>
   );
 };
@@ -81,7 +79,11 @@ export default function DiscoverPage() {
   const queryClient = useQueryClient();
 
   // Fetch available genres with caching and error handling
-  const { data: genres = [], isError: genresError, isFetching: isFetchingGenres } = useQuery<Genre[]>({
+  const {
+    data: genres = [],
+    isError: genresError,
+    isFetching: isFetchingGenres,
+  } = useQuery<Genre[]>({
     queryKey: ["/api/igdb/genres"],
     queryFn: async () => {
       const response = await fetch("/api/igdb/genres");
@@ -194,33 +196,39 @@ export default function DiscoverPage() {
   // ⚡ Bolt: Using useCallback to memoize event handlers, preventing unnecessary
   // re-renders in child components like `GameCard` that rely on stable function
   // references for their `React.memo` optimization.
-  const handleStatusChange = useCallback((gameId: string, newStatus: GameStatus) => {
-    // For Discovery games (IGDB games not in collection yet)
-    const findGameInQueries = (): Game | undefined => {
-      // Search in all cached query data
-      const allQueries = queryClient.getQueriesData<Game[]>({
-        predicate: (query) => {
-          const key = query.queryKey[0] as string;
-          return key.startsWith("/api/igdb/");
-        },
-      });
+  const handleStatusChange = useCallback(
+    (gameId: string, newStatus: GameStatus) => {
+      // For Discovery games (IGDB games not in collection yet)
+      const findGameInQueries = (): Game | undefined => {
+        // Search in all cached query data
+        const allQueries = queryClient.getQueriesData<Game[]>({
+          predicate: (query) => {
+            const key = query.queryKey[0] as string;
+            return key.startsWith("/api/igdb/");
+          },
+        });
 
-      for (const [, data] of allQueries) {
-        const game = data?.find((g) => g.id === gameId);
-        if (game) return game;
+        for (const [, data] of allQueries) {
+          const game = data?.find((g) => g.id === gameId);
+          if (game) return game;
+        }
+        return undefined;
+      };
+
+      const game = findGameInQueries();
+      if (game) {
+        addGameMutation.mutate({ game, status: newStatus });
       }
-      return undefined;
-    };
+    },
+    [queryClient, addGameMutation]
+  );
 
-    const game = findGameInQueries();
-    if (game) {
-      addGameMutation.mutate({ game, status: newStatus });
-    }
-  }, [queryClient, addGameMutation]);
-
-  const handleTrackGame = useCallback((game: Game) => {
-    trackGameMutation.mutate(game);
-  }, [trackGameMutation]);
+  const handleTrackGame = useCallback(
+    (game: Game) => {
+      trackGameMutation.mutate(game);
+    },
+    [trackGameMutation]
+  );
 
   // ⚡ Bolt: Memoizing fetch functions with `useCallback` ensures they have stable
   // references across re-renders. This is critical for preventing child components
@@ -252,10 +260,8 @@ export default function DiscoverPage() {
       // This case should ideally not be hit if UI is synced with state
       return []; // Return empty instead of throwing to prevent crash
     }
-    
-    const response = await fetch(
-      `/api/igdb/genre/${encodeURIComponent(debouncedGenre)}?limit=20`
-    );
+
+    const response = await fetch(`/api/igdb/genre/${encodeURIComponent(debouncedGenre)}?limit=20`);
     if (!response.ok) throw new Error("Failed to fetch games by genre");
     return response.json();
   }, [debouncedGenre, genres]);
@@ -268,7 +274,7 @@ export default function DiscoverPage() {
       // This case should ideally not be hit if UI is synced with state
       return []; // Return empty instead of throwing to prevent crash
     }
-    
+
     const response = await fetch(
       `/api/igdb/platform/${encodeURIComponent(debouncedPlatform)}?limit=20`
     );

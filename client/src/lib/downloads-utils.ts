@@ -1,7 +1,7 @@
 /**
  * Download status type for torrent clients
  */
-export type DownloadStatusType = 'downloading' | 'seeding' | 'completed' | 'paused' | 'error';
+export type DownloadStatusType = "downloading" | "seeding" | "completed" | "paused" | "error";
 
 /**
  * Download data interface
@@ -60,37 +60,39 @@ export function formatETA(seconds: number): string {
  */
 export function getStatusColor(status: DownloadStatusType): string {
   switch (status) {
-    case 'downloading':
-      return 'bg-blue-500';
-    case 'seeding':
-      return 'bg-green-500';
-    case 'completed':
-      return 'bg-green-600';
-    case 'paused':
-      return 'bg-yellow-500';
-    case 'error':
-      return 'bg-red-500';
+    case "downloading":
+      return "bg-blue-500";
+    case "seeding":
+      return "bg-green-500";
+    case "completed":
+      return "bg-green-600";
+    case "paused":
+      return "bg-yellow-500";
+    case "error":
+      return "bg-red-500";
     default:
-      return 'bg-gray-500';
+      return "bg-gray-500";
   }
 }
 
 /**
  * Get badge variant for status
  */
-export function getStatusBadgeVariant(status: DownloadStatusType): "default" | "secondary" | "destructive" | "outline" {
+export function getStatusBadgeVariant(
+  status: DownloadStatusType
+): "default" | "secondary" | "destructive" | "outline" {
   switch (status) {
-    case 'downloading':
-    case 'seeding':
-      return 'default';
-    case 'completed':
-      return 'outline';
-    case 'paused':
-      return 'secondary';
-    case 'error':
-      return 'destructive';
+    case "downloading":
+    case "seeding":
+      return "default";
+    case "completed":
+      return "outline";
+    case "paused":
+      return "secondary";
+    case "error":
+      return "destructive";
     default:
-      return 'outline';
+      return "outline";
   }
 }
 
@@ -98,13 +100,13 @@ export function getStatusBadgeVariant(status: DownloadStatusType): "default" | "
  * Filter downloads by status
  */
 export function filterDownloadsByStatus(
-  downloads: DownloadData[], 
-  filter: DownloadStatusType | 'all'
+  downloads: DownloadData[],
+  filter: DownloadStatusType | "all"
 ): DownloadData[] {
-  if (filter === 'all') {
+  if (filter === "all") {
     return downloads;
   }
-  return downloads.filter(d => d.status === filter);
+  return downloads.filter((d) => d.status === filter);
 }
 
 /**

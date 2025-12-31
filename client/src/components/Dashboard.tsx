@@ -18,36 +18,36 @@ export default function Dashboard() {
 
   // Query user's collection
   const { data: games = [], isLoading } = useQuery<Game[]>({
-    queryKey: ['/api/games', debouncedSearchQuery],
+    queryKey: ["/api/games", debouncedSearchQuery],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (debouncedSearchQuery.trim()) {
-        params.set('search', debouncedSearchQuery.trim());
+        params.set("search", debouncedSearchQuery.trim());
       }
       const response = await fetch(`/api/games?${params}`);
-      if (!response.ok) throw new Error('Failed to fetch games');
+      if (!response.ok) throw new Error("Failed to fetch games");
       return response.json();
-    }
+    },
   });
 
   // Status update mutation (for existing games in collection)
   const statusMutation = useMutation({
     mutationFn: async ({ gameId, status }: { gameId: string; status: GameStatus }) => {
       const response = await fetch(`/api/games/${gameId}/status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status })
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
       });
-      if (!response.ok) throw new Error('Failed to update status');
+      if (!response.ok) throw new Error("Failed to update status");
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/games'] });
+      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
       toast({ description: "Game status updated successfully" });
     },
     onError: () => {
       toast({ description: "Failed to update game status", variant: "destructive" });
-    }
+    },
   });
 
   // Calculate unique genres and platforms from user's game collection
@@ -93,7 +93,7 @@ export default function Dashboard() {
   }, []);
 
   const handleRemoveFilter = useCallback((filter: string) => {
-    setActiveFilters(prev => prev.filter(f => f !== filter));
+    setActiveFilters((prev) => prev.filter((f) => f !== filter));
   }, []);
 
   // ⚡ Bolt: Memoize `handleStatusChange` with `useCallback`.
@@ -102,9 +102,12 @@ export default function Dashboard() {
   // reference is crucial to prevent every card from re-rendering whenever
   // the `Dashboard` component re-renders. Without `useCallback`, a new
   // function would be created on each render, defeating the purpose of memoization.
-  const handleStatusChange = useCallback((gameId: string, newStatus: GameStatus) => {
-    statusMutation.mutate({ gameId, status: newStatus });
-  }, [statusMutation]);
+  const handleStatusChange = useCallback(
+    (gameId: string, newStatus: GameStatus) => {
+      statusMutation.mutate({ gameId, status: newStatus });
+    },
+    [statusMutation]
+  );
 
   return (
     <div className="h-full overflow-auto p-6" data-testid="layout-dashboard">
@@ -120,7 +123,7 @@ export default function Dashboard() {
             />
           ))}
         </div>
-        
+
         <div className="space-y-4">
           <h2 className="text-lg font-semibold">Recent Additions</h2>
           <SearchBar
@@ -130,11 +133,7 @@ export default function Dashboard() {
             onRemoveFilter={handleRemoveFilter}
             placeholder="Search your library..."
           />
-          <GameGrid
-            games={games}
-            onStatusChange={handleStatusChange}
-            isLoading={isLoading}
-          />
+          <GameGrid games={games} onStatusChange={handleStatusChange} isLoading={isLoading} />
         </div>
       </div>
     </div>

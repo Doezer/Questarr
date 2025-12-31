@@ -1,14 +1,14 @@
 import {
   Home,
   Library,
-  Download, 
-  Calendar, 
-  Settings, 
+  Download,
+  Calendar,
+  Settings,
   TrendingUp,
   Star,
   Database,
   HardDrive,
-  Compass
+  Compass,
 } from "lucide-react";
 import {
   Sidebar,
@@ -101,12 +101,14 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: AppSidebarP
             <Library className="w-4 h-4 text-primary-foreground" />
           </div>
           <div>
-            <h1 className="font-bold text-lg" data-testid="text-app-name">GameRadarr</h1>
+            <h1 className="font-bold text-lg" data-testid="text-app-name">
+              GameRadarr
+            </h1>
             <p className="text-xs text-muted-foreground">Game Management</p>
           </div>
         </div>
       </SidebarHeader>
-      
+
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupLabel>Navigation</SidebarGroupLabel>
@@ -114,7 +116,7 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: AppSidebarP
             <SidebarMenu>
               {navigation.map((item) => (
                 <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton 
+                  <SidebarMenuButton
                     asChild
                     isActive={activeItem === item.url}
                     data-testid={`nav-${item.title.toLowerCase()}`}
@@ -146,7 +148,7 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: AppSidebarP
             <SidebarMenu>
               {management.map((item) => (
                 <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton 
+                  <SidebarMenuButton
                     asChild
                     isActive={activeItem === item.url}
                     data-testid={`nav-${item.title.toLowerCase()}`}

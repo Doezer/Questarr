@@ -39,11 +39,11 @@ function AppContent() {
 
 function App() {
   const [location, navigate] = useLocation();
-  
+
   // Custom sidebar width for the application
   const style = {
-    "--sidebar-width": "16rem",       // 256px for navigation
-    "--sidebar-width-icon": "4rem",   // default icon width
+    "--sidebar-width": "16rem", // 256px for navigation
+    "--sidebar-width-icon": "4rem", // default icon width
   };
 
   return (

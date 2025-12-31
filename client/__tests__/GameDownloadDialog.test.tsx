@@ -54,7 +54,7 @@ const renderComponent = () => {
     <QueryClientProvider client={queryClient}>
       <GameDownloadDialog game={mockGame} open={true} onOpenChange={() => {}} />
       <Toaster />
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
 };
 
@@ -99,6 +99,5 @@ describe("GameDownloadDialog", () => {
       expect(loadingButton).toBeInTheDocument();
       expect(loadingButton).toBeDisabled();
     });
-
   });
 });

@@ -1,17 +1,23 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { Calendar, Star, Monitor, Gamepad2, Tag, Download, Play, CheckCircle, Eye, X } from "lucide-react";
+import {
+  Calendar,
+  Star,
+  Monitor,
+  Gamepad2,
+  Tag,
+  Download,
+  Play,
+  CheckCircle,
+  Eye,
+  X,
+} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { type Game } from "@shared/schema";
 import StatusBadge, { type GameStatus } from "./StatusBadge";
@@ -24,11 +30,11 @@ interface GameDetailsModalProps {
   onStatusChange?: (gameId: string, newStatus: GameStatus) => void;
 }
 
-export default function GameDetailsModal({ 
-  game, 
-  open, 
+export default function GameDetailsModal({
+  game,
+  open,
   onOpenChange,
-  onStatusChange 
+  onStatusChange,
 }: GameDetailsModalProps) {
   const [selectedScreenshot, setSelectedScreenshot] = useState<string | null>(null);
   const [downloadOpen, setDownloadOpen] = useState(false);
@@ -38,18 +44,18 @@ export default function GameDetailsModal({
   const removeGameMutation = useMutation({
     mutationFn: async (gameId: string) => {
       const response = await fetch(`/api/games/${gameId}`, {
-        method: 'DELETE',
+        method: "DELETE",
       });
-      if (!response.ok) throw new Error('Failed to remove game');
+      if (!response.ok) throw new Error("Failed to remove game");
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/games'] });
+      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
       toast({ description: "Game removed from collection" });
       onOpenChange(false);
     },
     onError: () => {
       toast({ description: "Failed to remove game", variant: "destructive" });
-    }
+    },
   });
 
   if (!game) return null;
@@ -68,9 +74,24 @@ export default function GameDetailsModal({
 
   const statusActions = [
     { status: "wanted" as const, icon: Eye, label: "Want to Play", variant: "outline" as const },
-    { status: "owned" as const, icon: Download, label: "Mark as Owned", variant: "default" as const },
-    { status: "downloading" as const, icon: Download, label: "Downloading", variant: "secondary" as const },
-    { status: "completed" as const, icon: CheckCircle, label: "Mark Completed", variant: "default" as const },
+    {
+      status: "owned" as const,
+      icon: Download,
+      label: "Mark as Owned",
+      variant: "default" as const,
+    },
+    {
+      status: "downloading" as const,
+      icon: Download,
+      label: "Downloading",
+      variant: "secondary" as const,
+    },
+    {
+      status: "completed" as const,
+      icon: CheckCircle,
+      label: "Mark Completed",
+      variant: "default" as const,
+    },
   ];
 
   return (
@@ -80,7 +101,10 @@ export default function GameDetailsModal({
           <DialogHeader className="flex-shrink-0 pb-0">
             <div className="flex items-start justify-between gap-4">
               <div className="flex-1 min-w-0">
-                <DialogTitle className="text-2xl font-bold mb-2 leading-tight" data-testid={`text-game-title-${game.id}`}>
+                <DialogTitle
+                  className="text-2xl font-bold mb-2 leading-tight"
+                  data-testid={`text-game-title-${game.id}`}
+                >
                   {game.title}
                 </DialogTitle>
                 <div className="flex items-center gap-2 mb-2">
@@ -88,9 +112,7 @@ export default function GameDetailsModal({
                   {game.rating && (
                     <div className="flex items-center gap-1 text-sm">
                       <Star className="w-4 h-4 text-accent" />
-                      <span data-testid={`text-rating-${game.id}`}>
-                        {game.rating}/10
-                      </span>
+                      <span data-testid={`text-rating-${game.id}`}>{game.rating}/10</span>
                     </div>
                   )}
                   {game.releaseDate && (
@@ -103,7 +125,7 @@ export default function GameDetailsModal({
                   )}
                 </div>
               </div>
-              
+
               {game.coverUrl && (
                 <div className="flex-shrink-0">
                   <img
@@ -126,7 +148,10 @@ export default function GameDetailsModal({
                     <Gamepad2 className="w-4 h-4" />
                     About
                   </h3>
-                  <p className="text-sm text-muted-foreground leading-relaxed" data-testid={`text-summary-${game.id}`}>
+                  <p
+                    className="text-sm text-muted-foreground leading-relaxed"
+                    data-testid={`text-summary-${game.id}`}
+                  >
                     {game.summary}
                   </p>
                 </div>
@@ -136,14 +161,19 @@ export default function GameDetailsModal({
               <div>
                 <h3 className="font-semibold mb-3">Quick Actions</h3>
                 <div className="flex flex-wrap gap-2">
-                  <Button variant="default" size="sm" className="gap-2" data-testid="button-launch-game">
+                  <Button
+                    variant="default"
+                    size="sm"
+                    className="gap-2"
+                    data-testid="button-launch-game"
+                  >
                     <Play className="w-4 h-4" />
                     Launch Game
                   </Button>
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    className="gap-2" 
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
                     onClick={handleDownloadClick}
                     data-testid="button-download-game"
                   >
@@ -158,7 +188,9 @@ export default function GameDetailsModal({
                 <div className="grid md:grid-cols-2 gap-6">
                   {game.releaseDate && (
                     <div>
-                      <h4 className="font-medium text-sm text-muted-foreground mb-1">Release Date</h4>
+                      <h4 className="font-medium text-sm text-muted-foreground mb-1">
+                        Release Date
+                      </h4>
                       <p className="text-sm" data-testid={`text-full-release-date-${game.id}`}>
                         {new Date(game.releaseDate).toLocaleDateString()}
                       </p>
@@ -186,7 +218,11 @@ export default function GameDetailsModal({
                     </h3>
                     <div className="flex flex-wrap gap-2">
                       {game.genres.map((genre, index) => (
-                        <Badge key={index} variant="secondary" data-testid={`badge-genre-${genre.toLowerCase().replace(/\s+/g, '-')}`}>
+                        <Badge
+                          key={index}
+                          variant="secondary"
+                          data-testid={`badge-genre-${genre.toLowerCase().replace(/\s+/g, "-")}`}
+                        >
                           {genre}
                         </Badge>
                       ))}
@@ -202,7 +238,11 @@ export default function GameDetailsModal({
                     </h3>
                     <div className="flex flex-wrap gap-2">
                       {game.platforms.map((platform, index) => (
-                        <Badge key={index} variant="outline" data-testid={`badge-platform-${platform.toLowerCase().replace(/\s+/g, '-')}`}>
+                        <Badge
+                          key={index}
+                          variant="outline"
+                          data-testid={`badge-platform-${platform.toLowerCase().replace(/\s+/g, "-")}`}
+                        >
                           {platform}
                         </Badge>
                       ))}
@@ -217,8 +257,8 @@ export default function GameDetailsModal({
                   <h3 className="font-semibold mb-3">Screenshots</h3>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                     {game.screenshots.slice(0, 6).map((screenshot, index) => (
-                      <Card 
-                        key={index} 
+                      <Card
+                        key={index}
                         className="overflow-hidden cursor-pointer hover-elevate"
                         onClick={() => setSelectedScreenshot(screenshot)}
                         data-testid={`screenshot-${index}`}
@@ -299,12 +339,8 @@ export default function GameDetailsModal({
           </DialogContent>
         </Dialog>
       )}
-      
-      <GameDownloadDialog
-        game={game}
-        open={downloadOpen}
-        onOpenChange={setDownloadOpen}
-      />
+
+      <GameDownloadDialog game={game} open={downloadOpen} onOpenChange={setDownloadOpen} />
     </>
   );
 }

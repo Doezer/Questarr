@@ -7,9 +7,28 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -78,7 +97,11 @@ export default function SearchPage() {
   const [isDownloadDialogOpen, setIsDownloadDialogOpen] = useState(false);
   const [lastSearchQuery, setLastSearchQuery] = useState("");
 
-  const { data: searchResults, isLoading: isSearching, error: searchError } = useQuery<SearchResult>({
+  const {
+    data: searchResults,
+    isLoading: isSearching,
+    error: searchError,
+  } = useQuery<SearchResult>({
     queryKey: ["/api/search", debouncedSearchQuery],
     enabled: debouncedSearchQuery.trim().length > 0,
   });
@@ -98,7 +121,7 @@ export default function SearchPage() {
         if (itemCount > 0) {
           toast({
             title: "Search completed",
-            description: `Found ${itemCount} result${itemCount !== 1 ? 's' : ''}`,
+            description: `Found ${itemCount} result${itemCount !== 1 ? "s" : ""}`,
           });
         } else {
           toast({
@@ -106,7 +129,7 @@ export default function SearchPage() {
             description: "Try a different search query",
           });
         }
-        
+
         // Show warning if there were indexer errors
         if (searchResults.errors && searchResults.errors.length > 0) {
           toast({
@@ -207,9 +230,7 @@ export default function SearchPage() {
             <Search className="h-5 w-5 mr-2" />
             Search Games
           </CardTitle>
-          <CardDescription>
-            Search for games using your configured Torznab indexers
-          </CardDescription>
+          <CardDescription>Search for games using your configured Torznab indexers</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSearch} className="flex gap-4" data-testid="form-search">
@@ -232,10 +253,14 @@ export default function SearchPage() {
       {searchError && (
         <Card className="mb-8" data-testid="card-search-error">
           <CardHeader>
-            <CardTitle className="text-destructive" data-testid="text-search-error-title">Search Error</CardTitle>
+            <CardTitle className="text-destructive" data-testid="text-search-error-title">
+              Search Error
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <p data-testid="text-search-error-message">Failed to search indexers. Please check your configuration.</p>
+            <p data-testid="text-search-error-message">
+              Failed to search indexers. Please check your configuration.
+            </p>
           </CardContent>
         </Card>
       )}
@@ -256,12 +281,21 @@ export default function SearchPage() {
           {searchResults.errors && searchResults.errors.length > 0 && (
             <Card className="mb-4" data-testid="card-indexer-errors">
               <CardHeader>
-                <CardTitle className="text-sm text-destructive" data-testid="text-indexer-errors-title">Indexer Errors</CardTitle>
+                <CardTitle
+                  className="text-sm text-destructive"
+                  data-testid="text-indexer-errors-title"
+                >
+                  Indexer Errors
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 <ul className="text-sm space-y-1" data-testid="list-indexer-errors">
                   {searchResults.errors.map((error, index) => (
-                    <li key={index} className="text-muted-foreground" data-testid={`error-message-${index}`}>
+                    <li
+                      key={index}
+                      className="text-muted-foreground"
+                      data-testid={`error-message-${index}`}
+                    >
                       • {error}
                     </li>
                   ))}
@@ -281,25 +315,39 @@ export default function SearchPage() {
                         <CardDescription className="mt-2">
                           <div className="flex flex-wrap gap-2 items-center">
                             {torrent.size && (
-                              <Badge variant="outline" className="flex items-center" data-testid={`badge-size-${index}`}>
+                              <Badge
+                                variant="outline"
+                                className="flex items-center"
+                                data-testid={`badge-size-${index}`}
+                              >
                                 <HardDrive className="h-3 w-3 mr-1" />
                                 {formatBytes(torrent.size)}
                               </Badge>
                             )}
                             {torrent.seeders !== undefined && (
-                              <Badge variant="outline" className="flex items-center" data-testid={`badge-peers-${index}`}>
+                              <Badge
+                                variant="outline"
+                                className="flex items-center"
+                                data-testid={`badge-peers-${index}`}
+                              >
                                 <Users className="h-3 w-3 mr-1" />
                                 {torrent.seeders}↑ / {torrent.leechers || 0}↓
                               </Badge>
                             )}
                             {torrent.pubDate && (
-                              <Badge variant="outline" className="flex items-center" data-testid={`badge-date-${index}`}>
+                              <Badge
+                                variant="outline"
+                                className="flex items-center"
+                                data-testid={`badge-date-${index}`}
+                              >
                                 <Calendar className="h-3 w-3 mr-1" />
                                 {formatDate(torrent.pubDate)}
                               </Badge>
                             )}
                             {torrent.category && (
-                              <Badge variant="outline" data-testid={`badge-category-${index}`}>{torrent.category}</Badge>
+                              <Badge variant="outline" data-testid={`badge-category-${index}`}>
+                                {torrent.category}
+                              </Badge>
                             )}
                           </div>
                         </CardDescription>
@@ -327,7 +375,10 @@ export default function SearchPage() {
                   </CardHeader>
                   {torrent.description && (
                     <CardContent>
-                      <p className="text-sm text-muted-foreground line-clamp-2" data-testid={`text-description-${index}`}>
+                      <p
+                        className="text-sm text-muted-foreground line-clamp-2"
+                        data-testid={`text-description-${index}`}
+                      >
                         {torrent.description}
                       </p>
                     </CardContent>
@@ -339,7 +390,8 @@ export default function SearchPage() {
                 <CardHeader>
                   <CardTitle data-testid="text-no-results-title">No Results Found</CardTitle>
                   <CardDescription data-testid="text-no-results-description">
-                    Try adjusting your search terms or check if your indexers are properly configured.
+                    Try adjusting your search terms or check if your indexers are properly
+                    configured.
                   </CardDescription>
                 </CardHeader>
               </Card>
@@ -384,7 +436,11 @@ export default function SearchPage() {
                       </FormControl>
                       <SelectContent>
                         {downloaders.map((downloader) => (
-                          <SelectItem key={downloader.id} value={downloader.id} data-testid={`option-downloader-${downloader.id}`}>
+                          <SelectItem
+                            key={downloader.id}
+                            value={downloader.id}
+                            data-testid={`option-downloader-${downloader.id}`}
+                          >
                             {downloader.name} ({downloader.type})
                           </SelectItem>
                         ))}
@@ -401,11 +457,7 @@ export default function SearchPage() {
                   <FormItem>
                     <FormLabel>Category (Optional)</FormLabel>
                     <FormControl>
-                      <Input
-                        placeholder="games"
-                        {...field}
-                        data-testid="input-download-category"
-                      />
+                      <Input placeholder="games" {...field} data-testid="input-download-category" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

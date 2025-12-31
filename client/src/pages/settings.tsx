@@ -5,7 +5,11 @@ import { Badge } from "@/components/ui/badge";
 import type { Config } from "@shared/schema";
 
 export default function SettingsPage() {
-  const { data: config, isLoading, error } = useQuery<Config>({
+  const {
+    data: config,
+    isLoading,
+    error,
+  } = useQuery<Config>({
     queryKey: ["/api/config"],
   });
 
@@ -26,9 +30,7 @@ export default function SettingsPage() {
         <Card>
           <CardHeader>
             <CardTitle>Error Loading Configuration</CardTitle>
-            <CardDescription>
-              Failed to load configuration. Please try again later.
-            </CardDescription>
+            <CardDescription>Failed to load configuration. Please try again later.</CardDescription>
           </CardHeader>
         </Card>
       </div>
@@ -65,19 +67,17 @@ export default function SettingsPage() {
             {config?.igdb.clientId && (
               <div className="space-y-1">
                 <span className="text-sm font-medium">Client ID</span>
-                <p className="text-sm text-muted-foreground font-mono">
-                  {config.igdb.clientId}
-                </p>
+                <p className="text-sm text-muted-foreground font-mono">{config.igdb.clientId}</p>
               </div>
             )}
             {!config?.igdb.configured && (
               <p className="text-sm text-muted-foreground">
-                Set IGDB_CLIENT_ID and IGDB_CLIENT_SECRET environment variables to enable IGDB integration.
+                Set IGDB_CLIENT_ID and IGDB_CLIENT_SECRET environment variables to enable IGDB
+                integration.
               </p>
             )}
           </CardContent>
         </Card>
-
       </div>
     </div>
   );

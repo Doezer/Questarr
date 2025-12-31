@@ -11,11 +11,11 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
-import { 
-  File, 
-  Server, 
-  HardDrive, 
-  Clock, 
+import {
+  File,
+  Server,
+  HardDrive,
+  Clock,
   Activity,
   Hash,
   Folder,
@@ -42,32 +42,34 @@ function formatDate(isoString: string | undefined): string {
   }
 }
 
-function getTrackerStatusColor(status: TorrentTracker['status']): string {
+function getTrackerStatusColor(status: TorrentTracker["status"]): string {
   switch (status) {
-    case 'working':
-      return 'bg-green-500';
-    case 'updating':
-      return 'bg-yellow-500';
-    case 'error':
-      return 'bg-red-500';
-    case 'inactive':
+    case "working":
+      return "bg-green-500";
+    case "updating":
+      return "bg-yellow-500";
+    case "error":
+      return "bg-red-500";
+    case "inactive":
     default:
-      return 'bg-gray-500';
+      return "bg-gray-500";
   }
 }
 
-function getPriorityBadgeVariant(priority: TorrentFile['priority']): "default" | "secondary" | "outline" | "destructive" {
+function getPriorityBadgeVariant(
+  priority: TorrentFile["priority"]
+): "default" | "secondary" | "outline" | "destructive" {
   switch (priority) {
-    case 'high':
-      return 'default';
-    case 'normal':
-      return 'secondary';
-    case 'low':
-      return 'outline';
-    case 'off':
-      return 'destructive';
+    case "high":
+      return "default";
+    case "normal":
+      return "secondary";
+    case "low":
+      return "outline";
+    case "off":
+      return "destructive";
     default:
-      return 'outline';
+      return "outline";
   }
 }
 
@@ -78,10 +80,14 @@ export default function TorrentDetailsModal({
   open,
   onOpenChange,
 }: TorrentDetailsModalProps) {
-  const { data: details, isLoading, error } = useQuery<TorrentDetails>({
+  const {
+    data: details,
+    isLoading,
+    error,
+  } = useQuery<TorrentDetails>({
     queryKey: [`/api/downloaders/${downloaderId}/torrents/${torrentId}/details`],
     enabled: open && !!downloaderId && !!torrentId,
-    refetchInterval: (query) => query.state.error ? false : 5000,
+    refetchInterval: (query) => (query.state.error ? false : 5000),
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: false,
   });
@@ -90,7 +96,10 @@ export default function TorrentDetailsModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
         <DialogHeader className="flex-shrink-0">
-          <DialogTitle className="text-xl font-bold leading-tight truncate" data-testid="torrent-details-title">
+          <DialogTitle
+            className="text-xl font-bold leading-tight truncate"
+            data-testid="torrent-details-title"
+          >
             {torrentName}
           </DialogTitle>
           <DialogDescription>
@@ -99,7 +108,10 @@ export default function TorrentDetailsModal({
         </DialogHeader>
 
         {isLoading && (
-          <div className="flex items-center justify-center py-8" data-testid="torrent-details-loading">
+          <div
+            className="flex items-center justify-center py-8"
+            data-testid="torrent-details-loading"
+          >
             <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent mr-2" />
             <span>Loading torrent details...</span>
           </div>
@@ -107,7 +119,8 @@ export default function TorrentDetailsModal({
 
         {error && (
           <div className="text-destructive py-4" data-testid="torrent-details-error">
-            Failed to load torrent details: {error instanceof Error ? error.message : 'Unknown error'}
+            Failed to load torrent details:{" "}
+            {error instanceof Error ? error.message : "Unknown error"}
           </div>
         )}
 
@@ -129,7 +142,11 @@ export default function TorrentDetailsModal({
             </TabsList>
 
             {/* Info Tab */}
-            <TabsContent value="info" className="flex-1 overflow-hidden mt-4" data-testid="tab-content-info">
+            <TabsContent
+              value="info"
+              className="flex-1 overflow-hidden mt-4"
+              data-testid="tab-content-info"
+            >
               <ScrollArea className="h-full pr-4">
                 <div className="space-y-6">
                   {/* General Info */}
@@ -139,21 +156,27 @@ export default function TorrentDetailsModal({
                         <Hash className="w-5 h-5 text-muted-foreground mt-0.5" />
                         <div>
                           <p className="text-sm font-medium text-muted-foreground">Hash</p>
-                          <p className="text-sm font-mono break-all" data-testid="detail-hash">{details.hash}</p>
+                          <p className="text-sm font-mono break-all" data-testid="detail-hash">
+                            {details.hash}
+                          </p>
                         </div>
                       </div>
                     )}
-                    
+
                     {details.downloadDir && (
                       <div className="flex items-start gap-3">
                         <Folder className="w-5 h-5 text-muted-foreground mt-0.5" />
                         <div>
-                          <p className="text-sm font-medium text-muted-foreground">Download Location</p>
-                          <p className="text-sm break-all" data-testid="detail-download-dir">{details.downloadDir}</p>
+                          <p className="text-sm font-medium text-muted-foreground">
+                            Download Location
+                          </p>
+                          <p className="text-sm break-all" data-testid="detail-download-dir">
+                            {details.downloadDir}
+                          </p>
                         </div>
                       </div>
                     )}
-                    
+
                     {details.size && (
                       <div className="flex items-start gap-3">
                         <HardDrive className="w-5 h-5 text-muted-foreground mt-0.5" />
@@ -165,33 +188,41 @@ export default function TorrentDetailsModal({
                         </div>
                       </div>
                     )}
-                    
+
                     {details.addedDate && (
                       <div className="flex items-start gap-3">
                         <Calendar className="w-5 h-5 text-muted-foreground mt-0.5" />
                         <div>
                           <p className="text-sm font-medium text-muted-foreground">Added</p>
-                          <p className="text-sm" data-testid="detail-added-date">{formatDate(details.addedDate)}</p>
+                          <p className="text-sm" data-testid="detail-added-date">
+                            {formatDate(details.addedDate)}
+                          </p>
                         </div>
                       </div>
                     )}
-                    
+
                     {details.completedDate && (
                       <div className="flex items-start gap-3">
                         <Clock className="w-5 h-5 text-muted-foreground mt-0.5" />
                         <div>
                           <p className="text-sm font-medium text-muted-foreground">Completed</p>
-                          <p className="text-sm" data-testid="detail-completed-date">{formatDate(details.completedDate)}</p>
+                          <p className="text-sm" data-testid="detail-completed-date">
+                            {formatDate(details.completedDate)}
+                          </p>
                         </div>
                       </div>
                     )}
-                    
+
                     {details.connectedPeers !== undefined && (
                       <div className="flex items-start gap-3">
                         <Users className="w-5 h-5 text-muted-foreground mt-0.5" />
                         <div>
-                          <p className="text-sm font-medium text-muted-foreground">Connected Peers</p>
-                          <p className="text-sm" data-testid="detail-peers">{details.connectedPeers}</p>
+                          <p className="text-sm font-medium text-muted-foreground">
+                            Connected Peers
+                          </p>
+                          <p className="text-sm" data-testid="detail-peers">
+                            {details.connectedPeers}
+                          </p>
                         </div>
                       </div>
                     )}
@@ -216,13 +247,17 @@ export default function TorrentDetailsModal({
                         {details.creator && (
                           <div>
                             <p className="text-sm font-medium text-muted-foreground">Created By</p>
-                            <p className="text-sm" data-testid="detail-creator">{details.creator}</p>
+                            <p className="text-sm" data-testid="detail-creator">
+                              {details.creator}
+                            </p>
                           </div>
                         )}
                         {details.comment && (
                           <div>
                             <p className="text-sm font-medium text-muted-foreground">Comment</p>
-                            <p className="text-sm" data-testid="detail-comment">{details.comment}</p>
+                            <p className="text-sm" data-testid="detail-comment">
+                              {details.comment}
+                            </p>
                           </div>
                         )}
                       </div>
@@ -233,7 +268,11 @@ export default function TorrentDetailsModal({
             </TabsContent>
 
             {/* Files Tab */}
-            <TabsContent value="files" className="flex-1 overflow-hidden mt-4" data-testid="tab-content-files">
+            <TabsContent
+              value="files"
+              className="flex-1 overflow-hidden mt-4"
+              data-testid="tab-content-files"
+            >
               <ScrollArea className="h-[400px] pr-4">
                 {details.files.length === 0 ? (
                   <div className="text-center text-muted-foreground py-8" data-testid="no-files">
@@ -242,8 +281,8 @@ export default function TorrentDetailsModal({
                 ) : (
                   <div className="space-y-2">
                     {details.files.map((file, index) => (
-                      <div 
-                        key={index} 
+                      <div
+                        key={index}
                         className="border rounded-lg p-3 space-y-2"
                         data-testid={`file-${index}`}
                       >
@@ -253,7 +292,10 @@ export default function TorrentDetailsModal({
                             <span className="text-sm break-all">{file.name}</span>
                           </div>
                           <div className="flex items-center gap-2 flex-shrink-0">
-                            <Badge variant={getPriorityBadgeVariant(file.priority)} className="capitalize">
+                            <Badge
+                              variant={getPriorityBadgeVariant(file.priority)}
+                              className="capitalize"
+                            >
                               {file.priority}
                             </Badge>
                             <span className="text-sm text-muted-foreground whitespace-nowrap">
@@ -280,7 +322,11 @@ export default function TorrentDetailsModal({
             </TabsContent>
 
             {/* Trackers Tab */}
-            <TabsContent value="trackers" className="flex-1 overflow-hidden mt-4" data-testid="tab-content-trackers">
+            <TabsContent
+              value="trackers"
+              className="flex-1 overflow-hidden mt-4"
+              data-testid="tab-content-trackers"
+            >
               <ScrollArea className="h-[400px] pr-4">
                 {details.trackers.length === 0 ? (
                   <div className="text-center text-muted-foreground py-8" data-testid="no-trackers">
@@ -289,8 +335,8 @@ export default function TorrentDetailsModal({
                 ) : (
                   <div className="space-y-3">
                     {details.trackers.map((tracker, index) => (
-                      <div 
-                        key={index} 
+                      <div
+                        key={index}
                         className="border rounded-lg p-3 space-y-2"
                         data-testid={`tracker-${index}`}
                       >
@@ -300,37 +346,35 @@ export default function TorrentDetailsModal({
                             <span className="text-sm break-all font-mono">{tracker.url}</span>
                           </div>
                           <div className="flex items-center gap-2 flex-shrink-0">
-                            <div className={`w-2 h-2 rounded-full ${getTrackerStatusColor(tracker.status)}`} />
+                            <div
+                              className={`w-2 h-2 rounded-full ${getTrackerStatusColor(tracker.status)}`}
+                            />
                             <span className="text-sm capitalize">{tracker.status}</span>
                           </div>
                         </div>
-                        
+
                         <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
                           <span>Tier: {tracker.tier}</span>
-                          {tracker.seeders !== undefined && (
-                            <span>• Seeds: {tracker.seeders}</span>
-                          )}
+                          {tracker.seeders !== undefined && <span>• Seeds: {tracker.seeders}</span>}
                           {tracker.leechers !== undefined && (
                             <span>• Leechers: {tracker.leechers}</span>
                           )}
                         </div>
-                        
+
                         {tracker.lastAnnounce && (
                           <div className="text-xs text-muted-foreground">
                             Last announce: {formatDate(tracker.lastAnnounce)}
                           </div>
                         )}
-                        
+
                         {tracker.nextAnnounce && (
                           <div className="text-xs text-muted-foreground">
                             Next announce: {formatDate(tracker.nextAnnounce)}
                           </div>
                         )}
-                        
+
                         {tracker.error && (
-                          <div className="text-xs text-destructive">
-                            Error: {tracker.error}
-                          </div>
+                          <div className="text-xs text-destructive">Error: {tracker.error}</div>
                         )}
                       </div>
                     ))}

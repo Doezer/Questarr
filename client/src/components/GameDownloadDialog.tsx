@@ -59,11 +59,7 @@ function formatDate(dateString: string): string {
   }
 }
 
-export default function GameDownloadDialog({
-  game,
-  open,
-  onOpenChange,
-}: GameDownloadDialogProps) {
+export default function GameDownloadDialog({ game, open, onOpenChange }: GameDownloadDialogProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
@@ -147,9 +143,7 @@ export default function GameDownloadDialog({
       <DialogContent className="max-w-3xl max-h-[80vh] flex flex-col">
         <DialogHeader className="flex-shrink-0">
           <DialogTitle>Download {game.title}</DialogTitle>
-          <DialogDescription>
-            Search results for torrents matching this game
-          </DialogDescription>
+          <DialogDescription>Search results for torrents matching this game</DialogDescription>
         </DialogHeader>
 
         <ScrollArea className="flex-1 mt-4">

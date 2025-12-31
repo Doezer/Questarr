@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { Downloader } from '@shared/schema';
-import { DownloaderManager } from '../downloaders.js';
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { Downloader } from "@shared/schema";
+import { DownloaderManager } from "../downloaders.js";
 
-describe('/api/downloads endpoint', () => {
+describe("/api/downloads endpoint", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
@@ -11,34 +11,34 @@ describe('/api/downloads endpoint', () => {
     global.fetch = fetchMock;
   });
 
-  it('should return errors when a downloader fails', async () => {
+  it("should return errors when a downloader fails", async () => {
     const testDownloader1: Downloader = {
-      id: 'downloader-1',
-      name: 'Working Downloader',
-      type: 'transmission',
-      url: 'http://localhost:9091/transmission/rpc',
+      id: "downloader-1",
+      name: "Working Downloader",
+      type: "transmission",
+      url: "http://localhost:9091/transmission/rpc",
       username: null,
       password: null,
       enabled: true,
       priority: 1,
       downloadPath: null,
-      category: 'games',
+      category: "games",
       settings: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
 
     const testDownloader2: Downloader = {
-      id: 'downloader-2',
-      name: 'Failing Downloader',
-      type: 'transmission',
-      url: 'http://localhost:9092/transmission/rpc',
+      id: "downloader-2",
+      name: "Failing Downloader",
+      type: "transmission",
+      url: "http://localhost:9092/transmission/rpc",
       username: null,
       password: null,
       enabled: true,
       priority: 2,
       downloadPath: null,
-      category: 'games',
+      category: "games",
       settings: null,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -46,11 +46,11 @@ describe('/api/downloads endpoint', () => {
 
     // Mock successful response for first downloader
     const headers1 = new Headers();
-    headers1.set('X-Transmission-Session-Id', 'session-123');
+    headers1.set("X-Transmission-Session-Id", "session-123");
     const response409_1 = {
       ok: false,
       status: 409,
-      statusText: 'Conflict',
+      statusText: "Conflict",
       headers: headers1,
       json: async () => ({}),
     };
@@ -58,14 +58,14 @@ describe('/api/downloads endpoint', () => {
     const successResponse = {
       ok: true,
       status: 200,
-      statusText: 'OK',
+      statusText: "OK",
       headers: new Headers(),
       json: async () => ({
         arguments: {
           torrents: [
             {
               id: 1,
-              name: 'Test Game.torrent',
+              name: "Test Game.torrent",
               status: 4,
               percentDone: 0.5,
               rateDownload: 102400,
@@ -76,11 +76,11 @@ describe('/api/downloads endpoint', () => {
               peersSendingToUs: 10,
               peersGettingFromUs: 5,
               uploadRatio: 1.5,
-              errorString: '',
+              errorString: "",
             },
           ],
         },
-        result: 'success',
+        result: "success",
       }),
     };
 
@@ -88,15 +88,15 @@ describe('/api/downloads endpoint', () => {
     const errorResponse = {
       ok: false,
       status: 500,
-      statusText: 'Internal Server Error',
+      statusText: "Internal Server Error",
       headers: new Headers(),
-      json: async () => ({ error: 'Connection failed' }),
+      json: async () => ({ error: "Connection failed" }),
     };
 
     fetchMock
-      .mockResolvedValueOnce(response409_1)  // First downloader 409
+      .mockResolvedValueOnce(response409_1) // First downloader 409
       .mockResolvedValueOnce(successResponse) // First downloader success
-      .mockResolvedValueOnce(errorResponse);  // Second downloader fails
+      .mockResolvedValueOnce(errorResponse); // Second downloader fails
 
     // Simulate what the /api/downloads endpoint does
     const enabledDownloaders = [testDownloader1, testDownloader2];
@@ -106,14 +106,14 @@ describe('/api/downloads endpoint', () => {
     for (const downloader of enabledDownloaders) {
       try {
         const torrents = await DownloaderManager.getAllTorrents(downloader);
-        const torrentsWithDownloader = torrents.map(torrent => ({
+        const torrentsWithDownloader = torrents.map((torrent) => ({
           ...torrent,
           downloaderId: downloader.id,
           downloaderName: downloader.name,
         }));
         allTorrents.push(...torrentsWithDownloader);
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        const errorMessage = error instanceof Error ? error.message : "Unknown error";
         errors.push({
           downloaderId: downloader.id,
           downloaderName: downloader.name,
@@ -124,28 +124,28 @@ describe('/api/downloads endpoint', () => {
 
     // Verify that we have one successful torrent
     expect(allTorrents).toHaveLength(1);
-    expect(allTorrents[0].downloaderId).toBe('downloader-1');
-    expect(allTorrents[0].downloaderName).toBe('Working Downloader');
+    expect(allTorrents[0].downloaderId).toBe("downloader-1");
+    expect(allTorrents[0].downloaderName).toBe("Working Downloader");
 
     // Verify that we have one error
     expect(errors).toHaveLength(1);
-    expect(errors[0].downloaderId).toBe('downloader-2');
-    expect(errors[0].downloaderName).toBe('Failing Downloader');
-    expect(errors[0].error).toContain('HTTP 500');
+    expect(errors[0].downloaderId).toBe("downloader-2");
+    expect(errors[0].downloaderName).toBe("Failing Downloader");
+    expect(errors[0].error).toContain("HTTP 500");
   });
 
-  it('should return empty errors array when all downloaders succeed', async () => {
+  it("should return empty errors array when all downloaders succeed", async () => {
     const testDownloader: Downloader = {
-      id: 'downloader-1',
-      name: 'Working Downloader',
-      type: 'transmission',
-      url: 'http://localhost:9091/transmission/rpc',
+      id: "downloader-1",
+      name: "Working Downloader",
+      type: "transmission",
+      url: "http://localhost:9091/transmission/rpc",
       username: null,
       password: null,
       enabled: true,
       priority: 1,
       downloadPath: null,
-      category: 'games',
+      category: "games",
       settings: null,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -153,11 +153,11 @@ describe('/api/downloads endpoint', () => {
 
     // Mock successful response
     const headers = new Headers();
-    headers.set('X-Transmission-Session-Id', 'session-123');
+    headers.set("X-Transmission-Session-Id", "session-123");
     const response409 = {
       ok: false,
       status: 409,
-      statusText: 'Conflict',
+      statusText: "Conflict",
       headers,
       json: async () => ({}),
     };
@@ -165,14 +165,14 @@ describe('/api/downloads endpoint', () => {
     const successResponse = {
       ok: true,
       status: 200,
-      statusText: 'OK',
+      statusText: "OK",
       headers: new Headers(),
       json: async () => ({
         arguments: {
           torrents: [
             {
               id: 1,
-              name: 'Test Game.torrent',
+              name: "Test Game.torrent",
               status: 4,
               percentDone: 0.5,
               rateDownload: 102400,
@@ -183,17 +183,15 @@ describe('/api/downloads endpoint', () => {
               peersSendingToUs: 10,
               peersGettingFromUs: 5,
               uploadRatio: 1.5,
-              errorString: '',
+              errorString: "",
             },
           ],
         },
-        result: 'success',
+        result: "success",
       }),
     };
 
-    fetchMock
-      .mockResolvedValueOnce(response409)
-      .mockResolvedValueOnce(successResponse);
+    fetchMock.mockResolvedValueOnce(response409).mockResolvedValueOnce(successResponse);
 
     // Simulate what the /api/downloads endpoint does
     const enabledDownloaders = [testDownloader];
@@ -203,14 +201,14 @@ describe('/api/downloads endpoint', () => {
     for (const downloader of enabledDownloaders) {
       try {
         const torrents = await DownloaderManager.getAllTorrents(downloader);
-        const torrentsWithDownloader = torrents.map(torrent => ({
+        const torrentsWithDownloader = torrents.map((torrent) => ({
           ...torrent,
           downloaderId: downloader.id,
           downloaderName: downloader.name,
         }));
         allTorrents.push(...torrentsWithDownloader);
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        const errorMessage = error instanceof Error ? error.message : "Unknown error";
         errors.push({
           downloaderId: downloader.id,
           downloaderName: downloader.name,

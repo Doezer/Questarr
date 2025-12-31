@@ -49,10 +49,7 @@ export class TorznabClient {
   /**
    * Search for games using a Torznab indexer
    */
-  async searchGames(
-    indexer: Indexer,
-    params: TorznabSearchParams
-  ): Promise<TorznabResponse> {
+  async searchGames(indexer: Indexer, params: TorznabSearchParams): Promise<TorznabResponse> {
     if (!indexer.enabled) {
       throw new Error(`Indexer ${indexer.name} is disabled`);
     }
@@ -62,7 +59,7 @@ export class TorznabClient {
     try {
       const response = await fetch(searchUrl, {
         headers: {
-          'User-Agent': 'GameRadarr/1.0',
+          "User-Agent": "GameRadarr/1.0",
         },
         signal: AbortSignal.timeout(30000),
       });
@@ -75,7 +72,7 @@ export class TorznabClient {
       return this.parseResponse(xmlData);
     } catch (error) {
       torznabLogger.error({ indexerName: indexer.name, error }, `error searching indexer`);
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
       throw new Error(`Failed to search indexer ${indexer.name}: ${errorMessage}`);
     }
   }
@@ -87,8 +84,8 @@ export class TorznabClient {
     indexers: Indexer[],
     params: TorznabSearchParams
   ): Promise<{ results: TorznabResponse; errors: string[] }> {
-    const enabledIndexers = indexers.filter(indexer => indexer.enabled);
-    
+    const enabledIndexers = indexers.filter((indexer) => indexer.enabled);
+
     if (enabledIndexers.length === 0) {
       throw new Error("No enabled indexers available");
     }
@@ -98,7 +95,7 @@ export class TorznabClient {
         const result = await this.searchGames(indexer, params);
         return { indexer: indexer.name, result, error: null };
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        const errorMessage = error instanceof Error ? error.message : "Unknown error";
         return { indexer: indexer.name, result: null, error: errorMessage };
       }
     });
@@ -108,7 +105,7 @@ export class TorznabClient {
     const errors: string[] = [];
 
     results.forEach((result) => {
-      if (result.status === 'fulfilled') {
+      if (result.status === "fulfilled") {
         const { indexer, result: searchResult, error } = result.value;
         if (error) {
           errors.push(`${indexer}: ${error}`);
@@ -145,42 +142,42 @@ export class TorznabClient {
    */
   private buildSearchUrl(indexer: Indexer, params: TorznabSearchParams): string {
     const url = new URL(indexer.url);
-    
+
     // Ensure the URL ends with a slash and has the correct path
-    if (!url.pathname.endsWith('/')) {
-      url.pathname += '/';
+    if (!url.pathname.endsWith("/")) {
+      url.pathname += "/";
     }
-    if (!url.pathname.includes('/api')) {
-      url.pathname += 'api/';
+    if (!url.pathname.includes("/api")) {
+      url.pathname += "api/";
     }
 
     // Set common Torznab parameters
-    url.searchParams.set('t', 'search');
-    url.searchParams.set('apikey', indexer.apiKey);
-    
+    url.searchParams.set("t", "search");
+    url.searchParams.set("apikey", indexer.apiKey);
+
     if (params.query) {
-      url.searchParams.set('q', params.query);
+      url.searchParams.set("q", params.query);
     }
 
     if (params.category && params.category.length > 0) {
-      url.searchParams.set('cat', params.category.join(','));
+      url.searchParams.set("cat", params.category.join(","));
     } else {
       // Default to game categories if available
       // Common game category IDs: 4000 (PC Games), 4070 (Mac Games), etc.
-      const gameCategories = indexer.categories?.filter(cat => 
-        cat.startsWith('40') || cat.includes('game') || cat.includes('pc')
+      const gameCategories = indexer.categories?.filter(
+        (cat) => cat.startsWith("40") || cat.includes("game") || cat.includes("pc")
       );
       if (gameCategories && gameCategories.length > 0) {
-        url.searchParams.set('cat', gameCategories.join(','));
+        url.searchParams.set("cat", gameCategories.join(","));
       }
     }
 
     if (params.limit) {
-      url.searchParams.set('limit', params.limit.toString());
+      url.searchParams.set("limit", params.limit.toString());
     }
 
     if (params.offset) {
-      url.searchParams.set('offset', params.offset.toString());
+      url.searchParams.set("offset", params.offset.toString());
     }
 
     return url.toString();
@@ -192,13 +189,13 @@ export class TorznabClient {
   private parseResponse(xmlData: string): TorznabResponse {
     try {
       const parsed = this.parser.parse(xmlData);
-      
+
       if (!parsed.rss || !parsed.rss.channel) {
-        throw new Error('Invalid Torznab response format');
+        throw new Error("Invalid Torznab response format");
       }
 
       const channel = parsed.rss.channel;
-      const items = Array.isArray(channel.item) ? channel.item : (channel.item ? [channel.item] : []);
+      const items = Array.isArray(channel.item) ? channel.item : channel.item ? [channel.item] : [];
 
       const torznabItems: TorznabItem[] = items.map((item: any) => this.parseItem(item)); // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -209,7 +206,7 @@ export class TorznabClient {
       };
     } catch (error) {
       torznabLogger.error({ error }, "error parsing Torznab response");
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
       throw new Error(`Failed to parse response: ${errorMessage}`);
     }
   }
@@ -221,55 +218,55 @@ export class TorznabClient {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private parseItem(item: any): TorznabItem {
     const torznabItem: TorznabItem = {
-      title: item.title || 'Unknown',
-      link: item.link || item.guid || '',
+      title: item.title || "Unknown",
+      link: item.link || item.guid || "",
       pubDate: item.pubDate || new Date().toISOString(),
       description: item.description,
     };
 
     // Parse enclosure for download link and size
     if (item.enclosure) {
-      torznabItem.link = item.enclosure['@_url'] || torznabItem.link;
-      torznabItem.size = parseInt(item.enclosure['@_length']) || undefined;
+      torznabItem.link = item.enclosure["@_url"] || torznabItem.link;
+      torznabItem.size = parseInt(item.enclosure["@_length"]) || undefined;
     }
 
     // Parse Torznab attributes
-    if (item['torznab:attr']) {
-      const attributes = Array.isArray(item['torznab:attr']) 
-        ? item['torznab:attr'] 
-        : [item['torznab:attr']];
+    if (item["torznab:attr"]) {
+      const attributes = Array.isArray(item["torznab:attr"])
+        ? item["torznab:attr"]
+        : [item["torznab:attr"]];
 
       const parsedAttributes: { [key: string]: string } = {};
-      
+
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       attributes.forEach((attr: any) => {
-        const name = attr['@_name'];
-        const value = attr['@_value'];
+        const name = attr["@_name"];
+        const value = attr["@_value"];
         if (name && value) {
           parsedAttributes[name] = value;
-          
+
           // Map common attributes
           switch (name) {
-            case 'size':
+            case "size":
               torznabItem.size = parseInt(value);
               break;
-            case 'seeders':
+            case "seeders":
               torznabItem.seeders = parseInt(value);
               break;
-            case 'peers':
-            case 'leechers':
+            case "peers":
+            case "leechers":
               torznabItem.leechers = parseInt(value);
               break;
-            case 'downloadvolumefactor':
+            case "downloadvolumefactor":
               torznabItem.downloadVolumeFactor = parseFloat(value);
               break;
-            case 'uploadvolumefactor':
+            case "uploadvolumefactor":
               torznabItem.uploadVolumeFactor = parseFloat(value);
               break;
-            case 'category':
+            case "category":
               torznabItem.category = value;
               break;
-            case 'comments':
+            case "comments":
               torznabItem.comments = value;
               break;
           }
@@ -288,14 +285,14 @@ export class TorznabClient {
   async testConnection(indexer: Indexer): Promise<{ success: boolean; message: string }> {
     try {
       const testParams: TorznabSearchParams = {
-        query: 'test',
+        query: "test",
         limit: 1,
       };
 
       await this.searchGames(indexer, testParams);
       return { success: true, message: `Successfully connected to ${indexer.name}` };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
       return { success: false, message: errorMessage };
     }
   }
@@ -309,12 +306,12 @@ export class TorznabClient {
     }
 
     const url = new URL(indexer.url);
-    url.searchParams.set('t', 'caps');
-    url.searchParams.set('apikey', indexer.apiKey);
+    url.searchParams.set("t", "caps");
+    url.searchParams.set("apikey", indexer.apiKey);
 
     try {
       const response = await fetch(url.toString(), {
-        headers: { 'User-Agent': 'GameRadarr/1.0' },
+        headers: { "User-Agent": "GameRadarr/1.0" },
         signal: AbortSignal.timeout(30000),
       });
 
@@ -326,7 +323,7 @@ export class TorznabClient {
       const parsed = this.parser.parse(xmlData);
 
       const categories: { id: string; name: string }[] = [];
-      
+
       if (parsed.caps?.categories?.category) {
         const cats = Array.isArray(parsed.caps.categories.category)
           ? parsed.caps.categories.category
@@ -334,8 +331,8 @@ export class TorznabClient {
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         cats.forEach((cat: any) => {
-          const id = cat['@_id'];
-          const name = cat['@_name'] || cat['#text'] || `Category ${id}`;
+          const id = cat["@_id"];
+          const name = cat["@_name"] || cat["#text"] || `Category ${id}`;
           if (id) {
             categories.push({ id, name });
           }
@@ -345,7 +342,7 @@ export class TorznabClient {
       return categories;
     } catch (error) {
       torznabLogger.error({ indexerName: indexer.name, error }, `error getting categories`);
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
       throw new Error(`Failed to get categories: ${errorMessage}`);
     }
   }

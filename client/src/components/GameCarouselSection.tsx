@@ -41,7 +41,13 @@ const GameCarouselSection = ({
   const [canScrollNext, setCanScrollNext] = useState(false);
   const [displayedTitle, setDisplayedTitle] = useState(title);
 
-  const { data: games = [], isLoading, isFetching, isError, error: _error } = useQuery<Game[]>({
+  const {
+    data: games = [],
+    isLoading,
+    isFetching,
+    isError,
+    error: _error,
+  } = useQuery<Game[]>({
     queryKey,
     queryFn,
   });
@@ -79,7 +85,10 @@ const GameCarouselSection = ({
 
   if (isLoading) {
     return (
-      <div className="space-y-4" data-testid={`carousel-section-${title.toLowerCase().replace(/\s+/g, '-')}-loading`}>
+      <div
+        className="space-y-4"
+        data-testid={`carousel-section-${title.toLowerCase().replace(/\s+/g, "-")}-loading`}
+      >
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold">{title}</h2>
         </div>
@@ -98,7 +107,10 @@ const GameCarouselSection = ({
 
   if (isError) {
     return (
-      <div className="space-y-4" data-testid={`carousel-section-${title.toLowerCase().replace(/\s+/g, '-')}-error`}>
+      <div
+        className="space-y-4"
+        data-testid={`carousel-section-${title.toLowerCase().replace(/\s+/g, "-")}-error`}
+      >
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold">{title}</h2>
         </div>
@@ -112,7 +124,10 @@ const GameCarouselSection = ({
 
   if (games.length === 0) {
     return (
-      <div className="space-y-4" data-testid={`carousel-section-${title.toLowerCase().replace(/\s+/g, '-')}-empty`}>
+      <div
+        className="space-y-4"
+        data-testid={`carousel-section-${title.toLowerCase().replace(/\s+/g, "-")}-empty`}
+      >
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold">{displayedTitle}</h2>
         </div>
@@ -125,7 +140,10 @@ const GameCarouselSection = ({
   }
 
   return (
-    <div className="space-y-4" data-testid={`carousel-section-${title.toLowerCase().replace(/\s+/g, '-')}`}>
+    <div
+      className="space-y-4"
+      data-testid={`carousel-section-${title.toLowerCase().replace(/\s+/g, "-")}`}
+    >
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold">{displayedTitle}</h2>
         <div className="flex gap-2">
@@ -136,7 +154,7 @@ const GameCarouselSection = ({
             onClick={scrollPrev}
             disabled={!canScrollPrev}
             aria-label="Previous"
-            data-testid={`carousel-prev-${title.toLowerCase().replace(/\s+/g, '-')}`}
+            data-testid={`carousel-prev-${title.toLowerCase().replace(/\s+/g, "-")}`}
           >
             <ChevronLeft className="h-4 w-4" />
           </Button>
@@ -147,7 +165,7 @@ const GameCarouselSection = ({
             onClick={scrollNext}
             disabled={!canScrollNext}
             aria-label="Next"
-            data-testid={`carousel-next-${title.toLowerCase().replace(/\s+/g, '-')}`}
+            data-testid={`carousel-next-${title.toLowerCase().replace(/\s+/g, "-")}`}
           >
             <ChevronRight className="h-4 w-4" />
           </Button>

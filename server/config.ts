@@ -6,17 +6,22 @@ import { z } from "zod";
  */
 const envSchema = z.object({
   // Database configuration
-  DATABASE_URL: z.string().min(1, "DATABASE_URL must be set. Did you forget to provision a database?"),
+  DATABASE_URL: z
+    .string()
+    .min(1, "DATABASE_URL must be set. Did you forget to provision a database?"),
 
   // IGDB API configuration (optional, but required for game discovery features)
   IGDB_CLIENT_ID: z.string().optional(),
   IGDB_CLIENT_SECRET: z.string().optional(),
 
   // Server configuration
-  PORT: z.string().default("5000").refine(
-    (val) => !isNaN(parseInt(val, 10)) && parseInt(val, 10) > 0,
-    { message: "PORT must be a valid positive integer" }
-  ).transform((val) => parseInt(val, 10)),
+  PORT: z
+    .string()
+    .default("5000")
+    .refine((val) => !isNaN(parseInt(val, 10)) && parseInt(val, 10) > 0, {
+      message: "PORT must be a valid positive integer",
+    })
+    .transform((val) => parseInt(val, 10)),
   HOST: z.string().default("localhost"),
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
 });

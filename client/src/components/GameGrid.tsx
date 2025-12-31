@@ -11,17 +11,20 @@ interface GameGridProps {
   isLoading?: boolean;
 }
 
-export default function GameGrid({ 
-  games, 
-  onStatusChange, 
-  onViewDetails, 
-  onTrackGame, 
-  isDiscovery = false, 
-  isLoading = false 
+export default function GameGrid({
+  games,
+  onStatusChange,
+  onViewDetails,
+  onTrackGame,
+  isDiscovery = false,
+  isLoading = false,
 }: GameGridProps) {
   if (isLoading) {
     return (
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4" data-testid="grid-games-loading">
+      <div
+        className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4"
+        data-testid="grid-games-loading"
+      >
         {Array.from({ length: 12 }).map((_, index) => (
           <div key={index} className="animate-pulse">
             <div className="bg-muted rounded-md aspect-[3/4] mb-4"></div>
@@ -45,7 +48,10 @@ export default function GameGrid({
   }
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4" data-testid="grid-games">
+    <div
+      className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4"
+      data-testid="grid-games"
+    >
       {games.map((game) => (
         <GameCard
           key={game.id}

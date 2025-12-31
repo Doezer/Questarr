@@ -4,7 +4,9 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 export const users = pgTable("users", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
   username: text("username").notNull().unique(),
   password: text("password").notNull(),
 });
@@ -20,13 +22,17 @@ export const games = pgTable("games", {
   platforms: text("platforms").array(),
   genres: text("genres").array(),
   screenshots: text("screenshots").array(),
-  status: text("status", { enum: ["wanted", "owned", "completed", "downloading"] }).notNull().default("wanted"),
+  status: text("status", { enum: ["wanted", "owned", "completed", "downloading"] })
+    .notNull()
+    .default("wanted"),
   addedAt: timestamp("added_at").defaultNow(),
   completedAt: timestamp("completed_at"),
 });
 
 export const indexers = pgTable("indexers", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
   url: text("url").notNull(),
   apiKey: text("api_key").notNull(),
@@ -40,7 +46,9 @@ export const indexers = pgTable("indexers", {
 });
 
 export const downloaders = pgTable("downloaders", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
   type: text("type", { enum: ["transmission", "rtorrent", "qbittorrent"] }).notNull(),
   url: text("url").notNull(), // Host URL (without port for rTorrent/qBittorrent)
@@ -69,7 +77,11 @@ export const insertUserSchema = createInsertSchema(users).pick({
 });
 
 export const insertGameSchema = createInsertSchema(games, {
-  status: (schema) => schema.nullable().optional().transform((val) => val ?? "wanted"),
+  status: (schema) =>
+    schema
+      .nullable()
+      .optional()
+      .transform((val) => val ?? "wanted"),
 }).omit({
   id: true,
   addedAt: true,
@@ -125,14 +137,14 @@ export interface TorrentFile {
   name: string;
   size: number;
   progress: number; // 0-100
-  priority: 'off' | 'low' | 'normal' | 'high';
+  priority: "off" | "low" | "normal" | "high";
   wanted: boolean;
 }
 
 export interface TorrentTracker {
   url: string;
   tier: number;
-  status: 'working' | 'updating' | 'error' | 'inactive';
+  status: "working" | "updating" | "error" | "inactive";
   seeders?: number;
   leechers?: number;
   lastAnnounce?: string;
@@ -143,7 +155,7 @@ export interface TorrentTracker {
 export interface DownloadStatus {
   id: string;
   name: string;
-  status: 'downloading' | 'seeding' | 'completed' | 'paused' | 'error';
+  status: "downloading" | "seeding" | "completed" | "paused" | "error";
   progress: number; // 0-100
   downloadSpeed?: number; // bytes per second
   uploadSpeed?: number; // bytes per second

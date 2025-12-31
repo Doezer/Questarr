@@ -14,11 +14,11 @@ interface HeaderProps {
   notificationCount?: number;
 }
 
-export default function Header({ 
-  title = "Dashboard", 
+export default function Header({
+  title = "Dashboard",
   onToggleTheme,
   isDarkMode = true,
-  notificationCount = 0
+  notificationCount = 0,
 }: HeaderProps) {
   const [showNotifications, setShowNotifications] = useState(false);
 
@@ -31,22 +31,19 @@ export default function Header({
     <header className="flex items-center justify-between p-4 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="flex items-center gap-4">
         <SidebarTrigger data-testid="button-sidebar-toggle" />
-        <h1 className="text-xl font-semibold" data-testid="text-page-title">{title}</h1>
+        <h1 className="text-xl font-semibold" data-testid="text-page-title">
+          {title}
+        </h1>
       </div>
-      
+
       <div className="flex items-center gap-2">
         <AddGameModal>
-          <Button
-            variant="default"
-            size="sm"
-            data-testid="button-add-game"
-            className="gap-2"
-          >
+          <Button variant="default" size="sm" data-testid="button-add-game" className="gap-2">
             <Plus className="w-4 h-4" />
             Add Game
           </Button>
         </AddGameModal>
-        
+
         <Popover open={showNotifications} onOpenChange={setShowNotifications}>
           <PopoverTrigger asChild>
             <Button
@@ -57,8 +54,8 @@ export default function Header({
             >
               <Bell className="w-4 h-4" />
               {notificationCount > 0 && (
-                <Badge 
-                  variant="destructive" 
+                <Badge
+                  variant="destructive"
                   className="absolute -top-1 -right-1 w-5 h-5 text-xs p-0 flex items-center justify-center"
                   data-testid="badge-notification-count"
                 >
@@ -84,13 +81,8 @@ export default function Header({
           data-testid="button-theme-toggle"
           aria-label="Toggle theme"
         >
-          {isDarkMode ? (
-            <Sun className="w-4 h-4" />
-          ) : (
-            <Moon className="w-4 h-4" />
-          )}
+          {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
         </Button>
-
       </div>
     </header>
   );

@@ -1,11 +1,11 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
-import { 
-  formatBytes, 
-  formatSpeed, 
-  formatETA, 
-  getStatusBadgeVariant, 
+import {
+  formatBytes,
+  formatSpeed,
+  formatETA,
+  getStatusBadgeVariant,
   filterDownloadsByStatus,
   shouldShowSpeedBadge,
   shouldShowETABadge,
@@ -19,7 +19,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import TorrentDetailsModal from "@/components/TorrentDetailsModal";
@@ -58,18 +63,22 @@ export default function Downloads() {
   const [hasShownErrors, setHasShownErrors] = useState<Set<string>>(new Set());
   const [selectedTorrent, setSelectedTorrent] = useState<DownloadStatus | null>(null);
   const [detailsModalOpen, setDetailsModalOpen] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<DownloadStatusType | 'all'>('all');
+  const [statusFilter, setStatusFilter] = useState<DownloadStatusType | "all">("all");
 
-  const { data: downloadsData, isLoading, refetch } = useQuery<DownloadsResponse>({
+  const {
+    data: downloadsData,
+    isLoading,
+    refetch,
+  } = useQuery<DownloadsResponse>({
     queryKey: ["/api/downloads"],
     refetchInterval: 5000, // Refresh every 5 seconds
   });
 
   const downloads = downloadsData?.torrents || [];
-  
+
   // Memoize errors to avoid recreating array on every render
   const errors = useMemo(() => downloadsData?.errors || [], [downloadsData?.errors]);
-  
+
   // Filter downloads based on selected status using utility function
   const filteredDownloads = filterDownloadsByStatus(downloads, statusFilter);
 
@@ -80,17 +89,17 @@ export default function Downloads() {
     if (errors.length === 0) {
       setHasShownErrors(new Set());
     } else {
-      const currentErrorKeys = new Set(errors.map(e => `${e.downloaderId}-${e.error}`));
-      setHasShownErrors(prev => {
+      const currentErrorKeys = new Set(errors.map((e) => `${e.downloaderId}-${e.error}`));
+      setHasShownErrors((prev) => {
         const newSet = new Set(prev);
-        Array.from(prev).forEach(key => {
+        Array.from(prev).forEach((key) => {
           if (!currentErrorKeys.has(key)) {
             newSet.delete(key);
           }
         });
         return newSet;
       });
-      
+
       // Show new errors
       errors.forEach((error) => {
         const errorKey = `${error.downloaderId}-${error.error}`;
@@ -100,7 +109,7 @@ export default function Downloads() {
             description: error.error,
             variant: "destructive",
           });
-          setHasShownErrors(prev => {
+          setHasShownErrors((prev) => {
             const newSet = new Set(prev);
             newSet.add(errorKey);
             return newSet;
@@ -116,7 +125,13 @@ export default function Downloads() {
   };
 
   const pauseMutation = useMutation({
-    mutationFn: async ({ downloaderId, torrentId }: { downloaderId: string; torrentId: string }) => {
+    mutationFn: async ({
+      downloaderId,
+      torrentId,
+    }: {
+      downloaderId: string;
+      torrentId: string;
+    }) => {
       const response = await fetch(`/api/downloaders/${downloaderId}/torrents/${torrentId}/pause`, {
         method: "POST",
       });
@@ -137,10 +152,19 @@ export default function Downloads() {
   });
 
   const resumeMutation = useMutation({
-    mutationFn: async ({ downloaderId, torrentId }: { downloaderId: string; torrentId: string }) => {
-      const response = await fetch(`/api/downloaders/${downloaderId}/torrents/${torrentId}/resume`, {
-        method: "POST",
-      });
+    mutationFn: async ({
+      downloaderId,
+      torrentId,
+    }: {
+      downloaderId: string;
+      torrentId: string;
+    }) => {
+      const response = await fetch(
+        `/api/downloaders/${downloaderId}/torrents/${torrentId}/resume`,
+        {
+          method: "POST",
+        }
+      );
       if (!response.ok) throw new Error("Failed to resume torrent");
       return response.json();
     },
@@ -158,10 +182,21 @@ export default function Downloads() {
   });
 
   const removeMutation = useMutation({
-    mutationFn: async ({ downloaderId, torrentId, deleteFiles }: { downloaderId: string; torrentId: string; deleteFiles: boolean }) => {
-      const response = await fetch(`/api/downloaders/${downloaderId}/torrents/${torrentId}?deleteFiles=${deleteFiles}`, {
-        method: "DELETE",
-      });
+    mutationFn: async ({
+      downloaderId,
+      torrentId,
+      deleteFiles,
+    }: {
+      downloaderId: string;
+      torrentId: string;
+      deleteFiles: boolean;
+    }) => {
+      const response = await fetch(
+        `/api/downloaders/${downloaderId}/torrents/${torrentId}?deleteFiles=${deleteFiles}`,
+        {
+          method: "DELETE",
+        }
+      );
       if (!response.ok) throw new Error("Failed to remove torrent");
       return response.json();
     },
@@ -227,71 +262,120 @@ export default function Downloads() {
       {/* Status filter tabs */}
       <Tabs
         value={statusFilter}
-        onValueChange={(value) => setStatusFilter(value as DownloadStatusType | 'all')}
+        onValueChange={(value) => setStatusFilter(value as DownloadStatusType | "all")}
         className="mb-6"
         aria-label="Filter downloads by status"
       >
         <TabsList data-testid="filter-tabs">
-          <TabsTrigger value="all" data-testid="filter-all">All</TabsTrigger>
-          <TabsTrigger value="downloading" data-testid="filter-downloading">Downloading</TabsTrigger>
-          <TabsTrigger value="seeding" data-testid="filter-seeding">Seeding</TabsTrigger>
-          <TabsTrigger value="completed" data-testid="filter-completed">Completed</TabsTrigger>
-          <TabsTrigger value="paused" data-testid="filter-paused">Paused</TabsTrigger>
-          <TabsTrigger value="error" data-testid="filter-error">Error</TabsTrigger>
+          <TabsTrigger value="all" data-testid="filter-all">
+            All
+          </TabsTrigger>
+          <TabsTrigger value="downloading" data-testid="filter-downloading">
+            Downloading
+          </TabsTrigger>
+          <TabsTrigger value="seeding" data-testid="filter-seeding">
+            Seeding
+          </TabsTrigger>
+          <TabsTrigger value="completed" data-testid="filter-completed">
+            Completed
+          </TabsTrigger>
+          <TabsTrigger value="paused" data-testid="filter-paused">
+            Paused
+          </TabsTrigger>
+          <TabsTrigger value="error" data-testid="filter-error">
+            Error
+          </TabsTrigger>
         </TabsList>
       </Tabs>
 
       <div className="grid gap-4">
         {filteredDownloads.length > 0 ? (
           filteredDownloads.map((download) => (
-            <Card key={`${download.downloaderId}-${download.id}`} data-testid={`card-download-${download.id}`}>
+            <Card
+              key={`${download.downloaderId}-${download.id}`}
+              data-testid={`card-download-${download.id}`}
+            >
               <CardHeader>
                 <div className="flex justify-between items-start">
                   <div className="flex-1">
                     <CardTitle className="text-lg leading-tight">{download.name}</CardTitle>
                     <CardDescription className="mt-2">
                       <div className="flex flex-wrap gap-2 items-center">
-                        <Badge variant={getStatusBadgeVariant(download.status)} className="capitalize" data-testid={`badge-status-${download.id}`} aria-label={`Status: ${download.status}`}>
+                        <Badge
+                          variant={getStatusBadgeVariant(download.status)}
+                          className="capitalize"
+                          data-testid={`badge-status-${download.id}`}
+                          aria-label={`Status: ${download.status}`}
+                        >
                           {download.status}
                         </Badge>
-                        <Badge variant="outline" className="capitalize" data-testid={`badge-downloader-${download.id}`} aria-label={`Downloader: ${download.downloaderName}`}>
+                        <Badge
+                          variant="outline"
+                          className="capitalize"
+                          data-testid={`badge-downloader-${download.id}`}
+                          aria-label={`Downloader: ${download.downloaderName}`}
+                        >
                           {download.downloaderName}
                         </Badge>
                         {shouldShowSizeBadge(download.size) && (
-                          <Badge variant="outline" data-testid={`badge-size-${download.id}`} aria-label={`Downloaded ${formatBytes(download.downloaded || 0)} of ${formatBytes(download.size!)}`}>
+                          <Badge
+                            variant="outline"
+                            data-testid={`badge-size-${download.id}`}
+                            aria-label={`Downloaded ${formatBytes(download.downloaded || 0)} of ${formatBytes(download.size!)}`}
+                          >
                             {formatBytes(download.downloaded || 0)} / {formatBytes(download.size!)}
                           </Badge>
                         )}
                         {shouldShowSpeedBadge(download.downloadSpeed) && (
-                          <Badge variant="outline" data-testid={`badge-download-speed-${download.id}`} aria-label={`Download speed: ${formatSpeed(download.downloadSpeed!)}`}>
+                          <Badge
+                            variant="outline"
+                            data-testid={`badge-download-speed-${download.id}`}
+                            aria-label={`Download speed: ${formatSpeed(download.downloadSpeed!)}`}
+                          >
                             ↓ {formatSpeed(download.downloadSpeed!)}
                           </Badge>
                         )}
                         {shouldShowSpeedBadge(download.uploadSpeed) && (
-                          <Badge variant="outline" data-testid={`badge-upload-speed-${download.id}`} aria-label={`Upload speed: ${formatSpeed(download.uploadSpeed!)}`}>
+                          <Badge
+                            variant="outline"
+                            data-testid={`badge-upload-speed-${download.id}`}
+                            aria-label={`Upload speed: ${formatSpeed(download.uploadSpeed!)}`}
+                          >
                             ↑ {formatSpeed(download.uploadSpeed!)}
                           </Badge>
                         )}
                         {shouldShowETABadge(download.eta) && (
-                          <Badge variant="outline" data-testid={`badge-eta-${download.id}`} aria-label={`Estimated time remaining: ${formatETA(download.eta!)}`}>
+                          <Badge
+                            variant="outline"
+                            data-testid={`badge-eta-${download.id}`}
+                            aria-label={`Estimated time remaining: ${formatETA(download.eta!)}`}
+                          >
                             ETA: {formatETA(download.eta!)}
                           </Badge>
                         )}
                         {shouldShowPeersBadge(download.seeders) && (
-                          <Badge variant="outline" data-testid={`badge-peers-${download.id}`} aria-label={`${download.seeders} seeders, ${download.leechers || 0} leechers`}>
+                          <Badge
+                            variant="outline"
+                            data-testid={`badge-peers-${download.id}`}
+                            aria-label={`${download.seeders} seeders, ${download.leechers || 0} leechers`}
+                          >
                             {download.seeders}↑ / {download.leechers || 0}↓
                           </Badge>
                         )}
                         {shouldShowRatioBadge(download.ratio) && (
-                          <Badge variant="outline" data-testid={`badge-ratio-${download.id}`} aria-label={`Share ratio: ${download.ratio?.toFixed(2) ?? '0.00'}`}>
-                            Ratio: {download.ratio?.toFixed(2) ?? '0.00'}
+                          <Badge
+                            variant="outline"
+                            data-testid={`badge-ratio-${download.id}`}
+                            aria-label={`Share ratio: ${download.ratio?.toFixed(2) ?? "0.00"}`}
+                          >
+                            Ratio: {download.ratio?.toFixed(2) ?? "0.00"}
                           </Badge>
                         )}
                       </div>
                     </CardDescription>
                   </div>
                   <div className="flex items-center space-x-2 ml-4">
-                    {download.status === 'paused' ? (
+                    {download.status === "paused" ? (
                       <Button
                         variant="outline"
                         size="icon"
@@ -314,7 +398,11 @@ export default function Downloads() {
                     )}
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="outline" size="icon" data-testid={`button-menu-${download.id}`}>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          data-testid={`button-menu-${download.id}`}
+                        >
                           <MoreHorizontal className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
@@ -350,11 +438,20 @@ export default function Downloads() {
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
                     <span data-testid={`text-progress-label-${download.id}`}>Progress</span>
-                    <span data-testid={`text-progress-value-${download.id}`}>{download.progress.toFixed(1)}%</span>
+                    <span data-testid={`text-progress-value-${download.id}`}>
+                      {download.progress.toFixed(1)}%
+                    </span>
                   </div>
-                  <Progress value={download.progress} className="h-2" data-testid={`progress-bar-${download.id}`} />
+                  <Progress
+                    value={download.progress}
+                    className="h-2"
+                    data-testid={`progress-bar-${download.id}`}
+                  />
                   {download.error && (
-                    <div className="text-sm text-destructive mt-2" data-testid={`text-error-${download.id}`}>
+                    <div
+                      className="text-sm text-destructive mt-2"
+                      data-testid={`text-error-${download.id}`}
+                    >
                       Error: {download.error}
                     </div>
                   )}
@@ -368,13 +465,14 @@ export default function Downloads() {
               <CardTitle data-testid="text-no-downloads-title">
                 {downloads.length === 0
                   ? "No Active Downloads"
-                  : `No ${statusFilter === 'all'
-                      ? 'Active'
-                      : statusFilter.charAt(0).toUpperCase() + statusFilter.slice(1)
+                  : `No ${
+                      statusFilter === "all"
+                        ? "Active"
+                        : statusFilter.charAt(0).toUpperCase() + statusFilter.slice(1)
                     } Downloads`}
               </CardTitle>
               <CardDescription data-testid="text-no-downloads-description">
-                {downloads.length === 0 
+                {downloads.length === 0
                   ? "Use the Search page to find and download games from your configured indexers."
                   : `No downloads match the "${statusFilter}" filter. Try selecting a different filter.`}
               </CardDescription>

@@ -28,13 +28,16 @@ app.use((req, res, next) => {
   res.on("finish", () => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
-      expressLogger.info({
-        method: req.method,
-        path,
-        statusCode: res.statusCode,
-        duration,
-        response: capturedJsonResponse,
-      }, `${req.method} ${path} ${res.statusCode} in ${duration}ms`);
+      expressLogger.info(
+        {
+          method: req.method,
+          path,
+          statusCode: res.statusCode,
+          duration,
+          response: capturedJsonResponse,
+        },
+        `${req.method} ${path} ${res.statusCode} in ${duration}ms`
+      );
     }
   });
 
@@ -49,7 +52,7 @@ app.use((req, res, next) => {
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const error = err.message || "Internal Server Error";
-    
+
     // Include details if available (e.g., validation errors)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const response: { error: string; details?: any } = { error };

@@ -15,13 +15,9 @@ const statusConfig = {
 
 export default function StatusBadge({ status }: StatusBadgeProps) {
   const config = statusConfig[status];
-  
+
   return (
-    <Badge 
-      variant={config.variant}
-      data-testid={`badge-status-${status}`}
-      className="text-xs"
-    >
+    <Badge variant={config.variant} data-testid={`badge-status-${status}`} className="text-xs">
       {config.label}
     </Badge>
   );

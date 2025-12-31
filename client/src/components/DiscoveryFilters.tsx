@@ -1,6 +1,12 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Filter, X } from "lucide-react";
@@ -52,7 +58,7 @@ export default function DiscoveryFilters({ onFiltersChange }: DiscoveryFiltersPr
           <Filter className="w-4 h-4" />
           Filters {hasActiveFilters && `(${(releaseStatus !== "all" ? 1 : 0) + (minYear ? 1 : 0)})`}
         </Button>
-        
+
         {hasActiveFilters && (
           <Button
             variant="ghost"
@@ -72,8 +78,8 @@ export default function DiscoveryFilters({ onFiltersChange }: DiscoveryFiltersPr
           <CardContent className="p-4 space-y-4">
             <div className="space-y-2">
               <Label>Release Status</Label>
-              <Select 
-                value={releaseStatus} 
+              <Select
+                value={releaseStatus}
                 onValueChange={handleReleaseStatusChange}
                 data-testid="select-release-status"
               >
@@ -90,8 +96,8 @@ export default function DiscoveryFilters({ onFiltersChange }: DiscoveryFiltersPr
 
             <div className="space-y-2">
               <Label>Minimum Release Year</Label>
-              <Select 
-                value={minYear?.toString() || "any"} 
+              <Select
+                value={minYear?.toString() || "any"}
                 onValueChange={handleMinYearChange}
                 data-testid="select-min-year"
               >
@@ -100,7 +106,7 @@ export default function DiscoveryFilters({ onFiltersChange }: DiscoveryFiltersPr
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="any">Any Year</SelectItem>
-                  {years.map(year => (
+                  {years.map((year) => (
                     <SelectItem key={year} value={year.toString()}>
                       {year}
                     </SelectItem>

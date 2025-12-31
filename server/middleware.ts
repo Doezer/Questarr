@@ -44,9 +44,9 @@ export const generalApiLimiter = rateLimit({
 export const validateRequest = (req: Request, res: Response, next: NextFunction) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(400).json({ 
-      error: "Validation failed", 
-      details: errors.array() 
+    return res.status(400).json({
+      error: "Validation failed",
+      details: errors.array(),
     });
   }
   next();
@@ -80,11 +80,7 @@ export const sanitizeGameId = [
 
 // Sanitization rules for IGDB ID parameters
 export const sanitizeIgdbId = [
-  param("id")
-    .trim()
-    .isInt({ min: 1 })
-    .withMessage("Invalid IGDB ID")
-    .toInt(),
+  param("id").trim().isInt({ min: 1 }).withMessage("Invalid IGDB ID").toInt(),
 ];
 
 // Sanitization rules for game status updates
@@ -101,21 +97,13 @@ export const sanitizeGameData = [
     .trim()
     .isLength({ min: 1, max: 500 })
     .withMessage("Title must be between 1 and 500 characters"),
-  body("igdbId")
-    .optional()
-    .isInt({ min: 1 })
-    .withMessage("Invalid IGDB ID")
-    .toInt(),
+  body("igdbId").optional().isInt({ min: 1 }).withMessage("Invalid IGDB ID").toInt(),
   body("summary")
     .optional()
     .trim()
     .isLength({ max: 5000 })
     .withMessage("Summary must be at most 5000 characters"),
-  body("coverUrl")
-    .optional()
-    .trim()
-    .isURL()
-    .withMessage("Invalid cover URL"),
+  body("coverUrl").optional().trim().isURL().withMessage("Invalid cover URL"),
   body("releaseDate")
     .optional()
     .trim()
@@ -126,19 +114,13 @@ export const sanitizeGameData = [
     .isFloat({ min: 0, max: 10 })
     .withMessage("Rating must be between 0 and 10")
     .toFloat(),
-  body("platforms")
-    .optional()
-    .isArray()
-    .withMessage("Platforms must be an array"),
+  body("platforms").optional().isArray().withMessage("Platforms must be an array"),
   body("platforms.*")
     .optional()
     .trim()
     .isLength({ max: 100 })
     .withMessage("Platform name must be at most 100 characters"),
-  body("genres")
-    .optional()
-    .isArray()
-    .withMessage("Genres must be an array"),
+  body("genres").optional().isArray().withMessage("Genres must be an array"),
   body("genres.*")
     .optional()
     .trim()
@@ -152,20 +134,13 @@ export const sanitizeIndexerData = [
     .trim()
     .isLength({ min: 1, max: 200 })
     .withMessage("Name must be between 1 and 200 characters"),
-  body("url")
-    .trim()
-    .isURL()
-    .withMessage("Invalid URL"),
+  body("url").trim().isURL().withMessage("Invalid URL"),
   body("apiKey")
     .optional()
     .trim()
     .isLength({ max: 500 })
     .withMessage("API key must be at most 500 characters"),
-  body("enabled")
-    .optional()
-    .isBoolean()
-    .withMessage("Enabled must be a boolean")
-    .toBoolean(),
+  body("enabled").optional().isBoolean().withMessage("Enabled must be a boolean").toBoolean(),
 ];
 
 // Sanitization rules for partial indexer updates (PATCH)
@@ -175,30 +150,19 @@ export const sanitizeIndexerUpdateData = [
     .trim()
     .isLength({ min: 1, max: 200 })
     .withMessage("Name must be between 1 and 200 characters"),
-  body("url")
-    .optional()
-    .trim()
-    .isURL()
-    .withMessage("Invalid URL"),
+  body("url").optional().trim().isURL().withMessage("Invalid URL"),
   body("apiKey")
     .optional()
     .trim()
     .isLength({ max: 500 })
     .withMessage("API key must be at most 500 characters"),
-  body("enabled")
-    .optional()
-    .isBoolean()
-    .withMessage("Enabled must be a boolean")
-    .toBoolean(),
+  body("enabled").optional().isBoolean().withMessage("Enabled must be a boolean").toBoolean(),
   body("priority")
     .optional()
     .isInt({ min: 1 })
     .withMessage("Priority must be a positive integer")
     .toInt(),
-  body("categories")
-    .optional()
-    .isArray()
-    .withMessage("Categories must be an array"),
+  body("categories").optional().isArray().withMessage("Categories must be an array"),
   body("rssEnabled")
     .optional()
     .isBoolean()
@@ -221,10 +185,7 @@ export const sanitizeDownloaderData = [
     .trim()
     .isIn(["qbittorrent", "transmission", "rtorrent", "deluge"])
     .withMessage("Invalid downloader type"),
-  body("url")
-    .trim()
-    .isURL()
-    .withMessage("Invalid URL"),
+  body("url").trim().isURL().withMessage("Invalid URL"),
   body("username")
     .optional()
     .trim()
@@ -235,11 +196,7 @@ export const sanitizeDownloaderData = [
     .trim()
     .isLength({ max: 200 })
     .withMessage("Password must be at most 200 characters"),
-  body("enabled")
-    .optional()
-    .isBoolean()
-    .withMessage("Enabled must be a boolean")
-    .toBoolean(),
+  body("enabled").optional().isBoolean().withMessage("Enabled must be a boolean").toBoolean(),
   body("label")
     .optional()
     .trim()
@@ -259,11 +216,7 @@ export const sanitizeDownloaderUpdateData = [
     .trim()
     .isIn(["qbittorrent", "transmission", "deluge", "rtorrent", "utorrent", "vuze"])
     .withMessage("Invalid downloader type"),
-  body("url")
-    .optional()
-    .trim()
-    .isURL()
-    .withMessage("Invalid URL"),
+  body("url").optional().trim().isURL().withMessage("Invalid URL"),
   body("username")
     .optional()
     .trim()
@@ -274,11 +227,7 @@ export const sanitizeDownloaderUpdateData = [
     .trim()
     .isLength({ max: 200 })
     .withMessage("Password must be at most 200 characters"),
-  body("enabled")
-    .optional()
-    .isBoolean()
-    .withMessage("Enabled must be a boolean")
-    .toBoolean(),
+  body("enabled").optional().isBoolean().withMessage("Enabled must be a boolean").toBoolean(),
   body("priority")
     .optional()
     .isInt({ min: 1 })
@@ -291,7 +240,7 @@ export const sanitizeDownloaderUpdateData = [
     .withMessage("Download path must be at most 500 characters")
     // 🛡️ Sentinel: Add path traversal validation.
     // Disallow '..' in download paths to prevent writing files outside the intended directory.
-    .custom((value) => !value.includes('..'))
+    .custom((value) => !value.includes(".."))
     .withMessage("Download path cannot contain '..'"),
   body("category")
     .optional()
@@ -307,10 +256,7 @@ export const sanitizeDownloaderUpdateData = [
 
 // Sanitization rules for torrent add requests
 export const sanitizeTorrentData = [
-  body("url")
-    .trim()
-    .isURL()
-    .withMessage("Invalid torrent URL"),
+  body("url").trim().isURL().withMessage("Invalid torrent URL"),
   body("title")
     .trim()
     .isLength({ min: 1, max: 500 })
@@ -327,7 +273,7 @@ export const sanitizeTorrentData = [
     .withMessage("Download path must be at most 500 characters")
     // 🛡️ Sentinel: Add path traversal validation.
     // Disallow '..' in download paths to prevent writing files outside the intended directory.
-    .custom((value) => !value.includes('..'))
+    .custom((value) => !value.includes(".."))
     .withMessage("Download path cannot contain '..'"),
   body("priority")
     .optional()

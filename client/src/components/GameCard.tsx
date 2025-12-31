@@ -1,11 +1,7 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Download, Info, Star, Calendar } from "lucide-react";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import StatusBadge, { type GameStatus } from "./StatusBadge";
 import { type Game } from "@shared/schema";
 import { useState, memo } from "react";
@@ -23,14 +19,20 @@ interface GameCardProps {
 // ⚡ Bolt: Using React.memo to prevent unnecessary re-renders of the GameCard
 // when parent components update but this card's props remain unchanged.
 // This is particularly effective in grids or lists where many cards are rendered.
-const GameCard = ({ game, onStatusChange, onViewDetails, onTrackGame, isDiscovery = false }: GameCardProps) => {
+const GameCard = ({
+  game,
+  onStatusChange,
+  onViewDetails,
+  onTrackGame,
+  isDiscovery = false,
+}: GameCardProps) => {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [downloadOpen, setDownloadOpen] = useState(false);
 
   const handleStatusClick = () => {
     console.warn(`Status change triggered for game: ${game.title}`);
-    const nextStatus: GameStatus = game.status === "wanted" ? "owned" : 
-                                   game.status === "owned" ? "completed" : "wanted";
+    const nextStatus: GameStatus =
+      game.status === "wanted" ? "owned" : game.status === "owned" ? "completed" : "wanted";
     onStatusChange?.(game.id, nextStatus);
   };
 
@@ -46,12 +48,15 @@ const GameCard = ({ game, onStatusChange, onViewDetails, onTrackGame, isDiscover
   };
 
   return (
-    <Card className="group hover-elevate transition-all duration-200" data-testid={`card-game-${game.id}`}>
+    <Card
+      className="group hover-elevate transition-all duration-200"
+      data-testid={`card-game-${game.id}`}
+    >
       <div className="relative">
         {/* ⚡ Bolt: Lazy loading images prevents fetching all game covers upfront,
             improving initial page load speed, especially on pages with many carousels. */}
-        <img 
-          src={game.coverUrl || "/placeholder-game-cover.jpg"} 
+        <img
+          src={game.coverUrl || "/placeholder-game-cover.jpg"}
           alt={`${game.title} cover`}
           className="w-full aspect-[3/4] object-cover rounded-t-md"
           loading="lazy"
@@ -71,8 +76,8 @@ const GameCard = ({ game, onStatusChange, onViewDetails, onTrackGame, isDiscover
         )}
         <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-t-md flex items-center justify-center gap-2">
           {isDiscovery && (
-            <Button 
-              size="icon" 
+            <Button
+              size="icon"
               variant="default"
               onClick={handleDownloadClick}
               aria-label="Download game"
@@ -81,8 +86,8 @@ const GameCard = ({ game, onStatusChange, onViewDetails, onTrackGame, isDiscover
               <Download className="w-4 h-4" />
             </Button>
           )}
-          <Button 
-            size="icon" 
+          <Button
+            size="icon"
             variant="secondary"
             onClick={handleDetailsClick}
             aria-label="View details"
@@ -93,7 +98,10 @@ const GameCard = ({ game, onStatusChange, onViewDetails, onTrackGame, isDiscover
         </div>
       </div>
       <CardContent className="p-4">
-        <h3 className="font-semibold text-sm mb-2 line-clamp-2" data-testid={`text-title-${game.id}`}>
+        <h3
+          className="font-semibold text-sm mb-2 line-clamp-2"
+          data-testid={`text-title-${game.id}`}
+        >
           {game.title}
         </h3>
         <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
@@ -101,7 +109,9 @@ const GameCard = ({ game, onStatusChange, onViewDetails, onTrackGame, isDiscover
             <TooltipTrigger asChild>
               <div className="flex items-center gap-1" tabIndex={0}>
                 <Star className="w-3 h-3 text-accent" aria-hidden="true" />
-                <span data-testid={`text-rating-${game.id}`}>{game.rating ? `${game.rating}/10` : "N/A"}</span>
+                <span data-testid={`text-rating-${game.id}`}>
+                  {game.rating ? `${game.rating}/10` : "N/A"}
+                </span>
               </div>
             </TooltipTrigger>
             <TooltipContent>
@@ -122,8 +132,8 @@ const GameCard = ({ game, onStatusChange, onViewDetails, onTrackGame, isDiscover
         </div>
         <div className="flex flex-wrap gap-1 mb-3">
           {game.genres?.slice(0, 2).map((genre) => (
-            <span 
-              key={genre} 
+            <span
+              key={genre}
               className="text-xs bg-muted px-2 py-1 rounded-sm"
               data-testid={`tag-genre-${genre.toLowerCase()}`}
             >
@@ -132,28 +142,29 @@ const GameCard = ({ game, onStatusChange, onViewDetails, onTrackGame, isDiscover
           )) || <span className="text-xs text-muted-foreground">No genres</span>}
         </div>
         {isDiscovery ? (
-          <Button 
-            variant="default" 
-            size="sm" 
-            className="w-full" 
+          <Button
+            variant="default"
+            size="sm"
+            className="w-full"
             onClick={() => onTrackGame?.(game)}
             data-testid={`button-track-${game.id}`}
           >
             Track Game
           </Button>
         ) : (
-          <Button 
-            variant="outline" 
-            size="sm" 
-            className="w-full" 
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full"
             onClick={handleStatusClick}
             data-testid={`button-status-${game.id}`}
           >
-            Mark as {game.status === "wanted" ? "Owned" : game.status === "owned" ? "Completed" : "Wanted"}
+            Mark as{" "}
+            {game.status === "wanted" ? "Owned" : game.status === "owned" ? "Completed" : "Wanted"}
           </Button>
         )}
       </CardContent>
-      
+
       {/* ⚡ Bolt: Conditionally render modals only when they are active.
           This prevents rendering hundreds of hidden, complex components on pages
           with many game cards, significantly improving initial render performance
@@ -168,11 +179,7 @@ const GameCard = ({ game, onStatusChange, onViewDetails, onTrackGame, isDiscover
       )}
 
       {downloadOpen && (
-        <GameDownloadDialog
-          game={game}
-          open={downloadOpen}
-          onOpenChange={setDownloadOpen}
-        />
+        <GameDownloadDialog game={game} open={downloadOpen} onOpenChange={setDownloadOpen} />
       )}
     </Card>
   );

@@ -5,7 +5,7 @@ import { toast } from "@/hooks/use-toast";
 interface DownloadStatus {
   id: string;
   name: string;
-  status: 'downloading' | 'seeding' | 'completed' | 'paused' | 'error';
+  status: "downloading" | "seeding" | "completed" | "paused" | "error";
   progress: number;
   error?: string;
   downloaderId: string;
@@ -53,7 +53,7 @@ export function useBackgroundNotifications() {
       }
 
       // Check for completion (status changed to completed)
-      if (previous.status !== 'completed' && download.status === 'completed') {
+      if (previous.status !== "completed" && download.status === "completed") {
         toast({
           title: "Download completed",
           description: download.name,
@@ -61,7 +61,7 @@ export function useBackgroundNotifications() {
       }
 
       // Check for errors
-      if (previous.status !== 'error' && download.status === 'error') {
+      if (previous.status !== "error" && download.status === "error") {
         toast({
           title: "Download error",
           description: download.error || download.name,
@@ -74,7 +74,7 @@ export function useBackgroundNotifications() {
     });
 
     // Remove downloads that no longer exist
-    const currentIds = new Set(downloads.map(d => d.id));
+    const currentIds = new Set(downloads.map((d) => d.id));
     Array.from(previousDownloads.keys()).forEach((id) => {
       if (!currentIds.has(id)) {
         previousDownloadsRef.current.delete(id);

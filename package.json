@@ -84,7 +84,7 @@
     "tailwindcss-animate": "^1.0.7",
     "tw-animate-css": "^1.2.5",
     "vaul": "^1.1.2",
-    "wouter": "^3.7.1",
+    "wouter": "^3.9.0",
     "zod": "^3.25.0",
     "zod-validation-error": "^3.5.4"
   },

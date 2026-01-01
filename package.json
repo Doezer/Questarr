@@ -2,7 +2,7 @@
   "name": "questarr",
   "version": "1.0.0",
   "type": "module",
-  "license": "MIT",
+  "license": "GPL-3.0-only",
   "scripts": {
     "dev": "cross-env NODE_ENV=development tsx server/index.ts",
     "build": "vite build && tsc -p tsconfig.build.json",

@@ -53,8 +53,6 @@ const DEFAULT_PLATFORMS: Platform[] = [
 const STATIC_DATA_STALE_TIME = 1000 * 60 * 60;
 
 // 🎨 Palette: Custom SelectTrigger that shows a loading spinner.
-// This gives users immediate feedback that the dropdown content is loading,
-// preventing confusion when the initial default list is shown.
 const SelectTriggerWithSpinner = ({
   loading,
   children,
@@ -69,10 +67,9 @@ const SelectTriggerWithSpinner = ({
 };
 
 export default function DiscoverPage() {
-  const [selectedGenre, setSelectedGenre] = useState<string>("Action");
+  const [selectedGenre, setSelectedGenre] = useState<string>("Adventure");
   const [selectedPlatform, setSelectedPlatform] = useState<string>("PC");
-  // ⚡ Bolt: Using the useDebounce hook centralizes and reuses debounce logic,
-  // making the component cleaner and preventing duplicate timers.
+  // ⚡ Bolt: Using the useDebounce hook to limit the frequency of API calls
   const debouncedGenre = useDebounce(selectedGenre, 300);
   const debouncedPlatform = useDebounce(selectedPlatform, 300);
   const { toast } = useToast();
@@ -272,13 +269,14 @@ export default function DiscoverPage() {
   const displayPlatforms = platforms.length > 0 ? platforms : DEFAULT_PLATFORMS;
 
   return (
-    <div className="h-full overflow-auto p-6 space-y-8" data-testid="discover-page">
-      <div>
-        <h1 className="text-2xl font-bold mb-2">Discover Games</h1>
-        <p className="text-muted-foreground">
-          Explore popular games, new releases, and find your next adventure
-        </p>
-      </div>
+    <div className="h-full w-full overflow-x-hidden overflow-y-auto" data-testid="discover-page">
+      <div className="p-6 space-y-8">
+        <div>
+          <h1 className="text-2xl font-bold mb-2">Discover Games</h1>
+          <p className="text-muted-foreground">
+            Explore popular games, new releases, and find your next adventure
+          </p>
+        </div>
 
       {/* Popular Games Section */}
       <GameCarouselSection
@@ -370,6 +368,7 @@ export default function DiscoverPage() {
           onTrackGame={handleTrackGame}
           isDiscovery={true}
         />
+      </div>
       </div>
     </div>
   );

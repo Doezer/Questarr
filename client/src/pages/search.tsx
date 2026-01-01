@@ -352,20 +352,26 @@ export default function SearchPage() {
                   <div className="w-[40px] text-right flex-shrink-0">
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleDownload(torrent)}
-                          disabled={downloaders.length === 0}
-                          className="h-8 w-8"
-                          data-testid={`button-download-${index}`}
-                          aria-label="Start download"
-                        >
-                          <Download className="h-4 w-4" />
-                        </Button>
+                        <div className="inline-block" tabIndex={downloaders.length === 0 ? 0 : -1}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDownload(torrent)}
+                            disabled={downloaders.length === 0}
+                            className="h-8 w-8"
+                            data-testid={`button-download-${index}`}
+                            aria-label="Start download"
+                          >
+                            <Download className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </TooltipTrigger>
                       <TooltipContent>
-                        <p>Start download</p>
+                        <p>
+                          {downloaders.length === 0
+                            ? "Configure a downloader first"
+                            : "Start download"}
+                        </p>
                       </TooltipContent>
                     </Tooltip>
                   </div>

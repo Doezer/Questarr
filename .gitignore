@@ -6,7 +6,5 @@ vite.config.ts.*
 *.tar.gz
 .env
 *.log
-package-lock.json
-
 .gemini/
 gha-creds-*.json

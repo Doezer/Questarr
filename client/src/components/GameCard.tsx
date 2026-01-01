@@ -1,3 +1,4 @@
+import React from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Download, Info, Star, Calendar } from "lucide-react";
@@ -76,25 +77,39 @@ const GameCard = ({
         )}
         <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-t-md flex items-center justify-center gap-2">
           {isDiscovery && (
-            <Button
-              size="icon"
-              variant="default"
-              onClick={handleDownloadClick}
-              aria-label="Download game"
-              data-testid={`button-download-${game.id}`}
-            >
-              <Download className="w-4 h-4" />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="icon"
+                  variant="default"
+                  onClick={handleDownloadClick}
+                  aria-label="Download game"
+                  data-testid={`button-download-${game.id}`}
+                >
+                  <Download className="w-4 h-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Download</p>
+              </TooltipContent>
+            </Tooltip>
           )}
-          <Button
-            size="icon"
-            variant="secondary"
-            onClick={handleDetailsClick}
-            aria-label="View details"
-            data-testid={`button-details-${game.id}`}
-          >
-            <Info className="w-4 h-4" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="icon"
+                variant="secondary"
+                onClick={handleDetailsClick}
+                aria-label="View details"
+                data-testid={`button-details-${game.id}`}
+              >
+                <Info className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>View Details</p>
+            </TooltipContent>
+          </Tooltip>
         </div>
       </div>
       <CardContent className="p-3">

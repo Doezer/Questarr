@@ -6,6 +6,31 @@ import type {
   TorrentDetails,
 } from "../shared/schema.js";
 import { downloadersLogger } from "./logger.js";
+import path from "node:path";
+
+// 🛡️ Sentinel: Add path validation to prevent path traversal vulnerabilities.
+/**
+ * Validates that a user-provided path is not absolute and does not contain
+ * directory traversal sequences ('..'). This is a security measure to prevent
+ * writing files outside of the intended directory.
+ *
+ * @param userPath - The path provided by the user.
+ * @returns The normalized path if it is safe.
+ * @throws An error if the path is invalid or attempts traversal.
+ */
+function validateDownloadPath(userPath: string): string {
+  const normalizedPath = path.normalize(userPath);
+
+  // 1. Check for absolute paths. An absolute path could allow writing to sensitive
+  //    system locations.
+  // 2. Check for ".." segments. This prevents climbing up the directory tree.
+  if (path.isAbsolute(normalizedPath) || normalizedPath.includes("..")) {
+    downloadersLogger.warn({ path: userPath }, "Blocked insecure download path");
+    throw new Error(`Invalid download path: ${userPath}. Path cannot be absolute or contain '..'.`);
+  }
+
+  return normalizedPath;
+}
 
 // Type definitions for API responses
 interface TransmissionTorrent {
@@ -164,8 +189,14 @@ class TransmissionClient implements DownloaderClient {
         filename: request.url,
       };
 
-      if (request.downloadPath || this.downloader.downloadPath) {
-        args["download-dir"] = request.downloadPath || this.downloader.downloadPath;
+      // 🛡️ Sentinel: Validate user-provided download path.
+      let downloadDir = this.downloader.downloadPath;
+      if (request.downloadPath) {
+        downloadDir = validateDownloadPath(request.downloadPath);
+      }
+
+      if (downloadDir) {
+        args["download-dir"] = downloadDir;
       }
 
       if (request.priority) {
@@ -649,6 +680,11 @@ class RTorrentClient implements DownloaderClient {
           success: false,
           message: "Torrent URL is required",
         };
+      }
+
+      // 🛡️ Sentinel: Validate user-provided download path.
+      if (request.downloadPath) {
+        validateDownloadPath(request.downloadPath);
       }
 
       // Determine which method to use based on addStopped setting
@@ -1326,8 +1362,14 @@ class QBittorrentClient implements DownloaderClient {
       const formData = new URLSearchParams();
       formData.append("urls", request.url);
 
-      if (request.downloadPath || this.downloader.downloadPath) {
-        formData.append("savepath", request.downloadPath || this.downloader.downloadPath || "");
+      // 🛡️ Sentinel: Validate user-provided download path.
+      let savePath = this.downloader.downloadPath;
+      if (request.downloadPath) {
+        savePath = validateDownloadPath(request.downloadPath);
+      }
+
+      if (savePath) {
+        formData.append("savepath", savePath);
       }
 
       if (request.category || this.downloader.category) {
@@ -1650,8 +1692,12 @@ export class DownloaderManager {
 
   static async testDownloader(
     downloader: Downloader
-  ): Promise<{ success: boolean; message: string }> {
+  ): Promise<{ success:boolean; message: string }> {
     try {
+      // 🛡️ Sentinel: Validate path during testing for comprehensive security.
+      if (downloader.downloadPath) {
+        validateDownloadPath(downloader.downloadPath);
+      }
       const client = this.createClient(downloader);
       return await client.testConnection();
     } catch (error) {

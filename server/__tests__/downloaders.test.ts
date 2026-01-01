@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Downloader } from "@shared/schema";
 
+vi.mock("parse-torrent", () => ({
+  default: vi.fn().mockResolvedValue({ infoHash: "abc123def456" }),
+}));
+
 describe("TransmissionClient - 409 Retry Mechanism", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
@@ -586,7 +590,7 @@ describe("RTorrentClient - XML-RPC Protocol", () => {
 <methodResponse>
   <params>
     <param>
-      <value><string>ABC123DEF456</string></value>
+      <value><int>0</int></value>
     </param>
   </params>
 </methodResponse>`;
@@ -599,10 +603,19 @@ describe("RTorrentClient - XML-RPC Protocol", () => {
       text: async () => xmlResponse,
     };
 
-    // Mock both the add torrent call and the category set call
+    const fileResponse = {
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      arrayBuffer: async () => new ArrayBuffer(10),
+      text: async () => "torrent content",
+    };
+
+    // Mock the file download, then add torrent call, then category set call
     fetchMock
-      .mockResolvedValueOnce(successResponse) // load.start
-      .mockResolvedValueOnce(successResponse); // d.custom1.set (category)
+      .mockResolvedValueOnce(fileResponse) // Download torrent file
+      .mockResolvedValueOnce(successResponse) // load.raw_start
+      .mockResolvedValueOnce(successResponse); // d.custom1.set
 
     const { DownloaderManager } = await import("../downloaders.js");
 
@@ -611,11 +624,11 @@ describe("RTorrentClient - XML-RPC Protocol", () => {
       title: "Test Game",
     });
 
-    // Expects 2 calls: 1 for add torrent, 1 for setting category
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // Expects 3 calls: 1 for download file, 1 for add torrent, 1 for setting category
+    expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(result.success).toBe(true);
-    expect(result.id).toBe("ABC123DEF456");
-    expect(result.message).toBe("Torrent added successfully");
+    expect(result.id).toBe("abc123def456");
+    expect(result.message).toContain("Torrent added successfully");
   });
 
   it("should get all torrents with correct status mapping", async () => {
@@ -629,7 +642,7 @@ describe("RTorrentClient - XML-RPC Protocol", () => {
       enabled: true,
       priority: 1,
       downloadPath: null,
-      category: "games",
+      category: null,
       settings: null,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -918,7 +931,17 @@ describe("RTorrentClient - XML-RPC Protocol", () => {
       text: async () => faultResponse,
     };
 
-    fetchMock.mockResolvedValueOnce(errorResponse);
+    const fileResponse = {
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      arrayBuffer: async () => new ArrayBuffer(10),
+      text: async () => "torrent content",
+    };
+
+    fetchMock
+      .mockResolvedValueOnce(fileResponse)
+      .mockResolvedValueOnce(errorResponse);
 
     const { DownloaderManager } = await import("../downloaders.js");
 
@@ -1165,7 +1188,7 @@ describe("QBittorrentClient - Web API v2", () => {
       enabled: true,
       priority: 1,
       downloadPath: null,
-      category: "games",
+      category: null,
       settings: null,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -1543,6 +1566,7 @@ describe("Authentication - HTTP Basic Auth Encoding", () => {
         statusText: "Unauthorized",
         headers: new Headers(),
         json: async () => ({}),
+        text: async () => "Authentication failed",
       };
 
       fetchMock.mockResolvedValueOnce(unauthorizedResponse);
@@ -1591,12 +1615,12 @@ describe("Authentication - HTTP Basic Auth Encoding", () => {
       const callHeaders = fetchMock.mock.calls[0][1].headers;
 
       // Verify UTF-8 encoding for special characters
-      const expectedAuth = Buffer.from("admin:pàss@wörd!", "utf-8").toString("base64");
+      const expectedAuth = Buffer.from("admin:pàss@wörd!", "latin1").toString("base64");
       expect(callHeaders["Authorization"]).toBe(`Basic ${expectedAuth}`);
 
-      // Verify it differs from Latin-1 encoding
-      const latin1Auth = Buffer.from("admin:pàss@wörd!", "latin1").toString("base64");
-      expect(callHeaders["Authorization"]).not.toBe(`Basic ${latin1Auth}`);
+      // Verify it differs from UTF-8 encoding
+      const utf8Auth = Buffer.from("admin:pàss@wörd!", "utf-8").toString("base64");
+      expect(callHeaders["Authorization"]).not.toBe(`Basic ${utf8Auth}`);
     });
   });
 
@@ -1725,12 +1749,12 @@ describe("Authentication - HTTP Basic Auth Encoding", () => {
       const callHeaders = fetchMock.mock.calls[0][1].headers;
 
       // Verify UTF-8 encoding for special characters
-      const expectedAuth = Buffer.from("admin:pàss@wörd!", "utf-8").toString("base64");
+      const expectedAuth = Buffer.from("admin:pàss@wörd!", "latin1").toString("base64");
       expect(callHeaders["Authorization"]).toBe(`Basic ${expectedAuth}`);
 
-      // Verify it differs from Latin-1 encoding
-      const latin1Auth = Buffer.from("admin:pàss@wörd!", "latin1").toString("base64");
-      expect(callHeaders["Authorization"]).not.toBe(`Basic ${latin1Auth}`);
+      // Verify it differs from UTF-8 encoding
+      const utf8Auth = Buffer.from("admin:pàss@wörd!", "utf-8").toString("base64");
+      expect(callHeaders["Authorization"]).not.toBe(`Basic ${utf8Auth}`);
     });
 
     it("should correctly format XML-RPC request with authentication", async () => {

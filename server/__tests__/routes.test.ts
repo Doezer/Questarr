@@ -53,6 +53,7 @@ describe("/api/downloads endpoint", () => {
       statusText: "Conflict",
       headers: headers1,
       json: async () => ({}),
+      text: async () => "",
     };
 
     const successResponse = {
@@ -91,6 +92,7 @@ describe("/api/downloads endpoint", () => {
       statusText: "Internal Server Error",
       headers: new Headers(),
       json: async () => ({ error: "Connection failed" }),
+      text: async () => "Connection failed",
     };
 
     fetchMock
@@ -160,6 +162,7 @@ describe("/api/downloads endpoint", () => {
       statusText: "Conflict",
       headers,
       json: async () => ({}),
+      text: async () => "",
     };
 
     const successResponse = {

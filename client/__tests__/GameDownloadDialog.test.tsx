@@ -16,6 +16,21 @@ vi.mock("@/hooks/use-toast", () => ({
   }),
 }));
 
+vi.mock("lucide-react", () => ({
+  Download: () => <div data-testid="icon-download" />,
+  HardDrive: () => <div data-testid="icon-harddrive" />,
+  Users: () => <div data-testid="icon-users" />,
+  Calendar: () => <div data-testid="icon-calendar" />,
+  Loader2: () => <div data-testid="icon-loader" />,
+  Search: () => <div data-testid="icon-search" />,
+  Plus: () => <div />,
+  Edit: () => <div />,
+  Trash2: () => <div />,
+  Check: () => <div />,
+  X: () => <div />,
+  Activity: () => <div />,
+}));
+
 const mockGame = {
   id: 1,
   title: "Test Game",
@@ -64,7 +79,7 @@ describe("GameDownloadDialog", () => {
     queryClient.setQueryData(["/api/search?query=Test%20Game"], mockTorrents);
 
     // Mock successful search query
-    global.fetch = vi.fn((url) => {
+    global.fetch = vi.fn(async (url) => {
       console.log("Fetching URL:", url);
       if (url.toString().includes("/api/search")) {
         return Promise.resolve({
@@ -73,6 +88,8 @@ describe("GameDownloadDialog", () => {
         });
       }
       if (url.toString().includes("/api/downloads")) {
+        // Add a delay to ensure loading state is visible
+        await new Promise((resolve) => setTimeout(resolve, 100));
         return Promise.resolve({
           ok: true,
           json: async () => ({ success: true, downloaderName: "TestDownloader" }),
@@ -94,10 +111,12 @@ describe("GameDownloadDialog", () => {
 
     // After clicking, the button should show a loading state
     await waitFor(() => {
-      // Check for the "Downloading..." text and the presence of a spinner element
-      const loadingButton = screen.getByRole("button", { name: /Downloading.../i });
-      expect(loadingButton).toBeInTheDocument();
-      expect(loadingButton).toBeDisabled();
+      // Check for the spinner element by test id and disabled state
+      const spinner = screen.getByTestId("icon-loader");
+      expect(spinner).toBeInTheDocument();
+      // The button containing the spinner should be disabled
+      const button = spinner.closest("button");
+      expect(button).toBeDisabled();
     });
   });
 });

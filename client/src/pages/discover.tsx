@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { useDebounce } from "@/hooks/use-debounce";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
@@ -78,7 +78,9 @@ export default function DiscoverPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  // Fetch available genres with caching and error handling
+  // ⚡ Bolt: Using the `onError` callback in `useQuery` is more efficient than
+  // a `useEffect` because it avoids an extra render cycle and simplifies state
+  // management by co-locating the side-effect with the query itself.
   const {
     data: genres = [],
     isError: genresError,
@@ -92,6 +94,12 @@ export default function DiscoverPage() {
     },
     staleTime: STATIC_DATA_STALE_TIME,
     retry: 2,
+    onError: () => {
+      toast({
+        description: "Failed to load genres, using defaults",
+        variant: "destructive",
+      });
+    },
   });
 
   // Fetch available platforms with caching and error handling
@@ -108,36 +116,14 @@ export default function DiscoverPage() {
     },
     staleTime: STATIC_DATA_STALE_TIME,
     retry: 2,
-  });
-
-  // Track if error toasts have been shown to prevent duplicate notifications
-  const genresErrorShown = useRef(false);
-  const platformsErrorShown = useRef(false);
-
-  // Show toast notification for API errors (only once per error state)
-  useEffect(() => {
-    if (genresError && !genresErrorShown.current) {
-      genresErrorShown.current = true;
-      toast({
-        description: "Failed to load genres, using defaults",
-        variant: "destructive",
-      });
-    } else if (!genresError) {
-      genresErrorShown.current = false;
-    }
-  }, [genresError, toast]);
-
-  useEffect(() => {
-    if (platformsError && !platformsErrorShown.current) {
-      platformsErrorShown.current = true;
+    onError: () => {
       toast({
         description: "Failed to load platforms, using defaults",
         variant: "destructive",
       });
-    } else if (!platformsError) {
-      platformsErrorShown.current = false;
-    }
-  }, [platformsError, toast]);
+    },
+  });
+
 
   // Track game mutation (for Discovery games)
   const trackGameMutation = useMutation({

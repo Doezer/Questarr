@@ -125,11 +125,11 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: AppSidebarP
     <Sidebar data-testid="sidebar-main">
       <SidebarHeader className="p-4">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-primary rounded-md flex items-center justify-center">
-            <Library className="w-4 h-4 text-primary-foreground" />
+          <div className="w-8 h-8 flex items-center justify-center">
+            <img src="/Questarr.svg" alt="Questarr Logo" className="w-8 h-8" />
           </div>
           <div>
-                  <span className="truncate font-semibold">Questarr</span>
+            <span className="truncate font-semibold">Questarr</span>
             <p className="text-xs text-muted-foreground">Game Management</p>
           </div>
         </div>

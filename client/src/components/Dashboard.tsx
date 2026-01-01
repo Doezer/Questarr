@@ -17,7 +17,7 @@ export default function Dashboard() {
   const queryClient = useQueryClient();
 
   // Query user's collection
-  const { data: games = [], isLoading } = useQuery<Game[]>({
+  const { data: games = [], isLoading, isFetching } = useQuery<Game[]>({
     queryKey: ["/api/games", debouncedSearchQuery],
     queryFn: async () => {
       const params = new URLSearchParams();
@@ -133,7 +133,12 @@ export default function Dashboard() {
             onRemoveFilter={handleRemoveFilter}
             placeholder="Search your library..."
           />
-          <GameGrid games={games} onStatusChange={handleStatusChange} isLoading={isLoading} />
+          <GameGrid
+            games={games}
+            onStatusChange={handleStatusChange}
+            isLoading={isLoading}
+            isFetching={isFetching}
+          />
         </div>
       </div>
     </div>

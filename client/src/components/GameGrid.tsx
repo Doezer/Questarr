@@ -9,6 +9,7 @@ interface GameGridProps {
   onTrackGame?: (game: Game) => void;
   isDiscovery?: boolean;
   isLoading?: boolean;
+  isFetching?: boolean;
 }
 
 export default function GameGrid({
@@ -18,6 +19,7 @@ export default function GameGrid({
   onTrackGame,
   isDiscovery = false,
   isLoading = false,
+  isFetching = false,
 }: GameGridProps) {
   if (isLoading) {
     return (
@@ -49,8 +51,11 @@ export default function GameGrid({
 
   return (
     <div
-      className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 gap-4"
+      className={`grid grid-cols-3 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 gap-4 transition-opacity duration-200 ${
+        isFetching ? "opacity-50 pointer-events-none" : ""
+      }`}
       data-testid="grid-games"
+      aria-busy={isFetching}
     >
       {games.map((game) => (
         <GameCard

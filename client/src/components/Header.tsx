@@ -5,6 +5,7 @@ import { Plus, Bell, Moon, Sun } from "lucide-react";
 import { useState } from "react";
 import AddGameModal from "./AddGameModal";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface HeaderProps {
   title?: string;
@@ -30,7 +31,14 @@ export default function Header({
   return (
     <header className="flex items-center justify-between p-4 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="flex items-center gap-4">
-        <SidebarTrigger data-testid="button-sidebar-toggle" />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <SidebarTrigger data-testid="button-sidebar-toggle" />
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            <p>Toggle Sidebar</p>
+          </TooltipContent>
+        </Tooltip>
         <h1 className="text-xl font-semibold" data-testid="text-page-title">
           {title}
         </h1>

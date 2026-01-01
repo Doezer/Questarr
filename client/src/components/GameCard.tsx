@@ -50,7 +50,7 @@ const GameCard = ({
 
   return (
     <Card
-      className="group hover-elevate transition-all duration-200 min-w-[150px] min-h-[200px] max-w-[225px] mx-auto w-full"
+      className="group hover-elevate transition-all duration-200 max-w-[225px] mx-auto w-full"
       data-testid={`card-game-${game.id}`}
     >
       <div className="relative">

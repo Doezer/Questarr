@@ -97,7 +97,7 @@ const GameCarouselSection = ({
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold">{title}</h2>
         </div>
-        <div className="flex gap-4">
+        <div className="flex gap-4 overflow-hidden">
           {Array.from({ length: 10 }).map((_, index) => (
             <div key={index} className="flex-shrink-0 min-w-[150px] min-h-[200px]">
               <Skeleton className="aspect-[3/4] w-full max-w-[225px] max-h-[300px] mx-auto rounded-md" />
@@ -146,7 +146,7 @@ const GameCarouselSection = ({
 
   return (
     <div
-      className="space-y-4"
+      className="space-y-3 max-w-full"
       data-testid={`carousel-section-${title.toLowerCase().replace(/\s+/g, "-")}`}
     >
       <div className="flex items-center justify-between">
@@ -194,7 +194,7 @@ const GameCarouselSection = ({
           </Tooltip>
         </div>
       </div>
-      <div className="relative" aria-busy={isFetching && !isLoading}>
+      <div className="relative overflow-hidden" aria-busy={isFetching && !isLoading}>
         {isFetching && !isLoading && (
           <div className="absolute inset-0 bg-background/50 backdrop-blur-[2px] z-10 flex items-center justify-center">
             <Loader2 className="h-8 w-8 animate-spin" />
@@ -215,7 +215,7 @@ const GameCarouselSection = ({
             {games.map((game) => (
               <CarouselItem
                 key={game.id}
-                className="pl-4 basis-1/3 sm:basis-1/5 md:basis-1/6 lg:basis-[12.5%] xl:basis-[10%] min-w-[150px] min-h-[200px]"
+                className="pl-4 basis-1/3 sm:basis-1/5 md:basis-1/6 lg:basis-[12.5%] xl:basis-[10%]"
               >
                 <GameCard
                   game={game}

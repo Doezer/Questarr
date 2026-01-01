@@ -9,9 +9,8 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Download, HardDrive, Users, Calendar, Loader2 } from "lucide-react";
+import { Download, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { type Game } from "@shared/schema";
 
@@ -96,7 +95,6 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         body: JSON.stringify({
           url: torrent.link,
           title: torrent.title,
-          category: "games",
         }),
       });
       if (!response.ok) {

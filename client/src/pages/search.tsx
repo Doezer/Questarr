@@ -159,7 +159,7 @@ export default function SearchPage() {
         body: JSON.stringify({
           url: data.torrent.link,
           title: data.torrent.title,
-          category: data.formData.category || "games",
+          category: data.formData.category || undefined,
           downloadPath: data.formData.downloadPath,
           priority: data.formData.priority,
         }),
@@ -187,7 +187,7 @@ export default function SearchPage() {
     resolver: zodResolver(downloadSchema),
     defaultValues: {
       downloaderId: "",
-      category: "games",
+      category: "",
       downloadPath: "",
       priority: 5,
     },
@@ -207,7 +207,7 @@ export default function SearchPage() {
     setSelectedTorrent(torrent);
     form.reset({
       downloaderId: downloaders[0]?.id || "",
-      category: "games",
+      category: "",
       downloadPath: "",
       priority: 5,
     });

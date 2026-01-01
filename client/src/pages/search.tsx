@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useDebounce } from "@/hooks/use-debounce";
 import { queryClient } from "@/lib/queryClient";
@@ -95,7 +95,7 @@ export default function SearchPage() {
   const debouncedSearchQuery = useDebounce(searchQuery, 500);
   const [selectedTorrent, setSelectedTorrent] = useState<TorrentItem | null>(null);
   const [isDownloadDialogOpen, setIsDownloadDialogOpen] = useState(false);
-  const [lastSearchQuery, setLastSearchQuery] = useState("");
+  const lastSearchQueryRef = useRef("");
 
   const {
     data: searchResults,
@@ -113,7 +113,7 @@ export default function SearchPage() {
   // Show toast notification when search completes
   useEffect(() => {
     // Only show notification if we actually performed a search
-    if (debouncedSearchQuery && debouncedSearchQuery !== lastSearchQuery && !isSearching) {
+    if (debouncedSearchQuery && debouncedSearchQuery !== lastSearchQueryRef.current && !isSearching) {
       if (searchError) {
         toast({
           title: "Search failed",
@@ -143,9 +143,9 @@ export default function SearchPage() {
           });
         }
       }
-      setLastSearchQuery(debouncedSearchQuery);
+      lastSearchQueryRef.current = debouncedSearchQuery;
     }
-  }, [searchResults, isSearching, searchError, debouncedSearchQuery, lastSearchQuery, toast]);
+  }, [searchResults, isSearching, searchError, debouncedSearchQuery, toast]);
 
   const { data: downloaders = [] } = useQuery<Downloader[]>({
     queryKey: ["/api/downloaders/enabled"],

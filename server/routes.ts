@@ -34,6 +34,7 @@ import {
 } from "./middleware.js";
 import { config as appConfig } from "./config.js";
 import { prowlarrClient } from "./prowlarr.js";
+import { isSafeUrl } from "./ssrf.js";
 
 // Helper function for aggregated indexer search
 async function handleAggregatedIndexerSearch(req: Request, res: Response) {
@@ -862,6 +863,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (!type || !url) {
         return res.status(400).json({ error: "Type and URL are required" });
+      }
+
+      // Check for SSRF
+      if (!(await isSafeUrl(url))) {
+        return res.status(400).json({ error: "Invalid or unsafe URL" });
       }
 
       // Create a temporary downloader object for testing

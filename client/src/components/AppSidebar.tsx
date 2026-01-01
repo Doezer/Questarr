@@ -4,7 +4,6 @@ import {
   Download,
   Calendar,
   Settings,
-  TrendingUp,
   Star,
   Database,
   HardDrive,
@@ -50,11 +49,6 @@ const staticNavigation = [
     title: "Calendar",
     url: "/calendar",
     icon: Calendar,
-  },
-  {
-    title: "Trending",
-    url: "/trending",
-    icon: TrendingUp,
   },
   {
     title: "Wishlist",

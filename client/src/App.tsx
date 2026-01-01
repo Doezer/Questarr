@@ -17,7 +17,6 @@ import SettingsPage from "@/pages/settings";
 import NotFound from "@/pages/not-found";
 import LibraryPage from "@/pages/library";
 import CalendarPage from "@/pages/calendar";
-import TrendingPage from "@/pages/trending";
 import WishlistPage from "@/pages/wishlist";
 
 function Router() {
@@ -32,7 +31,6 @@ function Router() {
       <Route path="/settings" component={SettingsPage} />
       <Route path="/library" component={LibraryPage} />
       <Route path="/calendar" component={CalendarPage} />
-      <Route path="/trending" component={TrendingPage} />
       <Route path="/wishlist" component={WishlistPage} />
       <Route component={NotFound} />
     </Switch>
@@ -66,7 +64,6 @@ function App() {
       case "/settings": return "Settings";
       case "/library": return "Library";
       case "/calendar": return "Calendar";
-      case "/trending": return "Trending";
       case "/wishlist": return "Wishlist";
       default: return "Questarr";
     }

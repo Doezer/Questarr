@@ -86,7 +86,7 @@
     "vaul": "^1.1.2",
     "wouter": "^3.7.1",
     "zod": "^3.25.0",
-    "zod-validation-error": "^3.4.0"
+    "zod-validation-error": "^3.5.4"
   },
   "devDependencies": {
     "@tailwindcss/typography": "^0.5.19",

@@ -126,6 +126,18 @@ export const sanitizeGameData = [
     .trim()
     .isLength({ max: 100 })
     .withMessage("Genre name must be at most 100 characters"),
+  body("publishers").optional().isArray().withMessage("Publishers must be an array"),
+  body("publishers.*")
+    .optional()
+    .trim()
+    .isLength({ max: 200 })
+    .withMessage("Publisher name must be at most 200 characters"),
+  body("developers").optional().isArray().withMessage("Developers must be an array"),
+  body("developers.*")
+    .optional()
+    .trim()
+    .isLength({ max: 200 })
+    .withMessage("Developer name must be at most 200 characters"),
 ];
 
 // Sanitization rules for indexer data

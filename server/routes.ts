@@ -404,6 +404,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   );
 
+  // Refresh metadata for all games
+  app.post("/api/games/refresh-metadata", authenticateToken, async (req, res) => {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const userId = (req as any).user.id;
+      const userGames = await storage.getUserGames(userId, true);
+      
+      routesLogger.info({ userId, gameCount: userGames.length }, "starting metadata refresh");
+      
+      let updatedCount = 0;
+      let errorCount = 0;
+
+      for (const game of userGames) {
+        if (!game.igdbId) continue;
+
+        try {
+          const igdbGame = await igdbClient.getGameById(game.igdbId);
+          if (igdbGame) {
+            const updatedData = igdbClient.formatGameData(igdbGame);
+            await storage.updateGame(game.id, {
+              publishers: updatedData.publishers as string[],
+              developers: updatedData.developers as string[],
+              summary: updatedData.summary as string,
+              rating: updatedData.rating as number,
+              genres: updatedData.genres as string[],
+              platforms: updatedData.platforms as string[],
+              coverUrl: updatedData.coverUrl as string,
+              screenshots: updatedData.screenshots as string[],
+              releaseDate: updatedData.releaseDate as string,
+            });
+            updatedCount++;
+          }
+        } catch (error) {
+          routesLogger.error({ gameId: game.id, error }, "failed to refresh metadata for game");
+          errorCount++;
+        }
+      }
+
+      routesLogger.info({ userId, updatedCount, errorCount }, "metadata refresh completed");
+      
+      res.json({ 
+        success: true, 
+        message: `Successfully refreshed metadata for ${updatedCount} games.${errorCount > 0 ? ` Failed for ${errorCount} games.` : ""}`,
+        updatedCount,
+        errorCount
+      });
+    } catch (error) {
+      routesLogger.error({ error }, "error refreshing metadata");
+      res.status(500).json({ error: "Failed to refresh metadata" });
+    }
+  });
+
   // Remove game from collection
   app.delete(
     "/api/games/:id",

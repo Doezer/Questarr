@@ -1,6 +1,6 @@
 import React, { useState, useEffect, memo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, AlertCircle, Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, AlertCircle, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -54,6 +54,7 @@ const GameCarouselSection = ({
     isFetching,
     isError,
     error: _error,
+    refetch,
   } = useQuery<Game[]>({
     queryKey,
     queryFn,
@@ -145,6 +146,20 @@ const GameCarouselSection = ({
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold">{title}</h2>
         <div className="flex gap-2">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => refetch()}
+                disabled={isFetching}
+                className="h-8 w-8"
+              >
+                <RefreshCw className={cn("h-4 w-4", isFetching && "animate-spin")} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Refresh</TooltipContent>
+          </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
               <div className="inline-block" tabIndex={!canScrollPrev ? 0 : -1}>

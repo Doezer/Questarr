@@ -1,5 +1,6 @@
 import React, { useCallback } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import {
   Dialog,
   DialogContent,
@@ -39,12 +40,7 @@ export default function DiscoverSettingsModal({
   // Unhide game mutation
   const unhideMutation = useMutation({
     mutationFn: async (gameId: string) => {
-      const response = await fetch(`/api/games/${gameId}/hidden`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ hidden: false }),
-      });
-      if (!response.ok) throw new Error("Failed to unhide game");
+      const response = await apiRequest("PATCH", `/api/games/${gameId}/hidden`, { hidden: false });
       return response.json();
     },
     onSuccess: () => {

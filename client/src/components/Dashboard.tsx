@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import SearchBar from "./SearchBar";
 import GameGrid from "./GameGrid";
 import StatsCard from "./StatsCard";
@@ -58,7 +59,14 @@ export default function Dashboard() {
       if (showHiddenGames) {
         params.set("includeHidden", "true");
       }
-      const response = await fetch(`/api/games?${params}`);
+      
+      const token = localStorage.getItem("token");
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`/api/games?${params}`, { headers });
       if (!response.ok) throw new Error("Failed to fetch games");
       return response.json();
     },
@@ -67,12 +75,7 @@ export default function Dashboard() {
   // Status update mutation (for existing games in collection)
   const statusMutation = useMutation({
     mutationFn: async ({ gameId, status }: { gameId: string; status: GameStatus }) => {
-      const response = await fetch(`/api/games/${gameId}/status`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
-      });
-      if (!response.ok) throw new Error("Failed to update status");
+      const response = await apiRequest("PATCH", `/api/games/${gameId}/status`, { status });
       return response.json();
     },
     onSuccess: () => {
@@ -87,12 +90,7 @@ export default function Dashboard() {
   // Hidden update mutation
   const hiddenMutation = useMutation({
     mutationFn: async ({ gameId, hidden }: { gameId: string; hidden: boolean }) => {
-      const response = await fetch(`/api/games/${gameId}/hidden`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ hidden }),
-      });
-      if (!response.ok) throw new Error("Failed to update visibility");
+      const response = await apiRequest("PATCH", `/api/games/${gameId}/hidden`, { hidden });
       return response.json();
     },
     onSuccess: (data) => {

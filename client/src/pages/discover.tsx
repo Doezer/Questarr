@@ -7,6 +7,7 @@ import { type Game } from "@shared/schema";
 import { type GameStatus } from "@/components/StatusBadge";
 import { useToast } from "@/hooks/use-toast";
 import { mapGameToInsertGame } from "@/lib/utils";
+import { apiRequest } from "@/lib/queryClient";
 import {
   Select,
   SelectContent,
@@ -97,8 +98,7 @@ export default function DiscoverPage() {
   const { data: localGames = [] } = useQuery<Game[]>({
     queryKey: ["/api/games?includeHidden=true"], // We need all games to know which are hidden
     queryFn: async () => {
-      const response = await fetch("/api/games?includeHidden=true");
-      if (!response.ok) throw new Error("Failed to fetch local games");
+      const response = await apiRequest("GET", "/api/games?includeHidden=true");
       return response.json();
     },
   });
@@ -132,8 +132,7 @@ export default function DiscoverPage() {
   } = useQuery<Genre[]>({
     queryKey: ["/api/igdb/genres"],
     queryFn: async () => {
-      const response = await fetch("/api/igdb/genres");
-      if (!response.ok) throw new Error("Failed to fetch genres");
+      const response = await apiRequest("GET", "/api/igdb/genres");
       return response.json();
     },
     staleTime: STATIC_DATA_STALE_TIME,
@@ -148,8 +147,7 @@ export default function DiscoverPage() {
   } = useQuery<Platform[]>({
     queryKey: ["/api/igdb/platforms"],
     queryFn: async () => {
-      const response = await fetch("/api/igdb/platforms");
-      if (!response.ok) throw new Error("Failed to fetch platforms");
+      const response = await apiRequest("GET", "/api/igdb/platforms");
       return response.json();
     },
     staleTime: STATIC_DATA_STALE_TIME,
@@ -180,26 +178,29 @@ export default function DiscoverPage() {
   const trackGameMutation = useMutation({
     mutationFn: async (game: Game) => {
       const gameData = mapGameToInsertGame(game);
-      const response = await fetch("/api/games", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...gameData,
-          status: "wanted",
-        }),
+      const response = await apiRequest("POST", "/api/games", {
+        ...gameData,
+        status: "wanted",
       });
-      if (!response.ok) throw new Error("Failed to track game");
       return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/games"] });
       toast({ description: "Game added to watchlist!" });
     },
-    onError: () => {
-      toast({
-        description: "Failed to track game",
-        variant: "destructive",
-      });
+    onError: (error: Error) => {
+      const errorMessage = error.message || String(error);
+      if (errorMessage.includes("409") || errorMessage.includes("already in collection")) {
+        toast({
+          description: "Game is already in your collection",
+          variant: "default",
+        });
+      } else {
+        toast({
+          description: "Failed to track game",
+          variant: "destructive",
+        });
+      }
     },
   });
 
@@ -211,26 +212,16 @@ export default function DiscoverPage() {
       
       if (existingGame) {
         // Update existing game
-        const response = await fetch(`/api/games/${existingGame.id}/hidden`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ hidden: true }),
-        });
-        if (!response.ok) throw new Error("Failed to hide game");
+        const response = await apiRequest("PATCH", `/api/games/${existingGame.id}/hidden`, { hidden: true });
         return response.json();
       } else {
         // Add new hidden game
         const gameData = mapGameToInsertGame(game);
-        const response = await fetch("/api/games", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ...gameData,
-            status: "wanted", // Default status, but hidden
-            hidden: true,
-          }),
+        const response = await apiRequest("POST", "/api/games", {
+          ...gameData,
+          status: "wanted", // Default status, but hidden
+          hidden: true,
         });
-        if (!response.ok) throw new Error("Failed to hide game");
         return response.json();
       }
     },
@@ -250,15 +241,10 @@ export default function DiscoverPage() {
   const addGameMutation = useMutation({
     mutationFn: async ({ game, status }: { game: Game; status: GameStatus }) => {
       const gameData = mapGameToInsertGame(game);
-      const response = await fetch("/api/games", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...gameData,
-          status,
-        }),
+      const response = await apiRequest("POST", "/api/games", {
+        ...gameData,
+        status,
       });
-      if (!response.ok) throw new Error("Failed to add game");
       return response.json();
     },
     onSuccess: () => {
@@ -342,22 +328,19 @@ export default function DiscoverPage() {
   // like `GameCarouselSection` from re-rendering unnecessarily when they are
   // wrapped in `React.memo` and receive these functions as props.
   const fetchPopularGames = useCallback(async (): Promise<Game[]> => {
-    const response = await fetch("/api/igdb/popular?limit=20");
-    if (!response.ok) throw new Error("Failed to fetch popular games");
+    const response = await apiRequest("GET", "/api/igdb/popular?limit=20");
     const games = await response.json();
     return filterGames(games);
   }, [filterGames]);
 
   const fetchRecentGames = useCallback(async (): Promise<Game[]> => {
-    const response = await fetch("/api/igdb/recent?limit=20");
-    if (!response.ok) throw new Error("Failed to fetch recent games");
+    const response = await apiRequest("GET", "/api/igdb/recent?limit=20");
     const games = await response.json();
     return filterGames(games);
   }, [filterGames]);
 
   const fetchUpcomingGames = useCallback(async (): Promise<Game[]> => {
-    const response = await fetch("/api/igdb/upcoming?limit=20");
-    if (!response.ok) throw new Error("Failed to fetch upcoming games");
+    const response = await apiRequest("GET", "/api/igdb/upcoming?limit=20");
     const games = await response.json();
     return filterGames(games);
   }, [filterGames]);
@@ -371,8 +354,7 @@ export default function DiscoverPage() {
       return []; // Return empty instead of throwing to prevent crash
     }
 
-    const response = await fetch(`/api/igdb/genre/${encodeURIComponent(debouncedGenre)}?limit=20`);
-    if (!response.ok) throw new Error("Failed to fetch games by genre");
+    const response = await apiRequest("GET", `/api/igdb/genre/${encodeURIComponent(debouncedGenre)}?limit=20`);
     const games = await response.json();
     return filterGames(games);
   }, [debouncedGenre, genres, filterGames]);
@@ -386,10 +368,10 @@ export default function DiscoverPage() {
       return []; // Return empty instead of throwing to prevent crash
     }
 
-    const response = await fetch(
+    const response = await apiRequest(
+      "GET",
       `/api/igdb/platform/${encodeURIComponent(debouncedPlatform)}?limit=20`
     );
-    if (!response.ok) throw new Error("Failed to fetch games by platform");
     const games = await response.json();
     return filterGames(games);
   }, [debouncedPlatform, platforms, filterGames]);

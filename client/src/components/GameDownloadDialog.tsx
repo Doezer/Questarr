@@ -10,7 +10,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Download, Loader2 } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Download, Loader2, FileDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { type Game } from "@shared/schema";
 
@@ -143,6 +144,22 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     downloadMutation.mutate(torrent);
   };
 
+  const handleDirectDownload = (torrent: TorrentItem) => {
+    // Create a temporary anchor element to trigger download
+    const link = document.createElement('a');
+    link.href = torrent.link;
+    link.download = `${torrent.title}.torrent`;
+    link.target = '_blank';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    toast({
+      title: "Download started",
+      description: "Torrent file download initiated",
+    });
+  };
+
   if (!game) return null;
 
   return (
@@ -177,7 +194,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
               <div className="border rounded-md divide-y">
                 <div className="bg-muted/50 p-2 text-xs font-medium flex justify-between items-center">
                   <div>Release Name</div>
-                  <div className="w-[40px] text-right">Action</div>
+                  <div className="w-[80px] text-right">Actions</div>
                 </div>
                 {sortedItems.map((torrent) => (
                   <div
@@ -213,21 +230,38 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                         )}
                       </div>
                     </div>
-                    <div className="w-[40px] text-right flex-shrink-0">
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => handleDownload(torrent)}
-                        disabled={downloadingGuid !== null}
-                        className="h-8 w-8"
-                        title="Download"
-                      >
-                        {downloadingGuid === (torrent.guid || torrent.link) ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Download className="h-4 w-4" />
-                        )}
-                      </Button>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => handleDirectDownload(torrent)}
+                            className="h-8 w-8"
+                          >
+                            <FileDown className="h-4 w-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Download .torrent file</TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => handleDownload(torrent)}
+                            disabled={downloadingGuid !== null}
+                            className="h-8 w-8"
+                          >
+                            {downloadingGuid === (torrent.guid || torrent.link) ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Download className="h-4 w-4" />
+                            )}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Add to downloader</TooltipContent>
+                      </Tooltip>
                     </div>
                   </div>
                 ))}

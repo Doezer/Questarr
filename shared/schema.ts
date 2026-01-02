@@ -70,6 +70,22 @@ export const downloaders = pgTable("downloaders", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Track torrents associated with games for completion monitoring
+export const gameTorrents = pgTable("game_torrents", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  gameId: varchar("game_id").notNull().references(() => games.id, { onDelete: "cascade" }),
+  downloaderId: varchar("downloader_id").notNull().references(() => downloaders.id, { onDelete: "cascade" }),
+  torrentHash: text("torrent_hash").notNull(), // Hash or ID from the downloader client
+  torrentTitle: text("torrent_title").notNull(),
+  status: text("status", { enum: ["downloading", "completed", "failed", "paused"] })
+    .notNull()
+    .default("downloading"),
+  addedAt: timestamp("added_at").defaultNow(),
+  completedAt: timestamp("completed_at"),
+});
+
 // Validation schemas using drizzle-zod for runtime validation
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
@@ -105,6 +121,12 @@ export const insertDownloaderSchema = createInsertSchema(downloaders).omit({
   updatedAt: true,
 });
 
+export const insertGameTorrentSchema = createInsertSchema(gameTorrents).omit({
+  id: true,
+  addedAt: true,
+  completedAt: true,
+});
+
 // Type definitions - using Drizzle's table inference for select types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -124,6 +146,9 @@ export type InsertIndexer = z.infer<typeof insertIndexerSchema>;
 
 export type Downloader = typeof downloaders.$inferSelect;
 export type InsertDownloader = z.infer<typeof insertDownloaderSchema>;
+
+export type GameTorrent = typeof gameTorrents.$inferSelect;
+export type InsertGameTorrent = z.infer<typeof insertGameTorrentSchema>;
 
 // Application configuration type
 export interface Config {

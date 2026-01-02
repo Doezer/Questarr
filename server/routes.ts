@@ -1173,6 +1173,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   );
 
+  // Download bundle of torrents as ZIP
+  app.post(
+    "/api/downloads/bundle",
+    sensitiveEndpointLimiter,
+    async (req: Request, res: Response) => {
+      try {
+        const { torrents } = req.body;
+
+        if (!Array.isArray(torrents) || torrents.length === 0) {
+          return res.status(400).json({ error: "Torrents array is required" });
+        }
+
+        // Import archiver dynamically
+        const archiver = (await import("archiver")).default;
+        
+        // Set headers for ZIP download
+        res.setHeader("Content-Type", "application/zip");
+        res.setHeader("Content-Disposition", 'attachment; filename="game-bundle.zip"');
+
+        // Create ZIP archive
+        const archive = archiver("zip", { zlib: { level: 9 } });
+        
+        // Pipe archive to response
+        archive.pipe(res);
+
+        // Download each torrent and add to archive
+        for (const torrent of torrents) {
+          try {
+            const response = await fetch(torrent.link);
+            if (response.ok) {
+              const buffer = await response.arrayBuffer();
+              const filename = `${torrent.title.replace(/[<>:"/\\|?*]/g, "_")}.torrent`;
+              archive.append(Buffer.from(buffer), { name: filename });
+            }
+          } catch (error) {
+            routesLogger.warn({ torrent: torrent.title, error }, "failed to fetch torrent");
+          }
+        }
+
+        // Finalize archive
+        await archive.finalize();
+      } catch (error) {
+        routesLogger.error({ error }, "error creating bundle");
+        res.status(500).json({ error: "Failed to create bundle" });
+      }
+    }
+  );
+
   // Configuration endpoint - read-only access to key settings
   app.get("/api/config", sensitiveEndpointLimiter, async (req, res) => {
     try {

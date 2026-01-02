@@ -36,6 +36,7 @@ import {
 import { config as appConfig } from "./config.js";
 import { prowlarrClient } from "./prowlarr.js";
 import { isSafeUrl } from "./ssrf.js";
+import { hashPassword, comparePassword, generateToken, authenticateToken } from "./auth.js";
 
 // Helper function for aggregated indexer search
 async function handleAggregatedIndexerSearch(req: Request, res: Response) {
@@ -94,12 +95,64 @@ function validatePaginationParams(query: { limit?: string; offset?: string }): {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Auth Routes
+  app.get("/api/auth/status", async (_req, res) => {
+    const userCount = await storage.countUsers();
+    res.json({ hasUsers: userCount > 0 });
+  });
+
+  app.post("/api/auth/setup", async (req, res) => {
+    const userCount = await storage.countUsers();
+    if (userCount > 0) {
+      return res.status(403).json({ error: "Setup already completed" });
+    }
+
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: "Username and password required" });
+    }
+
+    const passwordHash = await hashPassword(password);
+    const user = await storage.createUser({ username, passwordHash });
+    const token = generateToken(user);
+
+    res.json({ token, user: { id: user.id, username: user.username } });
+  });
+
+  app.post("/api/auth/login", async (req, res) => {
+    const { username, password } = req.body;
+    const user = await storage.getUserByUsername(username);
+
+    if (!user || !(await comparePassword(password, user.passwordHash))) {
+      return res.status(401).json({ error: "Invalid username or password" });
+    }
+
+    const token = generateToken(user);
+    res.json({ token, user: { id: user.id, username: user.username } });
+  });
+
+  app.get("/api/auth/me", authenticateToken, (req, res) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const user = (req as any).user;
+    res.json({ id: user.id, username: user.username });
+  });
+
   // Health check endpoint
   app.get("/api/health", async (req, res) => {
     // 🛡️ Sentinel: Harden health check endpoint.
     // This liveness probe only confirms the server is responsive.
     // For readiness checks (e.g., database connectivity), use the /api/ready endpoint.
     res.status(200).json({ status: "ok" });
+  });
+
+  // Protect all API routes from here
+  app.use("/api", (req, res, next) => {
+    // Skip authentication for specific public endpoints that were already defined or need to be excluded
+    // Note: Auth routes are defined before this middleware, so they are already skipped.
+    // We explicitly skip health check if it matched /api/health (it was defined before, so express handles it first? Yes.)
+    
+    // Just applying authenticateToken middleware
+    authenticateToken(req, res, next);
   });
 
   // Sync indexers from Prowlarr
@@ -654,6 +707,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get free space for all enabled downloaders
+  app.get("/api/downloaders/storage", async (req, res) => {
+    try {
+      const enabledDownloaders = await storage.getEnabledDownloaders();
+      routesLogger.debug({ count: enabledDownloaders.length }, "fetching storage info for downloaders");
+      const storageInfo = [];
+
+      for (const downloader of enabledDownloaders) {
+        try {
+          const freeSpace = await DownloaderManager.getFreeSpace(downloader);
+          routesLogger.debug({ name: downloader.name, freeSpace }, "retrieved free space");
+          storageInfo.push({
+            downloaderId: downloader.id,
+            downloaderName: downloader.name,
+            freeSpace,
+          });
+        } catch (error) {
+          routesLogger.error({ downloaderName: downloader.name, error }, "error getting free space");
+          storageInfo.push({
+            downloaderId: downloader.id,
+            downloaderName: downloader.name,
+            freeSpace: 0,
+            error: error instanceof Error ? error.message : "Unknown error",
+          });
+        }
+      }
+
+      res.json(storageInfo);
+    } catch (error) {
+      routesLogger.error({ error }, "error getting all storage info");
+      res.status(500).json({ error: "Failed to get storage info" });
+    }
+  });
+
   // Get single downloader
   app.get("/api/downloaders/:id", async (req, res) => {
     try {
@@ -1129,40 +1216,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       routesLogger.error({ error }, "error getting all downloads");
       res.status(500).json({ error: "Failed to get downloads" });
-    }
-  });
-
-  // Get free space for all enabled downloaders
-  app.get("/api/downloaders/storage", async (req, res) => {
-    try {
-      const enabledDownloaders = await storage.getEnabledDownloaders();
-      routesLogger.debug({ count: enabledDownloaders.length }, "fetching storage info for downloaders");
-      const storageInfo = [];
-
-      for (const downloader of enabledDownloaders) {
-        try {
-          const freeSpace = await DownloaderManager.getFreeSpace(downloader);
-          routesLogger.debug({ name: downloader.name, freeSpace }, "retrieved free space");
-          storageInfo.push({
-            downloaderId: downloader.id,
-            downloaderName: downloader.name,
-            freeSpace,
-          });
-        } catch (error) {
-          routesLogger.error({ downloaderName: downloader.name, error }, "error getting free space");
-          storageInfo.push({
-            downloaderId: downloader.id,
-            downloaderName: downloader.name,
-            freeSpace: 0,
-            error: error instanceof Error ? error.message : "Unknown error",
-          });
-        }
-      }
-
-      res.json(storageInfo);
-    } catch (error) {
-      routesLogger.error({ error }, "error getting all storage info");
-      res.status(500).json({ error: "Failed to get storage info" });
     }
   });
 

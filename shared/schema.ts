@@ -8,7 +8,7 @@ export const users = pgTable("users", {
     .primaryKey()
     .default(sql`gen_random_uuid()`),
   username: text("username").notNull().unique(),
-  password: text("password").notNull(),
+  passwordHash: text("password_hash").notNull(),
 });
 
 export const games = pgTable("games", {
@@ -104,7 +104,7 @@ export const notifications = pgTable("notifications", {
 // Validation schemas using drizzle-zod for runtime validation
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
-  password: true,
+  passwordHash: true,
 });
 
 export const insertGameSchema = createInsertSchema(games, {

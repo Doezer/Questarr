@@ -7,6 +7,7 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import AppSidebar from "@/components/AppSidebar";
 import Header from "@/components/Header";
 import { useBackgroundNotifications } from "@/hooks/use-background-notifications";
+import { AuthProvider } from "@/lib/auth";
 import Dashboard from "@/components/Dashboard";
 import DiscoverPage from "@/pages/discover";
 import SearchPage from "@/pages/search";
@@ -18,11 +19,15 @@ import NotFound from "@/pages/not-found";
 import LibraryPage from "@/pages/library";
 import CalendarPage from "@/pages/calendar";
 import WishlistPage from "@/pages/wishlist";
+import LoginPage from "@/pages/auth/login";
+import SetupPage from "@/pages/auth/setup";
 import { ThemeProvider } from "next-themes";
 
 function Router() {
   return (
     <Switch>
+      <Route path="/login" component={LoginPage} />
+      <Route path="/setup" component={SetupPage} />
       <Route path="/" component={Dashboard} />
       <Route path="/discover" component={DiscoverPage} />
       <Route path="/search" component={SearchPage} />
@@ -70,23 +75,39 @@ function App() {
     }
   };
 
+  // If on login or setup page, render simplified layout without sidebar/header
+  if (location === "/login" || location === "/setup") {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
+          <AuthProvider>
+            <Router />
+            <Toaster />
+          </AuthProvider>
+        </ThemeProvider>
+      </QueryClientProvider>
+    );
+  }
+
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
-        <TooltipProvider>
-          <SidebarProvider style={style as React.CSSProperties}>
-            <div className="flex h-screen w-full">
-              <AppSidebar activeItem={location} onNavigate={navigate} />
-              <div className="flex flex-col flex-1">
-                <Header title={getPageTitle(location)} />
-                <main className="flex-1 overflow-hidden">
-                  <AppContent />
-                </main>
+        <AuthProvider>
+          <TooltipProvider>
+            <SidebarProvider style={style as React.CSSProperties}>
+              <div className="flex h-screen w-full">
+                <AppSidebar activeItem={location} onNavigate={navigate} />
+                <div className="flex flex-col flex-1">
+                  <Header title={getPageTitle(location)} />
+                  <main className="flex-1 overflow-hidden">
+                    <AppContent />
+                  </main>
+                </div>
               </div>
-            </div>
-          </SidebarProvider>
-          <Toaster />
-        </TooltipProvider>
+            </SidebarProvider>
+            <Toaster />
+          </TooltipProvider>
+        </AuthProvider>
       </ThemeProvider>
     </QueryClientProvider>
   );

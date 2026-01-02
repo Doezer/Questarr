@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useDebounce } from "@/hooks/use-debounce";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
@@ -75,9 +75,7 @@ export default function DiscoverPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  // ⚡ Bolt: Using the `onError` callback in `useQuery` is more efficient than
-  // a `useEffect` because it avoids an extra render cycle and simplifies state
-  // management by co-locating the side-effect with the query itself.
+  // Fetch available genres with caching and error handling
   const {
     data: genres = [],
     isError: genresError,
@@ -91,12 +89,6 @@ export default function DiscoverPage() {
     },
     staleTime: STATIC_DATA_STALE_TIME,
     retry: 2,
-    onError: () => {
-      toast({
-        description: "Failed to load genres, using defaults",
-        variant: "destructive",
-      });
-    },
   });
 
   // Fetch available platforms with caching and error handling
@@ -113,13 +105,26 @@ export default function DiscoverPage() {
     },
     staleTime: STATIC_DATA_STALE_TIME,
     retry: 2,
-    onError: () => {
+  });
+
+  // Handle errors with toast notifications
+  useEffect(() => {
+    if (genresError) {
+      toast({
+        description: "Failed to load genres, using defaults",
+        variant: "destructive",
+      });
+    }
+  }, [genresError, toast]);
+
+  useEffect(() => {
+    if (platformsError) {
       toast({
         description: "Failed to load platforms, using defaults",
         variant: "destructive",
       });
-    },
-  });
+    }
+  }, [platformsError, toast]);
 
 
   // Track game mutation (for Discovery games)
@@ -237,8 +242,8 @@ export default function DiscoverPage() {
 
   const fetchGamesByGenre = useCallback(async (): Promise<Game[]> => {
     // Validate selectedGenre against known genres before making API call
-    const validGenres = genres.length > 0 ? genres : DEFAULT_GENRES;
-    const isValidGenre = validGenres.some((g) => g.name === debouncedGenre);
+    const validGenres: Genre[] = genres.length > 0 ? genres : DEFAULT_GENRES;
+    const isValidGenre = validGenres.some((g: Genre) => g.name === debouncedGenre);
     if (!isValidGenre) {
       // This case should ideally not be hit if UI is synced with state
       return []; // Return empty instead of throwing to prevent crash
@@ -251,8 +256,8 @@ export default function DiscoverPage() {
 
   const fetchGamesByPlatform = useCallback(async (): Promise<Game[]> => {
     // Validate selectedPlatform against known platforms before making API call
-    const validPlatforms = platforms.length > 0 ? platforms : DEFAULT_PLATFORMS;
-    const isValidPlatform = validPlatforms.some((p) => p.name === debouncedPlatform);
+    const validPlatforms: Platform[] = platforms.length > 0 ? platforms : DEFAULT_PLATFORMS;
+    const isValidPlatform = validPlatforms.some((p: Platform) => p.name === debouncedPlatform);
     if (!isValidPlatform) {
       // This case should ideally not be hit if UI is synced with state
       return []; // Return empty instead of throwing to prevent crash
@@ -265,8 +270,8 @@ export default function DiscoverPage() {
     return response.json();
   }, [debouncedPlatform, platforms]);
 
-  const displayGenres = genres.length > 0 ? genres : DEFAULT_GENRES;
-  const displayPlatforms = platforms.length > 0 ? platforms : DEFAULT_PLATFORMS;
+  const displayGenres: Genre[] = genres.length > 0 ? genres : DEFAULT_GENRES;
+  const displayPlatforms: Platform[] = platforms.length > 0 ? platforms : DEFAULT_PLATFORMS;
 
   return (
     <div className="h-full w-full overflow-x-hidden overflow-y-auto" data-testid="discover-page">
@@ -321,7 +326,7 @@ export default function DiscoverPage() {
               <SelectValue placeholder="Select genre" />
             </SelectTriggerWithSpinner>
             <SelectContent>
-              {displayGenres.map((genre) => (
+              {displayGenres.map((genre: Genre) => (
                 <SelectItem key={genre.id} value={genre.name}>
                   {genre.name}
                 </SelectItem>
@@ -352,7 +357,7 @@ export default function DiscoverPage() {
               <SelectValue placeholder="Select platform" />
             </SelectTriggerWithSpinner>
             <SelectContent>
-              {displayPlatforms.map((platform) => (
+              {displayPlatforms.map((platform: Platform) => (
                 <SelectItem key={platform.id} value={platform.name}>
                   {platform.name}
                 </SelectItem>

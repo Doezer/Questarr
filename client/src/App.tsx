@@ -18,6 +18,7 @@ import NotFound from "@/pages/not-found";
 import LibraryPage from "@/pages/library";
 import CalendarPage from "@/pages/calendar";
 import WishlistPage from "@/pages/wishlist";
+import { ThemeProvider } from "next-themes";
 
 function Router() {
   return (
@@ -71,20 +72,22 @@ function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <SidebarProvider style={style as React.CSSProperties}>
-          <div className="flex h-screen w-full">
-            <AppSidebar activeItem={location} onNavigate={navigate} />
-            <div className="flex flex-col flex-1">
-              <Header title={getPageTitle(location)} />
-              <main className="flex-1 overflow-hidden">
-                <AppContent />
-              </main>
+      <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
+        <TooltipProvider>
+          <SidebarProvider style={style as React.CSSProperties}>
+            <div className="flex h-screen w-full">
+              <AppSidebar activeItem={location} onNavigate={navigate} />
+              <div className="flex flex-col flex-1">
+                <Header title={getPageTitle(location)} />
+                <main className="flex-1 overflow-hidden">
+                  <AppContent />
+                </main>
+              </div>
             </div>
-          </div>
-        </SidebarProvider>
-        <Toaster />
-      </TooltipProvider>
+          </SidebarProvider>
+          <Toaster />
+        </TooltipProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }

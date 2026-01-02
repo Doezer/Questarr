@@ -4,23 +4,26 @@ import { Plus, Moon, Sun } from "lucide-react";
 import AddGameModal from "./AddGameModal";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { NotificationCenter } from "./NotificationCenter";
+import { useTheme } from "next-themes";
+import { useEffect, useState } from "react";
 
 interface HeaderProps {
   title?: string;
-  _onAddGame?: () => void;
-  onToggleTheme?: () => void;
-  isDarkMode?: boolean;
-  notificationCount?: number;
 }
 
 export default function Header({
   title = "Dashboard",
-  onToggleTheme,
-  isDarkMode = true,
 }: HeaderProps) {
+  const { theme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  // Avoid hydration mismatch by only rendering theme-dependent UI after mounting
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const handleThemeToggle = () => {
-    console.warn("Theme toggle triggered");
-    onToggleTheme?.();
+    setTheme(theme === "dark" ? "light" : "dark");
   };
 
   return (
@@ -56,7 +59,8 @@ export default function Header({
           data-testid="button-theme-toggle"
           aria-label="Toggle theme"
         >
-          {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          {mounted && (theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />)}
+          {!mounted && <Sun className="w-4 h-4" />}
         </Button>
       </div>
     </header>

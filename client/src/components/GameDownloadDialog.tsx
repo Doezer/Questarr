@@ -132,6 +132,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
           body: JSON.stringify({
             url: torrent.link,
             title: torrent.title,
+            gameId: game?.id,
           }),
         });
         if (!response.ok) {

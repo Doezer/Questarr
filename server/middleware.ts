@@ -289,6 +289,11 @@ export const sanitizeTorrentData = [
     .isInt({ min: 0, max: 10 })
     .withMessage("Priority must be between 0 and 10")
     .toInt(),
+  body("gameId")
+    .optional()
+    .trim()
+    .matches(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
+    .withMessage("Invalid game ID format"),
 ];
 
 // Sanitization rules for indexer search queries

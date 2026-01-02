@@ -2,44 +2,41 @@ import { storage } from "./storage.js";
 import { igdbClient } from "./igdb.js";
 import { igdbLogger } from "./logger.js";
 import { notifyUser } from "./socket.js";
+import { DownloaderManager } from "./downloaders.js";
 
 const DELAY_THRESHOLD_DAYS = 7;
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
-// const CHECK_INTERVAL_MS = 60 * 1000; // 1 minute for testing
+const DOWNLOAD_CHECK_INTERVAL_MS = 60 * 1000; // 1 minute
 
 export function startCronJobs() {
   igdbLogger.info("Starting cron jobs...");
   
   // Run immediately on startup (or after a slight delay to ensure DB is ready)
   setTimeout(() => {
-    checkGameDelays().catch(err => igdbLogger.error({ err }, "Error in checkGameDelays"));
+    checkGameUpdates().catch(err => igdbLogger.error({ err }, "Error in checkGameUpdates"));
+    checkDownloadStatus().catch(err => igdbLogger.error({ err }, "Error in checkDownloadStatus"));
   }, 10000);
 
   // Schedule periodic checks
   setInterval(() => {
-    checkGameDelays().catch(err => igdbLogger.error({ err }, "Error in checkGameDelays"));
+    checkGameUpdates().catch(err => igdbLogger.error({ err }, "Error in checkGameUpdates"));
   }, CHECK_INTERVAL_MS);
+
+  setInterval(() => {
+    checkDownloadStatus().catch(err => igdbLogger.error({ err }, "Error in checkDownloadStatus"));
+  }, DOWNLOAD_CHECK_INTERVAL_MS);
 }
 
-async function checkGameDelays() {
-  igdbLogger.info("Checking for game delays...");
+async function checkGameUpdates() {
+  igdbLogger.info("Checking for game updates...");
 
   const allGames = await storage.getAllGames();
   
-  // Filter games that are tracked (have IGDB ID) and are not yet released
-  // We check 'upcoming', 'delayed', 'tbd', and even 'wanted' if the status isn't set.
-  // We probably don't need to check 'released' games unless we want to detect if they got un-released? Unlikely.
-  // But wait, if I marked it as 'released' because the date passed, but IGDB says it's now next year, it IS delayed.
-  // So maybe checking all games except those that are physically 'owned' and we don't care about release date anymore?
-  // But 'owned' status in this app means "I have it in my collection".
-  
-  // Let's stick to games that are NOT status='completed' (user finished it) or maybe just check everything that has an IGDB ID.
-  // Checking everything is safer for data consistency.
-  
+  // Filter games that are tracked (have IGDB ID)
   const gamesToCheck = allGames.filter(g => g.igdbId !== null);
   
   if (gamesToCheck.length === 0) {
-    igdbLogger.info("No games to check for delays.");
+    igdbLogger.info("No games to check for updates.");
     return;
   }
 
@@ -61,13 +58,10 @@ async function checkGameDelays() {
 
     // Initialize originalReleaseDate if not set
     if (!game.originalReleaseDate) {
-      // If we don't have an original date, we assume the current one is the original
-      // But only if we have a release date in DB
       if (game.releaseDate) {
          await storage.updateGame(game.id, { originalReleaseDate: game.releaseDate });
-         game.originalReleaseDate = game.releaseDate; // Update local object
+         game.originalReleaseDate = game.releaseDate;
       } else {
-         // If we had no date at all, just set both
          await storage.updateGame(game.id, { 
              releaseDate: currentReleaseDateStr,
              originalReleaseDate: currentReleaseDateStr 
@@ -90,6 +84,17 @@ async function checkGameDelays() {
         newReleaseStatus = "delayed";
     } else {
         newReleaseStatus = "upcoming";
+    }
+
+    // Check if released status changed to released
+    if (newReleaseStatus === "released" && game.releaseStatus !== "released") {
+        const message = `${game.title} is now available!`;
+        const notification = await storage.addNotification({
+            type: "success",
+            title: "Game Released",
+            message,
+        });
+        notifyUser("notification", notification);
     }
 
     // If things changed, update DB
@@ -128,5 +133,77 @@ async function checkGameDelays() {
     }
   }
 
-  igdbLogger.info({ updatedCount, checkedCount: gamesToCheck.length }, "Finished checking for game delays.");
+  igdbLogger.info({ updatedCount, checkedCount: gamesToCheck.length }, "Finished checking for game updates.");
+}
+
+async function checkDownloadStatus() {
+  igdbLogger.debug("Checking download status...");
+
+  const downloadingTorrents = await storage.getDownloadingGameTorrents();
+  
+  if (downloadingTorrents.length === 0) {
+    return;
+  }
+
+  // Group by downloader
+  const torrentsByDownloader = new Map<string, typeof downloadingTorrents>();
+  for (const t of downloadingTorrents) {
+    const list = torrentsByDownloader.get(t.downloaderId) || [];
+    list.push(t);
+    torrentsByDownloader.set(t.downloaderId, list);
+  }
+
+  const entries = Array.from(torrentsByDownloader.entries());
+  for (const [downloaderId, torrents] of entries) {
+    const downloader = await storage.getDownloader(downloaderId);
+    if (!downloader || !downloader.enabled) continue;
+
+    try {
+      const activeTorrents = await DownloaderManager.getAllTorrents(downloader);
+      const activeTorrentMap = new Map(activeTorrents.map(t => [t.id.toLowerCase(), t]));
+
+      for (const torrent of torrents) {
+        // Match by hash (handle case sensitivity just in case)
+        const remoteTorrent = activeTorrentMap.get(torrent.torrentHash.toLowerCase());
+        
+        if (remoteTorrent) {
+            // Check for completion
+            // Status can be 'completed' or 'seeding'
+            if (remoteTorrent.status === "completed" || remoteTorrent.status === "seeding") {
+                igdbLogger.info({ torrent: torrent.torrentTitle, status: remoteTorrent.status }, "Torrent download completed");
+                
+                // Update DB
+                await storage.updateGameTorrentStatus(torrent.id, "completed");
+                
+                // Update Game status to 'owned' (which means we have the files)
+                await storage.updateGameStatus(torrent.gameId, { status: "owned" });
+
+                // Fetch game title for notification
+                const game = await storage.getGame(torrent.gameId);
+                const gameTitle = game ? game.title : torrent.torrentTitle;
+
+                // Send notification
+                const message = `Download finished for ${gameTitle}`;
+                const notification = await storage.addNotification({
+                    type: "success",
+                    title: "Download Completed",
+                    message,
+                });
+                notifyUser("notification", notification);
+            } else if (remoteTorrent.status === "error") {
+                // Should we notify on error? Maybe later.
+                igdbLogger.warn({ torrent: torrent.torrentTitle, error: remoteTorrent.error }, "Torrent error detected");
+            }
+        } else {
+             // Torrent not found in downloader anymore? 
+             // Maybe it was removed manually or by 'remove completed' setting.
+             // If removeCompleted is true, we might assume it finished if it was close to done?
+             // But simpler to just ignore or mark as failed if it vanishes without completion.
+             // For now, do nothing.
+        }
+      }
+    } catch (error) {
+      igdbLogger.error({ error, downloaderId }, "Error checking downloader status");
+    }
+  }
 }

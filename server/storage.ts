@@ -8,6 +8,8 @@ import {
   type InsertIndexer,
   type Downloader,
   type InsertDownloader,
+  type GameTorrent,
+  type InsertGameTorrent,
   type Notification,
   type InsertNotification,
   users,
@@ -15,6 +17,7 @@ import {
   indexers,
   downloaders,
   notifications,
+  gameTorrents,
 } from "../shared/schema.js";
 import { randomUUID } from "crypto";
 import { db } from "./db.js";
@@ -53,6 +56,11 @@ export interface IStorage {
   updateDownloader(id: string, updates: Partial<InsertDownloader>): Promise<Downloader | undefined>;
   removeDownloader(id: string): Promise<boolean>;
 
+  // GameTorrent methods
+  getDownloadingGameTorrents(): Promise<GameTorrent[]>;
+  updateGameTorrentStatus(id: string, status: string): Promise<void>;
+  addGameTorrent(gameTorrent: InsertGameTorrent): Promise<GameTorrent>;
+  
   // Notification methods
   getNotifications(limit?: number): Promise<Notification[]>;
   getUnreadNotificationsCount(): Promise<number>;
@@ -68,6 +76,7 @@ export class MemStorage implements IStorage {
   private indexers: Map<string, Indexer>;
   private downloaders: Map<string, Downloader>;
   private notifications: Map<string, Notification>;
+  private gameTorrents: Map<string, GameTorrent>;
 
   constructor() {
     this.users = new Map();
@@ -75,6 +84,7 @@ export class MemStorage implements IStorage {
     this.indexers = new Map();
     this.downloaders = new Map();
     this.notifications = new Map();
+    this.gameTorrents = new Map();
   }
 
   // User methods
@@ -294,6 +304,34 @@ export class MemStorage implements IStorage {
 
   async removeDownloader(id: string): Promise<boolean> {
     return this.downloaders.delete(id);
+  }
+
+  // GameTorrent methods
+  async getDownloadingGameTorrents(): Promise<GameTorrent[]> {
+    return Array.from(this.gameTorrents.values()).filter(
+      (gt) => gt.status === "downloading"
+    );
+  }
+
+  async updateGameTorrentStatus(id: string, status: string): Promise<void> {
+    const gt = this.gameTorrents.get(id);
+    if (gt) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      this.gameTorrents.set(id, { ...gt, status: status as any });
+    }
+  }
+
+  async addGameTorrent(insertGameTorrent: InsertGameTorrent): Promise<GameTorrent> {
+    const id = randomUUID();
+    const gameTorrent: GameTorrent = {
+      ...insertGameTorrent,
+      id,
+      status: insertGameTorrent.status || "downloading",
+      addedAt: new Date(),
+      completedAt: null,
+    };
+    this.gameTorrents.set(id, gameTorrent);
+    return gameTorrent;
   }
 
   // Notification methods
@@ -531,6 +569,27 @@ export class DatabaseStorage implements IStorage {
   async removeDownloader(id: string): Promise<boolean> {
     await db.delete(downloaders).where(eq(downloaders.id, id));
     return true;
+  }
+
+  // GameTorrent methods
+  async getDownloadingGameTorrents(): Promise<GameTorrent[]> {
+    return db
+      .select()
+      .from(gameTorrents)
+      .where(eq(gameTorrents.status, "downloading"));
+  }
+
+  async updateGameTorrentStatus(id: string, status: string): Promise<void> {
+    await db
+      .update(gameTorrents)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .set({ status: status as any, completedAt: status === "completed" ? new Date() : null })
+      .where(eq(gameTorrents.id, id));
+  }
+
+  async addGameTorrent(insertGameTorrent: InsertGameTorrent): Promise<GameTorrent> {
+    const [gameTorrent] = await db.insert(gameTorrents).values(insertGameTorrent).returning();
+    return gameTorrent;
   }
 
   // Notification methods

@@ -1140,7 +1140,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     validateRequest,
     async (req: Request, res: Response) => {
       try {
-        const { url, title, category, downloadPath, priority } = req.body;
+        const { url, title, category, downloadPath, priority, gameId } = req.body;
 
         if (!url || !title) {
           return res.status(400).json({ error: "URL and title are required" });
@@ -1164,6 +1164,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // All downloaders failed, return 500 error
           return res.status(500).json(result);
         }
+
+        // If gameId is provided, track this torrent and update game status
+        if (gameId && result.success && result.id && result.downloaderId) {
+          try {
+            await storage.addGameTorrent({
+              gameId,
+              downloaderId: result.downloaderId,
+              torrentHash: result.id,
+              torrentTitle: title,
+              status: "downloading",
+            });
+
+            await storage.updateGameStatus(gameId, { status: "downloading" });
+          } catch (error) {
+            routesLogger.error({ error, gameId }, "Failed to link torrent to game");
+            // We don't fail the whole request since the download was added successfully
+          }
+        }
+
         res.json(result);
       } catch (error) {
         routesLogger.error({ error }, "error adding download");

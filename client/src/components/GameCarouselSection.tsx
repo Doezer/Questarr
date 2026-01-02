@@ -44,7 +44,6 @@ const GameCarouselSection = ({
   const [api, setApi] = useState<CarouselApi>();
   const [canScrollPrev, setCanScrollPrev] = useState(false);
   const [canScrollNext, setCanScrollNext] = useState(false);
-  const [displayedTitle, setDisplayedTitle] = useState(title);
 
   const {
     data: games = [],
@@ -75,15 +74,6 @@ const GameCarouselSection = ({
       api.off("select", updateScrollState);
     };
   }, [api]);
-
-  // 🎨 Palette: Prevent title/content mismatch during re-fetch.
-  // The title is now updated only *after* the new data has been fetched,
-  // ensuring the heading and the game list content always match.
-  useEffect(() => {
-    if (!isFetching) {
-      setDisplayedTitle(title);
-    }
-  }, [isFetching, title]);
 
   const scrollPrev = () => api?.scrollPrev();
   const scrollNext = () => api?.scrollNext();
@@ -134,7 +124,7 @@ const GameCarouselSection = ({
         data-testid={`carousel-section-${title.toLowerCase().replace(/\s+/g, "-")}-empty`}
       >
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold">{displayedTitle}</h2>
+          <h2 className="text-xl font-semibold">{title}</h2>
         </div>
         <div className="flex items-center gap-2 text-muted-foreground p-4 border rounded-md">
           <AlertCircle className="h-5 w-5" />
@@ -150,7 +140,7 @@ const GameCarouselSection = ({
       data-testid={`carousel-section-${title.toLowerCase().replace(/\s+/g, "-")}`}
     >
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold">{displayedTitle}</h2>
+        <h2 className="text-xl font-semibold">{title}</h2>
         <div className="flex gap-2">
           <Tooltip>
             <TooltipTrigger asChild>

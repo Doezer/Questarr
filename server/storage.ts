@@ -8,14 +8,17 @@ import {
   type InsertIndexer,
   type Downloader,
   type InsertDownloader,
+  type Notification,
+  type InsertNotification,
   users,
   games,
   indexers,
   downloaders,
+  notifications,
 } from "../shared/schema.js";
 import { randomUUID } from "crypto";
 import { db } from "./db.js";
-import { eq, ilike, or, sql } from "drizzle-orm";
+import { eq, ilike, or, sql, desc, and } from "drizzle-orm";
 
 export interface IStorage {
   // User methods
@@ -49,6 +52,14 @@ export interface IStorage {
   addDownloader(downloader: InsertDownloader): Promise<Downloader>;
   updateDownloader(id: string, updates: Partial<InsertDownloader>): Promise<Downloader | undefined>;
   removeDownloader(id: string): Promise<boolean>;
+
+  // Notification methods
+  getNotifications(limit?: number): Promise<Notification[]>;
+  getUnreadNotificationsCount(): Promise<number>;
+  addNotification(notification: InsertNotification): Promise<Notification>;
+  markNotificationAsRead(id: string): Promise<Notification | undefined>;
+  markAllNotificationsAsRead(): Promise<void>;
+  clearAllNotifications(): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
@@ -56,12 +67,14 @@ export class MemStorage implements IStorage {
   private games: Map<string, Game>;
   private indexers: Map<string, Indexer>;
   private downloaders: Map<string, Downloader>;
+  private notifications: Map<string, Notification>;
 
   constructor() {
     this.users = new Map();
     this.games = new Map();
     this.indexers = new Map();
     this.downloaders = new Map();
+    this.notifications = new Map();
   }
 
   // User methods
@@ -282,6 +295,56 @@ export class MemStorage implements IStorage {
   async removeDownloader(id: string): Promise<boolean> {
     return this.downloaders.delete(id);
   }
+
+  // Notification methods
+  async getNotifications(limit: number = 50): Promise<Notification[]> {
+    return Array.from(this.notifications.values())
+      .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+      .slice(0, limit);
+  }
+
+  async getUnreadNotificationsCount(): Promise<number> {
+    return Array.from(this.notifications.values()).filter((n) => !n.read).length;
+  }
+
+  async addNotification(insertNotification: InsertNotification): Promise<Notification> {
+    const id = randomUUID();
+    const notification: Notification = {
+      id,
+      userId: insertNotification.userId ?? null,
+      type: insertNotification.type,
+      title: insertNotification.title,
+      message: insertNotification.message,
+      read: false,
+      createdAt: new Date(),
+    };
+    this.notifications.set(id, notification);
+    return notification;
+  }
+
+  async markNotificationAsRead(id: string): Promise<Notification | undefined> {
+    const notification = this.notifications.get(id);
+    if (!notification) return undefined;
+
+    const updatedNotification: Notification = {
+      ...notification,
+      read: true,
+    };
+    this.notifications.set(id, updatedNotification);
+    return updatedNotification;
+  }
+
+  async markAllNotificationsAsRead(): Promise<void> {
+    Array.from(this.notifications.entries()).forEach(([id, notification]) => {
+      if (!notification.read) {
+        this.notifications.set(id, { ...notification, read: true });
+      }
+    });
+  }
+
+  async clearAllNotifications(): Promise<void> {
+    this.notifications.clear();
+  }
 }
 
 export class DatabaseStorage implements IStorage {
@@ -468,6 +531,45 @@ export class DatabaseStorage implements IStorage {
   async removeDownloader(id: string): Promise<boolean> {
     await db.delete(downloaders).where(eq(downloaders.id, id));
     return true;
+  }
+
+  // Notification methods
+  async getNotifications(limit: number = 50): Promise<Notification[]> {
+    return db
+      .select()
+      .from(notifications)
+      .orderBy(desc(notifications.createdAt))
+      .limit(limit);
+  }
+
+  async getUnreadNotificationsCount(): Promise<number> {
+    const [result] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(notifications)
+      .where(eq(notifications.read, false));
+    return result.count;
+  }
+
+  async addNotification(insertNotification: InsertNotification): Promise<Notification> {
+    const [notification] = await db.insert(notifications).values(insertNotification).returning();
+    return notification;
+  }
+
+  async markNotificationAsRead(id: string): Promise<Notification | undefined> {
+    const [updatedNotification] = await db
+      .update(notifications)
+      .set({ read: true })
+      .where(eq(notifications.id, id))
+      .returning();
+    return updatedNotification || undefined;
+  }
+
+  async markAllNotificationsAsRead(): Promise<void> {
+    await db.update(notifications).set({ read: true }).where(eq(notifications.read, false));
+  }
+
+  async clearAllNotifications(): Promise<void> {
+    await db.delete(notifications);
   }
 }
 

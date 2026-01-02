@@ -89,6 +89,18 @@ export const gameTorrents = pgTable("game_torrents", {
   completedAt: timestamp("completed_at"),
 });
 
+export const notifications = pgTable("notifications", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id, { onDelete: "cascade" }), // Optional if we want global notifications too
+  type: text("type", { enum: ["info", "success", "warning", "error", "delayed"] }).notNull(),
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  read: boolean("read").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Validation schemas using drizzle-zod for runtime validation
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
@@ -130,6 +142,12 @@ export const insertGameTorrentSchema = createInsertSchema(gameTorrents).omit({
   completedAt: true,
 });
 
+export const insertNotificationSchema = createInsertSchema(notifications).omit({
+  id: true,
+  createdAt: true,
+  read: true,
+});
+
 // Type definitions - using Drizzle's table inference for select types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -152,6 +170,9 @@ export type InsertDownloader = z.infer<typeof insertDownloaderSchema>;
 
 export type GameTorrent = typeof gameTorrents.$inferSelect;
 export type InsertGameTorrent = z.infer<typeof insertGameTorrentSchema>;
+
+export type Notification = typeof notifications.$inferSelect;
+export type InsertNotification = z.infer<typeof insertNotificationSchema>;
 
 // Application configuration type
 export interface Config {

@@ -1,6 +1,7 @@
 import { storage } from "./storage.js";
 import { igdbClient } from "./igdb.js";
 import { igdbLogger } from "./logger.js";
+import { notifyUser } from "./socket.js";
 
 const DELAY_THRESHOLD_DAYS = 7;
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -113,6 +114,17 @@ async function checkGameDelays() {
             releaseStatus: newReleaseStatus
         });
         updatedCount++;
+
+        // Send notification if game is delayed
+        if (newReleaseStatus === "delayed" && game.releaseStatus !== "delayed") {
+          const message = `${game.title} has been delayed to ${currentReleaseDateStr}`;
+          const notification = await storage.addNotification({
+            type: "delayed",
+            title: "Game Delayed",
+            message,
+          });
+          notifyUser("notification", notification);
+        }
     }
   }
 

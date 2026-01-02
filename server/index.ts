@@ -6,6 +6,7 @@ import { generalApiLimiter } from "./middleware.js";
 import { config } from "./config.js";
 import { expressLogger } from "./logger.js";
 import { startCronJobs } from "./cron.js";
+import { setupSocketIO } from "./socket.js";
 
 const app = express();
 app.use(express.json());
@@ -63,6 +64,7 @@ app.use((req, res, next) => {
 
 (async () => {
   const server = await registerRoutes(app);
+  setupSocketIO(server);
 
   // Error handler must handle various error shapes
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

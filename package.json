@@ -81,6 +81,8 @@
     "react-icons": "^5.5.0",
     "react-resizable-panels": "^2.1.9",
     "recharts": "^2.15.2",
+    "socket.io": "^4.8.3",
+    "socket.io-client": "^4.8.3",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
     "tw-animate-css": "^1.2.5",

@@ -8,6 +8,7 @@ import {
   updateGameStatusSchema,
   insertIndexerSchema,
   insertDownloaderSchema,
+  insertNotificationSchema,
   type Config,
   type Indexer,
   type Downloader,
@@ -1220,6 +1221,84 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     }
   );
+
+  // Notification routes
+  app.get("/api/notifications", async (req, res) => {
+    try {
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 50;
+      const notifications = await storage.getNotifications(limit);
+      res.json(notifications);
+    } catch (error) {
+      routesLogger.error({ error }, "error fetching notifications");
+      res.status(500).json({ error: "Failed to fetch notifications" });
+    }
+  });
+
+  app.get("/api/notifications/unread-count", async (req, res) => {
+    try {
+      const count = await storage.getUnreadNotificationsCount();
+      res.json({ count });
+    } catch (error) {
+      routesLogger.error({ error }, "error fetching unread count");
+      res.status(500).json({ error: "Failed to fetch unread count" });
+    }
+  });
+
+  app.post("/api/notifications", validateRequest, async (req, res) => {
+    try {
+      const notificationData = insertNotificationSchema.parse(req.body);
+      const notification = await storage.addNotification(notificationData);
+      
+      // Notify via WebSocket
+      // dynamic import to avoid circular dependency issues if they exist, 
+      // or just import it at top if safe. 
+      // Ideally notifications are triggered by events, not by API, but this is good for testing.
+      const { notifyUser } = await import("./socket.js");
+      notifyUser("notification", notification);
+
+      res.status(201).json(notification);
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+          return res.status(400).json({ error: "Invalid notification data", details: error.errors });
+        }
+      routesLogger.error({ error }, "error adding notification");
+      res.status(500).json({ error: "Failed to add notification" });
+    }
+  });
+
+  app.put("/api/notifications/:id/read", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const notification = await storage.markNotificationAsRead(id);
+      if (!notification) {
+        return res.status(404).json({ error: "Notification not found" });
+      }
+      res.json(notification);
+    } catch (error) {
+      routesLogger.error({ error }, "error marking notification as read");
+      res.status(500).json({ error: "Failed to mark notification as read" });
+    }
+  });
+
+  app.put("/api/notifications/read-all", async (req, res) => {
+    try {
+      await storage.markAllNotificationsAsRead();
+      res.json({ success: true });
+    } catch (error) {
+      routesLogger.error({ error }, "error marking all notifications as read");
+      res.status(500).json({ error: "Failed to mark all notifications as read" });
+    }
+  });
+
+  app.delete("/api/notifications", async (req, res) => {
+    try {
+      await storage.clearAllNotifications();
+      res.status(204).send();
+    } catch (error) {
+      routesLogger.error({ error }, "error clearing notifications");
+      res.status(500).json({ error: "Failed to clear notifications" });
+    }
+  });
 
   // Configuration endpoint - read-only access to key settings
   app.get("/api/config", sensitiveEndpointLimiter, async (req, res) => {

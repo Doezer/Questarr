@@ -313,29 +313,48 @@ function WeekView({ currentDate, gamesByDate }: { currentDate: Date; gamesByDate
 }
 
 function GameBadge({ game, compact = false }: { game: Game; compact?: boolean }) {
+  const isDelayed = game.releaseStatus === "delayed";
+
   if (compact) {
     return (
       <Tooltip>
         <TooltipTrigger asChild>
-          <div className="flex items-center gap-1 p-1 bg-muted rounded hover:bg-muted/80 cursor-pointer">
+          <div className={cn(
+            "flex items-center gap-1 p-1 rounded hover:opacity-80 cursor-pointer transition-opacity",
+            isDelayed ? "bg-destructive/20 border border-destructive/30" : "bg-muted"
+          )}>
             <img
               src={game.coverUrl || "/placeholder-game-cover.jpg"}
               alt={game.title}
               className="w-6 h-6 rounded object-cover"
             />
-            <span className="text-xs truncate flex-1">{game.title}</span>
+            <span className={cn("text-xs truncate flex-1", isDelayed && "text-destructive font-medium")}>
+              {game.title}
+              {isDelayed && " (Delayed)"}
+            </span>
           </div>
         </TooltipTrigger>
         <TooltipContent>
           <div className="max-w-xs">
             <p className="font-semibold">{game.title}</p>
-            <p className="text-xs text-muted-foreground">
+            {isDelayed && (
+              <Badge variant="destructive" className="mt-1 text-[10px] h-4">Delayed</Badge>
+            )}
+            <p className="text-xs text-muted-foreground mt-1">
               {game.releaseDate && new Date(game.releaseDate).toLocaleDateString("en-US", {
                 year: "numeric",
                 month: "long",
                 day: "numeric"
               })}
             </p>
+            {isDelayed && game.originalReleaseDate && (
+              <p className="text-[10px] text-muted-foreground">
+                Original: {new Date(game.originalReleaseDate).toLocaleDateString("en-US", {
+                  month: "short",
+                  day: "numeric"
+                })}
+              </p>
+            )}
           </div>
         </TooltipContent>
       </Tooltip>
@@ -345,14 +364,24 @@ function GameBadge({ game, compact = false }: { game: Game; compact?: boolean })
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <div className="flex items-center gap-2 p-2 bg-muted rounded hover:bg-muted/80 cursor-pointer transition-colors">
+        <div className={cn(
+          "flex items-center gap-2 p-2 rounded hover:opacity-80 cursor-pointer transition-all",
+          isDelayed ? "bg-destructive/10 border border-destructive/20" : "bg-muted"
+        )}>
           <img
             src={game.coverUrl || "/placeholder-game-cover.jpg"}
             alt={game.title}
             className="w-12 h-12 rounded object-cover flex-shrink-0"
           />
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium truncate">{game.title}</p>
+            <div className="flex items-center gap-1">
+              <p className={cn("text-sm font-medium truncate", isDelayed && "text-destructive")}>
+                {game.title}
+              </p>
+              {isDelayed && (
+                <Badge variant="destructive" className="text-[10px] h-4 px-1">Delayed</Badge>
+              )}
+            </div>
             <p className="text-xs text-muted-foreground">
               {game.releaseDate && new Date(game.releaseDate).toLocaleDateString("en-US", {
                 month: "short",
@@ -366,6 +395,20 @@ function GameBadge({ game, compact = false }: { game: Game; compact?: boolean })
       <TooltipContent>
         <div className="max-w-xs">
           <p className="font-semibold">{game.title}</p>
+          {isDelayed && (
+            <div className="flex flex-col gap-0.5 mt-1">
+              <Badge variant="destructive" className="w-fit text-[10px] h-4">Delayed</Badge>
+              {game.originalReleaseDate && (
+                <p className="text-[10px] text-muted-foreground">
+                  Was originally scheduled for: {new Date(game.originalReleaseDate).toLocaleDateString("en-US", {
+                    month: "long",
+                    day: "numeric",
+                    year: "numeric"
+                  })}
+                </p>
+              )}
+            </div>
+          )}
           {game.summary && (
             <p className="text-xs text-muted-foreground mt-1 line-clamp-3">{game.summary}</p>
           )}

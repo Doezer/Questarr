@@ -194,7 +194,8 @@ class IGDBClient {
           },
           `trying approach ${i + 1}`
         );
-        const results = await this.makeRequest("games", searchApproaches[i]);
+        // Cache search results for 15 minutes to reduce redundant API calls
+        const results = await this.makeRequest("games", searchApproaches[i], 15 * 60 * 1000);
         if (results.length > 0) {
           igdbLogger.info(
             { approach: i + 1, query: sanitizedQuery, resultCount: results.length },
@@ -242,7 +243,8 @@ class IGDBClient {
           `trying word search`
         );
         const wordQuery = `fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url; where name ~ *"${sanitizedWord}"*; sort rating desc; limit ${limit};`;
-        const wordResults = await this.makeRequest("games", wordQuery);
+        // Cache word search results for 15 minutes
+        const wordResults = await this.makeRequest("games", wordQuery, 15 * 60 * 1000);
 
         if (wordResults.length > 0) {
           igdbLogger.info(

@@ -10,6 +10,9 @@ const envSchema = z.object({
     .string()
     .min(1, "DATABASE_URL must be set. Did you forget to provision a database?"),
 
+  // JWT configuration
+  JWT_SECRET: z.string().default("questarr-default-secret-change-me"),
+
   // IGDB API configuration (optional, but required for game discovery features)
   IGDB_CLIENT_ID: z.string().optional(),
   IGDB_CLIENT_SECRET: z.string().optional(),
@@ -56,6 +59,9 @@ const env = validateEnv();
 export const config = {
   database: {
     url: env.DATABASE_URL,
+  },
+  auth: {
+    jwtSecret: env.JWT_SECRET,
   },
   igdb: {
     clientId: env.IGDB_CLIENT_ID,

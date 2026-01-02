@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Dialog,
@@ -7,13 +7,31 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { Download, Loader2, FileDown } from "lucide-react";
+import { Download, Loader2, FileDown, PackagePlus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { type Game } from "@shared/schema";
+import { 
+  groupTorrentsByCategory, 
+  getCategoryLabel, 
+  getCategoryDescription,
+  type TorrentCategory 
+} from "@/lib/torrent-categorizer";
 
 interface TorrentItem {
   title: string;
@@ -64,6 +82,10 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
   const [downloadingGuid, setDownloadingGuid] = useState<string | null>(null);
+  const [showBundleDialog, setShowBundleDialog] = useState(false);
+  const [selectedMainTorrent, setSelectedMainTorrent] = useState<TorrentItem | null>(null);
+  const [isDirectDownloadMode, setIsDirectDownloadMode] = useState(false);
+  const [selectedUpdateIndices, setSelectedUpdateIndices] = useState<Set<number>>(new Set());
 
   // Auto-populate search when dialog opens with game title
   useEffect(() => {
@@ -71,6 +93,10 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       setSearchQuery(game.title);
     } else if (!open) {
       setSearchQuery("");
+      setShowBundleDialog(false);
+      setSelectedMainTorrent(null);
+      setIsDirectDownloadMode(false);
+      setSelectedUpdateIndices(new Set());
     }
   }, [open, game]);
 
@@ -79,7 +105,14 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     enabled: open && searchQuery.trim().length > 0,
   });
 
-  const sortedItems = React.useMemo(() => {
+  // Categorize torrents
+  const categorizedTorrents = useMemo(() => {
+    if (!searchResults?.items) return { main: [], update: [], dlc: [], extra: [] };
+    return groupTorrentsByCategory(searchResults.items);
+  }, [searchResults?.items]);
+
+  // Sorted items for display (by date)
+  const sortedItems = useMemo(() => {
     if (!searchResults?.items) return [];
     return [...searchResults.items].sort((a, b) => {
       const dateA = new Date(a.pubDate).getTime();
@@ -89,42 +122,40 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   }, [searchResults?.items]);
 
   const downloadMutation = useMutation({
-    mutationFn: async (torrent: TorrentItem) => {
-      const response = await fetch("/api/downloads", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          url: torrent.link,
-          title: torrent.title,
-        }),
-      });
-      if (!response.ok) {
-        let errorMessage = "Failed to add download";
-        try {
-          const error = await response.json();
-          errorMessage = error.error || errorMessage;
-        } catch {
-          // Response is not JSON, use default error message
+    mutationFn: async (torrents: TorrentItem[]) => {
+      // Download multiple torrents sequentially
+      const results = [];
+      for (const torrent of torrents) {
+        const response = await fetch("/api/downloads", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            url: torrent.link,
+            title: torrent.title,
+          }),
+        });
+        if (!response.ok) {
+          let errorMessage = "Failed to add download";
+          try {
+            const error = await response.json();
+            errorMessage = error.error || errorMessage;
+          } catch {
+            // Response is not JSON, use default error message
+          }
+          throw new Error(errorMessage);
         }
-        throw new Error(errorMessage);
+        results.push(await response.json());
       }
-      return response.json();
+      return results;
     },
-    onSuccess: (result) => {
-      if (result.success) {
-        toast({
-          title: "Download started successfully",
-          description: `Added to ${result.downloaderName || "downloader"}`,
-        });
-        queryClient.invalidateQueries({ queryKey: ["/api/downloads"] });
-        onOpenChange(false);
-      } else {
-        toast({
-          title: "Failed to start download",
-          description: result.message || "Unknown error",
-          variant: "destructive",
-        });
-      }
+    onSuccess: (results) => {
+      const successCount = results.filter(r => r.success).length;
+      toast({
+        title: `${successCount} download(s) started successfully`,
+        description: results.length > 1 ? `Added ${successCount} of ${results.length} torrents` : undefined,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/downloads"] });
+      onOpenChange(false);
     },
     onError: (error: Error) => {
       toast({
@@ -135,17 +166,51 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     },
     onSettled: () => {
       setDownloadingGuid(null);
+      setShowBundleDialog(false);
+      setSelectedMainTorrent(null);
     },
   });
 
   const handleDownload = (torrent: TorrentItem) => {
+    // Check if this is a main game torrent and we have updates available
+    if (categorizedTorrents.update.length > 0) {
+      const guid = torrent.guid || torrent.link;
+      const torrentCategory = groupTorrentsByCategory([torrent]);
+      
+      if (torrentCategory.main.length > 0) {
+        // This is a main game torrent, ask if user wants to include updates
+        setSelectedMainTorrent(torrent);
+        setIsDirectDownloadMode(false);
+        // Select all updates by default
+        setSelectedUpdateIndices(new Set(categorizedTorrents.update.map((_, i) => i)));
+        setShowBundleDialog(true);
+        return;
+      }
+    }
+    
+    // Otherwise, download normally
     const guid = torrent.guid || torrent.link;
     setDownloadingGuid(guid);
-    downloadMutation.mutate(torrent);
+    downloadMutation.mutate([torrent]);
   };
 
-  const handleDirectDownload = (torrent: TorrentItem) => {
-    // Create a temporary anchor element to trigger download
+  const handleBundleDownload = (includeUpdates: boolean) => {
+    if (!selectedMainTorrent) return;
+    
+    const guid = selectedMainTorrent.guid || selectedMainTorrent.link;
+    setDownloadingGuid(guid);
+    
+    if (includeUpdates && selectedUpdateIndices.size > 0) {
+      // Download main game + selected updates
+      const selectedUpdates = Array.from(selectedUpdateIndices).map(i => categorizedTorrents.update[i]);
+      downloadMutation.mutate([selectedMainTorrent, ...selectedUpdates]);
+    } else {
+      // Download only main game
+      downloadMutation.mutate([selectedMainTorrent]);
+    }
+  };
+
+  const downloadTorrentFile = (torrent: TorrentItem) => {
     const link = document.createElement('a');
     link.href = torrent.link;
     link.download = `${torrent.title}.torrent`;
@@ -153,11 +218,121 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const handleDirectDownload = (torrent: TorrentItem) => {
+    // Check if this is a main game torrent and we have updates available
+    if (categorizedTorrents.update.length > 0) {
+      const torrentCategory = groupTorrentsByCategory([torrent]);
+      
+      if (torrentCategory.main.length > 0) {
+        // This is a main game torrent, ask if user wants to include updates
+        setSelectedMainTorrent(torrent);
+        setIsDirectDownloadMode(true);
+        // Select all updates by default
+        setSelectedUpdateIndices(new Set(categorizedTorrents.update.map((_, i) => i)));
+        setShowBundleDialog(true);
+        return;
+      }
+    }
     
+    // Otherwise, download normally
+    downloadTorrentFile(torrent);
     toast({
       title: "Download started",
       description: "Torrent file download initiated",
     });
+  };
+
+  const handleDirectDownloadWithUpdates = async (mainTorrent: TorrentItem) => {
+    // Check if there are updates to bundle
+    if (categorizedTorrents.update.length === 0) {
+      downloadTorrentFile(mainTorrent);
+      toast({
+        title: "Download started",
+        description: "Torrent file download initiated",
+      });
+      return;
+    }
+
+    setSelectedMainTorrent(mainTorrent);
+    setIsDirectDownloadMode(true);
+    // Select all updates by default
+    setSelectedUpdateIndices(new Set(categorizedTorrents.update.map((_, i) => i)));
+    setShowBundleDialog(true);
+  };
+
+  const handleBundleDirectDownload = async (includeUpdates: boolean) => {
+    if (!selectedMainTorrent) return;
+
+    if (includeUpdates && selectedUpdateIndices.size > 0) {
+      // Download selected updates as a ZIP bundle
+      const selectedUpdates = Array.from(selectedUpdateIndices).map(i => categorizedTorrents.update[i]);
+      const torrents = [selectedMainTorrent, ...selectedUpdates];
+      
+      try {
+        const response = await fetch("/api/downloads/bundle", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ torrents }),
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to create bundle");
+        }
+
+        // Download the ZIP file
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${selectedMainTorrent.title}-bundle.zip`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+
+        toast({
+          title: `Bundle downloaded`,
+          description: `ZIP file with ${torrents.length} torrent(s)`,
+        });
+      } catch (error) {
+        toast({
+          title: "Failed to create bundle",
+          description: error instanceof Error ? error.message : "Unknown error",
+          variant: "destructive",
+        });
+      }
+    } else {
+      downloadTorrentFile(selectedMainTorrent);
+      toast({
+        title: "Download started",
+        description: "Torrent file download initiated",
+      });
+    }
+    
+    setShowBundleDialog(false);
+    setSelectedMainTorrent(null);
+  };
+
+  const toggleUpdateSelection = (index: number) => {
+    setSelectedUpdateIndices((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) {
+        next.delete(index);
+      } else {
+        next.add(index);
+      }
+      return next;
+    });
+  };
+
+  const selectAllUpdates = () => {
+    setSelectedUpdateIndices(new Set(categorizedTorrents.update.map((_, i) => i)));
+  };
+
+  const deselectAllUpdates = () => {
+    setSelectedUpdateIndices(new Set());
   };
 
   if (!game) return null;
@@ -191,80 +366,118 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
             )}
 
             {!isSearching && searchResults && searchResults.items.length > 0 && (
-              <div className="border rounded-md divide-y">
-                <div className="bg-muted/50 p-2 text-xs font-medium flex justify-between items-center">
-                  <div>Release Name</div>
-                  <div className="w-[80px] text-right">Actions</div>
-                </div>
-                {sortedItems.map((torrent) => (
-                  <div
-                    key={torrent.guid || torrent.link}
-                    className="p-2 text-sm flex justify-between items-center hover:bg-muted/30 transition-colors gap-4"
-                  >
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium truncate" title={torrent.title}>
-                        {torrent.title}
+              <div className="space-y-6">
+                {/* Render each category separately */}
+                {(['main', 'update', 'dlc', 'extra'] as const).map((category) => {
+                  const torrentsInCategory = categorizedTorrents[category];
+                  if (torrentsInCategory.length === 0) return null;
+
+                  // Sort by seeders within category
+                  const sortedCategoryTorrents = [...torrentsInCategory].sort((a, b) => {
+                    const seedersA = a.seeders || 0;
+                    const seedersB = b.seeders || 0;
+                    return seedersB - seedersA;
+                  });
+
+                  return (
+                    <div key={category}>
+                      {/* Category Header */}
+                      <div className="flex items-center gap-2 mb-3">
+                        <h3 className="font-semibold text-base capitalize">
+                          {category === 'main' ? 'Main Game' : 
+                           category === 'update' ? 'Updates & Patches' :
+                           category === 'dlc' ? 'DLC & Expansions' : 'Extras'}
+                        </h3>
+                        <Badge variant="secondary" className="text-xs">
+                          {torrentsInCategory.length}
+                        </Badge>
                       </div>
-                      <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
-                        <span>{formatDate(torrent.pubDate)}</span>
-                        <span>•</span>
-                        <span>{torrent.size ? formatBytes(torrent.size) : "-"}</span>
-                        <span>•</span>
-                        <div className="flex items-center gap-1">
-                          <span className="text-green-600 font-medium">
-                            {torrent.seeders ?? 0}
-                          </span>
-                          <span>/</span>
-                          <span className="text-red-600 font-medium">
-                            {torrent.leechers ?? 0}
-                          </span>
-                          <span>peers</span>
+                      <div className="text-xs text-muted-foreground mb-2">
+                        {category === 'main' ? 'Full game downloads' :
+                         category === 'update' ? 'Game updates, patches, hotfixes, and crackfixes' :
+                         category === 'dlc' ? 'Downloadable content, expansions, and season passes' :
+                         'Soundtracks, artbooks, and other bonus content'}
+                      </div>
+
+                      {/* Torrents in this category */}
+                      <div className="border rounded-md divide-y mb-4">
+                        <div className="bg-muted/50 p-2 text-xs font-medium flex justify-between items-center">
+                          <div>Release Name</div>
+                          <div className="w-[80px] text-right">Actions</div>
                         </div>
-                        {torrent.description && (
-                          <>
-                            <span>•</span>
-                            <span className="truncate max-w-[200px]" title={torrent.description}>
-                              {torrent.description}
-                            </span>
-                          </>
-                        )}
+                        {sortedCategoryTorrents.map((torrent: TorrentItem) => (
+                          <div
+                            key={torrent.guid || torrent.link}
+                            className="p-2 text-sm flex justify-between items-center hover:bg-muted/30 transition-colors gap-4"
+                          >
+                            <div className="flex-1 min-w-0">
+                              <div className="font-medium truncate" title={torrent.title}>
+                                {torrent.title}
+                              </div>
+                              <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+                                <span>{formatDate(torrent.pubDate)}</span>
+                                <span>•</span>
+                                <span>{torrent.size ? formatBytes(torrent.size) : "-"}</span>
+                                <span>•</span>
+                                <div className="flex items-center gap-1">
+                                  <span className="text-green-600 font-medium">
+                                    {torrent.seeders ?? 0}
+                                  </span>
+                                  <span>/</span>
+                                  <span className="text-red-600 font-medium">
+                                    {torrent.leechers ?? 0}
+                                  </span>
+                                  <span>peers</span>
+                                </div>
+                                {torrent.description && (
+                                  <>
+                                    <span>•</span>
+                                    <span className="truncate max-w-[200px]" title={torrent.description}>
+                                      {torrent.description}
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1 flex-shrink-0">
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    onClick={() => handleDirectDownload(torrent)}
+                                    className="h-8 w-8"
+                                  >
+                                    <FileDown className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Download .torrent file</TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    onClick={() => handleDownload(torrent)}
+                                    disabled={downloadingGuid !== null}
+                                    className="h-8 w-8"
+                                  >
+                                    {downloadingGuid === (torrent.guid || torrent.link) ? (
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <Download className="h-4 w-4" />
+                                    )}
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Add to downloader</TooltipContent>
+                              </Tooltip>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            onClick={() => handleDirectDownload(torrent)}
-                            className="h-8 w-8"
-                          >
-                            <FileDown className="h-4 w-4" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>Download .torrent file</TooltipContent>
-                      </Tooltip>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            onClick={() => handleDownload(torrent)}
-                            disabled={downloadingGuid !== null}
-                            className="h-8 w-8"
-                          >
-                            {downloadingGuid === (torrent.guid || torrent.link) ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <Download className="h-4 w-4" />
-                            )}
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>Add to downloader</TooltipContent>
-                      </Tooltip>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 
@@ -287,6 +500,108 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
           </div>
         </ScrollArea>
       </DialogContent>
+
+      {/* Bundle Confirmation Dialog */}
+      <AlertDialog open={showBundleDialog} onOpenChange={setShowBundleDialog}>
+        <AlertDialogContent className="max-w-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Download with Updates?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {categorizedTorrents.update.length} update(s) are available for this game.
+              Select which updates you want to download with the main game.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          
+          {/* List of updates with checkboxes */}
+          {categorizedTorrents.update.length > 0 && (
+            <div className="my-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-sm font-semibold">Available Updates:</div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={selectAllUpdates}
+                    className="h-7 text-xs"
+                  >
+                    Select All
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={deselectAllUpdates}
+                    className="h-7 text-xs"
+                  >
+                    Deselect All
+                  </Button>
+                </div>
+              </div>
+              <div className="border rounded-md">
+                <ScrollArea className="h-[300px]">
+                  <div className="p-3 space-y-3">
+                    {categorizedTorrents.update.map((update, index) => (
+                      <div
+                        key={update.guid || update.link}
+                        className="flex items-start gap-3 p-2 rounded hover:bg-muted/50 transition-colors"
+                      >
+                        <Checkbox
+                          id={`update-${index}`}
+                          checked={selectedUpdateIndices.has(index)}
+                          onCheckedChange={() => toggleUpdateSelection(index)}
+                          className="mt-1"
+                        />
+                        <label
+                          htmlFor={`update-${index}`}
+                          className="flex-1 cursor-pointer text-sm"
+                        >
+                          <div className="font-medium">{update.title}</div>
+                          <div className="text-xs text-muted-foreground flex items-center gap-2 mt-1">
+                            {update.size && <span>{formatBytes(update.size)}</span>}
+                            {update.seeders !== undefined && (
+                              <>
+                                <span>•</span>
+                                <span className="text-green-600">{update.seeders} seeders</span>
+                              </>
+                            )}
+                          </div>
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+              </div>
+              <div className="text-xs text-muted-foreground mt-2">
+                {selectedUpdateIndices.size} of {categorizedTorrents.update.length} updates selected
+              </div>
+            </div>
+          )}
+          
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => {
+              if (isDirectDownloadMode) {
+                handleBundleDirectDownload(false);
+              } else {
+                handleBundleDownload(false);
+              }
+            }}>
+              No, just the main game
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (isDirectDownloadMode) {
+                  handleBundleDirectDownload(true);
+                } else {
+                  handleBundleDownload(true);
+                }
+              }}
+              disabled={selectedUpdateIndices.size === 0}
+            >
+              <PackagePlus className="w-4 h-4 mr-2" />
+              Download with {selectedUpdateIndices.size} update(s)
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }

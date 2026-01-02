@@ -1,16 +1,42 @@
-import { useQuery } from "@tanstack/react-query";
-import { Settings as SettingsIcon, Database, Server, Key } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Settings as SettingsIcon, Database, Server, Key, RefreshCw } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
 import type { Config } from "@shared/schema";
 
 export default function SettingsPage() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
   const {
     data: config,
     isLoading,
     error,
   } = useQuery<Config>({
     queryKey: ["/api/config"],
+  });
+
+  const refreshMetadataMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/games/refresh-metadata");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Metadata Refresh",
+        description: data.message,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Metadata Refresh Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
   });
 
   if (isLoading) {
@@ -70,6 +96,43 @@ export default function SettingsPage() {
                 integration.
               </p>
             )}
+          </CardContent>
+        </Card>
+
+        {/* Application Management */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center space-x-3">
+              <Server className="h-5 w-5 text-muted-foreground" />
+              <CardTitle className="text-lg">Maintenance</CardTitle>
+            </div>
+            <CardDescription>Application maintenance and data management tasks</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-col space-y-2">
+              <div className="flex justify-between items-center">
+                <div>
+                  <p className="text-sm font-medium">Refresh Metadata</p>
+                  <p className="text-xs text-muted-foreground">
+                    Update all games in your library with the latest information from IGDB.
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => refreshMetadataMutation.mutate()}
+                  disabled={refreshMetadataMutation.isPending}
+                  className="gap-2"
+                >
+                  {refreshMetadataMutation.isPending ? (
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4" />
+                  )}
+                  Refresh All
+                </Button>
+              </div>
+            </div>
           </CardContent>
         </Card>
       </div>

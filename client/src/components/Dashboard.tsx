@@ -1,18 +1,31 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import SearchBar from "./SearchBar";
 import GameGrid from "./GameGrid";
 import StatsCard from "./StatsCard";
-import { Library, Star, Gamepad2, Tags } from "lucide-react";
+import { Library, Star, Gamepad2, Tags, Filter, X } from "lucide-react";
 import { type Game } from "@shared/schema";
 import { type GameStatus } from "./StatusBadge";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 export default function Dashboard() {
   const [searchQuery, setSearchQuery] = useState("");
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
-  const [activeFilters, setActiveFilters] = useState<string[]>([]);
+  const [showFilters, setShowFilters] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<GameStatus | "all">("all");
+  const [genreFilter, setGenreFilter] = useState<string>("all");
+  const [platformFilter, setPlatformFilter] = useState<string>("all");
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -51,8 +64,41 @@ export default function Dashboard() {
   });
 
   // Calculate unique genres and platforms from user's game collection
-  const uniqueGenres = new Set(games.flatMap((g) => g.genres ?? []));
-  const uniquePlatforms = new Set(games.flatMap((g) => g.platforms ?? []));
+  const uniqueGenres = useMemo(() => {
+    return Array.from(new Set(games.flatMap((g) => g.genres ?? []))).sort();
+  }, [games]);
+  
+  const uniquePlatforms = useMemo(() => {
+    return Array.from(new Set(games.flatMap((g) => g.platforms ?? []))).sort();
+  }, [games]);
+
+  // Filter games based on active filters
+  const filteredGames = useMemo(() => {
+    return games.filter((game) => {
+      // Status filter
+      if (statusFilter !== "all" && game.status !== statusFilter) {
+        return false;
+      }
+      // Genre filter
+      if (genreFilter !== "all" && !game.genres?.includes(genreFilter)) {
+        return false;
+      }
+      // Platform filter
+      if (platformFilter !== "all" && !game.platforms?.includes(platformFilter)) {
+        return false;
+      }
+      return true;
+    });
+  }, [games, statusFilter, genreFilter, platformFilter]);
+
+  // Active filters for display
+  const activeFilters = useMemo(() => {
+    const filters: string[] = [];
+    if (statusFilter !== "all") filters.push(`Status: ${statusFilter}`);
+    if (genreFilter !== "all") filters.push(`Genre: ${genreFilter}`);
+    if (platformFilter !== "all") filters.push(`Platform: ${platformFilter}`);
+    return filters;
+  }, [statusFilter, genreFilter, platformFilter]);
 
   const stats = [
     {
@@ -63,13 +109,13 @@ export default function Dashboard() {
     },
     {
       title: "Genres",
-      value: uniqueGenres.size,
+      value: uniqueGenres.length,
       subtitle: "unique genres",
       icon: Tags,
     },
     {
       title: "Platforms",
-      value: uniquePlatforms.size,
+      value: uniquePlatforms.length,
       subtitle: "unique platforms",
       icon: Gamepad2,
     },
@@ -89,11 +135,21 @@ export default function Dashboard() {
   }, []);
 
   const handleFilterToggle = useCallback(() => {
-    console.warn("Filter panel toggled");
+    setShowFilters((prev) => !prev);
   }, []);
 
   const handleRemoveFilter = useCallback((filter: string) => {
-    setActiveFilters((prev) => prev.filter((f) => f !== filter));
+    // Parse filter string (format: "Type: Value")
+    const [type, value] = filter.split(": ");
+    if (type === "Status") setStatusFilter("all");
+    else if (type === "Genre") setGenreFilter("all");
+    else if (type === "Platform") setPlatformFilter("all");
+  }, []);
+
+  const clearAllFilters = useCallback(() => {
+    setStatusFilter("all");
+    setGenreFilter("all");
+    setPlatformFilter("all");
   }, []);
 
   // ⚡ Bolt: Memoize `handleStatusChange` with `useCallback`.
@@ -133,8 +189,89 @@ export default function Dashboard() {
             onRemoveFilter={handleRemoveFilter}
             placeholder="Search your library..."
           />
+          
+          {/* Filter Panel */}
+          {showFilters && (
+            <Card>
+              <CardContent className="p-4 space-y-4">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm font-semibold">Filters</Label>
+                  {activeFilters.length > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={clearAllFilters}
+                      className="gap-2"
+                    >
+                      <X className="w-4 h-4" />
+                      Clear All
+                    </Button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* Status Filter */}
+                  <div className="space-y-2">
+                    <Label>Status</Label>
+                    <Select
+                      value={statusFilter}
+                      onValueChange={(value) => setStatusFilter(value as GameStatus | "all")}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All</SelectItem>
+                        <SelectItem value="wanted">Wanted</SelectItem>
+                        <SelectItem value="owned">Owned</SelectItem>
+                        <SelectItem value="completed">Completed</SelectItem>
+                        <SelectItem value="downloading">Downloading</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Genre Filter */}
+                  <div className="space-y-2">
+                    <Label>Genre</Label>
+                    <Select value={genreFilter} onValueChange={setGenreFilter}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Genres</SelectItem>
+                        {uniqueGenres.map((genre) => (
+                          <SelectItem key={genre} value={genre}>
+                            {genre}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Platform Filter */}
+                  <div className="space-y-2">
+                    <Label>Platform</Label>
+                    <Select value={platformFilter} onValueChange={setPlatformFilter}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Platforms</SelectItem>
+                        {uniquePlatforms.map((platform) => (
+                          <SelectItem key={platform} value={platform}>
+                            {platform}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+          
           <GameGrid
-            games={games}
+            games={filteredGames}
             onStatusChange={handleStatusChange}
             isLoading={isLoading}
             isFetching={isFetching}

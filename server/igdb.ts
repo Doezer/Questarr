@@ -281,6 +281,31 @@ class IGDBClient {
     return results.length > 0 ? results[0] : null;
   }
 
+  async getGamesByIds(ids: number[]): Promise<IGDBGame[]> {
+    if (ids.length === 0) return [];
+    
+    // Split into chunks of 100 to avoid query length limits
+    const chunks = [];
+    for (let i = 0; i < ids.length; i += 100) {
+      chunks.push(ids.slice(i, i + 100));
+    }
+
+    const allResults: IGDBGame[] = [];
+
+    for (const chunk of chunks) {
+      const igdbQuery = `
+        fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url;
+        where id = (${chunk.join(",")});
+        limit 100;
+      `;
+      // Cache batch requests for 1 hour
+      const results = await this.makeRequest("games", igdbQuery, 60 * 60 * 1000);
+      allResults.push(...results);
+    }
+    
+    return allResults;
+  }
+
   async getPopularGames(limit: number = 20): Promise<IGDBGame[]> {
     const igdbQuery = `
       fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url;

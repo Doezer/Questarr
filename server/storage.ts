@@ -31,6 +31,7 @@ export interface IStorage {
   searchGames(query: string): Promise<Game[]>;
   addGame(game: InsertGame): Promise<Game>;
   updateGameStatus(id: string, statusUpdate: UpdateGameStatus): Promise<Game | undefined>;
+  updateGame(id: string, updates: Partial<Game>): Promise<Game | undefined>;
   removeGame(id: string): Promise<boolean>;
 
   // Indexer methods
@@ -126,6 +127,8 @@ export class MemStorage implements IStorage {
       genres: insertGame.genres || null,
       screenshots: insertGame.screenshots || null,
       igdbId: insertGame.igdbId || null,
+      originalReleaseDate: insertGame.originalReleaseDate || null,
+      releaseStatus: insertGame.releaseStatus || "upcoming",
       addedAt: new Date(),
       completedAt: null,
     };
@@ -141,6 +144,19 @@ export class MemStorage implements IStorage {
       ...game,
       status: statusUpdate.status,
       completedAt: statusUpdate.status === "completed" ? new Date() : null,
+    };
+
+    this.games.set(id, updatedGame);
+    return updatedGame;
+  }
+
+  async updateGame(id: string, updates: Partial<Game>): Promise<Game | undefined> {
+    const game = this.games.get(id);
+    if (!game) return undefined;
+
+    const updatedGame: Game = {
+      ...game,
+      ...updates,
     };
 
     this.games.set(id, updatedGame);
@@ -342,6 +358,8 @@ export class DatabaseStorage implements IStorage {
       genres: insertGame.genres ?? null,
       screenshots: insertGame.screenshots ?? null,
       status: insertGame.status ?? "wanted",
+      originalReleaseDate: insertGame.originalReleaseDate ?? null,
+      releaseStatus: insertGame.releaseStatus ?? "upcoming",
     };
 
     const [game] = await db.insert(games).values(gameWithId).returning();
@@ -355,6 +373,16 @@ export class DatabaseStorage implements IStorage {
         status: statusUpdate.status,
         completedAt: statusUpdate.status === "completed" ? new Date() : null,
       })
+      .where(eq(games.id, id))
+      .returning();
+
+    return updatedGame || undefined;
+  }
+
+  async updateGame(id: string, updates: Partial<Game>): Promise<Game | undefined> {
+    const [updatedGame] = await db
+      .update(games)
+      .set(updates)
       .where(eq(games.id, id))
       .returning();
 

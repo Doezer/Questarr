@@ -5,6 +5,7 @@ import { setupVite, serveStatic, log } from "./vite.js";
 import { generalApiLimiter } from "./middleware.js";
 import { config } from "./config.js";
 import { expressLogger } from "./logger.js";
+import { startCronJobs } from "./cron.js";
 
 const app = express();
 app.use(express.json());
@@ -96,5 +97,6 @@ app.use((req, res, next) => {
   const { port, host } = config.server;
   server.listen(port, host, () => {
     log(`serving on ${host}:${port}`);
+    startCronJobs();
   });
 })();

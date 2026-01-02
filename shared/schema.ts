@@ -25,6 +25,9 @@ export const games = pgTable("games", {
   status: text("status", { enum: ["wanted", "owned", "completed", "downloading"] })
     .notNull()
     .default("wanted"),
+  originalReleaseDate: text("original_release_date"),
+  releaseStatus: text("release_status", { enum: ["released", "upcoming", "delayed", "tbd"] })
+    .default("upcoming"),
   addedAt: timestamp("added_at").defaultNow(),
   completedAt: timestamp("completed_at"),
 });

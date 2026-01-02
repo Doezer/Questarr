@@ -18,16 +18,20 @@ interface GameCardProps {
   isDiscovery?: boolean;
 }
 
-function getReleaseStatus(releaseDate: string | null): { 
+function getReleaseStatus(game: Game): { 
   label: string; 
   variant: "default" | "secondary" | "outline" | "destructive";
   isReleased: boolean;
   className?: string;
 } {
-  if (!releaseDate) return { label: "TBA", variant: "secondary", isReleased: false };
+  if (game.releaseStatus === "delayed") {
+    return { label: "Delayed", variant: "destructive", isReleased: false };
+  }
+
+  if (!game.releaseDate) return { label: "TBA", variant: "secondary", isReleased: false };
   
   const now = new Date();
-  const release = new Date(releaseDate);
+  const release = new Date(game.releaseDate);
   
   if (release > now) {
     return { label: "Upcoming", variant: "default", isReleased: false };
@@ -52,7 +56,7 @@ const GameCard = ({
 }: GameCardProps) => {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [downloadOpen, setDownloadOpen] = useState(false);
-  const releaseStatus = getReleaseStatus(game.releaseDate);
+  const releaseStatus = getReleaseStatus(game);
 
   const handleStatusClick = () => {
     console.warn(`Status change triggered for game: ${game.title}`);

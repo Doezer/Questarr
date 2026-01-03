@@ -7,17 +7,25 @@ interface StatusBadgeProps {
 }
 
 const statusConfig = {
-  wanted: { label: "Wanted", variant: "destructive" as const },
-  owned: { label: "Owned", variant: "secondary" as const },
-  completed: { label: "Completed", variant: "default" as const },
-  downloading: { label: "Downloading", variant: "outline" as const },
+  wanted: { label: "Wanted", variant: "destructive" as const, className: "" },
+  owned: { label: "Owned", variant: "secondary" as const, className: "" },
+  completed: { label: "Completed", variant: "default" as const, className: "" },
+  downloading: {
+    label: "Downloading",
+    variant: "secondary" as const,
+    className: "bg-purple-600 hover:bg-purple-700 text-white",
+  },
 };
 
 export default function StatusBadge({ status }: StatusBadgeProps) {
   const config = statusConfig[status];
 
   return (
-    <Badge variant={config.variant} data-testid={`badge-status-${status}`} className="text-xs">
+    <Badge
+      variant={config.variant}
+      data-testid={`badge-status-${status}`}
+      className={`text-xs ${config.className || ""}`}
+    >
       {config.label}
     </Badge>
   );

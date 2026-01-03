@@ -388,7 +388,12 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       <DialogContent className="max-w-3xl max-h-[80vh] flex flex-col overflow-hidden">
         <DialogHeader className="flex-shrink-0">
           <DialogTitle>Download {game.title}</DialogTitle>
-          <DialogDescription>Search results for torrents matching this game</DialogDescription>
+          <DialogDescription>
+            Search results for torrents and NZBs matching this game.{" "}
+            <span className="text-muted-foreground/80">
+              Tip: Enable auto-download in Settings to automatically download new releases.
+            </span>
+          </DialogDescription>
         </DialogHeader>
 
         <div className="flex-shrink-0 mt-4 space-y-3">

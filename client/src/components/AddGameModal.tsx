@@ -45,8 +45,14 @@ export default function AddGameModal({ children }: AddGameModalProps) {
     queryKey: ["/api/igdb/search", debouncedQuery],
     queryFn: async () => {
       if (!debouncedQuery.trim()) return [];
+      const token = localStorage.getItem("token");
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
       const response = await fetch(
-        `/api/igdb/search?q=${encodeURIComponent(debouncedQuery)}&limit=10`
+        `/api/igdb/search?q=${encodeURIComponent(debouncedQuery)}&limit=10`,
+        { headers }
       );
       if (!response.ok) throw new Error("Search failed");
       return response.json();

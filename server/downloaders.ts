@@ -2292,6 +2292,10 @@ export class DownloaderManager {
         return new RTorrentClient(downloader);
       case "qbittorrent":
         return new QBittorrentClient(downloader);
+      case "sabnzbd":
+        return new SABnzbdClient(downloader);
+      case "nzbget":
+        return new NZBGetClient(downloader);
       default:
         throw new Error(`Unsupported downloader type: ${downloader.type}`);
     }
@@ -2476,6 +2480,692 @@ export class DownloaderManager {
       message: `All downloaders failed. Errors: ${errors.join("; ")}`,
       attemptedDownloaders,
     };
+  }
+}
+
+// ==================== SABnzbd Client ====================
+
+interface SABnzbdQueue {
+  slots: Array<{
+    nzo_id: string;
+    filename: string;
+    status: string;
+    percentage: string;
+    mb: string;
+    mbleft: string;
+    mbmissing: string;
+    size: string;
+    sizeleft: string;
+    timeleft: string;
+    eta: string;
+    cat: string;
+    priority: string;
+    script: string;
+    avg_age: string;
+  }>;
+  speed: string;
+  size: string;
+  sizeleft: string;
+  mb: string;
+  mbleft: string;
+  noofslots: number;
+  status: string;
+  timeleft: string;
+}
+
+interface SABnzbdHistory {
+  slots: Array<{
+    nzo_id: string;
+    name: string;
+    status: string;
+    fail_message: string;
+    path: string;
+    size: string;
+    bytes: number;
+    category: string;
+    download_time: number;
+    completed: number;
+    action_line: string;
+    stage_log: Array<{
+      name: string;
+      actions: string[];
+    }>;
+  }>;
+}
+
+class SABnzbdClient implements DownloaderClient {
+  private downloader: Downloader;
+
+  constructor(downloader: Downloader) {
+    this.downloader = downloader;
+  }
+
+  private getApiUrl(mode: string, params: Record<string, string> = {}): string {
+    const url = new URL(this.downloader.url);
+    url.pathname = `${url.pathname.replace(/\/$/, "")}/api`;
+    url.searchParams.set("apikey", this.downloader.password || "");
+    url.searchParams.set("mode", mode);
+    url.searchParams.set("output", "json");
+
+    for (const [key, value] of Object.entries(params)) {
+      url.searchParams.set(key, value);
+    }
+
+    return url.toString();
+  }
+
+  async testConnection(): Promise<{ success: boolean; message: string }> {
+    try {
+      const url = this.getApiUrl("version");
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        return { success: false, message: `HTTP ${response.status}` };
+      }
+
+      const data = await response.json();
+      if (data.version) {
+        return { success: true, message: `Connected to SABnzbd v${data.version}` };
+      }
+
+      return { success: false, message: "Invalid SABnzbd response" };
+    } catch (error) {
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : "Unknown error",
+      };
+    }
+  }
+
+  async addTorrent(request: DownloadRequest): Promise<{ success: boolean; id?: string; message: string }> {
+    try {
+      const url = this.getApiUrl("addurl", {
+        name: request.url,
+        nzbname: request.title,
+        cat: request.category || "games",
+        priority: (request.priority || 0).toString(),
+      });
+
+      const response = await fetch(url, { method: "GET" });
+
+      if (!response.ok) {
+        return { success: false, message: `HTTP ${response.status}` };
+      }
+
+      const data = await response.json();
+
+      if (data.status === true && data.nzo_ids && data.nzo_ids.length > 0) {
+        return {
+          success: true,
+          id: data.nzo_ids[0],
+          message: "NZB added successfully",
+        };
+      }
+
+      return {
+        success: false,
+        message: data.error || "Failed to add NZB",
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : "Unknown error",
+      };
+    }
+  }
+
+  async getTorrentStatus(id: string): Promise<DownloadStatus | null> {
+    try {
+      const url = this.getApiUrl("queue");
+      const response = await fetch(url);
+      const data = await response.json();
+      const queue: SABnzbdQueue = data.queue;
+
+      const item = queue.slots.find((slot) => slot.nzo_id === id);
+      if (!item) {
+        // Check history if not in queue
+        return await this.getFromHistory(id);
+      }
+
+      const progress = parseFloat(item.percentage);
+      const totalMB = parseFloat(item.mb);
+      const leftMB = parseFloat(item.mbleft);
+      const downloadedMB = totalMB - leftMB;
+
+      // Parse ETA (format: "HH:MM:SS" or "00:00:00" or "unknown")
+      let eta: number | undefined;
+      if (item.timeleft && item.timeleft !== "0:00:00" && item.timeleft !== "unknown") {
+        const [hours, minutes, seconds] = item.timeleft.split(":").map(Number);
+        eta = hours * 3600 + minutes * 60 + seconds;
+      }
+
+      // Map SABnzbd status to our status
+      let status: DownloadStatus["status"];
+      let repairStatus: DownloadStatus["repairStatus"];
+      let unpackStatus: DownloadStatus["unpackStatus"];
+
+      switch (item.status.toLowerCase()) {
+        case "downloading":
+        case "fetching":
+          status = "downloading";
+          break;
+        case "paused":
+          status = "paused";
+          break;
+        case "repairing":
+          status = "repairing";
+          repairStatus = "repairing";
+          break;
+        case "extracting":
+        case "unpacking":
+          status = "unpacking";
+          unpackStatus = "unpacking";
+          break;
+        case "completed":
+          status = "completed";
+          repairStatus = "good";
+          unpackStatus = "completed";
+          break;
+        case "failed":
+          status = "error";
+          repairStatus = "failed";
+          break;
+        default:
+          status = "downloading";
+      }
+
+      return {
+        id: item.nzo_id,
+        name: item.filename,
+        downloadType: "usenet",
+        status,
+        progress,
+        downloadSpeed: parseFloat(queue.speed) * 1024 * 1024, // Convert MB/s to bytes/s
+        eta,
+        size: totalMB * 1024 * 1024, // Convert MB to bytes
+        downloaded: downloadedMB * 1024 * 1024,
+        category: item.cat,
+        repairStatus,
+        unpackStatus,
+        age: parseFloat(item.avg_age) || undefined,
+      };
+    } catch (error) {
+      downloadersLogger.error({ error }, "Failed to get SABnzbd status");
+      return null;
+    }
+  }
+
+  private async getFromHistory(id: string): Promise<DownloadStatus | null> {
+    try {
+      const url = this.getApiUrl("history");
+      const response = await fetch(url);
+      const data = await response.json();
+      const history: SABnzbdHistory = data.history;
+
+      const item = history.slots.find((slot) => slot.nzo_id === id);
+      if (!item) {
+        return null;
+      }
+
+      let status: DownloadStatus["status"];
+      let repairStatus: DownloadStatus["repairStatus"];
+      let unpackStatus: DownloadStatus["unpackStatus"];
+
+      if (item.status === "Completed") {
+        status = "completed";
+        repairStatus = "good";
+        unpackStatus = "completed";
+      } else if (item.status === "Failed") {
+        status = "error";
+        repairStatus = "failed";
+      } else {
+        status = "paused";
+      }
+
+      return {
+        id: item.nzo_id,
+        name: item.name,
+        downloadType: "usenet",
+        status,
+        progress: status === "completed" ? 100 : 0,
+        size: item.bytes,
+        downloaded: item.bytes,
+        category: item.category,
+        error: status === "error" ? item.fail_message : undefined,
+        repairStatus,
+        unpackStatus,
+      };
+    } catch (error) {
+      downloadersLogger.error({ error }, "Failed to get SABnzbd history");
+      return null;
+    }
+  }
+
+  async getTorrentDetails(id: string): Promise<TorrentDetails | null> {
+    const status = await this.getTorrentStatus(id);
+    if (!status) return null;
+
+    // SABnzbd doesn't provide detailed file information in the same way
+    // Return minimal details based on status
+    return {
+      ...status,
+      files: [],
+      trackers: [],
+    };
+  }
+
+  async getAllTorrents(): Promise<DownloadStatus[]> {
+    try {
+      const url = this.getApiUrl("queue");
+      const response = await fetch(url);
+      const data = await response.json();
+      const queue: SABnzbdQueue = data.queue;
+
+      const results: DownloadStatus[] = [];
+
+      for (const item of queue.slots) {
+        const status = await this.getTorrentStatus(item.nzo_id);
+        if (status) {
+          results.push(status);
+        }
+      }
+
+      return results;
+    } catch (error) {
+      downloadersLogger.error({ error }, "Failed to get SABnzbd queue");
+      return [];
+    }
+  }
+
+  async pauseTorrent(id: string): Promise<{ success: boolean; message: string }> {
+    try {
+      const url = this.getApiUrl("pause", { value: id });
+      const response = await fetch(url);
+      const data = await response.json();
+
+      if (data.status === true) {
+        return { success: true, message: "NZB paused" };
+      }
+
+      return { success: false, message: "Failed to pause NZB" };
+    } catch (error) {
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : "Unknown error",
+      };
+    }
+  }
+
+  async resumeTorrent(id: string): Promise<{ success: boolean; message: string }> {
+    try {
+      const url = this.getApiUrl("resume", { value: id });
+      const response = await fetch(url);
+      const data = await response.json();
+
+      if (data.status === true) {
+        return { success: true, message: "NZB resumed" };
+      }
+
+      return { success: false, message: "Failed to resume NZB" };
+    } catch (error) {
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : "Unknown error",
+      };
+    }
+  }
+
+  async removeTorrent(id: string, _deleteFiles?: boolean): Promise<{ success: boolean; message: string }> {
+    try {
+      const url = this.getApiUrl("queue", { name: "delete", value: id });
+      const response = await fetch(url);
+      const data = await response.json();
+
+      if (data.status === true) {
+        return { success: true, message: "NZB removed" };
+      }
+
+      return { success: false, message: "Failed to remove NZB" };
+    } catch (error) {
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : "Unknown error",
+      };
+    }
+  }
+
+  async getFreeSpace(): Promise<number> {
+    try {
+      const url = this.getApiUrl("queue");
+      const response = await fetch(url);
+      const data = await response.json();
+
+      if (data.queue?.diskspace1_norm) {
+        // Parse disk space (format: "123.45 GB")
+        const match = data.queue.diskspace1_norm.match(/([0-9.]+)\s*([KMGT]?B)/i);
+        if (match) {
+          const value = parseFloat(match[1]);
+          const unit = match[2].toUpperCase();
+
+          const multipliers: Record<string, number> = {
+            B: 1,
+            KB: 1024,
+            MB: 1024 * 1024,
+            GB: 1024 * 1024 * 1024,
+            TB: 1024 * 1024 * 1024 * 1024,
+          };
+
+          return value * (multipliers[unit] || 1);
+        }
+      }
+
+      return 0;
+    } catch (error) {
+      downloadersLogger.error({ error }, "Failed to get SABnzbd free space");
+      return 0;
+    }
+  }
+}
+
+// ==================== NZBGet Client ====================
+
+interface NZBGetListResult {
+  NZBID: number;
+  NZBName: string;
+  Status: string;
+  FileSizeMB: number;
+  RemainingSizeMB: number;
+  DownloadedSizeMB: number;
+  Category: string;
+  DownloadRate: number;
+  PostInfoText: string;
+  PostStageProgress: number;
+  PostStageTimeSec: number;
+}
+
+interface NZBGetHistoryResult {
+  NZBID: number;
+  Name: string;
+  Status: string;
+  FileSizeMB: number;
+  Category: string;
+  DownloadTimeSec: number;
+  ParStatus: string; // "SUCCESS", "FAILURE", "REPAIR_POSSIBLE", "MANUAL", "NONE"
+  UnpackStatus: string; // "SUCCESS", "FAILURE", "NONE"
+  FailedArticles: number;
+  DeleteStatus: string;
+  DestDir: string;
+}
+
+class NZBGetClient implements DownloaderClient {
+  private downloader: Downloader;
+
+  constructor(downloader: Downloader) {
+    this.downloader = downloader;
+  }
+
+  private async makeRequest(method: string, params: unknown[] = []): Promise<unknown> {
+    const url = new URL(this.downloader.url);
+    url.pathname = `${url.pathname.replace(/\/$/, "")}/jsonrpc`;
+
+    const auth = this.downloader.username && this.downloader.password
+      ? `${this.downloader.username}:${this.downloader.password}`
+      : "";
+
+    const response = await fetch(url.toString(), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(auth ? { Authorization: `Basic ${Buffer.from(auth).toString("base64")}` } : {}),
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method,
+        params,
+        id: 1,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    if (data.error) {
+      throw new Error(data.error.message || "NZBGet error");
+    }
+
+    return data.result;
+  }
+
+  async testConnection(): Promise<{ success: boolean; message: string }> {
+    try {
+      const version = await this.makeRequest("version");
+      return { success: true, message: `Connected to NZBGet v${version}` };
+    } catch (error) {
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : "Unknown error",
+      };
+    }
+  }
+
+  async addTorrent(request: DownloadRequest): Promise<{ success: boolean; id?: string; message: string }> {
+    try {
+      const nzbId = await this.makeRequest("append", [
+        request.title,
+        request.url,
+        request.category || "games",
+        request.priority || 0,
+        false, // AddToTop
+        false, // AddPaused
+        "", // DupeKey
+        0, // DupeScore
+        "SCORE", // DupeMode
+      ]);
+
+      if (nzbId && typeof nzbId === "number") {
+        return {
+          success: true,
+          id: nzbId.toString(),
+          message: "NZB added successfully",
+        };
+      }
+
+      return { success: false, message: "Failed to add NZB" };
+    } catch (error) {
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : "Unknown error",
+      };
+    }
+  }
+
+  async getTorrentStatus(id: string): Promise<DownloadStatus | null> {
+    try {
+      const queue = (await this.makeRequest("listgroups")) as NZBGetListResult[];
+      const item = queue.find((q) => q.NZBID.toString() === id);
+
+      if (!item) {
+        // Check history
+        return await this.getFromHistory(id);
+      }
+
+      const progress = item.FileSizeMB > 0
+        ? ((item.FileSizeMB - item.RemainingSizeMB) / item.FileSizeMB) * 100
+        : 0;
+
+      // Calculate ETA
+      let eta: number | undefined;
+      if (item.DownloadRate > 0 && item.RemainingSizeMB > 0) {
+        eta = (item.RemainingSizeMB * 1024 * 1024) / item.DownloadRate;
+      }
+
+      // Map NZBGet status
+      let status: DownloadStatus["status"];
+      let repairStatus: DownloadStatus["repairStatus"];
+      let unpackStatus: DownloadStatus["unpackStatus"];
+
+      switch (item.Status) {
+        case "DOWNLOADING":
+        case "FETCHING":
+          status = "downloading";
+          break;
+        case "PAUSED":
+          status = "paused";
+          break;
+        case "POST_PROCESSING":
+          if (item.PostInfoText.includes("Repairing")) {
+            status = "repairing";
+            repairStatus = "repairing";
+          } else if (item.PostInfoText.includes("Unpacking") || item.PostInfoText.includes("Extracting")) {
+            status = "unpacking";
+            unpackStatus = "unpacking";
+          } else {
+            status = "downloading";
+          }
+          break;
+        default:
+          status = "downloading";
+      }
+
+      return {
+        id: item.NZBID.toString(),
+        name: item.NZBName,
+        downloadType: "usenet",
+        status,
+        progress,
+        downloadSpeed: item.DownloadRate,
+        eta,
+        size: item.FileSizeMB * 1024 * 1024,
+        downloaded: item.DownloadedSizeMB * 1024 * 1024,
+        category: item.Category,
+        repairStatus,
+        unpackStatus,
+      };
+    } catch (error) {
+      downloadersLogger.error({ error }, "Failed to get NZBGet status");
+      return null;
+    }
+  }
+
+  private async getFromHistory(id: string): Promise<DownloadStatus | null> {
+    try {
+      const history = (await this.makeRequest("history")) as NZBGetHistoryResult[];
+      const item = history.find((h) => h.NZBID.toString() === id);
+
+      if (!item) {
+        return null;
+      }
+
+      let status: DownloadStatus["status"];
+      let repairStatus: DownloadStatus["repairStatus"];
+      let unpackStatus: DownloadStatus["unpackStatus"];
+
+      if (item.Status === "SUCCESS/ALL") {
+        status = "completed";
+        repairStatus = item.ParStatus === "SUCCESS" || item.ParStatus === "NONE" ? "good" : "failed";
+        unpackStatus = item.UnpackStatus === "SUCCESS" || item.UnpackStatus === "NONE" ? "completed" : "failed";
+      } else {
+        status = "error";
+        repairStatus = item.ParStatus === "FAILURE" ? "failed" : "good";
+        unpackStatus = item.UnpackStatus === "FAILURE" ? "failed" : "completed";
+      }
+
+      return {
+        id: item.NZBID.toString(),
+        name: item.Name,
+        downloadType: "usenet",
+        status,
+        progress: status === "completed" ? 100 : 0,
+        size: item.FileSizeMB * 1024 * 1024,
+        downloaded: item.FileSizeMB * 1024 * 1024,
+        category: item.Category,
+        repairStatus,
+        unpackStatus,
+      };
+    } catch (error) {
+      downloadersLogger.error({ error }, "Failed to get NZBGet history");
+      return null;
+    }
+  }
+
+  async getTorrentDetails(id: string): Promise<TorrentDetails | null> {
+    const status = await this.getTorrentStatus(id);
+    if (!status) return null;
+
+    // NZBGet doesn't provide detailed file information easily
+    return {
+      ...status,
+      files: [],
+      trackers: [],
+    };
+  }
+
+  async getAllTorrents(): Promise<DownloadStatus[]> {
+    try {
+      const queue = (await this.makeRequest("listgroups")) as NZBGetListResult[];
+      const results: DownloadStatus[] = [];
+
+      for (const item of queue) {
+        const status = await this.getTorrentStatus(item.NZBID.toString());
+        if (status) {
+          results.push(status);
+        }
+      }
+
+      return results;
+    } catch (error) {
+      downloadersLogger.error({ error }, "Failed to get NZBGet queue");
+      return [];
+    }
+  }
+
+  async pauseTorrent(id: string): Promise<{ success: boolean; message: string }> {
+    try {
+      await this.makeRequest("editqueue", ["GroupPause", 0, "", [parseInt(id)]]);
+      return { success: true, message: "NZB paused" };
+    } catch (error) {
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : "Unknown error",
+      };
+    }
+  }
+
+  async resumeTorrent(id: string): Promise<{ success: boolean; message: string }> {
+    try {
+      await this.makeRequest("editqueue", ["GroupResume", 0, "", [parseInt(id)]]);
+      return { success: true, message: "NZB resumed" };
+    } catch (error) {
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : "Unknown error",
+      };
+    }
+  }
+
+  async removeTorrent(id: string, _deleteFiles?: boolean): Promise<{ success: boolean; message: string }> {
+    try {
+      await this.makeRequest("editqueue", ["GroupDelete", 0, "", [parseInt(id)]]);
+      return { success: true, message: "NZB removed" };
+    } catch (error) {
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : "Unknown error",
+      };
+    }
+  }
+
+  async getFreeSpace(): Promise<number> {
+    try {
+      const status = (await this.makeRequest("status")) as { FreeDiskSpaceMB: number };
+      return status.FreeDiskSpaceMB * 1024 * 1024; // Convert MB to bytes
+    } catch (error) {
+      downloadersLogger.error({ error }, "Failed to get NZBGet free space");
+      return 0;
+    }
   }
 }
 

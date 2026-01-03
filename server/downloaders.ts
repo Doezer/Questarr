@@ -2543,7 +2543,7 @@ class SABnzbdClient implements DownloaderClient {
   private getApiUrl(mode: string, params: Record<string, string> = {}): string {
     const url = new URL(this.downloader.url);
     url.pathname = `${url.pathname.replace(/\/$/, "")}/api`;
-    url.searchParams.set("apikey", this.downloader.password || "");
+    url.searchParams.set("apikey", this.downloader.username || "");
     url.searchParams.set("mode", mode);
     url.searchParams.set("output", "json");
 

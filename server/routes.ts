@@ -993,6 +993,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         name: name || "Test Connection",
         url,
         apiKey,
+        protocol: "torznab",
         enabled: enabled ?? true,
         priority: priority ?? 1,
         categories: categories || [],
@@ -1411,9 +1412,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             await storage.addGameTorrent({
               gameId,
               downloaderId: result.downloaderId,
-              torrentHash: result.id,
-              torrentTitle: title,
+              downloadHash: result.id,
+              downloadTitle: title,
               status: "downloading",
+              downloadType: "torrent",
             });
 
             await storage.updateGameStatus(gameId, { status: "downloading" });

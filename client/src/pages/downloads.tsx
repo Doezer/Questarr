@@ -55,8 +55,8 @@ interface DownloadStatus {
   downloaderName: string;
   // Download type and Usenet-specific fields
   downloadType?: DownloadType;
-  repairStatus?: string;
-  unpackStatus?: string;
+  repairStatus?: "good" | "repairing" | "failed";
+  unpackStatus?: "unpacking" | "completed" | "failed";
   age?: number;
   grabs?: number;
 }

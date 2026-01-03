@@ -45,6 +45,13 @@ const downloaderTypes = [
   { value: "nzbget", label: "NZBGet", protocol: "usenet" },
 ] as const;
 
+/**
+ * Check if a downloader type is for Usenet
+ */
+function isUsenetDownloader(type: string): boolean {
+  return ["sabnzbd", "nzbget"].includes(type);
+}
+
 export default function DownloadersPage() {
   const { toast } = useToast();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -321,12 +328,10 @@ export default function DownloadersPage() {
                       {downloader.type}
                     </Badge>
                     <Badge
-                      variant={
-                        ["sabnzbd", "nzbget"].includes(downloader.type) ? "secondary" : "default"
-                      }
+                      variant={isUsenetDownloader(downloader.type) ? "secondary" : "default"}
                       className="text-xs"
                     >
-                      {["sabnzbd", "nzbget"].includes(downloader.type) ? "USENET" : "TORRENT"}
+                      {isUsenetDownloader(downloader.type) ? "USENET" : "TORRENT"}
                     </Badge>
                     <Badge
                       variant={downloader.enabled ? "default" : "secondary"}

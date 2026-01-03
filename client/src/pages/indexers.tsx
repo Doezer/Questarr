@@ -489,7 +489,7 @@ export default function IndexersPage() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Protocol</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value || "torznab"}>
+                    <Select onValueChange={field.onChange} value={field.value || "torznab"}>
                       <FormControl>
                         <SelectTrigger data-testid="select-indexer-protocol">
                           <SelectValue placeholder="Select protocol" />

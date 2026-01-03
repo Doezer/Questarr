@@ -2627,9 +2627,9 @@ class SABnzbdClient implements DownloaderClient {
         return await this.getFromHistory(id);
       }
 
-      const progress = parseFloat(item.percentage);
-      const totalMB = parseFloat(item.mb);
-      const leftMB = parseFloat(item.mbleft);
+      const progress = parseFloat(item.percentage) || 0;
+      const totalMB = parseFloat(item.mb) || 0;
+      const leftMB = parseFloat(item.mbleft) || 0;
       const downloadedMB = totalMB - leftMB;
 
       // Parse ETA (format: "HH:MM:SS" or "00:00:00" or "unknown")
@@ -2680,7 +2680,7 @@ class SABnzbdClient implements DownloaderClient {
         downloadType: "usenet",
         status,
         progress,
-        downloadSpeed: parseFloat(queue.speed) * 1024 * 1024, // Convert MB/s to bytes/s
+        downloadSpeed: (parseFloat(queue.speed) || 0) * 1024 * 1024, // Convert MB/s to bytes/s
         eta,
         size: totalMB * 1024 * 1024, // Convert MB to bytes
         downloaded: downloadedMB * 1024 * 1024,

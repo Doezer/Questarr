@@ -55,9 +55,14 @@ export default function DownloadersPage() {
 
   const addMutation = useMutation({
     mutationFn: async (data: InsertDownloader) => {
+      const token = localStorage.getItem("token");
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
       const response = await fetch("/api/downloaders", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(data),
       });
       if (!response.ok) throw new Error("Failed to add downloader");
@@ -76,9 +81,14 @@ export default function DownloadersPage() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: Partial<InsertDownloader> }) => {
+      const token = localStorage.getItem("token");
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
       const response = await fetch(`/api/downloaders/${id}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(data),
       });
       if (!response.ok) throw new Error("Failed to update downloader");
@@ -97,8 +107,14 @@ export default function DownloadersPage() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
+      const token = localStorage.getItem("token");
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
       const response = await fetch(`/api/downloaders/${id}`, {
         method: "DELETE",
+        headers,
       });
       if (!response.ok) throw new Error("Failed to delete downloader");
     },
@@ -113,9 +129,14 @@ export default function DownloadersPage() {
 
   const toggleEnabledMutation = useMutation({
     mutationFn: async ({ id, enabled }: { id: string; enabled: boolean }) => {
+      const token = localStorage.getItem("token");
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
       const response = await fetch(`/api/downloaders/${id}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ enabled }),
       });
       if (!response.ok) throw new Error("Failed to toggle downloader");
@@ -128,11 +149,16 @@ export default function DownloadersPage() {
 
   const testConnectionMutation = useMutation({
     mutationFn: async (data: { id?: string; formData?: InsertDownloader }) => {
+      const token = localStorage.getItem("token");
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
       if (data.id) {
         // Test existing downloader by ID
         const response = await fetch(`/api/downloaders/${data.id}/test`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers,
         });
         if (!response.ok) {
           const error = await response.json();
@@ -143,7 +169,7 @@ export default function DownloadersPage() {
         // Test with form data (new downloader)
         const response = await fetch(`/api/downloaders/test`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers,
           body: JSON.stringify(data.formData),
         });
         if (!response.ok) {

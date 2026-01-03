@@ -42,8 +42,14 @@ export default function GameDetailsModal({
 
   const removeGameMutation = useMutation({
     mutationFn: async (gameId: string) => {
+      const token = localStorage.getItem("token");
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
       const response = await fetch(`/api/games/${gameId}`, {
         method: "DELETE",
+        headers,
       });
       if (!response.ok) throw new Error("Failed to remove game");
     },

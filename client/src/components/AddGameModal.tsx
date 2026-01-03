@@ -68,9 +68,14 @@ export default function AddGameModal({ children }: AddGameModalProps) {
   // Add game mutation
   const addGameMutation = useMutation({
     mutationFn: async (gameData: InsertGame) => {
+      const token = localStorage.getItem("token");
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
       const response = await fetch("/api/games", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(gameData),
       });
       if (!response.ok) {

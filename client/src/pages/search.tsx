@@ -157,9 +157,14 @@ export default function SearchPage() {
 
   const downloadMutation = useMutation({
     mutationFn: async (data: { torrent: TorrentItem; formData: DownloadForm }) => {
+      const token = localStorage.getItem("token");
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
       const response = await fetch(`/api/downloaders/${data.formData.downloaderId}/torrents`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           url: data.torrent.link,
           title: data.torrent.title,

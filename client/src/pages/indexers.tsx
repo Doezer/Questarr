@@ -47,9 +47,14 @@ export default function IndexersPage() {
 
   const syncProwlarrMutation = useMutation({
     mutationFn: async () => {
+      const token = localStorage.getItem("token");
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
       const response = await fetch("/api/indexers/prowlarr/sync", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ url: prowlarrUrl, apiKey: prowlarrApiKey }),
       });
       if (!response.ok) {
@@ -77,9 +82,14 @@ export default function IndexersPage() {
 
   const addMutation = useMutation({
     mutationFn: async (data: InsertIndexer) => {
+      const token = localStorage.getItem("token");
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
       const response = await fetch("/api/indexers", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(data),
       });
       if (!response.ok) throw new Error("Failed to add indexer");
@@ -98,9 +108,14 @@ export default function IndexersPage() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: Partial<InsertIndexer> }) => {
+      const token = localStorage.getItem("token");
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
       const response = await fetch(`/api/indexers/${id}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(data),
       });
       if (!response.ok) throw new Error("Failed to update indexer");
@@ -119,8 +134,14 @@ export default function IndexersPage() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
+      const token = localStorage.getItem("token");
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
       const response = await fetch(`/api/indexers/${id}`, {
         method: "DELETE",
+        headers,
       });
       if (!response.ok) throw new Error("Failed to delete indexer");
     },
@@ -135,9 +156,14 @@ export default function IndexersPage() {
 
   const toggleEnabledMutation = useMutation({
     mutationFn: async ({ id, enabled }: { id: string; enabled: boolean }) => {
+      const token = localStorage.getItem("token");
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
       const response = await fetch(`/api/indexers/${id}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ enabled }),
       });
       if (!response.ok) throw new Error("Failed to toggle indexer");
@@ -150,11 +176,16 @@ export default function IndexersPage() {
 
   const testConnectionMutation = useMutation({
     mutationFn: async (data: { id?: string; formData?: InsertIndexer }) => {
+      const token = localStorage.getItem("token");
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
       if (data.id) {
         // Test existing indexer by ID
         const response = await fetch(`/api/indexers/${data.id}/test`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers,
         });
         if (!response.ok) {
           const error = await response.json();
@@ -165,7 +196,7 @@ export default function IndexersPage() {
         // Test with form data (new indexer)
         const response = await fetch(`/api/indexers/test`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers,
           body: JSON.stringify(data.formData),
         });
         if (!response.ok) {
@@ -224,7 +255,12 @@ export default function IndexersPage() {
   const fetchCategories = async (indexerId: string) => {
     setLoadingCategories(true);
     try {
-      const response = await fetch(`/api/indexers/${indexerId}/categories`);
+      const token = localStorage.getItem("token");
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+      const response = await fetch(`/api/indexers/${indexerId}/categories`, { headers });
       if (response.ok) {
         const categories = (await response.json()) as { id: string; name: string }[];
         setAvailableCategories(

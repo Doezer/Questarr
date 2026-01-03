@@ -132,8 +132,14 @@ export default function Downloads() {
       downloaderId: string;
       torrentId: string;
     }) => {
+      const token = localStorage.getItem("token");
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
       const response = await fetch(`/api/downloaders/${downloaderId}/torrents/${torrentId}/pause`, {
         method: "POST",
+        headers,
       });
       if (!response.ok) throw new Error("Failed to pause torrent");
       return response.json();
@@ -159,10 +165,16 @@ export default function Downloads() {
       downloaderId: string;
       torrentId: string;
     }) => {
+      const token = localStorage.getItem("token");
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
       const response = await fetch(
         `/api/downloaders/${downloaderId}/torrents/${torrentId}/resume`,
         {
           method: "POST",
+          headers,
         }
       );
       if (!response.ok) throw new Error("Failed to resume torrent");
@@ -191,10 +203,16 @@ export default function Downloads() {
       torrentId: string;
       deleteFiles: boolean;
     }) => {
+      const token = localStorage.getItem("token");
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
       const response = await fetch(
         `/api/downloaders/${downloaderId}/torrents/${torrentId}?deleteFiles=${deleteFiles}`,
         {
           method: "DELETE",
+          headers,
         }
       );
       if (!response.ok) throw new Error("Failed to remove torrent");

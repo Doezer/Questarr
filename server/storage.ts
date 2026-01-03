@@ -314,6 +314,7 @@ export class MemStorage implements IStorage {
       name: insertIndexer.name,
       url: insertIndexer.url,
       apiKey: insertIndexer.apiKey,
+      protocol: insertIndexer.protocol ?? "torznab",
       enabled: insertIndexer.enabled ?? true,
       priority: insertIndexer.priority ?? 1,
       categories: insertIndexer.categories ?? [],
@@ -427,6 +428,7 @@ export class MemStorage implements IStorage {
       ...insertGameTorrent,
       id,
       status: insertGameTorrent.status || "downloading",
+      downloadType: insertGameTorrent.downloadType || "torrent",
       addedAt: new Date(),
       completedAt: null,
     };

@@ -189,7 +189,7 @@ async function checkDownloadStatus() {
 
       for (const torrent of torrents) {
         // Match by hash (handle case sensitivity just in case)
-        const remoteTorrent = activeTorrentMap.get(torrent.torrentHash.toLowerCase());
+        const remoteTorrent = activeTorrentMap.get(torrent.downloadHash.toLowerCase());
 
         if (remoteTorrent) {
           igdbLogger.debug(
@@ -216,7 +216,7 @@ async function checkDownloadStatus() {
           if (isComplete) {
             igdbLogger.info(
               {
-                torrent: torrent.torrentTitle,
+                torrent: torrent.downloadTitle,
                 status: remoteTorrent.status,
                 progress: remoteTorrent.progress,
               },
@@ -236,7 +236,7 @@ async function checkDownloadStatus() {
 
             // Fetch game title for notification
             const game = await storage.getGame(torrent.gameId);
-            const gameTitle = game ? game.title : torrent.torrentTitle;
+            const gameTitle = game ? game.title : torrent.downloadTitle;
 
             // Send notification
             const message = `Download finished for ${gameTitle}`;
@@ -447,9 +447,10 @@ async function checkAutoSearch() {
                       await storage.addGameTorrent({
                         gameId: game.id,
                         downloaderId: result.downloaderId,
-                        torrentHash: result.id,
-                        torrentTitle: torrent.title,
+                        downloadHash: result.id,
+                        downloadTitle: torrent.title,
                         status: "downloading",
+                        downloadType: "torrent",
                       });
 
                       // Update game status

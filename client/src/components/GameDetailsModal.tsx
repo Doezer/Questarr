@@ -72,12 +72,12 @@ export default function GameDetailsModal({
   };
 
   const statusActions = [
-    { status: "wanted" as const, icon: Eye, label: "Want to Play", variant: "outline" as const },
+    { status: "wanted" as const, icon: Eye, label: "Want to Play", variant: "secondary" as const },
     {
       status: "owned" as const,
       icon: Download,
       label: "Mark as Owned",
-      variant: "default" as const,
+      variant: "secondary" as const,
     },
     {
       status: "downloading" as const,
@@ -89,7 +89,7 @@ export default function GameDetailsModal({
       status: "completed" as const,
       icon: CheckCircle,
       label: "Mark Completed",
-      variant: "default" as const,
+      variant: "secondary" as const,
     },
   ];
 
@@ -106,7 +106,7 @@ export default function GameDetailsModal({
                 >
                   {game.title}
                 </DialogTitle>
-                <div className="flex items-center gap-2 mb-2">
+                <div className="flex items-center gap-2 mb-3">
                   <StatusBadge status={game.status} />
                   {game.rating && (
                     <div className="flex items-center gap-1 text-sm">
@@ -123,6 +123,22 @@ export default function GameDetailsModal({
                     </div>
                   )}
                 </div>
+                
+                {/* Summary */}
+                {game.summary && (
+                  <div>
+                    <h3 className="font-semibold mb-2 flex items-center gap-2">
+                      <Gamepad2 className="w-4 h-4" />
+                      About
+                    </h3>
+                    <p
+                      className="text-sm text-muted-foreground leading-relaxed"
+                      data-testid={`text-summary-${game.id}`}
+                    >
+                      {game.summary}
+                    </p>
+                  </div>
+                )}
               </div>
 
               {game.coverUrl && (
@@ -130,7 +146,8 @@ export default function GameDetailsModal({
                   <img
                     src={game.coverUrl}
                     alt={`${game.title} cover`}
-                    className="w-32 h-48 object-cover rounded-lg shadow-md"
+                    className="w-32 object-cover rounded-lg shadow-md"
+                    style={{ aspectRatio: '3/4' }}
                     data-testid={`img-cover-${game.id}`}
                   />
                 </div>
@@ -140,22 +157,6 @@ export default function GameDetailsModal({
 
           <ScrollArea className="flex-1 mt-4">
             <div className="space-y-6 pr-4">
-              {/* Summary */}
-              {game.summary && (
-                <div>
-                  <h3 className="font-semibold mb-2 flex items-center gap-2">
-                    <Gamepad2 className="w-4 h-4" />
-                    About
-                  </h3>
-                  <p
-                    className="text-sm text-muted-foreground leading-relaxed"
-                    data-testid={`text-summary-${game.id}`}
-                  >
-                    {game.summary}
-                  </p>
-                </div>
-              )}
-
               {/* Quick Actions */}
               <div>
                 <h3 className="font-semibold mb-3">Quick Actions</h3>

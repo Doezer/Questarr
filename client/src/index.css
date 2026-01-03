@@ -418,12 +418,9 @@
 
   .thumbnail-image {
     width: 100%;
-    height: auto;
-    max-width: 225px; /* Maintain 3:4 ratio for max-height 300px */
+    max-width: 225px;
     aspect-ratio: 3 / 4;
     object-fit: cover;
-    max-height: 300px;
-    margin-inline: auto;
     display: block;
   }
 }

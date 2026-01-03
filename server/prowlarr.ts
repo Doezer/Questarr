@@ -51,21 +51,23 @@ export class ProwlarrClient {
       }
 
       const prowlarrIndexers = (await response.json()) as ProwlarrIndexer[];
-      
+
       torznabLogger.info(
-        { 
-          count: prowlarrIndexers.length, 
-          details: prowlarrIndexers.map(i => ({ name: i.name, protocol: i.protocol, appProfileId: i.appProfileId })) 
-        }, 
+        {
+          count: prowlarrIndexers.length,
+          details: prowlarrIndexers.map((i) => ({
+            name: i.name,
+            protocol: i.protocol,
+            appProfileId: i.appProfileId,
+          })),
+        },
         "Fetched indexers from Prowlarr"
       );
-      
+
       // Filter for Torznab compatible indexers
-      // We accept any torrent protocol indexer. 
+      // We accept any torrent protocol indexer.
       // appProfileId check removed as it might filter out valid indexers assigned to profiles.
-      const torznabIndexers = prowlarrIndexers.filter(
-        (idx) => idx.protocol === "torrent"
-      );
+      const torznabIndexers = prowlarrIndexers.filter((idx) => idx.protocol === "torrent");
 
       torznabLogger.info({ count: torznabIndexers.length }, "Filtered compatible Torznab indexers");
 
@@ -83,12 +85,15 @@ export class ProwlarrClient {
           rssEnabled: true,
           autoSearchEnabled: true,
           // We don't sync categories automatically as they differ per indexer
-          categories: [], 
+          categories: [],
         };
       });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      torznabLogger.error({ error: errorMessage, url: prowlarrUrl }, "Failed to sync from Prowlarr");
+      torznabLogger.error(
+        { error: errorMessage, url: prowlarrUrl },
+        "Failed to sync from Prowlarr"
+      );
       throw error;
     }
   }

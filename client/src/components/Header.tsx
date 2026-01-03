@@ -27,14 +27,16 @@ function formatBytes(bytes: number): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
 }
 
-export default function Header({
-  title = "Dashboard",
-}: HeaderProps) {
+export default function Header({ title = "Dashboard" }: HeaderProps) {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
 
   // Fetch storage info every 5 minutes
-  const { data: storageInfo = [], isLoading, isError } = useQuery<StorageInfo[]>({
+  const {
+    data: storageInfo = [],
+    isLoading,
+    isError,
+  } = useQuery<StorageInfo[]>({
     queryKey: ["/api/downloaders/storage"],
     refetchInterval: 5 * 60 * 1000,
   });
@@ -68,31 +70,37 @@ export default function Header({
         {/* Storage Info */}
         <div className="flex items-center gap-2 sm:gap-3">
           {isLoading && (
-            <span className="text-[10px] sm:text-xs text-muted-foreground animate-pulse">Checking storage...</span>
+            <span className="text-[10px] sm:text-xs text-muted-foreground animate-pulse">
+              Checking storage...
+            </span>
           )}
-          {isError && (
-            <span className="text-[10px] sm:text-xs text-destructive">Error</span>
-          )}
+          {isError && <span className="text-[10px] sm:text-xs text-destructive">Error</span>}
           {!isLoading && !isError && storageInfo.length === 0 && (
-            <span className="text-[10px] sm:text-xs text-muted-foreground opacity-50 hidden sm:inline">No downloaders</span>
+            <span className="text-[10px] sm:text-xs text-muted-foreground opacity-50 hidden sm:inline">
+              No downloaders
+            </span>
           )}
-          {!isLoading && !isError && storageInfo.map((info) => (
-            <Tooltip key={info.downloaderId}>
-              <TooltipTrigger asChild>
-                <div className="flex items-center gap-1 sm:gap-1.5 text-[10px] sm:text-xs text-muted-foreground border rounded-full px-2 py-0.5 sm:px-2.5 sm:py-1 hover:bg-muted/50 transition-colors cursor-help">
-                  <HardDrive className="w-3 sm:w-3.5 h-3 sm:h-3.5" />
-                  <span className="font-medium">{formatBytes(info.freeSpace)}</span>
-                </div>
-              </TooltipTrigger>
-              <TooltipContent>
-                <div className="text-center">
-                  <p className="font-semibold">{info.downloaderName}</p>
-                  <p className="text-[10px] text-muted-foreground">Free Disk Space</p>
-                  {info.error && <p className="text-destructive text-[10px] mt-1">{info.error}</p>}
-                </div>
-              </TooltipContent>
-            </Tooltip>
-          ))}
+          {!isLoading &&
+            !isError &&
+            storageInfo.map((info) => (
+              <Tooltip key={info.downloaderId}>
+                <TooltipTrigger asChild>
+                  <div className="flex items-center gap-1 sm:gap-1.5 text-[10px] sm:text-xs text-muted-foreground border rounded-full px-2 py-0.5 sm:px-2.5 sm:py-1 hover:bg-muted/50 transition-colors cursor-help">
+                    <HardDrive className="w-3 sm:w-3.5 h-3 sm:h-3.5" />
+                    <span className="font-medium">{formatBytes(info.freeSpace)}</span>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <div className="text-center">
+                    <p className="font-semibold">{info.downloaderName}</p>
+                    <p className="text-[10px] text-muted-foreground">Free Disk Space</p>
+                    {info.error && (
+                      <p className="text-destructive text-[10px] mt-1">{info.error}</p>
+                    )}
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            ))}
         </div>
 
         <div className="flex items-center gap-2">
@@ -112,7 +120,8 @@ export default function Header({
             data-testid="button-theme-toggle"
             aria-label="Toggle theme"
           >
-            {mounted && (theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />)}
+            {mounted &&
+              (theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />)}
             {!mounted && <Sun className="w-4 h-4" />}
           </Button>
         </div>

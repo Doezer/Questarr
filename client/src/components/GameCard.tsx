@@ -19,8 +19,8 @@ interface GameCardProps {
   isDiscovery?: boolean;
 }
 
-function getReleaseStatus(game: Game): { 
-  label: string; 
+function getReleaseStatus(game: Game): {
+  label: string;
   variant: "default" | "secondary" | "outline" | "destructive";
   isReleased: boolean;
   className?: string;
@@ -30,18 +30,18 @@ function getReleaseStatus(game: Game): {
   }
 
   if (!game.releaseDate) return { label: "TBA", variant: "secondary", isReleased: false };
-  
+
   const now = new Date();
   const release = new Date(game.releaseDate);
-  
+
   if (release > now) {
     return { label: "Upcoming", variant: "default", isReleased: false };
   }
-  return { 
-    label: "Released", 
-    variant: "outline", 
+  return {
+    label: "Released",
+    variant: "outline",
     isReleased: true,
-    className: "bg-green-500 border-green-600 text-white"
+    className: "bg-green-500 border-green-600 text-white",
   };
 }
 
@@ -84,7 +84,7 @@ const GameCard = ({
 
   return (
     <Card
-      className={`group hover-elevate transition-all duration-200 max-w-[225px] mx-auto w-full ${game.hidden ? 'opacity-60 grayscale' : ''}`}
+      className={`group hover-elevate transition-all duration-200 max-w-[225px] mx-auto w-full ${game.hidden ? "opacity-60 grayscale" : ""}`}
       data-testid={`card-game-${game.id}`}
     >
       <div className="relative">
@@ -98,16 +98,19 @@ const GameCard = ({
           data-testid={`img-cover-${game.id}`}
         />
         <div className="absolute top-2 right-2 flex flex-col gap-1">
-          {!isDiscovery && game.status && (
-            <StatusBadge status={game.status} />
-          )}
+          {!isDiscovery && game.status && <StatusBadge status={game.status} />}
           {game.status === "wanted" && (
-            <Badge variant={releaseStatus.variant} className={`text-xs ${releaseStatus.className || ""}`}>
+            <Badge
+              variant={releaseStatus.variant}
+              className={`text-xs ${releaseStatus.className || ""}`}
+            >
               {releaseStatus.label}
             </Badge>
           )}
           {game.hidden && (
-            <Badge variant="secondary" className="text-xs bg-gray-500 text-white">Hidden</Badge>
+            <Badge variant="secondary" className="text-xs bg-gray-500 text-white">
+              Hidden
+            </Badge>
           )}
         </div>
         <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-t-md flex items-center justify-center gap-2">

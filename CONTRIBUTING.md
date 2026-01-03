@@ -17,32 +17,35 @@ Note: do not merge into your own branch if you intend to do a PR
 ## Development Guidelines
 
 ```bash
+# Install dependencies
+pnpm install
+
 # Run development server with hot reload
-npm run dev
+pnpm dev
 
 # Type check
-npm run check
+pnpm check
 
 # Run tests
-npm test
+pnpm test
 
 # Lint code
-npm run lint
+pnpm lint
 
 # Format code
-npm run format
+pnpm format
 ```
 ### Code Style
 
 - Follow the existing TypeScript and React patterns in the codebase
 - Use Tailwind CSS for styling (follow the design guidelines)
-- Run `npm run lint` and `npm run format` before committing
-- Ensure `npm run check` passes without TypeScript errors
+- Run `pnpm lint` and `pnpm format` before committing
+- Ensure `pnpm check` passes without TypeScript errors
 
 ### Testing
 
 - Add tests for new features when applicable
-- Run `npm test` to ensure all tests pass
+- Run `pnpm test` to ensure all tests pass
 - Test UI changes in both light and dark themes (currently dark-first)
 
 ### Commit Messages

@@ -4,7 +4,18 @@ import { apiRequest } from "@/lib/queryClient";
 import SearchBar from "./SearchBar";
 import GameGrid from "./GameGrid";
 import StatsCard from "./StatsCard";
-import { Library, Star, Gamepad2, Tags, Filter, X, LayoutGrid, Calendar, Building2, Code2 } from "lucide-react";
+import {
+  Library,
+  Star,
+  Gamepad2,
+  Tags,
+  Filter,
+  X,
+  LayoutGrid,
+  Calendar,
+  Building2,
+  Code2,
+} from "lucide-react";
 import { type Game } from "@shared/schema";
 import { type GameStatus } from "./StatusBadge";
 import { useToast } from "@/hooks/use-toast";
@@ -36,7 +47,7 @@ export default function Dashboard() {
   const [showHiddenGames, setShowHiddenGames] = useState<boolean>(() => {
     return localStorage.getItem("showHiddenGames") === "true";
   });
-  
+
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -49,7 +60,11 @@ export default function Dashboard() {
   }, [showHiddenGames]);
 
   // Query user's collection
-  const { data: games = [], isLoading, isFetching } = useQuery<Game[]>({
+  const {
+    data: games = [],
+    isLoading,
+    isFetching,
+  } = useQuery<Game[]>({
     queryKey: ["/api/games", debouncedSearchQuery, showHiddenGames],
     queryFn: async () => {
       const params = new URLSearchParams();
@@ -59,7 +74,7 @@ export default function Dashboard() {
       if (showHiddenGames) {
         params.set("includeHidden", "true");
       }
-      
+
       const token = localStorage.getItem("token");
       const headers: Record<string, string> = {};
       if (token) {
@@ -106,7 +121,7 @@ export default function Dashboard() {
   const uniqueGenres = useMemo(() => {
     return Array.from(new Set(games.flatMap((g) => g.genres ?? []))).sort();
   }, [games]);
-  
+
   const uniquePlatforms = useMemo(() => {
     return Array.from(new Set(games.flatMap((g) => g.platforms ?? []))).sort();
   }, [games]);
@@ -145,37 +160,50 @@ export default function Dashboard() {
     if (totalGames === 0) return [];
 
     // Avg Rating
-    const ratedGames = games.filter(g => g.rating !== null);
-    const avgRating = ratedGames.length > 0 
-      ? (ratedGames.reduce((acc, g) => acc + (g.rating || 0), 0) / ratedGames.length).toFixed(1)
-      : "N/A";
+    const ratedGames = games.filter((g) => g.rating !== null);
+    const avgRating =
+      ratedGames.length > 0
+        ? (ratedGames.reduce((acc, g) => acc + (g.rating || 0), 0) / ratedGames.length).toFixed(1)
+        : "N/A";
 
     // Top Genre
     const genreCounts: Record<string, number> = {};
-    games.flatMap(g => g.genres || []).forEach(g => genreCounts[g] = (genreCounts[g] || 0) + 1);
+    games
+      .flatMap((g) => g.genres || [])
+      .forEach((g) => (genreCounts[g] = (genreCounts[g] || 0) + 1));
     const topGenre = Object.entries(genreCounts).sort((a, b) => b[1] - a[1])[0];
 
     // Top Platform
     const platformCounts: Record<string, number> = {};
-    games.flatMap(g => g.platforms || []).forEach(p => platformCounts[p] = (platformCounts[p] || 0) + 1);
+    games
+      .flatMap((g) => g.platforms || [])
+      .forEach((p) => (platformCounts[p] = (platformCounts[p] || 0) + 1));
     const topPlatform = Object.entries(platformCounts).sort((a, b) => b[1] - a[1])[0];
 
     // Avg Release Year
-    const datedGames = games.filter(g => g.releaseDate);
-    const avgYear = datedGames.length > 0
-      ? Math.round(datedGames.reduce((acc, g) => acc + new Date(g.releaseDate!).getFullYear(), 0) / datedGames.length)
-      : "N/A";
+    const datedGames = games.filter((g) => g.releaseDate);
+    const avgYear =
+      datedGames.length > 0
+        ? Math.round(
+            datedGames.reduce((acc, g) => acc + new Date(g.releaseDate!).getFullYear(), 0) /
+              datedGames.length
+          )
+        : "N/A";
 
     // Top Publisher
     const publisherCounts: Record<string, number> = {};
-    games.flatMap(g => g.publishers || []).forEach(p => publisherCounts[p] = (publisherCounts[p] || 0) + 1);
+    games
+      .flatMap((g) => g.publishers || [])
+      .forEach((p) => (publisherCounts[p] = (publisherCounts[p] || 0) + 1));
     const topPublisher = Object.entries(publisherCounts).sort((a, b) => b[1] - a[1])[0];
 
     // Developer Count
-    const uniqueDevelopers = new Set(games.flatMap(g => g.developers || []));
+    const uniqueDevelopers = new Set(games.flatMap((g) => g.developers || []));
 
     // Metadata Completeness (simple check: title, summary, cover, releaseDate, rating)
-    const completeGames = games.filter(g => g.title && g.summary && g.coverUrl && g.releaseDate && g.rating);
+    const completeGames = games.filter(
+      (g) => g.title && g.summary && g.coverUrl && g.releaseDate && g.rating
+    );
     const metadataCompleteness = Math.round((completeGames.length / totalGames) * 100);
 
     return [
@@ -207,7 +235,7 @@ export default function Dashboard() {
         title: "Developers",
         value: uniqueDevelopers.size,
         subtitle: "unique developers",
-        icon: Code2, 
+        icon: Code2,
       },
       {
         title: "Avg. Year",
@@ -219,8 +247,8 @@ export default function Dashboard() {
         title: "Metadata Health",
         value: `${metadataCompleteness}%`,
         subtitle: "complete metadata",
-        icon: Filter, 
-      }
+        icon: Filter,
+      },
     ];
   }, [games]);
 
@@ -294,7 +322,7 @@ export default function Dashboard() {
             onRemoveFilter={handleRemoveFilter}
             placeholder="Search your library..."
           />
-          
+
           {/* Filter Panel */}
           {showFilters && (
             <Card>
@@ -302,12 +330,7 @@ export default function Dashboard() {
                 <div className="flex items-center justify-between">
                   <Label className="text-sm font-semibold">Filters</Label>
                   {activeFilters.length > 0 && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={clearAllFilters}
-                      className="gap-2"
-                    >
+                    <Button variant="ghost" size="sm" onClick={clearAllFilters} className="gap-2">
                       <X className="w-4 h-4" />
                       Clear All
                     </Button>
@@ -383,7 +406,7 @@ export default function Dashboard() {
             showHiddenGames={showHiddenGames}
             onShowHiddenGamesChange={setShowHiddenGames}
           />
-          
+
           <GameGrid
             games={filteredGames}
             onStatusChange={handleStatusChange}

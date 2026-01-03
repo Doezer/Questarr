@@ -64,11 +64,9 @@ export default function DiscoverSettingsModal({
       <DialogContent className="sm:max-w-[500px] max-h-[80vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>Discovery Settings</DialogTitle>
-          <DialogDescription>
-            Customize your discovery experience.
-          </DialogDescription>
+          <DialogDescription>Customize your discovery experience.</DialogDescription>
         </DialogHeader>
-        
+
         <div className="space-y-4 py-4 border-b">
           <div className="flex items-center justify-between space-x-2">
             <div className="flex flex-col space-y-1">
@@ -80,10 +78,7 @@ export default function DiscoverSettingsModal({
                 Do not show games already in your "Owned" or "Completed" library.
               </span>
             </div>
-            <Switch
-              checked={hideOwned}
-              onCheckedChange={onHideOwnedChange}
-            />
+            <Switch checked={hideOwned} onCheckedChange={onHideOwnedChange} />
           </div>
 
           <div className="flex items-center justify-between space-x-2">
@@ -96,10 +91,7 @@ export default function DiscoverSettingsModal({
                 Do not show games already in your watchlist.
               </span>
             </div>
-            <Switch
-              checked={hideWanted}
-              onCheckedChange={onHideWantedChange}
-            />
+            <Switch checked={hideWanted} onCheckedChange={onHideWantedChange} />
           </div>
         </div>
 
@@ -108,7 +100,7 @@ export default function DiscoverSettingsModal({
             <Eye className="h-4 w-4" />
             Hidden Games ({hiddenGames.length})
           </h3>
-          
+
           <ScrollArea className="flex-1 border rounded-md p-2">
             {hiddenGames.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground text-sm">
@@ -117,18 +109,21 @@ export default function DiscoverSettingsModal({
             ) : (
               <div className="space-y-2">
                 {hiddenGames.map((game) => (
-                  <div key={game.id} className="flex items-center justify-between bg-muted/30 p-2 rounded hover:bg-muted/50 transition-colors">
+                  <div
+                    key={game.id}
+                    className="flex items-center justify-between bg-muted/30 p-2 rounded hover:bg-muted/50 transition-colors"
+                  >
                     <div className="flex items-center gap-3 overflow-hidden">
-                      <img 
-                        src={game.coverUrl || "/placeholder-game-cover.jpg"} 
-                        alt={game.title} 
+                      <img
+                        src={game.coverUrl || "/placeholder-game-cover.jpg"}
+                        alt={game.title}
                         className="w-10 h-14 object-cover rounded"
                       />
                       <span className="font-medium truncate text-sm">{game.title}</span>
                     </div>
-                    <Button 
-                      size="sm" 
-                      variant="outline" 
+                    <Button
+                      size="sm"
+                      variant="outline"
                       onClick={() => handleUnhide(game.id)}
                       disabled={unhideMutation.isPending}
                     >

@@ -60,7 +60,7 @@ describe("Dashboard Configuration", () => {
 
   it("should load grid column preference from local storage on mount", () => {
     localStorage.setItem("dashboardGridColumns", "7");
-    
+
     const queryClient = createTestQueryClient();
     render(
       <QueryClientProvider client={queryClient}>
@@ -70,7 +70,7 @@ describe("Dashboard Configuration", () => {
       </QueryClientProvider>
     );
 
-    // We can't easily see the internal state of Dashboard, 
+    // We can't easily see the internal state of Dashboard,
     // but we can check if it stays '7' in localStorage (it shouldn't overwrite with '5')
     expect(localStorage.getItem("dashboardGridColumns")).toBe("7");
   });

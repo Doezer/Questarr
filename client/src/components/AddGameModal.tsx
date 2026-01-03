@@ -99,9 +99,7 @@ export default function AddGameModal({ children }: AddGameModalProps) {
   // Mark games already in collection
   const resultsWithCollectionStatus: SearchResult[] = searchResults.map((game: Game) => ({
     ...game,
-    inCollection: userGames.some(
-      (userGame) => userGame.igdbId === game.igdbId
-    ),
+    inCollection: userGames.some((userGame) => userGame.igdbId === game.igdbId),
   }));
 
   return (

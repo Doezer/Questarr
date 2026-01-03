@@ -939,9 +939,7 @@ describe("RTorrentClient - XML-RPC Protocol", () => {
       text: async () => "torrent content",
     };
 
-    fetchMock
-      .mockResolvedValueOnce(fileResponse)
-      .mockResolvedValueOnce(errorResponse);
+    fetchMock.mockResolvedValueOnce(fileResponse).mockResolvedValueOnce(errorResponse);
 
     const { DownloaderManager } = await import("../downloaders.js");
 

@@ -29,8 +29,9 @@ export const games = pgTable("games", {
     .notNull()
     .default("wanted"),
   originalReleaseDate: text("original_release_date"),
-  releaseStatus: text("release_status", { enum: ["released", "upcoming", "delayed", "tbd"] })
-    .default("upcoming"),
+  releaseStatus: text("release_status", {
+    enum: ["released", "upcoming", "delayed", "tbd"],
+  }).default("upcoming"),
   hidden: boolean("hidden").default(false),
   addedAt: timestamp("added_at").defaultNow(),
   completedAt: timestamp("completed_at"),
@@ -82,8 +83,12 @@ export const gameTorrents = pgTable("game_torrents", {
   id: varchar("id")
     .primaryKey()
     .default(sql`gen_random_uuid()`),
-  gameId: varchar("game_id").notNull().references(() => games.id, { onDelete: "cascade" }),
-  downloaderId: varchar("downloader_id").notNull().references(() => downloaders.id, { onDelete: "cascade" }),
+  gameId: varchar("game_id")
+    .notNull()
+    .references(() => games.id, { onDelete: "cascade" }),
+  downloaderId: varchar("downloader_id")
+    .notNull()
+    .references(() => downloaders.id, { onDelete: "cascade" }),
   torrentHash: text("torrent_hash").notNull(), // Hash or ID from the downloader client
   torrentTitle: text("torrent_title").notNull(),
   status: text("status", { enum: ["downloading", "completed", "failed", "paused"] })

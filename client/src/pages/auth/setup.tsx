@@ -7,13 +7,7 @@ import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -26,14 +20,16 @@ import {
 } from "@/components/ui/form";
 import { Lock, User, ShieldCheck } from "lucide-react";
 
-const setupSchema = z.object({
-  username: z.string().min(3, "Username must be at least 3 characters"),
-  password: z.string().min(6, "Password must be at least 6 characters"),
-  confirmPassword: z.string(),
-}).refine((data) => data.password === data.confirmPassword, {
-  message: "Passwords do not match",
-  path: ["confirmPassword"],
-});
+const setupSchema = z
+  .object({
+    username: z.string().min(3, "Username must be at least 3 characters"),
+    password: z.string().min(6, "Password must be at least 6 characters"),
+    confirmPassword: z.string(),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: "Passwords do not match",
+    path: ["confirmPassword"],
+  });
 
 type SetupForm = z.infer<typeof setupSchema>;
 
@@ -41,7 +37,7 @@ export default function SetupPage() {
   const { checkSetup } = useAuth();
   const { toast } = useToast();
   const [_, setLocation] = useLocation();
-  
+
   const form = useForm<SetupForm>({
     resolver: zodResolver(setupSchema),
     defaultValues: {
@@ -64,7 +60,7 @@ export default function SetupPage() {
       await checkSetup();
       toast({ title: "Setup complete! Welcome." });
       // Force reload to pick up auth state or navigate
-      window.location.href = "/"; 
+      window.location.href = "/";
     },
     onError: (error: Error) => {
       toast({

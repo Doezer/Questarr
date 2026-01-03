@@ -66,7 +66,7 @@ export interface IStorage {
   getDownloadingGameTorrents(): Promise<GameTorrent[]>;
   updateGameTorrentStatus(id: string, status: string): Promise<void>;
   addGameTorrent(gameTorrent: InsertGameTorrent): Promise<GameTorrent>;
-  
+
   // Notification methods
   getNotifications(limit?: number): Promise<Notification[]>;
   getUnreadNotificationsCount(): Promise<number>;
@@ -140,9 +140,16 @@ export class MemStorage implements IStorage {
       .sort((a, b) => new Date(b.addedAt || 0).getTime() - new Date(a.addedAt || 0).getTime());
   }
 
-  async getUserGamesByStatus(userId: string, status: string, includeHidden = false): Promise<Game[]> {
+  async getUserGamesByStatus(
+    userId: string,
+    status: string,
+    includeHidden = false
+  ): Promise<Game[]> {
     return Array.from(this.games.values())
-      .filter((game) => game.userId === userId && game.status === status && (includeHidden || !game.hidden))
+      .filter(
+        (game) =>
+          game.userId === userId && game.status === status && (includeHidden || !game.hidden)
+      )
       .sort((a, b) => new Date(b.addedAt || 0).getTime() - new Date(a.addedAt || 0).getTime());
   }
 
@@ -373,15 +380,13 @@ export class MemStorage implements IStorage {
 
   // GameTorrent methods
   async getDownloadingGameTorrents(): Promise<GameTorrent[]> {
-    return Array.from(this.gameTorrents.values()).filter(
-      (gt) => gt.status === "downloading"
-    );
+    return Array.from(this.gameTorrents.values()).filter((gt) => gt.status === "downloading");
   }
 
   async updateGameTorrentStatus(id: string, status: string): Promise<void> {
     const gt = this.gameTorrents.get(id);
     if (gt) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       this.gameTorrents.set(id, { ...gt, status: status as any });
     }
   }
@@ -509,21 +514,23 @@ export class DatabaseStorage implements IStorage {
     );
   }
 
-  async getUserGamesByStatus(userId: string, status: string, includeHidden = false): Promise<Game[]> {
-    return (
-      db
-        .select()
-        .from(games)
-        .where(
-          and(
-            eq(games.userId, userId),
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            eq(games.status, status as any),
-            includeHidden ? undefined : eq(games.hidden, false)
-          )
+  async getUserGamesByStatus(
+    userId: string,
+    status: string,
+    includeHidden = false
+  ): Promise<Game[]> {
+    return db
+      .select()
+      .from(games)
+      .where(
+        and(
+          eq(games.userId, userId),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          eq(games.status, status as any),
+          includeHidden ? undefined : eq(games.hidden, false)
         )
-        .orderBy(sql`${games.addedAt} DESC`)
-    );
+      )
+      .orderBy(sql`${games.addedAt} DESC`);
   }
 
   async searchGames(query: string): Promise<Game[]> {
@@ -599,16 +606,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateGameHidden(id: string, hidden: boolean): Promise<Game | undefined> {
-    const [updatedGame] = await db.update(games).set({ hidden }).where(eq(games.id, id)).returning();
+    const [updatedGame] = await db
+      .update(games)
+      .set({ hidden })
+      .where(eq(games.id, id))
+      .returning();
     return updatedGame || undefined;
   }
 
   async updateGame(id: string, updates: Partial<Game>): Promise<Game | undefined> {
-    const [updatedGame] = await db
-      .update(games)
-      .set(updates)
-      .where(eq(games.id, id))
-      .returning();
+    const [updatedGame] = await db.update(games).set(updates).where(eq(games.id, id)).returning();
 
     return updatedGame || undefined;
   }
@@ -705,10 +712,7 @@ export class DatabaseStorage implements IStorage {
 
   // GameTorrent methods
   async getDownloadingGameTorrents(): Promise<GameTorrent[]> {
-    return db
-      .select()
-      .from(gameTorrents)
-      .where(eq(gameTorrents.status, "downloading"));
+    return db.select().from(gameTorrents).where(eq(gameTorrents.status, "downloading"));
   }
 
   async updateGameTorrentStatus(id: string, status: string): Promise<void> {
@@ -726,11 +730,7 @@ export class DatabaseStorage implements IStorage {
 
   // Notification methods
   async getNotifications(limit: number = 50): Promise<Notification[]> {
-    return db
-      .select()
-      .from(notifications)
-      .orderBy(desc(notifications.createdAt))
-      .limit(limit);
+    return db.select().from(notifications).orderBy(desc(notifications.createdAt)).limit(limit);
   }
 
   async getUnreadNotificationsCount(): Promise<number> {

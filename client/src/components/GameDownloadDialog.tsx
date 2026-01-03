@@ -24,16 +24,22 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Download, Loader2, FileDown, PackagePlus, SlidersHorizontal } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { type Game } from "@shared/schema";
-import { 
-  groupTorrentsByCategory, 
-  getCategoryLabel, 
+import {
+  groupTorrentsByCategory,
+  getCategoryLabel,
   getCategoryDescription,
-  type TorrentCategory 
+  type TorrentCategory,
 } from "@/lib/torrent-categorizer";
 
 interface TorrentItem {
@@ -89,12 +95,14 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   const [selectedMainTorrent, setSelectedMainTorrent] = useState<TorrentItem | null>(null);
   const [isDirectDownloadMode, setIsDirectDownloadMode] = useState(false);
   const [selectedUpdateIndices, setSelectedUpdateIndices] = useState<Set<number>>(new Set());
-  
+
   // Filter states
   const [minSeeders, setMinSeeders] = useState<number>(0);
-  const [sortBy, setSortBy] = useState<'seeders' | 'date' | 'size'>('seeders');
+  const [sortBy, setSortBy] = useState<"seeders" | "date" | "size">("seeders");
   const [showFilters, setShowFilters] = useState(false);
-  const [visibleCategories, setVisibleCategories] = useState<Set<TorrentCategory>>(new Set(['main', 'update', 'dlc', 'extra'] as TorrentCategory[]));
+  const [visibleCategories, setVisibleCategories] = useState<Set<TorrentCategory>>(
+    new Set(["main", "update", "dlc", "extra"] as TorrentCategory[])
+  );
 
   // Auto-populate search when dialog opens with game title
   useEffect(() => {
@@ -107,7 +115,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       setIsDirectDownloadMode(false);
       setSelectedUpdateIndices(new Set());
       setMinSeeders(0);
-      setSortBy('seeders');
+      setSortBy("seeders");
       setShowFilters(false);
     }
   }, [open, game]);
@@ -125,24 +133,33 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
 
   // Apply filters and sorting
   const filteredCategorizedTorrents = useMemo(() => {
-    const filtered: Record<TorrentCategory, TorrentItem[]> = { main: [], update: [], dlc: [], extra: [] };
-    
-    for (const [category, torrents] of Object.entries(categorizedTorrents) as [TorrentCategory, TorrentItem[]][]) {
+    const filtered: Record<TorrentCategory, TorrentItem[]> = {
+      main: [],
+      update: [],
+      dlc: [],
+      extra: [],
+    };
+
+    for (const [category, torrents] of Object.entries(categorizedTorrents) as [
+      TorrentCategory,
+      TorrentItem[],
+    ][]) {
       if (!visibleCategories.has(category)) continue;
-      
+
       filtered[category] = torrents
-        .filter(t => (t.seeders ?? 0) >= minSeeders)
+        .filter((t) => (t.seeders ?? 0) >= minSeeders)
         .sort((a, b) => {
-          if (sortBy === 'seeders') {
+          if (sortBy === "seeders") {
             return (b.seeders ?? 0) - (a.seeders ?? 0);
-          } else if (sortBy === 'date') {
+          } else if (sortBy === "date") {
             return new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime();
-          } else { // size
+          } else {
+            // size
             return (b.size ?? 0) - (a.size ?? 0);
           }
         });
     }
-    
+
     return filtered;
   }, [categorizedTorrents, minSeeders, sortBy, visibleCategories]);
 
@@ -185,10 +202,11 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       return results;
     },
     onSuccess: (results) => {
-      const successCount = results.filter(r => r.success).length;
+      const successCount = results.filter((r) => r.success).length;
       toast({
         title: `${successCount} download(s) started successfully`,
-        description: results.length > 1 ? `Added ${successCount} of ${results.length} torrents` : undefined,
+        description:
+          results.length > 1 ? `Added ${successCount} of ${results.length} torrents` : undefined,
       });
       queryClient.invalidateQueries({ queryKey: ["/api/downloads"] });
       onOpenChange(false);
@@ -212,7 +230,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     if (categorizedTorrents.update.length > 0) {
       const guid = torrent.guid || torrent.link;
       const torrentCategory = groupTorrentsByCategory([torrent]);
-      
+
       if (torrentCategory.main.length > 0) {
         // This is a main game torrent, ask if user wants to include updates
         setSelectedMainTorrent(torrent);
@@ -223,7 +241,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         return;
       }
     }
-    
+
     // Otherwise, download normally
     const guid = torrent.guid || torrent.link;
     setDownloadingGuid(guid);
@@ -232,13 +250,15 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
 
   const handleBundleDownload = (includeUpdates: boolean) => {
     if (!selectedMainTorrent) return;
-    
+
     const guid = selectedMainTorrent.guid || selectedMainTorrent.link;
     setDownloadingGuid(guid);
-    
+
     if (includeUpdates && selectedUpdateIndices.size > 0) {
       // Download main game + selected updates
-      const selectedUpdates = Array.from(selectedUpdateIndices).map(i => categorizedTorrents.update[i]);
+      const selectedUpdates = Array.from(selectedUpdateIndices).map(
+        (i) => categorizedTorrents.update[i]
+      );
       downloadMutation.mutate([selectedMainTorrent, ...selectedUpdates]);
     } else {
       // Download only main game
@@ -247,10 +267,10 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   };
 
   const downloadTorrentFile = (torrent: TorrentItem) => {
-    const link = document.createElement('a');
+    const link = document.createElement("a");
     link.href = torrent.link;
     link.download = `${torrent.title}.torrent`;
-    link.target = '_blank';
+    link.target = "_blank";
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -260,7 +280,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     // Check if this is a main game torrent and we have updates available
     if (categorizedTorrents.update.length > 0) {
       const torrentCategory = groupTorrentsByCategory([torrent]);
-      
+
       if (torrentCategory.main.length > 0) {
         // This is a main game torrent, ask if user wants to include updates
         setSelectedMainTorrent(torrent);
@@ -271,7 +291,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         return;
       }
     }
-    
+
     // Otherwise, download normally
     downloadTorrentFile(torrent);
     toast({
@@ -303,9 +323,11 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
 
     if (includeUpdates && selectedUpdateIndices.size > 0) {
       // Download selected updates as a ZIP bundle
-      const selectedUpdates = Array.from(selectedUpdateIndices).map(i => categorizedTorrents.update[i]);
+      const selectedUpdates = Array.from(selectedUpdateIndices).map(
+        (i) => categorizedTorrents.update[i]
+      );
       const torrents = [selectedMainTorrent, ...selectedUpdates];
-      
+
       try {
         const response = await fetch("/api/downloads/bundle", {
           method: "POST",
@@ -320,7 +342,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         // Download the ZIP file
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
-        const link = document.createElement('a');
+        const link = document.createElement("a");
         link.href = url;
         link.download = `${selectedMainTorrent.title}-bundle.zip`;
         document.body.appendChild(link);
@@ -346,7 +368,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         description: "Torrent file download initiated",
       });
     }
-    
+
     setShowBundleDialog(false);
     setSelectedMainTorrent(null);
   };
@@ -372,7 +394,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   };
 
   const toggleCategory = (category: TorrentCategory) => {
-    setVisibleCategories(prev => {
+    setVisibleCategories((prev) => {
       const next = new Set(prev);
       if (next.has(category)) {
         next.delete(category);
@@ -401,7 +423,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full"
           />
-          
+
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
@@ -410,7 +432,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
               className="flex items-center gap-2"
             >
               <SlidersHorizontal className="h-4 w-4" />
-              {showFilters ? 'Hide Filters' : 'Show Filters'}
+              {showFilters ? "Hide Filters" : "Show Filters"}
             </Button>
             {minSeeders > 0 && (
               <Badge variant="secondary" className="text-xs">
@@ -422,7 +444,9 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
           {showFilters && (
             <div className="grid grid-cols-2 gap-4 p-4 border rounded-md bg-muted/50">
               <div className="space-y-2">
-                <Label htmlFor="minSeeders" className="text-sm">Min Seeders</Label>
+                <Label htmlFor="minSeeders" className="text-sm">
+                  Min Seeders
+                </Label>
                 <Input
                   id="minSeeders"
                   type="number"
@@ -432,9 +456,11 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                   className="w-full"
                 />
               </div>
-              
+
               <div className="space-y-2">
-                <Label htmlFor="sortBy" className="text-sm">Sort By</Label>
+                <Label htmlFor="sortBy" className="text-sm">
+                  Sort By
+                </Label>
                 <Select value={sortBy} onValueChange={(v: any) => setSortBy(v)}>
                   <SelectTrigger id="sortBy">
                     <SelectValue />
@@ -450,15 +476,24 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
               <div className="col-span-2 space-y-2">
                 <Label className="text-sm">Categories</Label>
                 <div className="flex flex-wrap gap-2">
-                  {(['main', 'update', 'dlc', 'extra'] as const).map(cat => (
+                  {(["main", "update", "dlc", "extra"] as const).map((cat) => (
                     <div key={cat} className="flex items-center">
                       <Checkbox
                         id={`cat-${cat}`}
                         checked={visibleCategories.has(cat)}
                         onCheckedChange={() => toggleCategory(cat)}
                       />
-                      <label htmlFor={`cat-${cat}`} className="ml-2 text-sm cursor-pointer capitalize">
-                        {cat === 'main' ? 'Main Game' : cat === 'update' ? 'Updates' : cat === 'dlc' ? 'DLC' : 'Extras'}
+                      <label
+                        htmlFor={`cat-${cat}`}
+                        className="ml-2 text-sm cursor-pointer capitalize"
+                      >
+                        {cat === "main"
+                          ? "Main Game"
+                          : cat === "update"
+                            ? "Updates"
+                            : cat === "dlc"
+                              ? "DLC"
+                              : "Extras"}
                       </label>
                     </div>
                   ))}
@@ -491,7 +526,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
             {!isSearching && searchResults && searchResults.items.length > 0 && (
               <div className="space-y-6">
                 {/* Render each category separately */}
-                {(['main', 'update', 'dlc', 'extra'] as const).map((category) => {
+                {(["main", "update", "dlc", "extra"] as const).map((category) => {
                   const torrentsInCategory = filteredCategorizedTorrents[category];
                   if (torrentsInCategory.length === 0) return null;
 
@@ -507,19 +542,26 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                       {/* Category Header */}
                       <div className="flex items-center gap-2 mb-3">
                         <h3 className="font-semibold text-base capitalize">
-                          {category === 'main' ? 'Main Game' : 
-                           category === 'update' ? 'Updates & Patches' :
-                           category === 'dlc' ? 'DLC & Expansions' : 'Extras'}
+                          {category === "main"
+                            ? "Main Game"
+                            : category === "update"
+                              ? "Updates & Patches"
+                              : category === "dlc"
+                                ? "DLC & Expansions"
+                                : "Extras"}
                         </h3>
                         <Badge variant="secondary" className="text-xs">
                           {torrentsInCategory.length}
                         </Badge>
                       </div>
                       <div className="text-xs text-muted-foreground mb-2">
-                        {category === 'main' ? 'Full game downloads' :
-                         category === 'update' ? 'Game updates, patches, hotfixes, and crackfixes' :
-                         category === 'dlc' ? 'Downloadable content, expansions, and season passes' :
-                         'Soundtracks, artbooks, and other bonus content'}
+                        {category === "main"
+                          ? "Full game downloads"
+                          : category === "update"
+                            ? "Game updates, patches, hotfixes, and crackfixes"
+                            : category === "dlc"
+                              ? "Downloadable content, expansions, and season passes"
+                              : "Soundtracks, artbooks, and other bonus content"}
                       </div>
 
                       {/* Torrents in this category */}
@@ -555,7 +597,10 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                 {torrent.description && (
                                   <>
                                     <span>•</span>
-                                    <span className="truncate max-w-[200px]" title={torrent.description}>
+                                    <span
+                                      className="truncate max-w-[200px]"
+                                      title={torrent.description}
+                                    >
                                       {torrent.description}
                                     </span>
                                   </>
@@ -630,11 +675,11 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
           <AlertDialogHeader>
             <AlertDialogTitle>Download with Updates?</AlertDialogTitle>
             <AlertDialogDescription>
-              {categorizedTorrents.update.length} update(s) are available for this game.
-              Select which updates you want to download with the main game.
+              {categorizedTorrents.update.length} update(s) are available for this game. Select
+              which updates you want to download with the main game.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          
+
           {/* List of updates with checkboxes */}
           {categorizedTorrents.update.length > 0 && (
             <div className="my-4">
@@ -698,15 +743,17 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
               </div>
             </div>
           )}
-          
+
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => {
-              if (isDirectDownloadMode) {
-                handleBundleDirectDownload(false);
-              } else {
-                handleBundleDownload(false);
-              }
-            }}>
+            <AlertDialogCancel
+              onClick={() => {
+                if (isDirectDownloadMode) {
+                  handleBundleDirectDownload(false);
+                } else {
+                  handleBundleDownload(false);
+                }
+              }}
+            >
               No, just the main game
             </AlertDialogCancel>
             <AlertDialogAction

@@ -61,17 +61,28 @@ function App() {
 
   const getPageTitle = (path: string) => {
     switch (path) {
-      case "/": return "Dashboard";
-      case "/discover": return "Discover";
-      case "/search": return "Search";
-      case "/downloads": return "Downloads";
-      case "/indexers": return "Indexers";
-      case "/downloaders": return "Downloaders";
-      case "/settings": return "Settings";
-      case "/library": return "Library";
-      case "/calendar": return "Calendar";
-      case "/wishlist": return "Wishlist";
-      default: return "Questarr";
+      case "/":
+        return "Dashboard";
+      case "/discover":
+        return "Discover";
+      case "/search":
+        return "Search";
+      case "/downloads":
+        return "Downloads";
+      case "/indexers":
+        return "Indexers";
+      case "/downloaders":
+        return "Downloaders";
+      case "/settings":
+        return "Settings";
+      case "/library":
+        return "Library";
+      case "/calendar":
+        return "Calendar";
+      case "/wishlist":
+        return "Wishlist";
+      default:
+        return "Questarr";
     }
   };
 

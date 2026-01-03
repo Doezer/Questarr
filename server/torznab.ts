@@ -213,7 +213,7 @@ export class TorznabClient {
 
       const torznabItems: TorznabItem[] = items.map((item: any) =>
         this.parseItem(item, indexerUrl)
-      ); // eslint-disable-line @typescript-eslint/no-explicit-any
+      );
 
       return {
         items: torznabItems,
@@ -253,14 +253,14 @@ export class TorznabClient {
         // Only rewrite HTTP/HTTPS links
         if (linkUrl.protocol === "http:" || linkUrl.protocol === "https:") {
           const indexerUrlObj = new URL(indexerUrl);
-          
+
           // If the link uses a different port or host than the configured indexer,
           // but shares the same path structure (heuristic), we force the configured URL.
           // We assume that the path part returned by the indexer is correct relative to the base.
-          
+
           linkUrl.protocol = indexerUrlObj.protocol;
           linkUrl.host = indexerUrlObj.host; // overrides port too
-          
+
           // Use the modified URL
           torznabItem.link = linkUrl.toString();
         }

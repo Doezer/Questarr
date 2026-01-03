@@ -285,7 +285,16 @@ export function formatUnpackStatus(unpackStatus?: "unpacking" | "completed" | "f
  */
 export function formatAge(days?: number): string {
   if (days === undefined) return "";
-  if (days === 0) return "Today";
-  if (days === 1) return "1 day";
-  return `${days} days`;
+  const wholeDays = Math.floor(days);
+  if (wholeDays === 0) return "Today";
+  if (wholeDays < 1) return "< 1 day";
+  if (wholeDays === 1) return "1 day";
+  return `${wholeDays} days`;
+}
+
+/**
+ * Check if an item is a Usenet download (NZB) vs torrent
+ */
+export function isUsenetItem(item: { grabs?: number; age?: number; seeders?: number }): boolean {
+  return (item.grabs !== undefined || item.age !== undefined) && item.seeders === undefined;
 }

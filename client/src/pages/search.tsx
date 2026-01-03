@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useDebounce } from "@/hooks/use-debounce";
 import { queryClient } from "@/lib/queryClient";
+import { formatBytes, formatAge, isUsenetItem } from "@/lib/downloads-utils";
 import { Search, Download, Newspaper } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -92,17 +93,6 @@ function formatDate(dateString: string): string {
   } catch {
     return dateString;
   }
-}
-
-function formatAge(days: number): string {
-  if (days < 1) return "< 1 day";
-  if (days === 1) return "1 day";
-  return `${Math.floor(days)} days`;
-}
-
-function isUsenetItem(item: TorrentItem): boolean {
-  // Usenet items have grabs/age but not seeders/leechers
-  return (item.grabs !== undefined || item.age !== undefined) && item.seeders === undefined;
 }
 
 export default function SearchPage() {
@@ -339,22 +329,24 @@ export default function SearchPage() {
               <div className="w-[40px] text-right">Action</div>
             </div>
             {sortedItems.length > 0 ? (
-              sortedItems.map((torrent, index) => (
-                <div
-                  key={index}
-                  className="p-3 text-sm flex justify-between items-center hover:bg-muted/30 transition-colors gap-4 px-4"
-                  data-testid={`card-torrent-${index}`}
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <div className="font-medium truncate flex-1" title={torrent.title}>
-                        {torrent.title}
-                      </div>
-                      <Badge
-                        variant={isUsenetItem(torrent) ? "secondary" : "default"}
-                        className="text-xs flex-shrink-0"
-                      >
-                        {isUsenetItem(torrent) ? (
+              sortedItems.map((torrent, index) => {
+                const isUsenet = isUsenetItem(torrent);
+                return (
+                  <div
+                    key={index}
+                    className="p-3 text-sm flex justify-between items-center hover:bg-muted/30 transition-colors gap-4 px-4"
+                    data-testid={`card-torrent-${index}`}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <div className="font-medium truncate flex-1" title={torrent.title}>
+                          {torrent.title}
+                        </div>
+                        <Badge
+                          variant={isUsenet ? "secondary" : "default"}
+                          className="text-xs flex-shrink-0"
+                        >
+                          {isUsenet ? (
                           <>
                             <Newspaper className="h-3 w-3 mr-1" />
                             USENET
@@ -372,7 +364,7 @@ export default function SearchPage() {
                       <span>•</span>
                       <span>{torrent.size ? formatBytes(torrent.size) : "-"}</span>
                       <span>•</span>
-                      {isUsenetItem(torrent) ? (
+                      {isUsenet ? (
                         <>
                           {torrent.grabs !== undefined && (
                             <>
@@ -435,6 +427,8 @@ export default function SearchPage() {
                     </Tooltip>
                   </div>
                 </div>
+                );
+              })
               ))
             ) : (
               <div className="p-8 text-center text-muted-foreground" data-testid="card-no-results">

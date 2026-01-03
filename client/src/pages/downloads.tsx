@@ -377,7 +377,7 @@ export default function Downloads() {
                           </Badge>
                         )}
                         {/* Usenet-specific: Repair Status */}
-                        {shouldShowRepairStatus(download.repairStatus) && (
+                        {shouldShowRepairStatus(download) && (
                           <Badge
                             variant="outline"
                             data-testid={`badge-repair-${download.id}`}
@@ -387,7 +387,7 @@ export default function Downloads() {
                           </Badge>
                         )}
                         {/* Usenet-specific: Unpack Status */}
-                        {shouldShowUnpackStatus(download.unpackStatus) && (
+                        {shouldShowUnpackStatus(download) && (
                           <Badge
                             variant="outline"
                             data-testid={`badge-unpack-${download.id}`}

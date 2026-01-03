@@ -26,7 +26,7 @@ function _formatReleaseDate(dateString: string | null): string {
   }
 }
 
-function _getReleaseStatus(releaseDate: string | null): {
+function getReleaseStatus(releaseDate: string | null): {
   label: string;
   variant: "default" | "secondary" | "outline";
 } {

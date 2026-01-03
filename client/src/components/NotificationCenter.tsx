@@ -29,6 +29,11 @@ export function NotificationCenter() {
     queryKey: ["/api/notifications/unread-count"],
   });
 
+  // Fetch all games to map notifications to games
+  const { data: games = [] } = useQuery<Game[]>({
+    queryKey: ["/api/games"],
+  });
+
   useEffect(() => {
     if (unreadCountData) {
       setUnreadCount(unreadCountData.count);

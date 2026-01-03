@@ -159,10 +159,7 @@ async function checkGameUpdates() {
 async function checkDownloadStatus() {
   const downloadingTorrents = await storage.getDownloadingGameTorrents();
 
-  igdbLogger.info(
-    { downloadingCount: downloadingTorrents.length },
-    "Checking download status"
-  );
+  igdbLogger.info({ downloadingCount: downloadingTorrents.length }, "Checking download status");
 
   if (downloadingTorrents.length === 0) {
     return;
@@ -250,7 +247,7 @@ async function checkDownloadStatus() {
             },
             "Torrent not found in active torrents"
           );
-          
+
           // If torrent is missing from downloader, assume it's completed/removed
           // But only if it was previously downloading.
           // We'll mark it as completed in our DB to stop tracking it as "downloading"
@@ -258,9 +255,9 @@ async function checkDownloadStatus() {
             { torrent: torrent.torrentTitle },
             "Torrent missing from downloader, assuming completed/removed"
           );
-          
+
           await storage.updateGameTorrentStatus(torrent.id, "completed");
-          
+
           // We don't automatically mark game as owned here because it might have been deleted/cancelled
           // But we stop tracking it to avoid the "checking download status" loop for missing torrents
         }

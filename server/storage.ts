@@ -525,10 +525,7 @@ export class MemStorage implements IStorage {
 export class DatabaseStorage implements IStorage {
   // System Config methods
   async getSystemConfig(key: string): Promise<string | undefined> {
-    const [config] = await db
-      .select()
-      .from(systemConfig)
-      .where(eq(systemConfig.key, key));
+    const [config] = await db.select().from(systemConfig).where(eq(systemConfig.key, key));
     return config?.value;
   }
 

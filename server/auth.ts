@@ -25,10 +25,7 @@ async function getJwtSecret(): Promise<string> {
   }
 
   // If env var is set and NOT the default, use it (override)
-  if (
-    config.auth.jwtSecret &&
-    config.auth.jwtSecret !== "questarr-default-secret-change-me"
-  ) {
+  if (config.auth.jwtSecret && config.auth.jwtSecret !== "questarr-default-secret-change-me") {
     console.log("Using JWT secret from environment variable");
     cachedJwtSecret = config.auth.jwtSecret;
     return cachedJwtSecret;
@@ -48,21 +45,23 @@ async function getJwtSecret(): Promise<string> {
 
   // Generate new secret
   const newSecret = crypto.randomBytes(64).toString("hex");
-  
+
   try {
     await storage.setSystemConfig("jwt_secret", newSecret);
     console.log("Generated and stored new JWT secret in database");
   } catch (error) {
     console.error("Failed to store JWT secret in database", error);
   }
-  
+
   cachedJwtSecret = newSecret;
-  
+
   if (!config.auth.jwtSecret || config.auth.jwtSecret === "questarr-default-secret-change-me") {
     console.warn("⚠️  Using generated JWT secret.");
-    console.warn("⚠️  Set JWT_SECRET in your .env file to use a persistent secret across database resets.");
+    console.warn(
+      "⚠️  Set JWT_SECRET in your .env file to use a persistent secret across database resets."
+    );
   }
-  
+
   return newSecret;
 }
 

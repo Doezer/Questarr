@@ -390,7 +390,7 @@ class TransmissionClient implements DownloaderClient {
     if (torrent.percentDone === 1) {
       // If 100% done, mark as completed or seeding depending on status
       if (status === "downloading") {
-         status = "seeding"; // Or completed, but seeding is safer if it's running
+        status = "seeding"; // Or completed, but seeding is safer if it's running
       }
     }
 
@@ -873,7 +873,9 @@ class RTorrentClient implements DownloaderClient {
 
       // Filter for the specific ID since d.multicall2 returns all torrents in the view
       if (result && result.length > 0) {
-        const torrent = result.find((t: unknown[]) => (t as string[])[0].toLowerCase() === id.toLowerCase());
+        const torrent = result.find(
+          (t: unknown[]) => (t as string[])[0].toLowerCase() === id.toLowerCase()
+        );
         if (torrent) {
           return this.mapRTorrentStatus(torrent);
         }
@@ -1184,15 +1186,15 @@ class RTorrentClient implements DownloaderClient {
     // Force completed status if progress is 100% even if rTorrent says otherwise
     // This handles cases where rTorrent might be in a weird state or checking
     if (progress >= 100 && status !== "seeding" && status !== "completed") {
-       // If it's stopped and 100%, it's completed.
-       // If it's started and 100%, it's seeding (or should be).
-       status = (state as number) === 1 ? "seeding" : "completed";
+      // If it's stopped and 100%, it's completed.
+      // If it's started and 100%, it's seeding (or should be).
+      status = (state as number) === 1 ? "seeding" : "completed";
     }
 
     // Fix for 0% progress and 0 ratio when data is missing or not yet loaded
     // If size is 0, it might be a magnet link resolving metadata
     if ((sizeBytes as number) === 0) {
-       // Keep existing status but ensure we don't divide by zero
+      // Keep existing status but ensure we don't divide by zero
     }
 
     return {

@@ -3,7 +3,7 @@ import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { SidebarProvider } from "@/components/ui/sidebar";
 import AppSidebar from "@/components/AppSidebar";
 import Header from "@/components/Header";
 import { useBackgroundNotifications } from "@/hooks/use-background-notifications";
@@ -61,17 +61,28 @@ function App() {
 
   const getPageTitle = (path: string) => {
     switch (path) {
-      case "/": return "Dashboard";
-      case "/discover": return "Discover";
-      case "/search": return "Search";
-      case "/downloads": return "Downloads";
-      case "/indexers": return "Indexers";
-      case "/downloaders": return "Downloaders";
-      case "/settings": return "Settings";
-      case "/library": return "Library";
-      case "/calendar": return "Calendar";
-      case "/wishlist": return "Wishlist";
-      default: return "Questarr";
+      case "/":
+        return "Dashboard";
+      case "/discover":
+        return "Discover";
+      case "/search":
+        return "Search";
+      case "/downloads":
+        return "Downloads";
+      case "/indexers":
+        return "Indexers";
+      case "/downloaders":
+        return "Downloaders";
+      case "/settings":
+        return "Settings";
+      case "/library":
+        return "Library";
+      case "/calendar":
+        return "Calendar";
+      case "/wishlist":
+        return "Wishlist";
+      default:
+        return "Questarr";
     }
   };
 

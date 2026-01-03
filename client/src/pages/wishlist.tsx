@@ -4,13 +4,19 @@ import GameGrid from "@/components/GameGrid";
 import { type Game } from "@shared/schema";
 import { type GameStatus } from "@/components/StatusBadge";
 import { useToast } from "@/hooks/use-toast";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 
 type SortOption = "release-asc" | "release-desc" | "added-desc" | "title-asc";
 
-function formatReleaseDate(dateString: string | null): string {
+function _formatReleaseDate(dateString: string | null): string {
   if (!dateString) return "TBA";
   try {
     const date = new Date(dateString);
@@ -20,12 +26,15 @@ function formatReleaseDate(dateString: string | null): string {
   }
 }
 
-function getReleaseStatus(releaseDate: string | null): { label: string; variant: "default" | "secondary" | "outline" } {
+function _getReleaseStatus(releaseDate: string | null): {
+  label: string;
+  variant: "default" | "secondary" | "outline";
+} {
   if (!releaseDate) return { label: "TBA", variant: "secondary" };
-  
+
   const now = new Date();
   const release = new Date(releaseDate);
-  
+
   if (release > now) {
     return { label: "Upcoming", variant: "default" };
   }
@@ -42,7 +51,7 @@ export default function WishlistPage() {
   });
 
   // Wishlist contains 'wanted' games
-  const wishlistGames = games.filter(g => g.status === "wanted");
+  const wishlistGames = games.filter((g) => g.status === "wanted");
 
   // Separate released and unreleased games
   const { releasedGames, upcomingGames, tbaGames } = useMemo(() => {
@@ -51,7 +60,7 @@ export default function WishlistPage() {
     const upcoming: Game[] = [];
     const tba: Game[] = [];
 
-    wishlistGames.forEach(game => {
+    wishlistGames.forEach((game) => {
       if (!game.releaseDate) {
         tba.push(game);
       } else {
@@ -70,7 +79,7 @@ export default function WishlistPage() {
   // Sort games based on selected option
   const sortGames = (gameList: Game[]): Game[] => {
     const sorted = [...gameList];
-    
+
     switch (sortBy) {
       case "release-asc":
         return sorted.sort((a, b) => {
@@ -138,7 +147,7 @@ export default function WishlistPage() {
           </Select>
         </div>
       </div>
-      
+
       {wishlistGames.length === 0 && !isLoading ? (
         <div className="text-center py-12 text-muted-foreground">
           Your wishlist is empty. Add games from the Discover page.
@@ -152,10 +161,10 @@ export default function WishlistPage() {
                 <h2 className="text-2xl font-semibold">Upcoming</h2>
                 <Badge variant="default">{upcomingGames.length}</Badge>
               </div>
-              <GameGrid 
-                games={sortGames(upcomingGames)} 
-                onStatusChange={(id, status) => statusMutation.mutate({ gameId: id, status })} 
-                isLoading={isLoading} 
+              <GameGrid
+                games={sortGames(upcomingGames)}
+                onStatusChange={(id, status) => statusMutation.mutate({ gameId: id, status })}
+                isLoading={isLoading}
               />
               <Separator className="mt-8" />
             </section>
@@ -166,12 +175,14 @@ export default function WishlistPage() {
             <section>
               <div className="flex items-center gap-3 mb-4">
                 <h2 className="text-2xl font-semibold">Released</h2>
-                <Badge variant="outline" className="bg-green-500 border-green-600 text-white">{releasedGames.length}</Badge>
+                <Badge variant="outline" className="bg-green-500 border-green-600 text-white">
+                  {releasedGames.length}
+                </Badge>
               </div>
-              <GameGrid 
-                games={sortGames(releasedGames)} 
-                onStatusChange={(id, status) => statusMutation.mutate({ gameId: id, status })} 
-                isLoading={isLoading} 
+              <GameGrid
+                games={sortGames(releasedGames)}
+                onStatusChange={(id, status) => statusMutation.mutate({ gameId: id, status })}
+                isLoading={isLoading}
               />
               <Separator className="mt-8" />
             </section>
@@ -184,10 +195,10 @@ export default function WishlistPage() {
                 <h2 className="text-2xl font-semibold">To Be Announced</h2>
                 <Badge variant="secondary">{tbaGames.length}</Badge>
               </div>
-              <GameGrid 
-                games={sortGames(tbaGames)} 
-                onStatusChange={(id, status) => statusMutation.mutate({ gameId: id, status })} 
-                isLoading={isLoading} 
+              <GameGrid
+                games={sortGames(tbaGames)}
+                onStatusChange={(id, status) => statusMutation.mutate({ gameId: id, status })}
+                isLoading={isLoading}
               />
             </section>
           )}

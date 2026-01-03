@@ -499,6 +499,7 @@ export class MemStorage implements IStorage {
       notifyMultipleTorrents: insertSettings.notifyMultipleTorrents ?? true,
       notifyUpdates: insertSettings.notifyUpdates ?? true,
       searchIntervalHours: insertSettings.searchIntervalHours ?? 6,
+      igdbRateLimitPerSecond: insertSettings.igdbRateLimitPerSecond ?? 3,
       updatedAt: new Date(),
     };
     this.userSettings.set(id, settings);

@@ -11,6 +11,28 @@ export const users = pgTable("users", {
   passwordHash: text("password_hash").notNull(),
 });
 
+export const userSettings = pgTable("user_settings", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  userId: varchar("user_id")
+    .references(() => users.id, { onDelete: "cascade" })
+    .notNull()
+    .unique(),
+  autoSearchEnabled: boolean("auto_search_enabled").notNull().default(true),
+  autoDownloadEnabled: boolean("auto_download_enabled").notNull().default(false),
+  notifyMultipleTorrents: boolean("notify_multiple_torrents").notNull().default(true),
+  notifyUpdates: boolean("notify_updates").notNull().default(true),
+  searchIntervalHours: integer("search_interval_hours").notNull().default(6),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const systemConfig = pgTable("system_config", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 export const games = pgTable("games", {
   id: varchar("id").primaryKey(),
   userId: varchar("user_id").references(() => users.id, { onDelete: "cascade" }),
@@ -29,8 +51,9 @@ export const games = pgTable("games", {
     .notNull()
     .default("wanted"),
   originalReleaseDate: text("original_release_date"),
-  releaseStatus: text("release_status", { enum: ["released", "upcoming", "delayed", "tbd"] })
-    .default("upcoming"),
+  releaseStatus: text("release_status", {
+    enum: ["released", "upcoming", "delayed", "tbd"],
+  }).default("upcoming"),
   hidden: boolean("hidden").default(false),
   addedAt: timestamp("added_at").defaultNow(),
   completedAt: timestamp("completed_at"),
@@ -82,8 +105,12 @@ export const gameTorrents = pgTable("game_torrents", {
   id: varchar("id")
     .primaryKey()
     .default(sql`gen_random_uuid()`),
-  gameId: varchar("game_id").notNull().references(() => games.id, { onDelete: "cascade" }),
-  downloaderId: varchar("downloader_id").notNull().references(() => downloaders.id, { onDelete: "cascade" }),
+  gameId: varchar("game_id")
+    .notNull()
+    .references(() => games.id, { onDelete: "cascade" }),
+  downloaderId: varchar("downloader_id")
+    .notNull()
+    .references(() => downloaders.id, { onDelete: "cascade" }),
   torrentHash: text("torrent_hash").notNull(), // Hash or ID from the downloader client
   torrentTitle: text("torrent_title").notNull(),
   status: text("status", { enum: ["downloading", "completed", "failed", "paused"] })
@@ -161,6 +188,19 @@ export const insertNotificationSchema = createInsertSchema(notifications).omit({
   read: true,
 });
 
+export const insertUserSettingsSchema = createInsertSchema(userSettings).omit({
+  id: true,
+  updatedAt: true,
+});
+
+export const updateUserSettingsSchema = createInsertSchema(userSettings)
+  .omit({
+    id: true,
+    userId: true,
+    updatedAt: true,
+  })
+  .partial();
+
 // Type definitions - using Drizzle's table inference for select types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -186,6 +226,10 @@ export type InsertGameTorrent = z.infer<typeof insertGameTorrentSchema>;
 
 export type Notification = typeof notifications.$inferSelect;
 export type InsertNotification = z.infer<typeof insertNotificationSchema>;
+
+export type UserSettings = typeof userSettings.$inferSelect;
+export type InsertUserSettings = z.infer<typeof insertUserSettingsSchema>;
+export type UpdateUserSettings = z.infer<typeof updateUserSettingsSchema>;
 
 // Application configuration type
 export interface Config {

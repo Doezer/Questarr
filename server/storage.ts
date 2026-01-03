@@ -12,18 +12,27 @@ import {
   type InsertGameTorrent,
   type Notification,
   type InsertNotification,
+  type UserSettings,
+  type InsertUserSettings,
+  type UpdateUserSettings,
   users,
   games,
   indexers,
   downloaders,
   notifications,
   gameTorrents,
+  userSettings,
+  systemConfig,
 } from "../shared/schema.js";
 import { randomUUID } from "crypto";
 import { db } from "./db.js";
 import { eq, ilike, or, sql, desc, and } from "drizzle-orm";
 
 export interface IStorage {
+  // System Config methods
+  getSystemConfig(key: string): Promise<string | undefined>;
+  setSystemConfig(key: string, value: string): Promise<void>;
+
   // User methods
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
@@ -66,7 +75,7 @@ export interface IStorage {
   getDownloadingGameTorrents(): Promise<GameTorrent[]>;
   updateGameTorrentStatus(id: string, status: string): Promise<void>;
   addGameTorrent(gameTorrent: InsertGameTorrent): Promise<GameTorrent>;
-  
+
   // Notification methods
   getNotifications(limit?: number): Promise<Notification[]>;
   getUnreadNotificationsCount(): Promise<number>;
@@ -74,6 +83,14 @@ export interface IStorage {
   markNotificationAsRead(id: string): Promise<Notification | undefined>;
   markAllNotificationsAsRead(): Promise<void>;
   clearAllNotifications(): Promise<void>;
+
+  // UserSettings methods
+  getUserSettings(userId: string): Promise<UserSettings | undefined>;
+  createUserSettings(settings: InsertUserSettings): Promise<UserSettings>;
+  updateUserSettings(
+    userId: string,
+    updates: UpdateUserSettings
+  ): Promise<UserSettings | undefined>;
 }
 
 export class MemStorage implements IStorage {
@@ -83,6 +100,8 @@ export class MemStorage implements IStorage {
   private downloaders: Map<string, Downloader>;
   private notifications: Map<string, Notification>;
   private gameTorrents: Map<string, GameTorrent>;
+  private userSettings: Map<string, UserSettings>;
+  private systemConfig: Map<string, string>;
 
   constructor() {
     this.users = new Map();
@@ -91,6 +110,17 @@ export class MemStorage implements IStorage {
     this.downloaders = new Map();
     this.notifications = new Map();
     this.gameTorrents = new Map();
+    this.userSettings = new Map();
+    this.systemConfig = new Map();
+  }
+
+  // System Config methods
+  async getSystemConfig(key: string): Promise<string | undefined> {
+    return this.systemConfig.get(key);
+  }
+
+  async setSystemConfig(key: string, value: string): Promise<void> {
+    this.systemConfig.set(key, value);
   }
 
   // User methods
@@ -140,9 +170,16 @@ export class MemStorage implements IStorage {
       .sort((a, b) => new Date(b.addedAt || 0).getTime() - new Date(a.addedAt || 0).getTime());
   }
 
-  async getUserGamesByStatus(userId: string, status: string, includeHidden = false): Promise<Game[]> {
+  async getUserGamesByStatus(
+    userId: string,
+    status: string,
+    includeHidden = false
+  ): Promise<Game[]> {
     return Array.from(this.games.values())
-      .filter((game) => game.userId === userId && game.status === status && (includeHidden || !game.hidden))
+      .filter(
+        (game) =>
+          game.userId === userId && game.status === status && (includeHidden || !game.hidden)
+      )
       .sort((a, b) => new Date(b.addedAt || 0).getTime() - new Date(a.addedAt || 0).getTime());
   }
 
@@ -373,15 +410,13 @@ export class MemStorage implements IStorage {
 
   // GameTorrent methods
   async getDownloadingGameTorrents(): Promise<GameTorrent[]> {
-    return Array.from(this.gameTorrents.values()).filter(
-      (gt) => gt.status === "downloading"
-    );
+    return Array.from(this.gameTorrents.values()).filter((gt) => gt.status === "downloading");
   }
 
   async updateGameTorrentStatus(id: string, status: string): Promise<void> {
     const gt = this.gameTorrents.get(id);
     if (gt) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       this.gameTorrents.set(id, { ...gt, status: status as any });
     }
   }
@@ -448,9 +483,65 @@ export class MemStorage implements IStorage {
   async clearAllNotifications(): Promise<void> {
     this.notifications.clear();
   }
+
+  // UserSettings methods
+  async getUserSettings(userId: string): Promise<UserSettings | undefined> {
+    return Array.from(this.userSettings.values()).find((settings) => settings.userId === userId);
+  }
+
+  async createUserSettings(insertSettings: InsertUserSettings): Promise<UserSettings> {
+    const id = randomUUID();
+    const settings: UserSettings = {
+      id,
+      ...insertSettings,
+      autoSearchEnabled: insertSettings.autoSearchEnabled ?? true,
+      autoDownloadEnabled: insertSettings.autoDownloadEnabled ?? false,
+      notifyMultipleTorrents: insertSettings.notifyMultipleTorrents ?? true,
+      notifyUpdates: insertSettings.notifyUpdates ?? true,
+      searchIntervalHours: insertSettings.searchIntervalHours ?? 6,
+      updatedAt: new Date(),
+    };
+    this.userSettings.set(id, settings);
+    return settings;
+  }
+
+  async updateUserSettings(
+    userId: string,
+    updates: UpdateUserSettings
+  ): Promise<UserSettings | undefined> {
+    const existing = await this.getUserSettings(userId);
+    if (!existing) return undefined;
+
+    const updated: UserSettings = {
+      ...existing,
+      ...updates,
+      updatedAt: new Date(),
+    };
+    this.userSettings.set(existing.id, updated);
+    return updated;
+  }
 }
 
 export class DatabaseStorage implements IStorage {
+  // System Config methods
+  async getSystemConfig(key: string): Promise<string | undefined> {
+    const [config] = await db
+      .select()
+      .from(systemConfig)
+      .where(eq(systemConfig.key, key));
+    return config?.value;
+  }
+
+  async setSystemConfig(key: string, value: string): Promise<void> {
+    await db
+      .insert(systemConfig)
+      .values({ key, value })
+      .onConflictDoUpdate({
+        target: systemConfig.key,
+        set: { value, updatedAt: new Date() },
+      });
+  }
+
   // User methods
   async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
@@ -509,21 +600,23 @@ export class DatabaseStorage implements IStorage {
     );
   }
 
-  async getUserGamesByStatus(userId: string, status: string, includeHidden = false): Promise<Game[]> {
-    return (
-      db
-        .select()
-        .from(games)
-        .where(
-          and(
-            eq(games.userId, userId),
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            eq(games.status, status as any),
-            includeHidden ? undefined : eq(games.hidden, false)
-          )
+  async getUserGamesByStatus(
+    userId: string,
+    status: string,
+    includeHidden = false
+  ): Promise<Game[]> {
+    return db
+      .select()
+      .from(games)
+      .where(
+        and(
+          eq(games.userId, userId),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          eq(games.status, status as any),
+          includeHidden ? undefined : eq(games.hidden, false)
         )
-        .orderBy(sql`${games.addedAt} DESC`)
-    );
+      )
+      .orderBy(sql`${games.addedAt} DESC`);
   }
 
   async searchGames(query: string): Promise<Game[]> {
@@ -599,16 +692,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateGameHidden(id: string, hidden: boolean): Promise<Game | undefined> {
-    const [updatedGame] = await db.update(games).set({ hidden }).where(eq(games.id, id)).returning();
+    const [updatedGame] = await db
+      .update(games)
+      .set({ hidden })
+      .where(eq(games.id, id))
+      .returning();
     return updatedGame || undefined;
   }
 
   async updateGame(id: string, updates: Partial<Game>): Promise<Game | undefined> {
-    const [updatedGame] = await db
-      .update(games)
-      .set(updates)
-      .where(eq(games.id, id))
-      .returning();
+    const [updatedGame] = await db.update(games).set(updates).where(eq(games.id, id)).returning();
 
     return updatedGame || undefined;
   }
@@ -705,10 +798,7 @@ export class DatabaseStorage implements IStorage {
 
   // GameTorrent methods
   async getDownloadingGameTorrents(): Promise<GameTorrent[]> {
-    return db
-      .select()
-      .from(gameTorrents)
-      .where(eq(gameTorrents.status, "downloading"));
+    return db.select().from(gameTorrents).where(eq(gameTorrents.status, "downloading"));
   }
 
   async updateGameTorrentStatus(id: string, status: string): Promise<void> {
@@ -726,11 +816,7 @@ export class DatabaseStorage implements IStorage {
 
   // Notification methods
   async getNotifications(limit: number = 50): Promise<Notification[]> {
-    return db
-      .select()
-      .from(notifications)
-      .orderBy(desc(notifications.createdAt))
-      .limit(limit);
+    return db.select().from(notifications).orderBy(desc(notifications.createdAt)).limit(limit);
   }
 
   async getUnreadNotificationsCount(): Promise<number> {
@@ -761,6 +847,29 @@ export class DatabaseStorage implements IStorage {
 
   async clearAllNotifications(): Promise<void> {
     await db.delete(notifications);
+  }
+
+  // UserSettings methods
+  async getUserSettings(userId: string): Promise<UserSettings | undefined> {
+    const [settings] = await db.select().from(userSettings).where(eq(userSettings.userId, userId));
+    return settings || undefined;
+  }
+
+  async createUserSettings(insertSettings: InsertUserSettings): Promise<UserSettings> {
+    const [settings] = await db.insert(userSettings).values(insertSettings).returning();
+    return settings;
+  }
+
+  async updateUserSettings(
+    userId: string,
+    updates: UpdateUserSettings
+  ): Promise<UserSettings | undefined> {
+    const [updated] = await db
+      .update(userSettings)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(userSettings.userId, userId))
+      .returning();
+    return updated || undefined;
   }
 }
 

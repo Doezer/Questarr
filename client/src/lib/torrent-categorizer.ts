@@ -1,11 +1,11 @@
 /**
  * Torrent Categorization Utility
- * 
+ *
  * Categorizes game torrents into main game, updates, DLC, and extras
  * based on common naming patterns in torrent titles.
  */
 
-export type TorrentCategory = 'main' | 'update' | 'dlc' | 'extra';
+export type TorrentCategory = "main" | "update" | "dlc" | "extra";
 
 export interface CategorizedTorrent {
   category: TorrentCategory;
@@ -48,27 +48,27 @@ const EXTRA_PATTERNS = [
  * Categorizes a torrent based on its title
  */
 export function categorizeTorrent(title: string): CategorizedTorrent {
-  let category: TorrentCategory = 'main';
+  const category: TorrentCategory = "main";
   let confidence = 0.5; // Default confidence for main game
 
   // Check for extras (highest priority - most specific)
   for (const pattern of EXTRA_PATTERNS) {
     if (pattern.test(title)) {
-      return { category: 'extra', confidence: 0.9 };
+      return { category: "extra", confidence: 0.9 };
     }
   }
 
   // Check for DLC
   for (const pattern of DLC_PATTERNS) {
     if (pattern.test(title)) {
-      return { category: 'dlc', confidence: 0.85 };
+      return { category: "dlc", confidence: 0.85 };
     }
   }
 
   // Check for updates
   for (const pattern of UPDATE_PATTERNS) {
     if (pattern.test(title)) {
-      return { category: 'update', confidence: 0.8 };
+      return { category: "update", confidence: 0.8 };
     }
   }
 
@@ -93,7 +93,7 @@ export function groupTorrentsByCategory<T extends { title: string }>(
     extra: [],
   };
 
-  torrents.forEach(torrent => {
+  torrents.forEach((torrent) => {
     const { category } = categorizeTorrent(torrent.title);
     groups[category].push(torrent);
   });
@@ -106,14 +106,14 @@ export function groupTorrentsByCategory<T extends { title: string }>(
  */
 export function getCategoryLabel(category: TorrentCategory): string {
   switch (category) {
-    case 'main':
-      return 'Main Game';
-    case 'update':
-      return 'Updates & Patches';
-    case 'dlc':
-      return 'DLC & Expansions';
-    case 'extra':
-      return 'Extras';
+    case "main":
+      return "Main Game";
+    case "update":
+      return "Updates & Patches";
+    case "dlc":
+      return "DLC & Expansions";
+    case "extra":
+      return "Extras";
   }
 }
 
@@ -122,13 +122,13 @@ export function getCategoryLabel(category: TorrentCategory): string {
  */
 export function getCategoryDescription(category: TorrentCategory): string {
   switch (category) {
-    case 'main':
-      return 'Full game downloads';
-    case 'update':
-      return 'Game updates, patches, hotfixes, and crackfixes';
-    case 'dlc':
-      return 'Downloadable content, expansions, and season passes';
-    case 'extra':
-      return 'Soundtracks, artbooks, and other bonus content';
+    case "main":
+      return "Full game downloads";
+    case "update":
+      return "Game updates, patches, hotfixes, and crackfixes";
+    case "dlc":
+      return "Downloadable content, expansions, and season passes";
+    case "extra":
+      return "Soundtracks, artbooks, and other bonus content";
   }
 }

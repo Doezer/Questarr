@@ -13,7 +13,9 @@ export default function LibraryPage() {
   });
 
   // Library typically contains owned, completed, or actively downloading games
-  const libraryGames = games.filter(g => ["owned", "completed", "downloading"].includes(g.status));
+  const libraryGames = games.filter((g) =>
+    ["owned", "completed", "downloading"].includes(g.status)
+  );
 
   const statusMutation = useMutation({
     mutationFn: async ({ gameId, status }: { gameId: string; status: GameStatus }) => {
@@ -42,16 +44,16 @@ export default function LibraryPage() {
           <p className="text-muted-foreground">Your collection of games</p>
         </div>
       </div>
-      
+
       {libraryGames.length === 0 && !isLoading ? (
         <div className="text-center py-12 text-muted-foreground">
           No games in your library. Add games from the Discover page.
         </div>
       ) : (
-        <GameGrid 
-          games={libraryGames} 
-          onStatusChange={(id, status) => statusMutation.mutate({ gameId: id, status })} 
-          isLoading={isLoading} 
+        <GameGrid
+          games={libraryGames}
+          onStatusChange={(id, status) => statusMutation.mutate({ gameId: id, status })}
+          isLoading={isLoading}
         />
       )}
     </div>

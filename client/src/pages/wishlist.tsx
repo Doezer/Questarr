@@ -16,31 +16,6 @@ import { Separator } from "@/components/ui/separator";
 
 type SortOption = "release-asc" | "release-desc" | "added-desc" | "title-asc";
 
-function _formatReleaseDate(dateString: string | null): string {
-  if (!dateString) return "TBA";
-  try {
-    const date = new Date(dateString);
-    return date.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
-  } catch {
-    return "TBA";
-  }
-}
-
-function getReleaseStatus(releaseDate: string | null): {
-  label: string;
-  variant: "default" | "secondary" | "outline";
-} {
-  if (!releaseDate) return { label: "TBA", variant: "secondary" };
-
-  const now = new Date();
-  const release = new Date(releaseDate);
-
-  if (release > now) {
-    return { label: "Upcoming", variant: "default" };
-  }
-  return { label: "Released", variant: "outline" };
-}
-
 export default function WishlistPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();

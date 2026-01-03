@@ -5,7 +5,7 @@ import { z } from "zod";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { useLocation } from "wouter";
+// import { useLocation } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,7 +35,7 @@ type SetupForm = z.infer<typeof setupSchema>;
 export default function SetupPage() {
   const { checkSetup } = useAuth();
   const { toast } = useToast();
-  const [_, setLocation] = useLocation();
+  // const [_, setLocation] = useLocation();
 
   const form = useForm<SetupForm>({
     resolver: zodResolver(setupSchema),

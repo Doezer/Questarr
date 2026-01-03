@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { igdbClient } from "../igdb";
-import { config } from "../config";
+// import { config } from "../config";
 
 // Mock the config module
 vi.mock("../config", () => ({

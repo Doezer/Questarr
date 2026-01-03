@@ -211,6 +211,7 @@ export class TorznabClient {
       const channel = parsed.rss.channel;
       const items = Array.isArray(channel.item) ? channel.item : channel.item ? [channel.item] : [];
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const torznabItems: TorznabItem[] = items.map((item: any) =>
         this.parseItem(item, indexerUrl)
       );

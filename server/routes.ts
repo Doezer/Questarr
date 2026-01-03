@@ -197,6 +197,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               results.errors.push(`Skipping ${idx.name || "unknown"} - missing required fields`);
               continue;
             }
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             await storage.addIndexer(idx as any);
             results.added++;
           }

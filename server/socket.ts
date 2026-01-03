@@ -30,6 +30,7 @@ export function getIO() {
   return io;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function notifyUser(type: string, payload: any) {
   if (io) {
     io.emit(type, payload);

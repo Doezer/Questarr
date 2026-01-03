@@ -37,8 +37,6 @@ import { useToast } from "@/hooks/use-toast";
 import { type Game } from "@shared/schema";
 import {
   groupTorrentsByCategory,
-  getCategoryLabel,
-  getCategoryDescription,
   type TorrentCategory,
 } from "@/lib/torrent-categorizer";
 
@@ -439,7 +437,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                 <Label htmlFor="sortBy" className="text-sm">
                   Sort By
                 </Label>
-                <Select value={sortBy} onValueChange={(v: any) => setSortBy(v)}>
+                <Select value={sortBy} onValueChange={(v) => setSortBy(v as "seeders" | "date" | "size")}>
                   <SelectTrigger id="sortBy">
                     <SelectValue />
                   </SelectTrigger>

@@ -84,6 +84,7 @@ class IGDBClient {
   private accessToken: string | null = null;
   private tokenExpiry: number = 0;
   // ⚡ Bolt: Use a Map for in-memory caching to store API responses and reduce redundant calls.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private cache = new Map<string, CacheEntry<any>>();
 
   private async authenticate(): Promise<string> {

@@ -66,7 +66,6 @@ npm run format
 - `/client` - React frontend application
 - `/server` - Express backend application
 - `/shared` - Shared types and schemas
-- See `copilot-instructions.md` for detailed architecture guidelines
 - 
 
 ## Need Help?

@@ -48,7 +48,7 @@ const EXTRA_PATTERNS = [
  * Categorizes a torrent based on its title
  */
 export function categorizeTorrent(title: string): CategorizedTorrent {
-  let category: TorrentCategory = "main";
+  const category: TorrentCategory = "main";
   let confidence = 0.5; // Default confidence for main game
 
   // Check for extras (highest priority - most specific)

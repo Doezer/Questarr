@@ -5,13 +5,11 @@ import SearchBar from "./SearchBar";
 import GameGrid from "./GameGrid";
 import StatsCard from "./StatsCard";
 import {
-  Library,
   Star,
   Gamepad2,
   Tags,
   Filter,
   X,
-  LayoutGrid,
   Calendar,
   Building2,
   Code2,

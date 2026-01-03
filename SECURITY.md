@@ -6,7 +6,7 @@ Use the latest version of this project to ensure you have the latest security pa
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability within this project, please do not report it publicly. Instead, please report it via [INSERT CONTACT METHOD HERE, e.g., email or private issue].
+If you discover a security vulnerability within this project, please do not report it publicly. Instead, please report it via email to the maintainer directly.
 
 ## Deployment Security Guide
 

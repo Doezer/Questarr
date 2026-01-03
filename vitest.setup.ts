@@ -14,4 +14,5 @@ class MockResizeObserver {
   disconnect = vi.fn();
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 global.ResizeObserver = MockResizeObserver as any;

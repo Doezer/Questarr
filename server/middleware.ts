@@ -211,7 +211,7 @@ export const sanitizeDownloaderData = [
     .withMessage("Name must be between 1 and 200 characters"),
   body("type")
     .trim()
-    .isIn(["qbittorrent", "transmission", "rtorrent", "deluge"])
+    .isIn(["qbittorrent", "transmission", "rtorrent", "deluge", "sabnzbd", "nzbget"])
     .withMessage("Invalid downloader type"),
   body("url")
     .trim()
@@ -265,7 +265,7 @@ export const sanitizeDownloaderUpdateData = [
   body("type")
     .optional()
     .trim()
-    .isIn(["qbittorrent", "transmission", "deluge", "rtorrent", "utorrent", "vuze"])
+    .isIn(["qbittorrent", "transmission", "deluge", "rtorrent", "utorrent", "vuze", "sabnzbd", "nzbget"])
     .withMessage("Invalid downloader type"),
   body("url")
     .optional()

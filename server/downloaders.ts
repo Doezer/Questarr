@@ -349,11 +349,11 @@ class TransmissionClient implements DownloaderClient {
         fields: ["download-dir"],
       });
       const downloadDir = response.arguments["download-dir"];
-      
+
       const freeSpaceResponse = await this.makeRequest("free-space", {
         path: downloadDir,
       });
-      
+
       return freeSpaceResponse.arguments["size-bytes"] || 0;
     } catch (error) {
       downloadersLogger.error({ error }, "Error getting free space from Transmission");
@@ -569,7 +569,9 @@ class TransmissionClient implements DownloaderClient {
               },
               "Transmission authentication failed - check username and password"
             );
-            throw new Error(`Authentication failed: Invalid username or password for Transmission - ${errorText}`);
+            throw new Error(
+              `Authentication failed: Invalid username or password for Transmission - ${errorText}`
+            );
           }
           downloadersLogger.error(
             {
@@ -581,7 +583,9 @@ class TransmissionClient implements DownloaderClient {
             },
             "Transmission request failed after session ID retry"
           );
-          throw new Error(`HTTP ${retryResponse.status}: ${retryResponse.statusText} - ${errorText}`);
+          throw new Error(
+            `HTTP ${retryResponse.status}: ${retryResponse.statusText} - ${errorText}`
+          );
         }
 
         return retryResponse.json();
@@ -603,7 +607,9 @@ class TransmissionClient implements DownloaderClient {
           },
           "Transmission authentication failed - check username and password"
         );
-        throw new Error(`Authentication failed: Invalid username or password for Transmission - ${errorText}`);
+        throw new Error(
+          `Authentication failed: Invalid username or password for Transmission - ${errorText}`
+        );
       }
       downloadersLogger.error(
         {
@@ -718,49 +724,58 @@ class RTorrentClient implements DownloaderClient {
 
           if (!response.ok) {
             const retryErrorText = await response.text().catch(() => "No body");
-            downloadersLogger.error({ 
+            downloadersLogger.error(
+              {
                 status: response.status,
                 url: fixedUrl,
-                errorBody: retryErrorText
-            }, "Retry with %20 failed");
+                errorBody: retryErrorText,
+              },
+              "Retry with %20 failed"
+            );
 
             // Retry 2: Remove 'file' parameter entirely (it's often just for naming)
             if (request.url.includes("&file=")) {
-                const urlNoFile = request.url.split("&file=")[0];
-                downloadersLogger.warn({ original: request.url, fixed: urlNoFile }, "Retrying download without file parameter");
-                response = await fetchTorrent(urlNoFile);
-                
-                if (!response.ok) {
-                    return {
-                        success: false,
-                        message: `Failed to download torrent file (retry without file param failed): ${response.statusText}`,
-                    };
-                }
-            } else {
+              const urlNoFile = request.url.split("&file=")[0];
+              downloadersLogger.warn(
+                { original: request.url, fixed: urlNoFile },
+                "Retrying download without file parameter"
+              );
+              response = await fetchTorrent(urlNoFile);
+
+              if (!response.ok) {
                 return {
                   success: false,
-                  message: `Failed to download torrent file (retry failed): ${response.statusText}`,
+                  message: `Failed to download torrent file (retry without file param failed): ${response.statusText}`,
                 };
+              }
+            } else {
+              return {
+                success: false,
+                message: `Failed to download torrent file (retry failed): ${response.statusText}`,
+              };
             }
           }
         } else {
           // Also try removing file param if we didn't try %20 (e.g. no + in URL but still 400)
           if (response.status === 400 && request.url.includes("&file=")) {
-             const urlNoFile = request.url.split("&file=")[0];
-             downloadersLogger.warn({ original: request.url, fixed: urlNoFile }, "Retrying download without file parameter");
-             response = await fetchTorrent(urlNoFile);
-             
-             if (!response.ok) {
-                 return {
-                    success: false,
-                    message: `Failed to download torrent file (retry without file param failed): ${response.statusText}`,
-                 };
-             }
-          } else {
+            const urlNoFile = request.url.split("&file=")[0];
+            downloadersLogger.warn(
+              { original: request.url, fixed: urlNoFile },
+              "Retrying download without file parameter"
+            );
+            response = await fetchTorrent(urlNoFile);
+
+            if (!response.ok) {
               return {
                 success: false,
-                message: `Failed to download torrent file from indexer: ${response.statusText}`,
+                message: `Failed to download torrent file (retry without file param failed): ${response.statusText}`,
               };
+            }
+          } else {
+            return {
+              success: false,
+              message: `Failed to download torrent file from indexer: ${response.statusText}`,
+            };
           }
         }
       }
@@ -776,8 +791,8 @@ class RTorrentClient implements DownloaderClient {
         if (parsed && parsed.infoHash) {
           infoHash = parsed.infoHash.toLowerCase();
         }
-      } catch (e) {
-        downloadersLogger.warn({ error: e }, "Failed to parse torrent file for hash");
+      } catch (_e) {
+        downloadersLogger.warn({ error: _e }, "Failed to parse torrent file for hash");
       }
 
       // 3. Send raw file to rTorrent
@@ -1084,18 +1099,23 @@ class RTorrentClient implements DownloaderClient {
       // Use directory.default to get the default download directory
       const directory = await this.makeXMLRPCRequest("directory.default", []);
       downloadersLogger.debug({ directory }, "Got default directory from rTorrent");
-      
+
       // Use df with --output=avail to get just the available space
       // This is more portable and explicit than parsing columns
-      const dfOutput = await this.makeXMLRPCRequest("execute.capture", ["", "sh", "-c", `df --output=avail -B1 "${directory}" | tail -1`]);
+      const dfOutput = await this.makeXMLRPCRequest("execute.capture", [
+        "",
+        "sh",
+        "-c",
+        `df --output=avail -B1 "${directory}" | tail -1`,
+      ]);
       downloadersLogger.debug({ dfOutput }, "Got df output from rTorrent");
-      
+
       // The output should be just the available bytes
       const availableBytes = parseInt(dfOutput.toString().trim(), 10);
       if (!isNaN(availableBytes) && availableBytes > 0) {
         return availableBytes;
       }
-      
+
       downloadersLogger.warn({ dfOutput, availableBytes }, "Failed to parse df output");
       return 0;
     } catch (error) {
@@ -1190,10 +1210,7 @@ class RTorrentClient implements DownloaderClient {
     const opaque = challenge.opaque;
 
     // A1 = username:realm:password
-    const ha1 = crypto
-      .createHash("md5")
-      .update(`${username}:${realm}:${password}`)
-      .digest("hex");
+    const ha1 = crypto.createHash("md5").update(`${username}:${realm}:${password}`).digest("hex");
 
     // A2 = method:uri
     const ha2 = crypto.createHash("md5").update(`${method}:${uri}`).digest("hex");
@@ -1750,18 +1767,18 @@ class QBittorrentClient implements DownloaderClient {
   async getFreeSpace(): Promise<number> {
     try {
       await this.authenticate();
-      
+
       // Get main preferences to find save path
       const prefResponse = await this.makeRequest("GET", "/api/v2/app/preferences");
       const prefs = await prefResponse.json();
-      const savePath = prefs.save_path;
+      const _savePath = prefs.save_path;
 
       // Get free space for save path
       // qBittorrent doesn't have a direct free space API for a specific path in older versions,
       // but in newer ones it does. As a fallback, we can use transfer info.
       const transferResponse = await this.makeRequest("GET", "/api/v2/transfer/info");
       const transferInfo = await transferResponse.json();
-      
+
       // transferInfo.free_space_on_disk
       return transferInfo.free_space_on_disk || 0;
     } catch (error) {
@@ -1864,7 +1881,9 @@ class QBittorrentClient implements DownloaderClient {
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => "No error details available");
-      throw new Error(`Authentication failed: ${response.status} ${response.statusText} - ${errorText}`);
+      throw new Error(
+        `Authentication failed: ${response.status} ${response.statusText} - ${errorText}`
+      );
     }
 
     const responseText = await response.text();

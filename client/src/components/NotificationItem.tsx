@@ -36,14 +36,13 @@ export function NotificationItem({ notification, onRead }: NotificationItemProps
       <div className="mt-0.5">{getIcon()}</div>
       <div className="flex-1 space-y-1">
         <div className="flex justify-between items-start">
-            <p className="font-medium leading-none">{notification.title}</p>
-            {!notification.read && (
-                <span className="h-2 w-2 rounded-full bg-primary flex-shrink-0" />
-            )}
+          <p className="font-medium leading-none">{notification.title}</p>
+          {!notification.read && <span className="h-2 w-2 rounded-full bg-primary flex-shrink-0" />}
         </div>
         <p className="text-muted-foreground">{notification.message}</p>
         <p className="text-xs text-muted-foreground pt-1">
-          {notification.createdAt && formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true })}
+          {notification.createdAt &&
+            formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true })}
         </p>
       </div>
     </div>

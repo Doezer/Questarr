@@ -40,7 +40,7 @@ export async function authenticateToken(req: Request, res: Response, next: NextF
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (req as any).user = user;
     next();
-  } catch (err) {
+  } catch (_err) {
     return res.status(403).json({ error: "Invalid or expired token" });
   }
 }

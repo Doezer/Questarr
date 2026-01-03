@@ -155,7 +155,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Skip authentication for specific public endpoints that were already defined or need to be excluded
     // Note: Auth routes are defined before this middleware, so they are already skipped.
     // We explicitly skip health check if it matched /api/health (it was defined before, so express handles it first? Yes.)
-    
+
     // Just applying authenticateToken middleware
     authenticateToken(req, res, next);
   });
@@ -278,7 +278,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const userId = (req as any).user.id;
       const showHidden = includeHidden === "true";
-      
+
       const games = await storage.getUserGamesByStatus(userId, status, showHidden);
       res.json(games);
     } catch (error) {
@@ -327,12 +327,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const gameData = insertGameSchema.parse({ ...req.body, userId });
 
         const userGames = await storage.getUserGames(userId, true); // Check against all games including hidden
-        const existingGame = userGames.find(g => g.igdbId === gameData.igdbId);
-        
+        const existingGame = userGames.find((g) => g.igdbId === gameData.igdbId);
+
         if (existingGame) {
-            return res
-              .status(409)
-              .json({ error: "Game already in collection", game: existingGame });
+          return res.status(409).json({ error: "Game already in collection", game: existingGame });
         }
 
         // Always generate new UUID - never trust client-provided IDs
@@ -410,9 +408,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const userId = (req as any).user.id;
       const userGames = await storage.getUserGames(userId, true);
-      
+
       routesLogger.info({ userId, gameCount: userGames.length }, "starting metadata refresh");
-      
+
       let updatedCount = 0;
       let errorCount = 0;
 
@@ -443,12 +441,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       routesLogger.info({ userId, updatedCount, errorCount }, "metadata refresh completed");
-      
-      res.json({ 
-        success: true, 
+
+      res.json({
+        success: true,
         message: `Successfully refreshed metadata for ${updatedCount} games.${errorCount > 0 ? ` Failed for ${errorCount} games.` : ""}`,
         updatedCount,
-        errorCount
+        errorCount,
       });
     } catch (error) {
       routesLogger.error({ error }, "error refreshing metadata");
@@ -810,7 +808,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/downloaders/storage", async (req, res) => {
     try {
       const enabledDownloaders = await storage.getEnabledDownloaders();
-      routesLogger.debug({ count: enabledDownloaders.length }, "fetching storage info for downloaders");
+      routesLogger.debug(
+        { count: enabledDownloaders.length },
+        "fetching storage info for downloaders"
+      );
       const storageInfo = [];
 
       for (const downloader of enabledDownloaders) {
@@ -823,7 +824,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             freeSpace,
           });
         } catch (error) {
-          routesLogger.error({ downloaderName: downloader.name, error }, "error getting free space");
+          routesLogger.error(
+            { downloaderName: downloader.name, error },
+            "error getting free space"
+          );
           storageInfo.push({
             downloaderId: downloader.id,
             downloaderName: downloader.name,
@@ -1393,14 +1397,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         // Import archiver dynamically
         const archiver = (await import("archiver")).default;
-        
+
         // Set headers for ZIP download
         res.setHeader("Content-Type", "application/zip");
         res.setHeader("Content-Disposition", 'attachment; filename="game-bundle.zip"');
 
         // Create ZIP archive
         const archive = archiver("zip", { zlib: { level: 9 } });
-        
+
         // Pipe archive to response
         archive.pipe(res);
 
@@ -1453,19 +1457,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const notificationData = insertNotificationSchema.parse(req.body);
       const notification = await storage.addNotification(notificationData);
-      
+
       // Notify via WebSocket
-      // dynamic import to avoid circular dependency issues if they exist, 
-      // or just import it at top if safe. 
+      // dynamic import to avoid circular dependency issues if they exist,
+      // or just import it at top if safe.
       // Ideally notifications are triggered by events, not by API, but this is good for testing.
       const { notifyUser } = await import("./socket.js");
       notifyUser("notification", notification);
 
       res.status(201).json(notification);
     } catch (error) {
-        if (error instanceof z.ZodError) {
-          return res.status(400).json({ error: "Invalid notification data", details: error.errors });
-        }
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid notification data", details: error.errors });
+      }
       routesLogger.error({ error }, "error adding notification");
       res.status(500).json({ error: "Failed to add notification" });
     }

@@ -2,11 +2,7 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Bell, CheckCheck, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { NotificationItem } from "./NotificationItem";
 import { Notification } from "@shared/schema";
@@ -29,10 +25,10 @@ export function NotificationCenter() {
   const { data: unreadCountData } = useQuery<{ count: number }>({
     queryKey: ["/api/notifications/unread-count"],
   });
-  
+
   useEffect(() => {
     if (unreadCountData) {
-        setUnreadCount(unreadCountData.count);
+      setUnreadCount(unreadCountData.count);
     }
   }, [unreadCountData]);
 
@@ -107,26 +103,26 @@ export function NotificationCenter() {
         <div className="flex items-center justify-between p-4 border-b">
           <h4 className="font-semibold leading-none">Notifications</h4>
           <div className="flex gap-1">
-             <Button 
-                variant="ghost" 
-                size="icon" 
-                className="h-8 w-8" 
-                title="Mark all as read"
-                onClick={() => markAllAsReadMutation.mutate()}
-                disabled={unreadCount === 0}
-             >
-                <CheckCheck className="h-4 w-4" />
-             </Button>
-             <Button 
-                variant="ghost" 
-                size="icon" 
-                className="h-8 w-8 text-destructive hover:text-destructive" 
-                title="Clear all"
-                onClick={() => clearAllMutation.mutate()}
-                disabled={notifications.length === 0}
-             >
-                <Trash2 className="h-4 w-4" />
-             </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              title="Mark all as read"
+              onClick={() => markAllAsReadMutation.mutate()}
+              disabled={unreadCount === 0}
+            >
+              <CheckCheck className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-destructive hover:text-destructive"
+              title="Clear all"
+              onClick={() => clearAllMutation.mutate()}
+              disabled={notifications.length === 0}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
           </div>
         </div>
         <ScrollArea className="h-[300px]">

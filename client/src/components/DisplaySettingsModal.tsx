@@ -33,9 +33,7 @@ export default function DisplaySettingsModal({
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle>Display Settings</DialogTitle>
-          <DialogDescription>
-            Customize how your game library is displayed.
-          </DialogDescription>
+          <DialogDescription>Customize how your game library is displayed.</DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">
           <div className="space-y-4">
@@ -71,10 +69,7 @@ export default function DisplaySettingsModal({
                 Display games that you have hidden from your library.
               </span>
             </div>
-            <Switch
-              checked={showHiddenGames}
-              onCheckedChange={onShowHiddenGamesChange}
-            />
+            <Switch checked={showHiddenGames} onCheckedChange={onShowHiddenGamesChange} />
           </div>
         </div>
       </DialogContent>

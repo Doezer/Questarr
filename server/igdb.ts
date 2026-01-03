@@ -288,7 +288,7 @@ class IGDBClient {
 
   async getGamesByIds(ids: number[]): Promise<IGDBGame[]> {
     if (ids.length === 0) return [];
-    
+
     // Split into chunks of 100 to avoid query length limits
     const chunks = [];
     for (let i = 0; i < ids.length; i += 100) {
@@ -307,7 +307,7 @@ class IGDBClient {
       const results = await this.makeRequest("games", igdbQuery, 60 * 60 * 1000);
       allResults.push(...results);
     }
-    
+
     return allResults;
   }
 
@@ -634,8 +634,10 @@ class IGDBClient {
       rating: igdbGame.rating ? Math.round(igdbGame.rating) / 10 : 0,
       platforms: igdbGame.platforms?.map((p) => p.name) || [],
       genres: igdbGame.genres?.map((g) => g.name) || [],
-      publishers: igdbGame.involved_companies?.filter(c => c.publisher).map(c => c.company.name) || [],
-      developers: igdbGame.involved_companies?.filter(c => c.developer).map(c => c.company.name) || [],
+      publishers:
+        igdbGame.involved_companies?.filter((c) => c.publisher).map((c) => c.company.name) || [],
+      developers:
+        igdbGame.involved_companies?.filter((c) => c.developer).map((c) => c.company.name) || [],
       screenshots:
         igdbGame.screenshots?.map((s) => `https:${s.url.replace("t_thumb", "t_screenshot_big")}`) ||
         [],

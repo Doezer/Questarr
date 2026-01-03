@@ -30,25 +30,32 @@ export default function GameGrid({
   // Map column count to tailwind classes
   const gridColsClass = useMemo(() => {
     switch (columns) {
-      case 2: return "grid-cols-2";
-      case 3: return "grid-cols-3";
-      case 4: return "grid-cols-2 sm:grid-cols-3 md:grid-cols-4";
-      case 5: return "grid-cols-3 sm:grid-cols-4 md:grid-cols-5";
-      case 6: return "grid-cols-3 sm:grid-cols-4 md:grid-cols-6";
-      case 7: return "grid-cols-3 sm:grid-cols-5 md:grid-cols-7";
-      case 8: return "grid-cols-4 sm:grid-cols-6 md:grid-cols-8";
-      case 9: return "grid-cols-4 sm:grid-cols-6 md:grid-cols-9";
-      case 10: return "grid-cols-5 sm:grid-cols-7 md:grid-cols-10";
-      default: return "grid-cols-3 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10";
+      case 2:
+        return "grid-cols-2";
+      case 3:
+        return "grid-cols-3";
+      case 4:
+        return "grid-cols-2 sm:grid-cols-3 md:grid-cols-4";
+      case 5:
+        return "grid-cols-3 sm:grid-cols-4 md:grid-cols-5";
+      case 6:
+        return "grid-cols-3 sm:grid-cols-4 md:grid-cols-6";
+      case 7:
+        return "grid-cols-3 sm:grid-cols-5 md:grid-cols-7";
+      case 8:
+        return "grid-cols-4 sm:grid-cols-6 md:grid-cols-8";
+      case 9:
+        return "grid-cols-4 sm:grid-cols-6 md:grid-cols-9";
+      case 10:
+        return "grid-cols-5 sm:grid-cols-7 md:grid-cols-10";
+      default:
+        return "grid-cols-3 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10";
     }
   }, [columns]);
 
   if (isLoading) {
     return (
-      <div
-        className={cn("grid gap-4", gridColsClass)}
-        data-testid="grid-games-loading"
-      >
+      <div className={cn("grid gap-4", gridColsClass)} data-testid="grid-games-loading">
         {Array.from({ length: 20 }).map((_, index) => (
           <div key={index} className="animate-pulse min-w-[150px] min-h-[200px]">
             <div className="bg-muted rounded-md aspect-[3/4] w-full max-w-[225px] max-h-[300px] mx-auto mb-4"></div>

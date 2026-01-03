@@ -55,7 +55,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           localStorage.removeItem("token");
           return null;
         }
-      } catch (err) {
+      } catch (_err) {
         setToken(null);
         localStorage.removeItem("token");
         return null;

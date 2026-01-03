@@ -104,25 +104,36 @@ export default function DiscoverPage() {
   });
 
   const hiddenIgdbIds = useMemo(() => {
-    return new Set(localGames.filter(g => g.hidden).map(g => g.igdbId));
+    return new Set(localGames.filter((g) => g.hidden).map((g) => g.igdbId));
   }, [localGames]);
 
   const ownedIgdbIds = useMemo(() => {
-    return new Set(localGames.filter(g => g.status === "owned" || g.status === "completed" || g.status === "downloading").map(g => g.igdbId));
+    return new Set(
+      localGames
+        .filter(
+          (g) => g.status === "owned" || g.status === "completed" || g.status === "downloading"
+        )
+        .map((g) => g.igdbId)
+    );
   }, [localGames]);
 
   const wantedIgdbIds = useMemo(() => {
-    return new Set(localGames.filter(g => g.status === "wanted" && !g.hidden).map(g => g.igdbId));
+    return new Set(
+      localGames.filter((g) => g.status === "wanted" && !g.hidden).map((g) => g.igdbId)
+    );
   }, [localGames]);
 
-  const filterGames = useCallback((games: Game[]) => {
-    return games.filter((g: Game) => {
-      if (hiddenIgdbIds.has(g.igdbId)) return false;
-      if (hideOwned && ownedIgdbIds.has(g.igdbId)) return false;
-      if (hideWanted && wantedIgdbIds.has(g.igdbId)) return false;
-      return true;
-    });
-  }, [hiddenIgdbIds, ownedIgdbIds, wantedIgdbIds, hideOwned, hideWanted]);
+  const filterGames = useCallback(
+    (games: Game[]) => {
+      return games.filter((g: Game) => {
+        if (hiddenIgdbIds.has(g.igdbId)) return false;
+        if (hideOwned && ownedIgdbIds.has(g.igdbId)) return false;
+        if (hideWanted && wantedIgdbIds.has(g.igdbId)) return false;
+        return true;
+      });
+    },
+    [hiddenIgdbIds, ownedIgdbIds, wantedIgdbIds, hideOwned, hideWanted]
+  );
 
   // Fetch available genres with caching and error handling
   const {
@@ -173,7 +184,6 @@ export default function DiscoverPage() {
     }
   }, [platformsError, toast]);
 
-
   // Track game mutation (for Discovery games)
   const trackGameMutation = useMutation({
     mutationFn: async (game: Game) => {
@@ -208,11 +218,13 @@ export default function DiscoverPage() {
   const hideGameMutation = useMutation({
     mutationFn: async (game: Game) => {
       // Check if game exists locally first
-      const existingGame = localGames.find(g => g.igdbId === game.igdbId);
-      
+      const existingGame = localGames.find((g) => g.igdbId === game.igdbId);
+
       if (existingGame) {
         // Update existing game
-        const response = await apiRequest("PATCH", `/api/games/${existingGame.id}/hidden`, { hidden: true });
+        const response = await apiRequest("PATCH", `/api/games/${existingGame.id}/hidden`, {
+          hidden: true,
+        });
         return response.json();
       } else {
         // Add new hidden game
@@ -298,27 +310,27 @@ export default function DiscoverPage() {
 
   const handleToggleHidden = useCallback(
     (gameId: string, hidden: boolean) => {
-        // We only support hiding from discovery page for now via the card button
-        // Unhiding is done via settings
-        if (hidden) {
-             const findGameInQueries = (): Game | undefined => {
-                // Search in all cached query data
-                const allQueries = queryClient.getQueriesData<Game[]>({
-                  predicate: (query) => {
-                    const key = query.queryKey[0] as string;
-                    return key.startsWith("/api/igdb/");
-                  },
-                });
+      // We only support hiding from discovery page for now via the card button
+      // Unhiding is done via settings
+      if (hidden) {
+        const findGameInQueries = (): Game | undefined => {
+          // Search in all cached query data
+          const allQueries = queryClient.getQueriesData<Game[]>({
+            predicate: (query) => {
+              const key = query.queryKey[0] as string;
+              return key.startsWith("/api/igdb/");
+            },
+          });
 
-                for (const [, data] of allQueries) {
-                  const game = data?.find((g) => g.id === gameId);
-                  if (game) return game;
-                }
-                return undefined;
-              };
-              const game = findGameInQueries();
-              if(game) hideGameMutation.mutate(game);
-        }
+          for (const [, data] of allQueries) {
+            const game = data?.find((g) => g.id === gameId);
+            if (game) return game;
+          }
+          return undefined;
+        };
+        const game = findGameInQueries();
+        if (game) hideGameMutation.mutate(game);
+      }
     },
     [queryClient, hideGameMutation]
   );
@@ -354,7 +366,10 @@ export default function DiscoverPage() {
       return []; // Return empty instead of throwing to prevent crash
     }
 
-    const response = await apiRequest("GET", `/api/igdb/genre/${encodeURIComponent(debouncedGenre)}?limit=20`);
+    const response = await apiRequest(
+      "GET",
+      `/api/igdb/genre/${encodeURIComponent(debouncedGenre)}?limit=20`
+    );
     const games = await response.json();
     return filterGames(games);
   }, [debouncedGenre, genres, filterGames]);
@@ -394,112 +409,124 @@ export default function DiscoverPage() {
           </Button>
         </div>
 
-      <DiscoverSettingsModal 
-        open={showSettings} 
-        onOpenChange={setShowSettings} 
-        hiddenGames={localGames.filter(g => g.hidden)}
-        hideOwned={hideOwned}
-        onHideOwnedChange={setHideOwned}
-        hideWanted={hideWanted}
-        onHideWantedChange={setHideWanted}
-      />
+        <DiscoverSettingsModal
+          open={showSettings}
+          onOpenChange={setShowSettings}
+          hiddenGames={localGames.filter((g) => g.hidden)}
+          hideOwned={hideOwned}
+          onHideOwnedChange={setHideOwned}
+          hideWanted={hideWanted}
+          onHideWantedChange={setHideWanted}
+        />
 
-      {/* Popular Games Section */}
-      <GameCarouselSection
-        title="Popular Games"
-        queryKey={["/api/igdb/popular", hiddenIgdbIds.size, hideOwned, hideWanted]}
-        queryFn={fetchPopularGames}
-        onStatusChange={handleStatusChange}
-        onTrackGame={handleTrackGame}
-        onToggleHidden={handleToggleHidden}
-        isDiscovery={true}
-      />
-
-      {/* Recent Releases Section */}
-      <GameCarouselSection
-        title="Recent Releases"
-        queryKey={["/api/igdb/recent", hiddenIgdbIds.size, hideOwned, hideWanted]}
-        queryFn={fetchRecentGames}
-        onStatusChange={handleStatusChange}
-        onTrackGame={handleTrackGame}
-        onToggleHidden={handleToggleHidden}
-        isDiscovery={true}
-      />
-
-      {/* Upcoming Releases Section */}
-      <GameCarouselSection
-        title="Coming Soon"
-        queryKey={["/api/igdb/upcoming", hiddenIgdbIds.size, hideOwned, hideWanted]}
-        queryFn={fetchUpcomingGames}
-        onStatusChange={handleStatusChange}
-        onTrackGame={handleTrackGame}
-        onToggleHidden={handleToggleHidden}
-        isDiscovery={true}
-      />
-
-      {/* By Genre Section */}
-      <div className="space-y-4">
-        <div className="flex items-center gap-4">
-          <h2 className="text-xl font-semibold">By Genre</h2>
-          <Select value={selectedGenre} onValueChange={setSelectedGenre}>
-            <SelectTriggerWithSpinner
-              className="w-[180px]"
-              data-testid="select-genre"
-              loading={isFetchingGenres}
-            >
-              <SelectValue placeholder="Select genre" />
-            </SelectTriggerWithSpinner>
-            <SelectContent>
-              {displayGenres.map((genre: Genre) => (
-                <SelectItem key={genre.id} value={genre.name}>
-                  {genre.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {/* Popular Games Section */}
         <GameCarouselSection
-          title={`${selectedGenre} Games`}
-          queryKey={["/api/igdb/genre", debouncedGenre, hiddenIgdbIds.size, hideOwned, hideWanted]}
-          queryFn={fetchGamesByGenre}
+          title="Popular Games"
+          queryKey={["/api/igdb/popular", hiddenIgdbIds.size, hideOwned, hideWanted]}
+          queryFn={fetchPopularGames}
           onStatusChange={handleStatusChange}
           onTrackGame={handleTrackGame}
           onToggleHidden={handleToggleHidden}
           isDiscovery={true}
         />
-      </div>
 
-      {/* By Platform Section */}
-      <div className="space-y-4">
-        <div className="flex items-center gap-4">
-          <h2 className="text-xl font-semibold">By Platform</h2>
-          <Select value={selectedPlatform} onValueChange={setSelectedPlatform}>
-            <SelectTriggerWithSpinner
-              className="w-[180px]"
-              data-testid="select-platform"
-              loading={isFetchingPlatforms}
-            >
-              <SelectValue placeholder="Select platform" />
-            </SelectTriggerWithSpinner>
-            <SelectContent>
-              {displayPlatforms.map((platform: Platform) => (
-                <SelectItem key={platform.id} value={platform.name}>
-                  {platform.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {/* Recent Releases Section */}
         <GameCarouselSection
-          title={`${selectedPlatform} Games`}
-          queryKey={["/api/igdb/platform", debouncedPlatform, hiddenIgdbIds.size, hideOwned, hideWanted]}
-          queryFn={fetchGamesByPlatform}
+          title="Recent Releases"
+          queryKey={["/api/igdb/recent", hiddenIgdbIds.size, hideOwned, hideWanted]}
+          queryFn={fetchRecentGames}
           onStatusChange={handleStatusChange}
           onTrackGame={handleTrackGame}
           onToggleHidden={handleToggleHidden}
           isDiscovery={true}
         />
-      </div>
+
+        {/* Upcoming Releases Section */}
+        <GameCarouselSection
+          title="Coming Soon"
+          queryKey={["/api/igdb/upcoming", hiddenIgdbIds.size, hideOwned, hideWanted]}
+          queryFn={fetchUpcomingGames}
+          onStatusChange={handleStatusChange}
+          onTrackGame={handleTrackGame}
+          onToggleHidden={handleToggleHidden}
+          isDiscovery={true}
+        />
+
+        {/* By Genre Section */}
+        <div className="space-y-4">
+          <div className="flex items-center gap-4">
+            <h2 className="text-xl font-semibold">By Genre</h2>
+            <Select value={selectedGenre} onValueChange={setSelectedGenre}>
+              <SelectTriggerWithSpinner
+                className="w-[180px]"
+                data-testid="select-genre"
+                loading={isFetchingGenres}
+              >
+                <SelectValue placeholder="Select genre" />
+              </SelectTriggerWithSpinner>
+              <SelectContent>
+                {displayGenres.map((genre: Genre) => (
+                  <SelectItem key={genre.id} value={genre.name}>
+                    {genre.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <GameCarouselSection
+            title={`${selectedGenre} Games`}
+            queryKey={[
+              "/api/igdb/genre",
+              debouncedGenre,
+              hiddenIgdbIds.size,
+              hideOwned,
+              hideWanted,
+            ]}
+            queryFn={fetchGamesByGenre}
+            onStatusChange={handleStatusChange}
+            onTrackGame={handleTrackGame}
+            onToggleHidden={handleToggleHidden}
+            isDiscovery={true}
+          />
+        </div>
+
+        {/* By Platform Section */}
+        <div className="space-y-4">
+          <div className="flex items-center gap-4">
+            <h2 className="text-xl font-semibold">By Platform</h2>
+            <Select value={selectedPlatform} onValueChange={setSelectedPlatform}>
+              <SelectTriggerWithSpinner
+                className="w-[180px]"
+                data-testid="select-platform"
+                loading={isFetchingPlatforms}
+              >
+                <SelectValue placeholder="Select platform" />
+              </SelectTriggerWithSpinner>
+              <SelectContent>
+                {displayPlatforms.map((platform: Platform) => (
+                  <SelectItem key={platform.id} value={platform.name}>
+                    {platform.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <GameCarouselSection
+            title={`${selectedPlatform} Games`}
+            queryKey={[
+              "/api/igdb/platform",
+              debouncedPlatform,
+              hiddenIgdbIds.size,
+              hideOwned,
+              hideWanted,
+            ]}
+            queryFn={fetchGamesByPlatform}
+            onStatusChange={handleStatusChange}
+            onTrackGame={handleTrackGame}
+            onToggleHidden={handleToggleHidden}
+            isDiscovery={true}
+          />
+        </div>
       </div>
     </div>
   );

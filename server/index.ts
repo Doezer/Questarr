@@ -30,7 +30,8 @@ app.use((req, res, next) => {
   res.on("finish", () => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
-      const isNoisyEndpoint = (path === "/api/downloads" || path === "/api/games") && req.method === "GET";
+      const isNoisyEndpoint =
+        (path === "/api/downloads" || path === "/api/games") && req.method === "GET";
 
       // Always log metadata at info level
       expressLogger.info(

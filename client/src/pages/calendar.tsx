@@ -2,7 +2,13 @@ import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { type Game } from "@shared/schema";
@@ -37,7 +43,7 @@ function getDaysInMonth(year: number, month: number): Date[] {
   const firstDay = new Date(year, month, 1);
   const lastDay = new Date(year, month + 1, 0);
   const days: Date[] = [];
-  
+
   // Add days from previous month to fill the week
   const firstDayOfWeek = firstDay.getDay();
   const daysToAdd = firstDayOfWeek === 0 ? 6 : firstDayOfWeek - 1;
@@ -45,39 +51,39 @@ function getDaysInMonth(year: number, month: number): Date[] {
     const d = new Date(year, month, 1 - i);
     days.push(d);
   }
-  
+
   // Add all days of current month
   for (let d = 1; d <= lastDay.getDate(); d++) {
     days.push(new Date(year, month, d));
   }
-  
+
   // Add days from next month to complete the week
   const lastDayOfWeek = lastDay.getDay();
   const daysToAddEnd = lastDayOfWeek === 0 ? 0 : 7 - lastDayOfWeek;
   for (let i = 1; i <= daysToAddEnd; i++) {
     days.push(new Date(year, month + 1, i));
   }
-  
+
   return days;
 }
 
 export default function CalendarPage() {
   const [viewMode, setViewMode] = useState<ViewMode>("year");
   const [currentDate, setCurrentDate] = useState(new Date());
-  
+
   const { data: games = [], isLoading } = useQuery<Game[]>({
     queryKey: ["/api/games"],
   });
 
   // Filter wanted games with release dates
   const wantedGames = useMemo(() => {
-    return games.filter(g => g.status === "wanted" && g.releaseDate);
+    return games.filter((g) => g.status === "wanted" && g.releaseDate);
   }, [games]);
 
   // Group games by date
   const gamesByDate = useMemo(() => {
     const grouped: GamesByDate = {};
-    wantedGames.forEach(game => {
+    wantedGames.forEach((game) => {
       if (game.releaseDate) {
         const date = formatDate(new Date(game.releaseDate));
         if (!grouped[date]) {
@@ -119,7 +125,8 @@ export default function CalendarPage() {
 
   const getTitle = () => {
     if (viewMode === "year") return currentDate.getFullYear().toString();
-    if (viewMode === "month") return `${getMonthName(currentDate.getMonth())} ${currentDate.getFullYear()}`;
+    if (viewMode === "month")
+      return `${getMonthName(currentDate.getMonth())} ${currentDate.getFullYear()}`;
     const weekDays = getWeekDays(new Date(currentDate));
     return `${formatDate(weekDays[0])} - ${formatDate(weekDays[6])}`;
   };
@@ -167,7 +174,9 @@ export default function CalendarPage() {
       ) : (
         <>
           {viewMode === "year" && <YearView currentDate={currentDate} gamesByDate={gamesByDate} />}
-          {viewMode === "month" && <MonthView currentDate={currentDate} gamesByDate={gamesByDate} />}
+          {viewMode === "month" && (
+            <MonthView currentDate={currentDate} gamesByDate={gamesByDate} />
+          )}
           {viewMode === "week" && <WeekView currentDate={currentDate} gamesByDate={gamesByDate} />}
         </>
       )}
@@ -181,7 +190,7 @@ function YearView({ currentDate, gamesByDate }: { currentDate: Date; gamesByDate
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-      {months.map(month => {
+      {months.map((month) => {
         const monthStart = new Date(year, month, 1);
         const monthEnd = new Date(year, month + 1, 0);
         const gamesInMonth = Object.entries(gamesByDate).filter(([date]) => {
@@ -195,7 +204,9 @@ function YearView({ currentDate, gamesByDate }: { currentDate: Date; gamesByDate
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-semibold">{getMonthName(month)}</h3>
               {gameCount > 0 && (
-                <Badge variant="secondary" className="text-xs">{gameCount}</Badge>
+                <Badge variant="secondary" className="text-xs">
+                  {gameCount}
+                </Badge>
               )}
             </div>
             <div className="space-y-2">
@@ -203,9 +214,12 @@ function YearView({ currentDate, gamesByDate }: { currentDate: Date; gamesByDate
                 gamesInMonth.map(([date, games]) => (
                   <div key={date} className="text-sm">
                     <div className="text-muted-foreground mb-1">
-                      {new Date(date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                      {new Date(date).toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                      })}
                     </div>
-                    {games.map(game => (
+                    {games.map((game) => (
                       <GameBadge key={game.id} game={game} />
                     ))}
                   </div>
@@ -230,7 +244,7 @@ function MonthView({ currentDate, gamesByDate }: { currentDate: Date; gamesByDat
   return (
     <div className="bg-card border rounded-lg p-4">
       <div className="grid grid-cols-7 gap-2 mb-2">
-        {weekDays.map(day => (
+        {weekDays.map((day) => (
           <div key={day} className="text-center font-semibold text-sm text-muted-foreground py-2">
             {day}
           </div>
@@ -252,15 +266,17 @@ function MonthView({ currentDate, gamesByDate }: { currentDate: Date; gamesByDat
                 isToday && "border-primary border-2"
               )}
             >
-              <div className={cn(
-                "text-sm font-medium mb-2",
-                !isCurrentMonth && "text-muted-foreground",
-                isToday && "text-primary font-bold"
-              )}>
+              <div
+                className={cn(
+                  "text-sm font-medium mb-2",
+                  !isCurrentMonth && "text-muted-foreground",
+                  isToday && "text-primary font-bold"
+                )}
+              >
                 {day.getDate()}
               </div>
               <div className="space-y-1">
-                {gamesOnDay.map(game => (
+                {gamesOnDay.map((game) => (
                   <GameBadge key={game.id} game={game} compact />
                 ))}
               </div>
@@ -285,7 +301,10 @@ function WeekView({ currentDate, gamesByDate }: { currentDate: Date; gamesByDate
           const dayName = day.toLocaleDateString("en-US", { weekday: "short" });
 
           return (
-            <div key={idx} className={cn("border rounded-lg p-3", isToday && "border-primary border-2")}>
+            <div
+              key={idx}
+              className={cn("border rounded-lg p-3", isToday && "border-primary border-2")}
+            >
               <div className="text-center mb-3">
                 <div className={cn("font-semibold", isToday && "text-primary")}>{dayName}</div>
                 <div className={cn("text-2xl font-bold", isToday && "text-primary")}>
@@ -297,9 +316,7 @@ function WeekView({ currentDate, gamesByDate }: { currentDate: Date; gamesByDate
               </div>
               <div className="space-y-2">
                 {gamesOnDay.length > 0 ? (
-                  gamesOnDay.map(game => (
-                    <GameBadge key={game.id} game={game} />
-                  ))
+                  gamesOnDay.map((game) => <GameBadge key={game.id} game={game} />)
                 ) : (
                   <p className="text-xs text-muted-foreground text-center">No releases</p>
                 )}
@@ -319,16 +336,20 @@ function GameBadge({ game, compact = false }: { game: Game; compact?: boolean })
     return (
       <Tooltip>
         <TooltipTrigger asChild>
-          <div className={cn(
-            "flex items-center gap-1 p-1 rounded hover:opacity-80 cursor-pointer transition-opacity",
-            isDelayed ? "bg-destructive/20 border border-destructive/30" : "bg-muted"
-          )}>
+          <div
+            className={cn(
+              "flex items-center gap-1 p-1 rounded hover:opacity-80 cursor-pointer transition-opacity",
+              isDelayed ? "bg-destructive/20 border border-destructive/30" : "bg-muted"
+            )}
+          >
             <img
               src={game.coverUrl || "/placeholder-game-cover.jpg"}
               alt={game.title}
               className="w-6 h-6 rounded object-cover"
             />
-            <span className={cn("text-xs truncate flex-1", isDelayed && "text-destructive font-medium")}>
+            <span
+              className={cn("text-xs truncate flex-1", isDelayed && "text-destructive font-medium")}
+            >
               {game.title}
               {isDelayed && " (Delayed)"}
             </span>
@@ -338,20 +359,24 @@ function GameBadge({ game, compact = false }: { game: Game; compact?: boolean })
           <div className="max-w-xs">
             <p className="font-semibold">{game.title}</p>
             {isDelayed && (
-              <Badge variant="destructive" className="mt-1 text-[10px] h-4">Delayed</Badge>
+              <Badge variant="destructive" className="mt-1 text-[10px] h-4">
+                Delayed
+              </Badge>
             )}
             <p className="text-xs text-muted-foreground mt-1">
-              {game.releaseDate && new Date(game.releaseDate).toLocaleDateString("en-US", {
-                year: "numeric",
-                month: "long",
-                day: "numeric"
-              })}
+              {game.releaseDate &&
+                new Date(game.releaseDate).toLocaleDateString("en-US", {
+                  year: "numeric",
+                  month: "long",
+                  day: "numeric",
+                })}
             </p>
             {isDelayed && game.originalReleaseDate && (
               <p className="text-[10px] text-muted-foreground">
-                Original: {new Date(game.originalReleaseDate).toLocaleDateString("en-US", {
+                Original:{" "}
+                {new Date(game.originalReleaseDate).toLocaleDateString("en-US", {
                   month: "short",
-                  day: "numeric"
+                  day: "numeric",
                 })}
               </p>
             )}
@@ -364,10 +389,12 @@ function GameBadge({ game, compact = false }: { game: Game; compact?: boolean })
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <div className={cn(
-          "flex items-center gap-2 p-2 rounded hover:opacity-80 cursor-pointer transition-all",
-          isDelayed ? "bg-destructive/10 border border-destructive/20" : "bg-muted"
-        )}>
+        <div
+          className={cn(
+            "flex items-center gap-2 p-2 rounded hover:opacity-80 cursor-pointer transition-all",
+            isDelayed ? "bg-destructive/10 border border-destructive/20" : "bg-muted"
+          )}
+        >
           <img
             src={game.coverUrl || "/placeholder-game-cover.jpg"}
             alt={game.title}
@@ -379,15 +406,18 @@ function GameBadge({ game, compact = false }: { game: Game; compact?: boolean })
                 {game.title}
               </p>
               {isDelayed && (
-                <Badge variant="destructive" className="text-[10px] h-4 px-1">Delayed</Badge>
+                <Badge variant="destructive" className="text-[10px] h-4 px-1">
+                  Delayed
+                </Badge>
               )}
             </div>
             <p className="text-xs text-muted-foreground">
-              {game.releaseDate && new Date(game.releaseDate).toLocaleDateString("en-US", {
-                month: "short",
-                day: "numeric",
-                year: "numeric"
-              })}
+              {game.releaseDate &&
+                new Date(game.releaseDate).toLocaleDateString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                })}
             </p>
           </div>
         </div>
@@ -397,13 +427,16 @@ function GameBadge({ game, compact = false }: { game: Game; compact?: boolean })
           <p className="font-semibold">{game.title}</p>
           {isDelayed && (
             <div className="flex flex-col gap-0.5 mt-1">
-              <Badge variant="destructive" className="w-fit text-[10px] h-4">Delayed</Badge>
+              <Badge variant="destructive" className="w-fit text-[10px] h-4">
+                Delayed
+              </Badge>
               {game.originalReleaseDate && (
                 <p className="text-[10px] text-muted-foreground">
-                  Was originally scheduled for: {new Date(game.originalReleaseDate).toLocaleDateString("en-US", {
+                  Was originally scheduled for:{" "}
+                  {new Date(game.originalReleaseDate).toLocaleDateString("en-US", {
                     month: "long",
                     day: "numeric",
-                    year: "numeric"
+                    year: "numeric",
                   })}
                 </p>
               )}
@@ -413,8 +446,10 @@ function GameBadge({ game, compact = false }: { game: Game; compact?: boolean })
             <p className="text-xs text-muted-foreground mt-1 line-clamp-3">{game.summary}</p>
           )}
           <div className="flex flex-wrap gap-1 mt-2">
-            {game.genres?.slice(0, 3).map(genre => (
-              <Badge key={genre} variant="secondary" className="text-xs">{genre}</Badge>
+            {game.genres?.slice(0, 3).map((genre) => (
+              <Badge key={genre} variant="secondary" className="text-xs">
+                {genre}
+              </Badge>
             ))}
           </div>
         </div>

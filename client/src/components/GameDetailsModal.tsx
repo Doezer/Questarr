@@ -123,7 +123,7 @@ export default function GameDetailsModal({
                     </div>
                   )}
                 </div>
-                
+
                 {/* Summary */}
                 {game.summary && (
                   <div>
@@ -147,7 +147,7 @@ export default function GameDetailsModal({
                     src={game.coverUrl}
                     alt={`${game.title} cover`}
                     className="w-32 object-cover rounded-lg shadow-md"
-                    style={{ aspectRatio: '3/4' }}
+                    style={{ aspectRatio: "3/4" }}
                     data-testid={`img-cover-${game.id}`}
                   />
                 </div>

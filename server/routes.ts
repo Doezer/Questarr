@@ -411,7 +411,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userGames = await storage.getUserGames(userId, true);
 
       routesLogger.info({ userId, gameCount: userGames.length }, "starting metadata refresh");
-      
+
       // ⚡ Bolt: Optimize metadata refresh by fetching all games in batches
       // instead of sequential 1-by-1 requests.
       const igdbIds = userGames
@@ -1592,12 +1592,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Invalid settings data", details: error.errors });
       }
       routesLogger.error({ error }, "error updating settings");
-      res
-        .status(500)
-        .json({
-          error: "Failed to update settings",
-          message: error instanceof Error ? error.message : "Unknown error",
-        });
+      res.status(500).json({
+        error: "Failed to update settings",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
     }
   });
 

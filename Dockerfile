@@ -1,12 +1,12 @@
-# Étape de base avec les dépendances partagées
+# Build stage with shared dependencies
 FROM node:20-alpine AS base
 
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm install --frozen-lockfile
+RUN npm ci
 
-# Étape de build
+# Build stage
 FROM base AS builder
 
 WORKDIR /app
@@ -14,29 +14,24 @@ WORKDIR /app
 COPY --from=base /app/node_modules ./node_modules
 COPY . .
 
-# Construction du client et du serveur
+# Build client and server
 RUN npm run build
 
-# Étape de production
+# Production stage
 FROM node:20-alpine AS production
 
 WORKDIR /app
 
-# Installation des dépendances de production uniquement
+# Install production dependencies only
 COPY package*.json ./
-RUN npm install --frozen-lockfile --omit=dev
+RUN npm ci --omit=dev
 
-# Copie des fichiers nécessaires depuis l'étape de build
+# Copy necessary files from build stage
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/shared ./shared
 
-# Copie des fichiers de configuration nécessaires
+# Copy configuration files
 COPY --from=builder /app/package.json ./
-COPY --from=builder /app/vite.config.ts ./
-COPY --from=builder /app/drizzle.config.ts ./
-COPY --from=builder /app/tsconfig*.json ./
 
 EXPOSE ${PORT:-5000}
 
-# Utilisation de cross-env pour définir NODE_ENV
 CMD ["npm", "run", "start"]

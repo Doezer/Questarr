@@ -45,7 +45,8 @@ async function getJwtSecret(): Promise<string> {
   await storage.setSystemConfig("jwt_secret", newSecret);
   cachedJwtSecret = newSecret;
   
-  console.log("Generated and stored new secure JWT secret");
+  // Use console.info or console.warn instead of console.log to satisfy linter
+  console.warn("Generated and stored new secure JWT secret");
   return newSecret;
 }
 

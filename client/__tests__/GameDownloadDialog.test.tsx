@@ -33,6 +33,7 @@ vi.mock("lucide-react", () => ({
   PackagePlus: () => <div data-testid="icon-package-plus" />,
   FileDown: () => <div data-testid="icon-file-down" />,
   CheckCircle2: () => <div data-testid="icon-check-circle" />,
+  SlidersHorizontal: () => <div data-testid="icon-sliders-horizontal" />,
 }));
 
 const mockGame = {

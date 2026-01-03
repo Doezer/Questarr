@@ -411,34 +411,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userGames = await storage.getUserGames(userId, true);
 
       routesLogger.info({ userId, gameCount: userGames.length }, "starting metadata refresh");
+      
+      // ⚡ Bolt: Optimize metadata refresh by fetching all games in batches
+      // instead of sequential 1-by-1 requests.
+      const igdbIds = userGames
+        .map((g) => g.igdbId)
+        .filter((id): id is number => id !== null && id !== undefined);
+
+      // Fetch all updated game data from IGDB in parallel/batches
+      const igdbGames = igdbIds.length > 0 ? await igdbClient.getGamesByIds(igdbIds) : [];
+      const igdbGameMap = new Map(igdbGames.map((g) => [g.id, g]));
 
       let updatedCount = 0;
       let errorCount = 0;
 
-      for (const game of userGames) {
-        if (!game.igdbId) continue;
+      // Process updates in batches to avoid overwhelming the database
+      const CONCURRENCY_LIMIT = 10;
+      for (let i = 0; i < userGames.length; i += CONCURRENCY_LIMIT) {
+        const chunk = userGames.slice(i, i + CONCURRENCY_LIMIT);
+        await Promise.all(
+          chunk.map(async (game) => {
+            if (!game.igdbId) return;
 
-        try {
-          const igdbGame = await igdbClient.getGameById(game.igdbId);
-          if (igdbGame) {
-            const updatedData = igdbClient.formatGameData(igdbGame);
-            await storage.updateGame(game.id, {
-              publishers: updatedData.publishers as string[],
-              developers: updatedData.developers as string[],
-              summary: updatedData.summary as string,
-              rating: updatedData.rating as number,
-              genres: updatedData.genres as string[],
-              platforms: updatedData.platforms as string[],
-              coverUrl: updatedData.coverUrl as string,
-              screenshots: updatedData.screenshots as string[],
-              releaseDate: updatedData.releaseDate as string,
-            });
-            updatedCount++;
-          }
-        } catch (error) {
-          routesLogger.error({ gameId: game.id, error }, "failed to refresh metadata for game");
-          errorCount++;
-        }
+            try {
+              const igdbGame = igdbGameMap.get(game.igdbId);
+              if (igdbGame) {
+                const updatedData = igdbClient.formatGameData(igdbGame);
+                await storage.updateGame(game.id, {
+                  publishers: updatedData.publishers as string[],
+                  developers: updatedData.developers as string[],
+                  summary: updatedData.summary as string,
+                  rating: updatedData.rating as number,
+                  genres: updatedData.genres as string[],
+                  platforms: updatedData.platforms as string[],
+                  coverUrl: updatedData.coverUrl as string,
+                  screenshots: updatedData.screenshots as string[],
+                  releaseDate: updatedData.releaseDate as string,
+                });
+                updatedCount++;
+              }
+            } catch (error) {
+              routesLogger.error({ gameId: game.id, error }, "failed to refresh metadata for game");
+              errorCount++;
+            }
+          })
+        );
       }
 
       routesLogger.info({ userId, updatedCount, errorCount }, "metadata refresh completed");

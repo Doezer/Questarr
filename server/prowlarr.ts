@@ -64,22 +64,36 @@ export class ProwlarrClient {
         "Fetched indexers from Prowlarr"
       );
 
-      // Filter for Torznab compatible indexers
-      // We accept any torrent protocol indexer.
+      // Filter for Torznab (torrent) and Newznab (usenet) compatible indexers
+      // We accept both torrent and usenet protocol indexers.
       // appProfileId check removed as it might filter out valid indexers assigned to profiles.
-      const torznabIndexers = prowlarrIndexers.filter((idx) => idx.protocol === "torrent");
+      const compatibleIndexers = prowlarrIndexers.filter(
+        (idx) => idx.protocol === "torrent" || idx.protocol === "usenet"
+      );
 
-      torznabLogger.info({ count: torznabIndexers.length }, "Filtered compatible Torznab indexers");
+      torznabLogger.info(
+        { 
+          count: compatibleIndexers.length,
+          torrent: compatibleIndexers.filter(i => i.protocol === "torrent").length,
+          usenet: compatibleIndexers.filter(i => i.protocol === "usenet").length
+        }, 
+        "Filtered compatible Torznab and Newznab indexers"
+      );
 
-      return torznabIndexers.map((idx) => {
-        // Construct Torznab URL
-        // Prowlarr exposes Torznab feed at /<indexerId>/api
-        const torznabUrl = `${baseUrl}/${idx.id}/api`;
+      return compatibleIndexers.map((idx) => {
+        // Construct Torznab/Newznab URL
+        // Prowlarr exposes Torznab feed at /<indexerId>/api for torrents
+        // and Newznab feed at /<indexerId>/api for usenet
+        const indexerUrl = `${baseUrl}/${idx.id}/api`;
+        
+        // Determine protocol: torrent -> torznab, usenet -> newznab
+        const protocol = idx.protocol === "usenet" ? "newznab" : "torznab";
 
         return {
           name: idx.name,
-          url: torznabUrl,
-          apiKey: apiKey, // Prowlarr uses the main API key for all Torznab feeds by default
+          url: indexerUrl,
+          apiKey: apiKey, // Prowlarr uses the main API key for all indexer feeds by default
+          protocol: protocol as "torznab" | "newznab",
           enabled: idx.enable,
           priority: idx.priority,
           rssEnabled: true,

@@ -86,7 +86,6 @@ describe("GameDownloadDialog", () => {
 
     // Mock successful search query
     global.fetch = vi.fn(async (url) => {
-      console.log("Fetching URL:", url);
       if (url.toString().includes("/api/search")) {
         return Promise.resolve({
           ok: true,

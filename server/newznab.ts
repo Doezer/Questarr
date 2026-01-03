@@ -8,6 +8,18 @@ const parser = new XMLParser({
   attributeNamePrefix: "@_",
 });
 
+/**
+ * Format bytes to human-readable string with dynamic units
+ */
+function formatBytes(bytes: number, decimals = 2): string {
+  if (bytes === 0) return '0 Bytes';
+  const k = 1024;
+  const dm = decimals < 0 ? 0 : decimals;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+}
+
 export interface NewznabSearchParams {
   query: string;
   category?: string[];
@@ -50,7 +62,7 @@ class NewznabClient {
   async search(indexer: Indexer, params: NewznabSearchParams): Promise<NewznabResult[]> {
     try {
       // Validate URL before making request
-      if (!isSafeUrl(indexer.url)) {
+      if (!(await isSafeUrl(indexer.url))) {
         throw new Error(`Unsafe URL detected: ${indexer.url}`);
       }
 
@@ -116,7 +128,8 @@ class NewznabClient {
 
           // Get size - try multiple sources
           const sizeBytes = attrMap.get("size") || item.enclosure?.["@_length"];
-          const size = sizeBytes ? `${(parseInt(sizeBytes) / 1073741824).toFixed(2)} GB` : "Unknown";
+          const sizeBytesNum = sizeBytes ? parseInt(sizeBytes, 10) : NaN;
+          const size = !isNaN(sizeBytesNum) ? formatBytes(sizeBytesNum) : "Unknown";
 
           // Calculate age in days
           const pubDate = new Date(item.pubDate || Date.now());
@@ -139,9 +152,19 @@ class NewznabClient {
             category: categories,
             guid: item.guid?.["#text"] || item.guid,
             // Usenet-specific
-            grabs: attrMap.get("grabs") ? parseInt(attrMap.get("grabs")!) : undefined,
+            grabs: (() => {
+              const val = attrMap.get("grabs");
+              if (!val) return undefined;
+              const num = parseInt(val, 10);
+              return !isNaN(num) ? num : undefined;
+            })(),
             age,
-            files: attrMap.get("files") ? parseInt(attrMap.get("files")!) : undefined,
+            files: (() => {
+              const val = attrMap.get("files");
+              if (!val) return undefined;
+              const num = parseInt(val, 10);
+              return !isNaN(num) ? num : undefined;
+            })(),
             poster: attrMap.get("poster"),
             group: attrMap.get("group"),
           });
@@ -205,7 +228,7 @@ class NewznabClient {
    */
   async getCategories(indexer: Indexer): Promise<NewznabCategory[]> {
     try {
-      if (!isSafeUrl(indexer.url)) {
+      if (!(await isSafeUrl(indexer.url))) {
         throw new Error(`Unsafe URL detected: ${indexer.url}`);
       }
 
@@ -267,7 +290,7 @@ class NewznabClient {
    */
   async testConnection(indexer: Indexer): Promise<{ success: boolean; message: string }> {
     try {
-      if (!isSafeUrl(indexer.url)) {
+      if (!(await isSafeUrl(indexer.url))) {
         return { success: false, message: "Unsafe URL detected" };
       }
 

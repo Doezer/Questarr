@@ -24,6 +24,7 @@ export const userSettings = pgTable("user_settings", {
   notifyMultipleTorrents: boolean("notify_multiple_torrents").notNull().default(true),
   notifyUpdates: boolean("notify_updates").notNull().default(true),
   searchIntervalHours: integer("search_interval_hours").notNull().default(6),
+  igdbRateLimitPerSecond: integer("igdb_rate_limit_per_second").notNull().default(3),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 

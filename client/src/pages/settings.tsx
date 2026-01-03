@@ -7,6 +7,7 @@ import {
   Search,
   Download,
   AlertCircle,
+  Gauge,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -47,6 +48,7 @@ export default function SettingsPage() {
   const [notifyMultipleTorrents, setNotifyMultipleTorrents] = useState(true);
   const [notifyUpdates, setNotifyUpdates] = useState(true);
   const [searchIntervalHours, setSearchIntervalHours] = useState(6);
+  const [igdbRateLimitPerSecond, setIgdbRateLimitPerSecond] = useState(3);
 
   // Sync with fetched settings
   useEffect(() => {
@@ -56,6 +58,7 @@ export default function SettingsPage() {
       setNotifyMultipleTorrents(userSettings.notifyMultipleTorrents);
       setNotifyUpdates(userSettings.notifyUpdates);
       setSearchIntervalHours(userSettings.searchIntervalHours);
+      setIgdbRateLimitPerSecond(userSettings.igdbRateLimitPerSecond);
     }
   }, [userSettings]);
 
@@ -125,6 +128,7 @@ export default function SettingsPage() {
       notifyMultipleTorrents,
       notifyUpdates,
       searchIntervalHours,
+      igdbRateLimitPerSecond,
     });
   };
 
@@ -329,6 +333,70 @@ export default function SettingsPage() {
                 integration.
               </p>
             )}
+          </CardContent>
+        </Card>
+
+        {/* Advanced Settings */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center space-x-3">
+              <Gauge className="h-5 w-5 text-muted-foreground" />
+              <CardTitle className="text-lg">Advanced</CardTitle>
+            </div>
+            <CardDescription>
+              Advanced performance and API settings. Change these only if needed.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="space-y-4">
+              <div className="space-y-3">
+                <Label htmlFor="igdb-rate-limit" className="text-sm font-medium">
+                  IGDB API Rate Limit (requests/second)
+                </Label>
+                <Input
+                  id="igdb-rate-limit"
+                  type="number"
+                  min="1"
+                  max="4"
+                  value={igdbRateLimitPerSecond}
+                  onChange={(e) => setIgdbRateLimitPerSecond(parseInt(e.target.value) || 3)}
+                  className="w-32"
+                />
+                <div className="text-xs text-muted-foreground space-y-1">
+                  <p>
+                    <strong>IGDB allows 4 requests per second.</strong> Default is 3 to be
+                    conservative.
+                  </p>
+                  <p>
+                    Only increase if you experience slow loading times and are confident your usage
+                    won't exceed the limit.
+                  </p>
+                  <p className="text-amber-500">
+                    ⚠️ Setting too high may result in API blacklisting.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-4 border-t">
+              <Button
+                onClick={handleSaveSettings}
+                disabled={updateSettingsMutation.isPending}
+                className="gap-2"
+              >
+                {updateSettingsMutation.isPending ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Download className="h-4 w-4" />
+                    Save Settings
+                  </>
+                )}
+              </Button>
+            </div>
           </CardContent>
         </Card>
 

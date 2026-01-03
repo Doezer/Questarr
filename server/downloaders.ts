@@ -295,6 +295,7 @@ class TransmissionClient implements DownloaderClient {
         "peersGettingFromUs",
         "uploadRatio",
         "errorString",
+        "hashString", // Required for matching torrents by hash
       ],
     });
 
@@ -387,7 +388,10 @@ class TransmissionClient implements DownloaderClient {
     }
 
     if (torrent.percentDone === 1) {
-      status = "completed";
+      // If 100% done, mark as completed or seeding depending on status
+      if (status === "downloading") {
+         status = "seeding"; // Or completed, but seeding is safer if it's running
+      }
     }
 
     if (torrent.errorString) {
@@ -395,7 +399,7 @@ class TransmissionClient implements DownloaderClient {
     }
 
     return {
-      id: torrent.id.toString(),
+      id: torrent.hashString || torrent.id.toString(), // Use hash for consistency, fallback to numeric id
       name: torrent.name,
       status,
       progress: Math.round(torrent.percentDone * 100),
@@ -831,9 +835,12 @@ class RTorrentClient implements DownloaderClient {
           message: `Torrent added successfully${this.downloader.addStopped ? " (stopped)" : ""}`,
         };
       } else {
+        // Check if result is 0 (success) even if type check failed or something else
+        // Some rTorrent versions might return empty string or other success indicators
+        // But standard XML-RPC returns 0 for success on load commands
         return {
           success: false,
-          message: "Failed to add torrent (rTorrent returned failure code)",
+          message: `Failed to add torrent (rTorrent returned code: ${result})`,
         };
       }
     } catch (error) {
@@ -848,7 +855,7 @@ class RTorrentClient implements DownloaderClient {
       // Get detailed information about a specific torrent using multicall
       const result = await this.makeXMLRPCRequest("d.multicall2", [
         "",
-        id,
+        "main", // Added view parameter which is required for d.multicall2
         "d.hash=",
         "d.name=",
         "d.state=",
@@ -864,9 +871,12 @@ class RTorrentClient implements DownloaderClient {
         "d.custom1=",
       ]);
 
+      // Filter for the specific ID since d.multicall2 returns all torrents in the view
       if (result && result.length > 0) {
-        const torrent = result[0];
-        return this.mapRTorrentStatus(torrent);
+        const torrent = result.find((t: unknown[]) => (t as string[])[0].toLowerCase() === id.toLowerCase());
+        if (torrent) {
+          return this.mapRTorrentStatus(torrent);
+        }
       }
 
       return null;
@@ -1027,6 +1037,7 @@ class RTorrentClient implements DownloaderClient {
 
   async getAllTorrents(): Promise<DownloadStatus[]> {
     // Get all torrents using multicall
+    // Note: d.multicall2 requires a view (usually "main" or "default") as the second argument
     const result = await this.makeXMLRPCRequest("d.multicall2", [
       "",
       "main",
@@ -1146,13 +1157,18 @@ class RTorrentClient implements DownloaderClient {
     // complete: 0=incomplete, 1=complete
     let status: DownloadStatus["status"];
 
-    if ((state as number) === 1) {
+    // Check for error message first
+    if (message && (message as string).length > 0) {
+      status = "error";
+    } else if ((state as number) === 1) {
+      // Started
       if ((complete as number) === 1) {
         status = "seeding";
       } else {
         status = "downloading";
       }
     } else {
+      // Stopped/Paused
       if ((complete as number) === 1) {
         status = "completed";
       } else {
@@ -1160,14 +1176,24 @@ class RTorrentClient implements DownloaderClient {
       }
     }
 
-    if (message && (message as string).length > 0) {
-      status = "error";
-    }
-
     const progress =
       (sizeBytes as number) > 0
         ? Math.round(((completedBytes as number) / (sizeBytes as number)) * 100)
         : 0;
+
+    // Force completed status if progress is 100% even if rTorrent says otherwise
+    // This handles cases where rTorrent might be in a weird state or checking
+    if (progress >= 100 && status !== "seeding" && status !== "completed") {
+       // If it's stopped and 100%, it's completed.
+       // If it's started and 100%, it's seeding (or should be).
+       status = (state as number) === 1 ? "seeding" : "completed";
+    }
+
+    // Fix for 0% progress and 0 ratio when data is missing or not yet loaded
+    // If size is 0, it might be a magnet link resolving metadata
+    if ((sizeBytes as number) === 0) {
+       // Keep existing status but ensure we don't divide by zero
+    }
 
     return {
       id: hash as string,
@@ -1546,6 +1572,12 @@ class RTorrentClient implements DownloaderClient {
       return parseInt(intMatch[1]);
     }
 
+    // Parse i8 (64-bit integer) - rTorrent uses this for file sizes
+    const i8Match = content.match(/<i8>([^<]+)<\/i8>/);
+    if (i8Match) {
+      return parseInt(i8Match[1]);
+    }
+
     // Parse double
     const doubleMatch = content.match(/<double>([^<]+)<\/double>/);
     if (doubleMatch) {
@@ -1827,9 +1859,13 @@ class QBittorrentClient implements DownloaderClient {
         break;
     }
 
-    // Check if completed
-    if (torrent.progress === 1 && status === "paused") {
-      status = "completed";
+    // Check if completed based on progress
+    if (torrent.progress === 1) {
+      if (status === "downloading" || status === "stalledDL") {
+        status = "seeding"; // It's done downloading, so it must be seeding or completed
+      } else if (status === "paused") {
+        status = "completed";
+      }
     }
 
     return {

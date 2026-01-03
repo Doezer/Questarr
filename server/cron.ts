@@ -15,10 +15,19 @@ const AUTO_SEARCH_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const lastAutoSearchTime = new Map<string, number>();
 
 export function startCronJobs() {
-  igdbLogger.info("Starting cron jobs...");
+  igdbLogger.info("🕐 Starting cron jobs...");
+  igdbLogger.info(
+    {
+      gameUpdates: `every ${CHECK_INTERVAL_MS / 1000 / 60 / 60} hours`,
+      downloadStatus: `every ${DOWNLOAD_CHECK_INTERVAL_MS / 1000} seconds`,
+      autoSearch: `every ${AUTO_SEARCH_CHECK_INTERVAL_MS / 1000 / 60} minutes`,
+    },
+    "Cron job intervals configured"
+  );
 
   // Run immediately on startup (or after a slight delay to ensure DB is ready)
   setTimeout(() => {
+    igdbLogger.info("🚀 Running initial cron job checks...");
     checkGameUpdates().catch((err) => igdbLogger.error({ err }, "Error in checkGameUpdates"));
     checkDownloadStatus().catch((err) => igdbLogger.error({ err }, "Error in checkDownloadStatus"));
     checkAutoSearch().catch((err) => igdbLogger.error({ err }, "Error in checkAutoSearch"));
@@ -148,9 +157,12 @@ async function checkGameUpdates() {
 }
 
 async function checkDownloadStatus() {
-  igdbLogger.debug("Checking download status...");
-
   const downloadingTorrents = await storage.getDownloadingGameTorrents();
+
+  igdbLogger.info(
+    { downloadingCount: downloadingTorrents.length },
+    "Checking download status"
+  );
 
   if (downloadingTorrents.length === 0) {
     return;
@@ -173,20 +185,36 @@ async function checkDownloadStatus() {
       const activeTorrents = await DownloaderManager.getAllTorrents(downloader);
       const activeTorrentMap = new Map(activeTorrents.map((t) => [t.id.toLowerCase(), t]));
 
+      igdbLogger.debug(
+        { downloaderId, activeTorrentCount: activeTorrents.length, trackingCount: torrents.length },
+        "Checking torrents for downloader"
+      );
+
       for (const torrent of torrents) {
         // Match by hash (handle case sensitivity just in case)
         const remoteTorrent = activeTorrentMap.get(torrent.torrentHash.toLowerCase());
 
         if (remoteTorrent) {
           // Check for completion
-          // Status can be 'completed' or 'seeding'
-          if (remoteTorrent.status === "completed" || remoteTorrent.status === "seeding") {
+          // A torrent is considered complete if:
+          // 1. Status is 'completed' or 'seeding', OR
+          // 2. Progress is 100% (handles edge cases where status might not update correctly)
+          const isComplete =
+            remoteTorrent.status === "completed" ||
+            remoteTorrent.status === "seeding" ||
+            remoteTorrent.progress >= 100;
+
+          if (isComplete) {
             igdbLogger.info(
-              { torrent: torrent.torrentTitle, status: remoteTorrent.status },
-              "Torrent download completed"
+              {
+                torrent: torrent.torrentTitle,
+                status: remoteTorrent.status,
+                progress: remoteTorrent.progress,
+              },
+              "Torrent download completed (or seeding)"
             );
 
-            // Update DB
+            // Update DB - mark as completed even if seeding
             await storage.updateGameTorrentStatus(torrent.id, "completed");
 
             // Update Game status to 'owned' (which means we have the files)
@@ -214,9 +242,27 @@ async function checkDownloadStatus() {
         } else {
           // Torrent not found in downloader anymore?
           // Maybe it was removed manually or by 'remove completed' setting.
-          // If removeCompleted is true, we might assume it finished if it was close to done?
-          // But simpler to just ignore or mark as failed if it vanishes without completion.
-          // For now, do nothing.
+          igdbLogger.debug(
+            {
+              torrentHash: torrent.torrentHash,
+              torrentTitle: torrent.torrentTitle,
+              availableHashes: Array.from(activeTorrentMap.keys()).slice(0, 5), // Log first 5 for debugging
+            },
+            "Torrent not found in active torrents"
+          );
+          
+          // If torrent is missing from downloader, assume it's completed/removed
+          // But only if it was previously downloading.
+          // We'll mark it as completed in our DB to stop tracking it as "downloading"
+          igdbLogger.info(
+            { torrent: torrent.torrentTitle },
+            "Torrent missing from downloader, assuming completed/removed"
+          );
+          
+          await storage.updateGameTorrentStatus(torrent.id, "completed");
+          
+          // We don't automatically mark game as owned here because it might have been deleted/cancelled
+          // But we stop tracking it to avoid the "checking download status" loop for missing torrents
         }
       }
     } catch (error) {

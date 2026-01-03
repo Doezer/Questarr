@@ -35,7 +35,7 @@ type SetupForm = z.infer<typeof setupSchema>;
 export default function SetupPage() {
   const { checkSetup } = useAuth();
   const { toast } = useToast();
-  const [, _setLocation] = useLocation();
+  const [_, setLocation] = useLocation();
 
   const form = useForm<SetupForm>({
     resolver: zodResolver(setupSchema),

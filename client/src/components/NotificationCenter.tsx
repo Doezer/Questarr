@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Bell, CheckCheck, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -27,11 +27,6 @@ export function NotificationCenter() {
 
   const { data: unreadCountData } = useQuery<{ count: number }>({
     queryKey: ["/api/notifications/unread-count"],
-  });
-
-  // Fetch all games to map notifications to games
-  const { data: games = [] } = useQuery<Game[]>({
-    queryKey: ["/api/games"],
   });
 
   useEffect(() => {
@@ -149,6 +144,7 @@ export function NotificationCenter() {
                 size="icon"
                 className="h-8 w-8"
                 title="Mark all as read"
+                aria-label="Mark all notifications as read"
                 onClick={() => markAllAsReadMutation.mutate()}
                 disabled={unreadCount === 0}
               >
@@ -159,6 +155,7 @@ export function NotificationCenter() {
                 size="icon"
                 className="h-8 w-8 text-destructive hover:text-destructive"
                 title="Clear all"
+                aria-label="Clear all notifications"
                 onClick={() => clearAllMutation.mutate()}
                 disabled={notifications.length === 0}
               >

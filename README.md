@@ -6,8 +6,8 @@ A video game management application inspired by the -Arr apps (Sonarr, Radarr, P
 
 - **Game Discovery**: Browse popular games, new releases, and upcoming titles via IGDB integration
 - **Library Management**: Track your game collection with status indicators (Wanted, Owned, Playing, Completed)
-- **Download Management**: Integrate with indexers (Prowlarr/Torznab) and torrent downloaders (qBittorrent, Transmission, rTorrent)
-- **Search & Filter**: Find games by genre, platform, and search terms
+- **Download Management**: Optionally integrate with indexers (Prowlarr/Torznab) and torrent downloaders (qBittorrent, Transmission, rTorrent), and enable auto-download to get them right when they're there.
+- **Search & Filter**: Find games by genre, platform, and search terms. Automatically search for added games until available on your indexers.
 - **Clean Interface**: UI optimized for browsing game covers and metadata, with light/dark mode
 
 ## Tech Stack

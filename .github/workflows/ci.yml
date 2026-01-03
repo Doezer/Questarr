@@ -1,4 +1,4 @@
-name: CI - Type Check, Build & Docker
+name: CI
 
 on:
   push:

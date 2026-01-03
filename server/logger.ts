@@ -25,3 +25,4 @@ export const routesLogger = logger.child({ module: "routes" });
 export const expressLogger = logger.child({ module: "express" });
 export const downloadersLogger = logger.child({ module: "downloaders" });
 export const torznabLogger = logger.child({ module: "torznab" });
+export const appLogger = logger.child({ module: "app" });

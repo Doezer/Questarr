@@ -1,12 +1,28 @@
 import rateLimit from "express-rate-limit";
 import { body, param, query, validationResult } from "express-validator";
 import type { Request, Response, NextFunction } from "express";
+import { storage } from "./storage.js";
 
-// Rate limiter for IGDB API endpoints to prevent blacklisting
-// IGDB has a limit of 4 requests per second, so we'll be conservative
+// Dynamic rate limiter for IGDB API endpoints to prevent blacklisting
+// IGDB has a limit of 4 requests per second, we default to 3 to be conservative
+// The rate limit can be configured per user in settings
 export const igdbRateLimiter = rateLimit({
   windowMs: 1000, // 1 second
-  max: 3, // limit each IP to 3 requests per second
+  max: async (req: Request) => {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const userId = (req as any).user?.id;
+      if (!userId) {
+        return 3; // Default for unauthenticated requests
+      }
+
+      const settings = await storage.getUserSettings(userId);
+      return settings?.igdbRateLimitPerSecond ?? 3;
+    } catch (error) {
+      console.error("Error fetching user rate limit:", error);
+      return 3; // Fallback to default on error
+    }
+  },
   message: "Too many IGDB requests, please try again later",
   standardHeaders: true,
   legacyHeaders: false,

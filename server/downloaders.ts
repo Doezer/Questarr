@@ -163,12 +163,89 @@ class TransmissionClient implements DownloaderClient {
   ): Promise<{ success: boolean; id?: string; message: string }> {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const args: any = {
-        filename: request.url,
-      };
+      const args: any = {};
 
-      if (request.downloadPath || this.downloader.downloadPath) {
-        args["download-dir"] = request.downloadPath || this.downloader.downloadPath;
+      // Check if it's a magnet link or a URL that needs downloading
+      const isMagnet = request.url.startsWith("magnet:");
+      
+      if (isMagnet) {
+        args.filename = request.url;
+      } else {
+        // Download the .torrent file locally first
+        // This is necessary because Transmission might not have access to the indexer (e.g. private trackers)
+        try {
+          downloadersLogger.debug({ url: request.url }, "Downloading torrent file locally for Transmission");
+          
+          const fetchTorrent = async (url: string) => {
+            return fetch(url, {
+              headers: {
+                "User-Agent":
+                  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+                Accept: "application/x-bittorrent, */*",
+              },
+            });
+          };
+
+          let response = await fetchTorrent(request.url);
+
+          if (!response.ok) {
+            // Retry logic similar to rTorrent client
+            if (response.status === 400 && request.url.includes("+")) {
+              const fixedUrl = request.url.replace(/\+/g, "%20");
+              response = await fetchTorrent(fixedUrl);
+              
+              if (!response.ok && request.url.includes("&file=")) {
+                 const urlNoFile = request.url.split("&file=")[0];
+                 response = await fetchTorrent(urlNoFile);
+              }
+            }
+          }
+
+          if (response.ok) {
+            const arrayBuffer = await response.arrayBuffer();
+            const buffer = Buffer.from(arrayBuffer);
+            
+            // Try to parse hash for immediate return
+            try {
+              const parsed = await parseTorrent(buffer);
+              if (parsed && parsed.infoHash) {
+                // We can't set ID on the return object directly here as Transmission returns it
+                // but we can verify it matches later if needed
+                downloadersLogger.debug({ hash: parsed.infoHash }, "Parsed torrent hash locally");
+              }
+            } catch {
+              // Ignore parse errors, Transmission might still accept it
+            }
+
+            // Transmission expects base64 encoded torrent file content in 'metainfo'
+            args.metainfo = buffer.toString("base64");
+          } else {
+            // Fallback to passing URL directly if download fails
+            downloadersLogger.warn("Failed to download torrent file locally, passing URL to Transmission");
+            args.filename = request.url;
+          }
+        } catch (error) {
+          downloadersLogger.error({ error }, "Error downloading torrent file, passing URL to Transmission");
+          args.filename = request.url;
+        }
+      }
+
+      // Handle download path with category subdirectory
+      let downloadPath = request.downloadPath || this.downloader.downloadPath;
+      const category = request.category || this.downloader.category;
+      
+      if (downloadPath && category) {
+        // Transmission doesn't have native category support, but we can create subdirectories
+        downloadPath = `${downloadPath}/${category}`;
+      }
+      
+      if (downloadPath) {
+        args["download-dir"] = downloadPath;
+      }
+      
+      // Add label/category if supported (Transmission 2.8+)
+      if (category) {
+        args["labels"] = [category];
       }
 
       if (request.priority) {
@@ -180,14 +257,37 @@ class TransmissionClient implements DownloaderClient {
 
       if (response.arguments["torrent-added"]) {
         const torrent = response.arguments["torrent-added"];
+        let id = torrent.hashString;
+
+        // If hashString is missing (older Transmission versions), try to fetch it
+        if (!id && torrent.id) {
+          try {
+            const details = await this.makeRequest("torrent-get", {
+              ids: [torrent.id],
+              fields: ["hashString"],
+            });
+            if (details.arguments.torrents && details.arguments.torrents.length > 0) {
+              id = details.arguments.torrents[0].hashString;
+            }
+          } catch (error) {
+            downloadersLogger.warn(
+              { error, torrentId: torrent.id },
+              "Failed to fetch hashString for new torrent"
+            );
+          }
+        }
+
         return {
           success: true,
-          id: torrent.id?.toString(),
+          id: id || torrent.id?.toString(),
           message: "Torrent added successfully",
         };
       } else if (response.arguments["torrent-duplicate"]) {
+        const torrent = response.arguments["torrent-duplicate"];
+        // Return success for duplicates so we can link them, but with a message
         return {
-          success: false,
+          success: true,
+          id: torrent.hashString || torrent.id?.toString(),
           message: "Torrent already exists",
         };
       } else {
@@ -365,10 +465,12 @@ class TransmissionClient implements DownloaderClient {
   private mapTransmissionStatus(torrent: TransmissionTorrent): DownloadStatus {
     // Transmission status codes: 0=stopped, 1=check pending, 2=checking, 3=download pending, 4=downloading, 5=seed pending, 6=seeding
     let status: DownloadStatus["status"] = "paused";
+    const progress = Math.round(torrent.percentDone * 100);
 
     switch (torrent.status) {
       case 0:
-        status = "paused";
+        // If stopped and 100% done, it's completed
+        status = progress >= 100 ? "completed" : "paused";
         break;
       case 4:
         status = "downloading";
@@ -387,7 +489,7 @@ class TransmissionClient implements DownloaderClient {
         break;
     }
 
-    if (torrent.percentDone === 1) {
+    if (progress >= 100) {
       // If 100% done, mark as completed or seeding depending on status
       if (status === "downloading") {
         status = "seeding"; // Or completed, but seeding is safer if it's running
@@ -402,7 +504,7 @@ class TransmissionClient implements DownloaderClient {
       id: torrent.hashString || torrent.id.toString(), // Use hash for consistency, fallback to numeric id
       name: torrent.name,
       status,
-      progress: Math.round(torrent.percentDone * 100),
+      progress,
       downloadSpeed: torrent.rateDownload,
       uploadSpeed: torrent.rateUpload,
       eta: torrent.eta > 0 ? torrent.eta : undefined,
@@ -512,7 +614,18 @@ class TransmissionClient implements DownloaderClient {
   // Transmission API response structure
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private async makeRequest(method: string, arguments_: any): Promise<any> {
-    const url = this.downloader.url.endsWith("/") ? this.downloader.url : this.downloader.url + "/";
+    // Construct URL with protocol + host + port (similar to qBittorrent)
+    const protocol = this.downloader.useSsl ? "https" : "http";
+    const port = this.downloader.port || (this.downloader.useSsl ? 443 : 80);
+    const host = this.downloader.url.replace(/\/$/, "");
+    
+    // Default path is /transmission/rpc
+    let rpcPath = this.downloader.urlPath || "/transmission/rpc";
+    if (!rpcPath.startsWith("/")) {
+      rpcPath = "/" + rpcPath;
+    }
+    
+    const url = `${protocol}://${host}:${port}${rpcPath}`;
 
     const body = {
       method,
@@ -1655,6 +1768,21 @@ class QBittorrentClient implements DownloaderClient {
 
       await this.authenticate();
 
+      // Parse qBittorrent-specific settings
+      let qbSettings: {
+        initialState?: string;
+        sequential?: boolean;
+        firstLastPriority?: boolean;
+      } = {};
+      
+      try {
+        if (this.downloader.settings) {
+          qbSettings = JSON.parse(this.downloader.settings);
+        }
+      } catch (error) {
+        downloadersLogger.warn({ error }, "Failed to parse qBittorrent settings");
+      }
+
       // Build form data for adding torrent
       const formData = new URLSearchParams();
       formData.append("urls", request.url);
@@ -1667,56 +1795,128 @@ class QBittorrentClient implements DownloaderClient {
         formData.append("category", request.category || this.downloader.category || "");
       }
 
-      downloadersLogger.info(
-        {
-          url: request.url,
-          savepath: request.downloadPath || this.downloader.downloadPath,
-          category: request.category || this.downloader.category,
-        },
-        "Adding torrent to qBittorrent"
-      );
+      // Handle Initial State
+      if (qbSettings.initialState === "stopped" || this.downloader.addStopped) {
+        formData.append("paused", "true");
+      } else if (qbSettings.initialState === "force-started") {
+        // Force started torrents are added as not paused
+        formData.append("paused", "false");
+        // Note: qBittorrent doesn't have a direct "force start" API parameter during add.
+        // You would need to start the torrent with force flag after adding.
+      } else {
+        // Default: started (not paused)
+        formData.append("paused", "false");
+      }
+
+      downloadersLogger.info({
+        url: request.url,
+        savepath: request.downloadPath || this.downloader.downloadPath,
+        category: request.category || this.downloader.category,
+        paused: formData.get("paused"),
+        initialState: qbSettings.initialState,
+        allParams: formData.toString(),
+      }, "Adding torrent to qBittorrent with parameters");
 
       const response = await this.makeRequest("POST", "/api/v2/torrents/add", formData.toString(), {
         "Content-Type": "application/x-www-form-urlencoded",
       });
 
       const responseText = await response.text();
-      downloadersLogger.info({ responseText }, "qBittorrent add torrent response");
+      downloadersLogger.debug({ responseText }, "qBittorrent add response");
 
       if (response.ok && (responseText === "Ok." || responseText === "")) {
-        // Extract hash from magnet or wait and verify torrent was added
-        const expectedHash = extractHashFromUrl(request.url);
+        // Try to extract hash from URL (works for magnet links)
+        const hash = extractHashFromUrl(request.url);
         
-        if (!expectedHash) {
-          downloadersLogger.error({ url: request.url }, "Failed to extract hash from URL");
-          return {
-            success: false,
-            message: "Failed to extract hash from torrent URL",
-          };
+        if (!hash) {
+          // For torrent file URLs (HTTP/HTTPS), we can't extract hash beforehand
+          // qBittorrent will calculate it after downloading the file
+          // Wait for qBittorrent to process the torrent file and get the hash
+          downloadersLogger.debug({ url: request.url }, "Torrent file URL added, waiting for hash...");
+          
+          // Wait a bit longer for qBittorrent to download and process the torrent file
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          
+          // Get all torrents and find the newly added one by name/title
+          const allTorrentsResponse = await this.makeRequest("GET", "/api/v2/torrents/info");
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const allTorrents = (await allTorrentsResponse.json()) as any[];
+          
+          // Try to find the torrent by matching title/name
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const matchingTorrent = allTorrents.find((t: any) => 
+            t.name && request.title && (
+              t.name.toLowerCase().includes(request.title.toLowerCase()) ||
+              request.title.toLowerCase().includes(t.name.toLowerCase())
+            )
+          );
+          
+          if (matchingTorrent && matchingTorrent.hash) {
+            downloadersLogger.info({ hash: matchingTorrent.hash, name: matchingTorrent.name }, "Found torrent hash after adding");
+            
+            // Handle force-started state after adding
+            if (qbSettings.initialState === "force-started") {
+              try {
+                await this.makeRequest("POST", "/api/v2/torrents/setForceStart", `hashes=${matchingTorrent.hash}&value=true`, {
+                  "Content-Type": "application/x-www-form-urlencoded",
+                });
+                downloadersLogger.info({ hash: matchingTorrent.hash }, "Set torrent to force-started mode");
+              } catch (error) {
+                downloadersLogger.warn({ hash: matchingTorrent.hash, error }, "Failed to set force-started mode");
+              }
+            }
+            
+            return {
+              success: true,
+              id: matchingTorrent.hash,
+              message: "Torrent added successfully",
+            };
+          } else {
+            downloadersLogger.warn({ title: request.title, torrentCount: allTorrents.length }, "Could not find matching torrent after adding");
+            // Return success but without hash - will need manual verification
+            return {
+              success: true,
+              id: request.title || "added",
+              message: "Torrent added but hash could not be verified",
+            };
+          }
         }
 
-        // Wait a moment for qBittorrent to process the torrent
-        await new Promise(resolve => setTimeout(resolve, 500));
+        // For magnet links, we can verify by hash
+        // Wait a moment for qBittorrent to register the torrent
+        await new Promise((resolve) => setTimeout(resolve, 500));
 
         // Verify the torrent was actually added
-        const verifyResponse = await this.makeRequest("GET", `/api/v2/torrents/info?hashes=${expectedHash}`);
-        const torrents = (await verifyResponse.json()) as QBittorrentTorrent[];
+        const verifyResponse = await this.makeRequest("GET", `/api/v2/torrents/info?hashes=${hash}`);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const torrents = (await verifyResponse.json()) as any[];
 
         if (torrents && torrents.length > 0) {
-          downloadersLogger.info(
-            { hash: expectedHash, name: torrents[0].name },
-            "Torrent successfully added to qBittorrent"
-          );
+          downloadersLogger.info({ hash, name: torrents[0].name }, "Torrent verified in qBittorrent");
+          
+          // Handle force-started state after adding
+          if (qbSettings.initialState === "force-started") {
+            try {
+              await this.makeRequest("POST", "/api/v2/torrents/setForceStart", `hashes=${hash}&value=true`, {
+                "Content-Type": "application/x-www-form-urlencoded",
+              });
+              downloadersLogger.info({ hash }, "Set torrent to force-started mode");
+            } catch (error) {
+              downloadersLogger.warn({ hash, error }, "Failed to set force-started mode");
+              // Don't fail the whole operation if this fails
+            }
+          }
+          
           return {
             success: true,
-            id: expectedHash,
+            id: hash,
             message: "Torrent added successfully",
           };
         } else {
-          downloadersLogger.error({ hash: expectedHash }, "Torrent not found after adding");
+          downloadersLogger.error({ hash }, "Torrent not found in qBittorrent after adding");
           return {
             success: false,
-            message: "Torrent was not found in qBittorrent after adding. Check qBittorrent logs.",
+            message: "Torrent was not added to qBittorrent (not found after adding)",
           };
         }
       } else if (responseText === "Fails.") {
@@ -1846,15 +2046,22 @@ class QBittorrentClient implements DownloaderClient {
       // Get main preferences to find save path
       const prefResponse = await this.makeRequest("GET", "/api/v2/app/preferences");
       const prefs = await prefResponse.json();
-      const _savePath = prefs.save_path;
+      const savePath = prefs.save_path;
 
       // Get free space for save path
-      // qBittorrent doesn't have a direct free space API for a specific path in older versions,
-      // but in newer ones it does. As a fallback, we can use transfer info.
       const transferResponse = await this.makeRequest("GET", "/api/v2/transfer/info");
       const transferInfo = await transferResponse.json();
 
-      // transferInfo.free_space_on_disk
+      downloadersLogger.debug(
+        { 
+          savePath, 
+          freeSpace: transferInfo.free_space_on_disk,
+          transferInfo: Object.keys(transferInfo)
+        },
+        "qBittorrent free space info"
+      );
+
+      // transferInfo.free_space_on_disk is in bytes
       return transferInfo.free_space_on_disk || 0;
     } catch (error) {
       downloadersLogger.error({ error }, "Error getting free space from qBittorrent");
@@ -1943,49 +2150,85 @@ class QBittorrentClient implements DownloaderClient {
     }
 
     const url = this.getBaseUrl() + "/api/v2/auth/login";
+    
+    downloadersLogger.debug({ url, username: this.downloader.username }, "Attempting qBittorrent authentication");
 
     const formData = new URLSearchParams();
     formData.append("username", this.downloader.username);
     formData.append("password", this.downloader.password);
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "User-Agent": "Questarr/1.0",
-      },
-      body: formData.toString(),
-      signal: AbortSignal.timeout(30000),
-    });
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "User-Agent": "Questarr/1.0",
+        },
+        body: formData.toString(),
+        signal: AbortSignal.timeout(30000),
+      });
 
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => "No error details available");
-      throw new Error(
-        `Authentication failed: ${response.status} ${response.statusText} - ${errorText}`
-      );
-    }
-
-    const responseText = await response.text();
-    if (responseText !== "Ok.") {
-      throw new Error("Authentication failed: Invalid credentials");
-    }
-
-    // Extract session cookie
-    const setCookie = response.headers.get("set-cookie");
-    if (setCookie) {
-      const match = setCookie.match(/SID=([^;]+)/);
-      if (match) {
-        this.cookie = `SID=${match[1]}`;
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => "No error details available");
+        throw new Error(
+          `Authentication failed: ${response.status} ${response.statusText} - ${errorText}`
+        );
       }
+
+      const responseText = await response.text();
+      if (responseText !== "Ok.") {
+        throw new Error("Authentication failed: Invalid credentials");
+      }
+
+      // Extract session cookie
+      const setCookie = response.headers.get("set-cookie");
+      if (setCookie) {
+        const match = setCookie.match(/SID=([^;]+)/);
+        if (match) {
+          this.cookie = `SID=${match[1]}`;
+        }
+      }
+      
+      downloadersLogger.debug({ hasCookie: !!this.cookie }, "qBittorrent authentication successful");
+    } catch (error) {
+      downloadersLogger.error({ 
+        error: error instanceof Error ? { message: error.message, cause: error.cause } : error,
+        url 
+      }, "qBittorrent authentication error");
+      throw error;
     }
   }
 
   private getBaseUrl(): string {
-    let url = this.downloader.url;
+    // Build the complete URL with protocol, host, and port
+    let baseUrl = this.downloader.url;
+
+    // Add protocol if not present
+    if (!baseUrl.startsWith("http://") && !baseUrl.startsWith("https://")) {
+      const protocol = this.downloader.useSsl ? "https://" : "http://";
+      baseUrl = protocol + baseUrl;
+    }
+
+    // Parse URL to handle port correctly
+    let urlObj: URL;
+    try {
+      urlObj = new URL(baseUrl);
+    } catch {
+      // Fallback for invalid URLs
+      urlObj = new URL(`http://${baseUrl}`);
+    }
+
+    // Add/Update port if specified
+    if (this.downloader.port) {
+      urlObj.port = this.downloader.port.toString();
+    }
+
     // Remove trailing slash
+    let url = urlObj.toString();
     if (url.endsWith("/")) {
       url = url.slice(0, -1);
     }
+
     return url;
   }
 

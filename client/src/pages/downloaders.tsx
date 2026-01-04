@@ -460,20 +460,26 @@ export default function DownloadersPage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>
-                        {form.watch("type") === "rtorrent" ? "Host URL" : "URL"}
+                        {form.watch("type") === "rtorrent" || form.watch("type") === "qbittorrent" || form.watch("type") === "transmission" ? "Host" : "URL"}
                       </FormLabel>
                       <FormControl>
                         <Input
                           placeholder={
                             form.watch("type") === "rtorrent"
                               ? "localhost or 192.168.1.100"
-                              : "http://localhost:9091/transmission/rpc"
+                              : form.watch("type") === "qbittorrent"
+                                ? "localhost or 192.168.1.100"
+                                : form.watch("type") === "transmission"
+                                  ? "localhost or 192.168.1.100"
+                                  : form.watch("type") === "sabnzbd"
+                                    ? "http://localhost:8080"
+                                    : "http://localhost:6789"
                           }
                           {...field}
                           data-testid="input-downloader-url"
                         />
                       </FormControl>
-                      {form.watch("type") === "rtorrent" && (
+                      {(form.watch("type") === "rtorrent" || form.watch("type") === "qbittorrent" || form.watch("type") === "transmission") && (
                         <FormDescription className="text-xs">
                           Enter hostname or IP address without protocol or port
                         </FormDescription>
@@ -482,7 +488,7 @@ export default function DownloadersPage() {
                     </FormItem>
                   )}
                 />
-                {form.watch("type") === "rtorrent" && (
+                {(form.watch("type") === "rtorrent" || form.watch("type") === "qbittorrent" || form.watch("type") === "transmission") && (
                   <>
                     <FormField
                       control={form.control}
@@ -493,7 +499,13 @@ export default function DownloadersPage() {
                           <FormControl>
                             <Input
                               type="number"
-                              placeholder="80 or 443"
+                              placeholder={
+                                form.watch("type") === "qbittorrent"
+                                  ? "8080"
+                                  : form.watch("type") === "transmission"
+                                    ? "9091"
+                                    : "80 or 443"
+                              }
                               {...field}
                               value={field.value || ""}
                               onChange={(e) =>
@@ -508,54 +520,68 @@ export default function DownloadersPage() {
                         </FormItem>
                       )}
                     />
-                    <FormField
-                      control={form.control}
-                      name="useSsl"
-                      render={({ field }) => (
-                        <FormItem className="flex flex-row items-center justify-between rounded-lg border p-2">
-                          <div className="space-y-0">
-                            <FormLabel className="text-sm">Use SSL</FormLabel>
-                            <FormDescription className="text-xs">Enable HTTPS</FormDescription>
-                          </div>
-                          <FormControl>
-                            <Checkbox
-                              checked={!!field.value}
-                              onCheckedChange={field.onChange}
-                              data-testid="checkbox-downloader-usessl"
+                    {form.watch("type") !== "transmission" && (
+                      <FormField
+                        control={form.control}
+                        name="useSsl"
+                        render={({ field }) => (
+                          <FormItem className="flex flex-row items-center justify-between rounded-lg border p-2">
+                            <div className="space-y-0">
+                              <FormLabel className="text-sm">Use SSL</FormLabel>
+                              <FormDescription className="text-xs">
+                                {form.watch("type") === "qbittorrent"
+                                  ? "See Options -> Web UI -> 'Use HTTPS instead of HTTP' in qBittorrent"
+                                  : "Enable HTTPS"}
+                              </FormDescription>
+                            </div>
+                            <FormControl>
+                              <Checkbox
+                                checked={!!field.value}
+                                onCheckedChange={field.onChange}
+                                data-testid="checkbox-downloader-usessl"
                             />
-                          </FormControl>
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="urlPath"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>URL Path</FormLabel>
-                          <FormControl>
-                            <Input
-                              placeholder="RPC2 or plugins/rpc/rpc.php"
-                              {...field}
-                              value={field.value || ""}
-                              data-testid="input-downloader-urlpath"
-                            />
-                          </FormControl>
-                          <FormDescription className="text-xs">
-                            Path to XMLRPC endpoint (e.g., "RPC2" or "plugins/rpc/rpc.php")
-                          </FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                    )}
                   </>
+                )}
+                {form.watch("type") === "rtorrent" && (
+                  <FormField
+                    control={form.control}
+                    name="urlPath"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>URL Path</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder="RPC2 or plugins/rpc/rpc.php"
+                            {...field}
+                            value={field.value || ""}
+                            data-testid="input-downloader-urlpath"
+                          />
+                        </FormControl>
+                        <FormDescription className="text-xs">
+                          Path to XMLRPC endpoint (e.g., "RPC2" or "plugins/rpc/rpc.php")
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
                 )}
                 <FormField
                   control={form.control}
                   name="username"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Username (Optional)</FormLabel>
+                      <FormLabel>
+                        {form.watch("type") === "sabnzbd"
+                          ? "API Key"
+                          : form.watch("type") === "qbittorrent" || form.watch("type") === "transmission"
+                            ? "Username"
+                            : "Username (Optional)"}
+                      </FormLabel>
                       <FormControl>
                         <Input
                           placeholder="Enter username"
@@ -573,7 +599,9 @@ export default function DownloadersPage() {
                   name="password"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Password (Optional)</FormLabel>
+                      <FormLabel>
+                        {form.watch("type") === "qbittorrent" || form.watch("type") === "transmission" ? "Password" : "Password (Optional)"}
+                      </FormLabel>
                       <FormControl>
                         <Input
                           type="password"
@@ -620,12 +648,81 @@ export default function DownloadersPage() {
                         />
                       </FormControl>
                       <FormDescription className="text-xs">
-                        Label for torrents in downloader
+                        {form.watch("type") === "qbittorrent"
+                          ? "Adding a category avoids conflicts with unrelated downloads"
+                          : form.watch("type") === "transmission"
+                            ? "Creates a subdirectory in the output directory. Label for torrents in downloader"
+                            : isUsenetDownloader(form.watch("type"))
+                              ? "Category for NZBs in downloader"
+                              : "Label for torrents in downloader"}
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
+                {form.watch("type") === "qbittorrent" && (
+                  <FormField
+                    control={form.control}
+                    name="addStopped"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Initial State</FormLabel>
+                        <Select
+                          onValueChange={(value) => {
+                            if (value === "stopped") {
+                              field.onChange(true);
+                              // Store "stopped" in settings
+                              const currentSettings = form.getValues("settings") || "{}";
+                              const settings = JSON.parse(currentSettings);
+                              settings.initialState = "stopped";
+                              form.setValue("settings", JSON.stringify(settings));
+                            } else if (value === "force-started") {
+                              field.onChange(false);
+                              // Store "force-started" in settings
+                              const currentSettings = form.getValues("settings") || "{}";
+                              const settings = JSON.parse(currentSettings);
+                              settings.initialState = "force-started";
+                              form.setValue("settings", JSON.stringify(settings));
+                            } else {
+                              // "started" - default
+                              field.onChange(false);
+                              // Remove initialState from settings
+                              const currentSettings = form.getValues("settings") || "{}";
+                              const settings = JSON.parse(currentSettings);
+                              delete settings.initialState;
+                              form.setValue("settings", JSON.stringify(settings));
+                            }
+                          }}
+                          value={
+                            (() => {
+                              try {
+                                const settings = JSON.parse(form.watch("settings") || "{}");
+                                return settings.initialState || (field.value ? "stopped" : "started");
+                              } catch {
+                                return field.value ? "stopped" : "started";
+                              }
+                            })()
+                          }
+                        >
+                          <FormControl>
+                            <SelectTrigger data-testid="select-initial-state">
+                              <SelectValue placeholder="Select initial state" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="started">Started</SelectItem>
+                            <SelectItem value="force-started">Force started</SelectItem>
+                            <SelectItem value="stopped">Stopped</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormDescription className="text-xs">
+                          Forced Torrents do not abide by seed restrictions
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
                 <FormField
                   control={form.control}
                   name="priority"
@@ -649,13 +746,37 @@ export default function DownloadersPage() {
                     </FormItem>
                   )}
                 />
-                <div className="space-y-2 rounded-lg border p-3 bg-muted/30">
-                  <h3 className="text-sm font-semibold mb-2">Advanced Settings</h3>
-                  {form.watch("type") === "rtorrent" && (
-                    <>
+                {(form.watch("type") === "rtorrent" || form.watch("type") === "transmission") && (
+                  <div className="space-y-2 rounded-lg border p-3 bg-muted/30">
+                    <h3 className="text-sm font-semibold mb-2">Advanced Settings</h3>
+                    {form.watch("type") === "transmission" && (
                       <FormField
                         control={form.control}
-                        name="addStopped"
+                        name="useSsl"
+                        render={({ field }) => (
+                          <FormItem className="flex flex-row items-center justify-between rounded-lg border p-2 bg-background">
+                            <div className="space-y-0">
+                              <FormLabel className="text-sm">Use SSL</FormLabel>
+                              <FormDescription className="text-xs">
+                                Enable HTTPS (see Settings → Web in Transmission)
+                              </FormDescription>
+                            </div>
+                            <FormControl>
+                              <Checkbox
+                                checked={!!field.value}
+                                onCheckedChange={field.onChange}
+                                data-testid="checkbox-downloader-usessl"
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                    )}
+                    {form.watch("type") === "rtorrent" && (
+                      <>
+                        <FormField
+                          control={form.control}
+                          name="addStopped"
                         render={({ field }) => (
                           <FormItem className="flex flex-row items-center justify-between rounded-lg border p-2 bg-background">
                             <div className="space-y-0">
@@ -716,9 +837,10 @@ export default function DownloadersPage() {
                           </FormItem>
                         )}
                       />
-                    </>
-                  )}
-                </div>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="flex justify-end space-x-2 pt-2 border-t">
                 <Button

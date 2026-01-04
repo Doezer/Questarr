@@ -189,9 +189,21 @@ async function checkDownloadStatus() {
 
       for (const torrent of torrents) {
         // Match by hash (handle case sensitivity just in case)
-        const remoteTorrent = activeTorrentMap.get(torrent.torrentHash.toLowerCase());
+        const remoteTorrent = activeTorrentMap.get(torrent.downloadHash.toLowerCase());
 
         if (remoteTorrent) {
+          igdbLogger.debug(
+            {
+              torrent: torrent.downloadTitle,
+              status: remoteTorrent.status,
+              progress: remoteTorrent.progress,
+              dbStatus: torrent.status,
+              dbHash: torrent.downloadHash,
+              found: true,
+            },
+            "Checking torrent status"
+          );
+
           // Check for completion
           // A torrent is considered complete if:
           // 1. Status is 'completed' or 'seeding', OR
@@ -204,7 +216,7 @@ async function checkDownloadStatus() {
           if (isComplete) {
             igdbLogger.info(
               {
-                torrent: torrent.torrentTitle,
+                torrent: torrent.downloadTitle,
                 status: remoteTorrent.status,
                 progress: remoteTorrent.progress,
               },
@@ -216,10 +228,15 @@ async function checkDownloadStatus() {
 
             // Update Game status to 'owned' (which means we have the files)
             await storage.updateGameStatus(torrent.gameId, { status: "owned" });
+            
+            igdbLogger.info(
+              { gameId: torrent.gameId, downloadId: torrent.id },
+              "Updated game status to 'owned' after completion"
+            );
 
             // Fetch game title for notification
             const game = await storage.getGame(torrent.gameId);
-            const gameTitle = game ? game.title : torrent.torrentTitle;
+            const gameTitle = game ? game.title : torrent.downloadTitle;
 
             // Send notification
             const message = `Download finished for ${gameTitle}`;
@@ -229,37 +246,74 @@ async function checkDownloadStatus() {
               message,
             });
             notifyUser("notification", notification);
-          } else if (remoteTorrent.status === "error") {
-            // Should we notify on error? Maybe later.
-            igdbLogger.warn(
-              { torrent: torrent.torrentTitle, error: remoteTorrent.error },
-              "Torrent error detected"
-            );
+          } else {
+            // Sync download status with actual status from downloader
+            let newDownloadStatus: "downloading" | "paused" | "failed" | "completed" = "downloading";
+            let newGameStatus: "wanted" | "downloading" | "owned" = "downloading";
+
+            if (remoteTorrent.status === "error") {
+              newDownloadStatus = "failed";
+              newGameStatus = "wanted"; // Reset to wanted on error
+              igdbLogger.warn(
+                { torrent: torrent.downloadTitle, error: remoteTorrent.error },
+                "Torrent error detected"
+              );
+            } else if (remoteTorrent.status === "paused") {
+              newDownloadStatus = "paused";
+              newGameStatus = "downloading"; // Still consider it downloading (user can resume)
+            } else if (remoteTorrent.status === "downloading") {
+              newDownloadStatus = "downloading";
+              newGameStatus = "downloading";
+            }
+
+            // Only update if status changed
+            if (torrent.status !== newDownloadStatus) {
+              await storage.updateGameTorrentStatus(torrent.id, newDownloadStatus);
+              igdbLogger.debug(
+                { torrent: torrent.downloadTitle, oldStatus: torrent.status, newStatus: newDownloadStatus },
+                "Updated download status"
+              );
+            }
+
+            // Update game status
+            const game = await storage.getGame(torrent.gameId);
+            if (game && game.status !== newGameStatus) {
+              await storage.updateGameStatus(torrent.gameId, { status: newGameStatus });
+              igdbLogger.debug(
+                { gameId: torrent.gameId, oldStatus: game.status, newStatus: newGameStatus },
+                "Updated game status"
+              );
+            }
           }
         } else {
-          // Torrent not found in downloader anymore?
-          // Maybe it was removed manually or by 'remove completed' setting.
-          igdbLogger.debug(
-            {
-              torrentHash: torrent.torrentHash,
-              torrentTitle: torrent.torrentTitle,
-              availableHashes: Array.from(activeTorrentMap.keys()).slice(0, 5), // Log first 5 for debugging
+          // Torrent not found in downloader anymore
+          // This can happen if:
+          // 1. Hash mismatch between DB and qBittorrent
+          // 2. Torrent was completed and removed by 'remove completed' setting
+          // 3. Torrent was manually removed by user
+          // 4. Downloader was restarted and lost the torrent
+          
+          igdbLogger.warn(
+            { 
+              torrent: torrent.downloadTitle, 
+              dbHash: torrent.downloadHash,
+              dbHashLower: torrent.downloadHash.toLowerCase(),
+              activeHashesCount: activeTorrentMap.size,
+              firstFewActiveHashes: Array.from(activeTorrentMap.keys()).slice(0, 5),
             },
-            "Torrent not found in active torrents"
+            "Torrent missing from downloader - hash mismatch or removed"
           );
 
-          // If torrent is missing from downloader, assume it's completed/removed
-          // But only if it was previously downloading.
-          // We'll mark it as completed in our DB to stop tracking it as "downloading"
-          igdbLogger.info(
-            { torrent: torrent.torrentTitle },
-            "Torrent missing from downloader, assuming completed/removed"
-          );
-
+          // Mark download as completed
           await storage.updateGameTorrentStatus(torrent.id, "completed");
 
-          // We don't automatically mark game as owned here because it might have been deleted/cancelled
-          // But we stop tracking it to avoid the "checking download status" loop for missing torrents
+          // Update game status to owned (assume completion rather than cancellation)
+          await storage.updateGameStatus(torrent.gameId, { status: "owned" });
+          
+          igdbLogger.info(
+            { gameId: torrent.gameId },
+            "Updated game status to 'owned' after torrent removal"
+          );
         }
       }
     } catch (error) {
@@ -393,9 +447,10 @@ async function checkAutoSearch() {
                       await storage.addGameTorrent({
                         gameId: game.id,
                         downloaderId: result.downloaderId,
-                        torrentHash: result.id,
-                        torrentTitle: torrent.title,
+                        downloadHash: result.id,
+                        downloadTitle: torrent.title,
                         status: "downloading",
+                        downloadType: "torrent",
                       });
 
                       // Update game status

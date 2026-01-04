@@ -12,6 +12,8 @@
     "lint:fix": "eslint . --ext .ts,.tsx,.js,.jsx --fix",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,css}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,css}\"",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx server/migrate.ts",
     "db:push": "drizzle-kit push",
     "test": "vitest",
     "test:ui": "vitest --ui",
@@ -92,11 +94,11 @@
     "vaul": "^1.1.2",
     "wouter": "^3.9.0",
     "zod": "^3.25.0",
-    "zod-validation-error": "^3.5.4",
-    "drizzle-kit": "^0.31.7"
+    "zod-validation-error": "^3.5.4"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",
+    "drizzle-kit": "^0.31.7",
     "@tailwindcss/typography": "^0.5.19",
     "@tailwindcss/vite": "^4.1.18",
     "@testing-library/jest-dom": "^6.9.1",

@@ -29,8 +29,9 @@ RUN npm ci --omit=dev
 # Copy necessary files from build stage
 COPY --from=builder /app/dist ./dist
 
-# Copy drizzle configuration and schema for migrations
+# Copy drizzle configuration and migrations for production
 COPY --from=builder /app/drizzle.config.ts ./
+COPY --from=builder /app/migrations ./migrations
 COPY --from=builder /app/shared ./shared
 
 # Copy configuration files
@@ -38,4 +39,4 @@ COPY --from=builder /app/package.json ./
 
 EXPOSE ${PORT:-5000}
 
-CMD ["sh", "-c", "npm run db:push && npm run start"]
+CMD ["npm", "run", "start"]

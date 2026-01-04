@@ -213,7 +213,21 @@ export const sanitizeDownloaderData = [
     .trim()
     .isIn(["qbittorrent", "transmission", "rtorrent", "deluge"])
     .withMessage("Invalid downloader type"),
-  body("url").trim().isURL().withMessage("Invalid URL"),
+  body("url")
+    .trim()
+    .custom((value, { req }) => {
+      const type = req.body.type;
+      // For qbittorrent, rtorrent, and transmission, allow hostname/IP without protocol
+      if (type === "qbittorrent" || type === "rtorrent" || type === "transmission") {
+        // Accept hostname, IP address, or FQDN
+        const hostnameRegex = /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+        const ipRegex = /^(\d{1,3}\.){3}\d{1,3}$/;
+        return hostnameRegex.test(value) || ipRegex.test(value);
+      }
+      // For other downloaders, require full URL
+      return /^https?:\/\/.+/.test(value);
+    })
+    .withMessage("Invalid URL or hostname"),
   body("username")
     .optional()
     .trim()
@@ -253,7 +267,23 @@ export const sanitizeDownloaderUpdateData = [
     .trim()
     .isIn(["qbittorrent", "transmission", "deluge", "rtorrent", "utorrent", "vuze"])
     .withMessage("Invalid downloader type"),
-  body("url").optional().trim().isURL().withMessage("Invalid URL"),
+  body("url")
+    .optional()
+    .trim()
+    .custom((value, { req }) => {
+      if (!value) return true; // Optional field
+      const type = req.body.type;
+      // For qbittorrent, rtorrent, and transmission, allow hostname/IP without protocol
+      if (type === "qbittorrent" || type === "rtorrent" || type === "transmission") {
+        // Accept hostname, IP address, or FQDN
+        const hostnameRegex = /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+        const ipRegex = /^(\d{1,3}\.){3}\d{1,3}$/;
+        return hostnameRegex.test(value) || ipRegex.test(value);
+      }
+      // For other downloaders, require full URL
+      return /^https?:\/\/.+/.test(value);
+    })
+    .withMessage("Invalid URL or hostname"),
   body("username")
     .optional()
     .trim()

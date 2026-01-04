@@ -26,7 +26,7 @@ import {
 } from "../shared/schema.js";
 import { randomUUID } from "crypto";
 import { db } from "./db.js";
-import { eq, ilike, or, sql, desc, and } from "drizzle-orm";
+import { eq, ilike, or, sql, desc, and, type SQL } from "drizzle-orm";
 
 export interface IStorage {
   // System Config methods
@@ -796,7 +796,17 @@ export class DatabaseStorage implements IStorage {
 
   // GameTorrent methods
   async getDownloadingGameTorrents(): Promise<GameTorrent[]> {
-    return db.select().from(gameTorrents).where(eq(gameTorrents.status, "downloading"));
+    // Return all active downloads (not completed) so we can sync their status
+    return db
+      .select()
+      .from(gameTorrents)
+      .where(
+        or(
+          eq(gameTorrents.status, "downloading"),
+          eq(gameTorrents.status, "paused"),
+          eq(gameTorrents.status, "failed")
+        ) as SQL
+      );
   }
 
   async updateGameTorrentStatus(id: string, status: string): Promise<void> {

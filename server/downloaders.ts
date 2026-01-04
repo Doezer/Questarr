@@ -1667,26 +1667,66 @@ class QBittorrentClient implements DownloaderClient {
         formData.append("category", request.category || this.downloader.category || "");
       }
 
+      downloadersLogger.info(
+        {
+          url: request.url,
+          savepath: request.downloadPath || this.downloader.downloadPath,
+          category: request.category || this.downloader.category,
+        },
+        "Adding torrent to qBittorrent"
+      );
+
       const response = await this.makeRequest("POST", "/api/v2/torrents/add", formData.toString(), {
         "Content-Type": "application/x-www-form-urlencoded",
       });
 
       const responseText = await response.text();
+      downloadersLogger.info({ responseText }, "qBittorrent add torrent response");
 
       if (response.ok && (responseText === "Ok." || responseText === "")) {
-        // Extract hash from magnet or generate a placeholder
-        const hash = extractHashFromUrl(request.url);
-        return {
-          success: true,
-          id: hash || "added",
-          message: "Torrent added successfully",
-        };
+        // Extract hash from magnet or wait and verify torrent was added
+        const expectedHash = extractHashFromUrl(request.url);
+        
+        if (!expectedHash) {
+          downloadersLogger.error({ url: request.url }, "Failed to extract hash from URL");
+          return {
+            success: false,
+            message: "Failed to extract hash from torrent URL",
+          };
+        }
+
+        // Wait a moment for qBittorrent to process the torrent
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // Verify the torrent was actually added
+        const verifyResponse = await this.makeRequest("GET", `/api/v2/torrents/info?hashes=${expectedHash}`);
+        const torrents = (await verifyResponse.json()) as QBittorrentTorrent[];
+
+        if (torrents && torrents.length > 0) {
+          downloadersLogger.info(
+            { hash: expectedHash, name: torrents[0].name },
+            "Torrent successfully added to qBittorrent"
+          );
+          return {
+            success: true,
+            id: expectedHash,
+            message: "Torrent added successfully",
+          };
+        } else {
+          downloadersLogger.error({ hash: expectedHash }, "Torrent not found after adding");
+          return {
+            success: false,
+            message: "Torrent was not found in qBittorrent after adding. Check qBittorrent logs.",
+          };
+        }
       } else if (responseText === "Fails.") {
+        downloadersLogger.warn({ url: request.url }, "qBittorrent rejected torrent (already exists or invalid)");
         return {
           success: false,
           message: "Torrent already exists or invalid torrent",
         };
       } else {
+        downloadersLogger.error({ responseText }, "Unexpected response from qBittorrent");
         return {
           success: false,
           message: `Failed to add torrent: ${responseText}`,
@@ -1694,6 +1734,7 @@ class QBittorrentClient implements DownloaderClient {
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      downloadersLogger.error({ error: errorMessage }, "Error adding torrent to qBittorrent");
       return { success: false, message: `Failed to add torrent: ${errorMessage}` };
     }
   }

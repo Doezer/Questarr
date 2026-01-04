@@ -1,3 +1,4 @@
+import React from "react";
 import { Notification } from "@shared/schema";
 import { formatDistanceToNow } from "date-fns";
 import { Check, Info, AlertTriangle, XCircle, Clock } from "lucide-react";
@@ -37,9 +38,10 @@ export function NotificationItem({ notification, onRead, onClick }: Notification
   };
 
   return (
-    <div
+    <button
+      type="button"
       className={cn(
-        "flex gap-3 p-3 text-sm transition-colors hover:bg-muted/50 cursor-pointer relative group",
+        "flex w-full text-left gap-3 p-3 text-sm transition-colors hover:bg-muted/50 relative group cursor-pointer",
         !notification.read && "bg-muted/30 border-l-2 border-primary"
       )}
       onClick={handleClick}
@@ -56,6 +58,6 @@ export function NotificationItem({ notification, onRead, onClick }: Notification
             formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true })}
         </p>
       </div>
-    </div>
+    </button>
   );
 }

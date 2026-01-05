@@ -107,7 +107,17 @@ export async function runMigrations(): Promise<void> {
     logger.info("Checking for pending migrations...");
     let migrationsApplied = false;
     try {
-      await migrate(db, { migrationsFolder: "./migrations" });
+      const path = await import("path");
+      const fs = await import("fs");
+      const migrationsFolder = path.resolve(process.cwd(), "migrations");
+      
+      logger.info(`Using migrations folder: ${migrationsFolder}`);
+      
+      if (!fs.existsSync(migrationsFolder)) {
+        throw new Error(`Migrations folder not found at: ${migrationsFolder}`);
+      }
+
+      await migrate(db, { migrationsFolder });
       logger.info("Database migrations completed successfully");
       migrationsApplied = true;
     } catch (migrationError: unknown) {
@@ -122,7 +132,7 @@ export async function runMigrations(): Promise<void> {
         logger.info("Database schema is already current (objects exist)");
       } else {
         // Unexpected error - fail loudly
-        logger.error({ error: migrationError, errorCode }, "Unexpected migration error");
+        logger.error({ err: migrationError, errorCode }, "Unexpected migration error");
         throw migrationError;
       }
       // If we reach here, migrations were not applied but schema is current
@@ -135,7 +145,7 @@ export async function runMigrations(): Promise<void> {
       logger.info("✓ Database schema is already current - no migrations applied");
     }
   } catch (error) {
-    logger.error({ error }, "Database migration failed");
+    logger.error({ err: error }, "Database migration failed");
     throw error;
   }
 }
@@ -154,7 +164,7 @@ export async function ensureDatabase(): Promise<void> {
     // Run migrations to ensure schema is up-to-date
     await runMigrations();
   } catch (error) {
-    logger.error({ error }, "Database check failed");
+    logger.error({ err: error }, "Database check failed");
     throw new Error("Failed to connect to database. Please check your DATABASE_URL configuration.");
   }
 }

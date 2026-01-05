@@ -1,5 +1,15 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, real, boolean, timestamp } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  text,
+  varchar,
+  integer,
+  real,
+  boolean,
+  timestamp,
+  serial,
+  bigint,
+} from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -67,7 +77,9 @@ export const indexers = pgTable("indexers", {
   name: text("name").notNull(),
   url: text("url").notNull(),
   apiKey: text("api_key").notNull(),
-  protocol: text("protocol", { enum: ["torznab", "newznab"] }).notNull().default("torznab"), // Protocol type
+  protocol: text("protocol", { enum: ["torznab", "newznab"] })
+    .notNull()
+    .default("torznab"), // Protocol type
   enabled: boolean("enabled").notNull().default(true),
   priority: integer("priority").notNull().default(1),
   categories: text("categories").array().default([]), // Torznab/Newznab categories to search
@@ -82,7 +94,9 @@ export const downloaders = pgTable("downloaders", {
     .primaryKey()
     .default(sql`gen_random_uuid()`),
   name: text("name").notNull(),
-  type: text("type", { enum: ["transmission", "rtorrent", "qbittorrent", "sabnzbd", "nzbget"] }).notNull(),
+  type: text("type", {
+    enum: ["transmission", "rtorrent", "qbittorrent", "sabnzbd", "nzbget"],
+  }).notNull(),
   url: text("url").notNull(), // Host URL (without port for rTorrent/qBittorrent)
   port: integer("port"), // Port number (used by rTorrent and qBittorrent)
   useSsl: boolean("use_ssl").default(false), // Use SSL/TLS connection
@@ -113,7 +127,9 @@ export const gameDownloads = pgTable("game_downloads", {
   downloaderId: varchar("downloader_id")
     .notNull()
     .references(() => downloaders.id, { onDelete: "cascade" }),
-  downloadType: text("download_type", { enum: ["torrent", "usenet"] }).notNull().default("torrent"),
+  downloadType: text("download_type", { enum: ["torrent", "usenet"] })
+    .notNull()
+    .default("torrent"),
   downloadHash: text("download_hash").notNull(), // Hash/ID from the downloader client (torrent hash or NZB ID)
   downloadTitle: text("download_title").notNull(),
   status: text("status", { enum: ["downloading", "completed", "failed", "paused"] })
@@ -136,6 +152,14 @@ export const notifications = pgTable("notifications", {
   message: text("message").notNull(),
   read: boolean("read").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Drizzle migrations tracking table (used in production)
+// Including this in schema allows db:push to work in dev without conflicts
+export const drizzleMigrations = pgTable("__drizzle_migrations", {
+  id: serial("id").primaryKey(),
+  hash: text("hash").notNull().unique(),
+  createdAt: bigint("created_at", { mode: "number" }),
 });
 
 // Validation schemas using drizzle-zod for runtime validation

@@ -117,20 +117,22 @@ export async function runMigrations(): Promise<void> {
       if (errorCode === "42P07") {
         // Table already exists - likely already migrated via db:push
         logger.info("Database schema is already current (tables exist)");
-        migrationsApplied = true; // Mark as successful
       } else if (errorCode === "42710") {
         // Object already exists (index, constraint, etc.)
         logger.info("Database schema is already current (objects exist)");
-        migrationsApplied = true; // Mark as successful
       } else {
         // Unexpected error - fail loudly
         logger.error({ error: migrationError, errorCode }, "Unexpected migration error");
         throw migrationError;
       }
+      // If we reach here, migrations were not applied but schema is current
+      migrationsApplied = false;
     }
 
     if (migrationsApplied) {
       logger.info("✓ Database migrations check completed - schema is ready");
+    } else {
+      logger.info("✓ Database schema is already current - no migrations applied");
     }
   } catch (error) {
     logger.error({ error }, "Database migration failed");

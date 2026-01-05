@@ -10,7 +10,9 @@ services:
       - NODE_ENV=production
       - PORT=${PORT:-5000}
       - HOST=${HOST:-0.0.0.0}
-      - DATABASE_URL=postgresql://postgres:password@db:5432/questarr
+      # Construct the URL dynamically for the container environment
+      # Uses variables from .env if present, otherwise falls back to defaults
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-questarr}
       - IGDB_CLIENT_ID=${IGDB_CLIENT_ID}
       - IGDB_CLIENT_SECRET=${IGDB_CLIENT_SECRET}
     env_file:
@@ -31,14 +33,14 @@ services:
     ports:
       - "5432:5432"
     environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=password
-      - POSTGRES_DB=questarr
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-password}
+      - POSTGRES_DB=${POSTGRES_DB:-questarr}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
       interval: 10s
       timeout: 5s
       retries: 5

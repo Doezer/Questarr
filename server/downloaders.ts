@@ -312,11 +312,12 @@ class TransmissionClient implements DownloaderClient {
         };
       } else if (response.arguments["torrent-duplicate"]) {
         const torrent = response.arguments["torrent-duplicate"];
-        // Return success: false for duplicates to allow fallback mechanism to try other downloaders if needed
+        // Return success: true for duplicates to prevent fallback mechanism from trying other downloaders
+        // as the user likely intends for this specific downloader to handle it (or it's already there)
         return {
-          success: false,
+          success: true,
           id: torrent.hashString || torrent.id?.toString(),
-          message: "Torrent already exists",
+          message: "Torrent already exists (Transmission)",
         };
       } else {
         return {
@@ -1982,9 +1983,11 @@ class QBittorrentClient implements DownloaderClient {
           { url: request.url },
           "qBittorrent rejected torrent (already exists or invalid)"
         );
+        // Return success: true for duplicates/failures to prevent fallback mechanism from trying other downloaders
+        // "Fails." usually means it's already in the list or invalid metadata
         return {
-          success: false,
-          message: "Torrent already exists or invalid torrent",
+          success: true,
+          message: "Torrent already exists or invalid torrent (qBittorrent)",
         };
       } else {
         downloadersLogger.error({ responseText }, "Unexpected response from qBittorrent");
@@ -2710,11 +2713,27 @@ class SABnzbdClient implements DownloaderClient {
 
       const data = await response.json();
 
-      if (data.status === true && data.nzo_ids && data.nzo_ids.length > 0) {
+      if (data.status === true) {
+        if (data.nzo_ids && data.nzo_ids.length > 0) {
+          return {
+            success: true,
+            id: data.nzo_ids[0],
+            message: "NZB added successfully",
+          };
+        } else {
+          // Status true but no ID usually means duplicate in SABnzbd (or merged)
+          return {
+            success: true,
+            message: "NZB added successfully (likely duplicate or merged)",
+          };
+        }
+      }
+
+      // Check for specific duplicate error
+      if (data.error && typeof data.error === "string" && data.error.toLowerCase().includes("duplicate")) {
         return {
           success: true,
-          id: data.nzo_ids[0],
-          message: "NZB added successfully",
+          message: `NZB already exists: ${data.error}`,
         };
       }
 

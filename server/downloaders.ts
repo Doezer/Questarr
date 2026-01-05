@@ -3082,7 +3082,7 @@ class NZBGetClient implements DownloaderClient {
     }
 
     // With parseTagValue: false and textNodeName: "_text", values might be wrapped
-    const getValue = (v: any) => (v && typeof v === "object" && "_text" in v) ? v._text : v;
+    const getValue = (v: any) => (v && typeof v === "object" && "_text" in v ? v._text : v);
 
     if ("string" in valueObj) return getValue(valueObj.string);
     if ("int" in valueObj) return parseInt(getValue(valueObj.int));
@@ -3096,18 +3096,18 @@ class NZBGetClient implements DownloaderClient {
 
     if ("array" in valueObj) {
       // <array><data><value>...</value></data></array>
-      // With isArray: true for 'data', valueObj.array.data is an array of data blocks? 
+      // With isArray: true for 'data', valueObj.array.data is an array of data blocks?
       // XML-RPC spec: <array><data><value>...</value></data></array>
       // fast-xml-parser with isArray('data') -> valueObj.array.data will be [{ value: [...] }]
-      
+
       const data = valueObj.array.data;
       if (!data) return [];
-      
+
       // data might be an array if there are multiple <data> tags (unlikely in XML-RPC) or because of isArray config
       const dataBlock = Array.isArray(data) ? data[0] : data;
-      
+
       if (!dataBlock || !dataBlock.value) return [];
-      
+
       const values = Array.isArray(dataBlock.value) ? dataBlock.value : [dataBlock.value];
       return values.map((v: any) => this.parseValueObj(v));
     }
@@ -3117,7 +3117,7 @@ class NZBGetClient implements DownloaderClient {
       // With isArray('member') -> valueObj.struct.member is array
       const members = valueObj.struct.member;
       if (!members) return {};
-      
+
       const result: any = {};
       // members is definitely array due to isArray config
       for (const m of members) {
@@ -3131,7 +3131,7 @@ class NZBGetClient implements DownloaderClient {
     // Handle direct value text if none of the above matched (e.g. <value>string</value> without <string> tag?)
     // XML-RPC spec says <value> without type is string.
     if ("_text" in valueObj) return valueObj._text;
-    
+
     // Fallback
     return String(Object.values(valueObj)[0]);
   }
@@ -3168,9 +3168,10 @@ class NZBGetClient implements DownloaderClient {
     }
 
     // Mask sensitive content in logs
-    const logParams = method === "append" && params.length > 1
-      ? [params[0], "<base64_content_truncated>", ...params.slice(2)]
-      : params;
+    const logParams =
+      method === "append" && params.length > 1
+        ? [params[0], "<base64_content_truncated>", ...params.slice(2)]
+        : params;
 
     downloadersLogger.debug({ url, method, params: logParams }, "Making NZBGet XML-RPC request");
 
@@ -3187,7 +3188,7 @@ class NZBGetClient implements DownloaderClient {
     }
 
     const responseText = await response.text();
-    
+
     // Log response for debugging
     // downloadersLogger.debug({ responseText }, "NZBGet XML-RPC response");
 
@@ -3203,7 +3204,7 @@ class NZBGetClient implements DownloaderClient {
         return false;
       },
     });
-    
+
     const parsed = parser.parse(responseText);
     // downloadersLogger.debug({ parsed }, "NZBGet parsed response");
 
@@ -3217,7 +3218,7 @@ class NZBGetClient implements DownloaderClient {
       // Actually XML-RPC spec says <params> contains ONE <param> for the return value.
       const params = parsed.methodResponse.params.param;
       const param = Array.isArray(params) ? params[0] : params;
-      
+
       if (param && param.value) {
         return this.parseValueObj(param.value);
       }
@@ -3250,10 +3251,10 @@ class NZBGetClient implements DownloaderClient {
       if (!nzbResponse.ok) {
         return { success: false, message: `Failed to fetch NZB: ${nzbResponse.statusText}` };
       }
-      
+
       const nzbContent = await nzbResponse.text();
-      const base64Content = Buffer.from(nzbContent).toString('base64');
-      
+      const base64Content = Buffer.from(nzbContent).toString("base64");
+
       // NZBGet append method arguments (XML-RPC):
       // 1. NZBFilename (string)
       // 2. Content (string, base64 encoded)
@@ -3265,7 +3266,7 @@ class NZBGetClient implements DownloaderClient {
       // 8. DupeScore (int)
       // 9. DupeMode (string)
       // 10. PPParameters (array of structs)
-      
+
       const nzbId = await this.makeXMLRPCRequest("append", [
         request.title || "download.nzb",
         base64Content,
@@ -3273,10 +3274,10 @@ class NZBGetClient implements DownloaderClient {
         request.priority || 0,
         false, // AddToTop
         false, // AddPaused
-        "",    // DupeKey
-        0,     // DupeScore
+        "", // DupeKey
+        0, // DupeScore
         "SCORE", // DupeMode
-        []     // PPParameters
+        [], // PPParameters
       ]);
 
       if (nzbId > 0) {

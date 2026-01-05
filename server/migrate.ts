@@ -95,7 +95,9 @@ export async function runMigrations(): Promise<void> {
           ON CONFLICT (hash) DO NOTHING;
         `);
       } else if (hasGameTorrents) {
-        logger.info("Old game_torrents table detected - migration 0001 will rename it to game_downloads");
+        logger.info(
+          "Old game_torrents table detected - migration 0001 will rename it to game_downloads"
+        );
       }
 
       logger.info("Migration tracking initialized for existing database");

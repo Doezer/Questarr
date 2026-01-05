@@ -292,15 +292,49 @@ async function checkDownloadStatus() {
             }
           }
         } else {
-          // Download missing from downloader - mark as completed
+          // Download missing from downloader
+          // NOTE: This could happen for several reasons:
+          // 1. Download completed and was removed by the user
+          // 2. Download failed and was manually removed
+          // 3. Download was cancelled by the user
+          // 4. Downloader was cleared/reset
+          // Currently, we assume completion, but this may not always be correct.
+          // TODO: Consider adding a user preference to handle this scenario differently
+          // (e.g., reset to "wanted" status, or require manual confirmation)
+
+          // Fetch game info for better logging and notification
+          const game = await storage.getGame(download.gameId);
+          const gameTitle = game ? game.title : download.downloadTitle;
+
+          igdbLogger.warn(
+            {
+              gameId: download.gameId,
+              downloadId: download.id,
+              downloadTitle: download.downloadTitle,
+              gameTitle,
+              downloadHash: download.downloadHash,
+            },
+            "Download not found in downloader - assuming completion and marking as owned. " +
+              "This could indicate the download was manually removed."
+          );
+
+          // Mark download as completed (assumption)
           await storage.updateGameDownloadStatus(download.id, "completed");
 
-          // Update game status to owned
+          // Update game status to owned (assumption)
           await storage.updateGameStatus(download.gameId, { status: "owned" });
 
+          // Send notification to user about this automatic status change
+          const notification = await storage.addNotification({
+            type: "info",
+            title: "Download Status Changed",
+            message: `Download for "${gameTitle}" was not found in the downloader and has been marked as completed. If this was removed due to an error, you may need to re-download it.`,
+          });
+          notifyUser("notification", notification);
+
           igdbLogger.info(
-            { gameId: download.gameId },
-            "Updated game status to 'owned' after download removal"
+            { gameId: download.gameId, gameTitle },
+            "Automatically updated game status to 'owned' after download not found in downloader"
           );
         }
       }

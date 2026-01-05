@@ -336,7 +336,7 @@ describe("Middleware - Input Sanitization", () => {
       const validDownloaderData = {
         name: "Test Downloader",
         type: "qbittorrent",
-        url: "https://example.com:8080",
+        url: "example.com",
         username: "admin",
         password: "password",
         enabled: true,

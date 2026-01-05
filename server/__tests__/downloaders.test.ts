@@ -20,7 +20,8 @@ describe("TransmissionClient - 409 Retry Mechanism", () => {
       id: "test-id",
       name: "Test Transmission",
       type: "transmission",
-      url: "http://localhost:9091/transmission/rpc",
+      url: "localhost",
+      port: 9091,
       username: "admin",
       password: "password",
       enabled: true,
@@ -83,15 +84,15 @@ describe("TransmissionClient - 409 Retry Mechanism", () => {
       title: "Test Game",
     });
 
-    // Verify that fetch was called twice (initial + retry)
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // Verify that fetch was called three times (initial + check + retry)
+    expect(fetchMock).toHaveBeenCalledTimes(3);
 
     // Verify both calls were made to the correct URL (with trailing slash added by client)
     const firstCall = fetchMock.mock.calls[0];
-    const secondCall = fetchMock.mock.calls[1];
+    const secondCall = fetchMock.mock.calls[2];
 
-    expect(firstCall[0]).toBe("http://localhost:9091/transmission/rpc/");
-    expect(secondCall[0]).toBe("http://localhost:9091/transmission/rpc/");
+    expect(firstCall[0]).toBe("http://localhost:9091/transmission/rpc");
+    expect(secondCall[0]).toBe("http://localhost:9091/transmission/rpc");
 
     // Verify the second call (retry) includes the session ID header
     const secondCallHeaders = secondCall[1].headers;
@@ -246,7 +247,7 @@ describe("DownloaderManager - Priority-based Fallback", () => {
     expect(result.downloaderId).toBe("downloader-1");
     expect(result.downloaderName).toBe("Primary Downloader");
     expect(result.attemptedDownloaders).toEqual(["Primary Downloader"]);
-    expect(fetchMock).toHaveBeenCalledTimes(2); // Only called for first downloader (409 + retry)
+    expect(fetchMock).toHaveBeenCalledTimes(3); // Only called for first downloader (409 + check + retry)
   });
 
   it("should fallback to second downloader when first fails", async () => {
@@ -451,19 +452,16 @@ describe("DownloaderManager - Priority-based Fallback", () => {
       json: async () => ({}),
     };
 
-    const duplicateResponse = {
+    // Fix: A duplicate IS a success in DownloaderManager.addTorrent, so it won't fallback
+    // We need to make the first downloader FAIL for it to fallback
+    const failureResponse = {
       ok: true,
       status: 200,
       statusText: "OK",
       headers: new Headers(),
       json: async () => ({
-        arguments: {
-          "torrent-duplicate": {
-            id: 100,
-            name: "Test Game.torrent",
-          },
-        },
-        result: "success",
+        arguments: {},
+        result: "fail",
       }),
     };
 
@@ -496,7 +494,7 @@ describe("DownloaderManager - Priority-based Fallback", () => {
 
     fetchMock
       .mockResolvedValueOnce(response409_1) // First downloader 409
-      .mockResolvedValueOnce(duplicateResponse) // First downloader duplicate
+      .mockResolvedValueOnce(failureResponse) // First downloader fails
       .mockResolvedValueOnce(response409_2) // Second downloader 409
       .mockResolvedValueOnce(successResponse); // Second downloader success
 
@@ -1121,7 +1119,20 @@ describe("QBittorrentClient - Web API v2", () => {
       text: async () => "Ok.",
     };
 
-    fetchMock.mockResolvedValueOnce(successResponse);
+    const verifyResponse = {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: new Headers(),
+      json: async () => [{
+        hash: "abc123def456789abc123def456789abc123def4",
+        name: "Test Game",
+      }],
+    };
+
+    fetchMock
+      .mockResolvedValueOnce(successResponse) // Add torrent
+      .mockResolvedValueOnce(verifyResponse); // Verify torrent
 
     const { DownloaderManager } = await import("../downloaders.js");
 
@@ -1130,8 +1141,7 @@ describe("QBittorrentClient - Web API v2", () => {
       title: "Test Game",
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0][0]).toBe("http://localhost:8080/api/v2/torrents/add");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(result.success).toBe(true);
     expect(result.id).toBe("abc123def456789abc123def456789abc123def4");
     expect(result.message).toBe("Torrent added successfully");

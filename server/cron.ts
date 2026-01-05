@@ -189,16 +189,16 @@ async function checkDownloadStatus() {
 
       for (const torrent of torrents) {
         // Match by hash (handle case sensitivity just in case)
-        const remoteTorrent = activeTorrentMap.get(torrent.downloadHash.toLowerCase());
+        const remoteTorrent = activeTorrentMap.get(torrent.torrentHash.toLowerCase());
 
         if (remoteTorrent) {
           igdbLogger.debug(
             {
-              torrent: torrent.downloadTitle,
+              torrent: torrent.torrentTitle,
               status: remoteTorrent.status,
               progress: remoteTorrent.progress,
               dbStatus: torrent.status,
-              dbHash: torrent.downloadHash,
+              dbHash: torrent.torrentHash,
               found: true,
             },
             "Checking torrent status"
@@ -216,7 +216,7 @@ async function checkDownloadStatus() {
           if (isComplete) {
             igdbLogger.info(
               {
-                torrent: torrent.downloadTitle,
+                torrent: torrent.torrentTitle,
                 status: remoteTorrent.status,
                 progress: remoteTorrent.progress,
               },
@@ -236,7 +236,7 @@ async function checkDownloadStatus() {
 
             // Fetch game title for notification
             const game = await storage.getGame(torrent.gameId);
-            const gameTitle = game ? game.title : torrent.downloadTitle;
+            const gameTitle = game ? game.title : torrent.torrentTitle;
 
             // Send notification
             const message = `Download finished for ${gameTitle}`;
@@ -255,7 +255,7 @@ async function checkDownloadStatus() {
               newDownloadStatus = "failed";
               newGameStatus = "wanted"; // Reset to wanted on error
               igdbLogger.warn(
-                { torrent: torrent.downloadTitle, error: remoteTorrent.error },
+                { torrent: torrent.torrentTitle, error: remoteTorrent.error },
                 "Torrent error detected"
               );
             } else if (remoteTorrent.status === "paused") {
@@ -270,7 +270,7 @@ async function checkDownloadStatus() {
             if (torrent.status !== newDownloadStatus) {
               await storage.updateGameTorrentStatus(torrent.id, newDownloadStatus);
               igdbLogger.debug(
-                { torrent: torrent.downloadTitle, oldStatus: torrent.status, newStatus: newDownloadStatus },
+                { torrent: torrent.torrentTitle, oldStatus: torrent.status, newStatus: newDownloadStatus },
                 "Updated download status"
               );
             }
@@ -295,9 +295,9 @@ async function checkDownloadStatus() {
           
           igdbLogger.warn(
             { 
-              torrent: torrent.downloadTitle, 
-              dbHash: torrent.downloadHash,
-              dbHashLower: torrent.downloadHash.toLowerCase(),
+              torrent: torrent.torrentTitle,
+              dbHash: torrent.torrentHash,
+              dbHashLower: torrent.torrentHash.toLowerCase(),
               activeHashesCount: activeTorrentMap.size,
               firstFewActiveHashes: Array.from(activeTorrentMap.keys()).slice(0, 5),
             },
@@ -447,10 +447,9 @@ async function checkAutoSearch() {
                       await storage.addGameTorrent({
                         gameId: game.id,
                         downloaderId: result.downloaderId,
-                        downloadHash: result.id,
-                        downloadTitle: torrent.title,
+                        torrentHash: result.id,
+                        torrentTitle: torrent.title,
                         status: "downloading",
-                        downloadType: "torrent",
                       });
 
                       // Update game status

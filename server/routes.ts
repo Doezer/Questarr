@@ -852,30 +852,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         { count: enabledDownloaders.length },
         "fetching storage info for downloaders"
       );
-      const storageInfo = [];
-
-      for (const downloader of enabledDownloaders) {
-        try {
-          const freeSpace = await DownloaderManager.getFreeSpace(downloader);
-          routesLogger.debug({ name: downloader.name, freeSpace }, "retrieved free space");
-          storageInfo.push({
-            downloaderId: downloader.id,
-            downloaderName: downloader.name,
-            freeSpace,
-          });
-        } catch (error) {
-          routesLogger.error(
-            { downloaderName: downloader.name, error },
-            "error getting free space"
-          );
-          storageInfo.push({
-            downloaderId: downloader.id,
-            downloaderName: downloader.name,
-            freeSpace: 0,
-            error: error instanceof Error ? error.message : "Unknown error",
-          });
-        }
-      }
+      // ⚡ Bolt: Fetch storage info from all downloaders in parallel
+      const storageInfo = await Promise.all(
+        enabledDownloaders.map(async (downloader) => {
+          try {
+            const freeSpace = await DownloaderManager.getFreeSpace(downloader);
+            routesLogger.debug({ name: downloader.name, freeSpace }, "retrieved free space");
+            return {
+              downloaderId: downloader.id,
+              downloaderName: downloader.name,
+              freeSpace,
+            };
+          } catch (error) {
+            routesLogger.error(
+              { downloaderName: downloader.name, error },
+              "error getting free space"
+            );
+            return {
+              downloaderId: downloader.id,
+              downloaderName: downloader.name,
+              freeSpace: 0,
+              error: error instanceof Error ? error.message : "Unknown error",
+            };
+          }
+        })
+      );
 
       res.json(storageInfo);
     } catch (error) {
@@ -1331,28 +1332,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/downloads", async (req, res) => {
     try {
       const enabledDownloaders = await storage.getEnabledDownloaders();
-      const allTorrents = [];
-      const errors: Array<{ downloaderId: string; downloaderName: string; error: string }> = [];
+      // ⚡ Bolt: Fetch torrents from all downloaders in parallel to reduce latency.
+      const results = await Promise.all(
+        enabledDownloaders.map(async (downloader) => {
+          try {
+            const torrents = await DownloaderManager.getAllTorrents(downloader);
+            return {
+              success: true as const,
+              data: torrents.map((torrent) => ({
+                ...torrent,
+                downloaderId: downloader.id,
+                downloaderName: downloader.name,
+              })),
+            };
+          } catch (error) {
+            return {
+              success: false as const,
+              downloader,
+              error,
+            };
+          }
+        })
+      );
 
-      for (const downloader of enabledDownloaders) {
-        try {
-          const torrents = await DownloaderManager.getAllTorrents(downloader);
-          const torrentsWithDownloader = torrents.map((torrent) => ({
-            ...torrent,
-            downloaderId: downloader.id,
-            downloaderName: downloader.name,
-          }));
-          allTorrents.push(...torrentsWithDownloader);
-        } catch (error) {
+      const allTorrents = results.flatMap((r) => (r.success ? r.data : []));
+      const errors = results
+        .filter((r): r is { success: false; downloader: any; error: any } => !r.success)
+        .map(({ downloader, error }) => {
           const errorMessage = error instanceof Error ? error.message : "Unknown error";
           routesLogger.error({ downloaderName: downloader.name, error }, "error getting torrents");
-          errors.push({
+          return {
             downloaderId: downloader.id,
             downloaderName: downloader.name,
             error: errorMessage,
-          });
-        }
-      }
+          };
+        });
 
       res.json({
         torrents: allTorrents,

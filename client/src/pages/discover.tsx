@@ -404,7 +404,12 @@ export default function DiscoverPage() {
               Explore popular games, new releases, and find your next adventure
             </p>
           </div>
-          <Button variant="outline" size="icon" onClick={() => setShowSettings(true)}>
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => setShowSettings(true)}
+            aria-label="Discovery settings"
+          >
             <Settings2 className="h-4 w-4" />
           </Button>
         </div>

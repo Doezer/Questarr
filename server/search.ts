@@ -1,0 +1,143 @@
+import { storage } from "./storage.js";
+import { torznabClient } from "./torznab.js";
+import { newznabClient } from "./newznab.js";
+
+export interface SearchItem {
+  title: string;
+  link: string;
+  pubDate: string;
+  size?: number;
+  indexerId: string;
+  indexerName: string;
+  category: string[];
+  guid: string;
+  downloadType: "torrent" | "usenet";
+  // Torrent-specific
+  seeders?: number;
+  leechers?: number;
+  // Usenet-specific
+  grabs?: number;
+  age?: number;
+  poster?: string;
+  group?: string;
+}
+
+export interface AggregatedSearchOptions {
+  query: string;
+  category?: string[];
+  limit?: number;
+  offset?: number;
+}
+
+export interface AggregatedSearchResults {
+  items: SearchItem[];
+  total: number;
+  offset: number;
+  errors: string[];
+}
+
+export async function searchAllIndexers(
+  options: AggregatedSearchOptions
+): Promise<AggregatedSearchResults> {
+  const enabledIndexers = await storage.getEnabledIndexers();
+
+  if (enabledIndexers.length === 0) {
+    return { items: [], total: 0, offset: options.offset || 0, errors: ["No indexers configured"] };
+  }
+
+  const torznabIndexers = enabledIndexers.filter((i) => i.protocol !== "newznab");
+  const newznabIndexers = enabledIndexers.filter((i) => i.protocol === "newznab");
+
+  const searchParams = {
+    query: options.query,
+    category: options.category,
+    limit: options.limit || 50,
+    offset: options.offset || 0,
+  };
+
+  const promises = [];
+
+  if (torznabIndexers.length > 0) {
+    promises.push(
+      torznabClient
+        .searchMultipleIndexers(torznabIndexers, searchParams)
+        .then((res) => ({ type: "torznab" as const, ...res }))
+    );
+  }
+
+  if (newznabIndexers.length > 0) {
+    promises.push(
+      newznabClient
+        .searchMultipleIndexers(newznabIndexers, searchParams)
+        .then((res) => ({ type: "newznab" as const, ...res }))
+    );
+  }
+
+  const results = await Promise.all(promises);
+
+  const combinedItems: SearchItem[] = [];
+  const combinedErrors: string[] = [];
+  let totalCount = 0;
+
+  for (const result of results) {
+    if (result.type === "torznab") {
+      const items = result.results.items.map(
+        (item) =>
+          ({
+            title: item.title,
+            link: item.link,
+            pubDate: item.pubDate,
+            size: item.size,
+            indexerId: item.indexerId || "unknown",
+            indexerName: item.indexerName || "unknown",
+            category: item.category ? item.category.split(",") : [],
+            guid: item.guid || item.link,
+            downloadType: "torrent" as const,
+            seeders: item.seeders,
+            leechers: item.leechers,
+          }) as SearchItem
+      );
+      combinedItems.push(...items);
+      totalCount += result.results.total || 0;
+      if (result.errors) combinedErrors.push(...result.errors);
+    } else if (result.type === "newznab") {
+      const items = result.results.items.map(
+        (item) =>
+          ({
+            title: item.title,
+            link: item.link,
+            pubDate: item.publishDate,
+            size: item.size,
+            indexerId: item.indexerId,
+            indexerName: item.indexerName,
+            category: item.category,
+            guid: item.guid,
+            downloadType: "usenet" as const,
+            grabs: item.grabs,
+            age: item.age,
+            poster: item.poster,
+            group: item.group,
+          }) as SearchItem
+      );
+      combinedItems.push(...items);
+      totalCount += result.results.total || 0;
+      if (result.errors) {
+        combinedErrors.push(...result.errors.map((e) => `${e.indexer}: ${e.error}`));
+      }
+    }
+  }
+
+  // Default sort: Date (newest first)
+  combinedItems.sort((a, b) => {
+    const dateA = new Date(a.pubDate).getTime();
+    const dateB = new Date(b.pubDate).getTime();
+    return dateB - dateA;
+  });
+
+  return {
+    items: combinedItems,
+    total: totalCount,
+    offset: options.offset || 0,
+    errors: combinedErrors,
+  };
+}

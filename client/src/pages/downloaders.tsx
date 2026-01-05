@@ -305,9 +305,9 @@ export default function DownloadersPage() {
         <div>
           <h1 className="text-3xl font-bold">Downloaders</h1>
           <p className="text-muted-foreground">
-            Manage torrent and Usenet clients for automated downloads. Downloads are sent to
-            enabled clients in priority order (lowest number first), with automatic fallback if a
-            client fails.
+            Manage torrent and Usenet clients for automated downloads. Downloads are sent to enabled
+            clients in priority order (lowest number first), with automatic fallback if a client
+            fails.
           </p>
         </div>
         <Button onClick={handleAdd} data-testid="button-add-downloader">
@@ -476,7 +476,11 @@ export default function DownloadersPage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>
-                        {form.watch("type") === "rtorrent" || form.watch("type") === "qbittorrent" || form.watch("type") === "transmission" ? "Host" : "URL"}
+                        {form.watch("type") === "rtorrent" ||
+                        form.watch("type") === "qbittorrent" ||
+                        form.watch("type") === "transmission"
+                          ? "Host"
+                          : "URL"}
                       </FormLabel>
                       <FormControl>
                         <Input
@@ -497,7 +501,9 @@ export default function DownloadersPage() {
                           data-testid="input-downloader-url"
                         />
                       </FormControl>
-                      {(form.watch("type") === "rtorrent" || form.watch("type") === "qbittorrent" || form.watch("type") === "transmission") && (
+                      {(form.watch("type") === "rtorrent" ||
+                        form.watch("type") === "qbittorrent" ||
+                        form.watch("type") === "transmission") && (
                         <FormDescription className="text-xs">
                           Enter hostname or IP address without protocol or port
                         </FormDescription>
@@ -506,7 +512,9 @@ export default function DownloadersPage() {
                     </FormItem>
                   )}
                 />
-                {(form.watch("type") === "rtorrent" || form.watch("type") === "qbittorrent" || form.watch("type") === "transmission") && (
+                {(form.watch("type") === "rtorrent" ||
+                  form.watch("type") === "qbittorrent" ||
+                  form.watch("type") === "transmission") && (
                   <>
                     <FormField
                       control={form.control}
@@ -557,7 +565,7 @@ export default function DownloadersPage() {
                                 checked={!!field.value}
                                 onCheckedChange={field.onChange}
                                 data-testid="checkbox-downloader-usessl"
-                            />
+                              />
                             </FormControl>
                           </FormItem>
                         )}
@@ -596,7 +604,9 @@ export default function DownloadersPage() {
                       <FormLabel>
                         {form.watch("type") === "sabnzbd"
                           ? "API Key"
-                          : form.watch("type") === "qbittorrent" || form.watch("type") === "transmission"
+                          : form.watch("type") === "qbittorrent" ||
+                              form.watch("type") === "transmission" ||
+                              form.watch("type") === "nzbget"
                             ? "Username"
                             : "Username (Optional)"}
                       </FormLabel>
@@ -627,7 +637,11 @@ export default function DownloadersPage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>
-                        {form.watch("type") === "qbittorrent" || form.watch("type") === "transmission" ? "Password" : "Password (Optional)"}
+                        {form.watch("type") === "qbittorrent" ||
+                        form.watch("type") === "transmission" ||
+                        form.watch("type") === "nzbget"
+                          ? "Password"
+                          : "Password (Optional)"}
                       </FormLabel>
                       <FormControl>
                         <Input
@@ -720,16 +734,14 @@ export default function DownloadersPage() {
                               form.setValue("settings", JSON.stringify(settings));
                             }
                           }}
-                          value={
-                            (() => {
-                              try {
-                                const settings = JSON.parse(form.watch("settings") || "{}");
-                                return settings.initialState || (field.value ? "stopped" : "started");
-                              } catch {
-                                return field.value ? "stopped" : "started";
-                              }
-                            })()
-                          }
+                          value={(() => {
+                            try {
+                              const settings = JSON.parse(form.watch("settings") || "{}");
+                              return settings.initialState || (field.value ? "stopped" : "started");
+                            } catch {
+                              return field.value ? "stopped" : "started";
+                            }
+                          })()}
                         >
                           <FormControl>
                             <SelectTrigger data-testid="select-initial-state">
@@ -804,66 +816,66 @@ export default function DownloadersPage() {
                         <FormField
                           control={form.control}
                           name="addStopped"
-                        render={({ field }) => (
-                          <FormItem className="flex flex-row items-center justify-between rounded-lg border p-2 bg-background">
-                            <div className="space-y-0">
-                              <FormLabel className="text-sm">Add Stopped</FormLabel>
+                          render={({ field }) => (
+                            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-2 bg-background">
+                              <div className="space-y-0">
+                                <FormLabel className="text-sm">Add Stopped</FormLabel>
+                                <FormDescription className="text-xs">
+                                  Add torrents in paused state
+                                </FormDescription>
+                              </div>
+                              <FormControl>
+                                <Checkbox
+                                  checked={!!field.value}
+                                  onCheckedChange={field.onChange}
+                                  data-testid="checkbox-downloader-addstopped"
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="removeCompleted"
+                          render={({ field }) => (
+                            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-2 bg-background">
+                              <div className="space-y-0">
+                                <FormLabel className="text-sm">Remove Completed</FormLabel>
+                                <FormDescription className="text-xs">
+                                  Remove torrents from downloader after completion
+                                </FormDescription>
+                              </div>
+                              <FormControl>
+                                <Checkbox
+                                  checked={!!field.value}
+                                  onCheckedChange={field.onChange}
+                                  data-testid="checkbox-downloader-removecompleted"
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="postImportCategory"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Post-Import Category (Optional)</FormLabel>
+                              <FormControl>
+                                <Input
+                                  placeholder="completed-games"
+                                  {...field}
+                                  value={field.value || ""}
+                                  data-testid="input-downloader-postimportcategory"
+                                />
+                              </FormControl>
                               <FormDescription className="text-xs">
-                                Add torrents in paused state
+                                Category after download completes
                               </FormDescription>
-                            </div>
-                            <FormControl>
-                              <Checkbox
-                                checked={!!field.value}
-                                onCheckedChange={field.onChange}
-                                data-testid="checkbox-downloader-addstopped"
-                              />
-                            </FormControl>
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name="removeCompleted"
-                        render={({ field }) => (
-                          <FormItem className="flex flex-row items-center justify-between rounded-lg border p-2 bg-background">
-                            <div className="space-y-0">
-                              <FormLabel className="text-sm">Remove Completed</FormLabel>
-                              <FormDescription className="text-xs">
-                                Remove torrents from downloader after completion
-                              </FormDescription>
-                            </div>
-                            <FormControl>
-                              <Checkbox
-                                checked={!!field.value}
-                                onCheckedChange={field.onChange}
-                                data-testid="checkbox-downloader-removecompleted"
-                              />
-                            </FormControl>
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name="postImportCategory"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Post-Import Category (Optional)</FormLabel>
-                            <FormControl>
-                              <Input
-                                placeholder="completed-games"
-                                {...field}
-                                value={field.value || ""}
-                                data-testid="input-downloader-postimportcategory"
-                              />
-                            </FormControl>
-                            <FormDescription className="text-xs">
-                              Category after download completes
-                            </FormDescription>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
                       </>
                     )}
                   </div>

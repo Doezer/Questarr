@@ -348,7 +348,9 @@ export default function IndexersPage() {
       <div className="flex justify-between items-center mb-8">
         <div>
           <h1 className="text-3xl font-bold">Indexers</h1>
-          <p className="text-muted-foreground">Manage Torznab and Newznab indexers for game discovery</p>
+          <p className="text-muted-foreground">
+            Manage Torznab and Newznab indexers for game discovery
+          </p>
         </div>
         <div className="flex gap-2">
           <Button
@@ -465,7 +467,8 @@ export default function IndexersPage() {
           <DialogHeader>
             <DialogTitle>{editingIndexer ? "Edit Indexer" : "Add Indexer"}</DialogTitle>
             <DialogDescription>
-              Configure a Torznab (torrent) or Newznab (Usenet) indexer for game discovery and downloads.
+              Configure a Torznab (torrent) or Newznab (Usenet) indexer for game discovery and
+              downloads.
             </DialogDescription>
           </DialogHeader>
           <Form {...form}>
@@ -512,12 +515,16 @@ export default function IndexersPage() {
                 name="url"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{form.watch("protocol") === "newznab" ? "Newznab URL" : "Torznab URL"}</FormLabel>
+                    <FormLabel>
+                      {form.watch("protocol") === "newznab" ? "Newznab URL" : "Torznab URL"}
+                    </FormLabel>
                     <FormControl>
                       <Input
-                        placeholder={form.watch("protocol") === "newznab" 
-                          ? "http://localhost:8080/api"
-                          : "http://localhost:9117/api/v2.0/indexers/all/results/torznab/"}
+                        placeholder={
+                          form.watch("protocol") === "newznab"
+                            ? "http://localhost:8080/api"
+                            : "http://localhost:9117/api/v2.0/indexers/all/results/torznab/"
+                        }
                         {...field}
                         data-testid="input-indexer-url"
                       />

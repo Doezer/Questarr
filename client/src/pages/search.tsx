@@ -169,6 +169,7 @@ export default function SearchPage() {
           category: data.formData.category || undefined,
           downloadPath: data.formData.downloadPath,
           priority: data.formData.priority,
+          downloadType: isUsenetItem(data.torrent) ? "usenet" : "torrent",
         }),
       });
       if (!response.ok) throw new Error("Failed to add download");
@@ -206,14 +207,25 @@ export default function SearchPage() {
   };
 
   const handleDownload = (torrent: TorrentItem) => {
-    if (downloaders.length === 0) {
-      toast({ title: "No downloaders configured", variant: "destructive" });
+    const isUsenet = isUsenetItem(torrent);
+    const compatibleDownloaders = downloaders.filter((d) =>
+      isUsenet
+        ? ["sabnzbd", "nzbget"].includes(d.type)
+        : ["transmission", "rtorrent", "qbittorrent"].includes(d.type)
+    );
+
+    if (compatibleDownloaders.length === 0) {
+      toast({
+        title: "No compatible downloaders",
+        description: `Please configure a ${isUsenet ? "Usenet" : "Torrent"} downloader in settings.`,
+        variant: "destructive",
+      });
       return;
     }
 
     setSelectedTorrent(torrent);
     form.reset({
-      downloaderId: downloaders[0]?.id || "",
+      downloaderId: compatibleDownloaders[0]?.id || "",
       category: "",
       downloadPath: "",
       priority: 5,
@@ -226,6 +238,15 @@ export default function SearchPage() {
       downloadMutation.mutate({ torrent: selectedTorrent, formData: data });
     }
   };
+
+  // Filter downloaders for the dialog dropdown
+  const filteredDownloaders = selectedTorrent
+    ? downloaders.filter((d) =>
+        isUsenetItem(selectedTorrent)
+          ? ["sabnzbd", "nzbget"].includes(d.type)
+          : ["transmission", "rtorrent", "qbittorrent"].includes(d.type)
+      )
+    : downloaders;
 
   return (
     <div className="h-full overflow-auto p-8">
@@ -339,86 +360,93 @@ export default function SearchPage() {
                           className="text-xs flex-shrink-0"
                         >
                           {isUsenet ? (
+                            <>
+                              <Newspaper className="h-3 w-3 mr-1" />
+                              USENET
+                            </>
+                          ) : (
+                            <>
+                              <Download className="h-3 w-3 mr-1" />
+                              TORRENT
+                            </>
+                          )}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <span>{formatDate(torrent.pubDate)}</span>
+                        <span>•</span>
+                        <span>{torrent.size ? formatBytes(torrent.size) : "-"}</span>
+                        <span>•</span>
+                        {isUsenet ? (
                           <>
-                            <Newspaper className="h-3 w-3 mr-1" />
-                            USENET
+                            {torrent.grabs !== undefined && (
+                              <>
+                                <span className="text-blue-600 font-medium">{torrent.grabs}</span>
+                                <span>grabs</span>
+                                {torrent.age !== undefined && <span>•</span>}
+                              </>
+                            )}
+                            {torrent.age !== undefined && (
+                              <>
+                                <span className="text-purple-600 font-medium">
+                                  {formatAge(torrent.age)}
+                                </span>
+                                <span>old</span>
+                              </>
+                            )}
                           </>
                         ) : (
+                          <div className="flex items-center gap-1">
+                            <span className="text-green-600 font-medium">
+                              {torrent.seeders ?? 0}
+                            </span>
+                            <span>/</span>
+                            <span className="text-red-600 font-medium">
+                              {torrent.leechers ?? 0}
+                            </span>
+                            <span>peers</span>
+                          </div>
+                        )}
+                        {torrent.description && (
                           <>
-                            <Download className="h-3 w-3 mr-1" />
-                            TORRENT
+                            <span>•</span>
+                            <span className="truncate max-w-[300px]" title={torrent.description}>
+                              {torrent.description}
+                            </span>
                           </>
                         )}
-                      </Badge>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <span>{formatDate(torrent.pubDate)}</span>
-                      <span>•</span>
-                      <span>{torrent.size ? formatBytes(torrent.size) : "-"}</span>
-                      <span>•</span>
-                      {isUsenet ? (
-                        <>
-                          {torrent.grabs !== undefined && (
-                            <>
-                              <span className="text-blue-600 font-medium">{torrent.grabs}</span>
-                              <span>grabs</span>
-                              {torrent.age !== undefined && <span>•</span>}
-                            </>
-                          )}
-                          {torrent.age !== undefined && (
-                            <>
-                              <span className="text-purple-600 font-medium">
-                                {formatAge(torrent.age)}
-                              </span>
-                              <span>old</span>
-                            </>
-                          )}
-                        </>
-                      ) : (
-                        <div className="flex items-center gap-1">
-                          <span className="text-green-600 font-medium">{torrent.seeders ?? 0}</span>
-                          <span>/</span>
-                          <span className="text-red-600 font-medium">{torrent.leechers ?? 0}</span>
-                          <span>peers</span>
-                        </div>
-                      )}
-                      {torrent.description && (
-                        <>
-                          <span>•</span>
-                          <span className="truncate max-w-[300px]" title={torrent.description}>
-                            {torrent.description}
-                          </span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                  <div className="w-[40px] text-right flex-shrink-0">
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div className="inline-block" tabIndex={downloaders.length === 0 ? 0 : -1}>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleDownload(torrent)}
-                            disabled={downloaders.length === 0}
-                            className="h-8 w-8"
-                            data-testid={`button-download-${index}`}
-                            aria-label="Start download"
+                    <div className="w-[40px] text-right flex-shrink-0">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div
+                            className="inline-block"
+                            tabIndex={downloaders.length === 0 ? 0 : -1}
                           >
-                            <Download className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>
-                          {downloaders.length === 0
-                            ? "Configure a downloader first"
-                            : "Start download"}
-                        </p>
-                      </TooltipContent>
-                    </Tooltip>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleDownload(torrent)}
+                              disabled={downloaders.length === 0}
+                              className="h-8 w-8"
+                              data-testid={`button-download-${index}`}
+                              aria-label="Start download"
+                            >
+                              <Download className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>
+                            {downloaders.length === 0
+                              ? "Configure a downloader first"
+                              : "Start download"}
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
                   </div>
-                </div>
                 );
               })
             ) : (
@@ -468,7 +496,7 @@ export default function SearchPage() {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {downloaders.map((downloader) => (
+                        {filteredDownloaders.map((downloader) => (
                           <SelectItem
                             key={downloader.id}
                             value={downloader.id}

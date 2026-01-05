@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Download, Loader2, PackagePlus, SlidersHorizontal, Newspaper } from "lucide-react";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { type Game } from "@shared/schema";
 import { groupTorrentsByCategory, type TorrentCategory } from "@/lib/torrent-categorizer";
@@ -558,12 +559,18 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                             >
                               <div className="flex justify-between items-start gap-4 mb-2">
                                 <div className="flex-1 min-w-0 flex items-center gap-2">
-                                  <div
-                                    className="font-medium flex-1 break-words overflow-hidden text-ellipsis"
-                                    title={torrent.title}
-                                  >
-                                    {torrent.title}
-                                  </div>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <div
+                                        className="font-medium flex-1 overflow-hidden whitespace-nowrap text-ellipsis max-w-[220px] cursor-pointer"
+                                      >
+                                        {torrent.title}
+                                      </div>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top">
+                                      {torrent.title}
+                                    </TooltipContent>
+                                  </Tooltip>
                                   <Badge
                                     variant={isUsenet ? "secondary" : "default"}
                                     className="text-xs flex-shrink-0"

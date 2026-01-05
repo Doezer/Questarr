@@ -9,7 +9,6 @@ vite.config.ts.*
 .gemini/
 gha-creds-*.json
 images/Screenshots/*
-migrations/meta/
 qbittorrent-*/
 transmission-*/
 sabnzbd-*/

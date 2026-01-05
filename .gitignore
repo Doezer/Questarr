@@ -10,7 +10,7 @@ vite.config.ts.*
 gha-creds-*.json
 images/Screenshots/*
 migrations/meta/
-qbittorrent-downloads/
-qbittorrent-config/
-transmission-downloads/
-transmission-config/
+qbittorrent-*/
+transmission-*/
+sabnzbd-*/
+nzbget-*/

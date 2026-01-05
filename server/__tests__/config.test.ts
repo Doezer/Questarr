@@ -74,7 +74,7 @@ describe("Config Module", () => {
 
       expect(config.database.url).toBe("postgresql://user:pass@localhost:5432/testdb");
       expect(config.server.port).toBe(5000); // default
-      expect(config.server.host).toBe("localhost"); // default
+      expect(config.server.host).toBe("0.0.0.0"); // default
       expect(config.server.nodeEnv).toBe("development"); // default
       expect(config.igdb.isConfigured).toBe(false);
     });

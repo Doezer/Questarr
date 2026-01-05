@@ -14,7 +14,7 @@ export function log(message: string, source = "express") {
 export async function setupVite(app: Express, server: Server) {
   if (isDev) {
     const { createServer: createViteServer, createLogger } = await import("vite");
-    const viteConfig = await import("../vite.config");
+    const viteConfig = await import("../vite.config.js");
     const viteLogger = createLogger();
 
     const serverOptions = {

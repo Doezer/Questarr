@@ -168,6 +168,7 @@ export const sanitizeIndexerData = [
     .trim()
     .isLength({ max: 500 })
     .withMessage("API key must be at most 500 characters"),
+  body("protocol").optional().trim().isIn(["torznab", "newznab"]).withMessage("Invalid protocol"),
   body("enabled").optional().isBoolean().withMessage("Enabled must be a boolean").toBoolean(),
 ];
 
@@ -184,6 +185,7 @@ export const sanitizeIndexerUpdateData = [
     .trim()
     .isLength({ max: 500 })
     .withMessage("API key must be at most 500 characters"),
+  body("protocol").optional().trim().isIn(["torznab", "newznab"]).withMessage("Invalid protocol"),
   body("enabled").optional().isBoolean().withMessage("Enabled must be a boolean").toBoolean(),
   body("priority")
     .optional()
@@ -217,15 +219,22 @@ export const sanitizeDownloaderData = [
     .trim()
     .custom((value, { req }) => {
       const type = req.body.type;
+
+      // If it's a valid URL, it's always acceptable
+      const isUrl = /^https?:\/\/.+/.test(value);
+      if (isUrl) return true;
+
       // For qbittorrent, rtorrent, and transmission, allow hostname/IP without protocol
       if (type === "qbittorrent" || type === "rtorrent" || type === "transmission") {
         // Accept hostname, IP address, or FQDN
-        const hostnameRegex = /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+        const hostnameRegex =
+          /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
         const ipRegex = /^(\d{1,3}\.){3}\d{1,3}$/;
         return hostnameRegex.test(value) || ipRegex.test(value);
       }
-      // For other downloaders, require full URL
-      return /^https?:\/\/.+/.test(value);
+
+      // Other downloaders require full URL
+      return false;
     })
     .withMessage("Invalid URL or hostname"),
   body("username")
@@ -265,7 +274,16 @@ export const sanitizeDownloaderUpdateData = [
   body("type")
     .optional()
     .trim()
-    .isIn(["qbittorrent", "transmission", "deluge", "rtorrent", "utorrent", "vuze", "sabnzbd", "nzbget"])
+    .isIn([
+      "qbittorrent",
+      "transmission",
+      "deluge",
+      "rtorrent",
+      "utorrent",
+      "vuze",
+      "sabnzbd",
+      "nzbget",
+    ])
     .withMessage("Invalid downloader type"),
   body("url")
     .optional()
@@ -273,15 +291,22 @@ export const sanitizeDownloaderUpdateData = [
     .custom((value, { req }) => {
       if (!value) return true; // Optional field
       const type = req.body.type;
+
+      // If it's a valid URL, it's always acceptable
+      const isUrl = /^https?:\/\/.+/.test(value);
+      if (isUrl) return true;
+
       // For qbittorrent, rtorrent, and transmission, allow hostname/IP without protocol
       if (type === "qbittorrent" || type === "rtorrent" || type === "transmission") {
         // Accept hostname, IP address, or FQDN
-        const hostnameRegex = /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+        const hostnameRegex =
+          /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
         const ipRegex = /^(\d{1,3}\.){3}\d{1,3}$/;
         return hostnameRegex.test(value) || ipRegex.test(value);
       }
-      // For other downloaders, require full URL
-      return /^https?:\/\/.+/.test(value);
+
+      // Other downloaders require full URL
+      return false;
     })
     .withMessage("Invalid URL or hostname"),
   body("username")
@@ -333,6 +358,11 @@ export const sanitizeTorrentData = [
     .trim()
     .isLength({ max: 100 })
     .withMessage("Category must be at most 100 characters"),
+  body("downloadType")
+    .optional()
+    .trim()
+    .isIn(["torrent", "usenet"])
+    .withMessage("Invalid download type"),
   body("downloadPath")
     .optional()
     .trim()

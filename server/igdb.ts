@@ -58,10 +58,14 @@ interface IGDBAuthResponse {
  * The 100-character limit prevents abuse through extremely long inputs that
  * could cause performance issues or circumvent other security measures.
  */
+// ⚡ Bolt: Move regex compilation outside the function to avoid recompilation on every call.
+const SPECIAL_CHARS_REGEX = /['"`;|&*()<>\\[\]]/g;
+const WHITESPACE_REGEX = /\s+/g;
+
 function sanitizeIgdbInput(input: string): string {
   return input
-    .replace(/['"`;|&*()<>\\[\]]/g, "") // Remove special characters including square brackets
-    .replace(/\s+/g, " ") // Normalize whitespace
+    .replace(SPECIAL_CHARS_REGEX, "") // Remove special characters including square brackets
+    .replace(WHITESPACE_REGEX, " ") // Normalize whitespace
     .trim()
     .slice(0, 100); // Limit length to prevent abuse
 }
@@ -236,44 +240,54 @@ class IGDBClient {
       .toLowerCase()
       .split(" ")
       .filter((word) => word.length > 2);
-    for (const word of words) {
-      if (attemptCount >= MAX_SEARCH_ATTEMPTS) {
-        console.warn(
-          `IGDB search reached max attempts (${MAX_SEARCH_ATTEMPTS}) during word search for "${query}"`
-        );
-        break;
-      }
 
-      try {
-        attemptCount++;
-        const sanitizedWord = sanitizeIgdbInput(word);
-        if (!sanitizedWord) continue;
+    // ⚡ Bolt: Sequential word search fallback was slow. Replaced with parallel execution
+    // to improve response time for fallback queries.
+    // We strictly respect the global attempt limit to prevent excessive API usage.
+    const remainingAttempts = MAX_SEARCH_ATTEMPTS - attemptCount;
+    if (words.length > 0 && remainingAttempts > 0) {
+      // Only take as many words as we have remaining attempts
+      const wordsToSearch = words.slice(0, remainingAttempts);
 
-        igdbLogger.debug(
-          { word: sanitizedWord, attempt: attemptCount, maxAttempts: MAX_SEARCH_ATTEMPTS },
-          `trying word search`
-        );
-        const wordQuery = `fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url, involved_companies.company.name, involved_companies.developer, involved_companies.publisher; where name ~ *"${sanitizedWord}"*; sort rating desc; limit ${limit};`;
-        // Cache word search results for 15 minutes
-        const wordResults = await this.makeRequest("games", wordQuery, 15 * 60 * 1000);
+      const wordPromises = wordsToSearch.map(async (word) => {
+        try {
+          const sanitizedWord = sanitizeIgdbInput(word);
+          if (!sanitizedWord) return [];
 
-        if (wordResults.length > 0) {
-          igdbLogger.info(
-            { word, resultCount: wordResults.length },
-            `word search found ${wordResults.length} results`
-          );
-
-          // Filter to prefer games containing multiple query words
-          const filteredResults = wordResults.filter(
-            (game: IGDBGame) =>
-              words.filter((w) => game.name.toLowerCase().includes(w)).length >=
-              Math.min(2, words.length)
-          );
-
-          return filteredResults.length > 0 ? filteredResults : wordResults.slice(0, limit);
+          const wordQuery = `fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url, involved_companies.company.name, involved_companies.developer, involved_companies.publisher; where name ~ *"${sanitizedWord}"*; sort rating desc; limit ${limit};`;
+          // Cache word search results for 15 minutes
+          return await this.makeRequest("games", wordQuery, 15 * 60 * 1000);
+        } catch (error) {
+          igdbLogger.warn({ word, error }, `word search failed`);
+          return [];
         }
-      } catch (error) {
-        igdbLogger.warn({ word, error }, `word search failed`);
+      });
+
+      const allWordResults = await Promise.all(wordPromises);
+
+      // Flatten and process results
+      const wordResults = allWordResults.flat();
+
+      if (wordResults.length > 0) {
+        igdbLogger.info(
+          { wordCount: wordsToSearch.length, resultCount: wordResults.length },
+          `parallel word search found results`
+        );
+
+        // Filter to prefer games containing multiple query words
+        const filteredResults = wordResults.filter(
+          (game: IGDBGame) =>
+            words.filter((w) => game.name.toLowerCase().includes(w)).length >=
+            Math.min(2, words.length)
+        );
+
+        // Remove duplicates after merging
+        const uniqueResults = (filteredResults.length > 0 ? filteredResults : wordResults).filter(
+          (game: IGDBGame, index: number, self: IGDBGame[]) =>
+            index === self.findIndex((g) => g.id === game.id)
+        );
+
+        return uniqueResults.slice(0, limit);
       }
     }
 

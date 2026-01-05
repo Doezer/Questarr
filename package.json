@@ -13,7 +13,7 @@
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,css}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,css}\"",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "tsx server/migrate.ts",
+    "db:migrate": "tsx server/run-migrations.ts",
     "db:push": "drizzle-kit push",
     "test": "vitest",
     "test:ui": "vitest --ui",

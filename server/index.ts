@@ -33,10 +33,15 @@ app.use((req, res, next) => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
       const isNoisyEndpoint =
-        ((path === "/api/downloads" || path === "/api/games" || path === "/api/notifications" || path === "/api/search") && req.method === "GET") ||
+        ((path === "/api/downloads" ||
+          path === "/api/games" ||
+          path === "/api/notifications" ||
+          path === "/api/search") &&
+          req.method === "GET") ||
         path.startsWith("/api/igdb/genre/") ||
         path === "/api/igdb/popular" ||
-        path === "/api/igdb/upcoming";
+        path === "/api/igdb/upcoming" ||
+        path.match(/^\/api\/indexers\/[^/]+\/categories$/);
 
       // Always log metadata at info level
       expressLogger.info(
@@ -69,45 +74,52 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  // Ensure database is ready before starting server
-  await ensureDatabase();
+  try {
+    // Ensure database is ready before starting server
+    await ensureDatabase();
 
-  const server = await registerRoutes(app);
-  setupSocketIO(server);
+    const server = await registerRoutes(app);
 
-  // Error handler must handle various error shapes
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const error = err.message || "Internal Server Error";
+    setupSocketIO(server);
 
-    // Include details if available (e.g., validation errors)
+    // Error handler must handle various error shapes
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const response: { error: string; details?: any } = { error };
-    if (err.details) {
-      response.details = err.details;
+    app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+      const status = err.status || err.statusCode || 500;
+      const error = err.message || "Internal Server Error";
+
+      // Include details if available (e.g., validation errors)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const response: { error: string; details?: any } = { error };
+      if (err.details) {
+        response.details = err.details;
+      }
+
+      res.status(status).json(response);
+      throw err;
+    });
+
+    // importantly only setup vite in development and after
+    // setting up all the other routes so the catch-all route
+    // doesn't interfere with the other routes
+    if (app.get("env") === "development") {
+      await setupVite(app, server);
+    } else {
+      serveStatic(app);
     }
 
-    res.status(status).json(response);
-    throw err;
-  });
-
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
-  if (app.get("env") === "development") {
-    await setupVite(app, server);
-  } else {
-    serveStatic(app);
+    // ALWAYS serve the app on the port specified in the environment variable PORT
+    // Other ports are firewalled. Default to 5000 if not specified.
+    // this serves both the API and the client.
+    // It is the only port that is not firewalled.
+    const { port, host } = config.server;
+    server.listen(port, host, () => {
+      log(`serving on ${host}:${port}`);
+      startCronJobs();
+    });
+  } catch (error) {
+    log("Fatal error during startup:");
+    console.error(error);
+    process.exit(1);
   }
-
-  // ALWAYS serve the app on the port specified in the environment variable PORT
-  // Other ports are firewalled. Default to 5000 if not specified.
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
-  const { port, host } = config.server;
-  server.listen(port, host, () => {
-    log(`serving on ${host}:${port}`);
-    startCronJobs();
-  });
 })();

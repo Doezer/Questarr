@@ -25,7 +25,7 @@ const envSchema = z.object({
       message: "PORT must be a valid positive integer",
     })
     .transform((val) => parseInt(val, 10)),
-  HOST: z.string().default("0.0.0.0"),
+  HOST: z.string().default("localhost"),
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
 });
 

@@ -3,7 +3,7 @@ import { igdbClient } from "./igdb.js";
 import { igdbLogger } from "./logger.js";
 import { notifyUser } from "./socket.js";
 import { DownloaderManager } from "./downloaders.js";
-import { torznabClient } from "./torznab.js";
+import { searchAllIndexers } from "./search.js";
 import { type Game } from "../shared/schema.js";
 
 const DELAY_THRESHOLD_DAYS = 7;
@@ -157,24 +157,24 @@ async function checkGameUpdates() {
 }
 
 async function checkDownloadStatus() {
-  const downloadingTorrents = await storage.getDownloadingGameTorrents();
+  const downloadingDownloads = await storage.getDownloadingGameDownloads();
 
-  igdbLogger.info({ downloadingCount: downloadingTorrents.length }, "Checking download status");
+  igdbLogger.info({ downloadingCount: downloadingDownloads.length }, "Checking download status");
 
-  if (downloadingTorrents.length === 0) {
+  if (downloadingDownloads.length === 0) {
     return;
   }
 
   // Group by downloader
-  const torrentsByDownloader = new Map<string, typeof downloadingTorrents>();
-  for (const t of downloadingTorrents) {
-    const list = torrentsByDownloader.get(t.downloaderId) || [];
-    list.push(t);
-    torrentsByDownloader.set(t.downloaderId, list);
+  const downloadsByDownloader = new Map<string, typeof downloadingDownloads>();
+  for (const d of downloadingDownloads) {
+    const list = downloadsByDownloader.get(d.downloaderId) || [];
+    list.push(d);
+    downloadsByDownloader.set(d.downloaderId, list);
   }
 
-  const entries = Array.from(torrentsByDownloader.entries());
-  for (const [downloaderId, torrents] of entries) {
+  const entries = Array.from(downloadsByDownloader.entries());
+  for (const [downloaderId, downloads] of entries) {
     const downloader = await storage.getDownloader(downloaderId);
     if (!downloader || !downloader.enabled) continue;
 
@@ -183,31 +183,32 @@ async function checkDownloadStatus() {
       const activeTorrentMap = new Map(activeTorrents.map((t) => [t.id.toLowerCase(), t]));
 
       igdbLogger.debug(
-        { downloaderId, activeTorrentCount: activeTorrents.length, trackingCount: torrents.length },
-        "Checking torrents for downloader"
+        {
+          downloaderId,
+          activeTorrentCount: activeTorrents.length,
+          trackingCount: downloads.length,
+        },
+        "Checking downloads for downloader"
       );
 
-      for (const torrent of torrents) {
-        // Match by hash (handle case sensitivity just in case)
-        const remoteTorrent = activeTorrentMap.get(torrent.downloadHash.toLowerCase());
+      for (const download of downloads) {
+        // Match by hash/ID (handle case sensitivity just in case)
+        const remoteTorrent = activeTorrentMap.get(download.downloadHash.toLowerCase());
 
         if (remoteTorrent) {
           igdbLogger.debug(
             {
-              torrent: torrent.torrentTitle,
+              item: download.downloadTitle,
               status: remoteTorrent.status,
               progress: remoteTorrent.progress,
-              dbStatus: torrent.status,
-              dbHash: torrent.torrentHash,
+              dbStatus: download.status,
+              dbHash: download.downloadHash,
               found: true,
             },
-            "Checking torrent status"
+            "Checking download status"
           );
 
           // Check for completion
-          // A torrent is considered complete if:
-          // 1. Status is 'completed' or 'seeding', OR
-          // 2. Progress is 100% (handles edge cases where status might not update correctly)
           const isComplete =
             remoteTorrent.status === "completed" ||
             remoteTorrent.status === "seeding" ||
@@ -216,27 +217,27 @@ async function checkDownloadStatus() {
           if (isComplete) {
             igdbLogger.info(
               {
-                torrent: torrent.downloadTitle,
+                item: download.downloadTitle,
                 status: remoteTorrent.status,
                 progress: remoteTorrent.progress,
               },
-              "Torrent download completed (or seeding)"
+              "Download completed"
             );
 
-            // Update DB - mark as completed even if seeding
-            await storage.updateGameTorrentStatus(torrent.id, "completed");
+            // Update DB - mark as completed
+            await storage.updateGameDownloadStatus(download.id, "completed");
 
             // Update Game status to 'owned' (which means we have the files)
-            await storage.updateGameStatus(torrent.gameId, { status: "owned" });
-            
+            await storage.updateGameStatus(download.gameId, { status: "owned" });
+
             igdbLogger.info(
-              { gameId: torrent.gameId, downloadId: torrent.id },
+              { gameId: download.gameId, downloadId: download.id },
               "Updated game status to 'owned' after completion"
             );
 
             // Fetch game title for notification
-            const game = await storage.getGame(torrent.gameId);
-            const gameTitle = game ? game.title : torrent.downloadTitle;
+            const game = await storage.getGame(download.gameId);
+            const gameTitle = game ? game.title : download.downloadTitle;
 
             // Send notification
             const message = `Download finished for ${gameTitle}`;
@@ -248,15 +249,16 @@ async function checkDownloadStatus() {
             notifyUser("notification", notification);
           } else {
             // Sync download status with actual status from downloader
-            let newDownloadStatus: "downloading" | "paused" | "failed" | "completed" = "downloading";
+            let newDownloadStatus: "downloading" | "paused" | "failed" | "completed" =
+              "downloading";
             let newGameStatus: "wanted" | "downloading" | "owned" = "downloading";
 
             if (remoteTorrent.status === "error") {
               newDownloadStatus = "failed";
               newGameStatus = "wanted"; // Reset to wanted on error
               igdbLogger.warn(
-                { torrent: torrent.torrentTitle, error: remoteTorrent.error },
-                "Torrent error detected"
+                { title: download.downloadTitle, error: remoteTorrent.error },
+                "Download error detected"
               );
             } else if (remoteTorrent.status === "paused") {
               newDownloadStatus = "paused";
@@ -267,52 +269,38 @@ async function checkDownloadStatus() {
             }
 
             // Only update if status changed
-            if (torrent.status !== newDownloadStatus) {
-              await storage.updateGameTorrentStatus(torrent.id, newDownloadStatus);
+            if (download.status !== newDownloadStatus) {
+              await storage.updateGameDownloadStatus(download.id, newDownloadStatus);
               igdbLogger.debug(
-                { torrent: torrent.torrentTitle, oldStatus: torrent.status, newStatus: newDownloadStatus },
+                {
+                  title: download.downloadTitle,
+                  oldStatus: download.status,
+                  newStatus: newDownloadStatus,
+                },
                 "Updated download status"
               );
             }
 
             // Update game status
-            const game = await storage.getGame(torrent.gameId);
+            const game = await storage.getGame(download.gameId);
             if (game && game.status !== newGameStatus) {
-              await storage.updateGameStatus(torrent.gameId, { status: newGameStatus });
+              await storage.updateGameStatus(download.gameId, { status: newGameStatus });
               igdbLogger.debug(
-                { gameId: torrent.gameId, oldStatus: game.status, newStatus: newGameStatus },
+                { gameId: download.gameId, oldStatus: game.status, newStatus: newGameStatus },
                 "Updated game status"
               );
             }
           }
         } else {
-          // Torrent not found in downloader anymore
-          // This can happen if:
-          // 1. Hash mismatch between DB and qBittorrent
-          // 2. Torrent was completed and removed by 'remove completed' setting
-          // 3. Torrent was manually removed by user
-          // 4. Downloader was restarted and lost the torrent
-          
-          igdbLogger.warn(
-            { 
-              torrent: torrent.torrentTitle, 
-              dbHash: torrent.torrentHash,
-              dbHashLower: torrent.torrentHash.toLowerCase(),
-              activeHashesCount: activeTorrentMap.size,
-              firstFewActiveHashes: Array.from(activeTorrentMap.keys()).slice(0, 5),
-            },
-            "Torrent missing from downloader - hash mismatch or removed"
-          );
+          // Download missing from downloader - mark as completed
+          await storage.updateGameDownloadStatus(download.id, "completed");
 
-          // Mark download as completed
-          await storage.updateGameTorrentStatus(torrent.id, "completed");
+          // Update game status to owned
+          await storage.updateGameStatus(download.gameId, { status: "owned" });
 
-          // Update game status to owned (assume completion rather than cancellation)
-          await storage.updateGameStatus(torrent.gameId, { status: "owned" });
-          
           igdbLogger.info(
-            { gameId: torrent.gameId },
-            "Updated game status to 'owned' after torrent removal"
+            { gameId: download.gameId },
+            "Updated game status to 'owned' after download removal"
           );
         }
       }
@@ -357,13 +345,6 @@ async function checkAutoSearch() {
           continue;
         }
 
-        // Get enabled indexers
-        const indexers = await storage.getEnabledIndexers();
-        if (indexers.length === 0) {
-          igdbLogger.debug({ userId }, "No indexers configured, skipping auto-search");
-          continue;
-        }
-
         // Filter wanted games (not owned, not downloading)
         const wantedGames = userGames.filter((g: Game) => g.status === "wanted" && !g.hidden);
 
@@ -378,28 +359,28 @@ async function checkAutoSearch() {
           "Starting auto-search for wanted games"
         );
 
-        let gamesWithTorrents = 0;
+        let gamesWithResults = 0;
 
         for (const game of wantedGames) {
           try {
             // Search for the game across all indexers
-            const { results, errors } = await torznabClient.searchMultipleIndexers(indexers, {
+            const { items, errors } = await searchAllIndexers({
               query: game.title,
               limit: 10,
             });
 
             if (errors.length > 0) {
-              igdbLogger.warn({ gameTitle: game.title, errors }, "Errors during torrent search");
+              igdbLogger.warn({ gameTitle: game.title, errors }, "Errors during search");
             }
 
-            if (results.items.length === 0) {
+            if (items.length === 0) {
               continue;
             }
 
-            gamesWithTorrents++;
+            gamesWithResults++;
 
-            // Filter "Main" torrents (not updates/DLC)
-            const mainTorrents = results.items.filter((item) => {
+            // Filter "Main" items (not updates/DLC)
+            const mainItems = items.filter((item) => {
               const title = item.title.toLowerCase();
               return (
                 !title.includes("update") && !title.includes("dlc") && !title.includes("patch")
@@ -407,50 +388,50 @@ async function checkAutoSearch() {
             });
 
             // Check for updates
-            const updateTorrents = results.items.filter((item) => {
+            const updateItems = items.filter((item) => {
               const title = item.title.toLowerCase();
               return title.includes("update") || title.includes("patch");
             });
 
             // Notify about updates if setting enabled
-            if (updateTorrents.length > 0 && settings.notifyUpdates) {
+            if (updateItems.length > 0 && settings.notifyUpdates) {
               const notification = await storage.addNotification({
                 userId,
                 type: "info",
                 title: "Game Updates Available",
-                message: `${updateTorrents.length} update(s) found for ${game.title}`,
+                message: `${updateItems.length} update(s) found for ${game.title}`,
               });
               notifyUser("notification", notification);
             }
 
-            // Handle main torrents
-            if (mainTorrents.length === 0) {
+            // Handle main items
+            if (mainItems.length === 0) {
               continue;
             }
 
-            if (mainTorrents.length === 1) {
-              // Single torrent found
+            if (mainItems.length === 1) {
+              // Single result found
               if (settings.autoDownloadEnabled) {
                 // Auto-download if enabled
-                const torrent = mainTorrents[0];
+                const item = mainItems[0];
                 const downloaders = await storage.getEnabledDownloaders();
 
                 if (downloaders.length > 0) {
                   try {
                     const result = await DownloaderManager.addTorrentWithFallback(downloaders, {
-                      url: torrent.link,
-                      title: torrent.title,
+                      url: item.link,
+                      title: item.title,
                     });
 
                     if (result && result.success && result.id && result.downloaderId) {
-                      // Track torrent
-                      await storage.addGameTorrent({
+                      // Track download
+                      await storage.addGameDownload({
                         gameId: game.id,
                         downloaderId: result.downloaderId,
                         downloadHash: result.id,
-                        downloadTitle: torrent.title,
+                        downloadTitle: item.title,
                         status: "downloading",
-                        downloadType: "torrent",
+                        downloadType: item.downloadType,
                       });
 
                       // Update game status
@@ -461,17 +442,17 @@ async function checkAutoSearch() {
                         userId,
                         type: "success",
                         title: "Download Started",
-                        message: `Started downloading ${game.title}`,
+                        message: `Started downloading ${game.title} via ${item.downloadType === "usenet" ? "Usenet" : "Torrent"}`,
                       });
                       notifyUser("notification", notification);
 
-                      igdbLogger.info({ gameTitle: game.title }, "Auto-downloaded torrent");
+                      igdbLogger.info(
+                        { gameTitle: game.title, type: item.downloadType },
+                        "Auto-downloaded result"
+                      );
                     }
                   } catch (error) {
-                    igdbLogger.error(
-                      { gameTitle: game.title, error },
-                      "Failed to auto-download torrent"
-                    );
+                    igdbLogger.error({ gameTitle: game.title, error }, "Failed to auto-download");
                   }
                 }
               } else {
@@ -484,23 +465,23 @@ async function checkAutoSearch() {
                 });
                 notifyUser("notification", notification);
               }
-            } else if (mainTorrents.length > 1 && settings.notifyMultipleTorrents) {
-              // Multiple torrents found, notify user to choose
+            } else if (mainItems.length > 1 && settings.notifyMultipleTorrents) {
+              // Multiple results found, notify user to choose
               const notification = await storage.addNotification({
                 userId,
                 type: "info",
-                title: "Multiple Torrents Found",
-                message: `${mainTorrents.length} torrent(s) found for ${game.title}. Please review and choose.`,
+                title: "Multiple Results Found",
+                message: `${mainItems.length} result(s) found for ${game.title}. Please review and choose.`,
               });
               notifyUser("notification", notification);
             }
           } catch (error) {
-            igdbLogger.error({ gameTitle: game.title, error }, "Error searching for game torrents");
+            igdbLogger.error({ gameTitle: game.title, error }, "Error searching for game");
           }
         }
 
         igdbLogger.info(
-          { userId, wantedGames: wantedGames.length, gamesWithTorrents },
+          { userId, wantedGames: wantedGames.length, gamesWithResults },
           "Completed auto-search"
         );
 

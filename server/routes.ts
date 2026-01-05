@@ -39,6 +39,7 @@ import { config as appConfig } from "./config.js";
 import { prowlarrClient } from "./prowlarr.js";
 import { isSafeUrl } from "./ssrf.js";
 import { hashPassword, comparePassword, generateToken, authenticateToken } from "./auth.js";
+import { searchAllIndexers } from "./search.js";
 
 // Helper function for aggregated indexer search
 async function handleAggregatedIndexerSearch(req: Request, res: Response) {
@@ -52,28 +53,17 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
       return res.status(400).json({ error: "Search query required" });
     }
 
-    // Get enabled indexers
-    const enabledIndexers = await storage.getEnabledIndexers();
-    if (enabledIndexers.length === 0) {
-      return res.status(400).json({ error: "No indexers configured" });
-    }
-
-    const searchParams = {
+    const { items, total, errors } = await searchAllIndexers({
       query: query.trim(),
       category: category && typeof category === "string" ? category.split(",") : undefined,
       limit,
       offset,
-    };
-
-    const { results, errors } = await torznabClient.searchMultipleIndexers(
-      enabledIndexers,
-      searchParams
-    );
+    });
 
     res.json({
-      items: results.items,
-      total: results.total,
-      offset: results.offset,
+      items,
+      total,
+      offset,
       errors: errors.length > 0 ? errors : undefined,
     });
   } catch (error) {
@@ -1175,7 +1165,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     async (req: Request, res: Response) => {
       try {
         const { id } = req.params;
-        const { url, title, category, downloadPath, priority } = req.body;
+        const { url, title, category, downloadPath, priority, downloadType } = req.body;
 
         if (!url || !title) {
           return res.status(400).json({ error: "URL and title are required" });
@@ -1196,6 +1186,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           category,
           downloadPath,
           priority,
+          downloadType,
         });
 
         res.json(result);
@@ -1381,7 +1372,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     validateRequest,
     async (req: Request, res: Response) => {
       try {
-        const { url, title, category, downloadPath, priority, gameId } = req.body;
+        const { url, title, category, downloadPath, priority, gameId, downloadType } = req.body;
 
         if (!url || !title) {
           return res.status(400).json({ error: "URL and title are required" });
@@ -1399,6 +1390,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           category,
           downloadPath,
           priority,
+          downloadType,
         });
 
         if (result && result.success === false) {
@@ -1409,13 +1401,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // If gameId is provided, track this torrent and update game status
         if (gameId && result.success && result.id && result.downloaderId) {
           try {
-            await storage.addGameTorrent({
+            await storage.addGameDownload({
               gameId,
               downloaderId: result.downloaderId,
               downloadHash: result.id,
               downloadTitle: title,
               status: "downloading",
-              downloadType: "torrent",
+              downloadType: downloadType || "torrent",
             });
 
             await storage.updateGameStatus(gameId, { status: "downloading" });

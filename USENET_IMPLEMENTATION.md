@@ -43,66 +43,66 @@
 ### Backend (Phase 3)
 
 #### Routes Integration (`server/routes.ts`)
-- [ ] Update aggregated search to query both Torznab and Newznab indexers
-- [ ] Add protocol detection in search results
-- [ ] Update `/api/indexers/search` to support both protocols
-- [ ] Ensure downloader type validation (torrent downloaders for torrents, usenet for NZBs)
+- [x] Update aggregated search to query both Torznab and Newznab indexers
+- [x] Add protocol detection in search results
+- [x] Update `/api/indexers/search` to support both protocols
+- [x] Ensure downloader type validation (torrent downloaders for torrents, usenet for NZBs)
 
 #### Storage Layer (`server/storage.ts`)
-- [ ] Update `gameDownloads` queries (currently using `gameTorrents`)
-- [ ] Add protocol filtering for indexer queries
-- [ ] Ensure backward compatibility during migration
+- [x] Update `gameDownloads` queries (currently using `gameTorrents`)
+- [x] Add protocol filtering for indexer queries
+- [x] Ensure backward compatibility during migration
 
 #### Middleware (`server/middleware.ts`)
-- [ ] Update indexer validation to include protocol field
-- [ ] Add downloader type validation for SABnzbd/NZBGet
+- [x] Update indexer validation to include protocol field
+- [x] Add downloader type validation for SABnzbd/NZBGet
 
 ### Frontend (Phase 4)
 
 #### Search Page (`client/src/pages/search.tsx`)
-- [ ] Add download type badges (Torrent/Usenet)
-- [ ] Show appropriate metrics:
+- [x] Add download type badges (Torrent/Usenet)
+- [x] Show appropriate metrics:
   - Torrents: Seeders/Leechers
   - Usenet: Grabs/Age
-- [ ] Update result card styling to distinguish types
-- [ ] Filter compatible downloaders by protocol
+- [x] Update result card styling to distinguish types
+- [x] Filter compatible downloaders by protocol
 
 #### Game Download Dialog (`client/src/components/GameDownloadDialog.tsx`)
-- [ ] Filter downloaders by compatible protocol
-- [ ] Adjust form fields based on download type:
+- [x] Filter downloaders by compatible protocol
+- [x] Adjust form fields based on download type:
   - Torrent: Priority, Category
   - Usenet: Priority (different values)
-- [ ] Update submit logic to use correct API endpoint
+- [x] Update submit logic to use correct API endpoint
 
 #### Downloads Page (`client/src/pages/downloads.tsx`)
-- [ ] Add download type badges
-- [ ] Show appropriate metrics per type:
+- [x] Add download type badges
+- [x] Show appropriate metrics per type:
   - Torrents: Speeds (up/down), Ratio, Seeders/Leechers
   - Usenet: Download speed only, Repair/Unpack status
-- [ ] Update status badges for new statuses (repairing, unpacking)
-- [ ] Add filter tabs: All / Torrents / Usenet
+- [x] Update status badges for new statuses (repairing, unpacking)
+- [x] Add filter tabs: All / Torrents / Usenet
 
 #### Indexers Page (`client/src/pages/indexers.tsx`)
-- [ ] Add protocol field to indexer form
-- [ ] Show protocol badge in indexer list (Torznab/Newznab)
-- [ ] Update test connection for Newznab
-- [ ] Add protocol icon/indicator
+- [x] Add protocol field to indexer form
+- [x] Show protocol badge in indexer list (Torznab/Newznab)
+- [x] Update test connection for Newznab
+- [x] Add protocol icon/indicator
 
 #### Downloaders Page (`client/src/pages/downloaders.tsx`)
-- [ ] Add SABnzbd and NZBGet to type dropdown
-- [ ] Update form fields based on downloader type:
+- [x] Add SABnzbd and NZBGet to type dropdown
+- [x] Update form fields based on downloader type:
   - SABnzbd: API URL, API Key
   - NZBGet: URL, Username, Password
-- [ ] Show downloader type badge/icon
-- [ ] Update test connection for Usenet clients
+- [x] Show downloader type badge/icon
+- [x] Update test connection for Usenet clients
 
 #### Download Utils (`client/src/lib/downloads-utils.ts`)
-- [ ] Add `getDownloadTypeBadgeVariant(type)`
-- [ ] Add `shouldShowSeedersLeechers(download)`
-- [ ] Add `shouldShowRepairStatus(download)`
-- [ ] Add `shouldShowGrabsAge(download)`
-- [ ] Add `formatDownloadType(type)`
-- [ ] Update status badge logic for new statuses
+- [x] Add `getDownloadTypeBadgeVariant(type)`
+- [x] Add `shouldShowSeedersLeechers(download)`
+- [x] Add `shouldShowRepairStatus(download)`
+- [x] Add `shouldShowGrabsAge(download)`
+- [x] Add `formatDownloadType(type)`
+- [x] Update status badge logic for new statuses
 
 ### Database Migration (Phase 5)
 - [ ] Create migration script to add new columns with defaults
@@ -161,16 +161,16 @@
 - [ ] Test Newznab search with real indexer
 - [ ] Test SABnzbd connection and NZB addition
 - [ ] Test NZBGet connection and NZB addition
-- [ ] Test status monitoring for both clients
-- [ ] Test repair/unpack status tracking
+- [x] Test status monitoring for both clients
+- [x] Test repair/unpack status tracking
 - [ ] Verify backward compatibility with existing torrents
 
 ### Frontend
-- [ ] Test search results display for both types
-- [ ] Test adding Usenet indexer
-- [ ] Test adding SABnzbd/NZBGet downloader
-- [ ] Test downloading NZB from search
-- [ ] Test downloads page with mixed torrents/NZBs
+- [x] Test search results display for both types
+- [x] Test adding Usenet indexer
+- [x] Test adding SABnzbd/NZBGet downloader
+- [x] Test downloading NZB from search
+- [x] Test downloads page with mixed torrents/NZBs
 - [ ] Test filtering and sorting
 - [ ] Verify responsive design
 

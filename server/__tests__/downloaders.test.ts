@@ -401,19 +401,17 @@ describe("DownloaderManager - Priority-based Fallback", () => {
     expect(result.attemptedDownloaders).toEqual([]);
   });
 
-  it("should handle downloader returning duplicate error and fallback to next", async () => {
+  it("should handle downloader returning duplicate as success and stop fallback", async () => {
+    // Create two downloaders
     const downloader1: Downloader = {
       id: "downloader-1",
       name: "Primary Downloader",
       type: "transmission",
-      url: "http://localhost:9091/transmission/rpc",
-      username: null,
-      password: null,
+      url: "http://localhost:9091",
+      username: "admin",
+      password: "password",
       enabled: true,
       priority: 1,
-      downloadPath: null,
-      category: "games",
-      settings: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -422,19 +420,16 @@ describe("DownloaderManager - Priority-based Fallback", () => {
       id: "downloader-2",
       name: "Fallback Downloader",
       type: "transmission",
-      url: "http://localhost:9092/transmission/rpc",
-      username: null,
-      password: null,
+      url: "http://localhost:9092",
+      username: "admin",
+      password: "password",
       enabled: true,
       priority: 2,
-      downloadPath: null,
-      category: "games",
-      settings: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
 
-    // Mock duplicate response for first downloader
+    // Mock session ID response for first downloader
     const headers1 = new Headers();
     headers1.set("X-Transmission-Session-Id", "session-123");
     const response409_1 = {
@@ -445,6 +440,7 @@ describe("DownloaderManager - Priority-based Fallback", () => {
       json: async () => ({}),
     };
 
+    // Mock duplicate response for first downloader (now treated as success)
     const duplicateResponse = {
       ok: true,
       status: 200,
@@ -462,39 +458,9 @@ describe("DownloaderManager - Priority-based Fallback", () => {
       }),
     };
 
-    // Mock successful response for second downloader
-    const headers2 = new Headers();
-    headers2.set("X-Transmission-Session-Id", "session-456");
-    const response409_2 = {
-      ok: false,
-      status: 409,
-      statusText: "Conflict",
-      headers: headers2,
-      json: async () => ({}),
-    };
-
-    const successResponse = {
-      ok: true,
-      status: 200,
-      statusText: "OK",
-      headers: new Headers(),
-      json: async () => ({
-        arguments: {
-          "torrent-added": {
-            id: 200,
-            name: "Test Game.torrent",
-            hashString: "abc1234567890123456789012345678901234567",
-          },
-        },
-        result: "success",
-      }),
-    };
-
     fetchMock
       .mockResolvedValueOnce(response409_1) // First downloader 409
-      .mockResolvedValueOnce(duplicateResponse) // First downloader duplicate
-      .mockResolvedValueOnce(response409_2) // Second downloader 409
-      .mockResolvedValueOnce(successResponse); // Second downloader success
+      .mockResolvedValueOnce(duplicateResponse); // First downloader duplicate (success)
 
     const { DownloaderManager } = await import("../downloaders.js");
 
@@ -504,9 +470,9 @@ describe("DownloaderManager - Priority-based Fallback", () => {
     });
 
     expect(result.success).toBe(true);
-    expect(result.downloaderId).toBe("downloader-2");
-    expect(result.downloaderName).toBe("Fallback Downloader");
-    expect(result.attemptedDownloaders).toEqual(["Primary Downloader", "Fallback Downloader"]);
+    expect(result.downloaderId).toBe("downloader-1");
+    expect(result.downloaderName).toBe("Primary Downloader");
+    expect(result.attemptedDownloaders).toEqual(["Primary Downloader"]);
   });
 });
 
@@ -1140,7 +1106,7 @@ describe("QBittorrentClient - Web API v2", () => {
     expect(result.message).toBe("Torrent added successfully");
   });
 
-  it("should handle duplicate torrent error", async () => {
+  it("should handle duplicate torrent as success", async () => {
     const testDownloader: Downloader = {
       id: "qbittorrent-id",
       name: "Test qBittorrent",
@@ -1174,8 +1140,8 @@ describe("QBittorrentClient - Web API v2", () => {
       title: "Test Game",
     });
 
-    expect(result.success).toBe(false);
-    expect(result.message).toBe("Torrent already exists or invalid torrent");
+    expect(result.success).toBe(true);
+    expect(result.message).toBe("Torrent already exists or invalid torrent (qBittorrent)");
   });
 
   it("should get all torrents with correct status mapping", async () => {

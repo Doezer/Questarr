@@ -13,8 +13,6 @@ import {
   Gamepad2,
   Tag,
   Download,
-  CheckCircle,
-  Eye,
   X,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -65,10 +63,6 @@ export default function GameDetailsModal({
 
   if (!game) return null;
 
-  const handleStatusChange = (newStatus: GameStatus) => {
-    onStatusChange?.(game.id, newStatus);
-  };
-
   const handleRemoveGame = () => {
     removeGameMutation.mutate(game.id);
   };
@@ -76,28 +70,6 @@ export default function GameDetailsModal({
   const handleDownloadClick = () => {
     setDownloadOpen(true);
   };
-
-  const statusActions = [
-    { status: "wanted" as const, icon: Eye, label: "Want to Play", variant: "secondary" as const },
-    {
-      status: "owned" as const,
-      icon: Download,
-      label: "Mark as Owned",
-      variant: "secondary" as const,
-    },
-    {
-      status: "downloading" as const,
-      icon: Download,
-      label: "Downloading",
-      variant: "secondary" as const,
-    },
-    {
-      status: "completed" as const,
-      icon: CheckCircle,
-      label: "Mark Completed",
-      variant: "secondary" as const,
-    },
-  ];
 
   return (
     <>
@@ -283,29 +255,6 @@ export default function GameDetailsModal({
                   </div>
                 </div>
               )}
-
-              <Separator />
-
-              {/* Status Actions */}
-              <div>
-                <h3 className="font-semibold mb-3">Manage Status</h3>
-                <div className="flex flex-wrap gap-2">
-                  {statusActions.map((action) => (
-                    <Button
-                      key={action.status}
-                      variant={game.status === action.status ? "default" : action.variant}
-                      size="sm"
-                      onClick={() => handleStatusChange(action.status)}
-                      disabled={game.status === action.status}
-                      className="gap-2"
-                      data-testid={`button-status-${action.status}`}
-                    >
-                      <action.icon className="w-4 h-4" />
-                      {action.label}
-                    </Button>
-                  ))}
-                </div>
-              </div>
             </div>
           </ScrollArea>
         </DialogContent>

@@ -15,6 +15,13 @@
       "when": 1767548728240,
       "tag": "0001_adorable_silvermane",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1767717661322,
+      "tag": "0002_broken_naoko",
+      "breakpoints": true
     }
   ]
 }

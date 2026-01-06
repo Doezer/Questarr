@@ -1,4 +1,3 @@
-// src/lib/versionService.ts
 import { useEffect, useState } from "react";
 
 export async function fetchLatestQuestarrVersion(): Promise<string | null> {

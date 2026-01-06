@@ -346,9 +346,20 @@ export const sanitizeDownloaderUpdateData = [
     .withMessage("Label must be at most 100 characters"),
 ];
 
-// Sanitization rules for torrent add requests
-export const sanitizeTorrentData = [
-  body("url").trim().isURL().withMessage("Invalid torrent URL"),
+// Sanitization rules for download add requests
+export const sanitizeDownloadData = [
+  body("url")
+    .trim()
+    .custom((value) => {
+      // Allow standard URLs and localhost/internal URLs
+      try {
+        const url = new URL(value);
+        return ["http:", "https:", "magnet:"].includes(url.protocol);
+      } catch {
+        return false;
+      }
+    })
+    .withMessage("Invalid download URL"),
   body("title")
     .trim()
     .isLength({ min: 1, max: 500 })

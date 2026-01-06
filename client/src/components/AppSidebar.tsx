@@ -26,18 +26,7 @@ import { type Game, type DownloadStatus } from "@shared/schema";
 import { FaGithub } from "react-icons/fa";
 import pkg from "../../../package.json";
 import { FaArrowUp } from "react-icons/fa";
-import { useEffect, useState } from "react";
-// Helper to fetch latest version from GitHub main branch
-function useLatestVersion() {
-  const [latest, setLatest] = useState<string | null>(null);
-  useEffect(() => {
-    fetch("https://raw.githubusercontent.com/Doezer/Questarr/main/package.json")
-      .then((res) => res.json())
-      .then((data) => setLatest(data.version))
-      .catch(() => setLatest(null));
-  }, []);
-  return latest;
-}
+import { useLatestQuestarrVersion } from "@/lib/versionService";
 
 const staticNavigation = [
   {
@@ -96,7 +85,7 @@ interface AppSidebarProps {
 }
 
 export default function AppSidebar({ activeItem = "/", onNavigate }: AppSidebarProps) {
-  const latestVersion = useLatestVersion();
+  const latestVersion = useLatestQuestarrVersion();
   const handleNavigation = (url: string) => {
     console.warn(`Navigation triggered: ${url}`);
     onNavigate?.(url);

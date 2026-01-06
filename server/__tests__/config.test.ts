@@ -23,24 +23,12 @@ describe("Config Module", () => {
   });
 
   describe("when DATABASE_URL is missing", () => {
-    it("should call process.exit(1) and log error message", async () => {
-      // Mock process.exit to prevent tests from exiting, but throw to stop execution
-      const mockProcessExit = vi.spyOn(process, "exit").mockImplementation((code) => {
-        throw new Error(`process.exit called with code ${code}`);
-      });
-
-      // Spy on console.error to verify error message
-      const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-
-      // Import the config module - this should trigger validation and throw
-      await expect(import("../config.js")).rejects.toThrow("process.exit called with code 1");
-
-      expect(mockProcessExit).toHaveBeenCalledWith(1);
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Invalid environment configuration")
-      );
-
-      consoleErrorSpy.mockRestore();
+    it("should use default fallback database URL if DATABASE_URL is missing", async () => {
+      // Import the config module - should not throw, should use default URL
+      const { config } = await import("../config.js");
+      expect(config.database.url).toBe("postgresql://postgres:password@localhost:5432/questarr");
+      expect(config.server.port).toBe(5000);
+      expect(config.server.host).toBe("0.0.0.0");
     });
   });
 

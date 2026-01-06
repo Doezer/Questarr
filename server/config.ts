@@ -6,9 +6,12 @@ import { z } from "zod";
  */
 const envSchema = z.object({
   // Database configuration
-  DATABASE_URL: z
-    .string()
-    .min(1, "DATABASE_URL must be set. Did you forget to provision a database?"),
+  DATABASE_URL: z.string().optional(),
+  POSTGRES_USER: z.string().default("postgres"),
+  POSTGRES_PASSWORD: z.string().default("password"),
+  POSTGRES_HOST: z.string().default("localhost"),
+  POSTGRES_PORT: z.string().default("5432"),
+  POSTGRES_DB: z.string().default("questarr"),
 
   // JWT configuration
   JWT_SECRET: z.string().default("questarr-default-secret-change-me"),
@@ -53,12 +56,17 @@ function validateEnv() {
 // Validate and export typed configuration
 const env = validateEnv();
 
+// Construct database URL if not provided
+const databaseUrl =
+  env.DATABASE_URL ||
+  `postgresql://${env.POSTGRES_USER}:${env.POSTGRES_PASSWORD}@${env.POSTGRES_HOST}:${env.POSTGRES_PORT}/${env.POSTGRES_DB}`;
+
 /**
  * Typed configuration object for the application.
  */
 export const config = {
   database: {
-    url: env.DATABASE_URL,
+    url: databaseUrl,
   },
   auth: {
     jwtSecret: env.JWT_SECRET,

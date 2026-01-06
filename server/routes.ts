@@ -1469,6 +1469,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Download each torrent and add to archive
         for (const torrent of torrents) {
           try {
+            // 🛡️ Sentinel: Validate URL to prevent SSRF
+            if (!(await isSafeUrl(torrent.link))) {
+              routesLogger.warn({ torrent: torrent.title, url: torrent.link }, "blocked unsafe URL");
+              continue;
+            }
+
             const response = await fetch(torrent.link);
             if (response.ok) {
               const buffer = await response.arrayBuffer();

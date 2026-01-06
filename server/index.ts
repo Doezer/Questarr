@@ -9,8 +9,35 @@ import { expressLogger } from "./logger.js";
 import { startCronJobs } from "./cron.js";
 import { setupSocketIO } from "./socket.js";
 import { ensureDatabase } from "./migrate.js";
+import helmet from "helmet";
 
 const app = express();
+
+// 🛡️ Sentinel: Add security headers using Helmet.
+// This sets CSP, HSTS, X-Frame-Options, X-XSS-Protection, etc.
+// We configure CSP to allow scripts from self and other necessary sources if needed,
+// but for now we start with defaults and adjust if it breaks React/Vite.
+// Note: Vite dev mode often needs 'unsafe-eval' or 'unsafe-inline' for HMR.
+// In production, we should be stricter.
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"], // Needed for Vite/React
+        styleSrc: ["'self'", "'unsafe-inline'"], // Needed for Tailwind/CSS-in-JS
+        imgSrc: ["'self'", "data:", "https:", "http:"], // Allow images from external sources (IGDB, etc.)
+        connectSrc: ["'self'", "ws:", "wss:", "http:", "https:"], // Allow WebSocket and external API calls
+        fontSrc: ["'self'", "data:", "https:", "http:"],
+        objectSrc: ["'none'"],
+        mediaSrc: ["'self'"],
+        frameSrc: ["'self'"],
+      },
+    },
+    crossOriginEmbedderPolicy: false, // Often causes issues with loading resources
+  })
+);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 

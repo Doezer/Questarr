@@ -89,22 +89,6 @@ interface QBittorrentTorrent {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type XMLValue = any;
 
-/**
- * Extract torrent info hash from a magnet URI.
- * Standardizes to lowercase as per BitTorrent specification (case-insensitive hex encoding).
- *
- * @param url - The magnet URI or torrent URL
- * @returns The info hash in lowercase, or null if not found
- */
-function extractHashFromUrl(url: string): string | null {
-  // Extract hash from magnet link - supports both hex (40 chars) and base32 (32 chars) formats
-  const magnetMatch = url.match(/xt=urn:btih:([a-fA-F0-9]{40}|[a-zA-Z2-7]{32})/i);
-  if (magnetMatch) {
-    return magnetMatch[1].toLowerCase();
-  }
-  return null;
-}
-
 interface DownloadRequest {
   url: string;
   title: string;
@@ -126,6 +110,22 @@ interface DownloaderClient {
   resumeDownload(id: string): Promise<{ success: boolean; message: string }>;
   removeDownload(id: string, deleteFiles?: boolean): Promise<{ success: boolean; message: string }>;
   getFreeSpace(): Promise<number>;
+}
+
+/**
+ * Extract torrent info hash from a magnet URI.
+ * Standardizes to lowercase as per BitTorrent specification (case-insensitive hex encoding).
+ *
+ * @param url - The magnet URI or torrent URL
+ * @returns The info hash in lowercase, or null if not found
+ */
+function extractHashFromUrl(url: string): string | null {
+  // Extract hash from magnet link - supports both hex (40 chars) and base32 (32 chars) formats
+  const magnetMatch = url.match(/xt=urn:btih:([a-fA-F0-9]{40}|[a-zA-Z2-7]{32})/i);
+  if (magnetMatch) {
+    return magnetMatch[1].toLowerCase();
+  }
+  return null;
 }
 
 class TransmissionClient implements DownloaderClient {
@@ -184,8 +184,7 @@ class TransmissionClient implements DownloaderClient {
     request: DownloadRequest
   ): Promise<{ success: boolean; id?: string; message: string }> {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const args: any = {};
+      const args: Record<string, unknown> = {};
 
       // Check if it's a magnet link or a URL that needs downloading
       const isMagnet = request.url.startsWith("magnet:");
@@ -3096,6 +3095,7 @@ class NZBGetClient implements DownloaderClient {
     return "";
   }
 
+<<<<<<< HEAD
   private parseValueObj(valueObj: unknown): unknown {
     if (typeof valueObj !== "object" || valueObj === null) {
       return valueObj;

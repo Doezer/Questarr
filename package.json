@@ -66,6 +66,7 @@
     "express-validator": "^7.3.1",
     "fast-xml-parser": "^5.3.3",
     "framer-motion": "^11.18.2",
+    "helmet": "^8.1.0",
     "input-otp": "^1.4.2",
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^0.554.0",

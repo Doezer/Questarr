@@ -475,48 +475,21 @@ export default function DownloadersPage() {
                   name="url"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>
-                        {form.watch("type") === "rtorrent" ||
-                        form.watch("type") === "qbittorrent" ||
-                        form.watch("type") === "transmission"
-                          ? "Host"
-                          : "URL"}
-                      </FormLabel>
+                      <FormLabel>Host</FormLabel>
                       <FormControl>
                         <Input
-                          placeholder={
-                            form.watch("type") === "rtorrent"
-                              ? "localhost or 192.168.1.100"
-                              : form.watch("type") === "qbittorrent"
-                                ? "localhost or 192.168.1.100"
-                                : form.watch("type") === "transmission"
-                                  ? "localhost or 192.168.1.100"
-                                  : form.watch("type") === "sabnzbd"
-                                    ? "http://localhost:8080"
-                                    : form.watch("type") === "nzbget"
-                                      ? "http://localhost:6789"
-                                      : "http://localhost:9091/transmission/rpc"
-                          }
+                          placeholder="http://localhost or https://192.168.1.100"
                           {...field}
                           data-testid="input-downloader-url"
                         />
                       </FormControl>
-                      {(form.watch("type") === "rtorrent" ||
-                        form.watch("type") === "qbittorrent" ||
-                        form.watch("type") === "transmission") && (
-                        <FormDescription className="text-xs">
-                          Enter hostname or IP address without protocol or port
-                        </FormDescription>
-                      )}
                       <FormMessage />
                     </FormItem>
                   )}
                 />
-                {(form.watch("type") === "rtorrent" ||
-                  form.watch("type") === "qbittorrent" ||
-                  form.watch("type") === "transmission") && (
-                  <>
-                    <FormField
+
+                <>
+                  <FormField
                       control={form.control}
                       name="port"
                       render={({ field }) => (
@@ -530,7 +503,11 @@ export default function DownloadersPage() {
                                   ? "8080"
                                   : form.watch("type") === "transmission"
                                     ? "9091"
-                                    : "80 or 443"
+                                    : form.watch("type") === "sabnzbd"
+                                      ? "8080"
+                                      : form.watch("type") === "nzbget"
+                                        ? "6789"
+                                        : "80 or 443"
                               }
                               {...field}
                               value={field.value || ""}
@@ -546,33 +523,36 @@ export default function DownloadersPage() {
                         </FormItem>
                       )}
                     />
-                    {form.watch("type") !== "transmission" && (
-                      <FormField
-                        control={form.control}
-                        name="useSsl"
-                        render={({ field }) => (
-                          <FormItem className="flex flex-row items-center justify-between rounded-lg border p-2">
-                            <div className="space-y-0">
-                              <FormLabel className="text-sm">Use SSL</FormLabel>
-                              <FormDescription className="text-xs">
-                                {form.watch("type") === "qbittorrent"
-                                  ? "See Options -> Web UI -> 'Use HTTPS instead of HTTP' in qBittorrent"
-                                  : "Enable HTTPS"}
-                              </FormDescription>
-                            </div>
-                            <FormControl>
-                              <Checkbox
-                                checked={!!field.value}
-                                onCheckedChange={field.onChange}
-                                data-testid="checkbox-downloader-usessl"
-                              />
-                            </FormControl>
-                          </FormItem>
-                        )}
-                      />
-                    )}
-                  </>
-                )}
+                    <FormField
+                      control={form.control}
+                      name="useSsl"
+                      render={({ field }) => (
+                        <FormItem className="flex flex-row items-center justify-between rounded-lg border p-2">
+                          <div className="space-y-0">
+                            <FormLabel className="text-sm">Use SSL</FormLabel>
+                            <FormDescription className="text-xs">
+                              {form.watch("type") === "qbittorrent"
+                                ? "See Options → Web UI → 'Use HTTPS instead of HTTP' in qBittorrent"
+                                : form.watch("type") === "transmission"
+                                  ? "Enable HTTPS (see Settings → Web in Transmission)"
+                                  : form.watch("type") === "sabnzbd"
+                                    ? "Enable HTTPS in SABnzbd (Config → General)"
+                                    : form.watch("type") === "nzbget"
+                                      ? "Enable HTTPS in NZBGet (Settings → Security)"
+                                      : "Enable HTTPS"}
+                            </FormDescription>
+                          </div>
+                          <FormControl>
+                            <Checkbox
+                              checked={!!field.value}
+                              onCheckedChange={field.onChange}
+                              data-testid="checkbox-downloader-usessl"
+                            />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                </>
                 {form.watch("type") === "rtorrent" && (
                   <FormField
                     control={form.control}

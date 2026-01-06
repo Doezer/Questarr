@@ -87,6 +87,8 @@ interface AppSidebarProps {
 
 export default function AppSidebar({ activeItem = "/", onNavigate }: AppSidebarProps) {
   const latestVersion = useLatestQuestarrVersion();
+  const hasNewerVersion = latestVersion && semver.valid(latestVersion) && semver.gt(latestVersion, pkg.version);
+
   const handleNavigation = (url: string) => {
     console.warn(`Navigation triggered: ${url}`);
     onNavigate?.(url);
@@ -202,20 +204,16 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: AppSidebarP
             target="_blank"
             rel="noopener noreferrer"
             aria-label="View on GitHub"
-            className={
-              latestVersion && semver.valid(latestVersion) && semver.gt(latestVersion, pkg.version)
-                ? "flex items-center gap-1 text-emerald-400 hover:text-emerald-500 transition-colors font-semibold"
-                : "flex items-center gap-1 text-gray-400 hover:text-blue-500 transition-colors"
-            }
+            className="flex items-center gap-1 text-gray-400 hover:opacity-80 transition-colors"
           >
             <span className="flex flex-col justify-center items-center">
               <FaGithub size={16} />
               <span className="flex items-center gap-1">
                 <span>Questarr v.{pkg.version}</span>
-                {latestVersion && semver.valid(latestVersion) && semver.gt(latestVersion, pkg.version) && (
-                  <span className="ml-1 text-emerald-500/70">v{latestVersion} <FaArrowUp className="inline" size={12} /></span>
-                )}
               </span>
+              {hasNewerVersion && (
+                <span className="ml-1 text-emerald-500/70">v{latestVersion} <FaArrowUp className="inline" size={12} /></span>
+              )}
             </span>
           </a>
         </div>

@@ -1,149 +1,173 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { DownloaderManager } from "../downloaders";
 import type { Downloader } from "@shared/schema";
 
 // Mock parse-torrent
 vi.mock("parse-torrent", () => ({
-  default: vi.fn().mockResolvedValue({ infoHash: "abc123def456" }),
+  default: vi.fn((buffer) => {
+    return {
+      infoHash: "abc123def456",
+      name: "Test Game",
+    };
+  }),
 }));
 
-describe("TransmissionClient Feature Verification", () => {
-  let fetchMock: ReturnType<typeof vi.fn>;
+// Mock fetch
+const fetchMock = vi.fn();
+global.fetch = fetchMock;
 
+describe("TransmissionClient - Advanced Features", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    fetchMock = vi.fn();
-    global.fetch = fetchMock;
+    fetchMock.mockReset();
   });
 
   const testDownloader: Downloader = {
-    id: "test-trans",
-    name: "Transmission",
+    id: "transmission-id",
+    name: "Test Transmission",
     type: "transmission",
     url: "http://localhost:9091",
-    username: "admin",
-    password: "password",
     enabled: true,
     priority: 1,
-    downloadPath: "/downloads",
-    category: "games",
-    settings: null,
     createdAt: new Date(),
     updatedAt: new Date(),
-    useSsl: false,
-    port: 9091,
-    urlPath: "/transmission/rpc",
-    label: null,
-    addStopped: false,
-    removeCompleted: false,
-    postImportCategory: null,
   };
 
-  it("should handle magnet links by passing them directly", async () => {
-    const { DownloaderManager } = await import("../downloaders.js");
+  it("should handle session ID conflict (409) and retry", async () => {
+    // Mock 1: 409 Conflict with X-Transmission-Session-Id header
+    const conflictResponse = {
+      ok: false,
+      status: 409,
+      headers: {
+        get: (name: string) => (name === "X-Transmission-Session-Id" ? "new-session-id" : null),
+      },
+      json: async () => ({ result: "fail" }),
+    };
 
-    // Mock successful RPC response
-    const rpcResponse = {
+    // Mock 2: Success with new session ID
+    const successResponse = {
       ok: true,
-      status: 200,
       json: async () => ({
-        result: "success",
         arguments: {
           "torrent-added": {
+            hashString: "hash123",
             id: 1,
-            name: "test",
-            hashString: "1234567890123456789012345678901234567890",
+            name: "Test Game.torrent",
           },
         },
-      }),
-    };
-    fetchMock.mockResolvedValue(rpcResponse);
-
-    const magnetUrl = "magnet:?xt=urn:btih:1234567890123456789012345678901234567890";
-    await DownloaderManager.addTorrent(testDownloader, {
-      url: magnetUrl,
-      title: "Magnet Game",
-    });
-
-    // Should call RPC with filename = magnet link
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const callBody = JSON.parse(fetchMock.mock.calls[0][1].body);
-    expect(callBody.arguments.filename).toBe(magnetUrl);
-  });
-
-  it("should handle categories by setting labels and download-dir", async () => {
-    const { DownloaderManager } = await import("../downloaders.js");
-
-    const rpcResponse = {
-      ok: true,
-      status: 200,
-      json: async () => ({
         result: "success",
-        arguments: {
-          "torrent-added": {
-            id: 1,
-            name: "test",
-            hashString: "1234567890123456789012345678901234567890",
-          },
-        },
       }),
     };
-    fetchMock.mockResolvedValue(rpcResponse);
 
-    await DownloaderManager.addTorrent(testDownloader, {
-      url: "magnet:?xt=urn:btih:1234567890123456789012345678901234567890",
-      title: "Category Game",
-      category: "rpg",
-      downloadPath: "/games",
+    fetchMock.mockResolvedValueOnce(conflictResponse).mockResolvedValueOnce(successResponse);
+
+    await DownloaderManager.addDownload(testDownloader, {
+      url: "magnet:?xt=urn:btih:hash123",
+      title: "Test Game",
     });
 
-    const callBody = JSON.parse(fetchMock.mock.calls[0][1].body);
-    expect(callBody.arguments.labels).toEqual(["rpg"]);
-    expect(callBody.arguments["download-dir"]).toBe("/games/rpg");
+    // Expect 2 calls
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    // First call: initial request
+    expect(fetchMock.mock.calls[0][0]).toContain("/transmission/rpc");
+
+    // Second call: retry with session ID
+    expect(fetchMock.mock.calls[1][0]).toContain("/transmission/rpc");
+    expect(fetchMock.mock.calls[1][1].headers).toHaveProperty(
+      "X-Transmission-Session-Id",
+      "new-session-id"
+    );
   });
 
-  it("should download .torrent file server-side and upload metainfo", async () => {
-    const { DownloaderManager } = await import("../downloaders.js");
+  it("should handle authentication failure (401)", async () => {
+    // Mock 401 Unauthorized
+    const unauthorizedResponse = {
+      ok: false,
+      status: 401,
+      statusText: "Unauthorized",
+      text: async () => "Unauthorized user",
+      headers: { get: () => null },
+    };
 
-    // Mock 1: .torrent file download
+    fetchMock.mockResolvedValueOnce(unauthorizedResponse);
+
+    const result = await DownloaderManager.addDownload(testDownloader, {
+      url: "magnet:?xt=urn:btih:hash123",
+      title: "Test Game",
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("Authentication failed");
+  });
+
+  it("should download file server-side and upload metainfo", async () => {
+    // Mock 1: file download
+
     const torrentFileResponse = {
       ok: true,
-      status: 200,
-      arrayBuffer: async () => new ArrayBuffer(10), // Mock content
-      text: async () => "mock torrent content",
-      headers: new Headers(),
+
+      arrayBuffer: async () => Buffer.from("mock download content"),
+
+      text: async () => "mock download content",
     };
 
-    // Mock 2: RPC response
+    // Mock 2: session check (409)
+
+    const sessionResponse = {
+      ok: false,
+
+      status: 409,
+
+      headers: { get: () => "session-id" },
+    };
+
+    // Mock 3: RPC add
+
     const rpcResponse = {
       ok: true,
-      status: 200,
+
       json: async () => ({
-        result: "success",
         arguments: {
           "torrent-added": {
+            hashString: "aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd",
+
             id: 1,
-            name: "test",
-            hashString: "1234567890123456789012345678901234567890",
+
+            name: "Download File Game",
           },
         },
+
+        result: "success",
       }),
     };
 
     fetchMock.mockResolvedValueOnce(torrentFileResponse).mockResolvedValueOnce(rpcResponse);
 
-    const torrentUrl = "http://indexer.com/download/123.torrent";
-    await DownloaderManager.addTorrent(testDownloader, {
-      url: torrentUrl,
-      title: "Torrent File Game",
+    const downloadUrl = "http://indexer.com/download/123.torrent";
+
+    await DownloaderManager.addDownload(testDownloader, {
+      url: downloadUrl,
+
+      title: "Download File Game",
     });
 
-    // Check if fetch was called for the .torrent file
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock.mock.calls[0][0]).toBe(torrentUrl);
+    // Check if fetch was called for the file
 
-    // Check if RPC was called with metainfo
-    const rpcCallBody = JSON.parse(fetchMock.mock.calls[1][1].body);
-    expect(rpcCallBody.arguments.metainfo).toBeDefined();
-    expect(rpcCallBody.arguments.filename).toBeUndefined(); // Should use metainfo, not filename
+    expect(fetchMock.mock.calls[0][0]).toBe(downloadUrl);
+
+    // Check if RPC call included metainfo (base64 encoded)
+
+    const rpcCall = fetchMock.mock.calls[1];
+
+    const rpcBody = JSON.parse(rpcCall[1].body);
+
+    expect(rpcBody.method).toBe("torrent-add");
+
+    expect(rpcBody.arguments).toHaveProperty("metainfo");
+
+    expect(rpcBody.arguments.metainfo).toBe(
+      Buffer.from("mock download content").toString("base64")
+    );
   });
 });

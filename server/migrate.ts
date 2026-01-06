@@ -110,9 +110,9 @@ export async function runMigrations(): Promise<void> {
       const path = await import("path");
       const fs = await import("fs");
       const migrationsFolder = path.resolve(process.cwd(), "migrations");
-      
+
       logger.info(`Using migrations folder: ${migrationsFolder}`);
-      
+
       if (!fs.existsSync(migrationsFolder)) {
         throw new Error(`Migrations folder not found at: ${migrationsFolder}`);
       }
@@ -175,14 +175,16 @@ export async function ensureDatabase(): Promise<void> {
 
       if (isLastAttempt) {
         logger.error({ err: error }, "Database check failed after multiple attempts");
-        throw new Error(`Failed to connect to database after ${maxRetries} attempts. Last error: ${errorMessage} (${errorCode})`);
+        throw new Error(
+          `Failed to connect to database after ${maxRetries} attempts. Last error: ${errorMessage} (${errorCode})`
+        );
       }
 
       logger.warn(
         { err: error },
         `Database connection failed (attempt ${attempt}/${maxRetries}). Retrying in ${retryDelay}ms...`
       );
-      
+
       // Wait before retrying
       await new Promise((resolve) => setTimeout(resolve, retryDelay));
     }

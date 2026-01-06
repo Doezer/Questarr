@@ -31,7 +31,7 @@ export const userSettings = pgTable("user_settings", {
     .unique(),
   autoSearchEnabled: boolean("auto_search_enabled").notNull().default(true),
   autoDownloadEnabled: boolean("auto_download_enabled").notNull().default(false),
-  notifyMultipleTorrents: boolean("notify_multiple_torrents").notNull().default(true),
+  notifyMultipleDownloads: boolean("notify_multiple_downloads").notNull().default(true),
   notifyUpdates: boolean("notify_updates").notNull().default(true),
   searchIntervalHours: integer("search_interval_hours").notNull().default(6),
   igdbRateLimitPerSecond: integer("igdb_rate_limit_per_second").notNull().default(3),
@@ -116,7 +116,7 @@ export const downloaders = pgTable("downloaders", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-// Track downloads (torrents and NZBs) associated with games for completion monitoring
+// Track downloads associated with games for completion monitoring
 export const gameDownloads = pgTable("game_downloads", {
   id: varchar("id")
     .primaryKey()
@@ -140,7 +140,7 @@ export const gameDownloads = pgTable("game_downloads", {
 });
 
 // Legacy table name for backward compatibility during migration
-export const gameTorrents = gameDownloads;
+export const legacy_gameDownloads = gameDownloads;
 
 export const notifications = pgTable("notifications", {
   id: varchar("id")
@@ -213,7 +213,7 @@ export const insertGameDownloadSchema = createInsertSchema(gameDownloads).omit({
 });
 
 // Legacy schema name for backward compatibility
-export const insertGameTorrentSchema = insertGameDownloadSchema;
+export const insertGameDownloadLegacySchema = insertGameDownloadSchema;
 
 export const insertNotificationSchema = createInsertSchema(notifications).omit({
   id: true,
@@ -258,8 +258,8 @@ export type GameDownload = typeof gameDownloads.$inferSelect;
 export type InsertGameDownload = z.infer<typeof insertGameDownloadSchema>;
 
 // Legacy type names for backward compatibility
-export type GameTorrent = GameDownload;
-export type InsertGameTorrent = InsertGameDownload;
+export type GameDownloadLegacy = GameDownload;
+export type InsertGameDownloadLegacy = InsertGameDownload;
 
 export type Notification = typeof notifications.$inferSelect;
 export type InsertNotification = z.infer<typeof insertNotificationSchema>;
@@ -275,8 +275,8 @@ export interface Config {
   };
 }
 
-// Torrent-related types shared between frontend and backend
-export interface TorrentFile {
+// Download-related types shared between frontend and backend
+export interface DownloadFile {
   name: string;
   size: number;
   progress: number; // 0-100
@@ -284,7 +284,7 @@ export interface TorrentFile {
   wanted: boolean;
 }
 
-export interface TorrentTracker {
+export interface DownloadTracker {
   url: string;
   tier: number;
   status: "working" | "updating" | "error" | "inactive";
@@ -306,7 +306,7 @@ export interface DownloadStatus {
   eta?: number; // seconds
   size?: number; // total bytes
   downloaded?: number; // bytes downloaded
-  // Torrent-specific fields
+  // Protocol-specific fields
   seeders?: number;
   leechers?: number;
   ratio?: number;
@@ -319,15 +319,40 @@ export interface DownloadStatus {
   category?: string;
 }
 
-export interface TorrentDetails extends DownloadStatus {
+export interface DownloadDetails extends DownloadStatus {
   hash?: string;
   addedDate?: string;
   completedDate?: string;
   downloadDir?: string;
   comment?: string;
   creator?: string;
-  files: TorrentFile[];
-  trackers: TorrentTracker[];
+  files: DownloadFile[];
+  trackers: DownloadTracker[];
   totalPeers?: number;
   connectedPeers?: number;
+}
+
+export interface SearchResultItem {
+  title: string;
+  link: string;
+  pubDate: string;
+  description?: string;
+  category?: string;
+  size?: number;
+  seeders?: number;
+  leechers?: number;
+  downloadVolumeFactor?: number;
+  uploadVolumeFactor?: number;
+  guid?: string;
+  comments?: string;
+  attributes?: { [key: string]: string };
+  indexerId?: string;
+  indexerName?: string;
+}
+
+export interface SearchResult {
+  items: SearchResultItem[];
+  total?: number;
+  offset?: number;
+  errors?: string[];
 }

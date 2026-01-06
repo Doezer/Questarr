@@ -36,7 +36,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
 
-interface TorrentItem {
+interface DownloadItem {
   title: string;
   link: string;
   pubDate: string;
@@ -57,7 +57,7 @@ interface TorrentItem {
 }
 
 interface SearchResult {
-  items: TorrentItem[];
+  items: DownloadItem[];
   total: number;
   offset: number;
   errors?: string[];
@@ -91,7 +91,7 @@ export default function SearchPage() {
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
   const debouncedSearchQuery = useDebounce(searchQuery, 500);
-  const [selectedTorrent, setSelectedTorrent] = useState<TorrentItem | null>(null);
+  const [selectedDownload, setSelectedDownload] = useState<DownloadItem | null>(null);
   const [isDownloadDialogOpen, setIsDownloadDialogOpen] = useState(false);
   const lastSearchQueryRef = useRef("");
 
@@ -154,22 +154,22 @@ export default function SearchPage() {
   });
 
   const downloadMutation = useMutation({
-    mutationFn: async (data: { torrent: TorrentItem; formData: DownloadForm }) => {
+    mutationFn: async (data: { download: DownloadItem; formData: DownloadForm }) => {
       const token = localStorage.getItem("token");
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (token) {
         headers["Authorization"] = `Bearer ${token}`;
       }
-      const response = await fetch(`/api/downloaders/${data.formData.downloaderId}/torrents`, {
+      const response = await fetch(`/api/downloaders/${data.formData.downloaderId}/downloads`, {
         method: "POST",
         headers,
         body: JSON.stringify({
-          url: data.torrent.link,
-          title: data.torrent.title,
+          url: data.download.link,
+          title: data.download.title,
           category: data.formData.category || undefined,
           downloadPath: data.formData.downloadPath,
           priority: data.formData.priority,
-          downloadType: isUsenetItem(data.torrent) ? "usenet" : "torrent",
+          downloadType: isUsenetItem(data.download) ? "usenet" : "torrent",
         }),
       });
       if (!response.ok) throw new Error("Failed to add download");
@@ -179,7 +179,7 @@ export default function SearchPage() {
       if (result.success) {
         toast({ title: "Download started successfully" });
         setIsDownloadDialogOpen(false);
-        setSelectedTorrent(null);
+        setSelectedDownload(null);
         // Refresh downloads
         queryClient.invalidateQueries({ queryKey: ["/api/downloads"] });
       } else {
@@ -206,8 +206,8 @@ export default function SearchPage() {
     // Query will automatically trigger due to the enabled condition
   };
 
-  const handleDownload = (torrent: TorrentItem) => {
-    const isUsenet = isUsenetItem(torrent);
+  const handleDownload = (download: DownloadItem) => {
+    const isUsenet = isUsenetItem(download);
     const compatibleDownloaders = downloaders.filter((d) =>
       isUsenet
         ? ["sabnzbd", "nzbget"].includes(d.type)
@@ -223,7 +223,7 @@ export default function SearchPage() {
       return;
     }
 
-    setSelectedTorrent(torrent);
+    setSelectedDownload(download);
     form.reset({
       downloaderId: compatibleDownloaders[0]?.id || "",
       category: "",
@@ -234,15 +234,15 @@ export default function SearchPage() {
   };
 
   const onSubmitDownload = (data: DownloadForm) => {
-    if (selectedTorrent) {
-      downloadMutation.mutate({ torrent: selectedTorrent, formData: data });
+    if (selectedDownload) {
+      downloadMutation.mutate({ download: selectedDownload, formData: data });
     }
   };
 
   // Filter downloaders for the dialog dropdown
-  const filteredDownloaders = selectedTorrent
+  const filteredDownloaders = selectedDownload
     ? downloaders.filter((d) =>
-        isUsenetItem(selectedTorrent)
+        isUsenetItem(selectedDownload)
           ? ["sabnzbd", "nzbget"].includes(d.type)
           : ["transmission", "rtorrent", "qbittorrent"].includes(d.type)
       )
@@ -342,8 +342,8 @@ export default function SearchPage() {
               <div className="w-[40px] text-right">Action</div>
             </div>
             {sortedItems.length > 0 ? (
-              sortedItems.map((torrent, index) => {
-                const isUsenet = isUsenetItem(torrent);
+              sortedItems.map((download, index) => {
+                const isUsenet = isUsenetItem(download);
                 return (
                   <div
                     key={index}
@@ -352,8 +352,8 @@ export default function SearchPage() {
                   >
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
-                        <div className="font-medium truncate flex-1" title={torrent.title}>
-                          {torrent.title}
+                        <div className="font-medium truncate flex-1" title={download.title}>
+                          {download.title}
                         </div>
                         <Badge
                           variant={isUsenet ? "secondary" : "default"}
@@ -373,23 +373,23 @@ export default function SearchPage() {
                         </Badge>
                       </div>
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <span>{formatDate(torrent.pubDate)}</span>
+                        <span>{formatDate(download.pubDate)}</span>
                         <span>•</span>
-                        <span>{torrent.size ? formatBytes(torrent.size) : "-"}</span>
+                        <span>{download.size ? formatBytes(download.size) : "-"}</span>
                         <span>•</span>
                         {isUsenet ? (
                           <>
-                            {torrent.grabs !== undefined && (
+                            {download.grabs !== undefined && (
                               <>
-                                <span className="text-blue-600 font-medium">{torrent.grabs}</span>
+                                <span className="text-blue-600 font-medium">{download.grabs}</span>
                                 <span>grabs</span>
-                                {torrent.age !== undefined && <span>•</span>}
+                                {download.age !== undefined && <span>•</span>}
                               </>
                             )}
-                            {torrent.age !== undefined && (
+                            {download.age !== undefined && (
                               <>
                                 <span className="text-purple-600 font-medium">
-                                  {formatAge(torrent.age)}
+                                  {formatAge(download.age)}
                                 </span>
                                 <span>old</span>
                               </>
@@ -398,20 +398,20 @@ export default function SearchPage() {
                         ) : (
                           <div className="flex items-center gap-1">
                             <span className="text-green-600 font-medium">
-                              {torrent.seeders ?? 0}
+                              {download.seeders ?? 0}
                             </span>
                             <span>/</span>
                             <span className="text-red-600 font-medium">
-                              {torrent.leechers ?? 0}
+                              {download.leechers ?? 0}
                             </span>
                             <span>peers</span>
                           </div>
                         )}
-                        {torrent.description && (
+                        {download.description && (
                           <>
                             <span>•</span>
-                            <span className="truncate max-w-[300px]" title={torrent.description}>
-                              {torrent.description}
+                            <span className="truncate max-w-[300px]" title={download.description}>
+                              {download.description}
                             </span>
                           </>
                         )}
@@ -427,7 +427,7 @@ export default function SearchPage() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              onClick={() => handleDownload(torrent)}
+                              onClick={() => handleDownload(download)}
                               disabled={downloaders.length === 0}
                               className="h-8 w-8"
                               data-testid={`button-download-${index}`}
@@ -478,7 +478,7 @@ export default function SearchPage() {
           <DialogHeader>
             <DialogTitle>Start Download</DialogTitle>
             <DialogDescription>
-              Configure download settings for: {selectedTorrent?.title}
+              Configure download settings for: {selectedDownload?.title}
             </DialogDescription>
           </DialogHeader>
           <Form {...form}>

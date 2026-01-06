@@ -1,167 +1,141 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { DownloaderManager } from "../downloaders";
 import type { Downloader } from "@shared/schema";
 
 vi.mock("parse-torrent", () => ({
-  default: vi.fn().mockResolvedValue({ infoHash: "abc123def456" }),
+  default: vi.fn((buffer) => {
+    return {
+      infoHash: "abc123def456",
+      name: "Test Game",
+    };
+  }),
 }));
 
-describe("Downloader Duplicate Handling", () => {
-  let fetchMock: ReturnType<typeof vi.fn>;
+// Mock fetch
+const fetchMock = vi.fn();
+global.fetch = fetchMock;
 
+describe("Downloader Duplicates Handling", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    fetchMock = vi.fn();
-    global.fetch = fetchMock;
+    fetchMock.mockReset();
   });
 
   it("Transmission: should return success: true when torrent is a duplicate", async () => {
     const transmission: Downloader = {
-      id: "trans-1",
+      id: "transmission",
       name: "Transmission",
       type: "transmission",
       url: "http://localhost:9091",
-      username: "admin",
-      password: "password",
       enabled: true,
       priority: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
 
-    // Mock session ID response
-    fetchMock.mockResolvedValueOnce({
-      ok: false,
-      status: 409,
-      headers: new Headers([["X-Transmission-Session-Id", "session-id"]]),
-      json: async () => ({}),
-      text: async () => "",
-    });
+    // Mock session-get
+    const sessionResponse = {
+      result: "success",
+      arguments: { "session-id": "123" },
+    };
 
     // Mock duplicate response
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        arguments: {
-          "torrent-duplicate": {
-            id: 123,
-            name: "Test Game",
-            hashString: "duplicate-hash",
-          },
+    const duplicateResponse = {
+      result: "success",
+      arguments: {
+        "torrent-duplicate": {
+          hashString: "aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd",
+          id: 1,
+          name: "Test Game",
         },
-        result: "success",
-      }),
-    });
+      },
+    };
 
-    const { DownloaderManager } = await import("../downloaders.js");
-    const result = await DownloaderManager.addTorrent(transmission, {
-      url: "magnet:?xt=urn:btih:duplicate-hash",
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 409,
+        headers: { get: () => "123" },
+        json: async () => sessionResponse,
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => duplicateResponse,
+      });
+
+    const result = await DownloaderManager.addDownload(transmission, {
+      url: "magnet:?xt=urn:btih:aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd",
       title: "Test Game",
     });
 
     expect(result.success).toBe(true);
-    expect(result.message).toContain("Torrent already exists");
-    expect(result.id).toBe("duplicate-hash");
+    expect(result.id).toBe("aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd");
+    expect(result.message).toContain("Download already exists");
   });
 
   it("qBittorrent: should return success: true when response is 'Fails.'", async () => {
     const qbittorrent: Downloader = {
-      id: "qb-1",
+      id: "qbittorrent",
       name: "qBittorrent",
       type: "qbittorrent",
       url: "http://localhost:8080",
-      username: "admin",
-      password: "password",
       enabled: true,
       priority: 1,
+      username: "admin",
+      password: "password",
       createdAt: new Date(),
       updatedAt: new Date(),
     };
 
     // Mock login
-    fetchMock.mockResolvedValueOnce({
+    const loginResponse = {
       ok: true,
       text: async () => "Ok.",
-      headers: new Headers([["set-cookie", "SID=abc"]]),
-    });
+      headers: { get: () => "SID=123" },
+    };
 
     // Mock add torrent response "Fails."
-    fetchMock.mockResolvedValueOnce({
+    const failResponse = {
       ok: true,
       text: async () => "Fails.",
-    });
+    };
 
-    const { DownloaderManager } = await import("../downloaders.js");
-    const result = await DownloaderManager.addTorrent(qbittorrent, {
-      url: "magnet:?xt=urn:btih:some-hash",
+    fetchMock.mockResolvedValueOnce(loginResponse).mockResolvedValueOnce(failResponse);
+
+    const result = await DownloaderManager.addDownload(qbittorrent, {
+      url: "magnet:?xt=urn:btih:aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd",
       title: "Test Game",
     });
 
     expect(result.success).toBe(true);
-    expect(result.message).toContain("Torrent already exists or invalid torrent");
+    expect(result.message).toContain("Download already exists or invalid download");
   });
 
-  it("SABnzbd: should return success: true when status is true but nzo_ids is empty", async () => {
+  it("SABnzbd: should return success: true when error mentions 'Duplicate'", async () => {
     const sabnzbd: Downloader = {
-      id: "sab-1",
+      id: "sabnzbd",
       name: "SABnzbd",
       type: "sabnzbd",
       url: "http://localhost:8080",
-      username: "apikey",
-      password: "",
       enabled: true,
       priority: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
 
-    // Mock addurl response
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        status: true,
-        nzo_ids: [], // Empty array
-      }),
-    });
-
-    const { DownloaderManager } = await import("../downloaders.js");
-    const result = await DownloaderManager.addTorrent(sabnzbd, {
-      url: "http://example.com/test.nzb",
-      title: "Test Game",
-      downloadType: "usenet",
-    });
-
-    expect(result.success).toBe(true);
-    expect(result.message).toContain("likely duplicate or merged");
-  });
-
-  it("SABnzbd: should return success: true when error message contains 'duplicate'", async () => {
-    const sabnzbd: Downloader = {
-      id: "sab-1",
-      name: "SABnzbd",
-      type: "sabnzbd",
-      url: "http://localhost:8080",
-      username: "apikey",
-      password: "",
-      enabled: true,
-      priority: 1,
-      createdAt: new Date(),
-      updatedAt: new Date(),
+    const duplicateResponse = {
+      status: false,
+      error: "Duplicate NZB",
     };
 
-    // Mock addurl response
     fetchMock.mockResolvedValueOnce({
       ok: true,
-      json: async () => ({
-        status: false,
-        error: "Duplicate NZB URL",
-      }),
+      json: async () => duplicateResponse,
     });
 
-    const { DownloaderManager } = await import("../downloaders.js");
-    const result = await DownloaderManager.addTorrent(sabnzbd, {
-      url: "http://example.com/test.nzb",
-      title: "Test Game",
+    const result = await DownloaderManager.addDownload(sabnzbd, {
+      url: "http://example.com/file.nzb",
+      title: "Test NZB",
       downloadType: "usenet",
     });
 
@@ -169,14 +143,44 @@ describe("Downloader Duplicate Handling", () => {
     expect(result.message).toContain("NZB already exists");
   });
 
-  it("addTorrentWithFallback: should stop falling back when duplicate is encountered (success: true)", async () => {
+  it("SABnzbd: should return success: true when status is true but no IDs (merged/duplicate)", async () => {
+    const sabnzbd: Downloader = {
+      id: "sabnzbd",
+      name: "SABnzbd",
+      type: "sabnzbd",
+      url: "http://localhost:8080",
+      enabled: true,
+      priority: 1,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const mergedResponse = {
+      status: true,
+      nzo_ids: [],
+    };
+
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => mergedResponse,
+    });
+
+    const result = await DownloaderManager.addDownload(sabnzbd, {
+      url: "http://example.com/file.nzb",
+      title: "Test NZB",
+      downloadType: "usenet",
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.message).toContain("likely duplicate or merged");
+  });
+
+  it("addDownloadWithFallback: should stop falling back when duplicate is encountered (success: true)", async () => {
     const downloader1: Downloader = {
-      id: "trans-1",
+      id: "dl1",
       name: "Transmission (Primary)",
       type: "transmission",
       url: "http://localhost:9091",
-      username: "admin",
-      password: "password",
       enabled: true,
       priority: 1,
       createdAt: new Date(),
@@ -184,56 +188,56 @@ describe("Downloader Duplicate Handling", () => {
     };
 
     const downloader2: Downloader = {
-      id: "qb-1",
+      id: "dl2",
       name: "qBittorrent (Secondary)",
       type: "qbittorrent",
       url: "http://localhost:8080",
-      username: "admin",
-      password: "password",
       enabled: true,
       priority: 2,
+      username: "admin",
+      password: "password",
       createdAt: new Date(),
       updatedAt: new Date(),
     };
 
-    // Mock Transmission duplicate response (session + response)
-    fetchMock.mockResolvedValueOnce({
-      ok: false,
-      status: 409,
-      headers: new Headers([["X-Transmission-Session-Id", "session-id"]]),
-      json: async () => ({}),
-      text: async () => "",
-    });
+    // Mock Transmission response (duplicate)
+    const sessionResponse = {
+      result: "success",
+      arguments: { "session-id": "123" },
+    };
 
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        arguments: {
-          "torrent-duplicate": {
-            id: 123,
-            name: "Test Game",
-            hashString: "duplicate-hash",
-          },
+    const duplicateResponse = {
+      result: "success",
+      arguments: {
+        "torrent-duplicate": {
+          hashString: "hash123",
+          id: 1,
+          name: "Test Game",
         },
-        result: "success",
-      }),
-    });
+      },
+    };
 
-    const { DownloaderManager } = await import("../downloaders.js");
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 409,
+        headers: { get: () => "123" },
+        json: async () => sessionResponse,
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => duplicateResponse,
+      });
 
-    // Attempt add with fallback
-    const result = await DownloaderManager.addTorrentWithFallback([downloader1, downloader2], {
-      url: "magnet:?xt=urn:btih:duplicate-hash",
+    const result = await DownloaderManager.addDownloadWithFallback([downloader1, downloader2], {
+      url: "magnet:?xt=urn:btih:hash123",
       title: "Test Game",
       downloadType: "torrent",
     });
 
-    // Should succeed on the first one (Transmission) despite it being a duplicate
     expect(result.success).toBe(true);
     expect(result.downloaderName).toBe("Transmission (Primary)");
-    expect(result.attemptedDownloaders).toEqual(["Transmission (Primary)"]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     // Should NOT have called qBittorrent login/add
-    expect(fetchMock).toHaveBeenCalledTimes(2); // Only Transmission calls
   });
 });

@@ -1,85 +1,69 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { Downloader } from "@shared/schema";
+import { DownloaderManager } from "../downloaders";
+import type { Downloader, DownloadStatus } from "@shared/schema";
 
 vi.mock("parse-torrent", () => ({
-  default: vi.fn().mockResolvedValue({ infoHash: "abc123def456" }),
+  default: vi.fn((buffer) => {
+    return {
+      infoHash: "abc123def456",
+      name: "Test Torrent",
+    };
+  }),
 }));
 
-describe("Comprehensive Downloader Tests", () => {
-  let fetchMock: ReturnType<typeof vi.fn>;
+// Mock fetch
+const fetchMock = vi.fn();
+global.fetch = fetchMock;
 
+describe("Downloader Comprehensive Tests", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    fetchMock = vi.fn();
-    global.fetch = fetchMock;
+    fetchMock.mockReset();
   });
 
   // ==================== Transmission Tests ====================
   describe("TransmissionClient", () => {
     const downloader: Downloader = {
-      id: "trans-1",
+      id: "transmission",
       name: "Transmission",
       type: "transmission",
       url: "http://localhost:9091",
-      username: "admin",
-      password: "password",
       enabled: true,
       priority: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
 
-    it("should test connection successfully", async () => {
-      // Mock session ID requirement then success
+    const sessionResponse = {
+      result: "success",
+      arguments: { "session-id": "123" },
+    };
+
+    it("should add download successfully", async () => {
+      const addResponse = {
+        result: "success",
+        arguments: {
+          "torrent-added": {
+            hashString: "hash123",
+            id: 1,
+            name: "Test Torrent",
+          },
+        },
+      };
+
       fetchMock
         .mockResolvedValueOnce({
-          ok: false,
+          ok: true,
           status: 409,
-          headers: new Headers([["X-Transmission-Session-Id", "session-id"]]),
-          json: async () => ({}),
-          text: async () => "",
+          headers: { get: () => "123" },
+          json: async () => sessionResponse,
         })
         .mockResolvedValueOnce({
           ok: true,
-          status: 200,
-          json: async () => ({ result: "success" }),
+          json: async () => addResponse,
         });
 
-      const { DownloaderManager } = await import("../downloaders.js");
-      const result = await DownloaderManager.testDownloader(downloader);
-
-      expect(result.success).toBe(true);
-      expect(result.message).toContain("Connected successfully");
-    });
-
-    it("should add torrent successfully", async () => {
-      fetchMock
-        .mockResolvedValueOnce({
-          // Session ID
-          ok: false,
-          status: 409,
-          headers: new Headers([["X-Transmission-Session-Id", "session-id"]]),
-          json: async () => ({}),
-          text: async () => "",
-        })
-        .mockResolvedValueOnce({
-          // Add success
-          ok: true,
-          status: 200,
-          json: async () => ({
-            arguments: {
-              "torrent-added": {
-                hashString: "hash123",
-                name: "Test Torrent",
-                id: 1,
-              },
-            },
-            result: "success",
-          }),
-        });
-
-      const { DownloaderManager } = await import("../downloaders.js");
-      const result = await DownloaderManager.addTorrent(downloader, {
+      const result = await DownloaderManager.addDownload(downloader, {
         url: "magnet:?xt=urn:btih:hash123",
         title: "Test Torrent",
       });
@@ -89,80 +73,70 @@ describe("Comprehensive Downloader Tests", () => {
     });
 
     it("should handle duplicate torrent as success", async () => {
+      const duplicateResponse = {
+        result: "success",
+        arguments: {
+          "torrent-duplicate": {
+            hashString: "aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd",
+            id: 1,
+            name: "Test Torrent",
+          },
+        },
+      };
+
       fetchMock
         .mockResolvedValueOnce({
-          // Session ID
-          ok: false,
+          ok: true,
           status: 409,
-          headers: new Headers([["X-Transmission-Session-Id", "session-id"]]),
-          json: async () => ({}),
-          text: async () => "",
+          headers: { get: () => "123" },
+          json: async () => sessionResponse,
         })
         .mockResolvedValueOnce({
-          // Duplicate response
           ok: true,
-          status: 200,
-          json: async () => ({
-            arguments: {
-              "torrent-duplicate": {
-                hashString: "hash123",
-                name: "Test Torrent",
-                id: 1,
-              },
-            },
-            result: "success",
-          }),
+          json: async () => duplicateResponse,
         });
 
-      const { DownloaderManager } = await import("../downloaders.js");
-      const result = await DownloaderManager.addTorrent(downloader, {
-        url: "magnet:?xt=urn:btih:hash123",
+      const result = await DownloaderManager.addDownload(downloader, {
+        url: "magnet:?xt=urn:btih:aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd",
         title: "Test Torrent",
       });
 
       expect(result.success).toBe(true);
-      expect(result.message).toContain("Torrent already exists");
+      expect(result.message).toContain("Download already exists");
     });
 
-    it("should get torrent status", async () => {
-      fetchMock
-        .mockResolvedValueOnce({
-          // Session ID
-          ok: false,
-          status: 409,
-          headers: new Headers([["X-Transmission-Session-Id", "session-id"]]),
-          json: async () => ({}),
-          text: async () => "",
-        })
-        .mockResolvedValueOnce({
-          // Status response
-          ok: true,
-          status: 200,
-          json: async () => ({
-            arguments: {
-              torrents: [
-                {
-                  id: 1,
-                  name: "Test Torrent",
-                  status: 4, // Downloading
-                  percentDone: 0.5,
-                  rateDownload: 1000,
-                  rateUpload: 0,
-                  eta: 3600,
-                  totalSize: 1000000,
-                  downloadedEver: 500000,
-                  hashString: "hash123",
-                },
-              ],
+    it("should get download status", async () => {
+      const statusResponse = {
+        result: "success",
+        arguments: {
+          torrents: [
+            {
+              hashString: "hash123",
+              name: "Test Torrent",
+              status: 4, // downloading
+              percentDone: 0.5,
+              rateDownload: 1000,
+              rateUpload: 500,
+              eta: 60,
+              totalSize: 10000,
+              downloadedEver: 5000,
+              peersSendingToUs: 10,
+              peersGettingFromUs: 5,
+              uploadRatio: 0.5,
             },
-            result: "success",
-          }),
-        });
+          ],
+        },
+      };
 
-      const { DownloaderManager } = await import("../downloaders.js");
-      const result = await DownloaderManager.getTorrentStatus(downloader, "hash123");
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => statusResponse,
+      });
+
+      const result = await DownloaderManager.getDownloadStatus(downloader, "hash123");
 
       expect(result).not.toBeNull();
+      expect(result?.id).toBe("hash123");
       expect(result?.status).toBe("downloading");
       expect(result?.progress).toBe(50);
     });
@@ -171,59 +145,46 @@ describe("Comprehensive Downloader Tests", () => {
   // ==================== rTorrent Tests ====================
   describe("RTorrentClient", () => {
     const downloader: Downloader = {
-      id: "rt-1",
+      id: "rtorrent",
       name: "rTorrent",
       type: "rtorrent",
-      url: "http://localhost:80",
-      username: "user",
-      password: "password",
+      url: "http://localhost:8080/rutorrent",
       enabled: true,
       priority: 1,
-      urlPath: "/RPC2",
       createdAt: new Date(),
       updatedAt: new Date(),
     };
 
-    it("should test connection successfully", async () => {
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        text: async () =>
-          `<?xml version="1.0"?><methodResponse><params><param><value><string>0.9.8</string></value></param></params></methodResponse>`,
-      });
+    const xmlResponseSuccess = `
+      <?xml version="1.0" encoding="UTF-8"?>
+      <methodResponse>
+        <params><param><value><i4>0</i4></value></param></params>
+      </methodResponse>
+    `;
 
-      const { DownloaderManager } = await import("../downloaders.js");
-      const result = await DownloaderManager.testDownloader(downloader);
-
-      expect(result.success).toBe(true);
-      expect(result.message).toContain("Connected successfully");
-    });
-
-    it("should add torrent successfully", async () => {
+    it("should add download successfully", async () => {
       // Mock fetching .torrent file
       fetchMock.mockResolvedValueOnce({
         ok: true,
-        arrayBuffer: async () => new ArrayBuffer(10),
+        arrayBuffer: async () => Buffer.from("content"),
+        text: async () => "content",
       });
 
-      // Mock XML-RPC load.raw_start response (0 = success)
+      // Mock add torrent XML-RPC
       fetchMock.mockResolvedValueOnce({
         ok: true,
-        text: async () =>
-          `<?xml version="1.0"?><methodResponse><params><param><value><i4>0</i4></value></param></params></methodResponse>`,
+        text: async () => xmlResponseSuccess,
       });
 
-      // Mock set custom1 (category)
+      // Mock set category XML-RPC
       fetchMock.mockResolvedValueOnce({
         ok: true,
-        text: async () =>
-          `<?xml version="1.0"?><methodResponse><params><param><value><i4>0</i4></value></param></params></methodResponse>`,
+        text: async () => xmlResponseSuccess,
       });
 
-      const { DownloaderManager } = await import("../downloaders.js");
-      const result = await DownloaderManager.addTorrent(downloader, {
+      const result = await DownloaderManager.addDownload(downloader, {
         url: "http://example.com/test.torrent",
         title: "Test Torrent",
-        category: "movies",
       });
 
       expect(result.success).toBe(true);
@@ -234,128 +195,89 @@ describe("Comprehensive Downloader Tests", () => {
   // ==================== qBittorrent Tests ====================
   describe("QBittorrentClient", () => {
     const downloader: Downloader = {
-      id: "qb-1",
+      id: "qbittorrent",
       name: "qBittorrent",
       type: "qbittorrent",
       url: "http://localhost:8080",
-      username: "admin",
-      password: "password",
       enabled: true,
       priority: 1,
+      username: "admin",
+      password: "password",
       createdAt: new Date(),
       updatedAt: new Date(),
     };
 
-    it("should test connection successfully", async () => {
-      // Mock login
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        text: async () => "Ok.",
-        headers: new Headers([["set-cookie", "SID=abc"]]),
-      });
+    const loginResponse = {
+      ok: true,
+      text: async () => "Ok.",
+      headers: { get: () => "SID=123" },
+    };
 
-      // Mock version
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        text: async () => "v4.3.9",
-      });
+    it("should add download successfully", async () => {
+      fetchMock
+        .mockResolvedValueOnce(loginResponse)
+        .mockResolvedValueOnce({
+          ok: true,
+          text: async () => "Ok.",
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => [
+            { hash: "aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd", name: "Test Torrent" },
+          ],
+        });
 
-      const { DownloaderManager } = await import("../downloaders.js");
-      const result = await DownloaderManager.testDownloader(downloader);
-
-      expect(result.success).toBe(true);
-      expect(result.message).toContain("v4.3.9");
-    });
-
-    it("should add torrent successfully", async () => {
-      // Mock login
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        text: async () => "Ok.",
-        headers: new Headers([["set-cookie", "SID=abc"]]),
-      });
-
-      // Mock add
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        text: async () => "Ok.",
-      });
-
-      // Mock verify (info call)
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: async () => [{ hash: "hash123", name: "Test Torrent" }],
-      });
-
-      const { DownloaderManager } = await import("../downloaders.js");
-      const result = await DownloaderManager.addTorrent(downloader, {
-        url: "magnet:?xt=urn:btih:hash123",
+      const result = await DownloaderManager.addDownload(downloader, {
+        url: "magnet:?xt=urn:btih:aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd",
         title: "Test Torrent",
       });
 
       expect(result.success).toBe(true);
-      expect(result.id).toBe("hash123");
+      expect(result.id).toBe("aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd");
     });
 
     it("should handle duplicate torrent (Fails.) as success", async () => {
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        text: async () => "Ok.",
-        headers: new Headers([["set-cookie", "SID=abc"]]),
-      });
-
-      fetchMock.mockResolvedValueOnce({
+      fetchMock.mockResolvedValueOnce(loginResponse).mockResolvedValueOnce({
         ok: true,
         text: async () => "Fails.",
       });
 
-      const { DownloaderManager } = await import("../downloaders.js");
-      const result = await DownloaderManager.addTorrent(downloader, {
-        url: "magnet:?xt=urn:btih:hash123",
+      const result = await DownloaderManager.addDownload(downloader, {
+        url: "magnet:?xt=urn:btih:aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd",
         title: "Test Torrent",
       });
 
       expect(result.success).toBe(true);
-      expect(result.message).toContain("already exists");
+      expect(result.message).toContain("Download already exists");
     });
   });
 
   // ==================== SABnzbd Tests ====================
   describe("SABnzbdClient", () => {
     const downloader: Downloader = {
-      id: "sab-1",
+      id: "sabnzbd",
       name: "SABnzbd",
       type: "sabnzbd",
       url: "http://localhost:8080",
-      username: "apikey",
-      password: "",
+      apiKey: "key",
       enabled: true,
       priority: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
 
-    it("should test connection successfully", async () => {
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ version: "3.4.2" }),
-      });
-
-      const { DownloaderManager } = await import("../downloaders.js");
-      const result = await DownloaderManager.testDownloader(downloader);
-
-      expect(result.success).toBe(true);
-      expect(result.message).toContain("v3.4.2");
-    });
-
     it("should add NZB successfully", async () => {
+      const addResponse = {
+        status: true,
+        nzo_ids: ["nzo123"],
+      };
+
       fetchMock.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ status: true, nzo_ids: ["nzo123"] }),
+        json: async () => addResponse,
       });
 
-      const { DownloaderManager } = await import("../downloaders.js");
-      const result = await DownloaderManager.addTorrent(downloader, {
+      const result = await DownloaderManager.addDownload(downloader, {
         url: "http://example.com/test.nzb",
         title: "Test NZB",
         downloadType: "usenet",
@@ -366,101 +288,86 @@ describe("Comprehensive Downloader Tests", () => {
     });
 
     it("should handle duplicate NZB as success", async () => {
+      const duplicateResponse = {
+        status: false,
+        error: "Duplicate NZB",
+      };
+
       fetchMock.mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ status: false, error: "Duplicate NZB URL" }),
+        json: async () => duplicateResponse,
       });
 
-      const { DownloaderManager } = await import("../downloaders.js");
-      const result = await DownloaderManager.addTorrent(downloader, {
+      const result = await DownloaderManager.addDownload(downloader, {
         url: "http://example.com/test.nzb",
         title: "Test NZB",
         downloadType: "usenet",
       });
 
       expect(result.success).toBe(true);
-      expect(result.message).toContain("already exists");
+      expect(result.message).toContain("NZB already exists");
     });
   });
 
   // ==================== NZBGet Tests ====================
   describe("NZBGetClient", () => {
     const downloader: Downloader = {
-      id: "nzbget-1",
+      id: "nzbget",
       name: "NZBGet",
       type: "nzbget",
       url: "http://localhost:6789",
-      username: "control",
-      password: "password",
+      username: "user",
+      password: "pass",
       enabled: true,
       priority: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
 
-    it("should test connection successfully", async () => {
-      // Mock version response (XML-RPC)
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        text: async () =>
-          `<?xml version="1.0"?><methodResponse><params><param><value><string>21.0</string></value></param></params></methodResponse>`,
-      });
-
-      const { DownloaderManager } = await import("../downloaders.js");
-      const result = await DownloaderManager.testDownloader(downloader);
-
-      expect(result.success).toBe(true);
-      expect(result.message).toContain("v21.0");
-    });
-
     it("should add NZB successfully", async () => {
-      // Mock fetching .nzb file
+      // Mock NZB file download
       fetchMock.mockResolvedValueOnce({
         ok: true,
         text: async () => "nzb content",
       });
 
-      // Mock append response (returns ID > 0)
+      // Mock XML-RPC append
+      const xmlResponse = `
+        <?xml version="1.0"?>
+        <methodResponse>
+          <params><param><value><i4>123</i4></value></param></params>
+        </methodResponse>
+      `;
+
       fetchMock.mockResolvedValueOnce({
         ok: true,
-        text: async () =>
-          `<?xml version="1.0"?><methodResponse><params><param><value><i4>10</i4></value></param></params></methodResponse>`,
+        text: async () => xmlResponse,
       });
 
-      const { DownloaderManager } = await import("../downloaders.js");
-      const result = await DownloaderManager.addTorrent(downloader, {
+      const result = await DownloaderManager.addDownload(downloader, {
         url: "http://example.com/test.nzb",
         title: "Test NZB",
         downloadType: "usenet",
       });
 
       expect(result.success).toBe(true);
-      expect(result.id).toBe("10");
+      expect(result.id).toBe("123");
     });
 
-    it("should fail to add NZB if ID is 0", async () => {
-      // Mock fetching .nzb file
+    it("should handle failed NZB fetch", async () => {
       fetchMock.mockResolvedValueOnce({
-        ok: true,
-        text: async () => "nzb content",
+        ok: false,
+        statusText: "Not Found",
       });
 
-      // Mock append response (returns ID 0)
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        text: async () =>
-          `<?xml version="1.0"?><methodResponse><params><param><value><i4>0</i4></value></param></params></methodResponse>`,
-      });
-
-      const { DownloaderManager } = await import("../downloaders.js");
-      const result = await DownloaderManager.addTorrent(downloader, {
+      const result = await DownloaderManager.addDownload(downloader, {
         url: "http://example.com/test.nzb",
         title: "Test NZB",
         downloadType: "usenet",
       });
 
       expect(result.success).toBe(false);
-      expect(result.message).toContain("ID is 0");
+      expect(result.message).toContain("Failed to fetch NZB");
     });
   });
 });

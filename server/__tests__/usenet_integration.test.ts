@@ -55,8 +55,8 @@ describe("Usenet Integration", () => {
       const torznabResults = {
         items: [
           {
-            title: "Game 1 (Torrent)",
-            link: "magnet:?xt=urn:btih:123",
+            title: "Game 1 (Release)",
+            link: "magnet:?xt=urn:btih:aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd",
             pubDate: "2023-01-01",
             seeders: 10,
           },
@@ -126,7 +126,7 @@ describe("Usenet Integration", () => {
       expect(combinedItems).toHaveLength(2);
       expect(combinedItems).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ title: "Game 1 (Torrent)" }),
+          expect.objectContaining({ title: "Game 1 (Release)" }),
           expect.objectContaining({ title: "Game 2 (NZB)" }),
         ])
       );
@@ -137,7 +137,7 @@ describe("Usenet Integration", () => {
     it("should only attempt Usenet downloaders for usenet type", async () => {
       const downloaders: Downloader[] = [
         {
-          id: "dl-torrent",
+          id: "dl-release",
           name: "Transmission",
           type: "transmission",
           url: "http://localhost:9091",
@@ -191,24 +191,24 @@ describe("Usenet Integration", () => {
       const { DownloaderManager: ActualDownloaderManager } =
         await vi.importActual<typeof import("../downloaders.js")>("../downloaders.js");
 
-      const addTorrentSpy = vi
-        .spyOn(ActualDownloaderManager, "addTorrent")
+      const addDownloadSpy = vi
+        .spyOn(ActualDownloaderManager, "addDownload")
         .mockImplementation(async (dl: { type: string }) => {
           if (dl.type === "sabnzbd") return { success: true, id: "1", message: "OK" };
           return { success: false, message: "Fail" };
         });
 
-      const result = await ActualDownloaderManager.addTorrentWithFallback(downloaders, request);
+      const result = await ActualDownloaderManager.addDownloadWithFallback(downloaders, request);
 
       expect(result.success).toBe(true);
       expect(result.attemptedDownloaders).toEqual(["SABnzbd"]);
-      expect(addTorrentSpy).toHaveBeenCalledTimes(1);
+      expect(addDownloadSpy).toHaveBeenCalledTimes(1);
     });
 
-    it("should only attempt Torrent downloaders for torrent type", async () => {
+    it("should only attempt downloaders for download type", async () => {
       const downloaders: Downloader[] = [
         {
-          id: "dl-torrent",
+          id: "dl-release",
           name: "Transmission",
           type: "transmission",
           url: "http://localhost:9091",
@@ -254,22 +254,22 @@ describe("Usenet Integration", () => {
       ];
 
       const request = {
-        url: "magnet:?xt=urn:btih:123",
-        title: "Test Torrent",
+        url: "magnet:?xt=urn:btih:aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd",
+        title: "Test Download",
         downloadType: "torrent" as const,
       };
 
       const { DownloaderManager: ActualDownloaderManager } =
         await vi.importActual<any>("../downloaders.js"); // eslint-disable-line @typescript-eslint/no-explicit-any
-      const addTorrentSpy = vi
-        .spyOn(ActualDownloaderManager, "addTorrent")
+      const addDownloadSpy = vi
+        .spyOn(ActualDownloaderManager, "addDownload")
         .mockResolvedValue({ success: true, id: "1", message: "OK" });
 
-      const result = await ActualDownloaderManager.addTorrentWithFallback(downloaders, request);
+      const result = await ActualDownloaderManager.addDownloadWithFallback(downloaders, request);
 
       expect(result.success).toBe(true);
       expect(result.attemptedDownloaders).toEqual(["Transmission"]);
-      expect(addTorrentSpy).toHaveBeenCalledTimes(1);
+      expect(addDownloadSpy).toHaveBeenCalledTimes(1);
     });
   });
 

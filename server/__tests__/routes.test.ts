@@ -102,18 +102,18 @@ describe("/api/downloads endpoint", () => {
 
     // Simulate what the /api/downloads endpoint does
     const enabledDownloaders = [testDownloader1, testDownloader2];
-    const allTorrents: unknown[] = [];
+    const allDownloads: unknown[] = [];
     const errors: Array<{ downloaderId: string; downloaderName: string; error: string }> = [];
 
     for (const downloader of enabledDownloaders) {
       try {
-        const torrents = await DownloaderManager.getAllTorrents(downloader);
-        const torrentsWithDownloader = torrents.map((torrent) => ({
-          ...torrent,
+        const downloads = await DownloaderManager.getAllDownloads(downloader);
+        const downloadsWithDownloader = downloads.map((download) => ({
+          ...download,
           downloaderId: downloader.id,
           downloaderName: downloader.name,
         }));
-        allTorrents.push(...torrentsWithDownloader);
+        allDownloads.push(...downloadsWithDownloader);
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Unknown error";
         errors.push({
@@ -124,10 +124,10 @@ describe("/api/downloads endpoint", () => {
       }
     }
 
-    // Verify that we have one successful torrent
-    expect(allTorrents).toHaveLength(1);
-    expect(allTorrents[0].downloaderId).toBe("downloader-1");
-    expect(allTorrents[0].downloaderName).toBe("Working Downloader");
+    // Verify that we have one successful download
+    expect(allDownloads).toHaveLength(1);
+    expect(allDownloads[0].downloaderId).toBe("downloader-1");
+    expect(allDownloads[0].downloaderName).toBe("Working Downloader");
 
     // Verify that we have one error
     expect(errors).toHaveLength(1);
@@ -198,18 +198,18 @@ describe("/api/downloads endpoint", () => {
 
     // Simulate what the /api/downloads endpoint does
     const enabledDownloaders = [testDownloader];
-    const allTorrents: unknown[] = [];
+    const allDownloads: unknown[] = [];
     const errors: Array<{ downloaderId: string; downloaderName: string; error: string }> = [];
 
     for (const downloader of enabledDownloaders) {
       try {
-        const torrents = await DownloaderManager.getAllTorrents(downloader);
-        const torrentsWithDownloader = torrents.map((torrent) => ({
-          ...torrent,
+        const downloads = await DownloaderManager.getAllDownloads(downloader);
+        const downloadsWithDownloader = downloads.map((download) => ({
+          ...download,
           downloaderId: downloader.id,
           downloaderName: downloader.name,
         }));
-        allTorrents.push(...torrentsWithDownloader);
+        allDownloads.push(...downloadsWithDownloader);
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Unknown error";
         errors.push({
@@ -220,8 +220,8 @@ describe("/api/downloads endpoint", () => {
       }
     }
 
-    // Verify that we have torrents
-    expect(allTorrents).toHaveLength(1);
+    // Verify that we have downloads
+    expect(allDownloads).toHaveLength(1);
 
     // Verify that we have no errors
     expect(errors).toHaveLength(0);

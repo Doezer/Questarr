@@ -12,10 +12,9 @@ export interface SearchItem {
   category: string[];
   guid: string;
   downloadType: "torrent" | "usenet";
-  // Torrent-specific
+  // Protocol-specific fields
   seeders?: number;
   leechers?: number;
-  // Usenet-specific
   grabs?: number;
   age?: number;
   poster?: string;

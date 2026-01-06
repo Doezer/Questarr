@@ -102,16 +102,17 @@ export function NotificationCenter() {
       markAsReadMutation.mutate(notification.id);
     }
 
-    // Check if notification is about multiple torrents or updates
+    // Check if notification is about multiple results or updates
     if (
-      notification.title === "Multiple Torrents Found" ||
+      notification.title === "Multiple Results Found" ||
+      notification.title === "Multiple Releases Found" ||
       notification.title === "Game Updates Available"
     ) {
       // Try to find the game mentioned in the notification
       // This is a bit heuristic since we don't store gameId in notification directly yet
       // Ideally we should add gameId to notification schema, but for now we parse the message
 
-      // Message format: "X torrent(s) found for [Game Title]. Please review..."
+      // Message format: "X result(s) found for [Game Title]. Please review..."
       // or "X update(s) found for [Game Title]"
 
       const gameTitleMatch = notification.message.match(/for (.+?)(\.|$)/);

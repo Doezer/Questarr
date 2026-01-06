@@ -45,7 +45,7 @@ export default function SettingsPage() {
   // Local state for form
   const [autoSearchEnabled, setAutoSearchEnabled] = useState(true);
   const [autoDownloadEnabled, setAutoDownloadEnabled] = useState(false);
-  const [notifyMultipleTorrents, setNotifyMultipleTorrents] = useState(true);
+  const [notifyMultipleDownloads, setNotifyMultipleDownloads] = useState(true);
   const [notifyUpdates, setNotifyUpdates] = useState(true);
   const [searchIntervalHours, setSearchIntervalHours] = useState(6);
   const [igdbRateLimitPerSecond, setIgdbRateLimitPerSecond] = useState(3);
@@ -55,7 +55,7 @@ export default function SettingsPage() {
     if (userSettings) {
       setAutoSearchEnabled(userSettings.autoSearchEnabled);
       setAutoDownloadEnabled(userSettings.autoDownloadEnabled);
-      setNotifyMultipleTorrents(userSettings.notifyMultipleTorrents);
+      setNotifyMultipleDownloads(userSettings.notifyMultipleDownloads);
       setNotifyUpdates(userSettings.notifyUpdates);
       setSearchIntervalHours(userSettings.searchIntervalHours);
       setIgdbRateLimitPerSecond(userSettings.igdbRateLimitPerSecond);
@@ -125,7 +125,7 @@ export default function SettingsPage() {
     updateSettingsMutation.mutate({
       autoSearchEnabled,
       autoDownloadEnabled,
-      notifyMultipleTorrents,
+      notifyMultipleDownloads,
       notifyUpdates,
       searchIntervalHours,
       igdbRateLimitPerSecond,
@@ -188,7 +188,7 @@ export default function SettingsPage() {
               <CardTitle className="text-lg">Auto-Search & Download</CardTitle>
             </div>
             <CardDescription>
-              Automatically search for and download torrents for wanted games
+              Automatically search for and download releases for wanted games
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -226,7 +226,7 @@ export default function SettingsPage() {
                     className="w-32"
                   />
                   <p className="text-xs text-muted-foreground">
-                    How often to search for new torrents (1-168 hours)
+                    How often to search for new releases (1-168 hours)
                   </p>
                 </div>
               )}
@@ -236,10 +236,10 @@ export default function SettingsPage() {
                 <div className="flex items-center justify-between pl-4 border-l-2">
                   <div className="space-y-0.5">
                     <Label htmlFor="auto-download" className="text-sm font-medium">
-                      Auto-Download Single Torrents
+                      Auto-Download Single Releases
                     </Label>
                     <p className="text-xs text-muted-foreground">
-                      Automatically download when only one torrent is found
+                      Automatically download when only one release is found
                     </p>
                   </div>
                   <Switch
@@ -250,21 +250,21 @@ export default function SettingsPage() {
                 </div>
               )}
 
-              {/* Notify Multiple Torrents */}
+              {/* Notify Multiple Downloads */}
               {autoSearchEnabled && (
                 <div className="flex items-center justify-between pl-4 border-l-2">
                   <div className="space-y-0.5">
                     <Label htmlFor="notify-multiple" className="text-sm font-medium">
-                      Notify on Multiple Torrents
+                      Notify on Multiple Releases
                     </Label>
                     <p className="text-xs text-muted-foreground">
-                      Get notified when multiple torrents are available
+                      Get notified when multiple releases are available
                     </p>
                   </div>
                   <Switch
                     id="notify-multiple"
-                    checked={notifyMultipleTorrents}
-                    onCheckedChange={setNotifyMultipleTorrents}
+                    checked={notifyMultipleDownloads}
+                    onCheckedChange={setNotifyMultipleDownloads}
                   />
                 </div>
               )}

@@ -35,9 +35,9 @@ import { Download, Loader2, PackagePlus, SlidersHorizontal, Newspaper } from "lu
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { type Game } from "@shared/schema";
-import { groupTorrentsByCategory, type TorrentCategory } from "@/lib/torrent-categorizer";
+import { groupDownloadsByCategory, type DownloadCategory } from "@/lib/download-categorizer";
 
-interface TorrentItem {
+interface DownloadItem {
   title: string;
   link: string;
   pubDate: string;
@@ -58,7 +58,7 @@ interface TorrentItem {
 }
 
 interface SearchResult {
-  items: TorrentItem[];
+  items: DownloadItem[];
   total: number;
   offset: number;
   errors?: string[];
@@ -87,7 +87,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   const [searchQuery, setSearchQuery] = useState("");
   const [downloadingGuid, setDownloadingGuid] = useState<string | null>(null);
   const [showBundleDialog, setShowBundleDialog] = useState(false);
-  const [selectedMainTorrent, setSelectedMainTorrent] = useState<TorrentItem | null>(null);
+  const [selectedMainDownload, setSelectedMainDownload] = useState<DownloadItem | null>(null);
   const [isDirectDownloadMode, setIsDirectDownloadMode] = useState(false);
   const [selectedUpdateIndices, setSelectedUpdateIndices] = useState<Set<number>>(new Set());
 
@@ -95,8 +95,8 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   const [minSeeders, setMinSeeders] = useState<number>(0);
   const [sortBy, setSortBy] = useState<"seeders" | "date" | "size">("seeders");
   const [showFilters, setShowFilters] = useState(false);
-  const [visibleCategories, setVisibleCategories] = useState<Set<TorrentCategory>>(
-    new Set(["main", "update", "dlc", "extra"] as TorrentCategory[])
+  const [visibleCategories, setVisibleCategories] = useState<Set<DownloadCategory>>(
+    new Set(["main", "update", "dlc", "extra"] as DownloadCategory[])
   );
 
   // Auto-populate search when dialog opens with game title
@@ -106,7 +106,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     } else if (!open) {
       setSearchQuery("");
       setShowBundleDialog(false);
-      setSelectedMainTorrent(null);
+      setSelectedMainDownload(null);
       setIsDirectDownloadMode(false);
       setSelectedUpdateIndices(new Set());
       setMinSeeders(0);
@@ -120,28 +120,28 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     enabled: open && searchQuery.trim().length > 0,
   });
 
-  // Categorize torrents
-  const categorizedTorrents = useMemo(() => {
+  // Categorize downloads
+  const categorizedDownloads = useMemo(() => {
     if (!searchResults?.items) return { main: [], update: [], dlc: [], extra: [] };
-    return groupTorrentsByCategory(searchResults.items);
+    return groupDownloadsByCategory(searchResults.items);
   }, [searchResults?.items]);
 
   // Apply filters and sorting
-  const filteredCategorizedTorrents = useMemo(() => {
-    const filtered: Record<TorrentCategory, TorrentItem[]> = {
+  const filteredCategorizedDownloads = useMemo(() => {
+    const filtered: Record<DownloadCategory, DownloadItem[]> = {
       main: [],
       update: [],
       dlc: [],
       extra: [],
     };
 
-    for (const [category, torrents] of Object.entries(categorizedTorrents) as [
-      TorrentCategory,
-      TorrentItem[],
+    for (const [category, downloads] of Object.entries(categorizedDownloads) as [
+      DownloadCategory,
+      DownloadItem[],
     ][]) {
       if (!visibleCategories.has(category)) continue;
 
-      filtered[category] = torrents
+      filtered[category] = downloads
         .filter((t) => (t.seeders ?? 0) >= minSeeders)
         .sort((a, b) => {
           if (sortBy === "seeders") {
@@ -156,7 +156,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     }
 
     return filtered;
-  }, [categorizedTorrents, minSeeders, sortBy, visibleCategories]);
+  }, [categorizedDownloads, minSeeders, sortBy, visibleCategories]);
 
   // Sorted items for display (by date)
   const _sortedItems = useMemo(() => {
@@ -169,15 +169,15 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   }, [searchResults?.items]);
 
   const downloadMutation = useMutation({
-    mutationFn: async (torrents: TorrentItem[]) => {
-      // Download multiple torrents sequentially
+    mutationFn: async (downloads: DownloadItem[]) => {
+      // Download multiple items sequentially
       const results = [];
-      for (const torrent of torrents) {
+      for (const download of downloads) {
         const response = await apiRequest("POST", "/api/downloads", {
-          url: torrent.link,
-          title: torrent.title,
+          url: download.link,
+          title: download.title,
           gameId: game?.id,
-          downloadType: isUsenetItem(torrent) ? "usenet" : "torrent",
+          downloadType: isUsenetItem(download) ? "usenet" : "torrent",
         });
         results.push(await response.json());
       }
@@ -188,7 +188,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       toast({
         title: `${successCount} download(s) started successfully`,
         description:
-          results.length > 1 ? `Added ${successCount} of ${results.length} torrents` : undefined,
+          results.length > 1 ? `Added ${successCount} of ${results.length} downloads` : undefined,
       });
       queryClient.invalidateQueries({ queryKey: ["/api/downloads"] });
       onOpenChange(false);
@@ -203,120 +203,121 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     onSettled: () => {
       setDownloadingGuid(null);
       setShowBundleDialog(false);
-      setSelectedMainTorrent(null);
+      setSelectedMainDownload(null);
     },
   });
 
-  const handleDownload = (torrent: TorrentItem) => {
-    // Check if this is a main game torrent and we have updates available
-    if (categorizedTorrents.update.length > 0) {
-      const torrentCategory = groupTorrentsByCategory([torrent]);
+  const handleDownload = (download: DownloadItem) => {
+    // Check if this is a main game download and we have updates available
+    if (categorizedDownloads.update.length > 0) {
+      const downloadCategory = groupDownloadsByCategory([download]);
 
-      if (torrentCategory.main.length > 0) {
-        // This is a main game torrent, ask if user wants to include updates
-        setSelectedMainTorrent(torrent);
+      if (downloadCategory.main.length > 0) {
+        // This is a main game download, ask if user wants to include updates
+        setSelectedMainDownload(download);
         setIsDirectDownloadMode(false);
         // Select all updates by default
-        setSelectedUpdateIndices(new Set(categorizedTorrents.update.map((_, i) => i)));
+        setSelectedUpdateIndices(new Set(categorizedDownloads.update.map((_, i) => i)));
         setShowBundleDialog(true);
         return;
       }
     }
 
     // Otherwise, download normally
-    setDownloadingGuid(torrent.guid || torrent.link);
-    downloadMutation.mutate([torrent]);
+    setDownloadingGuid(download.guid || download.link);
+    downloadMutation.mutate([download]);
   };
 
   const handleBundleDownload = (includeUpdates: boolean) => {
-    if (!selectedMainTorrent) return;
+    if (!selectedMainDownload) return;
 
-    const guid = selectedMainTorrent.guid || selectedMainTorrent.link;
+    const guid = selectedMainDownload.guid || selectedMainDownload.link;
     setDownloadingGuid(guid);
 
     if (includeUpdates && selectedUpdateIndices.size > 0) {
       // Download main game + selected updates
       const selectedUpdates = Array.from(selectedUpdateIndices).map(
-        (i) => categorizedTorrents.update[i]
+        (i) => categorizedDownloads.update[i]
       );
-      downloadMutation.mutate([selectedMainTorrent, ...selectedUpdates]);
+      downloadMutation.mutate([selectedMainDownload, ...selectedUpdates]);
     } else {
       // Download only main game
-      downloadMutation.mutate([selectedMainTorrent]);
+      downloadMutation.mutate([selectedMainDownload]);
     }
   };
 
-  const downloadTorrentFile = (torrent: TorrentItem) => {
+  const downloadFile = (download: DownloadItem) => {
     const link = document.createElement("a");
-    link.href = torrent.link;
-    link.download = `${torrent.title}.torrent`;
+    link.href = download.link;
+    const isUsenet = isUsenetItem(download);
+    link.download = `${download.title}.${isUsenet ? "nzb" : "torrent"}`;
     link.target = "_blank";
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
-  const _handleDirectDownload = (torrent: TorrentItem) => {
-    // Check if this is a main game torrent and we have updates available
-    if (categorizedTorrents.update.length > 0) {
-      const torrentCategory = groupTorrentsByCategory([torrent]);
+  const _handleDirectDownload = (download: DownloadItem) => {
+    // Check if this is a main game download and we have updates available
+    if (categorizedDownloads.update.length > 0) {
+      const downloadCategory = groupDownloadsByCategory([download]);
 
-      if (torrentCategory.main.length > 0) {
-        // This is a main game torrent, ask if user wants to include updates
-        setSelectedMainTorrent(torrent);
+      if (downloadCategory.main.length > 0) {
+        // This is a main game download, ask if user wants to include updates
+        setSelectedMainDownload(download);
         setIsDirectDownloadMode(true);
         // Select all updates by default
-        setSelectedUpdateIndices(new Set(categorizedTorrents.update.map((_, i) => i)));
+        setSelectedUpdateIndices(new Set(categorizedDownloads.update.map((_, i) => i)));
         setShowBundleDialog(true);
         return;
       }
     }
 
     // Otherwise, download normally
-    downloadTorrentFile(torrent);
+    downloadFile(download);
     toast({
       title: "Download started",
-      description: "Torrent file download initiated",
+      description: "File download initiated",
     });
   };
 
-  const _handleDirectDownloadWithUpdates = async (mainTorrent: TorrentItem) => {
+  const _handleDirectDownloadWithUpdates = async (mainDownload: DownloadItem) => {
     // Check if there are updates to bundle
-    if (categorizedTorrents.update.length === 0) {
-      downloadTorrentFile(mainTorrent);
+    if (categorizedDownloads.update.length === 0) {
+      downloadFile(mainDownload);
       toast({
         title: "Download started",
-        description: "Torrent file download initiated",
+        description: "File download initiated",
       });
       return;
     }
 
-    setSelectedMainTorrent(mainTorrent);
+    setSelectedMainDownload(mainDownload);
     setIsDirectDownloadMode(true);
     // Select all updates by default
-    setSelectedUpdateIndices(new Set(categorizedTorrents.update.map((_, i) => i)));
+    setSelectedUpdateIndices(new Set(categorizedDownloads.update.map((_, i) => i)));
     setShowBundleDialog(true);
   };
 
   const handleBundleDirectDownload = async (includeUpdates: boolean) => {
-    if (!selectedMainTorrent) return;
+    if (!selectedMainDownload) return;
 
     if (includeUpdates && selectedUpdateIndices.size > 0) {
       // Download selected updates as a ZIP bundle
       const selectedUpdates = Array.from(selectedUpdateIndices).map(
-        (i) => categorizedTorrents.update[i]
+        (i) => categorizedDownloads.update[i]
       );
-      const torrents = [selectedMainTorrent, ...selectedUpdates];
+      const downloads = [selectedMainDownload, ...selectedUpdates];
 
       try {
-        const response = await apiRequest("POST", "/api/downloads/bundle", { torrents });
+        const response = await apiRequest("POST", "/api/downloads/bundle", { downloads });
 
         // Download the ZIP file
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = url;
-        link.download = `${selectedMainTorrent.title}-bundle.zip`;
+        link.download = `${selectedMainDownload.title}-bundle.zip`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -324,7 +325,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
 
         toast({
           title: `Bundle downloaded`,
-          description: `ZIP file with ${torrents.length} torrent(s)`,
+          description: `ZIP file with ${downloads.length} item(s)`,
         });
       } catch (error) {
         toast({
@@ -334,15 +335,15 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         });
       }
     } else {
-      downloadTorrentFile(selectedMainTorrent);
+      downloadFile(selectedMainDownload);
       toast({
         title: "Download started",
-        description: "Torrent file download initiated",
+        description: "File download initiated",
       });
     }
 
     setShowBundleDialog(false);
-    setSelectedMainTorrent(null);
+    setSelectedMainDownload(null);
   };
 
   const toggleUpdateSelection = (index: number) => {
@@ -358,14 +359,14 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   };
 
   const selectAllUpdates = () => {
-    setSelectedUpdateIndices(new Set(categorizedTorrents.update.map((_, i) => i)));
+    setSelectedUpdateIndices(new Set(categorizedDownloads.update.map((_, i) => i)));
   };
 
   const deselectAllUpdates = () => {
     setSelectedUpdateIndices(new Set());
   };
 
-  const toggleCategory = (category: TorrentCategory) => {
+  const toggleCategory = (category: DownloadCategory) => {
     setVisibleCategories((prev) => {
       const next = new Set(prev);
       if (next.has(category)) {
@@ -395,7 +396,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         <div className="flex-shrink-0 mt-4 space-y-3">
           <Input
             type="text"
-            placeholder="Search for torrents..."
+            placeholder="Search for downloads..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full"
@@ -488,7 +489,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
             {isSearching && (
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                <span className="ml-2 text-muted-foreground">Searching for torrents...</span>
+                <span className="ml-2 text-muted-foreground">Searching...</span>
               </div>
             )}
 
@@ -497,7 +498,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                 <CardHeader>
                   <CardTitle>No Results Found</CardTitle>
                   <CardDescription>
-                    No torrents found for this game. Try configuring indexers in settings.
+                    No downloads found for this game. Try configuring indexers in settings.
                   </CardDescription>
                 </CardHeader>
               </Card>
@@ -507,11 +508,11 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
               <div className="space-y-6">
                 {/* Render each category separately */}
                 {(["main", "update", "dlc", "extra"] as const).map((category) => {
-                  const torrentsInCategory = filteredCategorizedTorrents[category];
-                  if (torrentsInCategory.length === 0) return null;
+                  const downloadsInCategory = filteredCategorizedDownloads[category];
+                  if (downloadsInCategory.length === 0) return null;
 
                   // Sort by seeders within category
-                  const sortedCategoryTorrents = [...torrentsInCategory].sort((a, b) => {
+                  const sortedCategoryDownloads = [...downloadsInCategory].sort((a, b) => {
                     const seedersA = a.seeders || 0;
                     const seedersB = b.seeders || 0;
                     return seedersB - seedersA;
@@ -531,7 +532,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                 : "Extras"}
                         </h3>
                         <Badge variant="secondary" className="text-xs">
-                          {torrentsInCategory.length}
+                          {downloadsInCategory.length}
                         </Badge>
                       </div>
                       <div className="text-xs text-muted-foreground mb-2">
@@ -544,32 +545,28 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                               : "Soundtracks, artbooks, and other bonus content"}
                       </div>
 
-                      {/* Torrents in this category */}
+                      {/* Downloads in this category */}
                       <div className="border rounded-md divide-y mb-4">
                         <div className="bg-muted/50 p-2 text-xs font-medium flex justify-between items-center">
                           <div>Release Name</div>
                           <div className="w-[80px] text-right">Actions</div>
                         </div>
-                        {sortedCategoryTorrents.map((torrent: TorrentItem) => {
-                          const isUsenet = isUsenetItem(torrent);
+                        {sortedCategoryDownloads.map((download: DownloadItem) => {
+                          const isUsenet = isUsenetItem(download);
                           return (
                             <div
-                              key={torrent.guid || torrent.link}
+                              key={download.guid || download.link}
                               className="p-2 text-sm hover:bg-muted/30 transition-colors"
                             >
                               <div className="flex justify-between items-start gap-4 mb-2">
                                 <div className="flex-1 min-w-0 flex items-center gap-2">
                                   <Tooltip>
                                     <TooltipTrigger asChild>
-                                      <div
-                                        className="font-medium flex-1 overflow-hidden whitespace-nowrap text-ellipsis max-w-[220px] cursor-pointer"
-                                      >
-                                        {torrent.title}
+                                      <div className="font-medium flex-1 overflow-hidden whitespace-nowrap text-ellipsis max-w-[220px] cursor-pointer">
+                                        {download.title}
                                       </div>
                                     </TooltipTrigger>
-                                    <TooltipContent side="top">
-                                      {torrent.title}
-                                    </TooltipContent>
+                                    <TooltipContent side="top">{download.title}</TooltipContent>
                                   </Tooltip>
                                   <Badge
                                     variant={isUsenet ? "secondary" : "default"}
@@ -590,11 +587,11 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                 </div>
                                 <Button
                                   size="sm"
-                                  onClick={() => handleDownload(torrent)}
-                                  disabled={downloadingGuid === (torrent.guid || torrent.link)}
+                                  onClick={() => handleDownload(download)}
+                                  disabled={downloadingGuid === (download.guid || download.link)}
                                   className="h-7 flex-shrink-0"
                                 >
-                                  {downloadingGuid === (torrent.guid || torrent.link) ? (
+                                  {downloadingGuid === (download.guid || download.link) ? (
                                     <>
                                       <Loader2 className="h-3 w-3 mr-1 animate-spin" />
                                       Downloading...
@@ -611,27 +608,27 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                 </Button>
                               </div>
                               <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
-                                <span>{formatDate(torrent.pubDate)}</span>
+                                <span>{formatDate(download.pubDate)}</span>
                                 <span>•</span>
-                                <span>{torrent.size ? formatBytes(torrent.size) : "-"}</span>
+                                <span>{download.size ? formatBytes(download.size) : "-"}</span>
                                 <span>•</span>
                                 {isUsenet ? (
                                   <div className="flex items-center gap-2">
-                                    {torrent.grabs !== undefined && (
+                                    {download.grabs !== undefined && (
                                       <div className="flex items-center gap-1">
                                         <span className="text-blue-600 font-medium">
-                                          {torrent.grabs}
+                                          {download.grabs}
                                         </span>
                                         <span>grabs</span>
                                       </div>
                                     )}
-                                    {torrent.grabs !== undefined && torrent.age !== undefined && (
+                                    {download.grabs !== undefined && download.age !== undefined && (
                                       <span>•</span>
                                     )}
-                                    {torrent.age !== undefined && (
+                                    {download.age !== undefined && (
                                       <div className="flex items-center gap-1">
                                         <span className="text-purple-600 font-medium">
-                                          {formatAge(torrent.age)}
+                                          {formatAge(download.age)}
                                         </span>
                                         <span>old</span>
                                       </div>
@@ -640,23 +637,23 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                 ) : (
                                   <div className="flex items-center gap-1">
                                     <span className="text-green-600 font-medium">
-                                      {torrent.seeders ?? 0}
+                                      {download.seeders ?? 0}
                                     </span>
                                     <span>/</span>
                                     <span className="text-red-600 font-medium">
-                                      {torrent.leechers ?? 0}
+                                      {download.leechers ?? 0}
                                     </span>
                                     <span>peers</span>
                                   </div>
                                 )}
-                                {torrent.description && (
+                                {download.description && (
                                   <>
                                     <span>•</span>
                                     <span
                                       className="truncate max-w-[200px]"
-                                      title={torrent.description}
+                                      title={download.description}
                                     >
-                                      {torrent.description}
+                                      {download.description}
                                     </span>
                                   </>
                                 )}
@@ -697,13 +694,13 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
           <AlertDialogHeader>
             <AlertDialogTitle>Download with Updates?</AlertDialogTitle>
             <AlertDialogDescription>
-              {categorizedTorrents.update.length} update(s) are available for this game. Select
+              {categorizedDownloads.update.length} update(s) are available for this game. Select
               which updates you want to download with the main game.
             </AlertDialogDescription>
           </AlertDialogHeader>
 
           {/* List of updates with checkboxes */}
-          {categorizedTorrents.update.length > 0 && (
+          {categorizedDownloads.update.length > 0 && (
             <div className="my-4">
               <div className="flex items-center justify-between mb-2">
                 <div className="text-sm font-semibold">Available Updates:</div>
@@ -729,7 +726,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
               <div className="border rounded-md">
                 <ScrollArea className="h-[300px]">
                   <div className="p-3 space-y-3">
-                    {categorizedTorrents.update.map((update, index) => (
+                    {categorizedDownloads.update.map((update, index) => (
                       <div
                         key={update.guid || update.link}
                         className="flex items-start gap-3 p-2 rounded hover:bg-muted/50 transition-colors"
@@ -761,7 +758,8 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                 </ScrollArea>
               </div>
               <div className="text-xs text-muted-foreground mt-2">
-                {selectedUpdateIndices.size} of {categorizedTorrents.update.length} updates selected
+                {selectedUpdateIndices.size} of {categorizedDownloads.update.length} updates
+                selected
               </div>
             </div>
           )}

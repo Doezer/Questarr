@@ -9,7 +9,7 @@ import {
   sanitizeGameData,
   sanitizeIndexerData,
   sanitizeDownloaderData,
-  sanitizeTorrentData,
+  sanitizeDownloadData,
   sanitizeIndexerSearchQuery,
 } from "../middleware";
 
@@ -377,21 +377,21 @@ describe("Middleware - Input Sanitization", () => {
     });
   });
 
-  describe("sanitizeTorrentData", () => {
-    it("should allow valid torrent data", async () => {
-      const validTorrentData = {
-        url: "https://example.com/torrent.torrent",
-        title: "Test Torrent",
+  describe("sanitizeDownloadData", () => {
+    it("should allow valid download data", async () => {
+      const validDownloadData = {
+        url: "https://example.com/file.zip",
+        title: "Test Download",
         category: "games",
         downloadPath: "/downloads/games",
         priority: 5,
       };
 
-      const req = createMockRequest({ body: validTorrentData });
+      const req = createMockRequest({ body: validDownloadData });
       const res = createMockResponse();
       const next = createMockNext();
 
-      for (const validator of sanitizeTorrentData) {
+      for (const validator of sanitizeDownloadData) {
         await validator(req as Request, res as Response, next);
       }
 
@@ -401,14 +401,14 @@ describe("Middleware - Input Sanitization", () => {
       expect(res.status).not.toHaveBeenCalled();
     });
 
-    it("should reject torrent with invalid URL", async () => {
+    it("should reject download with invalid URL", async () => {
       const req = createMockRequest({
         body: { url: "not-a-url", title: "Test" },
       });
       const res = createMockResponse();
       const next = createMockNext();
 
-      for (const validator of sanitizeTorrentData) {
+      for (const validator of sanitizeDownloadData) {
         await validator(req as Request, res as Response, next);
       }
 
@@ -417,10 +417,10 @@ describe("Middleware - Input Sanitization", () => {
       expect(res.status).toHaveBeenCalledWith(400);
     });
 
-    it("should reject torrent with invalid priority", async () => {
+    it("should reject download with invalid priority", async () => {
       const req = createMockRequest({
         body: {
-          url: "https://example.com/torrent.torrent",
+          url: "https://example.com/file.zip",
           title: "Test",
           priority: 15,
         },
@@ -428,7 +428,7 @@ describe("Middleware - Input Sanitization", () => {
       const res = createMockResponse();
       const next = createMockNext();
 
-      for (const validator of sanitizeTorrentData) {
+      for (const validator of sanitizeDownloadData) {
         await validator(req as Request, res as Response, next);
       }
 

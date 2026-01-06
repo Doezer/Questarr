@@ -13,7 +13,7 @@ interface DownloadStatus {
 }
 
 interface DownloadsResponse {
-  torrents: DownloadStatus[];
+  downloads: DownloadStatus[];
   errors: Array<{ downloaderId: string; downloaderName: string; error: string }>;
 }
 
@@ -34,7 +34,7 @@ export function useBackgroundNotifications() {
     retry: false, // Don't retry on error to avoid spam
   });
 
-  const downloads = useMemo(() => downloadsData?.torrents || [], [downloadsData?.torrents]);
+  const downloads = useMemo(() => downloadsData?.downloads || [], [downloadsData?.downloads]);
 
   useEffect(() => {
     if (downloads.length === 0) {

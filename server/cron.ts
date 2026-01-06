@@ -179,13 +179,13 @@ async function checkDownloadStatus() {
     if (!downloader || !downloader.enabled) continue;
 
     try {
-      const activeTorrents = await DownloaderManager.getAllTorrents(downloader);
-      const activeTorrentMap = new Map(activeTorrents.map((t) => [t.id.toLowerCase(), t]));
+      const activeDownloads = await DownloaderManager.getAllDownloads(downloader);
+      const activeDownloadMap = new Map(activeDownloads.map((t) => [t.id.toLowerCase(), t]));
 
       igdbLogger.debug(
         {
           downloaderId,
-          activeTorrentCount: activeTorrents.length,
+          activeDownloadCount: activeDownloads.length,
           trackingCount: downloads.length,
         },
         "Checking downloads for downloader"
@@ -193,14 +193,14 @@ async function checkDownloadStatus() {
 
       for (const download of downloads) {
         // Match by hash/ID (handle case sensitivity just in case)
-        const remoteTorrent = activeTorrentMap.get(download.downloadHash.toLowerCase());
+        const remoteDownload = activeDownloadMap.get(download.downloadHash.toLowerCase());
 
-        if (remoteTorrent) {
+        if (remoteDownload) {
           igdbLogger.debug(
             {
               item: download.downloadTitle,
-              status: remoteTorrent.status,
-              progress: remoteTorrent.progress,
+              status: remoteDownload.status,
+              progress: remoteDownload.progress,
               dbStatus: download.status,
               dbHash: download.downloadHash,
               found: true,
@@ -210,16 +210,16 @@ async function checkDownloadStatus() {
 
           // Check for completion
           const isComplete =
-            remoteTorrent.status === "completed" ||
-            remoteTorrent.status === "seeding" ||
-            remoteTorrent.progress >= 100;
+            remoteDownload.status === "completed" ||
+            remoteDownload.status === "seeding" ||
+            remoteDownload.progress >= 100;
 
           if (isComplete) {
             igdbLogger.info(
               {
                 item: download.downloadTitle,
-                status: remoteTorrent.status,
-                progress: remoteTorrent.progress,
+                status: remoteDownload.status,
+                progress: remoteDownload.progress,
               },
               "Download completed"
             );
@@ -253,17 +253,17 @@ async function checkDownloadStatus() {
               "downloading";
             let newGameStatus: "wanted" | "downloading" | "owned" = "downloading";
 
-            if (remoteTorrent.status === "error") {
+            if (remoteDownload.status === "error") {
               newDownloadStatus = "failed";
               newGameStatus = "wanted"; // Reset to wanted on error
               igdbLogger.warn(
-                { title: download.downloadTitle, error: remoteTorrent.error },
+                { title: download.downloadTitle, error: remoteDownload.error },
                 "Download error detected"
               );
-            } else if (remoteTorrent.status === "paused") {
+            } else if (remoteDownload.status === "paused") {
               newDownloadStatus = "paused";
               newGameStatus = "downloading"; // Still consider it downloading (user can resume)
-            } else if (remoteTorrent.status === "downloading") {
+            } else if (remoteDownload.status === "downloading") {
               newDownloadStatus = "downloading";
               newGameStatus = "downloading";
             }
@@ -452,7 +452,7 @@ async function checkAutoSearch() {
 
                 if (downloaders.length > 0) {
                   try {
-                    const result = await DownloaderManager.addTorrentWithFallback(downloaders, {
+                    const result = await DownloaderManager.addDownloadWithFallback(downloaders, {
                       url: item.link,
                       title: item.title,
                     });
@@ -499,7 +499,7 @@ async function checkAutoSearch() {
                 });
                 notifyUser("notification", notification);
               }
-            } else if (mainItems.length > 1 && settings.notifyMultipleTorrents) {
+            } else if (mainItems.length > 1 && settings.notifyMultipleDownloads) {
               // Multiple results found, notify user to choose
               const notification = await storage.addNotification({
                 userId,

@@ -44,7 +44,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import TorrentDetailsModal from "@/components/TorrentDetailsModal";
+import DownloadDetailsModal from "@/components/DownloadDetailsModal";
 
 interface DownloadStatus {
   id: string;
@@ -77,14 +77,14 @@ interface DownloaderError {
 }
 
 interface DownloadsResponse {
-  torrents: DownloadStatus[];
+  downloads: DownloadStatus[];
   errors: DownloaderError[];
 }
 
 export default function Downloads() {
   const { toast } = useToast();
   const [hasShownErrors, setHasShownErrors] = useState<Set<string>>(new Set());
-  const [selectedTorrent, setSelectedTorrent] = useState<DownloadStatus | null>(null);
+  const [selectedDownload, setSelectedDownload] = useState<DownloadStatus | null>(null);
   const [detailsModalOpen, setDetailsModalOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<DownloadStatusType | "all">("all");
   const [typeFilter, setTypeFilter] = useState<DownloadType | "all">("all");
@@ -98,7 +98,7 @@ export default function Downloads() {
     refetchInterval: 5000, // Refresh every 5 seconds
   });
 
-  const downloads = useMemo(() => downloadsData?.torrents || [], [downloadsData?.torrents]);
+  const downloads = useMemo(() => downloadsData?.downloads || [], [downloadsData?.downloads]);
 
   // Memoize errors to avoid recreating array on every render
   const errors = useMemo(() => downloadsData?.errors || [], [downloadsData?.errors]);
@@ -150,50 +150,17 @@ export default function Downloads() {
   }, [errors, hasShownErrors, toast]);
 
   const handleShowDetails = (download: DownloadStatus) => {
-    setSelectedTorrent(download);
+    setSelectedDownload(download);
     setDetailsModalOpen(true);
   };
 
   const pauseMutation = useMutation({
     mutationFn: async ({
       downloaderId,
-      torrentId,
+      downloadId,
     }: {
       downloaderId: string;
-      torrentId: string;
-    }) => {
-      const token = localStorage.getItem("token");
-      const headers: Record<string, string> = {};
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
-      const response = await fetch(`/api/downloaders/${downloaderId}/torrents/${torrentId}/pause`, {
-        method: "POST",
-        headers,
-      });
-      if (!response.ok) throw new Error("Failed to pause torrent");
-      return response.json();
-    },
-    onSuccess: (result) => {
-      if (result.success) {
-        toast({ title: "Torrent paused" });
-        queryClient.invalidateQueries({ queryKey: ["/api/downloads"] });
-      } else {
-        toast({ title: result.message || "Failed to pause torrent", variant: "destructive" });
-      }
-    },
-    onError: () => {
-      toast({ title: "Failed to pause torrent", variant: "destructive" });
-    },
-  });
-
-  const resumeMutation = useMutation({
-    mutationFn: async ({
-      downloaderId,
-      torrentId,
-    }: {
-      downloaderId: string;
-      torrentId: string;
+      downloadId: string;
     }) => {
       const token = localStorage.getItem("token");
       const headers: Record<string, string> = {};
@@ -201,36 +168,72 @@ export default function Downloads() {
         headers["Authorization"] = `Bearer ${token}`;
       }
       const response = await fetch(
-        `/api/downloaders/${downloaderId}/torrents/${torrentId}/resume`,
+        `/api/downloaders/${downloaderId}/downloads/${downloadId}/pause`,
         {
           method: "POST",
           headers,
         }
       );
-      if (!response.ok) throw new Error("Failed to resume torrent");
+      if (!response.ok) throw new Error("Failed to pause download");
       return response.json();
     },
     onSuccess: (result) => {
       if (result.success) {
-        toast({ title: "Torrent resumed" });
+        toast({ title: "Download paused" });
         queryClient.invalidateQueries({ queryKey: ["/api/downloads"] });
       } else {
-        toast({ title: result.message || "Failed to resume torrent", variant: "destructive" });
+        toast({ title: result.message || "Failed to pause download", variant: "destructive" });
       }
     },
     onError: () => {
-      toast({ title: "Failed to resume torrent", variant: "destructive" });
+      toast({ title: "Failed to pause download", variant: "destructive" });
+    },
+  });
+
+  const resumeMutation = useMutation({
+    mutationFn: async ({
+      downloaderId,
+      downloadId,
+    }: {
+      downloaderId: string;
+      downloadId: string;
+    }) => {
+      const token = localStorage.getItem("token");
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+      const response = await fetch(
+        `/api/downloaders/${downloaderId}/downloads/${downloadId}/resume`,
+        {
+          method: "POST",
+          headers,
+        }
+      );
+      if (!response.ok) throw new Error("Failed to resume download");
+      return response.json();
+    },
+    onSuccess: (result) => {
+      if (result.success) {
+        toast({ title: "Download resumed" });
+        queryClient.invalidateQueries({ queryKey: ["/api/downloads"] });
+      } else {
+        toast({ title: result.message || "Failed to resume download", variant: "destructive" });
+      }
+    },
+    onError: () => {
+      toast({ title: "Failed to resume download", variant: "destructive" });
     },
   });
 
   const removeMutation = useMutation({
     mutationFn: async ({
       downloaderId,
-      torrentId,
+      downloadId,
       deleteFiles,
     }: {
       downloaderId: string;
-      torrentId: string;
+      downloadId: string;
       deleteFiles: boolean;
     }) => {
       const token = localStorage.getItem("token");
@@ -239,46 +242,46 @@ export default function Downloads() {
         headers["Authorization"] = `Bearer ${token}`;
       }
       const response = await fetch(
-        `/api/downloaders/${downloaderId}/torrents/${torrentId}?deleteFiles=${deleteFiles}`,
+        `/api/downloaders/${downloaderId}/downloads/${downloadId}?deleteFiles=${deleteFiles}`,
         {
           method: "DELETE",
           headers,
         }
       );
-      if (!response.ok) throw new Error("Failed to remove torrent");
+      if (!response.ok) throw new Error("Failed to remove download");
       return response.json();
     },
     onSuccess: (result) => {
       if (result.success) {
-        toast({ title: "Torrent removed" });
+        toast({ title: "Download removed" });
         queryClient.invalidateQueries({ queryKey: ["/api/downloads"] });
       } else {
-        toast({ title: result.message || "Failed to remove torrent", variant: "destructive" });
+        toast({ title: result.message || "Failed to remove download", variant: "destructive" });
       }
     },
     onError: () => {
-      toast({ title: "Failed to remove torrent", variant: "destructive" });
+      toast({ title: "Failed to remove download", variant: "destructive" });
     },
   });
 
   const handlePause = (download: DownloadStatus) => {
     pauseMutation.mutate({
       downloaderId: download.downloaderId,
-      torrentId: download.id,
+      downloadId: download.id,
     });
   };
 
   const handleResume = (download: DownloadStatus) => {
     resumeMutation.mutate({
       downloaderId: download.downloaderId,
-      torrentId: download.id,
+      downloadId: download.id,
     });
   };
 
   const handleRemove = (download: DownloadStatus, deleteFiles = false) => {
     removeMutation.mutate({
       downloaderId: download.downloaderId,
-      torrentId: download.id,
+      downloadId: download.id,
       deleteFiles,
     });
   };
@@ -552,7 +555,7 @@ export default function Downloads() {
                           data-testid={`button-remove-${download.id}`}
                         >
                           <Trash2 className="h-4 w-4 mr-2" />
-                          Remove Torrent
+                          Remove Download
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() => handleRemove(download, true)}
@@ -614,12 +617,12 @@ export default function Downloads() {
         )}
       </div>
 
-      {/* Torrent Details Modal */}
-      {selectedTorrent && (
-        <TorrentDetailsModal
-          downloaderId={selectedTorrent.downloaderId}
-          torrentId={selectedTorrent.id}
-          torrentName={selectedTorrent.name}
+      {/* Download Details Modal */}
+      {selectedDownload && (
+        <DownloadDetailsModal
+          downloaderId={selectedDownload.downloaderId}
+          downloadId={selectedDownload.id}
+          downloadName={selectedDownload.name}
           open={detailsModalOpen}
           onOpenChange={setDetailsModalOpen}
         />

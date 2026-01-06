@@ -1,9 +1,9 @@
 import type {
   Downloader,
   DownloadStatus,
-  TorrentFile,
-  TorrentTracker,
-  TorrentDetails,
+  DownloadFile,
+  DownloadTracker,
+  DownloadDetails,
 } from "../shared/schema.js";
 import { downloadersLogger } from "./logger.js";
 import crypto from "crypto";
@@ -116,13 +116,15 @@ interface DownloadRequest {
 
 interface DownloaderClient {
   testConnection(): Promise<{ success: boolean; message: string }>;
-  addTorrent(request: DownloadRequest): Promise<{ success: boolean; id?: string; message: string }>;
-  getTorrentStatus(id: string): Promise<DownloadStatus | null>;
-  getTorrentDetails(id: string): Promise<TorrentDetails | null>;
-  getAllTorrents(): Promise<DownloadStatus[]>;
-  pauseTorrent(id: string): Promise<{ success: boolean; message: string }>;
-  resumeTorrent(id: string): Promise<{ success: boolean; message: string }>;
-  removeTorrent(id: string, deleteFiles?: boolean): Promise<{ success: boolean; message: string }>;
+  addDownload(
+    request: DownloadRequest
+  ): Promise<{ success: boolean; id?: string; message: string }>;
+  getDownloadStatus(id: string): Promise<DownloadStatus | null>;
+  getDownloadDetails(id: string): Promise<DownloadDetails | null>;
+  getAllDownloads(): Promise<DownloadStatus[]>;
+  pauseDownload(id: string): Promise<{ success: boolean; message: string }>;
+  resumeDownload(id: string): Promise<{ success: boolean; message: string }>;
+  removeDownload(id: string, deleteFiles?: boolean): Promise<{ success: boolean; message: string }>;
   getFreeSpace(): Promise<number>;
 }
 
@@ -178,7 +180,7 @@ class TransmissionClient implements DownloaderClient {
     }
   }
 
-  async addTorrent(
+  async addDownload(
     request: DownloadRequest
   ): Promise<{ success: boolean; id?: string; message: string }> {
     try {
@@ -191,12 +193,12 @@ class TransmissionClient implements DownloaderClient {
       if (isMagnet) {
         args.filename = request.url;
       } else {
-        // Download the .torrent file locally first
+        // Download the file locally first
         // This is necessary because Transmission might not have access to the indexer (e.g. private trackers)
         try {
           downloadersLogger.debug(
             { url: request.url },
-            "Downloading torrent file locally for Transmission"
+            "Downloading file locally for Transmission"
           );
 
           const fetchTorrent = async (url: string) => {
@@ -234,7 +236,7 @@ class TransmissionClient implements DownloaderClient {
               if (parsed && parsed.infoHash) {
                 // We can't set ID on the return object directly here as Transmission returns it
                 // but we can verify it matches later if needed
-                downloadersLogger.debug({ hash: parsed.infoHash }, "Parsed torrent hash locally");
+                downloadersLogger.debug({ hash: parsed.infoHash }, "Parsed download hash locally");
               }
             } catch {
               // Ignore parse errors, Transmission might still accept it
@@ -244,16 +246,11 @@ class TransmissionClient implements DownloaderClient {
             args.metainfo = buffer.toString("base64");
           } else {
             // Fallback to passing URL directly if download fails
-            downloadersLogger.warn(
-              "Failed to download torrent file locally, passing URL to Transmission"
-            );
+            downloadersLogger.warn("Failed to download file locally, passing URL to Transmission");
             args.filename = request.url;
           }
         } catch (error) {
-          downloadersLogger.error(
-            { error },
-            "Error downloading torrent file, passing URL to Transmission"
-          );
+          downloadersLogger.error({ error }, "Error downloading file, passing URL to Transmission");
           args.filename = request.url;
         }
       }
@@ -300,7 +297,7 @@ class TransmissionClient implements DownloaderClient {
           } catch (error) {
             downloadersLogger.warn(
               { error, torrentId: torrent.id },
-              "Failed to fetch hashString for new torrent"
+              "Failed to fetch hashString for new download"
             );
           }
         }
@@ -308,7 +305,7 @@ class TransmissionClient implements DownloaderClient {
         return {
           success: true,
           id: id || torrent.id?.toString(),
-          message: "Torrent added successfully",
+          message: "Download added successfully",
         };
       } else if (response.arguments["torrent-duplicate"]) {
         const torrent = response.arguments["torrent-duplicate"];
@@ -317,21 +314,21 @@ class TransmissionClient implements DownloaderClient {
         return {
           success: true,
           id: torrent.hashString || torrent.id?.toString(),
-          message: "Torrent already exists (Transmission)",
+          message: "Download already exists (Transmission)",
         };
       } else {
         return {
           success: false,
-          message: "Failed to add torrent",
+          message: "Failed to add download",
         };
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      return { success: false, message: `Failed to add torrent: ${errorMessage}` };
+      return { success: false, message: `Failed to add download: ${errorMessage}` };
     }
   }
 
-  async getTorrentStatus(id: string): Promise<DownloadStatus | null> {
+  async getDownloadStatus(id: string): Promise<DownloadStatus | null> {
     try {
       const response = await this.makeRequest("torrent-get", {
         ids: [parseInt(id)],
@@ -359,12 +356,12 @@ class TransmissionClient implements DownloaderClient {
 
       return null;
     } catch (error) {
-      downloadersLogger.error({ error }, "error getting torrent status (transmission)");
+      downloadersLogger.error({ error }, "error getting download status (transmission)");
       return null;
     }
   }
 
-  async getTorrentDetails(id: string): Promise<TorrentDetails | null> {
+  async getDownloadDetails(id: string): Promise<DownloadDetails | null> {
     try {
       const response = await this.makeRequest("torrent-get", {
         ids: [parseInt(id)],
@@ -403,12 +400,12 @@ class TransmissionClient implements DownloaderClient {
 
       return null;
     } catch (error) {
-      console.error("Error getting torrent details:", error);
+      console.error("Error getting download details:", error);
       return null;
     }
   }
 
-  async getAllTorrents(): Promise<DownloadStatus[]> {
+  async getAllDownloads(): Promise<DownloadStatus[]> {
     const response = await this.makeRequest("torrent-get", {
       fields: [
         "id",
@@ -424,7 +421,7 @@ class TransmissionClient implements DownloaderClient {
         "peersGettingFromUs",
         "uploadRatio",
         "errorString",
-        "hashString", // Required for matching torrents by hash
+        "hashString", // Required for matching downloads by hash
       ],
     });
 
@@ -437,27 +434,27 @@ class TransmissionClient implements DownloaderClient {
     return [];
   }
 
-  async pauseTorrent(id: string): Promise<{ success: boolean; message: string }> {
+  async pauseDownload(id: string): Promise<{ success: boolean; message: string }> {
     try {
       await this.makeRequest("torrent-stop", { ids: [parseInt(id)] });
-      return { success: true, message: "Torrent paused successfully" };
+      return { success: true, message: "Download paused successfully" };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      return { success: false, message: `Failed to pause torrent: ${errorMessage}` };
+      return { success: false, message: `Failed to pause download: ${errorMessage}` };
     }
   }
 
-  async resumeTorrent(id: string): Promise<{ success: boolean; message: string }> {
+  async resumeDownload(id: string): Promise<{ success: boolean; message: string }> {
     try {
       await this.makeRequest("torrent-start", { ids: [parseInt(id)] });
-      return { success: true, message: "Torrent resumed successfully" };
+      return { success: true, message: "Download resumed successfully" };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      return { success: false, message: `Failed to resume torrent: ${errorMessage}` };
+      return { success: false, message: `Failed to resume download: ${errorMessage}` };
     }
   }
 
-  async removeTorrent(
+  async removeDownload(
     id: string,
     deleteFiles = false
   ): Promise<{ success: boolean; message: string }> {
@@ -466,10 +463,10 @@ class TransmissionClient implements DownloaderClient {
         ids: [parseInt(id)],
         "delete-local-data": deleteFiles,
       });
-      return { success: true, message: "Torrent removed successfully" };
+      return { success: true, message: "Download removed successfully" };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      return { success: false, message: `Failed to remove torrent: ${errorMessage}` };
+      return { success: false, message: `Failed to remove download: ${errorMessage}` };
     }
   }
 
@@ -546,12 +543,12 @@ class TransmissionClient implements DownloaderClient {
     };
   }
 
-  private mapTransmissionDetails(torrent: TransmissionTorrent): TorrentDetails {
+  private mapTransmissionDetails(torrent: TransmissionTorrent): DownloadDetails {
     // Get base status first
     const baseStatus = this.mapTransmissionStatus(torrent);
 
     // Map files
-    const files: TorrentFile[] = [];
+    const files: DownloadFile[] = [];
     if (torrent.files && torrent.fileStats) {
       for (let i = 0; i < torrent.files.length; i++) {
         const file = torrent.files[i];
@@ -559,7 +556,7 @@ class TransmissionClient implements DownloaderClient {
 
         // Transmission priority: -1=low, 0=normal, 1=high
         // If file is not wanted, mark as 'off'
-        let priority: TorrentFile["priority"] = "normal";
+        let priority: DownloadFile["priority"] = "normal";
         if (!stats.wanted) {
           priority = "off";
         } else if (stats.priority === -1) {
@@ -582,11 +579,11 @@ class TransmissionClient implements DownloaderClient {
     }
 
     // Map trackers
-    const trackers: TorrentTracker[] = [];
+    const trackers: DownloadTracker[] = [];
     if (torrent.trackerStats) {
       for (const tracker of torrent.trackerStats) {
         // Transmission tracker status: 0=inactive, 1=waiting, 2=queued, 3=active
-        let trackerStatus: TorrentTracker["status"] = "inactive";
+        let trackerStatus: DownloadTracker["status"] = "inactive";
         if (tracker.lastAnnounceSucceeded) {
           trackerStatus = "working";
         } else if (tracker.isBackup) {
@@ -815,20 +812,20 @@ class RTorrentClient implements DownloaderClient {
     }
   }
 
-  async addTorrent(
+  async addDownload(
     request: DownloadRequest
   ): Promise<{ success: boolean; id?: string; message: string }> {
     try {
       if (!request.url) {
         return {
           success: false,
-          message: "Torrent URL is required",
+          message: "Download URL is required",
         };
       }
 
       // Helper to fetch with standard headers
       const fetchTorrent = async (url: string) => {
-        downloadersLogger.debug({ url }, "Downloading torrent file locally");
+        downloadersLogger.debug({ url }, "Downloading file locally");
         return fetch(url, {
           headers: {
             "User-Agent":
@@ -850,7 +847,7 @@ class RTorrentClient implements DownloaderClient {
             headers: Object.fromEntries(response.headers.entries()),
             errorBody: errorText,
           },
-          "Failed to download torrent file from indexer"
+          "Failed to download file from indexer"
         );
 
         // Retry with %20 replacement for + if 400 Bad Request
@@ -885,13 +882,13 @@ class RTorrentClient implements DownloaderClient {
               if (!response.ok) {
                 return {
                   success: false,
-                  message: `Failed to download torrent file (retry without file param failed): ${response.statusText}`,
+                  message: `Failed to download file (retry without file param failed): ${response.statusText}`,
                 };
               }
             } else {
               return {
                 success: false,
-                message: `Failed to download torrent file (retry failed): ${response.statusText}`,
+                message: `Failed to download file (retry failed): ${response.statusText}`,
               };
             }
           }
@@ -908,13 +905,13 @@ class RTorrentClient implements DownloaderClient {
             if (!response.ok) {
               return {
                 success: false,
-                message: `Failed to download torrent file (retry without file param failed): ${response.statusText}`,
+                message: `Failed to download file (retry without file param failed): ${response.statusText}`,
               };
             }
           } else {
             return {
               success: false,
-              message: `Failed to download torrent file from indexer: ${response.statusText}`,
+              message: `Failed to download file from indexer: ${response.statusText}`,
             };
           }
         }
@@ -932,7 +929,7 @@ class RTorrentClient implements DownloaderClient {
           infoHash = parsed.infoHash.toLowerCase();
         }
       } catch (_e) {
-        downloadersLogger.warn({ error: _e }, "Failed to parse torrent file for hash");
+        downloadersLogger.warn({ error: _e }, "Failed to parse file for hash");
       }
 
       // 3. Send raw file to rTorrent
@@ -941,7 +938,7 @@ class RTorrentClient implements DownloaderClient {
 
       downloadersLogger.debug(
         { method: addMethod, size: buffer.length, hash: infoHash },
-        "Uploading raw torrent to rTorrent"
+        "Uploading raw file to rTorrent"
       );
 
       // rTorrent expects the raw data as the first argument (after empty target)
@@ -954,13 +951,13 @@ class RTorrentClient implements DownloaderClient {
         const category = request.category || this.downloader.category;
         if (category && infoHash !== "unknown") {
           try {
-            // Give rTorrent a moment to register the torrent before setting properties
+            // Give rTorrent a moment to register the download before setting properties
             // though with XML-RPC it should be sequential
             await this.makeXMLRPCRequest("d.custom1.set", [infoHash, category]);
           } catch (error) {
             downloadersLogger.warn(
               { error, hash: infoHash, category },
-              "Failed to set category on torrent"
+              "Failed to set category on download"
             );
           }
         }
@@ -968,7 +965,7 @@ class RTorrentClient implements DownloaderClient {
         return {
           success: true,
           id: infoHash,
-          message: `Torrent added successfully${this.downloader.addStopped ? " (stopped)" : ""}`,
+          message: `Download added successfully${this.downloader.addStopped ? " (stopped)" : ""}`,
         };
       } else {
         // Check if result is 0 (success) even if type check failed or something else
@@ -976,19 +973,19 @@ class RTorrentClient implements DownloaderClient {
         // But standard XML-RPC returns 0 for success on load commands
         return {
           success: false,
-          message: `Failed to add torrent (rTorrent returned code: ${result})`,
+          message: `Failed to add download (rTorrent returned code: ${result})`,
         };
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      downloadersLogger.error({ error, url: request.url }, "Failed to add torrent");
-      return { success: false, message: `Failed to add torrent: ${errorMessage}` };
+      downloadersLogger.error({ error, url: request.url }, "Failed to add download");
+      return { success: false, message: `Failed to add download: ${errorMessage}` };
     }
   }
 
-  async getTorrentStatus(id: string): Promise<DownloadStatus | null> {
+  async getDownloadStatus(id: string): Promise<DownloadStatus | null> {
     try {
-      // Get detailed information about a specific torrent using multicall
+      // Get detailed information about a specific download using multicall
       const result = await this.makeXMLRPCRequest("d.multicall2", [
         "",
         "main", // Added view parameter which is required for d.multicall2
@@ -1007,26 +1004,26 @@ class RTorrentClient implements DownloaderClient {
         "d.custom1=",
       ]);
 
-      // Filter for the specific ID since d.multicall2 returns all torrents in the view
+      // Filter for the specific ID since d.multicall2 returns all downloads in the view
       if (result && result.length > 0) {
-        const torrent = result.find(
+        const download = result.find(
           (t: unknown[]) => (t as string[])[0].toLowerCase() === id.toLowerCase()
         );
-        if (torrent) {
-          return this.mapRTorrentStatus(torrent);
+        if (download) {
+          return this.mapRTorrentStatus(download);
         }
       }
 
       return null;
     } catch (error) {
-      downloadersLogger.error({ error }, "error getting torrent status (rtorrent)");
+      downloadersLogger.error({ error }, "error getting download status (rtorrent)");
       return null;
     }
   }
 
-  async getTorrentDetails(id: string): Promise<TorrentDetails | null> {
+  async getDownloadDetails(id: string): Promise<DownloadDetails | null> {
     try {
-      // Get basic torrent info
+      // Get basic download info
       const basicInfo = await Promise.all([
         this.makeXMLRPCRequest("d.hash", [id]),
         this.makeXMLRPCRequest("d.name", [id]),
@@ -1098,13 +1095,13 @@ class RTorrentClient implements DownloaderClient {
 
       // Map files
       // rTorrent priority: 0 = don't download (off), 1 = normal, 2 = high
-      const files: TorrentFile[] = (filesResult || []).map((file: unknown[]) => {
+      const files: DownloadFile[] = (filesResult || []).map((file: unknown[]) => {
         const [path, size, completedChunks, totalChunks, priority] = file;
         const fileProgress =
           (totalChunks as number) > 0
             ? Math.round(((completedChunks as number) / (totalChunks as number)) * 100)
             : 0;
-        let filePriority: TorrentFile["priority"] = "normal";
+        let filePriority: DownloadFile["priority"] = "normal";
         if ((priority as number) === 0) filePriority = "off";
         else if ((priority as number) === 1) filePriority = "normal";
         else if ((priority as number) === 2) filePriority = "high";
@@ -1119,11 +1116,11 @@ class RTorrentClient implements DownloaderClient {
       });
 
       // Map trackers
-      const trackers: TorrentTracker[] = (trackersResult || []).map((tracker: unknown[]) => {
+      const trackers: DownloadTracker[] = (trackersResult || []).map((tracker: unknown[]) => {
         // rTorrent tracker tuple: [url, group, isEnabled, seeders, leechers, ...optional fields]
         const [url, group, isEnabled, seeders, leechers, lastScrape, lastAnnounce, lastError] =
           tracker;
-        let trackerStatus: TorrentTracker["status"] = "inactive";
+        let trackerStatus: DownloadTracker["status"] = "inactive";
         if (isEnabled) {
           if (lastError && typeof lastError === "string" && lastError.length > 0) {
             trackerStatus = "error";
@@ -1168,13 +1165,13 @@ class RTorrentClient implements DownloaderClient {
         connectedPeers: peersConnected,
       };
     } catch (error) {
-      console.error("Error getting torrent details:", error);
+      console.error("Error getting download details:", error);
       return null;
     }
   }
 
-  async getAllTorrents(): Promise<DownloadStatus[]> {
-    // Get all torrents using multicall
+  async getAllDownloads(): Promise<DownloadStatus[]> {
+    // Get all downloads using multicall
     // Note: d.multicall2 requires a view (usually "main" or "default") as the second argument
     const result = await this.makeXMLRPCRequest("d.multicall2", [
       "",
@@ -1201,33 +1198,33 @@ class RTorrentClient implements DownloaderClient {
     return [];
   }
 
-  async pauseTorrent(id: string): Promise<{ success: boolean; message: string }> {
+  async pauseDownload(id: string): Promise<{ success: boolean; message: string }> {
     try {
       await this.makeXMLRPCRequest("d.stop", [id]);
-      return { success: true, message: "Torrent paused successfully" };
+      return { success: true, message: "Download paused successfully" };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      return { success: false, message: `Failed to pause torrent: ${errorMessage}` };
+      return { success: false, message: `Failed to pause download: ${errorMessage}` };
     }
   }
 
-  async resumeTorrent(id: string): Promise<{ success: boolean; message: string }> {
+  async resumeDownload(id: string): Promise<{ success: boolean; message: string }> {
     try {
       await this.makeXMLRPCRequest("d.start", [id]);
-      return { success: true, message: "Torrent resumed successfully" };
+      return { success: true, message: "Download resumed successfully" };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      return { success: false, message: `Failed to resume torrent: ${errorMessage}` };
+      return { success: false, message: `Failed to resume download: ${errorMessage}` };
     }
   }
 
-  async removeTorrent(
+  async removeDownload(
     id: string,
     deleteFiles = false
   ): Promise<{ success: boolean; message: string }> {
     try {
       if (deleteFiles) {
-        // Stop torrent, delete data, and remove from client
+        // Stop download, delete data, and remove from client
         await this.makeXMLRPCRequest("d.stop", [id]);
         await this.makeXMLRPCRequest("d.delete_tied", [id]); // Delete files
         await this.makeXMLRPCRequest("d.erase", [id]);
@@ -1235,10 +1232,10 @@ class RTorrentClient implements DownloaderClient {
         // Just remove from client without deleting files
         await this.makeXMLRPCRequest("d.erase", [id]);
       }
-      return { success: true, message: "Torrent removed successfully" };
+      return { success: true, message: "Download removed successfully" };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      return { success: false, message: `Failed to remove torrent: ${errorMessage}` };
+      return { success: false, message: `Failed to remove download: ${errorMessage}` };
     }
   }
 
@@ -1274,7 +1271,7 @@ class RTorrentClient implements DownloaderClient {
   }
 
   private mapRTorrentStatus(torrent: unknown[]): DownloadStatus {
-    // torrent is an array: [hash, name, state, complete, size, completed, down_rate, up_rate, ratio, peers_connected, peers_complete, message, custom1]
+    // download is an array: [hash, name, state, complete, size, completed, down_rate, up_rate, ratio, peers_connected, peers_complete, message, custom1]
     const [
       hash,
       name,
@@ -1778,14 +1775,14 @@ class QBittorrentClient implements DownloaderClient {
     }
   }
 
-  async addTorrent(
+  async addDownload(
     request: DownloadRequest
   ): Promise<{ success: boolean; id?: string; message: string }> {
     try {
       if (!request.url) {
         return {
           success: false,
-          message: "Torrent URL is required",
+          message: "Download URL is required",
         };
       }
 
@@ -1822,10 +1819,10 @@ class QBittorrentClient implements DownloaderClient {
       if (qbSettings.initialState === "stopped" || this.downloader.addStopped) {
         formData.append("paused", "true");
       } else if (qbSettings.initialState === "force-started") {
-        // Force started torrents are added as not paused
+        // Force started downloads are added as not paused
         formData.append("paused", "false");
         // Note: qBittorrent doesn't have a direct "force start" API parameter during add.
-        // You would need to start the torrent with force flag after adding.
+        // You would need to start the download with force flag after adding.
       } else {
         // Default: started (not paused)
         formData.append("paused", "false");
@@ -1840,7 +1837,7 @@ class QBittorrentClient implements DownloaderClient {
           initialState: qbSettings.initialState,
           allParams: formData.toString(),
         },
-        "Adding torrent to qBittorrent with parameters"
+        "Adding download to qBittorrent with parameters"
       );
 
       const response = await this.makeRequest("POST", "/api/v2/torrents/add", formData.toString(), {
@@ -1855,24 +1852,24 @@ class QBittorrentClient implements DownloaderClient {
         const hash = extractHashFromUrl(request.url);
 
         if (!hash) {
-          // For torrent file URLs (HTTP/HTTPS), we can't extract hash beforehand
+          // For file URLs (HTTP/HTTPS), we can't extract hash beforehand
           // qBittorrent will calculate it after downloading the file
-          // Wait for qBittorrent to process the torrent file and get the hash
+          // Wait for qBittorrent to process the file and get the hash
           downloadersLogger.debug(
             { url: request.url },
-            "Torrent file URL added, waiting for hash..."
+            "Download file URL added, waiting for hash..."
           );
 
-          // Wait a bit longer for qBittorrent to download and process the torrent file
+          // Wait a bit longer for qBittorrent to download and process the file
           await new Promise((resolve) => setTimeout(resolve, 2000));
 
-          // Get all torrents and find the newly added one by name/title
+          // Get all downloads and find the newly added one by name/title
           const allTorrentsResponse = await this.makeRequest("GET", "/api/v2/torrents/info");
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const allTorrents = (await allTorrentsResponse.json()) as any[];
+          const allDownloads = (await allTorrentsResponse.json()) as any[];
 
-          // Try to find the torrent by matching title/name
-          const matchingTorrent = allTorrents.find(
+          // Try to find the download by matching title/name
+          const matchingDownload = allDownloads.find(
             (
               t: any // eslint-disable-line @typescript-eslint/no-explicit-any
             ) =>
@@ -1882,10 +1879,10 @@ class QBittorrentClient implements DownloaderClient {
                 request.title.toLowerCase().includes(t.name.toLowerCase()))
           );
 
-          if (matchingTorrent && matchingTorrent.hash) {
+          if (matchingDownload && matchingDownload.hash) {
             downloadersLogger.info(
-              { hash: matchingTorrent.hash, name: matchingTorrent.name },
-              "Found torrent hash after adding"
+              { hash: matchingDownload.hash, name: matchingDownload.name },
+              "Found download hash after adding"
             );
 
             // Handle force-started state after adding
@@ -1894,18 +1891,18 @@ class QBittorrentClient implements DownloaderClient {
                 await this.makeRequest(
                   "POST",
                   "/api/v2/torrents/setForceStart",
-                  `hashes=${matchingTorrent.hash}&value=true`,
+                  `hashes=${matchingDownload.hash}&value=true`,
                   {
                     "Content-Type": "application/x-www-form-urlencoded",
                   }
                 );
                 downloadersLogger.info(
-                  { hash: matchingTorrent.hash },
-                  "Set torrent to force-started mode"
+                  { hash: matchingDownload.hash },
+                  "Set download to force-started mode"
                 );
               } catch (error) {
                 downloadersLogger.warn(
-                  { hash: matchingTorrent.hash, error },
+                  { hash: matchingDownload.hash, error },
                   "Failed to set force-started mode"
                 );
               }
@@ -1913,39 +1910,39 @@ class QBittorrentClient implements DownloaderClient {
 
             return {
               success: true,
-              id: matchingTorrent.hash,
-              message: "Torrent added successfully",
+              id: matchingDownload.hash,
+              message: "Download added successfully",
             };
           } else {
             downloadersLogger.warn(
-              { title: request.title, torrentCount: allTorrents.length },
-              "Could not find matching torrent after adding"
+              { title: request.title, downloadCount: allDownloads.length },
+              "Could not find matching download after adding"
             );
             // Return success but without hash - will need manual verification
             return {
               success: true,
               id: request.title || "added",
-              message: "Torrent added but hash could not be verified",
+              message: "Download added but hash could not be verified",
             };
           }
         }
 
         // For magnet links, we can verify by hash
-        // Wait a moment for qBittorrent to register the torrent
+        // Wait a moment for qBittorrent to register the download
         await new Promise((resolve) => setTimeout(resolve, 500));
 
-        // Verify the torrent was actually added
+        // Verify the download was actually added
         const verifyResponse = await this.makeRequest(
           "GET",
           `/api/v2/torrents/info?hashes=${hash}`
         );
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const torrents = (await verifyResponse.json()) as any[];
+        const downloads = (await verifyResponse.json()) as any[];
 
-        if (torrents && torrents.length > 0) {
+        if (downloads && downloads.length > 0) {
           downloadersLogger.info(
-            { hash, name: torrents[0].name },
-            "Torrent verified in qBittorrent"
+            { hash, name: downloads[0].name },
+            "Download verified in qBittorrent"
           );
 
           // Handle force-started state after adding
@@ -1959,7 +1956,7 @@ class QBittorrentClient implements DownloaderClient {
                   "Content-Type": "application/x-www-form-urlencoded",
                 }
               );
-              downloadersLogger.info({ hash }, "Set torrent to force-started mode");
+              downloadersLogger.info({ hash }, "Set download to force-started mode");
             } catch (error) {
               downloadersLogger.warn({ hash, error }, "Failed to set force-started mode");
               // Don't fail the whole operation if this fails
@@ -1969,83 +1966,83 @@ class QBittorrentClient implements DownloaderClient {
           return {
             success: true,
             id: hash,
-            message: "Torrent added successfully",
+            message: "Download added successfully",
           };
         } else {
-          downloadersLogger.error({ hash }, "Torrent not found in qBittorrent after adding");
+          downloadersLogger.error({ hash }, "Download not found in qBittorrent after adding");
           return {
             success: false,
-            message: "Torrent was not added to qBittorrent (not found after adding)",
+            message: "Download was not added to qBittorrent (not found after adding)",
           };
         }
       } else if (responseText === "Fails.") {
         downloadersLogger.warn(
           { url: request.url },
-          "qBittorrent rejected torrent (already exists or invalid)"
+          "qBittorrent rejected download (already exists or invalid)"
         );
         // Return success: true for duplicates/failures to prevent fallback mechanism from trying other downloaders
         // "Fails." usually means it's already in the list or invalid metadata
         return {
           success: true,
-          message: "Torrent already exists or invalid torrent (qBittorrent)",
+          message: "Download already exists or invalid download (qBittorrent)",
         };
       } else {
         downloadersLogger.error({ responseText }, "Unexpected response from qBittorrent");
         return {
           success: false,
-          message: `Failed to add torrent: ${responseText}`,
+          message: `Failed to add download: ${responseText}`,
         };
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      downloadersLogger.error({ error: errorMessage }, "Error adding torrent to qBittorrent");
-      return { success: false, message: `Failed to add torrent: ${errorMessage}` };
+      downloadersLogger.error({ error: errorMessage }, "Error adding download to qBittorrent");
+      return { success: false, message: `Failed to add download: ${errorMessage}` };
     }
   }
 
-  async getTorrentStatus(id: string): Promise<DownloadStatus | null> {
+  async getDownloadStatus(id: string): Promise<DownloadStatus | null> {
     try {
       await this.authenticate();
 
       const response = await this.makeRequest("GET", `/api/v2/torrents/info?hashes=${id}`);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const torrents = (await response.json()) as any[];
+      const downloads = (await response.json()) as any[];
 
-      if (torrents && torrents.length > 0) {
-        return this.mapQBittorrentStatus(torrents[0]);
+      if (downloads && downloads.length > 0) {
+        return this.mapQBittorrentStatus(downloads[0]);
       }
 
       return null;
     } catch (error) {
-      console.error("Error getting torrent status:", error);
+      console.error("Error getting download status:", error);
       return null;
     }
   }
 
-  async getTorrentDetails(_id: string): Promise<TorrentDetails | null> {
+  async getDownloadDetails(_id: string): Promise<DownloadDetails | null> {
     return null;
   }
 
-  async getAllTorrents(): Promise<DownloadStatus[]> {
+  async getAllDownloads(): Promise<DownloadStatus[]> {
     try {
       await this.authenticate();
 
       const response = await this.makeRequest("GET", "/api/v2/torrents/info");
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const torrents = (await response.json()) as any[];
+      const downloads = (await response.json()) as any[];
 
-      if (torrents) {
-        return torrents.map((torrent: QBittorrentTorrent) => this.mapQBittorrentStatus(torrent));
+      if (downloads) {
+        return downloads.map((torrent: QBittorrentTorrent) => this.mapQBittorrentStatus(torrent));
       }
 
       return [];
     } catch (error) {
-      console.error("Error getting all torrents:", error);
+      console.error("Error getting all downloads:", error);
       return [];
     }
   }
 
-  async pauseTorrent(id: string): Promise<{ success: boolean; message: string }> {
+  async pauseDownload(id: string): Promise<{ success: boolean; message: string }> {
     try {
       await this.authenticate();
 
@@ -2056,14 +2053,14 @@ class QBittorrentClient implements DownloaderClient {
         "Content-Type": "application/x-www-form-urlencoded",
       });
 
-      return { success: true, message: "Torrent paused successfully" };
+      return { success: true, message: "Download paused successfully" };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      return { success: false, message: `Failed to pause torrent: ${errorMessage}` };
+      return { success: false, message: `Failed to pause download: ${errorMessage}` };
     }
   }
 
-  async resumeTorrent(id: string): Promise<{ success: boolean; message: string }> {
+  async resumeDownload(id: string): Promise<{ success: boolean; message: string }> {
     try {
       await this.authenticate();
 
@@ -2074,14 +2071,14 @@ class QBittorrentClient implements DownloaderClient {
         "Content-Type": "application/x-www-form-urlencoded",
       });
 
-      return { success: true, message: "Torrent resumed successfully" };
+      return { success: true, message: "Download resumed successfully" };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      return { success: false, message: `Failed to resume torrent: ${errorMessage}` };
+      return { success: false, message: `Failed to resume download: ${errorMessage}` };
     }
   }
 
-  async removeTorrent(
+  async removeDownload(
     id: string,
     deleteFiles = false
   ): Promise<{ success: boolean; message: string }> {
@@ -2096,10 +2093,10 @@ class QBittorrentClient implements DownloaderClient {
         "Content-Type": "application/x-www-form-urlencoded",
       });
 
-      return { success: true, message: "Torrent removed successfully" };
+      return { success: true, message: "Download removed successfully" };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      return { success: false, message: `Failed to remove torrent: ${errorMessage}` };
+      return { success: false, message: `Failed to remove download: ${errorMessage}` };
     }
   }
 
@@ -2386,34 +2383,34 @@ export class DownloaderManager {
     }
   }
 
-  static async addTorrent(
+  static async addDownload(
     downloader: Downloader,
     request: DownloadRequest
   ): Promise<{ success: boolean; id?: string; message: string }> {
     try {
       const client = this.createClient(downloader);
-      return await client.addTorrent(request);
+      return await client.addDownload(request);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       return { success: false, message: errorMessage };
     }
   }
 
-  static async getAllTorrents(downloader: Downloader): Promise<DownloadStatus[]> {
+  static async getAllDownloads(downloader: Downloader): Promise<DownloadStatus[]> {
     const client = this.createClient(downloader);
-    const torrents = await client.getAllTorrents();
+    const downloads = await client.getAllDownloads();
 
     // Filter by configured category if set
     if (downloader.category) {
       const filterCategory = downloader.category.toLowerCase();
-      return torrents.filter((t) => {
+      return downloads.filter((t) => {
         // Strict category match if available
         if (t.category) {
           return t.category.toLowerCase() === filterCategory;
         }
 
-        // If category is missing in the torrent status:
-        // For clients that support categories (rTorrent, qBittorrent), missing category means "Uncategorized",
+        // If category is missing in the download status:
+        // For clients that support categories (rTorrent, qBittorrent, Usenet), missing category means "Uncategorized",
         // so we exclude it if a filter is active.
         // For Transmission, we haven't implemented category mapping yet, so we include everything to avoid hiding all downloads.
         if (downloader.type === "transmission") {
@@ -2424,69 +2421,69 @@ export class DownloaderManager {
       });
     }
 
-    return torrents;
+    return downloads;
   }
 
-  static async getTorrentStatus(
+  static async getDownloadStatus(
     downloader: Downloader,
     id: string
   ): Promise<DownloadStatus | null> {
     try {
       const client = this.createClient(downloader);
-      return await client.getTorrentStatus(id);
+      return await client.getDownloadStatus(id);
     } catch (error) {
-      downloadersLogger.error({ error }, "error getting torrent status");
+      downloadersLogger.error({ error }, "error getting download status");
       return null;
     }
   }
 
-  static async getTorrentDetails(
+  static async getDownloadDetails(
     downloader: Downloader,
     id: string
-  ): Promise<TorrentDetails | null> {
+  ): Promise<DownloadDetails | null> {
     try {
       const client = this.createClient(downloader);
-      return await client.getTorrentDetails(id);
+      return await client.getDownloadDetails(id);
     } catch (error) {
-      console.error("Error getting torrent details:", error);
+      console.error("Error getting download details:", error);
       return null;
     }
   }
 
-  static async pauseTorrent(
+  static async pauseDownload(
     downloader: Downloader,
     id: string
   ): Promise<{ success: boolean; message: string }> {
     try {
       const client = this.createClient(downloader);
-      return await client.pauseTorrent(id);
+      return await client.pauseDownload(id);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       return { success: false, message: errorMessage };
     }
   }
 
-  static async resumeTorrent(
+  static async resumeDownload(
     downloader: Downloader,
     id: string
   ): Promise<{ success: boolean; message: string }> {
     try {
       const client = this.createClient(downloader);
-      return await client.resumeTorrent(id);
+      return await client.resumeDownload(id);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       return { success: false, message: errorMessage };
     }
   }
 
-  static async removeTorrent(
+  static async removeDownload(
     downloader: Downloader,
     id: string,
     deleteFiles = false
   ): Promise<{ success: boolean; message: string }> {
     try {
       const client = this.createClient(downloader);
-      return await client.removeTorrent(id, deleteFiles);
+      return await client.removeDownload(id, deleteFiles);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       return { success: false, message: errorMessage };
@@ -2503,7 +2500,7 @@ export class DownloaderManager {
     }
   }
 
-  static async addTorrentWithFallback(
+  static async addDownloadWithFallback(
     downloaders: Downloader[],
     request: DownloadRequest
   ): Promise<{
@@ -2547,7 +2544,7 @@ export class DownloaderManager {
       attemptedDownloaders.push(downloader.name);
 
       try {
-        const result = await this.addTorrent(downloader, request);
+        const result = await this.addDownload(downloader, request);
 
         if (result.success) {
           return {
@@ -2693,7 +2690,7 @@ class SABnzbdClient implements DownloaderClient {
     }
   }
 
-  async addTorrent(
+  async addDownload(
     request: DownloadRequest
   ): Promise<{ success: boolean; id?: string; message: string }> {
     const url = this.getApiUrl("addurl", {
@@ -2754,7 +2751,7 @@ class SABnzbdClient implements DownloaderClient {
     }
   }
 
-  async getTorrentStatus(id: string): Promise<DownloadStatus | null> {
+  async getDownloadStatus(id: string): Promise<DownloadStatus | null> {
     try {
       const url = this.getApiUrl("queue");
       const response = await fetch(url);
@@ -2881,8 +2878,8 @@ class SABnzbdClient implements DownloaderClient {
     }
   }
 
-  async getTorrentDetails(id: string): Promise<TorrentDetails | null> {
-    const status = await this.getTorrentStatus(id);
+  async getDownloadDetails(id: string): Promise<DownloadDetails | null> {
+    const status = await this.getDownloadStatus(id);
     if (!status) return null;
 
     // SABnzbd doesn't provide detailed file information in the same way
@@ -2894,7 +2891,7 @@ class SABnzbdClient implements DownloaderClient {
     };
   }
 
-  async getAllTorrents(): Promise<DownloadStatus[]> {
+  async getAllDownloads(): Promise<DownloadStatus[]> {
     try {
       const url = this.getApiUrl("queue");
       const response = await fetch(url);
@@ -2904,7 +2901,7 @@ class SABnzbdClient implements DownloaderClient {
       const results: DownloadStatus[] = [];
 
       for (const item of queue.slots) {
-        const status = await this.getTorrentStatus(item.nzo_id);
+        const status = await this.getDownloadStatus(item.nzo_id);
         if (status) {
           results.push(status);
         }
@@ -2917,7 +2914,7 @@ class SABnzbdClient implements DownloaderClient {
     }
   }
 
-  async pauseTorrent(id: string): Promise<{ success: boolean; message: string }> {
+  async pauseDownload(id: string): Promise<{ success: boolean; message: string }> {
     try {
       const url = this.getApiUrl("pause", { value: id });
       const response = await fetch(url);
@@ -2936,7 +2933,7 @@ class SABnzbdClient implements DownloaderClient {
     }
   }
 
-  async resumeTorrent(id: string): Promise<{ success: boolean; message: string }> {
+  async resumeDownload(id: string): Promise<{ success: boolean; message: string }> {
     try {
       const url = this.getApiUrl("resume", { value: id });
       const response = await fetch(url);
@@ -2955,7 +2952,7 @@ class SABnzbdClient implements DownloaderClient {
     }
   }
 
-  async removeTorrent(
+  async removeDownload(
     id: string,
     _deleteFiles?: boolean
   ): Promise<{ success: boolean; message: string }> {
@@ -3265,7 +3262,7 @@ class NZBGetClient implements DownloaderClient {
     }
   }
 
-  async addTorrent(
+  async addDownload(
     request: DownloadRequest
   ): Promise<{ success: boolean; id?: string; message: string }> {
     try {
@@ -3320,7 +3317,7 @@ class NZBGetClient implements DownloaderClient {
     }
   }
 
-  async getTorrentStatus(id: string): Promise<DownloadStatus | null> {
+  async getDownloadStatus(id: string): Promise<DownloadStatus | null> {
     try {
       const queue = (await this.makeXMLRPCRequest("listgroups")) as NZBGetListResult[];
       const item = queue.find((q) => q.NZBID.toString() === id);
@@ -3435,8 +3432,8 @@ class NZBGetClient implements DownloaderClient {
     }
   }
 
-  async getTorrentDetails(id: string): Promise<TorrentDetails | null> {
-    const status = await this.getTorrentStatus(id);
+  async getDownloadDetails(id: string): Promise<DownloadDetails | null> {
+    const status = await this.getDownloadStatus(id);
     if (!status) return null;
 
     // NZBGet doesn't provide detailed file information easily
@@ -3447,13 +3444,13 @@ class NZBGetClient implements DownloaderClient {
     };
   }
 
-  async getAllTorrents(): Promise<DownloadStatus[]> {
+  async getAllDownloads(): Promise<DownloadStatus[]> {
     try {
       const queue = (await this.makeXMLRPCRequest("listgroups")) as NZBGetListResult[];
       const results: DownloadStatus[] = [];
 
       for (const item of queue) {
-        const status = await this.getTorrentStatus(item.NZBID.toString());
+        const status = await this.getDownloadStatus(item.NZBID.toString());
         if (status) {
           results.push(status);
         }
@@ -3466,7 +3463,7 @@ class NZBGetClient implements DownloaderClient {
     }
   }
 
-  async pauseTorrent(id: string): Promise<{ success: boolean; message: string }> {
+  async pauseDownload(id: string): Promise<{ success: boolean; message: string }> {
     try {
       await this.makeXMLRPCRequest("editqueue", ["GroupPause", 0, "", [parseInt(id)]]);
       return { success: true, message: "NZB paused" };
@@ -3478,7 +3475,7 @@ class NZBGetClient implements DownloaderClient {
     }
   }
 
-  async resumeTorrent(id: string): Promise<{ success: boolean; message: string }> {
+  async resumeDownload(id: string): Promise<{ success: boolean; message: string }> {
     try {
       await this.makeXMLRPCRequest("editqueue", ["GroupResume", 0, "", [parseInt(id)]]);
       return { success: true, message: "NZB resumed" };
@@ -3490,7 +3487,7 @@ class NZBGetClient implements DownloaderClient {
     }
   }
 
-  async removeTorrent(
+  async removeDownload(
     id: string,
     _deleteFiles?: boolean
   ): Promise<{ success: boolean; message: string }> {

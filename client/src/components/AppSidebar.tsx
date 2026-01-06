@@ -90,7 +90,7 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: AppSidebarP
     queryKey: ["/api/games"],
   });
 
-  const { data: downloadsData } = useQuery<{ torrents: DownloadStatus[] }>({
+  const { data: downloadsData } = useQuery<{ downloads: DownloadStatus[] }>({
     queryKey: ["/api/downloads"],
     refetchInterval: 5000,
   });
@@ -99,7 +99,7 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: AppSidebarP
     ["owned", "completed", "downloading"].includes(g.status)
   ).length;
   const wishlistCount = games.filter((g) => g.status === "wanted").length;
-  const activeDownloadsCount = downloadsData?.torrents?.length || 0;
+  const activeDownloadsCount = downloadsData?.downloads?.length || 0;
 
   const navigation = staticNavigation.map((item) => {
     let badge: string | undefined;

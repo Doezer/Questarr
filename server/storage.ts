@@ -498,7 +498,7 @@ export class MemStorage implements IStorage {
       ...insertSettings,
       autoSearchEnabled: insertSettings.autoSearchEnabled ?? true,
       autoDownloadEnabled: insertSettings.autoDownloadEnabled ?? false,
-      notifyMultipleTorrents: insertSettings.notifyMultipleTorrents ?? true,
+      notifyMultipleDownloads: insertSettings.notifyMultipleDownloads ?? true,
       notifyUpdates: insertSettings.notifyUpdates ?? true,
       searchIntervalHours: insertSettings.searchIntervalHours ?? 6,
       igdbRateLimitPerSecond: insertSettings.igdbRateLimitPerSecond ?? 3,

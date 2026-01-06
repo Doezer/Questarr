@@ -1,228 +1,182 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { DownloaderManager } from "../downloaders";
 import type { Downloader } from "@shared/schema";
 
 vi.mock("parse-torrent", () => ({
-  default: vi.fn().mockResolvedValue({ infoHash: "abc123def456" }),
+  default: vi.fn((buffer) => {
+    return {
+      infoHash: "abc123def456",
+      name: "Test Game",
+    };
+  }),
 }));
 
-describe("QBittorrentClient - Advanced Features", () => {
-  let fetchMock: ReturnType<typeof vi.fn>;
+// Mock fetch
+const fetchMock = vi.fn();
+global.fetch = fetchMock;
 
+describe("QBittorrentClient - Advanced Features", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    fetchMock = vi.fn();
-    global.fetch = fetchMock;
+    fetchMock.mockReset();
   });
 
-  it("should handle adding torrent from http URL (non-magnet) and resolve hash", async () => {
+  it("should handle adding download from http URL (non-magnet) and resolve hash", async () => {
     const testDownloader: Downloader = {
-      id: "qb-id",
+      id: "qbittorrent-id",
       name: "QBittorrent",
       type: "qbittorrent",
       url: "http://localhost:8080",
-      username: "admin",
-      password: "adminadmin",
       enabled: true,
       priority: 1,
-      downloadPath: "/downloads",
-      category: "games",
-      settings: null,
+      username: "admin",
+      password: "password",
       createdAt: new Date(),
       updatedAt: new Date(),
     };
 
-    // Mock login
+    // Mock login response
     const loginResponse = {
       ok: true,
-      status: 200,
-      headers: new Headers([["set-cookie", "SID=abc; path=/"]]),
       text: async () => "Ok.",
+      headers: { get: () => "SID=123" },
     };
 
     // Mock add torrent response (success)
     const addResponse = {
       ok: true,
-      status: 200,
-      headers: new Headers(),
       text: async () => "Ok.",
     };
 
     // Mock torrents info response (to find the added torrent)
     const torrentsInfoResponse = {
       ok: true,
-      status: 200,
-      headers: new Headers(),
       json: async () => [
         {
-          hash: "resolved-hash-123",
-          name: "My Game Title",
-          state: "downloading",
+          hash: "aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd",
+          name: "Test Game",
+          content_path: "/downloads/Test Game",
         },
       ],
     };
 
     fetchMock
-      .mockResolvedValueOnce(loginResponse) // authenticate
+      .mockResolvedValueOnce(loginResponse) // login
       .mockResolvedValueOnce(addResponse) // add torrent
       .mockResolvedValueOnce(torrentsInfoResponse); // check info
 
-    const { DownloaderManager } = await import("../downloaders.js");
-
-    // Use a title that matches the mocked response name
-    const result = await DownloaderManager.addTorrent(testDownloader, {
+    const result = await DownloaderManager.addDownload(testDownloader, {
       url: "http://tracker.example.com/download/123.torrent",
-      title: "My Game Title",
+      title: "Test Game",
     });
 
-    // Verify authentication
-    expect(fetchMock).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v2/auth/login",
-      expect.anything()
-    );
-
     // Verify add torrent call
-    expect(fetchMock).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v2/torrents/add",
-      expect.objectContaining({
-        body: expect.stringContaining(
-          "urls=http%3A%2F%2Ftracker.example.com%2Fdownload%2F123.torrent"
-        ),
-      })
+    expect(fetchMock.mock.calls[1][0]).toBe("http://localhost:8080/api/v2/torrents/add");
+    // Should pass URL as form data
+    expect(fetchMock.mock.calls[1][1].body).toContain(
+      "urls=http%3A%2F%2Ftracker.example.com%2Fdownload%2F123.torrent"
     );
 
     // Verify info call
-    expect(fetchMock).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v2/torrents/info",
-      expect.anything()
-    );
+    expect(fetchMock.mock.calls[2][0]).toBe("http://localhost:8080/api/v2/torrents/info");
 
     expect(result.success).toBe(true);
-    expect(result.id).toBe("resolved-hash-123");
+    expect(result.id).toBe("aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd");
   });
 
-  it("should apply force-start when configured in settings", async () => {
+  it("should support force-started mode via settings", async () => {
     const testDownloader: Downloader = {
-      id: "qb-id-force",
+      id: "qbittorrent-id",
       name: "QBittorrent Force",
       type: "qbittorrent",
       url: "http://localhost:8080",
-      username: "admin",
-      password: "adminadmin",
       enabled: true,
       priority: 1,
-      downloadPath: "/downloads",
-      category: "games",
+      username: "admin",
+      password: "password",
       settings: JSON.stringify({ initialState: "force-started" }),
       createdAt: new Date(),
       updatedAt: new Date(),
     };
 
-    // Mock login
+    // Mock login response
     const loginResponse = {
       ok: true,
-      status: 200,
-      headers: new Headers([["set-cookie", "SID=abc; path=/"]]),
       text: async () => "Ok.",
+      headers: { get: () => "SID=123" },
     };
 
     // Mock add torrent response
     const addResponse = {
       ok: true,
-      status: 200,
-      headers: new Headers(),
       text: async () => "Ok.",
     };
 
     // Mock verify torrent info (for magnet link)
     const verifyResponse = {
       ok: true,
-      status: 200,
-      headers: new Headers(),
-      json: async () => [
-        {
-          hash: "1234567890123456789012345678901234567890",
-          name: "Force Started Game",
-        },
-      ],
+      json: async () => [{ hash: "aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd", name: "Test Game" }],
     };
 
-    // Mock setForceStart response
-    const forceStartResponse = {
+    // Mock set force start response
+    const setForceResponse = {
       ok: true,
-      status: 200,
-      headers: new Headers(),
-      text: async () => "Ok.",
     };
 
     fetchMock
-      .mockResolvedValueOnce(loginResponse) // authenticate
+      .mockResolvedValueOnce(loginResponse) // login
       .mockResolvedValueOnce(addResponse) // add torrent
-      .mockResolvedValueOnce(verifyResponse) // verify hash
-      .mockResolvedValueOnce(forceStartResponse); // set force start
+      .mockResolvedValueOnce(verifyResponse) // verify added
+      .mockResolvedValueOnce(setForceResponse); // set force start
 
-    const { DownloaderManager } = await import("../downloaders.js");
-
-    const magnetHash = "1234567890123456789012345678901234567890";
-    const result = await DownloaderManager.addTorrent(testDownloader, {
-      url: `magnet:?xt=urn:btih:${magnetHash}`,
-      title: "Force Started Game",
+    const result = await DownloaderManager.addDownload(testDownloader, {
+      url: "magnet:?xt=urn:btih:aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd",
+      title: "Test Game",
     });
 
-    // Verify force start call
-    expect(fetchMock).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v2/torrents/setForceStart",
-      expect.objectContaining({
-        body: expect.stringContaining(`hashes=${magnetHash}&value=true`),
-      })
+    // Verify set force start call
+    const calls = fetchMock.mock.calls;
+    const forceStartCall = calls.find((call) => call[0].includes("/api/v2/torrents/setForceStart"));
+
+    expect(forceStartCall).toBeDefined();
+    expect(forceStartCall[0]).toBe("http://localhost:8080/api/v2/torrents/setForceStart");
+    expect(forceStartCall[1].body).toBe(
+      "hashes=aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd&value=true"
     );
 
     expect(result.success).toBe(true);
   });
 
-  it("should apply stopped state when configured in settings", async () => {
+  it("should support stopped (paused) mode via settings", async () => {
     const testDownloader: Downloader = {
-      id: "qb-id-stopped",
+      id: "qbittorrent-id",
       name: "QBittorrent Stopped",
       type: "qbittorrent",
       url: "http://localhost:8080",
-      username: "admin",
-      password: "adminadmin",
       enabled: true,
       priority: 1,
-      downloadPath: "/downloads",
-      category: "games",
-      settings: JSON.stringify({ initialState: "stopped" }),
+      addStopped: true, // Legacy setting or override
       createdAt: new Date(),
       updatedAt: new Date(),
     };
 
-    // Mock login
+    // Mock login response
     const loginResponse = {
       ok: true,
-      status: 200,
-      headers: new Headers([["set-cookie", "SID=abc; path=/"]]),
       text: async () => "Ok.",
+      headers: { get: () => "SID=123" },
     };
 
     // Mock add torrent response
     const addResponse = {
       ok: true,
-      status: 200,
-      headers: new Headers(),
       text: async () => "Ok.",
     };
 
     // Mock verify torrent info
     const verifyResponse = {
       ok: true,
-      status: 200,
-      headers: new Headers(),
-      json: async () => [
-        {
-          hash: "magnet-hash-123",
-          name: "Stopped Game",
-        },
-      ],
+      json: async () => [{ hash: "aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd", name: "Test Game" }],
     };
 
     fetchMock
@@ -230,20 +184,17 @@ describe("QBittorrentClient - Advanced Features", () => {
       .mockResolvedValueOnce(addResponse)
       .mockResolvedValueOnce(verifyResponse);
 
-    const { DownloaderManager } = await import("../downloaders.js");
-
-    const magnetHash = "magnethash123";
-    await DownloaderManager.addTorrent(testDownloader, {
-      url: `magnet:?xt=urn:btih:${magnetHash}`,
-      title: "Stopped Game",
+    await DownloaderManager.addDownload(testDownloader, {
+      url: "magnet:?xt=urn:btih:aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd",
+      title: "Test Game",
     });
 
-    // Verify paused=true in add request
-    expect(fetchMock).toHaveBeenCalledWith(
-      "http://localhost:8080/api/v2/torrents/add",
-      expect.objectContaining({
-        body: expect.stringContaining("paused=true"),
-      })
-    );
+    // Verify add call has paused=true
+    const calls = fetchMock.mock.calls;
+    const addCall = calls.find((call) => call[0].includes("/api/v2/torrents/add"));
+
+    expect(addCall).toBeDefined();
+    expect(addCall[0]).toBe("http://localhost:8080/api/v2/torrents/add");
+    expect(addCall[1].body).toContain("paused=true");
   });
 });

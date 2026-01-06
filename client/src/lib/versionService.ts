@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+// src/lib/versionService.ts
+import { useQuery } from "@tanstack/react-query";
 
 export async function fetchLatestQuestarrVersion(): Promise<string | null> {
   try {
@@ -6,15 +7,17 @@ export async function fetchLatestQuestarrVersion(): Promise<string | null> {
     if (!res.ok) return null;
     const data = await res.json();
     return data.version || null;
-  } catch {
+  } catch (error) {
+    console.error("Failed to fetch latest Questarr version:", error);
     return null;
   }
 }
 
 export function useLatestQuestarrVersion(): string | null {
-  const [latest, setLatest] = useState<string | null>(null);
-  useEffect(() => {
-    fetchLatestQuestarrVersion().then(setLatest);
-  }, []);
-  return latest;
+  const { data } = useQuery({
+    queryKey: ["latestQuestarrVersion"],
+    queryFn: fetchLatestQuestarrVersion,
+    staleTime: 1000 * 60 * 60, // 1 hour
+  });
+  return data ?? null;
 }

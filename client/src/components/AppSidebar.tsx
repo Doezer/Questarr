@@ -25,6 +25,7 @@ import { useQuery } from "@tanstack/react-query";
 import { type Game, type DownloadStatus } from "@shared/schema";
 import { FaGithub } from "react-icons/fa";
 import pkg from "../../../package.json";
+import semver from "semver";
 import { FaArrowUp } from "react-icons/fa";
 import { useLatestQuestarrVersion } from "@/lib/versionService";
 
@@ -202,22 +203,20 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: AppSidebarP
             rel="noopener noreferrer"
             aria-label="View on GitHub"
             className={
-              latestVersion && latestVersion !== pkg.version
-              ? "flex items-center gap-1 text-emerald-400 hover:text-emerald-500 transition-colors font-semibold"
-              : "flex items-center gap-1 text-[#9CA3AF] hover:text-[#3B82F6] transition-colors"
+              latestVersion && semver.valid(latestVersion) && semver.gt(latestVersion, pkg.version)
+                ? "flex items-center gap-1 text-emerald-400 hover:text-emerald-500 transition-colors font-semibold"
+                : "flex items-center gap-1 text-gray-400 hover:text-blue-500 transition-colors"
             }
           >
-          <span className="flex flex-col justify-center items-center">
-            <FaGithub size={16} />
-            <span className="flex items-center gap-1">
-              <span>Questarr v.{pkg.version}</span>
-              {latestVersion && latestVersion !== pkg.version && (
-                <>
+            <span className="flex flex-col justify-center items-center">
+              <FaGithub size={16} />
+              <span className="flex items-center gap-1">
+                <span>Questarr v.{pkg.version}</span>
+                {latestVersion && semver.valid(latestVersion) && semver.gt(latestVersion, pkg.version) && (
                   <span className="ml-1 text-emerald-500/70">v{latestVersion} <FaArrowUp className="inline" size={12} /></span>
-                </>
-                ) }
+                )}
               </span>
-          </span>
+            </span>
           </a>
         </div>
       </SidebarContent>

@@ -154,18 +154,38 @@ export async function runMigrations(): Promise<void> {
  * Verify database connection and tables exist
  */
 export async function ensureDatabase(): Promise<void> {
-  try {
-    logger.info("Checking database connection...");
+  const maxRetries = 10;
+  const retryDelay = 2000;
 
-    // Test connection
-    await db.execute(sql`SELECT 1`);
-    logger.info("Database connection successful");
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      logger.info(`Checking database connection (attempt ${attempt}/${maxRetries})...`);
 
-    // Run migrations to ensure schema is up-to-date
-    await runMigrations();
-  } catch (error) {
-    logger.error({ err: error }, "Database check failed");
-    throw new Error("Failed to connect to database. Please check your DATABASE_URL configuration.");
+      // Test connection
+      await db.execute(sql`SELECT 1`);
+      logger.info("Database connection successful");
+
+      // Run migrations to ensure schema is up-to-date
+      await runMigrations();
+      return; // Success
+    } catch (error) {
+      const isLastAttempt = attempt === maxRetries;
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      const errorCode = (error as { code?: string })?.code;
+
+      if (isLastAttempt) {
+        logger.error({ err: error }, "Database check failed after multiple attempts");
+        throw new Error(`Failed to connect to database after ${maxRetries} attempts. Last error: ${errorMessage} (${errorCode})`);
+      }
+
+      logger.warn(
+        { err: error },
+        `Database connection failed (attempt ${attempt}/${maxRetries}). Retrying in ${retryDelay}ms...`
+      );
+      
+      // Wait before retrying
+      await new Promise((resolve) => setTimeout(resolve, retryDelay));
+    }
   }
 }
 

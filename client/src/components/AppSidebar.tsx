@@ -23,6 +23,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { useQuery } from "@tanstack/react-query";
 import { type Game, type DownloadStatus } from "@shared/schema";
+import { FaGithub } from "react-icons/fa";
+import pkg from "../../../package.json";
 
 const staticNavigation = [
   {
@@ -186,6 +188,22 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: AppSidebarP
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+        <div className="flex-1" />
+        {/* Divider above GitHub link */}
+        <div className="border-t border-[#374151]/40 mx-2 mb-2" />
+        {/* GitHub link and version info at the bottom */}
+        <div className="flex items-center justify-center gap-2 pb-2 text-[#9CA3AF] text-xs">
+          <a
+            href="https://github.com/Doezer/Questarr"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="View on GitHub"
+            className="flex items-center gap-1 text-[#9CA3AF] hover:text-[#3B82F6] transition-colors"
+          >
+            <FaGithub size={16} />
+            <span>Questarr v.{pkg.version}</span>
+          </a>
+        </div>
       </SidebarContent>
     </Sidebar>
   );

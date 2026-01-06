@@ -23,12 +23,12 @@ import {
   Users,
 } from "lucide-react";
 import { formatBytes } from "@/lib/utils";
-import type { TorrentFile, TorrentTracker, TorrentDetails } from "@shared/schema";
+import type { DownloadFile, DownloadTracker, DownloadDetails } from "@shared/schema";
 
-interface TorrentDetailsModalProps {
+interface DownloadDetailsModalProps {
   downloaderId: string;
-  torrentId: string;
-  torrentName: string;
+  downloadId: string;
+  downloadName: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
@@ -42,7 +42,7 @@ function formatDate(isoString: string | undefined): string {
   }
 }
 
-function getTrackerStatusColor(status: TorrentTracker["status"]): string {
+function getTrackerStatusColor(status: DownloadTracker["status"]): string {
   switch (status) {
     case "working":
       return "bg-green-500";
@@ -57,7 +57,7 @@ function getTrackerStatusColor(status: TorrentTracker["status"]): string {
 }
 
 function getPriorityBadgeVariant(
-  priority: TorrentFile["priority"]
+  priority: DownloadFile["priority"]
 ): "default" | "secondary" | "outline" | "destructive" {
   switch (priority) {
     case "high":
@@ -73,20 +73,20 @@ function getPriorityBadgeVariant(
   }
 }
 
-export default function TorrentDetailsModal({
+export default function DownloadDetailsModal({
   downloaderId,
-  torrentId,
-  torrentName,
+  downloadId,
+  downloadName,
   open,
   onOpenChange,
-}: TorrentDetailsModalProps) {
+}: DownloadDetailsModalProps) {
   const {
     data: details,
     isLoading,
     error,
-  } = useQuery<TorrentDetails>({
-    queryKey: [`/api/downloaders/${downloaderId}/torrents/${torrentId}/details`],
-    enabled: open && !!downloaderId && !!torrentId,
+  } = useQuery<DownloadDetails>({
+    queryKey: [`/api/downloaders/${downloaderId}/downloads/${downloadId}/details`],
+    enabled: open && !!downloaderId && !!downloadId,
     refetchInterval: (query) => (query.state.error ? false : 5000),
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: false,
@@ -98,28 +98,28 @@ export default function TorrentDetailsModal({
         <DialogHeader className="flex-shrink-0">
           <DialogTitle
             className="text-xl font-bold leading-tight truncate"
-            data-testid="torrent-details-title"
+            data-testid="download-details-title"
           >
-            {torrentName}
+            {downloadName}
           </DialogTitle>
           <DialogDescription>
-            Torrent details including files, trackers, and metadata
+            Download details including files, trackers, and metadata
           </DialogDescription>
         </DialogHeader>
 
         {isLoading && (
           <div
             className="flex items-center justify-center py-8"
-            data-testid="torrent-details-loading"
+            data-testid="download-details-loading"
           >
             <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent mr-2" />
-            <span>Loading torrent details...</span>
+            <span>Loading download details...</span>
           </div>
         )}
 
         {error && (
-          <div className="text-destructive py-4" data-testid="torrent-details-error">
-            Failed to load torrent details:{" "}
+          <div className="text-destructive py-4" data-testid="download-details-error">
+            Failed to load download details:{" "}
             {error instanceof Error ? error.message : "Unknown error"}
           </div>
         )}

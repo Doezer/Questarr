@@ -1,18 +1,18 @@
 /**
- * Torrent Categorization Utility
+ * Download Categorization Utility
  *
- * Categorizes game torrents into main game, updates, DLC, and extras
- * based on common naming patterns in torrent titles.
+ * Categorizes game downloads (torrents/NZBs) into main game, updates, DLC, and extras
+ * based on common naming patterns in titles.
  */
 
-export type TorrentCategory = "main" | "update" | "dlc" | "extra";
+export type DownloadCategory = "main" | "update" | "dlc" | "extra";
 
-export interface CategorizedTorrent {
-  category: TorrentCategory;
+export interface CategorizedDownload {
+  category: DownloadCategory;
   confidence: number; // 0-1, how confident we are in the categorization
 }
 
-// Patterns for different torrent types
+// Patterns for different download types
 const UPDATE_PATTERNS = [
   /\bupdate\b/i,
   /\bpatch\b/i,
@@ -45,10 +45,10 @@ const EXTRA_PATTERNS = [
 ];
 
 /**
- * Categorizes a torrent based on its title
+ * Categorizes a download based on its title
  */
-export function categorizeTorrent(title: string): CategorizedTorrent {
-  const category: TorrentCategory = "main";
+export function categorizeDownload(title: string): CategorizedDownload {
+  const category: DownloadCategory = "main";
   let confidence = 0.5; // Default confidence for main game
 
   // Check for extras (highest priority - most specific)
@@ -81,21 +81,21 @@ export function categorizeTorrent(title: string): CategorizedTorrent {
 }
 
 /**
- * Groups torrents by category
+ * Groups downloads by category
  */
-export function groupTorrentsByCategory<T extends { title: string }>(
-  torrents: T[]
-): Record<TorrentCategory, T[]> {
-  const groups: Record<TorrentCategory, T[]> = {
+export function groupDownloadsByCategory<T extends { title: string }>(
+  downloads: T[]
+): Record<DownloadCategory, T[]> {
+  const groups: Record<DownloadCategory, T[]> = {
     main: [],
     update: [],
     dlc: [],
     extra: [],
   };
 
-  torrents.forEach((torrent) => {
-    const { category } = categorizeTorrent(torrent.title);
-    groups[category].push(torrent);
+  downloads.forEach((download) => {
+    const { category } = categorizeDownload(download.title);
+    groups[category].push(download);
   });
 
   return groups;
@@ -104,7 +104,7 @@ export function groupTorrentsByCategory<T extends { title: string }>(
 /**
  * Gets a human-readable label for a category
  */
-export function getCategoryLabel(category: TorrentCategory): string {
+export function getCategoryLabel(category: DownloadCategory): string {
   switch (category) {
     case "main":
       return "Main Game";
@@ -120,7 +120,7 @@ export function getCategoryLabel(category: TorrentCategory): string {
 /**
  * Gets a description for a category
  */
-export function getCategoryDescription(category: TorrentCategory): string {
+export function getCategoryDescription(category: DownloadCategory): string {
   switch (category) {
     case "main":
       return "Full game downloads";

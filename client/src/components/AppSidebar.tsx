@@ -27,7 +27,7 @@ import { FaGithub } from "react-icons/fa";
 import pkg from "../../../package.json";
 import semver from "semver";
 import { FaArrowUp } from "react-icons/fa";
-import { useLatestQuestarrVersion } from "@/lib/versionService";
+import { useLatestQuestarrVersion } from "@/hooks/use-latest-questarr-version";
 
 const staticNavigation = [
   {

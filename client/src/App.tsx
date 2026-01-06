@@ -8,38 +8,45 @@ import AppSidebar from "@/components/AppSidebar";
 import Header from "@/components/Header";
 import { useBackgroundNotifications } from "@/hooks/use-background-notifications";
 import { AuthProvider } from "@/lib/auth";
-import Dashboard from "@/components/Dashboard";
-import DiscoverPage from "@/pages/discover";
-import SearchPage from "@/pages/search";
-import DownloadsPage from "@/pages/downloads";
-import IndexersPage from "@/pages/indexers";
-import DownloadersPage from "@/pages/downloaders";
-import SettingsPage from "@/pages/settings";
-import NotFound from "@/pages/not-found";
-import LibraryPage from "@/pages/library";
-import CalendarPage from "@/pages/calendar";
-import WishlistPage from "@/pages/wishlist";
-import LoginPage from "@/pages/auth/login";
-import SetupPage from "@/pages/auth/setup";
+import { Suspense, lazy } from "react";
+import LoadingFallback from "@/components/LoadingFallback";
 import { ThemeProvider } from "next-themes";
+
+// ⚡ Bolt: Code splitting with React.lazy
+// This reduces the initial bundle size by loading pages only when needed.
+const Dashboard = lazy(() => import("@/components/Dashboard"));
+const DiscoverPage = lazy(() => import("@/pages/discover"));
+const SearchPage = lazy(() => import("@/pages/search"));
+const DownloadsPage = lazy(() => import("@/pages/downloads"));
+const IndexersPage = lazy(() => import("@/pages/indexers"));
+const DownloadersPage = lazy(() => import("@/pages/downloaders"));
+const SettingsPage = lazy(() => import("@/pages/settings"));
+const NotFound = lazy(() => import("@/pages/not-found"));
+const LibraryPage = lazy(() => import("@/pages/library"));
+const CalendarPage = lazy(() => import("@/pages/calendar"));
+const WishlistPage = lazy(() => import("@/pages/wishlist"));
+const LoginPage = lazy(() => import("@/pages/auth/login"));
+const SetupPage = lazy(() => import("@/pages/auth/setup"));
 
 function Router() {
   return (
-    <Switch>
-      <Route path="/login" component={LoginPage} />
-      <Route path="/setup" component={SetupPage} />
-      <Route path="/" component={Dashboard} />
-      <Route path="/discover" component={DiscoverPage} />
-      <Route path="/search" component={SearchPage} />
-      <Route path="/downloads" component={DownloadsPage} />
-      <Route path="/indexers" component={IndexersPage} />
-      <Route path="/downloaders" component={DownloadersPage} />
-      <Route path="/settings" component={SettingsPage} />
-      <Route path="/library" component={LibraryPage} />
-      <Route path="/calendar" component={CalendarPage} />
-      <Route path="/wishlist" component={WishlistPage} />
-      <Route component={NotFound} />
-    </Switch>
+    <Suspense fallback={<LoadingFallback />}>
+      <Switch>
+        <Route path="/login" component={LoginPage} />
+        <Route path="/setup" component={SetupPage} />
+        <Route path="/" component={Dashboard} />
+        <Route path="/discover" component={DiscoverPage} />
+        <Route path="/search" component={SearchPage} />
+        <Route path="/downloads" component={DownloadsPage} />
+        <Route path="/indexers" component={IndexersPage} />
+        <Route path="/downloaders" component={DownloadersPage} />
+        <Route path="/settings" component={SettingsPage} />
+        <Route path="/library" component={LibraryPage} />
+        <Route path="/calendar" component={CalendarPage} />
+        <Route path="/wishlist" component={WishlistPage} />
+        <Route component={NotFound} />
+      </Switch>
+    </Suspense>
   );
 }
 

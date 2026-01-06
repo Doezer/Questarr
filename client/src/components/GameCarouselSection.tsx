@@ -150,6 +150,7 @@ const GameCarouselSection = ({
                 onClick={() => refetch()}
                 disabled={isFetching}
                 className="h-8 w-8"
+                aria-label="Refresh games"
               >
                 <RefreshCw className={cn("h-4 w-4", isFetching && "animate-spin")} />
               </Button>

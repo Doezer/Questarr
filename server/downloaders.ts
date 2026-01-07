@@ -3094,8 +3094,7 @@ class NZBGetClient implements DownloaderClient {
     }
     return "";
   }
-
-<<<<<<< HEAD
+  
   private parseValueObj(valueObj: unknown): unknown {
     if (typeof valueObj !== "object" || valueObj === null) {
       return valueObj;

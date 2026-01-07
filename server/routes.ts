@@ -1457,24 +1457,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.attachment("download-bundle.zip");
       archive.pipe(res);
 
-      for (const download of downloads) {
-        try {
-          const response = await fetch(download.link);
-          if (response.ok) {
-            const buffer = await response.arrayBuffer();
-            // Try to detect if it's a usenet item based on title or link if downloadType not present
-            const isUsenet =
-              download.downloadType === "usenet" ||
-              download.link.includes("newznab") ||
-              download.title.toLowerCase().includes(".nzb");
-            const extension = isUsenet ? "nzb" : "torrent";
-            const filename = `${download.title.replace(/[<>:"/\\|?*]/g, "_")}.${extension}`;
-            archive.append(Buffer.from(buffer), { name: filename });
+      // ⚡ Bolt: Fetch all downloads in parallel to significantly reduce wait time
+      // for the user compared to sequential processing.
+      await Promise.all(
+        downloads.map(async (download: { link: string; title: string; downloadType?: string }) => {
+          try {
+            const response = await fetch(download.link);
+            if (response.ok) {
+              const buffer = await response.arrayBuffer();
+              // Try to detect if it's a usenet item based on title or link if downloadType not present
+              const isUsenet =
+                download.downloadType === "usenet" ||
+                download.link.includes("newznab") ||
+                download.title.toLowerCase().includes(".nzb");
+              const extension = isUsenet ? "nzb" : "torrent";
+              const filename = `${download.title.replace(/[<>:"/\\|?*]/g, "_")}.${extension}`;
+              archive.append(Buffer.from(buffer), { name: filename });
+            }
+          } catch (error) {
+            console.error(`Error adding ${download.title} to bundle:`, error);
           }
-        } catch (error) {
-          console.error(`Error adding ${download.title} to bundle:`, error);
-        }
-      }
+        })
+      );
 
       await archive.finalize();
     } catch (error) {

@@ -42,6 +42,14 @@ import { hashPassword, comparePassword, generateToken, authenticateToken } from 
 import { searchAllIndexers } from "./search.js";
 import archiver from "archiver";
 
+// ⚡ Bolt: Simple in-memory cache implementation to avoid external dependencies
+// Caches storage info for 30 seconds to prevent spamming downloaders
+const storageCache = {
+  data: null as any,
+  expiry: 0,
+  ttl: 30 * 1000, // 30 seconds in milliseconds
+};
+
 // Helper function for aggregated indexer search
 async function handleAggregatedIndexerSearch(req: Request, res: Response) {
   try {
@@ -848,6 +856,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get free space for all enabled downloaders
   app.get("/api/downloaders/storage", async (req, res) => {
     try {
+      // ⚡ Bolt: Check cache first
+      if (storageCache.data && Date.now() < storageCache.expiry) {
+        return res.json(storageCache.data);
+      }
+
       const enabledDownloaders = await storage.getEnabledDownloaders();
       routesLogger.debug(
         { count: enabledDownloaders.length },
@@ -878,6 +891,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         })
       );
+
+      // ⚡ Bolt: Cache the result
+      storageCache.data = storageInfo;
+      storageCache.expiry = Date.now() + storageCache.ttl;
 
       res.json(storageInfo);
     } catch (error) {

@@ -5,26 +5,19 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 import { Calendar, Star, Monitor, Gamepad2, Tag, Download, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { type Game } from "@shared/schema";
-import StatusBadge, { type GameStatus } from "./StatusBadge";
+import StatusBadge from "./StatusBadge";
 import GameDownloadDialog from "./GameDownloadDialog";
 
 interface GameDetailsModalProps {
   game: Game | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onStatusChange?: (gameId: string, newStatus: GameStatus) => void;
 }
 
-export default function GameDetailsModal({
-  game,
-  open,
-  onOpenChange,
-  onStatusChange,
-}: GameDetailsModalProps) {
+export default function GameDetailsModal({ game, open, onOpenChange }: GameDetailsModalProps) {
   const [selectedScreenshot, setSelectedScreenshot] = useState<string | null>(null);
   const [downloadOpen, setDownloadOpen] = useState(false);
   const { toast } = useToast();

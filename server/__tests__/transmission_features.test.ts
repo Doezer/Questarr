@@ -4,7 +4,7 @@ import type { Downloader } from "@shared/schema";
 
 // Mock parse-torrent
 vi.mock("parse-torrent", () => ({
-  default: vi.fn((buffer) => {
+  default: vi.fn((_buffer) => {
     return {
       infoHash: "abc123def456",
       name: "Test Game",
@@ -110,16 +110,6 @@ describe("TransmissionClient - Advanced Features", () => {
       arrayBuffer: async () => Buffer.from("mock download content"),
 
       text: async () => "mock download content",
-    };
-
-    // Mock 2: session check (409)
-
-    const sessionResponse = {
-      ok: false,
-
-      status: 409,
-
-      headers: { get: () => "session-id" },
     };
 
     // Mock 3: RPC add

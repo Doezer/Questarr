@@ -8,7 +8,7 @@
     "build": "vite build && tsc -p tsconfig.build.json",
     "start": "NODE_ENV=production node dist/server/index.js",
     "check": "tsc",
-    "lint": "eslint . --ext .ts,.tsx,.js,.jsx",
+    "lint": "eslint .",
     "lint:fix": "eslint . --ext .ts,.tsx,.js,.jsx --fix",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,css}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,css}\"",

@@ -1,5 +1,6 @@
+/* global console, process, URL */
+/* eslint-disable no-console */
 import fs from "fs";
-import path from "path";
 import { Pool } from "pg";
 import "dotenv/config";
 
@@ -18,7 +19,7 @@ async function debug() {
       try {
         const url = new URL(val);
         val = `${url.protocol}//${url.username}:****@${url.host}${url.pathname}`;
-      } catch (e) {
+      } catch {
         val = "INVALID URL FORMAT";
       }
     }

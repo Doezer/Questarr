@@ -90,8 +90,9 @@ const GameCard = ({
       } catch (error) {
         // Handle 409 Conflict (already in library)
         if (error instanceof ApiError && error.status === 409) {
-          if (error.data?.game) {
-            return error.data.game as Game;
+          const data = error.data as Record<string, unknown>;
+          if (data?.game) {
+            return data.game as Game;
           }
           // Fallback if data format is unexpected but we know it's a 409
           return game;
@@ -161,7 +162,7 @@ const GameCard = ({
         // to be absolutely sure we have the latest version for the dialog
         setResolvedGame(gameInLibrary);
         setDownloadOpen(true);
-      } catch (error) {
+      } catch {
         toast({
           description: "Failed to add game to library before downloading",
           variant: "destructive",
@@ -368,7 +369,6 @@ const GameCard = ({
           game={resolvedGame}
           open={detailsOpen}
           onOpenChange={setDetailsOpen}
-          onStatusChange={onStatusChange}
         />
       )}
 

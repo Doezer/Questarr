@@ -1358,7 +1358,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const allDownloads = results.flatMap((r) => (r.success ? r.data : []));
       const errors = results
-        .filter((r): r is { success: false; downloader: any; error: any } => !r.success)
+        .filter((r): r is { success: false; downloader: Downloader; error: unknown } => !r.success)
         .map(({ downloader, error }) => {
           const errorMessage = error instanceof Error ? error.message : "Unknown error";
           routesLogger.error({ downloaderName: downloader.name, error }, "error getting downloads");

@@ -1,15 +1,18 @@
 import React from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Download, Info, Star, Calendar, Eye, EyeOff, PackageCheck } from "lucide-react";
+import { Download, Info, Star, Calendar, Eye, EyeOff, PackageCheck, Loader2 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import StatusBadge, { type GameStatus } from "./StatusBadge";
 import { type Game, type SearchResult } from "@shared/schema";
 import { useState, memo, useRef, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import GameDetailsModal from "./GameDetailsModal";
 import GameDownloadDialog from "./GameDownloadDialog";
+import { mapGameToInsertGame, isDiscoveryId } from "@/lib/utils";
+import { apiRequest, ApiError } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 interface GameCardProps {
   game: Game;
@@ -57,11 +60,50 @@ const GameCard = ({
   onToggleHidden,
   isDiscovery = false,
 }: GameCardProps) => {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
   const releaseStatus = getReleaseStatus(game);
+
+  // Keep track of the resolved game object (either original or newly added)
+  const [resolvedGame, setResolvedGame] = useState<Game>(game);
+
+  // Update resolved game if props change
+  useEffect(() => {
+    setResolvedGame(game);
+  }, [game]);
+
+  // For auto-adding games when downloading from Discovery
+  const addGameMutation = useMutation<Game, Error, Game>({
+    mutationFn: async (game: Game) => {
+      const gameData = mapGameToInsertGame(game);
+
+      try {
+        const response = await apiRequest("POST", "/api/games", {
+          ...gameData,
+          status: "wanted",
+        });
+        return response.json() as Promise<Game>;
+      } catch (error) {
+        // Handle 409 Conflict (already in library)
+        if (error instanceof ApiError && error.status === 409) {
+          if (error.data?.game) {
+            return error.data.game as Game;
+          }
+          // Fallback if data format is unexpected but we know it's a 409
+          return game;
+        }
+        throw error;
+      }
+    },
+    onSuccess: (newGame) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+      setResolvedGame(newGame);
+    },
+  });
 
   // Use Intersection Observer to detect when card is visible in viewport
   // This prevents making API calls for games that aren't visible on screen
@@ -108,9 +150,26 @@ const GameCard = ({
     onViewDetails?.(game.id);
   };
 
-  const handleDownloadClick = () => {
-    console.warn(`Download triggered for game: ${game.title}`);
-    setDownloadOpen(true);
+  const handleDownloadClick = async () => {
+    console.warn(`Download triggered for game: ${resolvedGame.title}`);
+
+    // If it's a discovery game (temporary ID), add it to library first
+    if (isDiscoveryId(resolvedGame.id)) {
+      try {
+        const gameInLibrary = await addGameMutation.mutateAsync(resolvedGame);
+        // Note: resolvedGame is updated in onSuccess, but we use gameInLibrary here
+        // to be absolutely sure we have the latest version for the dialog
+        setResolvedGame(gameInLibrary);
+        setDownloadOpen(true);
+      } catch (error) {
+        toast({
+          description: "Failed to add game to library before downloading",
+          variant: "destructive",
+        });
+      }
+    } else {
+      setDownloadOpen(true);
+    }
   };
 
   const handleToggleHidden = () => {
@@ -172,10 +231,15 @@ const GameCard = ({
                   size="icon"
                   variant="default"
                   onClick={handleDownloadClick}
+                  disabled={addGameMutation.isPending}
                   aria-label="Download game"
                   data-testid={`button-download-${game.id}`}
                 >
-                  <Download className="w-4 h-4" />
+                  {addGameMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4" />
+                  )}
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
@@ -269,9 +333,17 @@ const GameCard = ({
             size="sm"
             className="w-full"
             onClick={() => onTrackGame?.(game)}
+            disabled={addGameMutation.isPending}
             data-testid={`button-track-${game.id}`}
           >
-            Track Game
+            {addGameMutation.isPending ? (
+              <>
+                <Loader2 className="h-3 w-3 mr-2 animate-spin" />
+                Tracking...
+              </>
+            ) : (
+              "Track Game"
+            )}
           </Button>
         ) : (
           <Button
@@ -293,7 +365,7 @@ const GameCard = ({
           and reducing memory usage. */}
       {detailsOpen && (
         <GameDetailsModal
-          game={game}
+          game={resolvedGame}
           open={detailsOpen}
           onOpenChange={setDetailsOpen}
           onStatusChange={onStatusChange}
@@ -301,7 +373,11 @@ const GameCard = ({
       )}
 
       {downloadOpen && (
-        <GameDownloadDialog game={game} open={downloadOpen} onOpenChange={setDownloadOpen} />
+        <GameDownloadDialog
+          game={resolvedGame}
+          open={downloadOpen}
+          onOpenChange={setDownloadOpen}
+        />
       )}
     </Card>
   );

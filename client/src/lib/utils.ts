@@ -33,6 +33,15 @@ export function asZodType<T>(schema: unknown): z.ZodType<T> {
 }
 
 /**
+ * Checks if a game ID is a temporary ID from IGDB discovery results.
+ * Temporary IDs are prefixed with 'igdb-' followed by numeric digits.
+ */
+export function isDiscoveryId(id: string | number | null | undefined): boolean {
+  if (typeof id !== "string") return false;
+  return id.startsWith("igdb-");
+}
+
+/**
  * Maps a Game object to an InsertGame object by filtering out fields
  * that should not be sent to the POST /api/games endpoint.
  *

@@ -117,223 +117,480 @@ export default function DiscoverPage() {
     );
   }, [localGames]);
 
-  const wantedIgdbIds = useMemo(() => {
-    return new Set(
-      localGames.filter((g) => g.status === "wanted" && !g.hidden).map((g) => g.igdbId)
+    const wantedIgdbIds = useMemo(() => {
+      return new Set(
+        localGames.filter((g) => g.status === "wanted" && !g.hidden).map((g) => g.igdbId)
+      );
+    }, [localGames]);
+  
+    const igdbToLocalIdMap = useMemo(() => {
+      const map = new Map<number, string>();
+      localGames.forEach((g) => {
+        if (g.igdbId) map.set(g.igdbId, g.id);
+      });
+      return map;
+    }, [localGames]);
+  
+    const filterGames = useCallback(
+      (games: Game[]) => {
+
+        return games.filter((g: Game) => {
+
+          if (hiddenIgdbIds.has(g.igdbId)) return false;
+
+          if (hideOwned && ownedIgdbIds.has(g.igdbId)) return false;
+
+          if (hideWanted && wantedIgdbIds.has(g.igdbId)) return false;
+
+          return true;
+
+        });
+
+      },
+
+      [hiddenIgdbIds, ownedIgdbIds, wantedIgdbIds, hideOwned, hideWanted]
+
     );
-  }, [localGames]);
 
-  const filterGames = useCallback(
-    (games: Game[]) => {
-      return games.filter((g: Game) => {
-        if (hiddenIgdbIds.has(g.igdbId)) return false;
-        if (hideOwned && ownedIgdbIds.has(g.igdbId)) return false;
-        if (hideWanted && wantedIgdbIds.has(g.igdbId)) return false;
-        return true;
-      });
-    },
-    [hiddenIgdbIds, ownedIgdbIds, wantedIgdbIds, hideOwned, hideWanted]
-  );
+  
 
-  // Fetch available genres with caching and error handling
-  const {
-    data: genres = [],
-    isError: genresError,
-    isFetching: isFetchingGenres,
-  } = useQuery<Genre[]>({
-    queryKey: ["/api/igdb/genres"],
-    queryFn: async () => {
-      const response = await apiRequest("GET", "/api/igdb/genres");
-      return response.json();
-    },
-    staleTime: STATIC_DATA_STALE_TIME,
-    retry: 2,
-  });
+    // Fetch available genres with caching and error handling
 
-  // Fetch available platforms with caching and error handling
-  const {
-    data: platforms = [],
-    isError: platformsError,
-    isFetching: isFetchingPlatforms,
-  } = useQuery<Platform[]>({
-    queryKey: ["/api/igdb/platforms"],
-    queryFn: async () => {
-      const response = await apiRequest("GET", "/api/igdb/platforms");
-      return response.json();
-    },
-    staleTime: STATIC_DATA_STALE_TIME,
-    retry: 2,
-  });
+    const {
 
-  // Handle errors with toast notifications
-  useEffect(() => {
-    if (genresError) {
-      toast({
-        description: "Failed to load genres, using defaults",
-        variant: "destructive",
-      });
-    }
-  }, [genresError, toast]);
+      data: genres = [],
 
-  useEffect(() => {
-    if (platformsError) {
-      toast({
-        description: "Failed to load platforms, using defaults",
-        variant: "destructive",
-      });
-    }
-  }, [platformsError, toast]);
+      isError: genresError,
 
-  // Track game mutation (for Discovery games)
-  const trackGameMutation = useMutation({
-    mutationFn: async (game: Game) => {
-      const gameData = mapGameToInsertGame(game);
-      const response = await apiRequest("POST", "/api/games", {
-        ...gameData,
-        status: "wanted",
-      });
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
-      toast({ description: "Game added to watchlist!" });
-    },
-    onError: (error: Error) => {
-      const errorMessage = error.message || String(error);
-      if (errorMessage.includes("409") || errorMessage.includes("already in collection")) {
+      isFetching: isFetchingGenres,
+
+    } = useQuery<Genre[]>({
+
+      queryKey: ["/api/igdb/genres"],
+
+      queryFn: async () => {
+
+        const response = await apiRequest("GET", "/api/igdb/genres");
+
+        return response.json();
+
+      },
+
+      staleTime: STATIC_DATA_STALE_TIME,
+
+      retry: 2,
+
+    });
+
+  
+
+    // Fetch available platforms with caching and error handling
+
+    const {
+
+      data: platforms = [],
+
+      isError: platformsError,
+
+      isFetching: isFetchingPlatforms,
+
+    } = useQuery<Platform[]>({
+
+      queryKey: ["/api/igdb/platforms"],
+
+      queryFn: async () => {
+
+        const response = await apiRequest("GET", "/api/igdb/platforms");
+
+        return response.json();
+
+      },
+
+      staleTime: STATIC_DATA_STALE_TIME,
+
+      retry: 2,
+
+    });
+
+  
+
+    // Handle errors with toast notifications
+
+    useEffect(() => {
+
+      if (genresError) {
+
         toast({
-          description: "Game is already in your collection",
-          variant: "default",
-        });
-      } else {
-        toast({
-          description: "Failed to track game",
+
+          description: "Failed to load genres, using defaults",
+
           variant: "destructive",
+
         });
+
       }
-    },
-  });
 
-  // Hide game mutation
-  const hideGameMutation = useMutation({
-    mutationFn: async (game: Game) => {
-      // Check if game exists locally first
-      const existingGame = localGames.find((g) => g.igdbId === game.igdbId);
+    }, [genresError, toast]);
 
-      if (existingGame) {
-        // Update existing game
-        const response = await apiRequest("PATCH", `/api/games/${existingGame.id}/hidden`, {
-          hidden: true,
+  
+
+    useEffect(() => {
+
+      if (platformsError) {
+
+        toast({
+
+          description: "Failed to load platforms, using defaults",
+
+          variant: "destructive",
+
         });
-        return response.json();
-      } else {
-        // Add new hidden game
+
+      }
+
+    }, [platformsError, toast]);
+
+  
+
+    // Track game mutation (for Discovery games)
+
+    const trackGameMutation = useMutation({
+
+      mutationFn: async (game: Game) => {
+
         const gameData = mapGameToInsertGame(game);
+
         const response = await apiRequest("POST", "/api/games", {
+
           ...gameData,
-          status: "wanted", // Default status, but hidden
-          hidden: true,
+
+          status: "wanted",
+
         });
+
         return response.json();
-      }
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
-      toast({ description: "Game hidden from discovery" });
-    },
-    onError: () => {
-      toast({
-        description: "Failed to hide game",
-        variant: "destructive",
-      });
-    },
-  });
 
-  // Add game mutation (for status changes on Discovery games)
-  const addGameMutation = useMutation({
-    mutationFn: async ({ game, status }: { game: Game; status: GameStatus }) => {
-      const gameData = mapGameToInsertGame(game);
-      const response = await apiRequest("POST", "/api/games", {
-        ...gameData,
-        status,
-      });
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
-      toast({ description: "Game added to collection successfully" });
-    },
-    onError: () => {
-      toast({
-        description: "Failed to add game to collection",
-        variant: "destructive",
-      });
-    },
-  });
+      },
 
-  // ⚡ Bolt: Using useCallback to memoize event handlers, preventing unnecessary
-  // re-renders in child components like `GameCard` that rely on stable function
-  // references for their `React.memo` optimization.
-  const handleStatusChange = useCallback(
-    (gameId: string, newStatus: GameStatus) => {
-      // For Discovery games (IGDB games not in collection yet)
-      const findGameInQueries = (): Game | undefined => {
-        // Search in all cached query data
-        const allQueries = queryClient.getQueriesData<Game[]>({
-          predicate: (query) => {
-            const key = query.queryKey[0] as string;
-            return key.startsWith("/api/igdb/");
-          },
-        });
+      onSuccess: () => {
 
-        for (const [, data] of allQueries) {
-          const game = data?.find((g) => g.id === gameId);
-          if (game) return game;
-        }
-        return undefined;
-      };
+        queryClient.invalidateQueries({ queryKey: ["/api/games"] });
 
-      const game = findGameInQueries();
-      if (game) {
-        addGameMutation.mutate({ game, status: newStatus });
-      }
-    },
-    [queryClient, addGameMutation]
-  );
+        toast({ description: "Game added to watchlist!" });
 
-  const handleTrackGame = useCallback(
-    (game: Game) => {
-      trackGameMutation.mutate(game);
-    },
-    [trackGameMutation]
-  );
+      },
 
-  const handleToggleHidden = useCallback(
-    (gameId: string, hidden: boolean) => {
-      // We only support hiding from discovery page for now via the card button
-      // Unhiding is done via settings
-      if (hidden) {
-        const findGameInQueries = (): Game | undefined => {
-          // Search in all cached query data
-          const allQueries = queryClient.getQueriesData<Game[]>({
-            predicate: (query) => {
-              const key = query.queryKey[0] as string;
-              return key.startsWith("/api/igdb/");
-            },
+      onError: (error: Error) => {
+
+        const errorMessage = error.message || String(error);
+
+        if (errorMessage.includes("409") || errorMessage.includes("already in collection")) {
+
+          toast({
+
+            description: "Game is already in your collection",
+
+            variant: "default",
+
           });
 
+        } else {
+
+          toast({
+
+            description: "Failed to track game",
+
+            variant: "destructive",
+
+          });
+
+        }
+
+      },
+
+    });
+
+  
+
+    // Hide game mutation
+
+    const hideGameMutation = useMutation({
+
+      mutationFn: async (game: Game) => {
+
+        // Check if game exists locally first (use our map for consistency)
+
+        const localId = game.igdbId ? igdbToLocalIdMap.get(game.igdbId) : undefined;
+
+  
+
+        if (localId) {
+
+          // Update existing game
+
+          const response = await apiRequest("PATCH", `/api/games/${localId}/hidden`, {
+
+            hidden: true,
+
+          });
+
+          return response.json();
+
+        } else {
+
+          // Add new hidden game
+
+          const gameData = mapGameToInsertGame(game);
+
+          const response = await apiRequest("POST", "/api/games", {
+
+            ...gameData,
+
+            status: "wanted", // Default status, but hidden
+
+            hidden: true,
+
+          });
+
+          return response.json();
+
+        }
+
+      },
+
+      onSuccess: () => {
+
+        queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+
+        toast({ description: "Game hidden from discovery" });
+
+      },
+
+      onError: () => {
+
+        toast({
+
+          description: "Failed to hide game",
+
+          variant: "destructive",
+
+        });
+
+      },
+
+    });
+
+  
+
+    // Add game mutation (for status changes on Discovery games)
+
+    const addGameMutation = useMutation({
+
+      mutationFn: async ({
+
+        game,
+
+        status,
+
+        localId,
+
+      }: {
+
+        game: Game;
+
+        status: GameStatus;
+
+        localId?: string;
+
+      }) => {
+
+        if (localId) {
+
+          // Update existing game status
+
+          const response = await apiRequest("PATCH", `/api/games/${localId}/status`, {
+
+            status,
+
+          });
+
+          return response.json();
+
+        } else {
+
+          // Add new game with status
+
+          const gameData = mapGameToInsertGame(game);
+
+          const response = await apiRequest("POST", "/api/games", {
+
+            ...gameData,
+
+            status,
+
+          });
+
+          return response.json();
+
+        }
+
+      },
+
+      onSuccess: () => {
+
+        queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+
+        toast({ description: "Game added to collection successfully" });
+
+      },
+
+      onError: () => {
+
+        toast({
+
+          description: "Failed to add game to collection",
+
+          variant: "destructive",
+
+        });
+
+      },
+
+    });
+
+  
+
+    // ⚡ Bolt: Using useCallback to memoize event handlers, preventing unnecessary
+
+    // re-renders in child components like `GameCard` that rely on stable function
+
+    // references for their `React.memo` optimization.
+
+    const handleStatusChange = useCallback(
+
+      (gameId: string, newStatus: GameStatus) => {
+
+        // Find game object in queries
+
+        const findGameInQueries = (): Game | undefined => {
+
+          // Search in all cached query data
+
+          const allQueries = queryClient.getQueriesData<Game[]>({
+
+            predicate: (query) => {
+
+              const key = query.queryKey[0] as string;
+
+              return key.startsWith("/api/igdb/");
+
+            },
+
+          });
+
+  
+
           for (const [, data] of allQueries) {
+
             const game = data?.find((g) => g.id === gameId);
+
             if (game) return game;
+
           }
+
           return undefined;
+
         };
+
+  
+
         const game = findGameInQueries();
-        if (game) hideGameMutation.mutate(game);
-      }
-    },
-    [queryClient, hideGameMutation]
-  );
+
+        if (game) {
+
+          const localId = game.igdbId ? igdbToLocalIdMap.get(game.igdbId) : undefined;
+
+          addGameMutation.mutate({ game, status: newStatus, localId });
+
+        }
+
+      },
+
+      [queryClient, addGameMutation, igdbToLocalIdMap]
+
+    );
+
+  
+
+    const handleTrackGame = useCallback(
+
+      (game: Game) => {
+
+        trackGameMutation.mutate(game);
+
+      },
+
+      [trackGameMutation]
+
+    );
+
+  
+
+    const handleToggleHidden = useCallback(
+
+      (gameId: string, hidden: boolean) => {
+
+        // We only support hiding from discovery page for now via the card button
+
+        // Unhiding is done via settings
+
+        if (hidden) {
+
+          const findGameInQueries = (): Game | undefined => {
+
+            // Search in all cached query data
+
+            const allQueries = queryClient.getQueriesData<Game[]>({
+
+              predicate: (query) => {
+
+                const key = query.queryKey[0] as string;
+
+                return key.startsWith("/api/igdb/");
+
+              },
+
+            });
+
+  
+
+            for (const [, data] of allQueries) {
+
+              const game = data?.find((g) => g.id === gameId);
+
+              if (game) return game;
+
+            }
+
+            return undefined;
+
+          };
+
+          const game = findGameInQueries();
+
+          if (game) {
+
+            hideGameMutation.mutate(game);
+
+          }
+
+        }
+
+      },
+
+      [queryClient, hideGameMutation]
+
+    );
 
   // ⚡ Bolt: Memoizing fetch functions with `useCallback` ensures they have stable
   // references across re-renders. This is critical for preventing child components

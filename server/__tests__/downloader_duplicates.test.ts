@@ -3,7 +3,7 @@ import { DownloaderManager } from "../downloaders";
 import type { Downloader } from "@shared/schema";
 
 vi.mock("parse-torrent", () => ({
-  default: vi.fn((buffer) => {
+  default: vi.fn((_buffer) => {
     return {
       infoHash: "abc123def456",
       name: "Test Game",

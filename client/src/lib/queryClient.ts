@@ -2,9 +2,9 @@ import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
 export class ApiError extends Error {
   status: number;
-  data: any;
+  data: unknown;
 
-  constructor(status: number, message: string, data?: any) {
+  constructor(status: number, message: string, data?: unknown) {
     super(message);
     this.name = "ApiError";
     this.status = status;
@@ -15,14 +15,17 @@ export class ApiError extends Error {
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = await res.text();
-    let data: any;
+    let data: unknown;
     try {
       data = JSON.parse(text);
     } catch {
       data = text;
     }
 
-    const message = data?.error || data?.message || res.statusText || String(res.status);
+    const message = ((data as Record<string, unknown>)?.error ||
+      (data as Record<string, unknown>)?.message ||
+      res.statusText ||
+      String(res.status)) as string;
     throw new ApiError(res.status, message, data);
   }
 }

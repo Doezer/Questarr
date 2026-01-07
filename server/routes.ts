@@ -1459,6 +1459,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       for (const download of downloads) {
         try {
+          // 🛡️ Sentinel: Validate URL to prevent SSRF
+          if (!(await isSafeUrl(download.link))) {
+            routesLogger.warn({ url: download.link }, "blocked unsafe url in bundle download");
+            continue;
+          }
+
           const response = await fetch(download.link);
           if (response.ok) {
             const buffer = await response.arrayBuffer();

@@ -1443,7 +1443,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   );
 
   // Download bundle of downloads as ZIP
-  app.post("/api/downloads/bundle", async (req, res) => {
+  app.post("/api/downloads/bundle", sensitiveEndpointLimiter, async (req, res) => {
     try {
       const { downloads } = req.body;
       if (!downloads || !Array.isArray(downloads)) {

@@ -1850,52 +1850,49 @@ class QBittorrentClient implements DownloaderClient {
 
       // Build multipart form data for uploading torrent file
       const boundary = `----QuestarboundaryFormData${Date.now()}`;
-      const formParts: string[] = [];
 
-      // Add torrents file
+      const bodyParts: Array<string | Buffer> = [];
+
+      // Add torrents file part
       const safeTorrentFileName = this.sanitizeMultipartFilename(torrentFileName);
-      formParts.push(`--${boundary}\r\n`);
-      formParts.push(
+      bodyParts.push(`--${boundary}\r\n`);
+      bodyParts.push(
         `Content-Disposition: form-data; name="torrents"; filename="${safeTorrentFileName}"\r\n`
       );
-      formParts.push(`Content-Type: application/x-bittorrent\r\n\r\n`);
-
-      // Build the body with file buffer
-      const formPartsBuffer = Buffer.from(formParts.join(""), "utf-8");
-      const endBoundaryBuffer = Buffer.from(`\r\n`, "utf-8");
+      bodyParts.push(`Content-Type: application/x-bittorrent\r\n\r\n`);
+      bodyParts.push(torrentFileBuffer);
+      bodyParts.push(`\r\n`);
 
       // Add other form parameters
-      const additionalFields: string[] = [];
+      const fields: Record<string, string> = {};
 
       if (request.downloadPath || this.downloader.downloadPath) {
-        additionalFields.push(`--${boundary}\r\n`);
-        additionalFields.push(`Content-Disposition: form-data; name="savepath"\r\n\r\n`);
-        additionalFields.push(`${request.downloadPath || this.downloader.downloadPath}\r\n`);
+        fields.savepath = request.downloadPath || this.downloader.downloadPath || "";
       }
 
       if (request.category || this.downloader.category) {
-        additionalFields.push(`--${boundary}\r\n`);
-        additionalFields.push(`Content-Disposition: form-data; name="category"\r\n\r\n`);
-        additionalFields.push(`${request.category || this.downloader.category}\r\n`);
+        fields.category = request.category || this.downloader.category || "";
       }
 
       // Handle Initial State
-      const pausedValue = qbSettings.initialState === "stopped" || this.downloader.addStopped ? "true" : "false";
-      additionalFields.push(`--${boundary}\r\n`);
-      additionalFields.push(`Content-Disposition: form-data; name="paused"\r\n\r\n`);
-      additionalFields.push(`${pausedValue}\r\n`);
+      const pausedValue =
+        qbSettings.initialState === "stopped" || this.downloader.addStopped ? "true" : "false";
+      fields.paused = pausedValue;
 
-      additionalFields.push(`--${boundary}--\r\n`);
+      for (const [key, value] of Object.entries(fields)) {
+        bodyParts.push(`--${boundary}\r\n`);
+        bodyParts.push(`Content-Disposition: form-data; name="${key}"\r\n\r\n`);
+        bodyParts.push(value);
+        bodyParts.push(`\r\n`);
+      }
 
-      const additionalFieldsBuffer = Buffer.from(additionalFields.join(""), "utf-8");
+      // Final boundary
+      bodyParts.push(`--${boundary}--\r\n`);
 
       // Combine all parts
-      const body = Buffer.concat([
-        formPartsBuffer,
-        torrentFileBuffer,
-        endBoundaryBuffer,
-        additionalFieldsBuffer,
-      ]);
+      const body = Buffer.concat(
+        bodyParts.map((p) => (Buffer.isBuffer(p) ? p : Buffer.from(p, "utf-8")))
+      );
 
       downloadersLogger.info(
         {

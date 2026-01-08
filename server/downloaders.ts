@@ -1803,49 +1803,121 @@ class QBittorrentClient implements DownloaderClient {
         downloadersLogger.warn({ error }, "Failed to parse qBittorrent settings");
       }
 
-      // Build form data for adding torrent
-      const formData = new URLSearchParams();
-      formData.append("urls", request.url);
+      // Download the torrent file first (qBittorrent behind VPN can't reach indexer)
+      // This is how Sonarr/Radarr do it - they download the file and upload it
+      downloadersLogger.info({ url: request.url }, "Downloading torrent file from indexer");
+      let torrentFileBuffer: Buffer;
+      let torrentFileName = "torrent.torrent";
+      
+      try {
+        const torrentResponse = await fetch(request.url, {
+          headers: {
+            "User-Agent": "Questarr/1.0",
+          },
+          signal: AbortSignal.timeout(30000),
+        });
 
+        if (!torrentResponse.ok) {
+          throw new Error(`Failed to download torrent: ${torrentResponse.status} ${torrentResponse.statusText}`);
+        }
+
+        // Get filename from Content-Disposition if available
+        const contentDisposition = torrentResponse.headers.get("content-disposition");
+        if (contentDisposition) {
+          const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+          if (filenameMatch && filenameMatch[1]) {
+            torrentFileName = filenameMatch[1].replace(/['"]/g, "");
+          }
+        }
+
+        const arrayBuffer = await torrentResponse.arrayBuffer();
+        torrentFileBuffer = Buffer.from(arrayBuffer);
+        
+        downloadersLogger.info(
+          { size: torrentFileBuffer.length, filename: torrentFileName },
+          "Successfully downloaded torrent file"
+        );
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "Unknown error";
+        downloadersLogger.error({ error: errorMessage, url: request.url }, "Failed to download torrent file");
+        return {
+          success: false,
+          message: `Failed to download torrent file: ${errorMessage}`,
+        };
+      }
+
+      // Build multipart form data for uploading torrent file
+      const boundary = `----QuestarboundaryFormData${Date.now()}`;
+      const formParts: string[] = [];
+
+      // Add torrents file
+      formParts.push(`--${boundary}\r\n`);
+      formParts.push(`Content-Disposition: form-data; name="torrents"; filename="${torrentFileName}"\r\n`);
+      formParts.push(`Content-Type: application/x-bittorrent\r\n\r\n`);
+      
+      // Build the body with file buffer
+      const formPartsBuffer = Buffer.from(formParts.join(""), "utf-8");
+      const endBoundaryBuffer = Buffer.from(`\r\n--${boundary}`, "utf-8");
+
+      // Add other form parameters
+      const additionalFields: string[] = [];
+      
       if (request.downloadPath || this.downloader.downloadPath) {
-        formData.append("savepath", request.downloadPath || this.downloader.downloadPath || "");
+        additionalFields.push(`--${boundary}\r\n`);
+        additionalFields.push(`Content-Disposition: form-data; name="savepath"\r\n\r\n`);
+        additionalFields.push(`${request.downloadPath || this.downloader.downloadPath}\r\n`);
       }
 
       if (request.category || this.downloader.category) {
-        formData.append("category", request.category || this.downloader.category || "");
+        additionalFields.push(`--${boundary}\r\n`);
+        additionalFields.push(`Content-Disposition: form-data; name="category"\r\n\r\n`);
+        additionalFields.push(`${request.category || this.downloader.category}\r\n`);
       }
 
       // Handle Initial State
-      if (qbSettings.initialState === "stopped" || this.downloader.addStopped) {
-        formData.append("paused", "true");
-      } else if (qbSettings.initialState === "force-started") {
-        // Force started downloads are added as not paused
-        formData.append("paused", "false");
-        // Note: qBittorrent doesn't have a direct "force start" API parameter during add.
-        // You would need to start the download with force flag after adding.
-      } else {
-        // Default: started (not paused)
-        formData.append("paused", "false");
-      }
+      const pausedValue = qbSettings.initialState === "stopped" || this.downloader.addStopped ? "true" : "false";
+      additionalFields.push(`--${boundary}\r\n`);
+      additionalFields.push(`Content-Disposition: form-data; name="paused"\r\n\r\n`);
+      additionalFields.push(`${pausedValue}\r\n`);
+      
+      additionalFields.push(`--${boundary}--\r\n`);
+
+      const additionalFieldsBuffer = Buffer.from(additionalFields.join(""), "utf-8");
+
+      // Combine all parts
+      const body = Buffer.concat([
+        formPartsBuffer,
+        torrentFileBuffer,
+        endBoundaryBuffer,
+        additionalFieldsBuffer,
+      ]);
 
       downloadersLogger.info(
         {
-          url: request.url,
+          filename: torrentFileName,
+          fileSize: torrentFileBuffer.length,
           savepath: request.downloadPath || this.downloader.downloadPath,
           category: request.category || this.downloader.category,
-          paused: formData.get("paused"),
-          initialState: qbSettings.initialState,
-          allParams: formData.toString(),
+          paused: pausedValue,
+          totalBodySize: body.length,
         },
-        "Adding download to qBittorrent with parameters"
+        "Uploading torrent file to qBittorrent"
       );
 
-      const response = await this.makeRequest("POST", "/api/v2/torrents/add", formData.toString(), {
-        "Content-Type": "application/x-www-form-urlencoded",
+      const response = await this.makeRequest("POST", "/api/v2/torrents/add", body, {
+        "Content-Type": `multipart/form-data; boundary=${boundary}`,
       });
 
       const responseText = await response.text();
-      downloadersLogger.debug({ responseText }, "qBittorrent add response");
+      downloadersLogger.info(
+        { 
+          responseText,
+          responseStatus: response.status,
+          responseOk: response.ok,
+          responseHeaders: Object.fromEntries(response.headers.entries()),
+        },
+        "qBittorrent add response"
+      );
 
       if (response.ok && (responseText === "Ok." || responseText === "")) {
         // Try to extract hash from URL (works for magnet links)
@@ -1863,21 +1935,61 @@ class QBittorrentClient implements DownloaderClient {
           // Wait a bit longer for qBittorrent to download and process the file
           await new Promise((resolve) => setTimeout(resolve, 2000));
 
-          // Get all downloads and find the newly added one by name/title
-          const allTorrentsResponse = await this.makeRequest("GET", "/api/v2/torrents/info");
+          // Get all downloads sorted by add date (newest first)
+          const allTorrentsResponse = await this.makeRequest(
+            "GET",
+            "/api/v2/torrents/info?sort=added_on&reverse=true"
+          );
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const allDownloads = (await allTorrentsResponse.json()) as any[];
 
-          // Try to find the download by matching title/name
-          const matchingDownload = allDownloads.find(
-            (
-              t: any // eslint-disable-line @typescript-eslint/no-explicit-any
-            ) =>
-              t.name &&
-              request.title &&
-              (t.name.toLowerCase().includes(request.title.toLowerCase()) ||
-                request.title.toLowerCase().includes(t.name.toLowerCase()))
+          downloadersLogger.debug(
+            {
+              requestTitle: request.title,
+              downloadCount: allDownloads.length,
+              recentDownloads: allDownloads.slice(0, 3).map((t: any) => ({ name: t.name, hash: t.hash })),
+            },
+            "Looking for newly added download"
           );
+
+          // Try to find the download by matching title/name
+          // Be more lenient with matching - remove common suffixes and check partial matches
+          let matchingDownload = null;
+          if (request.title) {
+            const normalizedTitle = request.title
+              .toLowerCase()
+              .replace(/[._-]/g, " ")
+              .replace(/\s+/g, " ")
+              .trim();
+
+            matchingDownload = allDownloads.find((t: any) => {
+              if (!t.name) return false;
+              const normalizedName = t.name
+                .toLowerCase()
+                .replace(/[._-]/g, " ")
+                .replace(/\s+/g, " ")
+                .trim();
+
+              // Check if either contains the other (partial match)
+              return (
+                normalizedName.includes(normalizedTitle) ||
+                normalizedTitle.includes(normalizedName)
+              );
+            });
+
+            // If still not found, just grab the most recent one if it was added in the last 5 seconds
+            if (!matchingDownload && allDownloads.length > 0) {
+              const mostRecent = allDownloads[0];
+              const now = Date.now() / 1000;
+              if (mostRecent.added_on && now - mostRecent.added_on < 5) {
+                downloadersLogger.info(
+                  { hash: mostRecent.hash, name: mostRecent.name, addedOn: mostRecent.added_on },
+                  "Using most recent download as match"
+                );
+                matchingDownload = mostRecent;
+              }
+            }
+          }
 
           if (matchingDownload && matchingDownload.hash) {
             downloadersLogger.info(
@@ -1915,7 +2027,15 @@ class QBittorrentClient implements DownloaderClient {
             };
           } else {
             downloadersLogger.warn(
-              { title: request.title, downloadCount: allDownloads.length },
+              {
+                title: request.title,
+                downloadCount: allDownloads.length,
+                checkedTorrents: allDownloads.slice(0, 5).map((t: any) => ({
+                  name: t.name,
+                  hash: t.hash,
+                  added_on: t.added_on,
+                })),
+              },
               "Could not find matching download after adding"
             );
             // Return success but without hash - will need manual verification
@@ -2019,8 +2139,103 @@ class QBittorrentClient implements DownloaderClient {
     }
   }
 
-  async getDownloadDetails(_id: string): Promise<DownloadDetails | null> {
-    return null;
+  async getDownloadDetails(id: string): Promise<DownloadDetails | null> {
+    try {
+      await this.authenticate();
+
+      // Get torrent info
+      const response = await this.makeRequest("GET", `/api/v2/torrents/info?hashes=${id}`);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const downloads = (await response.json()) as any[];
+
+      if (!downloads || downloads.length === 0) {
+        downloadersLogger.warn({ id }, "Download not found in qBittorrent");
+        return null;
+      }
+
+      const torrent = downloads[0];
+
+      // Get torrent properties for additional details
+      const propsResponse = await this.makeRequest(
+        "GET",
+        `/api/v2/torrents/properties?hash=${id}`
+      );
+      const props = await propsResponse.json();
+
+      // Get torrent files
+      const filesResponse = await this.makeRequest("GET", `/api/v2/torrents/files?hash=${id}`);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const filesData = (await filesResponse.json()) as any[];
+
+      // Get torrent trackers
+      const trackersResponse = await this.makeRequest(
+        "GET",
+        `/api/v2/torrents/trackers?hash=${id}`
+      );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const trackersData = (await trackersResponse.json()) as any[];
+
+      // Map base status
+      const baseStatus = this.mapQBittorrentStatus(torrent);
+
+      // Map files
+      const files: DownloadFile[] = filesData.map((file) => {
+        let priority: DownloadFile["priority"] = "normal";
+        if (file.priority === 0) {
+          priority = "off";
+        } else if (file.priority >= 6) {
+          priority = "high";
+        } else if (file.priority <= 3) {
+          priority = "low";
+        }
+
+        return {
+          name: file.name,
+          size: file.size,
+          progress: Math.round(file.progress * 100),
+          priority,
+          wanted: file.priority > 0,
+        };
+      });
+
+      // Map trackers
+      const trackers: DownloadTracker[] = trackersData
+        .filter((t) => t.url && t.url !== "** [DHT] **" && t.url !== "** [PeX] **" && t.url !== "** [LSD] **")
+        .map((tracker) => {
+          let status: DownloadTracker["status"] = "inactive";
+          if (tracker.status === 2) {
+            status = "working";
+          } else if (tracker.status === 3 || tracker.status === 4) {
+            status = "error";
+          } else if (tracker.status === 1) {
+            status = "updating";
+          }
+
+          return {
+            url: tracker.url,
+            tier: tracker.tier,
+            status,
+            seeders: tracker.num_seeds >= 0 ? tracker.num_seeds : undefined,
+            leechers: tracker.num_leeches >= 0 ? tracker.num_leeches : undefined,
+            error: tracker.msg ? tracker.msg : undefined,
+          };
+        });
+
+      return {
+        ...baseStatus,
+        hash: torrent.hash,
+        downloadDir: torrent.save_path,
+        addedDate: props.addition_date > 0 ? new Date(props.addition_date * 1000).toISOString() : undefined,
+        completedDate: props.completion_date > 0 ? new Date(props.completion_date * 1000).toISOString() : undefined,
+        files,
+        trackers,
+        totalPeers: props.peers_total || torrent.num_seeds + torrent.num_leechs,
+        connectedPeers: props.peers || torrent.num_seeds + torrent.num_leechs,
+      };
+    } catch (error) {
+      downloadersLogger.error({ error, id }, "Error getting download details from qBittorrent");
+      return null;
+    }
   }
 
   async getAllDownloads(): Promise<DownloadStatus[]> {
@@ -2147,6 +2362,7 @@ class QBittorrentClient implements DownloaderClient {
         status = "seeding";
         break;
       case "pausedUP":
+      case "stoppedUP": // Stopped after completing
         status = "completed";
         break;
       case "downloading":
@@ -2164,18 +2380,25 @@ class QBittorrentClient implements DownloaderClient {
         break;
       case "error":
       case "missingFiles":
+        status = "error";
+        break;
       case "unknown":
       default:
-        status = "error";
+        // Unknown state - log it and treat as paused to avoid false errors
+        if (torrent.state !== "unknown") {
+          downloadersLogger.warn(
+            { state: torrent.state, hash: torrent.hash, name: torrent.name },
+            "Unknown qBittorrent state encountered"
+          );
+        }
+        status = "paused";
         break;
     }
 
     // Check if completed based on progress
     if (torrent.progress === 1) {
-      if (status === "downloading") {
+      if (status === "downloading" || status === "paused") {
         status = "seeding"; // It's done downloading, so it must be seeding or completed
-      } else if (status === "paused") {
-        status = "completed";
       }
     }
 
@@ -2200,20 +2423,21 @@ class QBittorrentClient implements DownloaderClient {
     };
   }
 
-  private async authenticate(): Promise<void> {
-    if (this.cookie) {
+  private async authenticate(force = false): Promise<void> {
+    if (this.cookie && !force) {
       return; // Already authenticated
     }
 
     if (!this.downloader.username || !this.downloader.password) {
       // Try without authentication
+      this.cookie = null;
       return;
     }
 
     const url = this.getBaseUrl() + "/api/v2/auth/login";
 
     downloadersLogger.debug(
-      { url, username: this.downloader.username },
+      { url, username: this.downloader.username, force },
       "Attempting qBittorrent authentication"
     );
 
@@ -2240,23 +2464,52 @@ class QBittorrentClient implements DownloaderClient {
       }
 
       const responseText = await response.text();
-      if (responseText !== "Ok.") {
-        throw new Error("Authentication failed: Invalid credentials");
+      downloadersLogger.debug({ responseText }, "qBittorrent auth response");
+      
+      if (responseText && responseText !== "Ok." && responseText !== "") {
+        throw new Error(`Authentication failed: ${responseText}`);
       }
 
-      // Extract session cookie
-      const setCookie = response.headers.get("set-cookie");
-      if (setCookie) {
-        const match = setCookie.match(/SID=([^;]+)/);
-        if (match) {
-          this.cookie = `SID=${match[1]}`;
+      // Extract ALL cookies from response
+      // In Node.js fetch, set-cookie can be retrieved differently
+      const setCookieHeaders = response.headers.getSetCookie?.() || [];
+      let sidCookie = null;
+
+      // Try the newer getSetCookie() method first (Node 19.7+)
+      if (setCookieHeaders.length > 0) {
+        for (const cookie of setCookieHeaders) {
+          const match = cookie.match(/SID=([^;]+)/);
+          if (match) {
+            sidCookie = match[1];
+            break;
+          }
         }
       }
 
-      downloadersLogger.debug(
-        { hasCookie: !!this.cookie },
-        "qBittorrent authentication successful"
-      );
+      // Fallback to get("set-cookie") for older Node versions
+      if (!sidCookie) {
+        const setCookie = response.headers.get("set-cookie");
+        if (setCookie) {
+          const match = setCookie.match(/SID=([^;]+)/);
+          if (match) {
+            sidCookie = match[1];
+          }
+        }
+      }
+
+      if (sidCookie) {
+        this.cookie = `SID=${sidCookie}`;
+        downloadersLogger.debug(
+          { cookieLength: this.cookie.length },
+          "qBittorrent authentication successful with cookie"
+        );
+      } else {
+        downloadersLogger.warn(
+          "qBittorrent authentication returned Ok but no SID cookie found"
+        );
+        // Some qBittorrent configs don't require cookies, so this might be okay
+        this.cookie = null;
+      }
     } catch (error) {
       downloadersLogger.error(
         {
@@ -2265,6 +2518,7 @@ class QBittorrentClient implements DownloaderClient {
         },
         "qBittorrent authentication error"
       );
+      this.cookie = null;
       throw error;
     }
   }
@@ -2305,7 +2559,7 @@ class QBittorrentClient implements DownloaderClient {
   private async makeRequest(
     method: string,
     path: string,
-    body?: string,
+    body?: string | Buffer,
     additionalHeaders?: Record<string, string>
   ): Promise<Response> {
     const url = this.getBaseUrl() + path;
@@ -2319,29 +2573,48 @@ class QBittorrentClient implements DownloaderClient {
       headers["Cookie"] = this.cookie;
     }
 
-    const response = await fetch(url, {
+    downloadersLogger.debug(
+      { method, path, hasCookie: !!this.cookie, hasAuth: !!(this.downloader.username && this.downloader.password) },
+      "Making qBittorrent request"
+    );
+
+    let response = await fetch(url, {
       method,
       headers,
       body: method !== "GET" ? body : undefined,
       signal: AbortSignal.timeout(30000),
     });
 
-    if (response.status === 403) {
-      // Session expired, re-authenticate
+    if (response.status === 403 || response.status === 401) {
+      // Session expired or unauthorized, re-authenticate
+      downloadersLogger.debug(
+        { status: response.status, path },
+        "Got 403/401, re-authenticating"
+      );
       this.cookie = null;
-      await this.authenticate();
+      await this.authenticate(true);
 
       // Retry with new cookie
+      const retryHeaders = { ...headers };
       if (this.cookie) {
-        headers["Cookie"] = this.cookie;
+        retryHeaders["Cookie"] = this.cookie;
       }
 
-      return fetch(url, {
+      response = await fetch(url, {
         method,
-        headers,
+        headers: retryHeaders,
         body: method !== "GET" ? body : undefined,
         signal: AbortSignal.timeout(30000),
       });
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => "No error details available");
+        downloadersLogger.error(
+          { status: response.status, statusText: response.statusText, errorText, path },
+          "qBittorrent request failed after re-authentication"
+        );
+        throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
+      }
     }
 
     if (!response.ok) {

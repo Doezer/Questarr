@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { DownloaderManager } from "../downloaders";
-import type { Downloader } from "@shared/schema";
+import type { Downloader } from "../../shared/schema";
 
 vi.mock("parse-torrent", () => ({
   default: vi.fn((_buffer) => {
@@ -32,6 +32,18 @@ describe("Downloader Comprehensive Tests", () => {
       priority: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
+      port: null,
+      useSsl: null,
+      urlPath: null,
+      username: null,
+      password: null,
+      downloadPath: null,
+      category: null,
+      label: null,
+      addStopped: null,
+      removeCompleted: null,
+      postImportCategory: null,
+      settings: null
     };
 
     const sessionResponse = {
@@ -153,6 +165,18 @@ describe("Downloader Comprehensive Tests", () => {
       priority: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
+      port: null,
+      useSsl: null,
+      urlPath: null,
+      username: null,
+      password: null,
+      downloadPath: null,
+      category: null,
+      label: null,
+      addStopped: null,
+      removeCompleted: null,
+      postImportCategory: null,
+      settings: null
     };
 
     const xmlResponseSuccess = `
@@ -205,6 +229,16 @@ describe("Downloader Comprehensive Tests", () => {
       password: "password",
       createdAt: new Date(),
       updatedAt: new Date(),
+      port: null,
+      useSsl: null,
+      urlPath: null,
+      downloadPath: null,
+      category: null,
+      label: null,
+      addStopped: null,
+      removeCompleted: null,
+      postImportCategory: null,
+      settings: null
     };
 
     const loginResponse = {
@@ -225,16 +259,20 @@ describe("Downloader Comprehensive Tests", () => {
       vi.useFakeTimers();
       fetchMock
         .mockResolvedValueOnce(loginResponse)
-        .mockResolvedValueOnce(torrentFileResponse)
         .mockResolvedValueOnce({
           ok: true,
+          status: 200,
           text: async () => "Ok.",
           headers: { entries: () => [] },
         })
         .mockResolvedValueOnce({
           ok: true,
           json: async () => [
-            { hash: "aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd", name: "Test Torrent" },
+            {
+              hash: "aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd",
+              name: "Test Torrent",
+              added_on: Math.floor(Date.now() / 1000),
+            },
           ],
         });
 
@@ -254,11 +292,21 @@ describe("Downloader Comprehensive Tests", () => {
       vi.useFakeTimers();
       fetchMock
         .mockResolvedValueOnce(loginResponse)
-        .mockResolvedValueOnce(torrentFileResponse)
         .mockResolvedValueOnce({
           ok: true,
+          status: 200,
           text: async () => "Fails.",
           headers: { entries: () => [] },
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => [
+            {
+              hash: "aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd",
+              name: "Test Torrent",
+              added_on: Math.floor(Date.now() / 1000),
+            },
+          ],
         });
 
       const promise = DownloaderManager.addDownload(downloader, {
@@ -281,11 +329,22 @@ describe("Downloader Comprehensive Tests", () => {
       name: "SABnzbd",
       type: "sabnzbd",
       url: "http://localhost:8080",
-      apiKey: "key",
       enabled: true,
       priority: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
+      port: null,
+      useSsl: null,
+      urlPath: null,
+      username: null,
+      password: null,
+      downloadPath: null,
+      category: null,
+      label: null,
+      addStopped: null,
+      removeCompleted: null,
+      postImportCategory: null,
+      settings: null
     };
 
     it("should add NZB successfully", async () => {
@@ -344,6 +403,16 @@ describe("Downloader Comprehensive Tests", () => {
       priority: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
+      port: null,
+      useSsl: null,
+      urlPath: null,
+      downloadPath: null,
+      category: null,
+      label: null,
+      addStopped: null,
+      removeCompleted: null,
+      postImportCategory: null,
+      settings: null
     };
 
     it("should add NZB successfully", async () => {

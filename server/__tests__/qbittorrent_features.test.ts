@@ -57,6 +57,22 @@ describe("QBittorrentClient - Advanced Features", () => {
     return String(body);
   };
 
+  const getHeader = (headers: HeadersInit | undefined, name: string): string | null => {
+    if (!headers) return null;
+
+    if (headers instanceof Headers) {
+      return headers.get(name);
+    }
+
+    if (Array.isArray(headers)) {
+      const entry = headers.find(([key]) => key.toLowerCase() === name.toLowerCase());
+      return entry?.[1] ?? null;
+    }
+
+    const record = headers as Record<string, string>;
+    return record[name] ?? record[name.toLowerCase()] ?? null;
+  };
+
   it("should handle adding download from http URL (non-magnet) and resolve hash", async () => {
     vi.useFakeTimers();
     const testDownloader = createTestDownloader();
@@ -68,16 +84,8 @@ describe("QBittorrentClient - Advanced Features", () => {
       headers: { get: () => "SID=123" },
     };
 
-    const torrentFileResponse = {
-      ok: true,
-      status: 200,
-      statusText: "OK",
-      headers: { get: () => null },
-      arrayBuffer: async () => Buffer.from("torrent content"),
-    };
-
-    // Mock add torrent response (success)
-    const addResponse = {
+    // Mock URL-based add response (success)
+    const urlAddResponse = {
       ok: true,
       status: 200,
       text: async () => "Ok.",
@@ -98,8 +106,7 @@ describe("QBittorrentClient - Advanced Features", () => {
 
     fetchMock
       .mockResolvedValueOnce(loginResponse) // login
-      .mockResolvedValueOnce(torrentFileResponse) // download torrent file
-      .mockResolvedValueOnce(addResponse) // upload torrent to qBittorrent
+      .mockResolvedValueOnce(urlAddResponse) // add by URL (qBittorrent fetches it)
       .mockResolvedValueOnce(torrentsInfoResponse); // list torrents
 
     const promise = DownloaderManager.addDownload(testDownloader, {
@@ -110,15 +117,16 @@ describe("QBittorrentClient - Advanced Features", () => {
     await vi.runAllTimersAsync();
     const result = await promise;
 
-    // Verify torrent download call
-    expect(fetchMock.mock.calls[1][0]).toBe("http://tracker.example.com/download/123.torrent");
+    // Verify URL-based add call
+    expect(fetchMock.mock.calls[1][0]).toBe("http://localhost:8080/api/v2/torrents/add");
+    const contentType = getHeader((fetchMock.mock.calls[1][1] as RequestInit).headers, "Content-Type");
+    expect(contentType ?? "").toContain("application/x-www-form-urlencoded");
+    const urlAddBody = bodyToString((fetchMock.mock.calls[1][1] as RequestInit).body);
+    expect(urlAddBody).toContain("urls=");
+    expect(decodeURIComponent(urlAddBody)).toContain("http://tracker.example.com/download/123.torrent");
 
-    // Verify upload call
-    expect(fetchMock.mock.calls[2][0]).toBe("http://localhost:8080/api/v2/torrents/add");
-    expect(fetchMock.mock.calls[2][1].headers["Content-Type"]).toContain("multipart/form-data; boundary=");
-
-    // Verify info call
-    expect(fetchMock.mock.calls[3][0]).toBe(
+    // Verify info call (recently added)
+    expect(fetchMock.mock.calls[2][0]).toBe(
       "http://localhost:8080/api/v2/torrents/info?sort=added_on&reverse=true"
     );
 
@@ -140,16 +148,8 @@ describe("QBittorrentClient - Advanced Features", () => {
       headers: { get: () => "SID=123" },
     };
 
-    const torrentFileResponse = {
-      ok: true,
-      status: 200,
-      statusText: "OK",
-      headers: { get: () => null },
-      arrayBuffer: async () => Buffer.from("torrent content"),
-    };
-
-    // Mock add torrent response
-    const addResponse = {
+    // Mock URL add response
+    const urlAddResponse = {
       ok: true,
       status: 200,
       text: async () => "Ok.",
@@ -169,8 +169,7 @@ describe("QBittorrentClient - Advanced Features", () => {
 
     fetchMock
       .mockResolvedValueOnce(loginResponse) // login
-      .mockResolvedValueOnce(torrentFileResponse) // download torrent file
-      .mockResolvedValueOnce(addResponse) // upload torrent
+      .mockResolvedValueOnce(urlAddResponse) // add by URL
       .mockResolvedValueOnce(verifyResponse) // verify added
       .mockResolvedValueOnce(setForceResponse); // set force start
 
@@ -209,16 +208,8 @@ describe("QBittorrentClient - Advanced Features", () => {
       headers: { get: () => "SID=123" },
     };
 
-    const torrentFileResponse = {
-      ok: true,
-      status: 200,
-      statusText: "OK",
-      headers: { get: () => null },
-      arrayBuffer: async () => Buffer.from("torrent content"),
-    };
-
-    // Mock add torrent response
-    const addResponse = {
+    // Mock URL add response
+    const urlAddResponse = {
       ok: true,
       status: 200,
       text: async () => "Ok.",
@@ -233,8 +224,7 @@ describe("QBittorrentClient - Advanced Features", () => {
 
     fetchMock
       .mockResolvedValueOnce(loginResponse)
-      .mockResolvedValueOnce(torrentFileResponse)
-      .mockResolvedValueOnce(addResponse)
+      .mockResolvedValueOnce(urlAddResponse)
       .mockResolvedValueOnce(verifyResponse);
 
     const promise = DownloaderManager.addDownload(testDownloader, {
@@ -245,14 +235,13 @@ describe("QBittorrentClient - Advanced Features", () => {
     await vi.runAllTimersAsync();
     await promise;
 
-    // Verify add call has paused=true
+    // Verify URL add call has paused=true
     const calls = fetchMock.mock.calls;
     const addCall = calls.find((call) => call[0].includes("/api/v2/torrents/add"));
 
     expect(addCall).toBeDefined();
     expect(addCall![0]).toBe("http://localhost:8080/api/v2/torrents/add");
     const bodyText = bodyToString((addCall![1] as RequestInit).body);
-    expect(bodyText).toContain('name="paused"');
-    expect(bodyText).toContain("\r\n\r\ntrue\r\n");
+    expect(bodyText).toContain("paused=true");
   });
 });

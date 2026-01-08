@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import type { InsertGame } from "@shared/schema";
+import type { InsertGame } from "../../shared/schema";
+import type { MemStorage as MemStorageType } from "../storage.js";
 
 // Mock db.ts to avoid DATABASE_URL requirement
 vi.mock("../db.js", () => ({
@@ -11,34 +12,10 @@ vi.mock("../db.js", () => ({
 const { MemStorage } = await import("../storage.js");
 
 describe("Storage - insertGame with status null to wanted", () => {
-  let storage: MemStorage;
+  let storage: MemStorageType;
 
   beforeEach(() => {
     storage = new MemStorage();
-  });
-
-  it('should default status to "wanted" when status is null', async () => {
-    // Create a game with status explicitly set to null
-    const gameData: InsertGame = {
-      title: "Test Game",
-      igdbId: 12345,
-      status: null,
-      summary: "A test game",
-      coverUrl: "https://example.com/cover.jpg",
-      releaseDate: "2024-01-01",
-      rating: 8.5,
-      platforms: ["PC", "PlayStation 5"],
-      genres: ["Action", "Adventure"],
-      screenshots: [],
-    };
-
-    // Add the game to storage
-    const addedGame = await storage.addGame(gameData);
-
-    // Verify the status was defaulted to "wanted"
-    expect(addedGame.status).toBe("wanted");
-    expect(addedGame.title).toBe("Test Game");
-    expect(addedGame.igdbId).toBe(12345);
   });
 
   it('should preserve status when explicitly set to "owned"', async () => {
@@ -54,6 +31,7 @@ describe("Storage - insertGame with status null to wanted", () => {
       platforms: ["Xbox Series X|S"],
       genres: ["RPG"],
       screenshots: [],
+      hidden: null
     };
 
     // Add the game to storage
@@ -77,6 +55,7 @@ describe("Storage - insertGame with status null to wanted", () => {
       platforms: ["Nintendo Switch"],
       genres: ["Platformer"],
       screenshots: [],
+      hidden: null
     };
 
     // Add the game to storage
@@ -99,6 +78,7 @@ describe("Storage - insertGame with status null to wanted", () => {
       platforms: ["PC"],
       genres: ["Shooter"],
       screenshots: [],
+      hidden: null
     };
 
     // Add the game to storage

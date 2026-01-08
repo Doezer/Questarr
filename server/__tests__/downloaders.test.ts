@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { DownloaderManager } from "../downloaders";
-import type { Downloader } from "@shared/schema";
+import type { Downloader } from "../../shared/schema";
 
 vi.mock("parse-torrent", () => ({
   default: vi.fn((buffer) => {
@@ -36,6 +36,18 @@ describe("DownloaderManager", () => {
       priority: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
+      port: null,
+      useSsl: null,
+      urlPath: null,
+      username: null,
+      password: null,
+      downloadPath: null,
+      category: null,
+      label: null,
+      addStopped: null,
+      removeCompleted: null,
+      postImportCategory: null,
+      settings: null
     };
 
     it("should connect and add download successfully", async () => {
@@ -91,6 +103,18 @@ describe("DownloaderManager", () => {
       priority: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
+      port: null,
+      useSsl: null,
+      urlPath: null,
+      username: null,
+      password: null,
+      downloadPath: null,
+      category: null,
+      label: null,
+      addStopped: null,
+      removeCompleted: null,
+      postImportCategory: null,
+      settings: null
     };
 
     const downloader2: Downloader = {
@@ -104,6 +128,16 @@ describe("DownloaderManager", () => {
       password: "password",
       createdAt: new Date(),
       updatedAt: new Date(),
+      port: null,
+      useSsl: null,
+      urlPath: null,
+      downloadPath: null,
+      category: null,
+      label: null,
+      addStopped: null,
+      removeCompleted: null,
+      postImportCategory: null,
+      settings: null
     };
 
     it("should fallback to second downloader if first fails", async () => {
@@ -133,21 +167,13 @@ describe("DownloaderManager", () => {
 
       // Mock second downloader (qBittorrent) success
       // 3. Login
-      // 4. Download torrent file from indexer
-      // 5. Upload torrent to qBittorrent
-      // 6. Info check (find newly added torrent)
+      // 4. Add torrent by URL
+      // 5. Info check (find newly added torrent)
       fetchMock
         .mockResolvedValueOnce({
           ok: true,
           text: async () => "Ok.",
           headers: { get: () => "SID=123" },
-        })
-        .mockResolvedValueOnce({
-          ok: true,
-          status: 200,
-          statusText: "OK",
-          headers: { get: () => null },
-          arrayBuffer: async () => Buffer.from("torrent content"),
         })
         .mockResolvedValueOnce({
           ok: true,
@@ -191,6 +217,18 @@ describe("DownloaderManager", () => {
       priority: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
+      port: null,
+      useSsl: null,
+      urlPath: null,
+      username: null,
+      password: null,
+      downloadPath: null,
+      category: null,
+      label: null,
+      addStopped: null,
+      removeCompleted: null,
+      postImportCategory: null,
+      settings: null
     };
 
     it("should connect successfully", async () => {
@@ -287,6 +325,16 @@ describe("DownloaderManager", () => {
       priority: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
+      port: null,
+      useSsl: null,
+      urlPath: null,
+      downloadPath: null,
+      category: null,
+      label: null,
+      addStopped: null,
+      removeCompleted: null,
+      postImportCategory: null,
+      settings: null
     };
 
     it("should connect successfully with authentication", async () => {
@@ -318,20 +366,17 @@ describe("DownloaderManager", () => {
         .mockResolvedValueOnce({
           ok: true,
           status: 200,
-          statusText: "OK",
-          headers: { get: () => null },
-          arrayBuffer: async () => Buffer.from("torrent content"),
-        })
-        .mockResolvedValueOnce({
-          ok: true,
-          status: 200,
           text: async () => "Ok.",
           headers: { entries: () => [] },
         })
         .mockResolvedValueOnce({
           ok: true,
           json: async () => [
-            { hash: "aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd", name: "Test Game" },
+            {
+              hash: "aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd",
+              name: "Test Game",
+              added_on: Math.floor(Date.now() / 1000),
+            },
           ],
         });
 

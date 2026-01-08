@@ -2180,13 +2180,19 @@ class QBittorrentClient implements DownloaderClient {
 
       // Map files
       const files: DownloadFile[] = filesData.map((file) => {
-        let priority: DownloadFile["priority"] = "normal";
-        if (file.priority === 0) {
-          priority = "off";
-        } else if (file.priority >= 6) {
-          priority = "high";
-        } else if (file.priority <= 3) {
-          priority = "low";
+        let priority: DownloadFile["priority"];
+        switch (file.priority) {
+          case 0:
+            priority = "off";
+            break;
+          case 6:
+          case 7:
+            priority = "high";
+            break;
+          case 1:
+          default:
+            priority = "normal";
+            break;
         }
 
         return {

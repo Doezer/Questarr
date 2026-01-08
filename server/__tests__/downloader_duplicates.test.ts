@@ -74,6 +74,7 @@ describe("Downloader Duplicates Handling", () => {
   });
 
   it("qBittorrent: should return success: true when response is 'Fails.'", async () => {
+    vi.useFakeTimers();
     const qbittorrent: Downloader = {
       id: "qbittorrent",
       name: "qBittorrent",
@@ -94,18 +95,33 @@ describe("Downloader Duplicates Handling", () => {
       headers: { get: () => "SID=123" },
     };
 
-    // Mock add torrent response "Fails."
+    const torrentFileResponse = {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: { get: () => null },
+      arrayBuffer: async () => Buffer.from("torrent content"),
+    };
+
+    // Mock add torrent response "Fails." (returned by qBittorrent after upload)
     const failResponse = {
       ok: true,
       text: async () => "Fails.",
+      headers: { entries: () => [] },
     };
 
-    fetchMock.mockResolvedValueOnce(loginResponse).mockResolvedValueOnce(failResponse);
+    fetchMock
+      .mockResolvedValueOnce(loginResponse)
+      .mockResolvedValueOnce(torrentFileResponse)
+      .mockResolvedValueOnce(failResponse);
 
-    const result = await DownloaderManager.addDownload(qbittorrent, {
-      url: "magnet:?xt=urn:btih:aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd",
+    const promise = DownloaderManager.addDownload(qbittorrent, {
+      url: "http://tracker.example.com/download/123.torrent",
       title: "Test Game",
     });
+
+    await vi.runAllTimersAsync();
+    const result = await promise;
 
     expect(result.success).toBe(true);
     expect(result.message).toContain("Download already exists or invalid download");

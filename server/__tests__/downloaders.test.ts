@@ -23,6 +23,7 @@ describe("DownloaderManager", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     fetchMock.mockReset();
+    vi.useRealTimers();
   });
 
   describe("TransmissionClient - RPC Protocol", () => {
@@ -106,6 +107,7 @@ describe("DownloaderManager", () => {
     };
 
     it("should fallback to second downloader if first fails", async () => {
+      vi.useFakeTimers();
       // Mock first downloader failure (Transmission)
       // 1. Session check (409) -> Success getting session
       // 2. Add torrent failure
@@ -131,8 +133,9 @@ describe("DownloaderManager", () => {
 
       // Mock second downloader (qBittorrent) success
       // 3. Login
-      // 4. Add torrent
-      // 5. Info check (verify)
+      // 4. Download torrent file from indexer
+      // 5. Upload torrent to qBittorrent
+      // 6. Info check (find newly added torrent)
       fetchMock
         .mockResolvedValueOnce({
           ok: true,
@@ -141,19 +144,35 @@ describe("DownloaderManager", () => {
         })
         .mockResolvedValueOnce({
           ok: true,
+          status: 200,
+          statusText: "OK",
+          headers: { get: () => null },
+          arrayBuffer: async () => Buffer.from("torrent content"),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
           text: async () => "Ok.",
+          headers: { entries: () => [] },
         })
         .mockResolvedValueOnce({
           ok: true,
           json: async () => [
-            { hash: "aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd", name: "Test Game" },
+            {
+              hash: "aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd",
+              name: "Test Game",
+              added_on: Math.floor(Date.now() / 1000),
+            },
           ],
         });
 
-      const result = await DownloaderManager.addDownloadWithFallback([downloader1, downloader2], {
-        url: "magnet:?xt=urn:btih:aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd",
+      const promise = DownloaderManager.addDownloadWithFallback([downloader1, downloader2], {
+        url: "http://tracker.example.com/download/123.torrent",
         title: "Test Game",
       });
+
+      await vi.runAllTimersAsync();
+      const result = await promise;
 
       expect(result.success).toBe(true);
       expect(result.downloaderId).toBe(downloader2.id);
@@ -289,6 +308,7 @@ describe("DownloaderManager", () => {
     });
 
     it("should add download successfully", async () => {
+      vi.useFakeTimers();
       fetchMock
         .mockResolvedValueOnce({
           ok: true,
@@ -297,7 +317,16 @@ describe("DownloaderManager", () => {
         })
         .mockResolvedValueOnce({
           ok: true,
+          status: 200,
+          statusText: "OK",
+          headers: { get: () => null },
+          arrayBuffer: async () => Buffer.from("torrent content"),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
           text: async () => "Ok.",
+          headers: { entries: () => [] },
         })
         .mockResolvedValueOnce({
           ok: true,
@@ -306,10 +335,13 @@ describe("DownloaderManager", () => {
           ],
         });
 
-      const result = await DownloaderManager.addDownload(testDownloader, {
-        url: "magnet:?xt=urn:btih:aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd",
+      const promise = DownloaderManager.addDownload(testDownloader, {
+        url: "http://tracker.example.com/download/123.torrent",
         title: "Test Game",
       });
+
+      await vi.runAllTimersAsync();
+      const result = await promise;
 
       expect(result.success).toBe(true);
       expect(result.id).toBe("aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd");

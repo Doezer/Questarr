@@ -213,12 +213,23 @@ describe("Downloader Comprehensive Tests", () => {
       headers: { get: () => "SID=123" },
     };
 
+    const torrentFileResponse = {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: { get: () => null },
+      arrayBuffer: async () => Buffer.from("torrent content"),
+    };
+
     it("should add download successfully", async () => {
+      vi.useFakeTimers();
       fetchMock
         .mockResolvedValueOnce(loginResponse)
+        .mockResolvedValueOnce(torrentFileResponse)
         .mockResolvedValueOnce({
           ok: true,
           text: async () => "Ok.",
+          headers: { entries: () => [] },
         })
         .mockResolvedValueOnce({
           ok: true,
@@ -227,25 +238,36 @@ describe("Downloader Comprehensive Tests", () => {
           ],
         });
 
-      const result = await DownloaderManager.addDownload(downloader, {
-        url: "magnet:?xt=urn:btih:aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd",
+      const promise = DownloaderManager.addDownload(downloader, {
+        url: "http://tracker.example.com/download/123.torrent",
         title: "Test Torrent",
       });
+
+      await vi.runAllTimersAsync();
+      const result = await promise;
 
       expect(result.success).toBe(true);
       expect(result.id).toBe("aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd");
     });
 
     it("should handle duplicate torrent (Fails.) as success", async () => {
-      fetchMock.mockResolvedValueOnce(loginResponse).mockResolvedValueOnce({
-        ok: true,
-        text: async () => "Fails.",
-      });
+      vi.useFakeTimers();
+      fetchMock
+        .mockResolvedValueOnce(loginResponse)
+        .mockResolvedValueOnce(torrentFileResponse)
+        .mockResolvedValueOnce({
+          ok: true,
+          text: async () => "Fails.",
+          headers: { entries: () => [] },
+        });
 
-      const result = await DownloaderManager.addDownload(downloader, {
-        url: "magnet:?xt=urn:btih:aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd",
+      const promise = DownloaderManager.addDownload(downloader, {
+        url: "http://tracker.example.com/download/123.torrent",
         title: "Test Torrent",
       });
+
+      await vi.runAllTimersAsync();
+      const result = await promise;
 
       expect(result.success).toBe(true);
       expect(result.message).toContain("Download already exists");

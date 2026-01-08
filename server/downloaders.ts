@@ -1828,7 +1828,7 @@ class QBittorrentClient implements DownloaderClient {
         if (contentDisposition) {
           const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
           if (filenameMatch && filenameMatch[1]) {
-            torrentFileName = filenameMatch[1].replace(/['"]/g, "");
+            torrentFileName = this.sanitizeMultipartFilename(filenameMatch[1].replace(/['"]/g, ""));
           }
         }
 
@@ -1853,13 +1853,16 @@ class QBittorrentClient implements DownloaderClient {
       const formParts: string[] = [];
 
       // Add torrents file
+      const safeTorrentFileName = this.sanitizeMultipartFilename(torrentFileName);
       formParts.push(`--${boundary}\r\n`);
-      formParts.push(`Content-Disposition: form-data; name="torrents"; filename="${torrentFileName}"\r\n`);
+      formParts.push(
+        `Content-Disposition: form-data; name="torrents"; filename="${safeTorrentFileName}"\r\n`
+      );
       formParts.push(`Content-Type: application/x-bittorrent\r\n\r\n`);
 
       // Build the body with file buffer
       const formPartsBuffer = Buffer.from(formParts.join(""), "utf-8");
-      const endBoundaryBuffer = Buffer.from(`\r\n--${boundary}`, "utf-8");
+      const endBoundaryBuffer = Buffer.from(`\r\n`, "utf-8");
 
       // Add other form parameters
       const additionalFields: string[] = [];
@@ -2431,6 +2434,21 @@ class QBittorrentClient implements DownloaderClient {
       error: torrent.state === "error" ? "Torrent error" : undefined,
       category: torrent.category,
     };
+  }
+
+  private sanitizeMultipartFilename(filename: string): string {
+    const normalized = filename.replace(/[\r\n]/g, " ");
+
+    const cleaned = Array.from(normalized)
+      .filter((char) => {
+        const code = char.codePointAt(0);
+        return code !== undefined && code >= 0x20 && code !== 0x7f;
+      })
+      .join("")
+      .replace(/["\\]/g, "_")
+      .trim();
+
+    return cleaned.length > 0 ? cleaned : "torrent.torrent";
   }
 
   private async authenticate(force = false): Promise<void> {

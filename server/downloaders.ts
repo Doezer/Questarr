@@ -80,6 +80,8 @@ interface QBittorrentTorrent {
   ratio: number;
   num_seeds: number;
   num_leechs: number;
+  num_complete: number;
+  num_incomplete: number;
   category?: string;
   save_path?: string;
   [key: string]: unknown;
@@ -2235,7 +2237,7 @@ class QBittorrentClient implements DownloaderClient {
         completedDate: props.completion_date > 0 ? new Date(props.completion_date * 1000).toISOString() : undefined,
         files,
         trackers,
-        totalPeers: props.peers_total || torrent.num_seeds + torrent.num_leechs,
+        totalPeers: props.peers_total || torrent.num_complete + torrent.num_incomplete,
         connectedPeers: props.peers || torrent.num_seeds + torrent.num_leechs,
       };
     } catch (error) {

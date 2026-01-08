@@ -2397,8 +2397,10 @@ class QBittorrentClient implements DownloaderClient {
 
     // Check if completed based on progress
     if (torrent.progress === 1) {
-      if (status === "downloading" || status === "paused") {
+      if (status === "downloading") {
         status = "seeding"; // It's done downloading, so it must be seeding or completed
+      } else if (status === "paused") {
+        status = "completed";
       }
     }
 

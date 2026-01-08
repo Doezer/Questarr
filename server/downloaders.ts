@@ -1808,7 +1808,7 @@ class QBittorrentClient implements DownloaderClient {
       downloadersLogger.info({ url: request.url }, "Downloading torrent file from indexer");
       let torrentFileBuffer: Buffer;
       let torrentFileName = "torrent.torrent";
-      
+
       try {
         const torrentResponse = await fetch(request.url, {
           headers: {
@@ -1832,7 +1832,7 @@ class QBittorrentClient implements DownloaderClient {
 
         const arrayBuffer = await torrentResponse.arrayBuffer();
         torrentFileBuffer = Buffer.from(arrayBuffer);
-        
+
         downloadersLogger.info(
           { size: torrentFileBuffer.length, filename: torrentFileName },
           "Successfully downloaded torrent file"
@@ -1854,14 +1854,14 @@ class QBittorrentClient implements DownloaderClient {
       formParts.push(`--${boundary}\r\n`);
       formParts.push(`Content-Disposition: form-data; name="torrents"; filename="${torrentFileName}"\r\n`);
       formParts.push(`Content-Type: application/x-bittorrent\r\n\r\n`);
-      
+
       // Build the body with file buffer
       const formPartsBuffer = Buffer.from(formParts.join(""), "utf-8");
       const endBoundaryBuffer = Buffer.from(`\r\n--${boundary}`, "utf-8");
 
       // Add other form parameters
       const additionalFields: string[] = [];
-      
+
       if (request.downloadPath || this.downloader.downloadPath) {
         additionalFields.push(`--${boundary}\r\n`);
         additionalFields.push(`Content-Disposition: form-data; name="savepath"\r\n\r\n`);
@@ -1879,7 +1879,7 @@ class QBittorrentClient implements DownloaderClient {
       additionalFields.push(`--${boundary}\r\n`);
       additionalFields.push(`Content-Disposition: form-data; name="paused"\r\n\r\n`);
       additionalFields.push(`${pausedValue}\r\n`);
-      
+
       additionalFields.push(`--${boundary}--\r\n`);
 
       const additionalFieldsBuffer = Buffer.from(additionalFields.join(""), "utf-8");
@@ -1910,7 +1910,7 @@ class QBittorrentClient implements DownloaderClient {
 
       const responseText = await response.text();
       downloadersLogger.info(
-        { 
+        {
           responseText,
           responseStatus: response.status,
           responseOk: response.ok,
@@ -2465,7 +2465,7 @@ class QBittorrentClient implements DownloaderClient {
 
       const responseText = await response.text();
       downloadersLogger.debug({ responseText }, "qBittorrent auth response");
-      
+
       if (responseText && responseText !== "Ok." && responseText !== "") {
         throw new Error(`Authentication failed: ${responseText}`);
       }
@@ -2564,6 +2564,11 @@ class QBittorrentClient implements DownloaderClient {
   ): Promise<Response> {
     const url = this.getBaseUrl() + path;
 
+    let requestBody: BodyInit | undefined;
+    if (method !== "GET" && body !== undefined) {
+      requestBody = typeof body === "string" ? body : new Uint8Array(body);
+    }
+
     const headers: Record<string, string> = {
       "User-Agent": "Questarr/1.0",
       ...additionalHeaders,
@@ -2581,7 +2586,7 @@ class QBittorrentClient implements DownloaderClient {
     let response = await fetch(url, {
       method,
       headers,
-      body: method !== "GET" ? body : undefined,
+      body: requestBody,
       signal: AbortSignal.timeout(30000),
     });
 
@@ -2603,7 +2608,7 @@ class QBittorrentClient implements DownloaderClient {
       response = await fetch(url, {
         method,
         headers: retryHeaders,
-        body: method !== "GET" ? body : undefined,
+        body: requestBody,
         signal: AbortSignal.timeout(30000),
       });
 

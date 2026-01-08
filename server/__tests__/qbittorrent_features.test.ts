@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { DownloaderManager } from "../downloaders";
-import type { Downloader } from "@shared/schema";
+import type { Downloader } from "../../shared/schema";
 
 vi.mock("parse-torrent", () => ({
   default: vi.fn((_buffer) => {
@@ -13,7 +13,7 @@ vi.mock("parse-torrent", () => ({
 
 // Mock fetch
 const fetchMock = vi.fn();
-global.fetch = fetchMock;
+globalThis.fetch = fetchMock as unknown as typeof fetch;
 
 describe("QBittorrentClient - Advanced Features", () => {
   beforeEach(() => {
@@ -22,20 +22,44 @@ describe("QBittorrentClient - Advanced Features", () => {
     vi.useRealTimers();
   });
 
-  it("should handle adding download from http URL (non-magnet) and resolve hash", async () => {
-    vi.useFakeTimers();
-    const testDownloader: Downloader = {
+  const createTestDownloader = (overrides: Partial<Downloader> = {}): Downloader => {
+    const now = new Date();
+    return {
       id: "qbittorrent-id",
       name: "QBittorrent",
       type: "qbittorrent",
       url: "http://localhost:8080",
-      enabled: true,
-      priority: 1,
+      port: null,
+      useSsl: false,
+      urlPath: null,
       username: "admin",
       password: "password",
-      createdAt: new Date(),
-      updatedAt: new Date(),
+      enabled: true,
+      priority: 1,
+      downloadPath: null,
+      category: "games",
+      label: "Questarr",
+      addStopped: false,
+      removeCompleted: false,
+      postImportCategory: null,
+      settings: null,
+      createdAt: now,
+      updatedAt: now,
+      ...overrides,
     };
+  };
+
+  const bodyToString = (body: RequestInit["body"]): string => {
+    if (body === null || body === undefined) return "";
+    if (typeof body === "string") return body;
+    if (body instanceof Uint8Array) return Buffer.from(body).toString();
+    if (body instanceof ArrayBuffer) return Buffer.from(new Uint8Array(body)).toString();
+    return String(body);
+  };
+
+  it("should handle adding download from http URL (non-magnet) and resolve hash", async () => {
+    vi.useFakeTimers();
+    const testDownloader = createTestDownloader();
 
     // Mock login response
     const loginResponse = {
@@ -104,19 +128,10 @@ describe("QBittorrentClient - Advanced Features", () => {
 
   it("should support force-started mode via settings", async () => {
     vi.useFakeTimers();
-    const testDownloader: Downloader = {
-      id: "qbittorrent-id",
+    const testDownloader = createTestDownloader({
       name: "QBittorrent Force",
-      type: "qbittorrent",
-      url: "http://localhost:8080",
-      enabled: true,
-      priority: 1,
-      username: "admin",
-      password: "password",
       settings: JSON.stringify({ initialState: "force-started" }),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
+    });
 
     // Mock login response
     const loginResponse = {
@@ -172,8 +187,8 @@ describe("QBittorrentClient - Advanced Features", () => {
     const forceStartCall = calls.find((call) => call[0].includes("/api/v2/torrents/setForceStart"));
 
     expect(forceStartCall).toBeDefined();
-    expect(forceStartCall[0]).toBe("http://localhost:8080/api/v2/torrents/setForceStart");
-    expect(forceStartCall[1].body).toBe(
+    expect(forceStartCall![0]).toBe("http://localhost:8080/api/v2/torrents/setForceStart");
+    expect((forceStartCall![1] as RequestInit).body).toBe(
       "hashes=aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd&value=true"
     );
 
@@ -182,19 +197,10 @@ describe("QBittorrentClient - Advanced Features", () => {
 
   it("should support stopped (paused) mode via settings", async () => {
     vi.useFakeTimers();
-    const testDownloader: Downloader = {
-      id: "qbittorrent-id",
+    const testDownloader = createTestDownloader({
       name: "QBittorrent Stopped",
-      type: "qbittorrent",
-      url: "http://localhost:8080",
-      enabled: true,
-      priority: 1,
-      username: "admin",
-      password: "password",
       addStopped: true, // Legacy setting or override
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
+    });
 
     // Mock login response
     const loginResponse = {
@@ -244,8 +250,9 @@ describe("QBittorrentClient - Advanced Features", () => {
     const addCall = calls.find((call) => call[0].includes("/api/v2/torrents/add"));
 
     expect(addCall).toBeDefined();
-    expect(addCall[0]).toBe("http://localhost:8080/api/v2/torrents/add");
-    expect(addCall[1].body.toString()).toContain('name="paused"');
-    expect(addCall[1].body.toString()).toContain("\r\n\r\ntrue\r\n");
+    expect(addCall![0]).toBe("http://localhost:8080/api/v2/torrents/add");
+    const bodyText = bodyToString((addCall![1] as RequestInit).body);
+    expect(bodyText).toContain('name="paused"');
+    expect(bodyText).toContain("\r\n\r\ntrue\r\n");
   });
 });

@@ -406,6 +406,11 @@ export const sanitizeIndexerSearchQuery = [
     .trim()
     .isLength({ max: 500 })
     .withMessage("Category must be at most 500 characters"),
+  query("cat")
+    .optional()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage("Category alias (cat) must be at most 500 characters"),
   query("limit")
     .optional()
     .isInt({ min: 1, max: 100 })

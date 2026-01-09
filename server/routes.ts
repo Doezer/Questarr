@@ -50,13 +50,40 @@ const storageCache = {
   ttl: 30 * 1000, // 30 seconds in milliseconds
 };
 
+// Helper to parse category query param which might be string, array, or comma-separated
+export function parseCategories(input: unknown): string[] | undefined {
+  if (!input) return undefined;
+
+  // If array, flatten and filter
+  if (Array.isArray(input)) {
+    return input.map(String).filter((c) => c.trim().length > 0);
+  }
+
+  // If string, split by comma
+  if (typeof input === "string") {
+    return input
+      .split(",")
+      .map((c) => c.trim())
+      .filter((c) => c.length > 0);
+  }
+
+  return undefined;
+}
+
 // Helper function for aggregated indexer search
 async function handleAggregatedIndexerSearch(req: Request, res: Response) {
   try {
-    const { query, category } = req.query;
+    const { query, category, cat } = req.query;
     // Use validated values from middleware (already converted to integers by .toInt())
     const limit = (req.query.limit as unknown as number) || 50;
     const offset = (req.query.offset as unknown as number) || 0;
+
+    const categories = parseCategories(category || cat);
+
+    routesLogger.info(
+      { query, categories, limit, offset },
+      "Handling aggregated indexer search request"
+    );
 
     if (!query || typeof query !== "string") {
       return res.status(400).json({ error: "Search query required" });
@@ -64,7 +91,7 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
 
     const { items, total, errors } = await searchAllIndexers({
       query: query.trim(),
-      category: category && typeof category === "string" ? category.split(",") : undefined,
+      category: categories,
       limit,
       offset,
     });
@@ -1064,7 +1091,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/indexers/:id/search", async (req, res) => {
     try {
       const { id } = req.params;
-      const { query, category, limit = 50, offset = 0 } = req.query;
+      const { query, category, cat, limit = 50, offset = 0 } = req.query;
 
       if (!query || typeof query !== "string") {
         return res.status(400).json({ error: "Search query required" });
@@ -1077,7 +1104,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const searchParams = {
         query: query.trim(),
-        category: category && typeof category === "string" ? category.split(",") : undefined,
+        category: parseCategories(category || cat),
         limit: parseInt(limit as string) || 50,
         offset: parseInt(offset as string) || 0,
       };

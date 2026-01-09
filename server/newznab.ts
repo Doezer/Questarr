@@ -67,6 +67,32 @@ class NewznabClient {
 
       if (params.category && params.category.length > 0) {
         url.searchParams.set("cat", params.category.join(","));
+      } else {
+        // Default to game categories
+        const configuredCategories = indexer.categories || [];
+
+        if (configuredCategories.length > 0) {
+          // If categories are configured, use only the game-related ones
+          // 40xx: PC Games, 10xx: Console Games
+          const gameCategories = configuredCategories.filter(
+            (cat) =>
+              cat.startsWith("40") ||
+              cat.startsWith("10") ||
+              cat.toLowerCase().includes("game") ||
+              cat.toLowerCase().includes("pc")
+          );
+          if (gameCategories.length > 0) {
+            url.searchParams.set("cat", gameCategories.join(","));
+          } else {
+            // If configured categories exist but none match games, use them anyway 
+            // (user might know what they are doing, e.g. custom category ID)
+             url.searchParams.set("cat", configuredCategories.join(","));
+          }
+        } else {
+          // If NO categories are configured, default to standard Game categories
+          // 4000: PC Games, 1000: Console Games
+          url.searchParams.set("cat", "4000,1000");
+        }
       }
 
       if (params.limit) {
@@ -80,8 +106,8 @@ class NewznabClient {
       // Extended attributes for more metadata
       url.searchParams.set("extended", "1");
 
-      routesLogger.debug(
-        { indexer: indexer.name, url: url.toString() },
+      routesLogger.info(
+        { indexer: indexer.name, url: url.toString(), params },
         "searching newznab indexer"
       );
 
@@ -97,9 +123,14 @@ class NewznabClient {
       }
 
       const xmlText = await response.text();
+      routesLogger.debug(
+        { indexer: indexer.name, responseLength: xmlText.length },
+        "received newznab response"
+      );
+      
       const data = parser.parse(xmlText);
 
-      const results: NewznabResult[] = [];
+      let results: NewznabResult[] = [];
 
       // Parse RSS feed structure
       if (data.rss?.channel?.item) {
@@ -136,6 +167,11 @@ class NewznabClient {
             categories.push(...cats.filter(Boolean));
           }
 
+          routesLogger.debug(
+            { title: item.title, categories, indexer: indexer.name }, 
+            "parsed newznab item category"
+          );
+
           results.push({
             title: item.title,
             link: item.link || item.enclosure?.["@_url"],
@@ -165,10 +201,49 @@ class NewznabClient {
         }
       }
 
-      routesLogger.debug(
+      routesLogger.info(
         { indexer: indexer.name, count: results.length },
-        "newznab search results"
+        "newznab search results processed"
       );
+
+      // Filter results by category if specific categories were requested
+      if (params.category && params.category.length > 0) {
+        const requestedCats = params.category;
+        const initialCount = results.length;
+        
+        results = results.filter((item) => {
+          // If item has no category info, we keep it (conservative approach)
+          if (!item.category || item.category.length === 0) return true;
+          
+          // Check if any of the item's categories match any of the requested categories
+          return item.category.some((itemCat) => 
+            requestedCats.some((reqCat) => {
+              if (itemCat === reqCat) return true;
+              
+              // Handle parent categories (e.g. 4000 matches 4050)
+              // If request is X000 (e.g. 4000), it matches 4xxx
+              if (reqCat.endsWith("000") && itemCat.startsWith(reqCat.substring(0, 1))) {
+                return true;
+              }
+              // If request is XX00 (e.g. 4000), it matches 40xx? 
+              // Actually 4000 usually means the whole 4xxx block in Torznab/Newznab.
+              
+              return false;
+            })
+          );
+        });
+
+        if (results.length < initialCount) {
+          routesLogger.info(
+            { 
+              indexer: indexer.name, 
+              filtered: initialCount - results.length, 
+              remaining: results.length 
+            }, 
+            "filtered newznab results by category"
+          );
+        }
+      }
 
       return results;
     } catch (error) {

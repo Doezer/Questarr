@@ -244,4 +244,49 @@ describe("QBittorrentClient - Advanced Features", () => {
     const bodyText = bodyToString((addCall![1] as RequestInit).body);
     expect(bodyText).toContain("paused=true");
   });
+
+  it("should return free space using app/free_space when supported", async () => {
+    const testDownloader: Downloader = {
+      id: "qbittorrent-id",
+      name: "QBittorrent",
+      type: "qbittorrent",
+      url: "http://localhost:8080",
+      enabled: true,
+      priority: 1,
+      username: "admin",
+      password: "password",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const loginResponse = {
+      ok: true,
+      text: async () => "Ok.",
+      headers: { get: () => "SID=123" },
+    };
+
+    const preferencesResponse = {
+      ok: true,
+      json: async () => ({ save_path: "/downloads" }),
+    };
+
+    const freeSpaceResponse = {
+      ok: true,
+      json: async () => ({ path: "/downloads", free_space_on_disk: 123456789 }),
+    };
+
+    fetchMock
+      .mockResolvedValueOnce(loginResponse)
+      .mockResolvedValueOnce(preferencesResponse)
+      .mockResolvedValueOnce(freeSpaceResponse);
+
+    const bytes = await DownloaderManager.getFreeSpace(testDownloader);
+    expect(bytes).toBe(123456789);
+
+    expect(fetchMock.mock.calls[0][0]).toBe("http://localhost:8080/api/v2/auth/login");
+    expect(fetchMock.mock.calls[1][0]).toBe("http://localhost:8080/api/v2/app/preferences");
+    expect(fetchMock.mock.calls[2][0]).toBe(
+      "http://localhost:8080/api/v2/app/free_space?path=%2Fdownloads"
+    );
+  });
 });

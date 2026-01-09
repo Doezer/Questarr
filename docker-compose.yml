@@ -17,6 +17,7 @@ services:
       - POSTGRES_DB=${POSTGRES_DB:-questarr}
       - IGDB_CLIENT_ID=${IGDB_CLIENT_ID}
       - IGDB_CLIENT_SECRET=${IGDB_CLIENT_SECRET}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:${PORT:-5000}}
     env_file:
       - .env
     depends_on:

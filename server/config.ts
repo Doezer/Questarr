@@ -13,6 +13,9 @@ const envSchema = z.object({
   POSTGRES_PORT: z.string().default("5432"),
   POSTGRES_DB: z.string().default("questarr"),
 
+  // CORS configuration
+  ALLOWED_ORIGINS: z.string().optional(),
+
   // JWT configuration
   JWT_SECRET: z.string().default("questarr-default-secret-change-me"),
 
@@ -83,6 +86,9 @@ export const config = {
     isDevelopment: env.NODE_ENV === "development",
     isProduction: env.NODE_ENV === "production",
     isTest: env.NODE_ENV === "test",
+    allowedOrigins: env.ALLOWED_ORIGINS
+      ? env.ALLOWED_ORIGINS.split(",").map((origin) => origin.trim())
+      : ["http://localhost:port".replace("port", env.PORT.toString())],
   },
 } as const;
 

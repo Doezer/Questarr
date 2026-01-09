@@ -1,13 +1,15 @@
 import { Server } from "socket.io";
 import { type Server as HttpServer } from "http";
 import { expressLogger } from "./logger.js";
+import { config } from "./config.js";
+
 
 let io: Server | undefined;
 
 export function setupSocketIO(httpServer: HttpServer) {
   io = new Server(httpServer, {
     cors: {
-      origin: "*", // Adjust this for production security
+      origin: config.server.allowedOrigins, // Adjust this for production security
       methods: ["GET", "POST"],
     },
   });

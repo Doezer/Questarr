@@ -47,11 +47,11 @@ describe("Logger Module", () => {
     expect(loggerModule.logger.level).toBe("debug");
   });
 
-  it("should default to info level when LOG_LEVEL is not set", async () => {
+  it("should default to debug level when LOG_LEVEL is not set", async () => {
     delete process.env.LOG_LEVEL;
 
     const loggerModule = await import("../logger.js");
 
-    expect(loggerModule.logger.level).toBe("info");
+    expect(loggerModule.logger.level).toBe("debug");
   });
 });

@@ -57,6 +57,8 @@ export class TorznabClient {
     }
 
     const searchUrl = this.buildSearchUrl(indexer, params);
+    
+    torznabLogger.info({ indexer: indexer.name, url: searchUrl, params }, "searching torznab indexer");
 
     try {
       const response = await fetch(searchUrl, {
@@ -72,7 +74,42 @@ export class TorznabClient {
       }
 
       const xmlData = await response.text();
-      return this.parseResponse(xmlData, indexer.url, indexer);
+      torznabLogger.debug({ indexer: indexer.name, responseLength: xmlData.length }, "received torznab response");
+      const result = this.parseResponse(xmlData, indexer.url, indexer);
+
+      if (params.category && params.category.length > 0) {
+        const requestedCats = params.category;
+        const initialCount = result.items.length;
+
+        result.items = result.items.filter((item) => {
+          if (!item.category) return true;
+          // Note: TorznabItem.category is a string (single category?) 
+          // or did I define it as string[]? Interface says string | undefined.
+          // But parsing might put a single value.
+          
+          return requestedCats.some((reqCat) => {
+            if (item.category === reqCat) return true;
+            if (reqCat.endsWith("000") && item.category!.startsWith(reqCat.substring(0, 1))) {
+              return true;
+            }
+            return false;
+          });
+        });
+
+        if (result.items.length < initialCount) {
+          torznabLogger.info(
+            { 
+              indexer: indexer.name, 
+              filtered: initialCount - result.items.length, 
+              remaining: result.items.length 
+            }, 
+            "filtered torznab results by category"
+          );
+          result.total = result.items.length;
+        }
+      }
+
+      return result;
     } catch (error) {
       torznabLogger.error({ indexerName: indexer.name, error }, `error searching indexer`);
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
@@ -218,9 +255,17 @@ export class TorznabClient {
         this.parseItem(item, indexerUrl, indexer)
       );
 
+      let finalItems = torznabItems;
+
+      // Filter results by category if specific categories were requested
+      // We do this here because we have access to the params via closure if we move this logic up, 
+      // but parseResponse doesn't have params. 
+      // Wait, parseResponse doesn't accept params. 
+      // I need to filter in searchGames instead.
+      
       return {
-        items: torznabItems,
-        total: torznabItems.length,
+        items: finalItems,
+        total: finalItems.length,
         offset: 0,
       };
     } catch (error) {
@@ -318,6 +363,10 @@ export class TorznabClient {
       });
 
       torznabItem.attributes = parsedAttributes;
+    }
+
+    if (torznabItem.category) {
+       torznabLogger.debug({ title: torznabItem.title, category: torznabItem.category, indexer: indexer?.name }, "parsed torznab item category");
     }
 
     return torznabItem;

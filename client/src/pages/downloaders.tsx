@@ -452,11 +452,14 @@ export default function DownloadersPage() {
                       <FormLabel>Name</FormLabel>
                       <FormControl>
                         <Input
-                          placeholder="Transmission"
+                          placeholder={
+                          downloaderTypes.find((t) => t.value === form.watch("type"))?.label ??
+                          "Downloader"
+                          }
                           {...field}
                           data-testid="input-downloader-name"
                         />
-                      </FormControl>
+                        </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}

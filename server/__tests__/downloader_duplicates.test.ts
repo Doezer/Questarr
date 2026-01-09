@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { DownloaderManager } from "../downloaders";
-import type { Downloader } from "@shared/schema";
+import type { Downloader } from "../../shared/schema";
 
 vi.mock("parse-torrent", () => ({
   default: vi.fn((_buffer) => {
@@ -31,6 +31,18 @@ describe("Downloader Duplicates Handling", () => {
       priority: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
+      port: null,
+      useSsl: null,
+      urlPath: null,
+      username: null,
+      password: null,
+      downloadPath: null,
+      category: null,
+      label: null,
+      addStopped: null,
+      removeCompleted: null,
+      postImportCategory: null,
+      settings: null
     };
 
     // Mock session-get
@@ -74,6 +86,7 @@ describe("Downloader Duplicates Handling", () => {
   });
 
   it("qBittorrent: should return success: true when response is 'Fails.'", async () => {
+    vi.useFakeTimers();
     const qbittorrent: Downloader = {
       id: "qbittorrent",
       name: "qBittorrent",
@@ -85,6 +98,16 @@ describe("Downloader Duplicates Handling", () => {
       password: "password",
       createdAt: new Date(),
       updatedAt: new Date(),
+      port: null,
+      useSsl: null,
+      urlPath: null,
+      downloadPath: null,
+      category: null,
+      label: null,
+      addStopped: null,
+      removeCompleted: null,
+      postImportCategory: null,
+      settings: null
     };
 
     // Mock login
@@ -94,18 +117,49 @@ describe("Downloader Duplicates Handling", () => {
       headers: { get: () => "SID=123" },
     };
 
-    // Mock add torrent response "Fails."
-    const failResponse = {
+    // First attempt: URL-based add returns Ok. but doesn't result in an observable torrent,
+    // so the client falls back to downloading + uploading the torrent file.
+    const urlAddOkResponse = {
       ok: true,
-      text: async () => "Fails.",
+      status: 200,
+      text: async () => "Ok.",
+      headers: { entries: () => [] },
     };
 
-    fetchMock.mockResolvedValueOnce(loginResponse).mockResolvedValueOnce(failResponse);
+    const torrentsInfoEmptyResponse = {
+      ok: true,
+      json: async () => [],
+    };
 
-    const result = await DownloaderManager.addDownload(qbittorrent, {
-      url: "magnet:?xt=urn:btih:aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd",
+    const torrentFileResponse = {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: { get: () => null },
+      arrayBuffer: async () => Buffer.from("torrent content"),
+    };
+
+    // Upload fallback response "Fails." (returned by qBittorrent after upload)
+    const uploadFailResponse = {
+      ok: true,
+      text: async () => "Fails.",
+      headers: { entries: () => [] },
+    };
+
+    fetchMock
+      .mockResolvedValueOnce(loginResponse)
+      .mockResolvedValueOnce(urlAddOkResponse)
+      .mockResolvedValueOnce(torrentsInfoEmptyResponse)
+      .mockResolvedValueOnce(torrentFileResponse)
+      .mockResolvedValueOnce(uploadFailResponse);
+
+    const promise = DownloaderManager.addDownload(qbittorrent, {
+      url: "http://tracker.example.com/download/123.torrent",
       title: "Test Game",
     });
+
+    await vi.runAllTimersAsync();
+    const result = await promise;
 
     expect(result.success).toBe(true);
     expect(result.message).toContain("Download already exists or invalid download");
@@ -121,6 +175,18 @@ describe("Downloader Duplicates Handling", () => {
       priority: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
+      port: null,
+      useSsl: null,
+      urlPath: null,
+      username: null,
+      password: null,
+      downloadPath: null,
+      category: null,
+      label: null,
+      addStopped: null,
+      removeCompleted: null,
+      postImportCategory: null,
+      settings: null
     };
 
     const duplicateResponse = {
@@ -153,6 +219,18 @@ describe("Downloader Duplicates Handling", () => {
       priority: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
+      port: null,
+      useSsl: null,
+      urlPath: null,
+      username: null,
+      password: null,
+      downloadPath: null,
+      category: null,
+      label: null,
+      addStopped: null,
+      removeCompleted: null,
+      postImportCategory: null,
+      settings: null
     };
 
     const mergedResponse = {
@@ -185,6 +263,18 @@ describe("Downloader Duplicates Handling", () => {
       priority: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
+      port: null,
+      useSsl: null,
+      urlPath: null,
+      username: null,
+      password: null,
+      downloadPath: null,
+      category: null,
+      label: null,
+      addStopped: null,
+      removeCompleted: null,
+      postImportCategory: null,
+      settings: null
     };
 
     const downloader2: Downloader = {
@@ -198,6 +288,16 @@ describe("Downloader Duplicates Handling", () => {
       password: "password",
       createdAt: new Date(),
       updatedAt: new Date(),
+      port: null,
+      useSsl: null,
+      urlPath: null,
+      downloadPath: null,
+      category: null,
+      label: null,
+      addStopped: null,
+      removeCompleted: null,
+      postImportCategory: null,
+      settings: null
     };
 
     // Mock Transmission response (duplicate)

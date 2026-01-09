@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { DownloaderManager } from "../downloaders";
-import type { Downloader } from "@shared/schema";
+import type { Downloader } from "../../shared/schema";
 
 vi.mock("parse-torrent", () => ({
   default: vi.fn((_buffer) => {
@@ -32,6 +32,18 @@ describe("Downloader Comprehensive Tests", () => {
       priority: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
+      port: null,
+      useSsl: null,
+      urlPath: null,
+      username: null,
+      password: null,
+      downloadPath: null,
+      category: null,
+      label: null,
+      addStopped: null,
+      removeCompleted: null,
+      postImportCategory: null,
+      settings: null
     };
 
     const sessionResponse = {
@@ -153,6 +165,18 @@ describe("Downloader Comprehensive Tests", () => {
       priority: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
+      port: null,
+      useSsl: null,
+      urlPath: null,
+      username: null,
+      password: null,
+      downloadPath: null,
+      category: null,
+      label: null,
+      addStopped: null,
+      removeCompleted: null,
+      postImportCategory: null,
+      settings: null
     };
 
     const xmlResponseSuccess = `
@@ -205,6 +229,16 @@ describe("Downloader Comprehensive Tests", () => {
       password: "password",
       createdAt: new Date(),
       updatedAt: new Date(),
+      port: null,
+      useSsl: null,
+      urlPath: null,
+      downloadPath: null,
+      category: null,
+      label: null,
+      addStopped: null,
+      removeCompleted: null,
+      postImportCategory: null,
+      settings: null
     };
 
     const loginResponse = {
@@ -213,39 +247,75 @@ describe("Downloader Comprehensive Tests", () => {
       headers: { get: () => "SID=123" },
     };
 
+    const torrentFileResponse = {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: { get: () => null },
+      arrayBuffer: async () => Buffer.from("torrent content"),
+    };
+
     it("should add download successfully", async () => {
+      vi.useFakeTimers();
       fetchMock
         .mockResolvedValueOnce(loginResponse)
         .mockResolvedValueOnce({
           ok: true,
+          status: 200,
           text: async () => "Ok.",
+          headers: { entries: () => [] },
         })
         .mockResolvedValueOnce({
           ok: true,
           json: async () => [
-            { hash: "aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd", name: "Test Torrent" },
+            {
+              hash: "aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd",
+              name: "Test Torrent",
+              added_on: Math.floor(Date.now() / 1000),
+            },
           ],
         });
 
-      const result = await DownloaderManager.addDownload(downloader, {
-        url: "magnet:?xt=urn:btih:aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd",
+      const promise = DownloaderManager.addDownload(downloader, {
+        url: "http://tracker.example.com/download/123.torrent",
         title: "Test Torrent",
       });
+
+      await vi.runAllTimersAsync();
+      const result = await promise;
 
       expect(result.success).toBe(true);
       expect(result.id).toBe("aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd");
     });
 
     it("should handle duplicate torrent (Fails.) as success", async () => {
-      fetchMock.mockResolvedValueOnce(loginResponse).mockResolvedValueOnce({
-        ok: true,
-        text: async () => "Fails.",
-      });
+      vi.useFakeTimers();
+      fetchMock
+        .mockResolvedValueOnce(loginResponse)
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: async () => "Fails.",
+          headers: { entries: () => [] },
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => [
+            {
+              hash: "aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd",
+              name: "Test Torrent",
+              added_on: Math.floor(Date.now() / 1000),
+            },
+          ],
+        });
 
-      const result = await DownloaderManager.addDownload(downloader, {
-        url: "magnet:?xt=urn:btih:aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd",
+      const promise = DownloaderManager.addDownload(downloader, {
+        url: "http://tracker.example.com/download/123.torrent",
         title: "Test Torrent",
       });
+
+      await vi.runAllTimersAsync();
+      const result = await promise;
 
       expect(result.success).toBe(true);
       expect(result.message).toContain("Download already exists");
@@ -259,11 +329,22 @@ describe("Downloader Comprehensive Tests", () => {
       name: "SABnzbd",
       type: "sabnzbd",
       url: "http://localhost:8080",
-      apiKey: "key",
       enabled: true,
       priority: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
+      port: null,
+      useSsl: null,
+      urlPath: null,
+      username: null,
+      password: null,
+      downloadPath: null,
+      category: null,
+      label: null,
+      addStopped: null,
+      removeCompleted: null,
+      postImportCategory: null,
+      settings: null
     };
 
     it("should add NZB successfully", async () => {
@@ -322,6 +403,16 @@ describe("Downloader Comprehensive Tests", () => {
       priority: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
+      port: null,
+      useSsl: null,
+      urlPath: null,
+      downloadPath: null,
+      category: null,
+      label: null,
+      addStopped: null,
+      removeCompleted: null,
+      postImportCategory: null,
+      settings: null
     };
 
     it("should add NZB successfully", async () => {

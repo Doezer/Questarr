@@ -1,14 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { Downloader } from "@shared/schema";
+import type { Downloader } from "../../shared/schema";
 import { DownloaderManager } from "../downloaders.js";
 
 describe("/api/downloads endpoint", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
+  type DownloadWithDownloader =
+    (Awaited<ReturnType<typeof DownloaderManager.getAllDownloads>>[number] & {
+      downloaderId: string;
+      downloaderName: string;
+    });
+
   beforeEach(() => {
     vi.clearAllMocks();
     fetchMock = vi.fn();
-    global.fetch = fetchMock;
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
   });
 
   it("should return errors when a downloader fails", async () => {
@@ -26,6 +32,13 @@ describe("/api/downloads endpoint", () => {
       settings: null,
       createdAt: new Date(),
       updatedAt: new Date(),
+      port: null,
+      useSsl: null,
+      urlPath: null,
+      label: null,
+      addStopped: null,
+      removeCompleted: null,
+      postImportCategory: null
     };
 
     const testDownloader2: Downloader = {
@@ -42,6 +55,13 @@ describe("/api/downloads endpoint", () => {
       settings: null,
       createdAt: new Date(),
       updatedAt: new Date(),
+      port: null,
+      useSsl: null,
+      urlPath: null,
+      label: null,
+      addStopped: null,
+      removeCompleted: null,
+      postImportCategory: null
     };
 
     // Mock successful response for first downloader
@@ -102,13 +122,13 @@ describe("/api/downloads endpoint", () => {
 
     // Simulate what the /api/downloads endpoint does
     const enabledDownloaders = [testDownloader1, testDownloader2];
-    const allDownloads: unknown[] = [];
+    const allDownloads: DownloadWithDownloader[] = [];
     const errors: Array<{ downloaderId: string; downloaderName: string; error: string }> = [];
 
     for (const downloader of enabledDownloaders) {
       try {
         const downloads = await DownloaderManager.getAllDownloads(downloader);
-        const downloadsWithDownloader = downloads.map((download) => ({
+        const downloadsWithDownloader: DownloadWithDownloader[] = downloads.map((download) => ({
           ...download,
           downloaderId: downloader.id,
           downloaderName: downloader.name,
@@ -151,6 +171,13 @@ describe("/api/downloads endpoint", () => {
       settings: null,
       createdAt: new Date(),
       updatedAt: new Date(),
+      port: null,
+      useSsl: null,
+      urlPath: null,
+      label: null,
+      addStopped: null,
+      removeCompleted: null,
+      postImportCategory: null
     };
 
     // Mock successful response
@@ -198,13 +225,13 @@ describe("/api/downloads endpoint", () => {
 
     // Simulate what the /api/downloads endpoint does
     const enabledDownloaders = [testDownloader];
-    const allDownloads: unknown[] = [];
+    const allDownloads: DownloadWithDownloader[] = [];
     const errors: Array<{ downloaderId: string; downloaderName: string; error: string }> = [];
 
     for (const downloader of enabledDownloaders) {
       try {
         const downloads = await DownloaderManager.getAllDownloads(downloader);
-        const downloadsWithDownloader = downloads.map((download) => ({
+        const downloadsWithDownloader: DownloadWithDownloader[] = downloads.map((download) => ({
           ...download,
           downloaderId: downloader.id,
           downloaderName: downloader.name,

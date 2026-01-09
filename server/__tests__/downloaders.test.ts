@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { DownloaderManager } from "../downloaders";
-import type { Downloader } from "@shared/schema";
+import type { Downloader } from "../../shared/schema";
 
 vi.mock("parse-torrent", () => ({
   default: vi.fn((buffer) => {
@@ -23,6 +23,7 @@ describe("DownloaderManager", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     fetchMock.mockReset();
+    vi.useRealTimers();
   });
 
   describe("TransmissionClient - RPC Protocol", () => {
@@ -35,6 +36,18 @@ describe("DownloaderManager", () => {
       priority: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
+      port: null,
+      useSsl: null,
+      urlPath: null,
+      username: null,
+      password: null,
+      downloadPath: null,
+      category: null,
+      label: null,
+      addStopped: null,
+      removeCompleted: null,
+      postImportCategory: null,
+      settings: null
     };
 
     it("should connect and add download successfully", async () => {
@@ -90,6 +103,18 @@ describe("DownloaderManager", () => {
       priority: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
+      port: null,
+      useSsl: null,
+      urlPath: null,
+      username: null,
+      password: null,
+      downloadPath: null,
+      category: null,
+      label: null,
+      addStopped: null,
+      removeCompleted: null,
+      postImportCategory: null,
+      settings: null
     };
 
     const downloader2: Downloader = {
@@ -103,9 +128,20 @@ describe("DownloaderManager", () => {
       password: "password",
       createdAt: new Date(),
       updatedAt: new Date(),
+      port: null,
+      useSsl: null,
+      urlPath: null,
+      downloadPath: null,
+      category: null,
+      label: null,
+      addStopped: null,
+      removeCompleted: null,
+      postImportCategory: null,
+      settings: null
     };
 
     it("should fallback to second downloader if first fails", async () => {
+      vi.useFakeTimers();
       // Mock first downloader failure (Transmission)
       // 1. Session check (409) -> Success getting session
       // 2. Add torrent failure
@@ -131,8 +167,8 @@ describe("DownloaderManager", () => {
 
       // Mock second downloader (qBittorrent) success
       // 3. Login
-      // 4. Add torrent
-      // 5. Info check (verify)
+      // 4. Add torrent by URL
+      // 5. Info check (find newly added torrent)
       fetchMock
         .mockResolvedValueOnce({
           ok: true,
@@ -141,19 +177,28 @@ describe("DownloaderManager", () => {
         })
         .mockResolvedValueOnce({
           ok: true,
+          status: 200,
           text: async () => "Ok.",
+          headers: { entries: () => [] },
         })
         .mockResolvedValueOnce({
           ok: true,
           json: async () => [
-            { hash: "aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd", name: "Test Game" },
+            {
+              hash: "aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd",
+              name: "Test Game",
+              added_on: Math.floor(Date.now() / 1000),
+            },
           ],
         });
 
-      const result = await DownloaderManager.addDownloadWithFallback([downloader1, downloader2], {
-        url: "magnet:?xt=urn:btih:aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd",
+      const promise = DownloaderManager.addDownloadWithFallback([downloader1, downloader2], {
+        url: "http://tracker.example.com/download/123.torrent",
         title: "Test Game",
       });
+
+      await vi.runAllTimersAsync();
+      const result = await promise;
 
       expect(result.success).toBe(true);
       expect(result.downloaderId).toBe(downloader2.id);
@@ -172,6 +217,18 @@ describe("DownloaderManager", () => {
       priority: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
+      port: null,
+      useSsl: null,
+      urlPath: null,
+      username: null,
+      password: null,
+      downloadPath: null,
+      category: null,
+      label: null,
+      addStopped: null,
+      removeCompleted: null,
+      postImportCategory: null,
+      settings: null
     };
 
     it("should connect successfully", async () => {
@@ -268,6 +325,16 @@ describe("DownloaderManager", () => {
       priority: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
+      port: null,
+      useSsl: null,
+      urlPath: null,
+      downloadPath: null,
+      category: null,
+      label: null,
+      addStopped: null,
+      removeCompleted: null,
+      postImportCategory: null,
+      settings: null
     };
 
     it("should connect successfully with authentication", async () => {
@@ -289,6 +356,7 @@ describe("DownloaderManager", () => {
     });
 
     it("should add download successfully", async () => {
+      vi.useFakeTimers();
       fetchMock
         .mockResolvedValueOnce({
           ok: true,
@@ -297,19 +365,28 @@ describe("DownloaderManager", () => {
         })
         .mockResolvedValueOnce({
           ok: true,
+          status: 200,
           text: async () => "Ok.",
+          headers: { entries: () => [] },
         })
         .mockResolvedValueOnce({
           ok: true,
           json: async () => [
-            { hash: "aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd", name: "Test Game" },
+            {
+              hash: "aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd",
+              name: "Test Game",
+              added_on: Math.floor(Date.now() / 1000),
+            },
           ],
         });
 
-      const result = await DownloaderManager.addDownload(testDownloader, {
-        url: "magnet:?xt=urn:btih:aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd",
+      const promise = DownloaderManager.addDownload(testDownloader, {
+        url: "http://tracker.example.com/download/123.torrent",
         title: "Test Game",
       });
+
+      await vi.runAllTimersAsync();
+      const result = await promise;
 
       expect(result.success).toBe(true);
       expect(result.id).toBe("aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd");

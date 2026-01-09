@@ -453,8 +453,8 @@ export default function DownloadersPage() {
                       <FormControl>
                         <Input
                           placeholder={
-                          downloaderTypes.find((t) => t.value === form.watch("type"))?.label ??
-                          "Downloader"
+                            downloaderTypes.find((t) => t.value === form.watch("type"))?.label ??
+                            "Downloader"
                           }
                           {...field}
                           data-testid="input-downloader-name"

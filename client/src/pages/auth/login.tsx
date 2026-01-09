@@ -74,6 +74,7 @@ export default function LoginPage() {
                         <Input
                           type="password"
                           className="pl-9"
+                          autoComplete="current-password"
                           placeholder="Enter your password"
                           {...field}
                         />

@@ -2,22 +2,35 @@ import pino from "pino";
 
 const isProduction = process.env.NODE_ENV === "production";
 
-// Configure pino: JSON in production, human-readable format in development
-export const logger = pino({
-  level: process.env.LOG_LEVEL || "info",
-  transport: isProduction
-    ? undefined
-    : {
-        target: "pino-pretty",
-        options: {
-          colorize: true,
+// Configure pino with multiple targets
+const transport = pino.transport({
+  targets: [
+    {
+      target: "pino/file",
+      options: { destination: "./server.log", mkdir: true },
+    },
+    isProduction
+      ? {
+          target: "pino/file",
+          options: { destination: 1 }, // stdout
+        }
+      : {
+          target: "pino-pretty",
+          options: {
+            colorize: true,
+            destination: 1, // stdout
+          },
         },
-      },
-  formatters: {
-    level: (label: string) => ({ level: label }),
-  },
-  timestamp: pino.stdTimeFunctions.isoTime,
+  ],
 });
+
+export const logger = pino(
+  {
+    level: process.env.LOG_LEVEL || "debug",
+    timestamp: pino.stdTimeFunctions.isoTime,
+  },
+  transport
+);
 
 // Create child loggers for different modules
 export const igdbLogger = logger.child({ module: "igdb" });

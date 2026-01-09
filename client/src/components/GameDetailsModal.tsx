@@ -20,6 +20,7 @@ interface GameDetailsModalProps {
 export default function GameDetailsModal({ game, open, onOpenChange }: GameDetailsModalProps) {
   const [selectedScreenshot, setSelectedScreenshot] = useState<string | null>(null);
   const [downloadOpen, setDownloadOpen] = useState(false);
+  const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -55,6 +56,13 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   const handleDownloadClick = () => {
     setDownloadOpen(true);
   };
+
+  const SUMMARY_LIMIT = 280;
+  const isSummaryLong = game.summary && game.summary.length > SUMMARY_LIMIT;
+  const displaySummary =
+    isSummaryLong && !isSummaryExpanded
+      ? `${game.summary?.slice(0, SUMMARY_LIMIT)}...`
+      : game.summary;
 
   return (
     <>
@@ -98,7 +106,16 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                       className="text-sm text-muted-foreground leading-relaxed"
                       data-testid={`text-summary-${game.id}`}
                     >
-                      {game.summary}
+                      {displaySummary}
+                      {isSummaryLong && (
+                        <Button
+                          variant="link"
+                          className="p-0 h-auto ml-1 font-semibold"
+                          onClick={() => setIsSummaryExpanded(!isSummaryExpanded)}
+                        >
+                          {isSummaryExpanded ? "Show less" : "Read more"}
+                        </Button>
+                      )}
                     </p>
                   </div>
                 )}

@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
-import { asZodType } from "@/lib/utils";
+import { asZodType, cn, compareEnabledPriorityName } from "@/lib/utils";
 import { Plus, Edit, Trash2, Check, X, Activity, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -51,6 +51,10 @@ export default function IndexersPage() {
   const { data: indexers = [], isLoading } = useQuery<Indexer[]>({
     queryKey: ["/api/indexers"],
   });
+
+  const sortedIndexers = useMemo(() => {
+    return [...indexers].sort(compareEnabledPriorityName);
+  }, [indexers]);
 
   const syncProwlarrMutation = useMutation({
     mutationFn: async () => {
@@ -369,13 +373,21 @@ export default function IndexersPage() {
       </div>
 
       <div className="grid gap-4">
-        {indexers && indexers.length > 0 ? (
-          indexers.map((indexer: Indexer) => (
-            <Card key={indexer.id} data-testid={`card-indexer-${indexer.id}`}>
+        {sortedIndexers.length > 0 ? (
+          sortedIndexers.map((indexer: Indexer) => (
+            <Card
+              key={indexer.id}
+              className={cn(!indexer.enabled && "bg-muted/30")}
+              data-testid={`card-indexer-${indexer.id}`}
+            >
               <CardHeader>
                 <div className="flex justify-between items-start">
                   <div className="flex items-center space-x-3">
-                    <CardTitle className="text-lg">{indexer.name}</CardTitle>
+                    <CardTitle
+                      className={cn("text-lg", !indexer.enabled && "text-muted-foreground")}
+                    >
+                      {indexer.name}
+                    </CardTitle>
                     <Badge
                       variant={indexer.protocol === "newznab" ? "secondary" : "default"}
                       className="uppercase"
@@ -436,7 +448,11 @@ export default function IndexersPage() {
                     </Button>
                   </div>
                 </div>
-                <CardDescription>{indexer.url}</CardDescription>
+                <CardDescription
+                  className={cn(!indexer.enabled && "text-muted-foreground")}
+                >
+                  {indexer.url}
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="flex flex-wrap gap-2">

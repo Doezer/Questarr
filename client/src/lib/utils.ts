@@ -69,3 +69,18 @@ export function mapGameToInsertGame(game: Game): InsertGame {
     hidden: game.hidden || false,
   };
 }
+
+export type EnabledPriorityNamed = {
+  enabled: boolean;
+  priority: number;
+  name: string;
+};
+
+export function compareEnabledPriorityName<T extends EnabledPriorityNamed>(a: T, b: T): number {
+  if (a.enabled !== b.enabled) return a.enabled ? -1 : 1;
+
+  const priorityDiff = a.priority - b.priority;
+  if (priorityDiff !== 0) return priorityDiff;
+
+  return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+}

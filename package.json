@@ -1,6 +1,6 @@
 {
   "name": "questarr",
-  "version": "1.0.1",
+  "version": "1.0.3",
   "type": "module",
   "license": "GPL-3.0-only",
   "scripts": {

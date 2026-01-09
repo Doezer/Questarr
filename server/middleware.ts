@@ -162,7 +162,19 @@ export const sanitizeIndexerData = [
     .trim()
     .isLength({ min: 1, max: 200 })
     .withMessage("Name must be between 1 and 200 characters"),
-  body("url").trim().isURL().withMessage("Invalid URL"),
+  body("url")
+    .trim()
+    .custom((value) => {
+      if (!value) return false;
+      // Allow standard URLs and localhost/internal URLs
+      try {
+        const url = new URL(value);
+        return ["http:", "https:"].includes(url.protocol);
+      } catch {
+        return false;
+      }
+    })
+    .withMessage("Invalid URL"),
   body("apiKey")
     .optional()
     .trim()
@@ -179,7 +191,20 @@ export const sanitizeIndexerUpdateData = [
     .trim()
     .isLength({ min: 1, max: 200 })
     .withMessage("Name must be between 1 and 200 characters"),
-  body("url").optional().trim().isURL().withMessage("Invalid URL"),
+  body("url")
+    .optional()
+    .trim()
+    .custom((value) => {
+      if (!value) return true;
+      // Allow standard URLs and localhost/internal URLs
+      try {
+        const url = new URL(value);
+        return ["http:", "https:"].includes(url.protocol);
+      } catch {
+        return false;
+      }
+    })
+    .withMessage("Invalid URL"),
   body("apiKey")
     .optional()
     .trim()
@@ -213,7 +238,7 @@ export const sanitizeDownloaderData = [
     .withMessage("Name must be between 1 and 200 characters"),
   body("type")
     .trim()
-    .isIn(["qbittorrent", "transmission", "rtorrent", "deluge", "sabnzbd", "nzbget"])
+    .isIn(["transmission", "rtorrent", "qbittorrent", "sabnzbd", "nzbget"])
     .withMessage("Invalid downloader type"),
   body("url")
     .trim()
@@ -274,16 +299,7 @@ export const sanitizeDownloaderUpdateData = [
   body("type")
     .optional()
     .trim()
-    .isIn([
-      "qbittorrent",
-      "transmission",
-      "deluge",
-      "rtorrent",
-      "utorrent",
-      "vuze",
-      "sabnzbd",
-      "nzbget",
-    ])
+    .isIn(["transmission", "rtorrent", "qbittorrent", "sabnzbd", "nzbget"])
     .withMessage("Invalid downloader type"),
   body("url")
     .optional()

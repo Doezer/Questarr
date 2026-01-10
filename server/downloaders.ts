@@ -2443,6 +2443,7 @@ class QBittorrentClient implements DownloaderClient {
       await this.authenticate();
 
       const coerceBytes = (value: unknown): number | null => {
+        if (value == null) return null;
         const bytes = typeof value === "number" ? value : Number(value);
         if (!Number.isFinite(bytes) || bytes < 0) return null;
         return bytes;
@@ -2471,7 +2472,7 @@ class QBittorrentClient implements DownloaderClient {
           );
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const json = (await freeSpaceResponse.json()) as any;
-          const bytes = coerceBytes(json?.free_space_on_disk ?? json?.["free_space_on_disk"]);
+          const bytes = coerceBytes(json?.free_space_on_disk);
 
           downloadersLogger.debug(
             { savePath, bytes, keys: Object.keys(json ?? {}) },

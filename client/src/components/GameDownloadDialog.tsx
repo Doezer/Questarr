@@ -50,6 +50,8 @@ interface DownloadItem {
   uploadVolumeFactor?: number;
   guid?: string;
   comments?: string;
+  indexerId?: string;
+  indexerName?: string;
   // Usenet-specific fields
   grabs?: number;
   age?: number;
@@ -607,55 +609,60 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                   )}
                                 </Button>
                               </div>
-                              <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
-                                <span>{formatDate(download.pubDate)}</span>
-                                <span>•</span>
-                                <span>{download.size ? formatBytes(download.size) : "-"}</span>
-                                <span>•</span>
-                                {isUsenet ? (
-                                  <div className="flex items-center gap-2">
-                                    {download.grabs !== undefined && (
-                                      <div className="flex items-center gap-1">
-                                        <span className="text-blue-600 font-medium">
-                                          {download.grabs}
-                                        </span>
-                                        <span>grabs</span>
-                                      </div>
-                                    )}
-                                    {download.grabs !== undefined && download.age !== undefined && (
+                              <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap justify-between">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span>{formatDate(download.pubDate)}</span>
+                                  <span>•</span>
+                                  <span>{download.size ? formatBytes(download.size) : "-"}</span>
+                                  <span>•</span>
+                                  {isUsenet ? (
+                                    <div className="flex items-center gap-2">
+                                      {download.grabs !== undefined && (
+                                        <div className="flex items-center gap-1">
+                                          <span className="text-blue-600 font-medium">
+                                            {download.grabs}
+                                          </span>
+                                          <span>grabs</span>
+                                        </div>
+                                      )}
+                                      {download.grabs !== undefined && download.age !== undefined && (
+                                        <span>•</span>
+                                      )}
+                                      {download.age !== undefined && (
+                                        <div className="flex items-center gap-1">
+                                          <span className="text-purple-600 font-medium">
+                                            {formatAge(download.age)}
+                                          </span>
+                                          <span>old</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-green-600 font-medium">
+                                        {download.seeders ?? 0}
+                                      </span>
+                                      <span>/</span>
+                                      <span className="text-red-600 font-medium">
+                                        {download.leechers ?? 0}
+                                      </span>
+                                      <span>peers</span>
+                                    </div>
+                                  )}
+                                  {download.description && (
+                                    <>
                                       <span>•</span>
-                                    )}
-                                    {download.age !== undefined && (
-                                      <div className="flex items-center gap-1">
-                                        <span className="text-purple-600 font-medium">
-                                          {formatAge(download.age)}
-                                        </span>
-                                        <span>old</span>
-                                      </div>
-                                    )}
-                                  </div>
-                                ) : (
-                                  <div className="flex items-center gap-1">
-                                    <span className="text-green-600 font-medium">
-                                      {download.seeders ?? 0}
-                                    </span>
-                                    <span>/</span>
-                                    <span className="text-red-600 font-medium">
-                                      {download.leechers ?? 0}
-                                    </span>
-                                    <span>peers</span>
-                                  </div>
-                                )}
-                                {download.description && (
-                                  <>
-                                    <span>•</span>
-                                    <span
-                                      className="truncate max-w-[200px]"
-                                      title={download.description}
-                                    >
-                                      {download.description}
-                                    </span>
-                                  </>
+                                      <span
+                                        className="truncate max-w-[200px]"
+                                        title={download.description}
+                                      >
+                                        {download.description}
+                                      </span>
+                                    </>
+                                  )}
+                                </div>
+                                {download.indexerName && (
+                                  <span className="flex-shrink-0">{download.indexerName}</span>
                                 )}
                               </div>
                             </div>

@@ -2442,26 +2442,99 @@ class QBittorrentClient implements DownloaderClient {
     try {
       await this.authenticate();
 
-      // Get main preferences to find save path
-      const prefResponse = await this.makeRequest("GET", "/api/v2/app/preferences");
-      const prefs = await prefResponse.json();
-      const savePath = prefs.save_path;
+      const coerceBytes = (value: unknown): number | null => {
+        if (value == null) return null;
+        const bytes = typeof value === "number" ? value : Number(value);
+        if (!Number.isFinite(bytes) || bytes < 0) return null;
+        return bytes;
+      };
 
-      // Get free space for save path
-      const transferResponse = await this.makeRequest("GET", "/api/v2/transfer/info");
-      const transferInfo = await transferResponse.json();
+      // Get main preferences to find the default save path.
+      // Note: qBittorrent's free space reporting is version-dependent; prefer endpoints designed for disk space.
+      let savePath: string | undefined;
+      try {
+        const prefResponse = await this.makeRequest("GET", "/api/v2/app/preferences");
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const prefs = (await prefResponse.json()) as any;
+        if (typeof prefs?.save_path === "string") {
+          savePath = prefs.save_path;
+        }
+      } catch (error) {
+        downloadersLogger.debug({ error }, "qBittorrent: failed to read preferences for save_path");
+      }
 
-      downloadersLogger.debug(
-        {
-          savePath,
-          freeSpace: transferInfo.free_space_on_disk,
-          transferInfo: Object.keys(transferInfo),
-        },
-        "qBittorrent free space info"
-      );
+      // 1) Newer qBittorrent versions: /api/v2/app/free_space?path=...
+      if (savePath) {
+        try {
+          const freeSpaceResponse = await this.makeRequest(
+            "GET",
+            `/api/v2/app/free_space?path=${encodeURIComponent(savePath)}`
+          );
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const json = (await freeSpaceResponse.json()) as any;
+          const bytes = coerceBytes(json?.free_space_on_disk);
 
-      // transferInfo.free_space_on_disk is in bytes
-      return transferInfo.free_space_on_disk || 0;
+          downloadersLogger.debug(
+            { savePath, bytes, keys: Object.keys(json ?? {}) },
+            "qBittorrent free space (app/free_space)"
+          );
+
+          if (bytes !== null) {
+            return bytes;
+          }
+        } catch (error) {
+          // If this endpoint isn't supported, fall back.
+          downloadersLogger.debug({ error, savePath }, "qBittorrent: app/free_space failed");
+        }
+      }
+
+      // 2) Common endpoint: /api/v2/sync/maindata?rid=0 -> server_state.free_space_on_disk
+      try {
+        const maindataResponse = await this.makeRequest("GET", "/api/v2/sync/maindata?rid=0");
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const maindata = (await maindataResponse.json()) as any;
+        const bytes = coerceBytes(maindata?.server_state?.free_space_on_disk);
+
+        downloadersLogger.debug(
+          {
+            savePath,
+            bytes,
+            serverStateKeys: Object.keys(maindata?.server_state ?? {}),
+          },
+          "qBittorrent free space (sync/maindata)"
+        );
+
+        if (bytes !== null) {
+          return bytes;
+        }
+      } catch (error) {
+        downloadersLogger.debug({ error }, "qBittorrent: sync/maindata failed");
+      }
+
+      // 3) Last resort: some versions include it on /api/v2/transfer/info
+      try {
+        const transferResponse = await this.makeRequest("GET", "/api/v2/transfer/info");
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const transferInfo = (await transferResponse.json()) as any;
+        const bytes = coerceBytes(transferInfo?.free_space_on_disk);
+
+        downloadersLogger.debug(
+          {
+            savePath,
+            bytes,
+            transferInfoKeys: Object.keys(transferInfo ?? {}),
+          },
+          "qBittorrent free space (transfer/info fallback)"
+        );
+
+        if (bytes !== null) {
+          return bytes;
+        }
+      } catch (error) {
+        downloadersLogger.debug({ error }, "qBittorrent: transfer/info failed");
+      }
+
+      return 0;
     } catch (error) {
       downloadersLogger.error({ error }, "Error getting free space from qBittorrent");
       return 0;

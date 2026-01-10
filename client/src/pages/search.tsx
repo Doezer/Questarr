@@ -49,6 +49,8 @@ interface DownloadItem {
   uploadVolumeFactor?: number;
   guid?: string;
   comments?: string;
+  indexerId?: string;
+  indexerName?: string;
   // Usenet-specific fields
   grabs?: number;
   age?: number;

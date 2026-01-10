@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
-import { asZodType } from "@/lib/utils";
+import { asZodType, cn, compareEnabledPriorityName } from "@/lib/utils";
 import { Plus, Edit, Trash2, Check, X, Activity } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -61,6 +61,10 @@ export default function DownloadersPage() {
   const { data: downloaders = [], isLoading } = useQuery<Downloader[]>({
     queryKey: ["/api/downloaders"],
   });
+
+  const sortedActiveDownloaders = useMemo(() => {
+    return [...downloaders].sort(compareEnabledPriorityName);
+  }, [downloaders]);
 
   const addMutation = useMutation({
     mutationFn: async (data: InsertDownloader) => {
@@ -316,13 +320,21 @@ export default function DownloadersPage() {
       </div>
 
       <div className="grid gap-4">
-        {downloaders && downloaders.length > 0 ? (
-          downloaders.map((downloader: Downloader) => (
-            <Card key={downloader.id} data-testid={`card-downloader-${downloader.id}`}>
+        {sortedActiveDownloaders.length > 0 ? (
+          sortedActiveDownloaders.map((downloader: Downloader) => (
+            <Card
+              key={downloader.id}
+              className={cn(!downloader.enabled && "bg-muted/30")}
+              data-testid={`card-downloader-${downloader.id}`}
+            >
               <CardHeader>
                 <div className="flex justify-between items-start">
                   <div className="flex items-center space-x-3">
-                    <CardTitle className="text-lg">{downloader.name}</CardTitle>
+                    <CardTitle
+                      className={cn("text-lg", !downloader.enabled && "text-muted-foreground")}
+                    >
+                      {downloader.name}
+                    </CardTitle>
                     <Badge variant="outline" className="capitalize">
                       {downloader.type}
                     </Badge>
@@ -386,7 +398,11 @@ export default function DownloadersPage() {
                     </Button>
                   </div>
                 </div>
-                <CardDescription>{downloader.url}</CardDescription>
+                <CardDescription
+                  className={cn(!downloader.enabled && "text-muted-foreground")}
+                >
+                  {downloader.url}
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="flex flex-wrap gap-2">
@@ -436,7 +452,10 @@ export default function DownloadersPage() {
                       <FormLabel>Name</FormLabel>
                       <FormControl>
                         <Input
-                          placeholder="Transmission"
+                          placeholder={
+                            downloaderTypes.find((t) => t.value === form.watch("type"))?.label ??
+                            "Downloader"
+                          }
                           {...field}
                           data-testid="input-downloader-name"
                         />

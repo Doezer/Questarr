@@ -69,3 +69,31 @@ export function mapGameToInsertGame(game: Game): InsertGame {
     hidden: game.hidden || false,
   };
 }
+
+export type EnabledPriorityNamed = {
+  enabled: boolean;
+  priority: number;
+  name: string;
+};
+
+/**
+ * Comparator for objects with enabled, priority, and name fields.
+ *
+ * Sorts items in the following order:
+ * - Enabled items first (enabled: true before enabled: false)
+ * - Then by priority in ascending order (lower numbers first)
+ * - Then by name in alphabetical order (case-insensitive)
+ *
+ * @typeParam T - An object type that includes enabled, priority, and name fields.
+ * @param a - The first value to compare.
+ * @param b - The second value to compare.
+ * @returns A negative number if a should come before b, a positive number if a should come after b, or 0 if they are considered equal.
+ */
+export function compareEnabledPriorityName<T extends EnabledPriorityNamed>(a: T, b: T): number {
+  if (a.enabled !== b.enabled) return a.enabled ? -1 : 1;
+
+  const priorityDiff = a.priority - b.priority;
+  if (priorityDiff !== 0) return priorityDiff;
+
+  return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+}

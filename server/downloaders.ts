@@ -186,8 +186,7 @@ class TransmissionClient implements DownloaderClient {
     request: DownloadRequest
   ): Promise<{ success: boolean; id?: string; message: string }> {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const args: any = {};
+      const args: Record<string, unknown> = {};
 
       // Check if it's a magnet link or a URL that needs downloading
       const isMagnet = request.url.startsWith("magnet:");
@@ -1837,19 +1836,18 @@ class QBittorrentClient implements DownloaderClient {
           "GET",
           "/api/v2/torrents/info?sort=added_on&reverse=true"
         );
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const allDownloads = (await allTorrentsResponse.json()) as any[];
+        const allDownloads = (await allTorrentsResponse.json()) as QBittorrentTorrent[];
 
         downloadersLogger.debug(
           {
             requestTitle: request.title,
             downloadCount: allDownloads.length,
-            recentDownloads: allDownloads.slice(0, 3).map((t: any) => ({ name: t.name, hash: t.hash })),
+            recentDownloads: allDownloads.slice(0, 3).map((t) => ({ name: t.name, hash: t.hash })),
           },
           "Looking for newly added download"
         );
 
-        let matchingDownload: any = null;
+        let matchingDownload: QBittorrentTorrent | undefined = undefined;
         if (request.title) {
           const normalizedTitle = request.title
             .toLowerCase()
@@ -1857,7 +1855,7 @@ class QBittorrentClient implements DownloaderClient {
             .replace(/\s+/g, " ")
             .trim();
 
-          matchingDownload = allDownloads.find((t: any) => {
+          matchingDownload = allDownloads.find((t) => {
             if (!t.name) return false;
             const normalizedName = t.name
               .toLowerCase()
@@ -1871,9 +1869,10 @@ class QBittorrentClient implements DownloaderClient {
         if (!matchingDownload && allDownloads.length > 0) {
           const mostRecent = allDownloads[0];
           const now = Date.now() / 1000;
-          if (mostRecent.added_on && now - mostRecent.added_on < 5) {
+          const addedOn = typeof mostRecent.added_on === "number" ? mostRecent.added_on : 0;
+          if (addedOn > 0 && now - addedOn < 5) {
             downloadersLogger.info(
-              { hash: mostRecent.hash, name: mostRecent.name, addedOn: mostRecent.added_on },
+              { hash: mostRecent.hash, name: mostRecent.name, addedOn },
               "Using most recent download as match"
             );
             matchingDownload = mostRecent;
@@ -1935,8 +1934,7 @@ class QBittorrentClient implements DownloaderClient {
               "GET",
               `/api/v2/torrents/info?hashes=${hashFromUrl}`
             );
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const downloads = (await verifyResponse.json()) as any[];
+            const downloads = (await verifyResponse.json()) as QBittorrentTorrent[];
 
             if (downloads && downloads.length > 0) {
               if (urlAddFails) {
@@ -2189,8 +2187,7 @@ class QBittorrentClient implements DownloaderClient {
           "GET",
           `/api/v2/torrents/info?hashes=${hash}`
         );
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const downloads = (await verifyResponse.json()) as any[];
+        const downloads = (await verifyResponse.json()) as QBittorrentTorrent[];
 
         if (downloads && downloads.length > 0) {
           downloadersLogger.info(
@@ -2242,8 +2239,7 @@ class QBittorrentClient implements DownloaderClient {
       await this.authenticate();
 
       const response = await this.makeRequest("GET", `/api/v2/torrents/info?hashes=${id}`);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const downloads = (await response.json()) as any[];
+      const downloads = (await response.json()) as QBittorrentTorrent[];
 
       if (downloads && downloads.length > 0) {
         return this.mapQBittorrentStatus(downloads[0]);
@@ -2262,8 +2258,7 @@ class QBittorrentClient implements DownloaderClient {
 
       // Get torrent info
       const response = await this.makeRequest("GET", `/api/v2/torrents/info?hashes=${id}`);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const downloads = (await response.json()) as any[];
+      const downloads = (await response.json()) as QBittorrentTorrent[];
 
       if (!downloads || downloads.length === 0) {
         downloadersLogger.warn({ id }, "Download not found in qBittorrent");
@@ -2281,16 +2276,26 @@ class QBittorrentClient implements DownloaderClient {
 
       // Get torrent files
       const filesResponse = await this.makeRequest("GET", `/api/v2/torrents/files?hash=${id}`);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const filesData = (await filesResponse.json()) as any[];
+      const filesData = (await filesResponse.json()) as Array<{
+        name: string;
+        size: number;
+        progress: number;
+        priority: number;
+      }>;
 
       // Get torrent trackers
       const trackersResponse = await this.makeRequest(
         "GET",
         `/api/v2/torrents/trackers?hash=${id}`
       );
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const trackersData = (await trackersResponse.json()) as any[];
+      const trackersData = (await trackersResponse.json()) as Array<{
+        url: string;
+        tier: number;
+        status: number;
+        msg: string;
+        num_seeds: number;
+        num_leeches: number;
+      }>;
 
       // Map base status
       const baseStatus = this.mapQBittorrentStatus(torrent);
@@ -2366,11 +2371,10 @@ class QBittorrentClient implements DownloaderClient {
       await this.authenticate();
 
       const response = await this.makeRequest("GET", "/api/v2/torrents/info");
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const downloads = (await response.json()) as any[];
+      const downloads = (await response.json()) as QBittorrentTorrent[];
 
       if (downloads) {
-        return downloads.map((torrent: QBittorrentTorrent) => this.mapQBittorrentStatus(torrent));
+        return downloads.map((torrent) => this.mapQBittorrentStatus(torrent));
       }
 
       return [];

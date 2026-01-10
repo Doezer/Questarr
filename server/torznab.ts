@@ -255,17 +255,9 @@ export class TorznabClient {
         this.parseItem(item, indexerUrl, indexer)
       );
 
-      let finalItems = torznabItems;
-
-      // Filter results by category if specific categories were requested
-      // We do this here because we have access to the params via closure if we move this logic up, 
-      // but parseResponse doesn't have params. 
-      // Wait, parseResponse doesn't accept params. 
-      // I need to filter in searchGames instead.
-      
       return {
-        items: finalItems,
-        total: finalItems.length,
+        items: torznabItems,
+        total: torznabItems.length,
         offset: 0,
       };
     } catch (error) {

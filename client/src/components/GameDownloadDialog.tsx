@@ -560,14 +560,30 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                             >
                               <div className="flex justify-between items-start gap-4 mb-2">
                                 <div className="flex-1 min-w-0 flex items-center gap-2">
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <div className="font-medium flex-1 overflow-hidden whitespace-nowrap text-ellipsis max-w-[220px] cursor-pointer">
-                                        {download.title}
-                                      </div>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="top">{download.title}</TooltipContent>
-                                  </Tooltip>
+                                  {download.comments ? (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <a
+                                          href={download.comments}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                        className="font-medium flex-1 overflow-hidden whitespace-nowrap text-ellipsis max-w-[220px] cursor-pointer"
+                                        >
+                                          {download.title}
+                                        </a>
+                                      </TooltipTrigger>
+                                      <TooltipContent side="top">{download.title}</TooltipContent>
+                                    </Tooltip>
+                                  ) : (
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <div className="font-medium flex-1 overflow-hidden whitespace-nowrap text-ellipsis max-w-[220px]">
+                                          {download.title}
+                                        </div>
+                                      </TooltipTrigger>
+                                      <TooltipContent side="top">{download.title}</TooltipContent>
+                                    </Tooltip>
+                                  )}
                                   <Badge
                                     variant={isUsenet ? "secondary" : "default"}
                                     className="text-xs flex-shrink-0"

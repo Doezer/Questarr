@@ -9,6 +9,7 @@ export interface SearchItem {
   size?: number;
   indexerId: string;
   indexerName: string;
+  indexerUrl?: string;
   category: string[];
   guid: string;
   downloadType: "torrent" | "usenet";
@@ -19,6 +20,7 @@ export interface SearchItem {
   age?: number;
   poster?: string;
   group?: string;
+  comments?: string;
 }
 
 export interface AggregatedSearchOptions {
@@ -81,20 +83,35 @@ export async function searchAllIndexers(
   for (const result of results) {
     if (result.type === "torznab") {
       const items = result.results.items.map(
-        (item) =>
-          ({
+        (item) => {
+          // Construct comments URL if not provided
+          let comments = item.comments;
+          if (!comments && item.indexerUrl && item.guid) {
+            try {
+              const baseUrl = new URL(item.indexerUrl);
+              const guid = item.guid.split("/").pop() || item.guid;
+              comments = `${baseUrl.protocol}//${baseUrl.host}/details/${guid}`;
+            } catch {
+              // If URL construction fails, just use what we have
+            }
+          }
+
+          return {
             title: item.title,
             link: item.link,
             pubDate: item.pubDate,
             size: item.size,
             indexerId: item.indexerId || "unknown",
             indexerName: item.indexerName || "unknown",
+            indexerUrl: item.indexerUrl,
             category: item.category ? item.category.split(",") : [],
             guid: item.guid || item.link,
             downloadType: "torrent" as const,
             seeders: item.seeders,
             leechers: item.leechers,
-          }) as SearchItem
+            comments,
+          } as SearchItem;
+        }
       );
       combinedItems.push(...items);
       totalCount += result.results.total || 0;

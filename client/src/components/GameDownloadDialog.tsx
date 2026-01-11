@@ -50,6 +50,7 @@ interface DownloadItem {
   uploadVolumeFactor?: number;
   guid?: string;
   comments?: string;
+  indexerName?: string;
   // Usenet-specific fields
   grabs?: number;
   age?: number;
@@ -93,6 +94,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
 
   // Filter states
   const [minSeeders, setMinSeeders] = useState<number>(0);
+  const [selectedIndexer, setSelectedIndexer] = useState<string>("all");
   const [sortBy, setSortBy] = useState<"seeders" | "date" | "size">("seeders");
   const [showFilters, setShowFilters] = useState(false);
   const [visibleCategories, setVisibleCategories] = useState<Set<DownloadCategory>>(
@@ -110,6 +112,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       setIsDirectDownloadMode(false);
       setSelectedUpdateIndices(new Set());
       setMinSeeders(0);
+      setSelectedIndexer("all");
       setSortBy("seeders");
       setShowFilters(false);
     }
@@ -124,6 +127,12 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   const categorizedDownloads = useMemo(() => {
     if (!searchResults?.items) return { main: [], update: [], dlc: [], extra: [] };
     return groupDownloadsByCategory(searchResults.items);
+  }, [searchResults?.items]);
+
+  const availableIndexers = useMemo(() => {
+    if (!searchResults?.items) return [];
+    const indexers = new Set(searchResults.items.map((item) => item.indexerName).filter(Boolean));
+    return Array.from(indexers).sort();
   }, [searchResults?.items]);
 
   // Apply filters and sorting
@@ -143,6 +152,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
 
       filtered[category] = downloads
         .filter((t) => (t.seeders ?? 0) >= minSeeders)
+        .filter((t) => selectedIndexer === "all" || t.indexerName === selectedIndexer)
         .sort((a, b) => {
           if (sortBy === "seeders") {
             return (b.seeders ?? 0) - (a.seeders ?? 0);
@@ -156,7 +166,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     }
 
     return filtered;
-  }, [categorizedDownloads, minSeeders, sortBy, visibleCategories]);
+  }, [categorizedDownloads, minSeeders, selectedIndexer, sortBy, visibleCategories]);
 
   // Sorted items for display (by date)
   const _sortedItems = useMemo(() => {
@@ -420,7 +430,24 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
           </div>
 
           {showFilters && (
-            <div className="grid grid-cols-2 gap-4 p-4 border rounded-md bg-muted/50">
+            <div className="grid grid-cols-3 gap-4 p-4 border rounded-md bg-muted/50">
+              <div className="space-y-2">
+                <Label className="text-sm">Indexer</Label>
+                <Select value={selectedIndexer} onValueChange={setSelectedIndexer}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="All Indexers" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Indexers</SelectItem>
+                    {availableIndexers.map((indexer) => (
+                      <SelectItem key={indexer} value={indexer as string}>
+                        {indexer}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
               <div className="space-y-2">
                 <Label htmlFor="minSeeders" className="text-sm">
                   Min Seeders
@@ -454,7 +481,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                 </Select>
               </div>
 
-              <div className="col-span-2 space-y-2">
+              <div className="col-span-3 space-y-2">
                 <Label className="text-sm">Categories</Label>
                 <div className="flex flex-wrap gap-2">
                   {(["main", "update", "dlc", "extra"] as const).map((cat) => (

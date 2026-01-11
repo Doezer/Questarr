@@ -440,7 +440,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                   <SelectContent>
                     <SelectItem value="all">All Indexers</SelectItem>
                     {availableIndexers.map((indexer) => (
-                      <SelectItem key={indexer} value={indexer}>
+                      <SelectItem key={indexer} value={indexer as string}>
                         {indexer}
                       </SelectItem>
                     ))}

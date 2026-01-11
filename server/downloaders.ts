@@ -1004,7 +1004,8 @@ class RTorrentClient implements DownloaderClient {
         "d.peers_complete=",
         "d.message=",
         "d.custom1=",
-      ]);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ]) as any[];
 
       // Filter for the specific ID since d.multicall2 returns all downloads in the view
       if (result && result.length > 0) {
@@ -1191,7 +1192,8 @@ class RTorrentClient implements DownloaderClient {
       "d.peers_complete=",
       "d.message=",
       "d.custom1=",
-    ]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ]) as any[];
 
     if (result) {
       return result.map((torrent: unknown[]) => this.mapRTorrentStatus(torrent));
@@ -1844,11 +1846,13 @@ class QBittorrentClient implements DownloaderClient {
           {
             requestTitle: request.title,
             downloadCount: allDownloads.length,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             recentDownloads: allDownloads.slice(0, 3).map((t: any) => ({ name: t.name, hash: t.hash })),
           },
           "Looking for newly added download"
         );
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let matchingDownload: any = null;
         if (request.title) {
           const normalizedTitle = request.title
@@ -1857,6 +1861,7 @@ class QBittorrentClient implements DownloaderClient {
             .replace(/\s+/g, " ")
             .trim();
 
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           matchingDownload = allDownloads.find((t: any) => {
             if (!t.name) return false;
             const normalizedName = t.name
@@ -3249,7 +3254,8 @@ class SABnzbdClient implements DownloaderClient {
       const data = await response.json();
       const queue: SABnzbdQueue = data.queue;
 
-      const item = queue.slots.find((slot) => slot.nzo_id === id);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const item = queue.slots.find((slot: any) => slot.nzo_id === id);
       if (!item) {
         // Check history if not in queue
         return await this.getFromHistory(id);
@@ -3330,7 +3336,8 @@ class SABnzbdClient implements DownloaderClient {
       const data = await response.json();
       const history: SABnzbdHistory = data.history;
 
-      const item = history.slots.find((slot) => slot.nzo_id === id);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const item = history.slots.find((slot: any) => slot.nzo_id === id);
       if (!item) {
         return null;
       }
@@ -3793,7 +3800,8 @@ class NZBGetClient implements DownloaderClient {
   async getDownloadStatus(id: string): Promise<DownloadStatus | null> {
     try {
       const queue = (await this.makeXMLRPCRequest("listgroups")) as NZBGetListResult[];
-      const item = queue.find((q) => q.NZBID.toString() === id);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const item = queue.find((q: any) => q.NZBID.toString() === id);
 
       if (!item) {
         // Check history
@@ -3865,7 +3873,8 @@ class NZBGetClient implements DownloaderClient {
   private async getFromHistory(id: string): Promise<DownloadStatus | null> {
     try {
       const history = (await this.makeXMLRPCRequest("history")) as NZBGetHistoryResult[];
-      const item = history.find((h) => h.NZBID.toString() === id);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const item = history.find((h: any) => h.NZBID.toString() === id);
 
       if (!item) {
         return null;

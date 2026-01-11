@@ -1,84 +1,29 @@
 # Contributing to Questarr
 
-Thank you for your interest in contributing to Questarr! We welcome contributions from the community.
+Thank you for your interest in contributing to Questarr!
 
 ## Getting Started
 
-1. Fork the repository
-2. Clone your fork: `git clone https://github.com/YOUR_USERNAME/Questarr.git`
-3. Create a new branch: `git checkout -b feature/your-feature-name`
-4. Make your changes
-5. Test your changes thoroughly
-6. Commit with clear messages: `git commit -m "Add feature: description"`
-7. Push to your fork: `git push origin feature/your-feature-name`
-8. Open a Pull Request
-Note: do not merge into your own branch if you intend to do a PR
+1.  **Fork the repository.**
+2.  **Clone your fork.**
+3.  **Install dependencies:** `npm install`
+4.  **Run the development server:** `npm run dev`
 
-## Development Guidelines
+## Guidelines
 
-```bash
-# Run development server with hot reload
-npm run dev
+*   **Follow the existing code style.** Run `npm run lint` and `npm run format` before committing.
+*   **Write tests.** Ensure that new features and bug fixes are covered by tests. Run `npm test` to verify.
+*   **Keep pull requests focused.** A PR should address a single issue or feature.
+*   **Use descriptive commit messages.**
 
-# Type check
-npm run check
+## Submitting a Pull Request
 
-# Run tests
-npm test
+1.  Create a new branch for your feature or fix.
+2.  Commit your changes.
+3.  Push your branch to your fork.
+4.  Open a Pull Request against the `main` branch.
+5.  Fill out the PR template.
 
-# Lint code
-npm run lint
+## Reporting Issues
 
-# Format code
-npm run format
-```
-### Code Style
-
-- Follow the existing TypeScript and React patterns in the codebase
-- Use Tailwind CSS for styling (follow the design guidelines)
-- Run `npm run lint` and `npm run format` before committing
-- Ensure `npm run check` passes without TypeScript errors
-
-### Testing
-
-- Add tests for new features when applicable
-- Run `npm test` to ensure all tests pass
-- Test UI changes in both light and dark themes (currently dark-first)
-
-### Commit Messages
-
-- Use clear, descriptive commit messages
-- Start with a verb in the present tense (e.g., "Add", "Fix", "Update")
-- Reference issue numbers when applicable (e.g., "Fix #123: description")
-
-### Pull Requests
-
-- Provide a clear description of what your PR does
-- Link related issues
-- Ensure all checks pass before requesting review
-- Be responsive to feedback and questions
-
-### Installation
-
-
-## Project Structure
-
-- `/client` - React frontend application
-- `/server` - Express backend application
-- `/shared` - Shared types and schemas
-- 
-
-## Need Help?
-
-- Check existing issues for similar problems or questions
-- Open a new issue if you find a bug or have a feature request
-- Be respectful and constructive in all interactions
-
-## Code of Conduct
-
-- Be respectful and inclusive
-- Focus on constructive feedback
-- Help create a welcoming environment for all contributors
-- Use of AI is welcome
-
-Thank you for contributing to Questarr!
+If you encounter any bugs or have feature requests, please open an issue in the issue tracker.

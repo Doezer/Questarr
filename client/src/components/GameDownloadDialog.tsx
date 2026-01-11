@@ -432,9 +432,9 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
           {showFilters && (
             <div className="grid grid-cols-3 gap-4 p-4 border rounded-md bg-muted/50">
               <div className="space-y-2">
-                <Label className="text-sm">Indexer</Label>
+                <Label htmlFor="indexer" className="text-sm">Indexer</Label>
                 <Select value={selectedIndexer} onValueChange={setSelectedIndexer}>
-                  <SelectTrigger>
+                  <SelectTrigger id="indexer">
                     <SelectValue placeholder="All Indexers" />
                   </SelectTrigger>
                   <SelectContent>

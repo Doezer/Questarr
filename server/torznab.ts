@@ -288,6 +288,7 @@ export class TorznabClient {
       pubDate: item.pubDate || new Date().toISOString(),
       description: item.description,
       comments: item.comments,
+      guid: item.guid,
       indexerId: indexer?.id,
       indexerName: indexer?.name,
       indexerUrl: indexer?.url,

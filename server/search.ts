@@ -1,6 +1,7 @@
 import { storage } from "./storage.js";
 import { torznabClient } from "./torznab.js";
 import { newznabClient } from "./newznab.js";
+import { searchLogger } from "./logger.js";
 
 export interface SearchItem {
   title: string;
@@ -84,15 +85,23 @@ export async function searchAllIndexers(
     if (result.type === "torznab") {
       const items = result.results.items.map(
         (item) => {
-          // Construct comments URL if not provided
+          // Construct comments URL if not provided by the indexer.
+          // This is a best-effort fallback based on common torrent indexer URL patterns.
+          // Indexers should ideally provide the comments field directly in their Torznab responses
+          // for more reliable links to the torrent page. The '/details/{guid}' pattern is a heuristic
+          // that works for many popular indexers but may not work for all.
           let comments = item.comments;
           if (!comments && item.indexerUrl && item.guid) {
             try {
               const baseUrl = new URL(item.indexerUrl);
               const guid = item.guid.split("/").pop() || item.guid;
               comments = `${baseUrl.protocol}//${baseUrl.host}/details/${guid}`;
-            } catch {
-              // If URL construction fails, just use what we have
+            } catch (error) {
+              // If URL construction fails, log the error for debugging but continue
+              searchLogger.warn(
+                { error, indexerUrl: item.indexerUrl, guid: item.guid },
+                "Failed to construct comments URL from indexer URL and GUID"
+              );
             }
           }
 

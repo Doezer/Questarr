@@ -568,38 +568,20 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                           target="_blank"
                                           rel="noopener noreferrer"
                                           aria-label={`${download.title}`}
-                                          className="font-medium flex-1 overflow-hidden whitespace-nowrap text-ellipsis max-w-[220px] cursor-pointer"
+                                          className="font-medium flex-1 overflow-hidden whitespace-nowrap text-ellipsis max-w-100 cursor-pointer hover:underline"
                                         >
                                           {download.title}
                                         </a>
                                       ) : (
-                                        <div className="font-medium flex-1 overflow-hidden whitespace-nowrap text-ellipsis max-w-[220px]">
+                                        <div className="font-medium flex-1 overflow-hidden whitespace-nowrap text-ellipsis max-w-100">
                                           {download.title}
                                         </div>
                                       )}
                                     </TooltipTrigger>
-                                    <TooltipContent side="top">
-                                      {download.comments
-                                        ? `${download.title}`
-                                        : download.title}
+                                    <TooltipContent side="top" align="start">
+                                      {download.title}
                                     </TooltipContent>
                                   </Tooltip>
-                                  <Badge
-                                    variant={isUsenet ? "secondary" : "default"}
-                                    className="text-xs flex-shrink-0"
-                                  >
-                                    {isUsenet ? (
-                                      <>
-                                        <Newspaper className="h-3 w-3 mr-1" />
-                                        NZB
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Download className="h-3 w-3 mr-1" />
-                                        TORRENT
-                                      </>
-                                    )}
-                                  </Badge>
                                 </div>
                                 <Button
                                   size="sm"
@@ -673,6 +655,24 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                     </span>
                                   </>
                                 )}
+                                <div className="flex flex-grow-1 justify-end">
+                                  <Badge
+                                    variant={isUsenet ? "secondary" : "default"}
+                                    className="text-xs flex-shrink-0"
+                                  >
+                                    {isUsenet ? (
+                                      <>
+                                        <Newspaper className="h-3 w-3 mr-1" />
+                                        NZB
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Download className="h-3 w-3 mr-1" />
+                                        TORRENT
+                                      </>
+                                    )}
+                                  </Badge>
+                                </div>
                               </div>
                             </div>
                           );

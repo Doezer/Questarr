@@ -247,14 +247,6 @@ describe("Downloader Comprehensive Tests", () => {
       headers: { get: () => "SID=123" },
     };
 
-    const torrentFileResponse = {
-      ok: true,
-      status: 200,
-      statusText: "OK",
-      headers: { get: () => null },
-      arrayBuffer: async () => Buffer.from("torrent content"),
-    };
-
     it("should add download successfully", async () => {
       vi.useFakeTimers();
       fetchMock

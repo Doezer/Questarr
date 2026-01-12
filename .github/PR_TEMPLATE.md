@@ -1,21 +1,16 @@
-# Pull Request *Template*
+# Pull Request
 
-## Description
-
-Please include a summary of the change and which issue is fixed. Please also include relevant motivation and context. List any dependencies that are required for this change.
-
-## Type of change
-
-- [ ] Bug fix (non-breaking change which fixes an issue)
-- [ ] New feature (non-breaking change which adds functionality)
-- [ ] Breaking change (fix or feature that would cause existing functionality to not work as expected)
+## Type of Change
+- [ ] Bug fix
+- [ ] New feature
+- [ ] Performance improvement
+- [ ] Refactor
 - [ ] Documentation update
 
-## Checklist:
+## Description
+Please describe the changes and the problem they solve.
 
-- [ ] My code follows the style guidelines of this project
-- [ ] I have performed a self-review of my own code
-- [ ] I have commented my code, particularly in hard-to-understand areas
-- [ ] I have made corresponding changes to the documentation
-- [ ] I have added tests that prove my fix is effective or that my feature works
-- [ ] New and existing unit tests pass locally with my changes
+## Verification
+- [ ] Tests pass
+- [ ] Linting passes
+- [ ] Type check passes

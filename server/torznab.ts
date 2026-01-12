@@ -255,7 +255,7 @@ export class TorznabClient {
         this.parseItem(item, indexerUrl, indexer)
       );
 
-      let finalItems = torznabItems;
+      const finalItems = torznabItems;
 
       // Filter results by category if specific categories were requested
       // We do this here because we have access to the params via closure if we move this logic up, 

@@ -34,7 +34,7 @@ import { Label } from "@/components/ui/label";
 import { Download, Loader2, PackagePlus, SlidersHorizontal, Newspaper } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
-import { type Game } from "@shared/schema";
+import { type Game, type Indexer } from "@shared/schema";
 import { groupDownloadsByCategory, type DownloadCategory } from "@/lib/download-categorizer";
 
 interface DownloadItem {
@@ -123,6 +123,11 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     enabled: open && searchQuery.trim().length > 0,
   });
 
+  const { data: enabledIndexers } = useQuery<Indexer[]>({
+    queryKey: ["/api/indexers/enabled"],
+    enabled: open,
+  });
+
   // Categorize downloads
   const categorizedDownloads = useMemo(() => {
     if (!searchResults?.items) return { main: [], update: [], dlc: [], extra: [] };
@@ -132,8 +137,16 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   const availableIndexers = useMemo(() => {
     if (!searchResults?.items) return [];
     const indexers = new Set(searchResults.items.map((item) => item.indexerName).filter(Boolean));
+
+    if (enabledIndexers) {
+      const enabledNames = new Set(enabledIndexers.map((i) => i.name));
+      return Array.from(indexers)
+        .filter((name) => enabledNames.has(name as string))
+        .sort();
+    }
+
     return Array.from(indexers).sort();
-  }, [searchResults?.items]);
+  }, [searchResults?.items, enabledIndexers]);
 
   // Apply filters and sorting
   const filteredCategorizedDownloads = useMemo(() => {
@@ -433,17 +446,24 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
             <div className="grid grid-cols-3 gap-4 p-4 border rounded-md bg-muted/50">
               <div className="space-y-2">
                 <Label htmlFor="indexer" className="text-sm">Indexer</Label>
-                <Select value={selectedIndexer} onValueChange={setSelectedIndexer}>
+                <Select
+                  value={selectedIndexer}
+                  onValueChange={setSelectedIndexer}
+                  disabled={availableIndexers.length === 1}
+                >
                   <SelectTrigger id="indexer">
                     <SelectValue placeholder="All Indexers" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All Indexers</SelectItem>
-                    {availableIndexers.map((indexer) => (
-                      <SelectItem key={indexer} value={indexer as string}>
-                        {indexer}
-                      </SelectItem>
-                    ))}
+                    <SelectItem value="all">
+                      {availableIndexers.length === 1 ? availableIndexers[0] : "All Indexers"}
+                    </SelectItem>
+                    {availableIndexers.length > 1 &&
+                      availableIndexers.map((indexer) => (
+                        <SelectItem key={indexer} value={indexer as string}>
+                          {indexer}
+                        </SelectItem>
+                      ))}
                   </SelectContent>
                 </Select>
               </div>

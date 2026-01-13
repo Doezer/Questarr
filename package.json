@@ -108,7 +108,7 @@
     "@types/react-dom": "^18.3.1",
     "@types/semver": "^7.7.1",
     "@vitejs/plugin-react": "^4.7.0",
-    "@vitest/ui": "^4.0.16",
+    "@vitest/ui": "^4.0.17",
     "autoprefixer": "^10.4.23",
     "cross-env": "^10.1.0",
     "drizzle-kit": "^0.31.7",
@@ -124,7 +124,7 @@
     "tailwindcss": "^4.0.0",
     "tsx": "^4.21.0",
     "typescript": "5.9.3",
-    "typescript-eslint": "^8.52.0",
+    "typescript-eslint": "^8.53.0",
     "vite": "^5.4.21",
     "vitest": "^4.0.8"
   },

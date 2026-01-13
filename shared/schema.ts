@@ -236,7 +236,7 @@ export const updateUserSettingsSchema = createInsertSchema(userSettings)
 
 // Type definitions - using Drizzle's table inference for select types
 export type User = typeof users.$inferSelect;
-export type InsertUser = z.infer<typeof insertUserSchema>;
+export type InsertUser = typeof insertUserSchema["_output"];
 
 export type Game = typeof games.$inferSelect & {
   // Additional fields for Discovery games
@@ -244,29 +244,29 @@ export type Game = typeof games.$inferSelect & {
   releaseYear?: number | null;
 };
 
-export type InsertGame = z.infer<typeof insertGameSchema>;
+export type InsertGame = typeof insertGameSchema["_output"];
 
-export type UpdateGameStatus = z.infer<typeof updateGameStatusSchema>;
+export type UpdateGameStatus = typeof updateGameStatusSchema["_output"];
 
 export type Indexer = typeof indexers.$inferSelect;
-export type InsertIndexer = z.infer<typeof insertIndexerSchema>;
+export type InsertIndexer = typeof insertIndexerSchema["_output"];
 
 export type Downloader = typeof downloaders.$inferSelect;
-export type InsertDownloader = z.infer<typeof insertDownloaderSchema>;
+export type InsertDownloader = typeof insertDownloaderSchema["_output"];
 
 export type GameDownload = typeof gameDownloads.$inferSelect;
-export type InsertGameDownload = z.infer<typeof insertGameDownloadSchema>;
+export type InsertGameDownload = typeof insertGameDownloadSchema["_output"];
 
 // Legacy type names for backward compatibility
 export type GameDownloadLegacy = GameDownload;
 export type InsertGameDownloadLegacy = InsertGameDownload;
 
 export type Notification = typeof notifications.$inferSelect;
-export type InsertNotification = z.infer<typeof insertNotificationSchema>;
+export type InsertNotification = typeof insertNotificationSchema["_output"];
 
 export type UserSettings = typeof userSettings.$inferSelect;
-export type InsertUserSettings = z.infer<typeof insertUserSettingsSchema>;
-export type UpdateUserSettings = z.infer<typeof updateUserSettingsSchema>;
+export type InsertUserSettings = typeof insertUserSettingsSchema["_output"];
+export type UpdateUserSettings = typeof updateUserSettingsSchema["_output"];
 
 // Application configuration type
 export interface Config {

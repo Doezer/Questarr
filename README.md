@@ -126,7 +126,8 @@ Open your browser to `http://localhost:5000`
 
 See [Configuration on the Wiki](https://github.com/Doezer/Questarr/wiki/Configuring-the-application#configure-app-behavior-in-settings--general) for more detailed info.
 
-### Getting IGDB API Credentials
+<details>
+<summary><b>Getting IGDB API Credentials</b></summary>
 
 IGDB provides game metadata (covers, descriptions, ratings, release dates, etc.).
 
@@ -141,6 +142,8 @@ IGDB provides game metadata (covers, descriptions, ratings, release dates, etc.)
 6. Copy your **Client ID** and **Client Secret**
 7. Add them to your `.env` file
 
+</details>
+
 
 ## Troubleshooting
 See [Troubleshooting on the Wiki](https://github.com/Doezer/Questarr/wiki/Troubleshooting)
@@ -153,6 +156,14 @@ See [Troubleshooting on the Wiki](https://github.com/Doezer/Questarr/wiki/Troubl
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to contribute to this project.
+
+## Contributors
+
+<a href="https://github.com/Doezer/Questarr/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=Doezer/Questarr" />
+</a>
+
+Made with [contrib.rocks](https://contrib.rocks).
 
 ## License
 

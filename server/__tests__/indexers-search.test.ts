@@ -330,4 +330,103 @@ describe("GET /api/indexers/search - Aggregated multi-indexer search", () => {
     expect(results.items).toHaveLength(1);
     expect(errors).toHaveLength(0);
   });
+
+  describe("Comments URL handling", () => {
+    it("should pass through comments when provided by indexer", async () => {
+      const testIndexer: Indexer = {
+        id: "indexer-with-comments",
+        name: "Test Indexer",
+        url: "http://example.com/api",
+        apiKey: "apikey-test",
+        enabled: true,
+        priority: 1,
+        categories: ["4000"],
+        rssEnabled: true,
+        autoSearchEnabled: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      const xmlWithComments = `<?xml version="1.0" encoding="UTF-8"?>
+        <rss version="2.0" xmlns:torznab="http://torznab.com/schemas/2015/feed">
+          <channel>
+            <title>Test Indexer</title>
+            <item>
+              <title>Game Title</title>
+              <link>magnet:?xt=urn:btih:abc123</link>
+              <guid>12345</guid>
+              <comments>http://example.com/details/12345</comments>
+              <torznab:attr name="seeders" value="10"/>
+            </item>
+          </channel>
+        </rss>`;
+
+      const response = {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        text: async () => xmlWithComments,
+      };
+
+      fetchMock.mockResolvedValueOnce(response);
+
+      const { results } = await torznabClient.searchMultipleIndexers([testIndexer], {
+        query: "Game",
+        limit: 50,
+        offset: 0,
+      });
+
+      expect(results.items).toHaveLength(1);
+      expect(results.items[0].comments).toBe("http://example.com/details/12345");
+    });
+
+    it("should include indexerUrl in results for fallback URL construction", async () => {
+      const testIndexer: Indexer = {
+        id: "indexer-url-test",
+        name: "Test Indexer",
+        url: "http://example.com/api",
+        apiKey: "apikey-test",
+        enabled: true,
+        priority: 1,
+        categories: ["4000"],
+        rssEnabled: true,
+        autoSearchEnabled: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      const xmlWithoutComments = `<?xml version="1.0" encoding="UTF-8"?>
+        <rss version="2.0" xmlns:torznab="http://torznab.com/schemas/2015/feed">
+          <channel>
+            <title>Test Indexer</title>
+            <item>
+              <title>Game Title</title>
+              <link>magnet:?xt=urn:btih:abc123</link>
+              <guid>12345</guid>
+              <torznab:attr name="seeders" value="10"/>
+            </item>
+          </channel>
+        </rss>`;
+
+      const response = {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        text: async () => xmlWithoutComments,
+      };
+
+      fetchMock.mockResolvedValueOnce(response);
+
+      const { results } = await torznabClient.searchMultipleIndexers([testIndexer], {
+        query: "Game",
+        limit: 50,
+        offset: 0,
+      });
+
+      expect(results.items).toHaveLength(1);
+      // Check that indexerUrl is passed through for search.ts to use for fallback
+      expect(results.items[0].indexerUrl).toBe("http://example.com/api");
+      expect(results.items[0].guid?.toString()).toBe("12345");
+    });
+  });
 });

@@ -34,7 +34,7 @@ import { Label } from "@/components/ui/label";
 import { Download, Loader2, PackagePlus, SlidersHorizontal, Newspaper } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
-import { type Game } from "@shared/schema";
+import { type Game, type Indexer } from "@shared/schema";
 import { groupDownloadsByCategory, type DownloadCategory } from "@/lib/download-categorizer";
 
 interface DownloadItem {
@@ -95,6 +95,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
 
   // Filter states
   const [minSeeders, setMinSeeders] = useState<number>(0);
+  const [selectedIndexer, setSelectedIndexer] = useState<string>("all");
   const [sortBy, setSortBy] = useState<"seeders" | "date" | "size">("seeders");
   const [showFilters, setShowFilters] = useState(false);
   const [visibleCategories, setVisibleCategories] = useState<Set<DownloadCategory>>(
@@ -112,6 +113,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       setIsDirectDownloadMode(false);
       setSelectedUpdateIndices(new Set());
       setMinSeeders(0);
+      setSelectedIndexer("all");
       setSortBy("seeders");
       setShowFilters(false);
     }
@@ -122,11 +124,30 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     enabled: open && searchQuery.trim().length > 0,
   });
 
+  const { data: enabledIndexers } = useQuery<Indexer[]>({
+    queryKey: ["/api/indexers/enabled"],
+    enabled: open,
+  });
+
   // Categorize downloads
   const categorizedDownloads = useMemo(() => {
     if (!searchResults?.items) return { main: [], update: [], dlc: [], extra: [] };
     return groupDownloadsByCategory(searchResults.items);
   }, [searchResults?.items]);
+
+  const availableIndexers = useMemo(() => {
+    if (!searchResults?.items) return [];
+    const indexers = new Set(searchResults.items.map((item) => item.indexerName).filter(Boolean));
+
+    if (enabledIndexers) {
+      const enabledNames = new Set(enabledIndexers.map((i) => i.name));
+      return Array.from(indexers)
+        .filter((name) => enabledNames.has(name as string))
+        .sort();
+    }
+
+    return Array.from(indexers).sort();
+  }, [searchResults?.items, enabledIndexers]);
 
   // Apply filters and sorting
   const filteredCategorizedDownloads = useMemo(() => {
@@ -145,6 +166,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
 
       filtered[category] = downloads
         .filter((t) => (t.seeders ?? 0) >= minSeeders)
+        .filter((t) => selectedIndexer === "all" || t.indexerName === selectedIndexer)
         .sort((a, b) => {
           if (sortBy === "seeders") {
             return (b.seeders ?? 0) - (a.seeders ?? 0);
@@ -158,7 +180,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     }
 
     return filtered;
-  }, [categorizedDownloads, minSeeders, sortBy, visibleCategories]);
+  }, [categorizedDownloads, minSeeders, selectedIndexer, sortBy, visibleCategories]);
 
   // Sorted items for display (by date)
   const _sortedItems = useMemo(() => {
@@ -422,7 +444,31 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
           </div>
 
           {showFilters && (
-            <div className="grid grid-cols-2 gap-4 p-4 border rounded-md bg-muted/50">
+            <div className="grid grid-cols-3 gap-4 p-4 border rounded-md bg-muted/50">
+              <div className="space-y-2">
+                <Label htmlFor="indexer" className="text-sm">Indexer</Label>
+                <Select
+                  value={selectedIndexer}
+                  onValueChange={setSelectedIndexer}
+                  disabled={availableIndexers.length === 1}
+                >
+                  <SelectTrigger id="indexer">
+                    <SelectValue placeholder="All Indexers" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">
+                      {availableIndexers.length === 1 ? availableIndexers[0] : "All Indexers"}
+                    </SelectItem>
+                    {availableIndexers.length > 1 &&
+                      availableIndexers.map((indexer) => (
+                        <SelectItem key={indexer} value={indexer as string}>
+                          {indexer}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
               <div className="space-y-2">
                 <Label htmlFor="minSeeders" className="text-sm">
                   Min Seeders
@@ -456,7 +502,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                 </Select>
               </div>
 
-              <div className="col-span-2 space-y-2">
+              <div className="col-span-3 space-y-2">
                 <Label className="text-sm">Categories</Label>
                 <div className="flex flex-wrap gap-2">
                   {(["main", "update", "dlc", "extra"] as const).map((cat) => (
@@ -564,28 +610,26 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                 <div className="flex-1 min-w-0 flex items-center gap-2">
                                   <Tooltip>
                                     <TooltipTrigger asChild>
-                                      <div className="font-medium flex-1 overflow-hidden whitespace-nowrap text-ellipsis max-w-[220px] cursor-pointer">
-                                        {download.title}
-                                      </div>
+                                      {download.comments ? (
+                                        <a
+                                          href={download.comments}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          aria-label={`${download.title}`}
+                                          className="font-medium flex-1 overflow-hidden whitespace-nowrap text-ellipsis max-w-100 cursor-pointer hover:underline"
+                                        >
+                                          {download.title}
+                                        </a>
+                                      ) : (
+                                        <div className="font-medium flex-1 overflow-hidden whitespace-nowrap text-ellipsis max-w-100">
+                                          {download.title}
+                                        </div>
+                                      )}
                                     </TooltipTrigger>
-                                    <TooltipContent side="top">{download.title}</TooltipContent>
+                                    <TooltipContent side="top" align="start">
+                                      {download.title}
+                                    </TooltipContent>
                                   </Tooltip>
-                                  <Badge
-                                    variant={isUsenet ? "secondary" : "default"}
-                                    className="text-xs flex-shrink-0"
-                                  >
-                                    {isUsenet ? (
-                                      <>
-                                        <Newspaper className="h-3 w-3 mr-1" />
-                                        NZB
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Download className="h-3 w-3 mr-1" />
-                                        TORRENT
-                                      </>
-                                    )}
-                                  </Badge>
                                 </div>
                                 <Button
                                   size="sm"
@@ -664,6 +708,24 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                 {download.indexerName && (
                                   <span className="flex-shrink-0">{download.indexerName}</span>
                                 )}
+                                <div className="flex flex-grow-1 justify-end">
+                                  <Badge
+                                    variant={isUsenet ? "secondary" : "default"}
+                                    className="text-xs flex-shrink-0"
+                                  >
+                                    {isUsenet ? (
+                                      <>
+                                        <Newspaper className="h-3 w-3 mr-1" />
+                                        NZB
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Download className="h-3 w-3 mr-1" />
+                                        TORRENT
+                                      </>
+                                    )}
+                                  </Badge>
+                                </div>
                               </div>
                             </div>
                           );

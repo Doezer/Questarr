@@ -18,6 +18,7 @@ interface TorznabItem {
   attributes?: { [key: string]: string };
   indexerId?: string;
   indexerName?: string;
+  indexerUrl?: string;
 }
 
 interface TorznabSearchParams {
@@ -57,7 +58,7 @@ export class TorznabClient {
     }
 
     const searchUrl = this.buildSearchUrl(indexer, params);
-    
+
     torznabLogger.info({ indexer: indexer.name, url: searchUrl, params }, "searching torznab indexer");
 
     try {
@@ -83,10 +84,10 @@ export class TorznabClient {
 
         result.items = result.items.filter((item) => {
           if (!item.category) return true;
-          // Note: TorznabItem.category is a string (single category?) 
+          // Note: TorznabItem.category is a string (single category?)
           // or did I define it as string[]? Interface says string | undefined.
           // But parsing might put a single value.
-          
+
           return requestedCats.some((reqCat) => {
             if (item.category === reqCat) return true;
             if (reqCat.endsWith("000") && item.category!.startsWith(reqCat.substring(0, 1))) {
@@ -98,11 +99,11 @@ export class TorznabClient {
 
         if (result.items.length < initialCount) {
           torznabLogger.info(
-            { 
-              indexer: indexer.name, 
-              filtered: initialCount - result.items.length, 
-              remaining: result.items.length 
-            }, 
+            {
+              indexer: indexer.name,
+              filtered: initialCount - result.items.length,
+              remaining: result.items.length
+            },
             "filtered torznab results by category"
           );
           result.total = result.items.length;
@@ -258,11 +259,11 @@ export class TorznabClient {
       let finalItems = torznabItems;
 
       // Filter results by category if specific categories were requested
-      // We do this here because we have access to the params via closure if we move this logic up, 
-      // but parseResponse doesn't have params. 
-      // Wait, parseResponse doesn't accept params. 
+      // We do this here because we have access to the params via closure if we move this logic up,
+      // but parseResponse doesn't have params.
+      // Wait, parseResponse doesn't accept params.
       // I need to filter in searchGames instead.
-      
+
       return {
         items: finalItems,
         total: finalItems.length,
@@ -286,8 +287,11 @@ export class TorznabClient {
       link: item.link || item.guid || "",
       pubDate: item.pubDate || new Date().toISOString(),
       description: item.description,
+      comments: item.comments,
+      guid: item.guid,
       indexerId: indexer?.id,
       indexerName: indexer?.name,
+      indexerUrl: indexer?.url,
     };
 
     // Parse enclosure for download link and size

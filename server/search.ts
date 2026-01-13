@@ -1,6 +1,7 @@
 import { storage } from "./storage.js";
 import { torznabClient } from "./torznab.js";
 import { newznabClient } from "./newznab.js";
+import { searchLogger } from "./logger.js";
 
 export interface SearchItem {
   title: string;
@@ -9,6 +10,7 @@ export interface SearchItem {
   size?: number;
   indexerId: string;
   indexerName: string;
+  indexerUrl?: string;
   category: string[];
   guid: string;
   downloadType: "torrent" | "usenet";
@@ -19,6 +21,7 @@ export interface SearchItem {
   age?: number;
   poster?: string;
   group?: string;
+  comments?: string;
 }
 
 export interface AggregatedSearchOptions {
@@ -81,20 +84,43 @@ export async function searchAllIndexers(
   for (const result of results) {
     if (result.type === "torznab") {
       const items = result.results.items.map(
-        (item) =>
-          ({
+        (item) => {
+          // Construct comments URL if not provided by the indexer.
+          // This is a best-effort fallback based on common torrent indexer URL patterns.
+          // Indexers should ideally provide the comments field directly in their Torznab responses
+          // for more reliable links to the torrent page. The '/details/{guid}' pattern is a heuristic
+          // that works for many popular indexers but may not work for all.
+          let comments = item.comments;
+          if (!comments && item.indexerUrl && item.guid) {
+            try {
+              const baseUrl = new URL(item.indexerUrl);
+              const guid = item.guid.split("/").pop() || item.guid;
+              comments = `${baseUrl.protocol}//${baseUrl.host}/details/${guid}`;
+            } catch (error) {
+              // If URL construction fails, log the error for debugging but continue
+              searchLogger.warn(
+                { error, indexerUrl: item.indexerUrl, guid: item.guid },
+                "Failed to construct comments URL from indexer URL and GUID"
+              );
+            }
+          }
+
+          return {
             title: item.title,
             link: item.link,
             pubDate: item.pubDate,
             size: item.size,
             indexerId: item.indexerId || "unknown",
             indexerName: item.indexerName || "unknown",
+            indexerUrl: item.indexerUrl,
             category: item.category ? item.category.split(",") : [],
             guid: item.guid || item.link,
             downloadType: "torrent" as const,
             seeders: item.seeders,
             leechers: item.leechers,
-          }) as SearchItem
+            comments,
+          } as SearchItem;
+        }
       );
       combinedItems.push(...items);
       totalCount += result.results.total || 0;

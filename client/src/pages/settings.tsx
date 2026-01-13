@@ -173,9 +173,7 @@ export default function SettingsPage() {
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>Database Migration Required</AlertTitle>
             <AlertDescription>
-              The user settings table hasn't been created yet. Please run{" "}
-              <code className="px-1 py-0.5 bg-muted rounded">npm run db:push</code> to create the
-              database schema, then restart the server.
+              The user settings table hasn't been created yet. Please run <code className="px-1 py-0.5 bg-muted rounded">npm run db:migrate</code> to update the database schema, then restart the server.
             </AlertDescription>
           </Alert>
         )}

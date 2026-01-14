@@ -85,7 +85,12 @@ export default function Header({ title = "Dashboard" }: HeaderProps) {
             storageInfo.map((info) => (
               <Tooltip key={info.downloaderId}>
                 <TooltipTrigger asChild>
-                  <div className="flex items-center gap-1 sm:gap-1.5 text-[10px] sm:text-xs text-muted-foreground border rounded-full px-2 py-0.5 sm:px-2.5 sm:py-1 hover:bg-muted/50 transition-colors cursor-help">
+                  <div
+                    className="flex items-center gap-1 sm:gap-1.5 text-[10px] sm:text-xs text-muted-foreground border rounded-full px-2 py-0.5 sm:px-2.5 sm:py-1 hover:bg-muted/50 transition-colors cursor-help"
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`Storage for ${info.downloaderName}: ${formatBytes(info.freeSpace)} available`}
+                  >
                     <HardDrive className="w-3 sm:w-3.5 h-3 sm:h-3.5" />
                     <span className="font-medium">{formatBytes(info.freeSpace)}</span>
                   </div>

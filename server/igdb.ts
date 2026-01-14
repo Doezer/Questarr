@@ -266,7 +266,8 @@ class IGDBClient {
       const allWordResults = await Promise.all(wordPromises);
 
       // Flatten and process results
-      const wordResults = allWordResults.flat();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const wordResults = allWordResults.flat() as IGDBGame[];
 
       if (wordResults.length > 0) {
         igdbLogger.info(
@@ -320,15 +321,33 @@ class IGDBClient {
 
     const allResults: IGDBGame[] = [];
 
-    for (const chunk of chunks) {
-      const igdbQuery = `
-        fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url, involved_companies.company.name, involved_companies.developer, involved_companies.publisher;
-        where id = (${chunk.join(",")});
-        limit 100;
-      `;
-      // Cache batch requests for 1 hour
-      const results = await this.makeRequest("games", igdbQuery, 60 * 60 * 1000);
-      allResults.push(...results);
+    // ⚡ Bolt: Fetch chunks in parallel batches to respect rate limits while improving performance.
+    // IGDB has a rate limit of 4 req/s. We process 3 chunks (300 games) concurrently,
+    // then wait 1s before the next batch to ensure we never exceed the per-second limit.
+    const CONCURRENCY_LIMIT = 3;
+
+    for (let i = 0; i < chunks.length; i += CONCURRENCY_LIMIT) {
+      const batch = chunks.slice(i, i + CONCURRENCY_LIMIT);
+
+      const batchResults = await Promise.all(
+        batch.map(async (chunk) => {
+          const igdbQuery = `
+            fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url, involved_companies.company.name, involved_companies.developer, involved_companies.publisher;
+            where id = (${chunk.join(",")});
+            limit 100;
+          `;
+          // Cache batch requests for 1 hour
+          return this.makeRequest("games", igdbQuery, 60 * 60 * 1000);
+        })
+      );
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      batchResults.forEach((results: any) => allResults.push(...(results as IGDBGame[])));
+
+      // If we have more chunks to process, wait 1 second to respect 4 req/s limit
+      if (i + CONCURRENCY_LIMIT < chunks.length) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
     }
 
     return allResults;

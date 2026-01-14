@@ -158,7 +158,7 @@ class TransmissionClient implements DownloaderClient {
 
   async testConnection(): Promise<{ success: boolean; message: string }> {
     try {
-      const _response = await this.makeRequest("session-get", {});
+      await this.makeRequest("session-get", {});
       downloadersLogger.info(
         { url: this.downloader.url },
         "Transmission connection test successful"
@@ -930,8 +930,8 @@ class RTorrentClient implements DownloaderClient {
         if (parsed && parsed.infoHash) {
           infoHash = parsed.infoHash.toLowerCase();
         }
-      } catch (_e) {
-        downloadersLogger.warn({ error: _e }, "Failed to parse file for hash");
+      } catch (error) {
+        downloadersLogger.warn({ error }, "Failed to parse file for hash");
       }
 
       // 3. Send raw file to rTorrent
@@ -1849,6 +1849,7 @@ class QBittorrentClient implements DownloaderClient {
           "Looking for newly added download"
         );
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let matchingDownload: any = null;
         if (request.title) {
           const normalizedTitle = request.title

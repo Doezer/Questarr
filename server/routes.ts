@@ -44,7 +44,9 @@ import archiver from "archiver";
 
 // ⚡ Bolt: Simple in-memory cache implementation to avoid external dependencies
 // Caches storage info for 30 seconds to prevent spamming downloaders
+// Use a more specific type than any, even if generic object for now
 const storageCache = {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   data: null as any,
   expiry: 0,
   ttl: 30 * 1000, // 30 seconds in milliseconds

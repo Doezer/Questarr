@@ -247,7 +247,8 @@ describe("Downloader Comprehensive Tests", () => {
       headers: { get: () => "SID=123" },
     };
 
-    const torrentFileResponse = {
+    // Mock response for torrent file download - used implicitly by addDownload logic
+    const _torrentFileResponse = {
       ok: true,
       status: 200,
       statusText: "OK",

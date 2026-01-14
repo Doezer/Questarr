@@ -1,7 +1,8 @@
-import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { logger } from "./logger.js";
 import { db, pool } from "./db.js";
 import { sql } from "drizzle-orm";
+import fs from "fs";
+import path from "path";
 
 /**
  * Run database migrations from the migrations folder
@@ -10,140 +11,77 @@ export async function runMigrations(): Promise<void> {
   try {
     logger.info("Running database migrations...");
 
-    // First, check if tables already exist (migrated from push)
-    logger.info("Checking for existing tables (downloaders)...");
-    const downloadersTable = await db.execute(sql`
-      SELECT EXISTS (
-        SELECT FROM information_schema.tables 
-        WHERE table_schema = 'public' 
-        AND table_name = 'downloaders'
+    // Create migrations table if it doesn't exist
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
+        id SERIAL PRIMARY KEY,
+        hash text NOT NULL UNIQUE,
+        created_at bigint
       );
     `);
 
-    const hasExistingTables = downloadersTable.rows[0]?.exists;
-    logger.info(`Existing tables detected: ${hasExistingTables}`);
+    const migrationsFolder = path.resolve(process.cwd(), "migrations");
+    const journalPath = path.join(migrationsFolder, "meta", "_journal.json");
 
-    // Check if migrations table exists
-    logger.info("Checking for __drizzle_migrations table...");
-    const drizzleMigrationsTable = await db.execute(sql`
-      SELECT EXISTS (
-        SELECT FROM information_schema.tables 
-        WHERE table_schema = 'public' 
-        AND table_name = '__drizzle_migrations'
-      );
-    `);
-
-    const hasMigrationsTable = drizzleMigrationsTable.rows[0]?.exists;
-    logger.info(`Migrations table exists: ${hasMigrationsTable}`);
-
-    // If tables exist but no proper migration tracking, initialize it
-    if (hasExistingTables) {
-      if (!hasMigrationsTable) {
-        logger.info("Creating migrations tracking table for existing database...");
-        await db.execute(sql`
-          CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
-            id SERIAL PRIMARY KEY,
-            hash text NOT NULL UNIQUE,
-            created_at bigint
-          );
-        `);
-      }
-
-      // Check which migrations are already applied
-      const appliedMigrations = await db.execute(sql`
-        SELECT hash FROM "__drizzle_migrations"
-      `);
-      const appliedHashes = new Set(appliedMigrations.rows.map((r) => r.hash));
-      logger.info(`Applied migrations: ${Array.from(appliedHashes).join(", ") || "none"}`);
-
-      // Mark initial migration as applied if not already
-      if (!appliedHashes.has("0000_complex_synch")) {
-        logger.info("Marking initial migration as applied for existing database...");
-        await db.execute(sql`
-          INSERT INTO "__drizzle_migrations" (hash, created_at)
-          VALUES ('0000_complex_synch', ${Date.now()})
-          ON CONFLICT (hash) DO NOTHING;
-        `);
-        appliedHashes.add("0000_complex_synch");
-      }
-
-      // Check if we need to mark the second migration (game_torrents -> game_downloads rename)
-      const gameTorrentsCheck = await db.execute(sql`
-        SELECT EXISTS (
-          SELECT FROM information_schema.tables 
-          WHERE table_schema = 'public' 
-          AND table_name = 'game_torrents'
-        );
-      `);
-      const hasGameTorrents = gameTorrentsCheck.rows[0]?.exists;
-
-      const gameDownloadsCheck = await db.execute(sql`
-        SELECT EXISTS (
-          SELECT FROM information_schema.tables 
-          WHERE table_schema = 'public' 
-          AND table_name = 'game_downloads'
-        );
-      `);
-      const hasGameDownloads = gameDownloadsCheck.rows[0]?.exists;
-
-      // Only mark migration 0001 as applied if new table exists and old one doesn't (rename completed)
-      if (hasGameDownloads && !hasGameTorrents && !appliedHashes.has("0001_adorable_silvermane")) {
-        logger.info("Table rename already completed - marking migration 0001 as applied...");
-        await db.execute(sql`
-          INSERT INTO "__drizzle_migrations" (hash, created_at)
-          VALUES ('0001_adorable_silvermane', ${Date.now()})
-          ON CONFLICT (hash) DO NOTHING;
-        `);
-      } else if (hasGameTorrents) {
-        logger.info(
-          "Old game_torrents table detected - migration 0001 will rename it to game_downloads"
-        );
-      }
-
-      logger.info("Migration tracking initialized for existing database");
+    if (!fs.existsSync(journalPath)) {
+      throw new Error(`Migrations journal not found at: ${journalPath}`);
     }
 
-    // Run migrations (will skip already-applied ones)
-    logger.info("Checking for pending migrations...");
-    let migrationsApplied = false;
-    try {
-      const path = await import("path");
-      const fs = await import("fs");
-      const migrationsFolder = path.resolve(process.cwd(), "migrations");
+    const journal = JSON.parse(fs.readFileSync(journalPath, "utf-8"));
+    const appliedRows = await db.execute(sql`SELECT hash FROM "__drizzle_migrations"`);
+    const appliedHashes = new Set(appliedRows.rows.map((r) => r.hash));
 
-      logger.info(`Using migrations folder: ${migrationsFolder}`);
-
-      if (!fs.existsSync(migrationsFolder)) {
-        throw new Error(`Migrations folder not found at: ${migrationsFolder}`);
+    for (const entry of journal.entries) {
+      const tag = entry.tag;
+      if (appliedHashes.has(tag)) {
+        continue;
       }
 
-      await migrate(db, { migrationsFolder });
-      logger.info("Database migrations completed successfully");
-      migrationsApplied = true;
-    } catch (migrationError: unknown) {
-      // Only ignore specific safe errors
-      const errorCode = (migrationError as { cause?: { code?: string }; message?: string })?.cause
-        ?.code;
-      if (errorCode === "42P07") {
-        // Table already exists - likely already migrated via db:push
-        logger.info("Database schema is already current (tables exist)");
-      } else if (errorCode === "42710") {
-        // Object already exists (index, constraint, etc.)
-        logger.info("Database schema is already current (objects exist)");
-      } else {
-        // Unexpected error - fail loudly
-        logger.error({ err: migrationError, errorCode }, "Unexpected migration error");
-        throw migrationError;
+      logger.info(`Applying migration ${tag}...`);
+
+      const sqlPath = path.join(migrationsFolder, `${tag}.sql`);
+      const sqlContent = fs.readFileSync(sqlPath, "utf-8");
+      const statements = sqlContent.split("--> statement-breakpoint");
+
+      try {
+        await db.transaction(async (tx) => {
+          for (const statement of statements) {
+            if (!statement.trim()) continue;
+
+            // Use SAVEPOINT to allow ignoring specific errors without aborting the transaction
+            await tx.execute(sql.raw("SAVEPOINT stmt"));
+            try {
+              await tx.execute(sql.raw(statement));
+              await tx.execute(sql.raw("RELEASE SAVEPOINT stmt"));
+            } catch (e: unknown) {
+              await tx.execute(sql.raw("ROLLBACK TO SAVEPOINT stmt"));
+
+              const code = (e as { code?: string })?.code;
+              // Ignore "relation/object already exists" errors
+              if (["42P07", "42701", "42710"].includes(code || "")) {
+                logger.warn(
+                  `Skipping statement in ${tag} due to existing object: ${(e as Error).message}`
+                );
+              } else {
+                throw e;
+              }
+            }
+          }
+
+          await tx.execute(sql`
+            INSERT INTO "__drizzle_migrations" (hash, created_at)
+            VALUES (${tag}, ${Date.now()})
+          `);
+        });
+
+        logger.info(`Migration ${tag} applied successfully`);
+      } catch (err) {
+        logger.error(`Migration ${tag} failed: ${err}`);
+        throw err;
       }
-      // If we reach here, migrations were not applied but schema is current
-      migrationsApplied = false;
     }
 
-    if (migrationsApplied) {
-      logger.info("✓ Database migrations check completed - schema is ready");
-    } else {
-      logger.info("✓ Database schema is already current - no migrations applied");
-    }
+    logger.info("Database migrations completed successfully");
   } catch (error) {
     logger.error({ err: error }, "Database migration failed");
     throw error;

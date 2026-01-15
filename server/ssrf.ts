@@ -15,6 +15,7 @@ import { isIP } from "net";
  * - Private networks (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
  */
 export async function isSafeUrl(urlStr: string): Promise<boolean> {
+  let url: URL;
   try {
     // Ensure protocol is http or https
     if (!urlStr.startsWith("http://") && !urlStr.startsWith("https://")) {
@@ -22,24 +23,25 @@ export async function isSafeUrl(urlStr: string): Promise<boolean> {
       urlStr = "http://" + urlStr;
     }
 
-    const url = new URL(urlStr);
-    const hostname = url.hostname;
-
-    // Check if hostname is an IP
-    const ipVersion = isIP(hostname);
-    if (ipVersion !== 0) {
-      return isSafeIp(hostname);
-    }
-
-    // Resolve hostname
-    // We only check the first resolved address.
-    // A sophisticated attack might use DNS rebinding, but this catches basic attempts.
-    const { address } = await dns.lookup(hostname);
-    return isSafeIp(address);
+    url = new URL(urlStr);
   } catch {
-    // If URL parsing or DNS resolution fails, treat as unsafe/invalid
     return false;
   }
+
+  const hostname = url.hostname;
+
+  // Check if hostname is an IP
+  const ipVersion = isIP(hostname);
+  if (ipVersion !== 0) {
+    return isSafeIp(hostname);
+  }
+
+  // Resolve hostname
+  // We only check the first resolved address.
+  // A sophisticated attack might use DNS rebinding, but this catches basic attempts.
+  // We allow dns.lookup to throw if resolution fails (e.g. network error)
+  const { address } = await dns.lookup(hostname);
+  return isSafeIp(address);
 }
 
 function isSafeIp(ip: string): boolean {

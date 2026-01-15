@@ -35,6 +35,7 @@ export const userSettings = pgTable("user_settings", {
   notifyUpdates: boolean("notify_updates").notNull().default(true),
   searchIntervalHours: integer("search_interval_hours").notNull().default(6),
   igdbRateLimitPerSecond: integer("igdb_rate_limit_per_second").notNull().default(3),
+  downloadRules: text("download_rules"),
   lastAutoSearch: timestamp("last_auto_search"),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -222,10 +223,21 @@ export const insertNotificationSchema = createInsertSchema(notifications).omit({
   read: true,
 });
 
-export const insertUserSettingsSchema = createInsertSchema(userSettings).omit({
-  id: true,
-  updatedAt: true,
+// Download rules schema for auto-download filtering
+export const downloadRulesSchema = z.object({
+  minSeeders: z.number().int().min(0).default(0),
+  sortBy: z.enum(["seeders", "date", "size"]).default("seeders"),
+  visibleCategories: z.array(z.enum(["main", "update", "dlc", "extra"]))
+    .default(["main", "update", "dlc", "extra"]),
 });
+
+export type DownloadRules = z.infer<typeof downloadRulesSchema>;
+
+export const insertUserSettingsSchema = createInsertSchema(userSettings)
+  .omit({
+    id: true,
+    updatedAt: true,
+  });
 
 export const updateUserSettingsSchema = createInsertSchema(userSettings)
   .omit({

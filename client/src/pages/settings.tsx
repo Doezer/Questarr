@@ -18,7 +18,9 @@ import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import type { Config, UserSettings } from "@shared/schema";
+import AutoDownloadRulesSettings from "@/components/AutoDownloadRulesSettings";
+import type { Config, UserSettings, DownloadRules } from "@shared/schema";
+import { downloadRulesSchema } from "@shared/schema";
 import { useState, useEffect } from "react";
 
 export default function SettingsPage() {
@@ -39,7 +41,7 @@ export default function SettingsPage() {
     error: settingsError,
   } = useQuery<UserSettings>({
     queryKey: ["/api/settings"],
-    retry: false, // Don't retry if it fails, so we can show the error
+    retry: 3, // Retry up to 3 times as migrations might be running
   });
 
   // Local state for form
@@ -49,6 +51,7 @@ export default function SettingsPage() {
   const [notifyUpdates, setNotifyUpdates] = useState(true);
   const [searchIntervalHours, setSearchIntervalHours] = useState(6);
   const [igdbRateLimitPerSecond, setIgdbRateLimitPerSecond] = useState(3);
+  const [downloadRules, setDownloadRules] = useState<DownloadRules | null>(null);
 
   // Sync with fetched settings
   useEffect(() => {
@@ -59,6 +62,20 @@ export default function SettingsPage() {
       setNotifyUpdates(userSettings.notifyUpdates);
       setSearchIntervalHours(userSettings.searchIntervalHours);
       setIgdbRateLimitPerSecond(userSettings.igdbRateLimitPerSecond);
+
+      // Parse download rules from JSON string
+      if (userSettings.downloadRules) {
+        try {
+          const parsed = JSON.parse(userSettings.downloadRules);
+          const validated = downloadRulesSchema.parse(parsed);
+          setDownloadRules(validated);
+        } catch (error) {
+          console.warn("Failed to parse download rules", error);
+          setDownloadRules(null);
+        }
+      } else {
+        setDownloadRules(null);
+      }
     }
   }, [userSettings]);
 
@@ -309,6 +326,13 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
+        {/* Auto-Download Rules */}
+        <AutoDownloadRulesSettings
+          rules={downloadRules}
+          onChange={setDownloadRules}
+          onReset={() => setDownloadRules(null)}
+        />
+
         {/* IGDB API Configuration */}
         <Card>
           <CardHeader>
@@ -438,3 +462,5 @@ export default function SettingsPage() {
     </div>
   );
 }
+
+

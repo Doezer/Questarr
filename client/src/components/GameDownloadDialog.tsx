@@ -34,8 +34,8 @@ import { Label } from "@/components/ui/label";
 import { Download, Loader2, PackagePlus, SlidersHorizontal, Newspaper } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
-import { type Game, type Indexer } from "@shared/schema";
-import { groupDownloadsByCategory, type DownloadCategory } from "@/lib/download-categorizer";
+import { type Game, type Indexer, type UserSettings, downloadRulesSchema } from "@shared/schema";
+import { groupDownloadsByCategory, type DownloadCategory } from "@shared/download-categorizer";
 
 interface DownloadItem {
   title: string;
@@ -102,10 +102,29 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     new Set(["main", "update", "dlc", "extra"] as DownloadCategory[])
   );
 
+  const { data: userSettings } = useQuery<UserSettings>({
+    queryKey: ["/api/settings"],
+    enabled: open,
+  });
+
   // Auto-populate search when dialog opens with game title
   useEffect(() => {
     if (open && game) {
       setSearchQuery(game.title);
+
+      // Apply default download rules from settings
+      if (userSettings?.downloadRules) {
+        try {
+          const rules = downloadRulesSchema.parse(JSON.parse(userSettings.downloadRules));
+          setMinSeeders(rules.minSeeders);
+          setSortBy(rules.sortBy);
+          if (rules.visibleCategories) {
+            setVisibleCategories(new Set(rules.visibleCategories as DownloadCategory[]));
+          }
+        } catch (error) {
+          console.warn("Failed to apply download rules from settings", error);
+        }
+      }
     } else if (!open) {
       setSearchQuery("");
       setShowBundleDialog(false);
@@ -116,8 +135,9 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       setSelectedIndexer("all");
       setSortBy("seeders");
       setShowFilters(false);
+      setVisibleCategories(new Set(["main", "update", "dlc", "extra"] as DownloadCategory[]));
     }
-  }, [open, game]);
+  }, [open, game, userSettings]);
 
   const { data: searchResults, isLoading: isSearching } = useQuery<SearchResult>({
     queryKey: [`/api/search?query=${encodeURIComponent(searchQuery)}`],

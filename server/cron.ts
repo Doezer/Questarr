@@ -5,6 +5,8 @@ import { notifyUser } from "./socket.js";
 import { DownloaderManager } from "./downloaders.js";
 import { searchAllIndexers } from "./search.js";
 import { type Game } from "../shared/schema.js";
+import { downloadRulesSchema } from "../shared/schema.js";
+import { categorizeDownload } from "../shared/download-categorizer.js";
 
 const DELAY_THRESHOLD_DAYS = 7;
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -411,19 +413,58 @@ async function checkAutoSearch() {
 
             gamesWithResults++;
 
-            // Filter "Main" items (not updates/DLC)
-            const mainItems = items.filter((item) => {
-              const title = item.title.toLowerCase();
-              return (
-                !title.includes("update") && !title.includes("dlc") && !title.includes("patch")
-              );
+            // Load download rules from settings
+            let minSeeders = 0;
+            let sortBy: "seeders" | "date" | "size" = "seeders";
+            let visibleCategoriesSet = new Set(["main", "update", "dlc", "extra"]);
+
+            if (settings.downloadRules) {
+              try {
+                const parsed = JSON.parse(settings.downloadRules);
+                const rules = downloadRulesSchema.parse(parsed);
+                minSeeders = rules.minSeeders;
+                sortBy = rules.sortBy;
+                if (rules.visibleCategories) {
+                  visibleCategoriesSet = new Set(rules.visibleCategories);
+                }
+              } catch (error) {
+                igdbLogger.warn({ gameTitle: game.title, error }, "Failed to parse download rules");
+              }
+            }
+
+            // Filter items by seeders
+            let filteredItems = items.filter((item) => {
+              const seeders = item.seeders ?? 0;
+              return seeders >= minSeeders;
             });
 
-            // Check for updates
-            const updateItems = items.filter((item) => {
-              const title = item.title.toLowerCase();
-              return title.includes("update") || title.includes("patch");
+            // Sort items according to rules
+            filteredItems = filteredItems.sort((a, b) => {
+              if (sortBy === "seeders") {
+                return (b.seeders ?? 0) - (a.seeders ?? 0);
+              } else if (sortBy === "date") {
+                return new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime();
+              } else {
+                // size
+                return (b.size ?? 0) - (a.size ?? 0);
+              }
             });
+
+            // Filter and categorize items based on visible categories
+            const categorizedItems = filteredItems
+              .map((item) => {
+                const { category } = categorizeDownload(item.title);
+                return { item, category };
+              })
+              .filter(({ category }) => visibleCategoriesSet.has(category));
+
+            const mainItems = categorizedItems
+              .filter(({ category }) => category === "main")
+              .map(({ item }) => item);
+
+            const updateItems = categorizedItems
+              .filter(({ category }) => category === "update")
+              .map(({ item }) => item);
 
             // Notify about updates if setting enabled
             if (updateItems.length > 0 && settings.notifyUpdates) {

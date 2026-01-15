@@ -9,8 +9,4 @@ vite.config.ts.*
 .gemini/
 gha-creds-*.json
 images/Screenshots/*
-qbittorrent-*/
-transmission-*/
-sabnzbd-*/
-nzbget-*/
-docker-compose.*.yml
+infrastructure/

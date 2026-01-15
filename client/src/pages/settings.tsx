@@ -93,7 +93,13 @@ export default function SettingsPage() {
   }, [userSettings, config]);
 
   const updateSettingsMutation = useMutation({
-    mutationFn: async (updates: Partial<UserSettings>) => {
+    mutationFn: async ({
+      updates,
+      successMessage,
+    }: {
+      updates: Partial<UserSettings>;
+      successMessage: string;
+    }) => {
       const res = await apiRequest("PATCH", "/api/settings", updates);
 
       // Check if response is HTML (which means the route wasn't found and Vite served index.html)
@@ -102,12 +108,12 @@ export default function SettingsPage() {
         throw new Error("API route not found. Please restart the server to apply changes.");
       }
 
-      return res.json();
+      return { data: await res.json(), successMessage };
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       toast({
         title: "Settings Updated",
-        description: "Your auto-search preferences have been saved.",
+        description: data.successMessage,
       });
       queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
     },
@@ -177,14 +183,25 @@ export default function SettingsPage() {
   const isLoading = configLoading || settingsLoading;
   const error = configError;
 
-  const handleSaveSettings = () => {
+  const handleSaveAutoSearch = () => {
     updateSettingsMutation.mutate({
-      autoSearchEnabled,
-      autoDownloadEnabled,
-      notifyMultipleDownloads,
-      notifyUpdates,
-      searchIntervalHours,
-      igdbRateLimitPerSecond,
+      updates: {
+        autoSearchEnabled,
+        autoDownloadEnabled,
+        notifyMultipleDownloads,
+        notifyUpdates,
+        searchIntervalHours,
+      },
+      successMessage: "Your auto-search preferences have been saved.",
+    });
+  };
+
+  const handleSaveAdvanced = () => {
+    updateSettingsMutation.mutate({
+      updates: {
+        igdbRateLimitPerSecond,
+      },
+      successMessage: "Advanced settings have been saved.",
     });
   };
 
@@ -469,7 +486,7 @@ export default function SettingsPage() {
 
             <div className="flex justify-end pt-4 border-t">
               <Button
-                onClick={handleSaveSettings}
+                onClick={handleSaveAutoSearch}
                 disabled={updateSettingsMutation.isPending}
                 className="gap-2"
               >
@@ -540,7 +557,7 @@ export default function SettingsPage() {
 
             <div className="flex justify-end pt-4 border-t">
               <Button
-                onClick={handleSaveSettings}
+                onClick={handleSaveAdvanced}
                 disabled={updateSettingsMutation.isPending}
                 className="gap-2"
               >

@@ -1,17 +1,32 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { igdbClient } from "../igdb";
-// import { config } from "../config";
 
 // Mock the config module
-vi.mock("../config", () => ({
+vi.mock("../config.js", () => ({
   config: {
+    database: {
+      url: "postgresql://test:test@localhost/test",
+    },
     igdb: {
       clientId: undefined,
       clientSecret: undefined,
       isConfigured: false,
     },
+    server: {
+      port: 5000,
+      host: "localhost",
+      nodeEnv: "test",
+    },
   },
 }));
+
+// Mock the storage module to prevent DB calls
+vi.mock("../storage.js", () => ({
+  storage: {
+    getSystemConfig: vi.fn().mockResolvedValue(undefined),
+  },
+}));
+
+import { igdbClient } from "../igdb";
 
 describe("IGDB Client Error Handling", () => {
   beforeEach(() => {

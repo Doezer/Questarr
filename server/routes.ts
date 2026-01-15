@@ -1634,19 +1634,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // 🛡️ Sentinel: Harden config endpoint to prevent information disclosure.
       // Only expose boolean flags indicating if services are configured, not
       // sensitive details like database URLs or partial API keys.
-      let isConfigured = appConfig.igdb.isConfigured;
+      let isConfigured = false;
+      let source: "env" | "database" | undefined;
 
-      if (!isConfigured) {
-        const dbClientId = await storage.getSystemConfig("igdb.clientId");
-        const dbClientSecret = await storage.getSystemConfig("igdb.clientSecret");
-        if (dbClientId && dbClientSecret) {
-          isConfigured = true;
-        }
+      // Check database first (takes precedence)
+      const dbClientId = await storage.getSystemConfig("igdb.clientId");
+      const dbClientSecret = await storage.getSystemConfig("igdb.clientSecret");
+      
+      if (dbClientId && dbClientSecret) {
+        isConfigured = true;
+        source = "database";
+      } else if (appConfig.igdb.isConfigured) {
+        // Fallback to environment variables
+        isConfigured = true;
+        source = "env";
       }
 
       const config: Config = {
         igdb: {
           configured: isConfigured,
+          source,
         },
       };
       res.json(config);

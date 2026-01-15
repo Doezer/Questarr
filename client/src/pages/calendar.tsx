@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -11,8 +11,10 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { type Game } from "@shared/schema";
+import { type Game, type Config } from "@shared/schema";
 import { cn } from "@/lib/utils";
+import { Link } from "wouter";
+import { apiRequest } from "@/lib/queryClient";
 
 type ViewMode = "year" | "month" | "week";
 
@@ -71,8 +73,14 @@ export default function CalendarPage() {
   const [viewMode, setViewMode] = useState<ViewMode>("year");
   const [currentDate, setCurrentDate] = useState(new Date());
 
+  const { data: config } = useQuery<Config>({
+    queryKey: ["/api/config"],
+    queryFn: () => apiRequest("GET", "/api/config").then((res) => res.json()),
+  });
+
   const { data: games = [], isLoading } = useQuery<Game[]>({
     queryKey: ["/api/games"],
+    enabled: !!config?.igdb.configured,
   });
 
   // Filter wanted games with release dates
@@ -130,6 +138,24 @@ export default function CalendarPage() {
     const weekDays = getWeekDays(new Date(currentDate));
     return `${formatDate(weekDays[0])} - ${formatDate(weekDays[6])}`;
   };
+
+  if (config && !config.igdb.configured) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center p-8 text-center space-y-4">
+        <div className="bg-muted p-4 rounded-full">
+          <AlertCircle className="h-12 w-12 text-muted-foreground" />
+        </div>
+        <h2 className="text-2xl font-bold">IGDB Configuration Required</h2>
+        <p className="text-muted-foreground max-w-md">
+          To track game release dates and view the calendar, you need to configure your IGDB
+          credentials in the settings.
+        </p>
+        <Link href="/settings">
+          <Button>Go to Settings</Button>
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="h-full overflow-auto p-6">

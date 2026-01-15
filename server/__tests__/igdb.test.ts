@@ -22,6 +22,13 @@ vi.mock("../config.js", () => ({
   },
 }));
 
+// Mock the storage module to prevent DB calls
+vi.mock("../storage.js", () => ({
+  storage: {
+    getSystemConfig: vi.fn().mockResolvedValue(undefined),
+  },
+}));
+
 // Mock the IGDBClient by testing the fallback behavior
 describe("IGDBClient - Fallback Mechanism", () => {
   let fetchMock: ReturnType<typeof vi.fn>;

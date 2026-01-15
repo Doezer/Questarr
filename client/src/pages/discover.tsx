@@ -1,9 +1,9 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useDebounce } from "@/hooks/use-debounce";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Settings2 } from "lucide-react";
+import { Loader2, Settings2, AlertCircle } from "lucide-react";
 import GameCarouselSection from "@/components/GameCarouselSection";
-import { type Game } from "@shared/schema";
+import { type Game, type Config } from "@shared/schema";
 import { type GameStatus } from "@/components/StatusBadge";
 import { useToast } from "@/hooks/use-toast";
 import { mapGameToInsertGame } from "@/lib/utils";
@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import DiscoverSettingsModal from "@/components/DiscoverSettingsModal";
+import { Link } from "wouter";
 
 interface Genre {
   id: number;
@@ -86,6 +87,10 @@ export default function DiscoverPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  const { data: config } = useQuery<Config>({
+    queryKey: ["/api/config"],
+  });
+
   useEffect(() => {
     localStorage.setItem("discoverHideOwned", hideOwned.toString());
   }, [hideOwned]);
@@ -101,6 +106,7 @@ export default function DiscoverPage() {
       const response = await apiRequest("GET", "/api/games?includeHidden=true");
       return response.json();
     },
+    enabled: !!config?.igdb.configured,
   });
 
   const hiddenIgdbIds = useMemo(() => {
@@ -167,6 +173,7 @@ export default function DiscoverPage() {
     staleTime: STATIC_DATA_STALE_TIME,
 
     retry: 2,
+    enabled: !!config?.igdb.configured,
   });
 
   // Fetch available platforms with caching and error handling
@@ -189,6 +196,7 @@ export default function DiscoverPage() {
     staleTime: STATIC_DATA_STALE_TIME,
 
     retry: 2,
+    enabled: !!config?.igdb.configured,
   });
 
   // Handle errors with toast notifications
@@ -498,6 +506,23 @@ export default function DiscoverPage() {
     const games = await response.json();
     return filterGames(games);
   }, [debouncedPlatform, platforms, filterGames]);
+
+  if (config && !config.igdb.configured) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center p-8 text-center space-y-4">
+        <div className="bg-muted p-4 rounded-full">
+          <AlertCircle className="h-12 w-12 text-muted-foreground" />
+        </div>
+        <h2 className="text-2xl font-bold">IGDB Configuration Required</h2>
+        <p className="text-muted-foreground max-w-md">
+          To discover and browse games, you need to configure your IGDB credentials in the settings.
+        </p>
+        <Link href="/settings">
+          <Button>Go to Settings</Button>
+        </Link>
+      </div>
+    );
+  }
 
   const displayGenres: Genre[] = genres.length > 0 ? genres : DEFAULT_GENRES;
   const displayPlatforms: Platform[] = platforms.length > 0 ? platforms : DEFAULT_PLATFORMS;

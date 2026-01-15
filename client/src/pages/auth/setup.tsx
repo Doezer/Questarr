@@ -2,7 +2,7 @@ import { useAuth } from "@/lib/auth";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 // import { useLocation } from "wouter";
@@ -16,14 +16,18 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
+  FormDescription,
 } from "@/components/ui/form";
-import { Lock, User, ShieldCheck } from "lucide-react";
+import { Lock, User, ShieldCheck, Gamepad2, HelpCircle } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 const setupSchema = z
   .object({
     username: z.string().min(3, "Username must be at least 3 characters"),
     password: z.string().min(6, "Password must be at least 6 characters"),
     confirmPassword: z.string(),
+    igdbClientId: z.string().min(1, "IGDB Client ID is required"),
+    igdbClientSecret: z.string().min(1, "IGDB Client Secret is required"),
   })
   .refine((data) => data.password === data.confirmPassword, {
     message: "Passwords do not match",
@@ -37,12 +41,19 @@ export default function SetupPage() {
   const { toast } = useToast();
   // const [_, setLocation] = useLocation();
 
+  const { data: config } = useQuery({
+    queryKey: ["config"],
+    queryFn: () => apiRequest("GET", "/api/config").then((res) => res.json()),
+  });
+
   const form = useForm<SetupForm>({
     resolver: zodResolver(setupSchema),
     defaultValues: {
       username: "",
       password: "",
       confirmPassword: "",
+      igdbClientId: "",
+      igdbClientSecret: "",
     },
   });
 
@@ -51,6 +62,8 @@ export default function SetupPage() {
       const res = await apiRequest("POST", "/api/auth/setup", {
         username: data.username,
         password: data.password,
+        igdbClientId: data.igdbClientId,
+        igdbClientSecret: data.igdbClientSecret,
       });
       return res.json();
     },
@@ -145,6 +158,86 @@ export default function SetupPage() {
                   </FormItem>
                 )}
               />
+
+              {config && !config.igdb.configured && (
+                <>
+                  <div className="border-t my-4 pt-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <h3 className="font-medium flex items-center gap-2">
+                        <Gamepad2 className="h-4 w-4" />
+                        IGDB Configuration
+                      </h3>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-6 w-6 rounded-full">
+                            <HelpCircle className="h-4 w-4 text-muted-foreground" />
+                            <span className="sr-only">How to get credentials</span>
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-80">
+                          <div className="space-y-2 text-sm">
+                            <h4 className="font-bold">How to get IGDB credentials:</h4>
+                            <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
+                              <li>Go to the <a href="https://dev.twitch.tv/console" target="_blank" rel="noreferrer" className="text-primary underline">Twitch Developer Portal</a></li>
+                              <li>Register a new application (name it 'Questarr')</li>
+                              <li>Set Redirect URI to <code className="bg-muted px-1">http://localhost</code></li>
+                              <li>Select 'Application Integration' as category</li>
+                              <li>Copy the <strong>Client ID</strong></li>
+                              <li>Click 'New Secret' to get your <strong>Client Secret</strong></li>
+                            </ol>
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      IGDB credentials are required to discover and import games.
+                    </p>
+                  </div>
+
+                  <FormField
+                    control={form.control}
+                    name="igdbClientId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Client ID</FormLabel>
+                        <FormControl>
+                          <Input placeholder="IGDB Client ID" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="igdbClientSecret"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Client Secret</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="password"
+                            placeholder="IGDB Client Secret"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                        <FormDescription>
+                          <a
+                            href="https://api-docs.igdb.com/#account-creation"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="underline"
+                          >
+                            How to get IGDB credentials
+                          </a>
+                        </FormDescription>
+                      </FormItem>
+                    )}
+                  />
+                </>
+              )}
+
               <Button type="submit" className="w-full" disabled={setupMutation.isPending}>
                 {setupMutation.isPending ? "Creating Account..." : "Create Account"}
               </Button>

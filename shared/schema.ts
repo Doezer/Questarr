@@ -273,6 +273,8 @@ export type UpdateUserSettings = typeof updateUserSettingsSchema["_output"];
 export interface Config {
   igdb: {
     configured: boolean;
+    source?: "env" | "database";
+    clientId?: string;
   };
 }
 

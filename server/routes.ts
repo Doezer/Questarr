@@ -142,7 +142,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Setup already completed" });
       }
 
-      const { username, password } = req.body;
+      const { username, password, igdbClientId, igdbClientSecret } = req.body;
 
       // Validate input
       if (!username || !password) {
@@ -169,6 +169,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const passwordHash = await hashPassword(password);
       const user = await storage.createUser({ username, passwordHash });
       const token = await generateToken(user);
+
+      // Save IGDB creds if provided
+      if (igdbClientId && igdbClientSecret) {
+        if (
+          typeof igdbClientId === "string" &&
+          typeof igdbClientSecret === "string" &&
+          igdbClientId.trim().length > 0 &&
+          igdbClientSecret.trim().length > 0
+        ) {
+          await storage.setSystemConfig("igdb.clientId", igdbClientId.trim());
+          await storage.setSystemConfig("igdb.clientSecret", igdbClientSecret.trim());
+          routesLogger.info("IGDB credentials saved during setup");
+        }
+      }
 
       routesLogger.info({ username }, "Initial setup completed");
       res.json({ token, user: { id: user.id, username: user.username } });
@@ -1620,9 +1634,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // 🛡️ Sentinel: Harden config endpoint to prevent information disclosure.
       // Only expose boolean flags indicating if services are configured, not
       // sensitive details like database URLs or partial API keys.
+      let isConfigured = appConfig.igdb.isConfigured;
+
+      if (!isConfigured) {
+        const dbClientId = await storage.getSystemConfig("igdb.clientId");
+        const dbClientSecret = await storage.getSystemConfig("igdb.clientSecret");
+        if (dbClientId && dbClientSecret) {
+          isConfigured = true;
+        }
+      }
+
       const config: Config = {
         igdb: {
-          configured: appConfig.igdb.isConfigured,
+          configured: isConfigured,
         },
       };
       res.json(config);

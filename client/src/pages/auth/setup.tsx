@@ -2,7 +2,7 @@ import { useAuth } from "@/lib/auth";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 // import { useLocation } from "wouter";
@@ -16,14 +16,17 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
+  FormDescription,
 } from "@/components/ui/form";
-import { Lock, User, ShieldCheck } from "lucide-react";
+import { Lock, User, ShieldCheck, Gamepad2 } from "lucide-react";
 
 const setupSchema = z
   .object({
     username: z.string().min(3, "Username must be at least 3 characters"),
     password: z.string().min(6, "Password must be at least 6 characters"),
     confirmPassword: z.string(),
+    igdbClientId: z.string().optional(),
+    igdbClientSecret: z.string().optional(),
   })
   .refine((data) => data.password === data.confirmPassword, {
     message: "Passwords do not match",
@@ -37,12 +40,19 @@ export default function SetupPage() {
   const { toast } = useToast();
   // const [_, setLocation] = useLocation();
 
+  const { data: config } = useQuery({
+    queryKey: ["config"],
+    queryFn: () => apiRequest("GET", "/api/config").then((res) => res.json()),
+  });
+
   const form = useForm<SetupForm>({
     resolver: zodResolver(setupSchema),
     defaultValues: {
       username: "",
       password: "",
       confirmPassword: "",
+      igdbClientId: "",
+      igdbClientSecret: "",
     },
   });
 
@@ -51,6 +61,8 @@ export default function SetupPage() {
       const res = await apiRequest("POST", "/api/auth/setup", {
         username: data.username,
         password: data.password,
+        igdbClientId: data.igdbClientId,
+        igdbClientSecret: data.igdbClientSecret,
       });
       return res.json();
     },
@@ -145,6 +157,64 @@ export default function SetupPage() {
                   </FormItem>
                 )}
               />
+
+              {config && !config.igdb.configured && (
+                <>
+                  <div className="border-t my-4 pt-4">
+                    <h3 className="font-medium mb-2 flex items-center gap-2">
+                      <Gamepad2 className="h-4 w-4" />
+                      IGDB Configuration (Optional)
+                    </h3>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      IGDB credentials are required for game discovery and metadata. You can skip this
+                      now and configure it later, or provide environment variables.
+                    </p>
+                  </div>
+
+                  <FormField
+                    control={form.control}
+                    name="igdbClientId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Client ID</FormLabel>
+                        <FormControl>
+                          <Input placeholder="IGDB Client ID" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="igdbClientSecret"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Client Secret</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="password"
+                            placeholder="IGDB Client Secret"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                        <FormDescription>
+                          <a
+                            href="https://api-docs.igdb.com/#account-creation"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="underline"
+                          >
+                            How to get IGDB credentials
+                          </a>
+                        </FormDescription>
+                      </FormItem>
+                    )}
+                  />
+                </>
+              )}
+
               <Button type="submit" className="w-full" disabled={setupMutation.isPending}>
                 {setupMutation.isPending ? "Creating Account..." : "Create Account"}
               </Button>

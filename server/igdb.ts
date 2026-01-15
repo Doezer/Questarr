@@ -1,5 +1,7 @@
 import { config } from "./config.js";
 import { igdbLogger } from "./logger.js";
+import { storage } from "./storage.js";
+
 // Configuration constants for search limits
 const MAX_SEARCH_ATTEMPTS = 5;
 
@@ -91,13 +93,32 @@ class IGDBClient {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private cache = new Map<string, CacheEntry<any>>();
 
+  private async getCredentials(): Promise<{ clientId: string | undefined; clientSecret: string | undefined }> {
+    const dbClientId = await storage.getSystemConfig("igdb.clientId");
+    const dbClientSecret = await storage.getSystemConfig("igdb.clientSecret");
+
+    if (dbClientId && dbClientSecret) {
+      return { clientId: dbClientId, clientSecret: dbClientSecret };
+    }
+
+    return {
+      clientId: config.igdb.clientId,
+      clientSecret: config.igdb.clientSecret,
+    };
+  }
+
+  private async ensureConfigured(): Promise<boolean> {
+    if (config.igdb.isConfigured) return true;
+    const { clientId, clientSecret } = await this.getCredentials();
+    return !!(clientId && clientSecret);
+  }
+
   private async authenticate(): Promise<string> {
     if (this.accessToken && Date.now() < this.tokenExpiry) {
       return this.accessToken;
     }
 
-    const clientId = config.igdb.clientId;
-    const clientSecret = config.igdb.clientSecret;
+    const { clientId, clientSecret } = await this.getCredentials();
 
     if (!clientId || !clientSecret) {
       throw new Error("IGDB credentials not configured");
@@ -142,7 +163,7 @@ class IGDBClient {
     igdbLogger.debug({ cacheKey }, "cache miss");
 
     const token = await this.authenticate();
-    const clientId = config.igdb.clientId;
+    const { clientId } = await this.getCredentials();
 
     const response = await fetch(`https://api.igdb.com/v4/${endpoint}`, {
       method: "POST",
@@ -171,7 +192,7 @@ class IGDBClient {
   }
 
   async searchGames(query: string, limit: number = 20): Promise<IGDBGame[]> {
-    if (!config.igdb.isConfigured) {
+    if (!(await this.ensureConfigured())) {
       igdbLogger.warn("IGDB credentials not configured, skipping search");
       return [];
     }
@@ -296,7 +317,7 @@ class IGDBClient {
   }
 
   async getGameById(id: number): Promise<IGDBGame | null> {
-    if (!config.igdb.isConfigured) return null;
+    if (!(await this.ensureConfigured())) return null;
 
     const igdbQuery = `
       fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url, involved_companies.company.name, involved_companies.developer, involved_companies.publisher;
@@ -309,7 +330,7 @@ class IGDBClient {
   }
 
   async getGamesByIds(ids: number[]): Promise<IGDBGame[]> {
-    if (!config.igdb.isConfigured) return [];
+    if (!(await this.ensureConfigured())) return [];
     if (ids.length === 0) return [];
 
     // Split into chunks of 100 to avoid query length limits
@@ -335,7 +356,7 @@ class IGDBClient {
   }
 
   async getPopularGames(limit: number = 20): Promise<IGDBGame[]> {
-    if (!config.igdb.isConfigured) return [];
+    if (!(await this.ensureConfigured())) return [];
 
     const igdbQuery = `
       fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url, involved_companies.company.name, involved_companies.developer, involved_companies.publisher;
@@ -349,7 +370,7 @@ class IGDBClient {
   }
 
   async getRecentReleases(limit: number = 20): Promise<IGDBGame[]> {
-    if (!config.igdb.isConfigured) return [];
+    if (!(await this.ensureConfigured())) return [];
 
     const thirtyDaysAgo = Math.floor((Date.now() - 30 * 24 * 60 * 60 * 1000) / 1000);
     const now = Math.floor(Date.now() / 1000);
@@ -366,7 +387,7 @@ class IGDBClient {
   }
 
   async getUpcomingReleases(limit: number = 20): Promise<IGDBGame[]> {
-    if (!config.igdb.isConfigured) return [];
+    if (!(await this.ensureConfigured())) return [];
 
     const now = Math.floor(Date.now() / 1000);
     const sixMonthsFromNow = Math.floor((Date.now() + 6 * 30 * 24 * 60 * 60 * 1000) / 1000);
@@ -387,7 +408,7 @@ class IGDBClient {
     excludeIds: number[] = [],
     limit: number = 20
   ): Promise<IGDBGame[]> {
-    if (!config.igdb.isConfigured) return [];
+    if (!(await this.ensureConfigured())) return [];
     if (genres.length === 0) return [];
 
     // Convert genre names to a query format - use regex matching for better results
@@ -428,7 +449,7 @@ class IGDBClient {
     excludeIds: number[] = [],
     limit: number = 20
   ): Promise<IGDBGame[]> {
-    if (!config.igdb.isConfigured) return [];
+    if (!(await this.ensureConfigured())) return [];
     if (platforms.length === 0) return [];
 
     // Use common platform names for better matching
@@ -481,7 +502,7 @@ class IGDBClient {
     userGames: Array<{ genres?: string[]; platforms?: string[]; igdbId?: number }>,
     limit: number = 20
   ): Promise<IGDBGame[]> {
-    if (!config.igdb.isConfigured) return [];
+    if (!(await this.ensureConfigured())) return [];
 
     if (userGames.length === 0) {
       // If user has no games, show popular games
@@ -558,7 +579,7 @@ class IGDBClient {
     limit: number = 20,
     offset: number = 0
   ): Promise<IGDBGame[]> {
-    if (!config.igdb.isConfigured) return [];
+    if (!(await this.ensureConfigured())) return [];
 
     // Sanitize the genre name to prevent query injection
     const cleanGenre = sanitizeIgdbInput(genre);
@@ -590,7 +611,7 @@ class IGDBClient {
     limit: number = 20,
     offset: number = 0
   ): Promise<IGDBGame[]> {
-    if (!config.igdb.isConfigured) return [];
+    if (!(await this.ensureConfigured())) return [];
 
     // Sanitize the platform name to prevent query injection
     const cleanPlatform = sanitizeIgdbInput(platform);
@@ -618,7 +639,7 @@ class IGDBClient {
   }
 
   async getGenres(): Promise<Array<{ id: number; name: string }>> {
-    if (!config.igdb.isConfigured) return [];
+    if (!(await this.ensureConfigured())) return [];
 
     const igdbQuery = `
       fields id, name;
@@ -636,7 +657,7 @@ class IGDBClient {
   }
 
   async getPlatforms(): Promise<Array<{ id: number; name: string }>> {
-    if (!config.igdb.isConfigured) return [];
+    if (!(await this.ensureConfigured())) return [];
 
     // Only get major gaming platforms
     const igdbQuery = `

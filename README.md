@@ -20,103 +20,57 @@ A video game management application inspired by the -Arr apps (Sonarr, Radarr, P
 
 ## Installation
 
+### Using Docker (Recommended)
+
+Docker is the easiest way to deploy Questarr with all dependencies included.
+
 ### Prerequisites
 
-- **Docker & Docker Compose** (recommended) OR
-- **Node.js 20+** and **PostgreSQL 16+**
+- **Docker & Docker Compose**
 - **IGDB API credentials** (required for game discovery)
 
-### Using Docker Compose (Recommended)
+Run Questarr directly using the published Docker image. It contains both the Questarr app & the PostgreSQL database.
 
-Docker Compose is the easiest way to deploy Questarr with all dependencies included.
+1. **Pull the image from the registry:**
+   ```bash
+   docker pull ghcr.io/doezer/questarr:latest
+   ```
 
-1. **Clone the repository:**
+2. **Run the container:**
+   ```bash
+   docker run -d ghcr.io/doezer/questarr:latest
+   ```
+
+3. **Access the application:**
+   Open your browser to `http://localhost:5000`
+
+#### Usage
+
+For advanced configuration, Modify the variables to your convenance.
+
 ```bash
-git clone https://github.com/Doezer/Questarr.git
-cd Questarr
-```
+   docker run \
+     -p <external_port>:5000 \
+     -e IGDB_CLIENT_ID=<your_client_id> \
+     -e IGDB_CLIENT_SECRET=<your_client_secret> \
+     -e POSTGRES_USER=postgres \
+     -e POSTGRES_PASSWORD=<your_password> \ --> This will be used for both the Questarr configuration and the db server
+     -e POSTGRES_DB=questarr \
+     -e POSTGRES_HOST=localhost \
+     -e POSTGRES_PORT=5432 \
+-d ghcr.io/doezer/questarr:latest
+   ```
+   
+## Configuration
 
-2. **Configure the application:**
-Edit `docker-compose.yml` directly and fill in your IGDB credentials in the `environment` section:
-```yaml
-      - IGDB_CLIENT_ID=<your_client_id>
-      - IGDB_CLIENT_SECRET=<your_client_secret>
-```
-The other variables are optional, if you want to change them. `JWT_SECRET` is automatically generated and stored in your database on first run.
-
-3. **Build and start the containers:**
-```bash
-docker-compose up -d
-```
-
-1. **Access the application:**
-Open your browser to `http://localhost:5000`
 
 1. **First-time setup:**
-- Create your admin account on first visit
+- Create your admin account
+- Configure the IGDB credentials
+Once logged-in: 
 - Configure indexers
 - Add downloaders
-
-**Update to latest version:**
-```bash
-git pull
-docker-compose down
-docker-compose build --no-cache
-docker-compose up -d
-```
-
-### Manual Installation (npm)
-
-For development or custom deployments without Docker.
-
-1. **Clone and install dependencies:**
-```bash
-git clone https://github.com/Doezer/Questarr.git
-cd Questarr
-npm install
-```
-
-2. **Set up PostgreSQL:**
-- Install PostgreSQL 16+ on your system
-- Create a database: `createdb questarr`
-- Create a `.env` file with your database connection string
-
-3. **Configure environment variables in `.env`:**
-```env
-# Required: IGDB API credentials (get from https://dev.twitch.tv/console)
-IGDB_CLIENT_ID=your_client_id_here
-IGDB_CLIENT_SECRET=your_client_secret_here
-JWT_SECRET=change-this-to-a-secure-random-string
-
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=password
-POSTGRES_DB=questarr
-POSTGRES_HOST=localhost --> Point this to your DB
-POSTGRES_PORT=5432
-```
-
-4. **Initialize the database:**
-```bash
-npm run db:migrate
-```
-
-5. **Build and start:**
-
-**Development mode (with hot reload):**
-```bash
-npm run dev
-```
-
-**Production mode:**
-```bash
-npm run build
-npm start
-```
-
-6. **Access the application:**
-Open your browser to `http://localhost:5000`
-
-## Configuration
+- Add games!
 
 See [Configuration on the Wiki](https://github.com/Doezer/Questarr/wiki/Configuring-the-application#configure-app-behavior-in-settings--general) for more detailed info.
 
@@ -138,6 +92,77 @@ IGDB provides game metadata (covers, descriptions, ratings, release dates, etc.)
 
 </details>
 
+
+<details>
+<summary><b>Advanced usage</b></summary>
+
+### Docker compose
+
+This is mainly for users who want the latest commit (e.g when trying out fixes for an issue) or contributing users.
+
+1. **Clone the repository:**
+```bash
+git clone https://github.com/Doezer/Questarr.git
+cd Questarr
+```
+
+1. **Configure the application:**
+Edit `docker-compose.yml` directly if you need to setup a specific environment.
+
+1. **Build and start the containers:**
+```bash
+docker-compose up -d
+```
+
+1. **Access the application:**
+Open your browser to `http://localhost:5000`
+
+
+### **Update to latest version for Docker**
+
+Your database content will be kept.
+
+```bash
+git pull
+docker-compose down
+docker-compose build --no-cache
+docker-compose up -d
+```
+
+### Manual Installation (npm) - NOT RECOMMENDED
+
+For development or custom deployments without Docker. Launching it requires having a PostgreSQL DB configured apart (can use the docker compose file). Not for normal users.
+
+1. **Clone and install dependencies:**
+```bash
+git clone https://github.com/Doezer/Questarr.git
+npm install
+```
+
+2. **Use the DB from docker file or Set up PostgreSQL:**
+- Install PostgreSQL 16+ on your system
+- Create a database: `createdb questarr`
+- Create a `.env` file and provide your custom database connection string
+
+3. **Configure environment variables in `.env`:**
+See the .env.example for available variables.
+
+4. **Initialize the database:**
+This will run available migration files.
+```bash
+npm run db:migrate
+```
+You may run db:push instead if you have set DATABASE_URL (only for development)
+
+5. **Development mode (with hot reload):**
+```bash
+npm run dev
+```
+
+6. **Access the application:**
+Open your browser to `http://localhost:5000`
+
+</details>
 
 ## Troubleshooting
 See [Troubleshooting on the Wiki](https://github.com/Doezer/Questarr/wiki/Troubleshooting)

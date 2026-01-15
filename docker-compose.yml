@@ -13,7 +13,7 @@ services:
       # Database connection settings
       - POSTGRES_HOST=db
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-questarr}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-password}
       - POSTGRES_DB=${POSTGRES_DB:-questarr}
       # IGDB Credentials (Optional - Required for game discovery, will be set at first startup if not set here)
       # - IGDB_CLIENT_ID=${IGDB_CLIENT_ID}
@@ -36,7 +36,7 @@ services:
       - "5432:5432"
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-questarr}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-password}
       - POSTGRES_DB=${POSTGRES_DB:-questarr}
     volumes:
       - postgres_data:/var/lib/postgresql/data

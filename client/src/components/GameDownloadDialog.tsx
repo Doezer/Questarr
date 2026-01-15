@@ -704,10 +704,13 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                       </span>
                                     </>
                                   )}
-                                </div>
                                 {download.indexerName && (
-                                  <span className="flex-shrink-0">{download.indexerName}</span>
+                                  <>
+                                    <span>•</span>
+                                    <span className="flex-shrink-0">{download.indexerName}</span>
+                                  </>
                                 )}
+                                </div>
                                 <div className="flex flex-grow-1 justify-end">
                                   <Badge
                                     variant={isUsenet ? "secondary" : "default"}

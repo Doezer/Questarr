@@ -1641,25 +1641,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const dbClientId = await storage.getSystemConfig("igdb.clientId");
       const dbClientSecret = await storage.getSystemConfig("igdb.clientSecret");
       
+      let clientId: string | undefined;
+
       if (dbClientId && dbClientSecret) {
         isConfigured = true;
         source = "database";
+        clientId = dbClientId;
       } else if (appConfig.igdb.isConfigured) {
         // Fallback to environment variables
         isConfigured = true;
         source = "env";
+        clientId = appConfig.igdb.clientId;
       }
 
       const config: Config = {
         igdb: {
           configured: isConfigured,
           source,
+          clientId,
         },
       };
       res.json(config);
     } catch (error) {
       routesLogger.error({ error }, "error fetching config");
       res.status(500).json({ error: "Failed to fetch configuration" });
+    }
+  });
+
+  // IGDB Configuration endpoint
+  app.post("/api/settings/igdb", authenticateToken, async (req, res) => {
+    try {
+      const { clientId, clientSecret } = req.body;
+
+      if (!clientId || !clientSecret) {
+        return res.status(400).json({ error: "Client ID and Client Secret are required" });
+      }
+
+      await storage.setSystemConfig("igdb.clientId", clientId.trim());
+      await storage.setSystemConfig("igdb.clientSecret", clientSecret.trim());
+      
+      routesLogger.info("IGDB credentials updated via settings");
+      res.json({ success: true });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to update IGDB credentials");
+      res.status(500).json({ error: "Failed to update IGDB credentials" });
     }
   });
 

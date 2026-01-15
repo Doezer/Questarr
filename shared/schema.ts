@@ -274,6 +274,7 @@ export interface Config {
   igdb: {
     configured: boolean;
     source?: "env" | "database";
+    clientId?: string;
   };
 }
 

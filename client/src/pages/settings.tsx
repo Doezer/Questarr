@@ -69,7 +69,10 @@ export default function SettingsPage() {
       setSearchIntervalHours(userSettings.searchIntervalHours);
       setIgdbRateLimitPerSecond(userSettings.igdbRateLimitPerSecond);
     }
-  }, [userSettings]);
+    if (config?.igdb.clientId) {
+      setIgdbClientId(config.igdb.clientId);
+    }
+  }, [userSettings, config]);
 
   const updateSettingsMutation = useMutation({
     mutationFn: async (updates: Partial<UserSettings>) => {

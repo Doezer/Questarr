@@ -13,14 +13,14 @@ export const igdbRateLimiter = rateLimit({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const userId = (req as any).user?.id;
       if (!userId) {
-        return 3; // Default for unauthenticated requests
+        return 20; // Default for unauthenticated requests
       }
 
       const settings = await storage.getUserSettings(userId);
-      return settings?.igdbRateLimitPerSecond ?? 3;
+      return settings?.igdbRateLimitPerSecond ?? 20;
     } catch (error) {
       console.error("Error fetching user rate limit:", error);
-      return 3; // Fallback to default on error
+      return 20; // Fallback to default on error
     }
   },
   message: "Too many IGDB requests, please try again later",

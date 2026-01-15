@@ -93,6 +93,12 @@ class IGDBClient {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private cache = new Map<string, CacheEntry<any>>();
 
+  // Request queueing properties
+  private requestQueue: Promise<void> = Promise.resolve();
+  private lastRequestTime: number = 0;
+  // IGDB limit is ~4 req/s. 250ms is 4 req/s. Use 300ms to be safe (~3.33 req/s).
+  private readonly MIN_REQUEST_INTERVAL = 300;
+
   private async getCredentials(): Promise<{ clientId: string | undefined; clientSecret: string | undefined }> {
     const dbClientId = await storage.getSystemConfig("igdb.clientId");
     const dbClientSecret = await storage.getSystemConfig("igdb.clientSecret");
@@ -111,6 +117,26 @@ class IGDBClient {
     if (config.igdb.isConfigured) return true;
     const { clientId, clientSecret } = await this.getCredentials();
     return !!(clientId && clientSecret);
+  }
+
+  private async queueRequest<T>(fn: () => Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      this.requestQueue = this.requestQueue.then(async () => {
+        try {
+          const now = Date.now();
+          const timeSinceLast = now - this.lastRequestTime;
+          if (timeSinceLast < this.MIN_REQUEST_INTERVAL) {
+            const delay = this.MIN_REQUEST_INTERVAL - timeSinceLast;
+            await new Promise((r) => setTimeout(r, delay));
+          }
+          this.lastRequestTime = Date.now();
+          const result = await fn();
+          resolve(result);
+        } catch (error) {
+          reject(error);
+        }
+      });
+    });
   }
 
   private async authenticate(): Promise<string> {
@@ -162,33 +188,36 @@ class IGDBClient {
     }
     igdbLogger.debug({ cacheKey }, "cache miss");
 
-    const token = await this.authenticate();
-    const { clientId } = await this.getCredentials();
+    // Queue the API request to respect rate limits
+    return this.queueRequest(async () => {
+      const token = await this.authenticate();
+      const { clientId } = await this.getCredentials();
 
-    const response = await fetch(`https://api.igdb.com/v4/${endpoint}`, {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        "Client-ID": clientId!,
-        Authorization: `Bearer ${token}`,
-      },
-      body: query,
+      const response = await fetch(`https://api.igdb.com/v4/${endpoint}`, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Client-ID": clientId!,
+          Authorization: `Bearer ${token}`,
+        },
+        body: query,
+      });
+
+      if (!response.ok) {
+        throw new Error(`IGDB API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      // ⚡ Bolt: If a TTL is specified, store the response in the cache.
+      if (ttl > 0) {
+        const expiry = Date.now() + ttl;
+        this.cache.set(cacheKey, { data, expiry });
+        igdbLogger.debug({ cacheKey, ttl }, "cached response");
+      }
+
+      return data;
     });
-
-    if (!response.ok) {
-      throw new Error(`IGDB API error: ${response.status}`);
-    }
-
-    const data = await response.json();
-
-    // ⚡ Bolt: If a TTL is specified, store the response in the cache.
-    if (ttl > 0) {
-      const expiry = Date.now() + ttl;
-      this.cache.set(cacheKey, { data, expiry });
-      igdbLogger.debug({ cacheKey, ttl }, "cached response");
-    }
-
-    return data;
   }
 
   async searchGames(query: string, limit: number = 20): Promise<IGDBGame[]> {

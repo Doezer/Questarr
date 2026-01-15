@@ -424,9 +424,7 @@ async function checkAutoSearch() {
                 const rules = downloadRulesSchema.parse(parsed);
                 minSeeders = rules.minSeeders;
                 sortBy = rules.sortBy;
-                if (rules.visibleCategories) {
-                  visibleCategoriesSet = new Set(rules.visibleCategories);
-                }
+                visibleCategoriesSet = new Set(rules.visibleCategories);
               } catch (error) {
                 igdbLogger.warn({ gameTitle: game.title, error }, "Failed to parse download rules");
               }

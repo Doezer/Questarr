@@ -13,16 +13,35 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Filter, RotateCcw, Download, RefreshCw } from "lucide-react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import type { DownloadRules } from "@shared/schema";
+import type { DownloadCategory } from "@shared/download-categorizer";
 
 interface AutoDownloadRulesSettingsProps {
   rules: DownloadRules | null;
   onChange: (rules: DownloadRules) => void;
   onReset: () => void;
 }
+
+const CATEGORY_DEFINITIONS = [
+  { value: "main", label: "Main Game", description: "Full game downloads" },
+  {
+    value: "update",
+    label: "Updates & Patches",
+    description: "Game updates, patches, and hotfixes",
+  },
+  {
+    value: "dlc",
+    label: "DLC & Expansions",
+    description: "Downloadable content and season passes",
+  },
+  {
+    value: "extra",
+    label: "Extras",
+    description: "Soundtracks, artbooks, and bonus content",
+  },
+] as const;
 
 const DEFAULT_RULES: DownloadRules = {
   minSeeders: 0,
@@ -42,8 +61,8 @@ export default function AutoDownloadRulesSettings({
   const [sortBy, setSortBy] = useState<"seeders" | "date" | "size">(
     rules?.sortBy ?? "seeders"
   );
-  const [visibleCategories, setVisibleCategories] = useState<Set<string>>(
-    new Set(rules?.visibleCategories ?? ["main", "update", "dlc", "extra"])
+  const [visibleCategories, setVisibleCategories] = useState<Set<DownloadCategory>>(
+    new Set((rules?.visibleCategories ?? ["main", "update", "dlc", "extra"]) as DownloadCategory[])
   );
 
   const saveRulesMutation = useMutation({
@@ -71,29 +90,18 @@ export default function AutoDownloadRulesSettings({
 
   // Update local state when rules prop changes from parent
   useEffect(() => {
-    if (rules) {
-      setMinSeeders((prev) => (prev !== rules.minSeeders ? rules.minSeeders : prev));
-      setSortBy((prev) => (prev !== rules.sortBy ? rules.sortBy : prev));
-      setVisibleCategories((prev) => {
-        const newSet = new Set(rules.visibleCategories);
-        if (prev.size === newSet.size && Array.from(newSet).every((val) => prev.has(val))) {
-          return prev;
-        }
-        return newSet;
-      });
-    } else {
-      // Reset to defaults if rules are null
-      const def = DEFAULT_RULES;
-      setMinSeeders((prev) => (prev !== def.minSeeders ? def.minSeeders : prev));
-      setSortBy((prev) => (prev !== def.sortBy ? def.sortBy : prev));
-      setVisibleCategories((prev) => {
-        const defSet = new Set(def.visibleCategories);
-        if (prev.size === defSet.size && Array.from(defSet).every((val) => prev.has(val))) {
-          return prev;
-        }
-        return defSet;
-      });
-    }
+    const source = rules ?? DEFAULT_RULES;
+    setMinSeeders(source.minSeeders);
+    setSortBy(source.sortBy);
+
+    // Only update set if the content has changed to avoid infinite loop
+    setVisibleCategories((prev) => {
+      const newSet = new Set(source.visibleCategories as DownloadCategory[]);
+      if (prev.size === newSet.size && Array.from(newSet).every((val) => prev.has(val))) {
+        return prev;
+      }
+      return newSet;
+    });
   }, [rules]);
 
   // Automatically apply changes to parent component when local state changes
@@ -101,11 +109,11 @@ export default function AutoDownloadRulesSettings({
     onChange({
       minSeeders,
       sortBy,
-      visibleCategories: Array.from(visibleCategories) as ("main" | "update" | "dlc" | "extra")[],
+      visibleCategories: Array.from(visibleCategories),
     });
   }, [minSeeders, sortBy, visibleCategories, onChange]);
 
-  const handleCategoryChange = (category: string) => {
+  const handleCategoryChange = (category: DownloadCategory) => {
     setVisibleCategories((prev) => {
       const next = new Set(prev);
       if (next.has(category)) {
@@ -190,24 +198,7 @@ export default function AutoDownloadRulesSettings({
           <div className="space-y-2">
             <Label className="text-sm font-medium">Content Types to Show</Label>
             <div className="space-y-2">
-              {[
-                { value: "main", label: "Main Game", description: "Full game downloads" },
-                {
-                  value: "update",
-                  label: "Updates & Patches",
-                  description: "Game updates, patches, and hotfixes",
-                },
-                {
-                  value: "dlc",
-                  label: "DLC & Expansions",
-                  description: "Downloadable content and season passes",
-                },
-                {
-                  value: "extra",
-                  label: "Extras",
-                  description: "Soundtracks, artbooks, and bonus content",
-                },
-              ].map((cat) => (
+              {CATEGORY_DEFINITIONS.map((cat) => (
                 <div key={cat.value} className="flex items-start gap-3">
                   <Checkbox
                     id={`cat-${cat.value}`}
@@ -248,9 +239,7 @@ export default function AutoDownloadRulesSettings({
               const rulesToSave = {
                 minSeeders,
                 sortBy,
-                visibleCategories: Array.from(visibleCategories) as (
-                  "main" | "update" | "dlc" | "extra"
-                )[],
+                visibleCategories: Array.from(visibleCategories),
               };
               saveRulesMutation.mutate(rulesToSave);
             }}

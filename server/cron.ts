@@ -11,9 +11,6 @@ const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const DOWNLOAD_CHECK_INTERVAL_MS = 60 * 1000; // 1 minute
 const AUTO_SEARCH_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 
-// Track last search time per user
-const lastAutoSearchTime = new Map<string, number>();
-
 export function startCronJobs() {
   igdbLogger.info("🕐 Starting cron jobs...");
   igdbLogger.info(
@@ -371,7 +368,7 @@ async function checkAutoSearch() {
         }
 
         // Check if enough time has passed since last search
-        const lastSearch = lastAutoSearchTime.get(userId) || 0;
+        const lastSearch = settings.lastAutoSearch ? new Date(settings.lastAutoSearch).getTime() : 0;
         const timeSinceLastSearch = Date.now() - lastSearch;
         const intervalMs = settings.searchIntervalHours * 60 * 60 * 1000;
 
@@ -384,7 +381,8 @@ async function checkAutoSearch() {
 
         if (wantedGames.length === 0) {
           igdbLogger.debug({ userId }, "No wanted games found");
-          lastAutoSearchTime.set(userId, Date.now());
+          // Update last search time even if no games found, to avoid checking again too soon
+          await storage.updateUserSettings(userId, { lastAutoSearch: new Date() });
           continue;
         }
 
@@ -520,7 +518,7 @@ async function checkAutoSearch() {
         );
 
         // Update last search time
-        lastAutoSearchTime.set(userId, Date.now());
+        await storage.updateUserSettings(userId, { lastAutoSearch: new Date() });
       } catch (error) {
         igdbLogger.error({ userId, error }, "Error processing auto-search for user");
       }

@@ -8,6 +8,9 @@ import {
   Download,
   AlertCircle,
   Gauge,
+  Eye,
+  EyeOff,
+  HelpCircle,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +19,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import AutoDownloadRulesSettings from "@/components/AutoDownloadRulesSettings";
@@ -51,6 +55,11 @@ export default function SettingsPage() {
   const [notifyUpdates, setNotifyUpdates] = useState(true);
   const [searchIntervalHours, setSearchIntervalHours] = useState(6);
   const [igdbRateLimitPerSecond, setIgdbRateLimitPerSecond] = useState(3);
+
+  // Local state for IGDB form
+  const [igdbClientId, setIgdbClientId] = useState("");
+  const [igdbClientSecret, setIgdbClientSecret] = useState("");
+  const [showClientSecret, setShowClientSecret] = useState(false);
   const [downloadRules, setDownloadRules] = useState<DownloadRules | null>(null);
 
   // Sync with fetched settings
@@ -77,7 +86,11 @@ export default function SettingsPage() {
         setDownloadRules(null);
       }
     }
-  }, [userSettings]);
+
+    if (config?.igdb.clientId) {
+      setIgdbClientId(config.igdb.clientId);
+    }
+  }, [userSettings, config]);
 
   const updateSettingsMutation = useMutation({
     mutationFn: async (updates: Partial<UserSettings>) => {
@@ -109,6 +122,32 @@ export default function SettingsPage() {
       toast({
         title: "Update Failed",
         description: message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const updateIgdbMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/settings/igdb", {
+        clientId: igdbClientId,
+        clientSecret: igdbClientSecret,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "IGDB Updated",
+        description: "Your IGDB credentials have been saved.",
+      });
+      setIgdbClientId("");
+      setIgdbClientSecret("");
+      queryClient.invalidateQueries({ queryKey: ["/api/config"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Update Failed",
+        description: error.message,
         variant: "destructive",
       });
     },
@@ -147,6 +186,18 @@ export default function SettingsPage() {
       searchIntervalHours,
       igdbRateLimitPerSecond,
     });
+  };
+
+  const handleSaveIgdb = () => {
+    if (!igdbClientId || !igdbClientSecret) {
+      toast({
+        title: "Missing Credentials",
+        description: "Please provide both Client ID and Client Secret.",
+        variant: "destructive",
+      });
+      return;
+    }
+    updateIgdbMutation.mutate();
   };
 
   if (isLoading) {
@@ -194,6 +245,118 @@ export default function SettingsPage() {
             </AlertDescription>
           </Alert>
         )}
+
+        {/* IGDB API Configuration */}
+        <Card id="igdb-config">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <Key className="h-5 w-5 text-muted-foreground" />
+                <CardTitle className="text-lg">IGDB API</CardTitle>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-6 w-6 rounded-full">
+                      <HelpCircle className="h-4 w-4 text-muted-foreground" />
+                      <span className="sr-only">How to get credentials</span>
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-80">
+                    <div className="space-y-2 text-sm">
+                      <h4 className="font-bold">How to get IGDB credentials:</h4>
+                      <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
+                        <li>Go to the <a href="https://dev.twitch.tv/console" target="_blank" rel="noreferrer" className="text-primary underline">Twitch Developer Portal</a></li>
+                        <li>Register a new application (name it 'Questarr')</li>
+                        <li>Set Redirect URI to <code className="bg-muted px-1">http://localhost</code></li>
+                        <li>Select 'Application Integration' as category</li>
+                        <li>Copy the <strong>Client ID</strong></li>
+                        <li>Click 'New Secret' to get your <strong>Client Secret</strong></li>
+                      </ol>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
+            </div>
+            <CardDescription>
+              Twitch/IGDB API integration for game metadata.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-col space-y-2 pb-4 border-b">
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-medium">Status</span>
+                {config?.igdb.configured ? (
+                  <Badge variant={config.igdb.source === "database" ? "default" : "secondary"}>
+                    {config.igdb.source === "database" ? "Database (Active)" : "Environment Variable"}
+                  </Badge>
+                ) : (
+                  <Badge variant="destructive">Not Configured</Badge>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Credentials configured here will override environment variables (IGDB_CLIENT_ID, IGDB_CLIENT_SECRET).
+              </p>
+            </div>
+
+            <div className="space-y-4 pt-2">
+              <div className="space-y-2">
+                <Label htmlFor="igdb-client-id">Client ID</Label>
+                <Input
+                  id="igdb-client-id"
+                  placeholder="Enter your IGDB Client ID"
+                  value={igdbClientId}
+                  onChange={(e) => setIgdbClientId(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="igdb-client-secret">Client Secret</Label>
+                <div className="relative">
+                  <Input
+                    id="igdb-client-secret"
+                    type={showClientSecret ? "text" : "password"}
+                    placeholder="Enter your IGDB Client Secret"
+                    value={igdbClientSecret}
+                    onChange={(e) => setIgdbClientSecret(e.target.value)}
+                    className="pr-10"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                    onClick={() => setShowClientSecret(!showClientSecret)}
+                  >
+                    {showClientSecret ? (
+                      <EyeOff className="h-4 w-4 text-muted-foreground" />
+                    ) : (
+                      <Eye className="h-4 w-4 text-muted-foreground" />
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-4 border-t">
+              <Button
+                onClick={handleSaveIgdb}
+                disabled={updateIgdbMutation.isPending}
+                className="gap-2"
+              >
+                {updateIgdbMutation.isPending ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Key className="h-4 w-4" />
+                    Save Credentials
+                  </>
+                )}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Auto-Search Settings */}
         <Card>
@@ -333,31 +496,6 @@ export default function SettingsPage() {
           onReset={() => setDownloadRules(null)}
         />
 
-        {/* IGDB API Configuration */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center space-x-3">
-              <Key className="h-5 w-5 text-muted-foreground" />
-              <CardTitle className="text-lg">IGDB API</CardTitle>
-            </div>
-            <CardDescription>Twitch/IGDB API integration for game metadata</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex justify-between items-center">
-              <span className="text-sm font-medium">Status</span>
-              <Badge variant={config?.igdb.configured ? "default" : "secondary"}>
-                {config?.igdb.configured ? "Configured" : "Not Configured"}
-              </Badge>
-            </div>
-            {!config?.igdb.configured && (
-              <p className="text-sm text-muted-foreground">
-                Set IGDB_CLIENT_ID and IGDB_CLIENT_SECRET environment variables to enable IGDB
-                integration.
-              </p>
-            )}
-          </CardContent>
-        </Card>
-
         {/* Advanced Settings */}
         <Card>
           <CardHeader>
@@ -462,5 +600,3 @@ export default function SettingsPage() {
     </div>
   );
 }
-
-

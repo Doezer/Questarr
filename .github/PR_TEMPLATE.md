@@ -1,22 +1,21 @@
+# Pull Request *Template*
+
 ## Description
-<!-- What does this PR do? Why is it needed? -->
 
-## Changes
-<!-- List the key changes made -->
--
+Please include a summary of the change and which issue is fixed. Please also include relevant motivation and context. List any dependencies that are required for this change.
 
-## Verification
-<!-- How did you verify these changes? -->
-- [ ] Automated Tests: `npm test` passed
-- [ ] Manual Verification:
-- [ ] Linting: `npm run lint` passed
+## Type of change
 
-## Risk Analysis
-<!-- What are the risks? How can we rollback? -->
-- **Risk:**
-- **Rollback:** Revert this PR.
+- [ ] Bug fix (non-breaking change which fixes an issue)
+- [ ] New feature (non-breaking change which adds functionality)
+- [ ] Breaking change (fix or feature that would cause existing functionality to not work as expected)
+- [ ] Documentation update
 
-## Checklist
-- [ ] I have run `npm run lint` and `npm run check` locally.
-- [ ] I have added/updated tests for this change.
-- [ ] I have updated documentation if necessary.
+## Checklist:
+
+- [ ] My code follows the style guidelines of this project
+- [ ] I have performed a self-review of my own code
+- [ ] I have commented my code, particularly in hard-to-understand areas
+- [ ] I have made corresponding changes to the documentation
+- [ ] I have added tests that prove my fix is effective or that my feature works
+- [ ] New and existing unit tests pass locally with my changes

@@ -132,9 +132,15 @@ export default function AddGameModal({ children }: AddGameModalProps) {
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-10"
               data-testid="input-game-search"
+              aria-label="Search games"
             />
           </div>
-          <Button type="submit" disabled={isSearching} data-testid="button-search-games">
+          <Button
+            type="submit"
+            disabled={isSearching}
+            data-testid="button-search-games"
+            aria-label="Search"
+          >
             <Search className="w-4 h-4" />
           </Button>
         </form>

@@ -2,6 +2,7 @@
   "name": "questarr",
   "version": "1.0.4",
   "type": "module",
+  "packageManager": "npm@11.7.0",
   "license": "GPL-3.0-only",
   "scripts": {
     "dev": "cross-env NODE_ENV=development tsx server/index.ts",

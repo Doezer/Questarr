@@ -29,6 +29,13 @@
       "when": 1767817661322,
       "tag": "0003_add_last_auto_search",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1768483786591,
+      "tag": "0004_add_download_rules",
+      "breakpoints": true
     }
   ]
 }

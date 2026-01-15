@@ -22,7 +22,9 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import type { Config, UserSettings } from "@shared/schema";
+import AutoDownloadRulesSettings from "@/components/AutoDownloadRulesSettings";
+import type { Config, UserSettings, DownloadRules } from "@shared/schema";
+import { downloadRulesSchema } from "@shared/schema";
 import { useState, useEffect } from "react";
 
 export default function SettingsPage() {
@@ -43,7 +45,7 @@ export default function SettingsPage() {
     error: settingsError,
   } = useQuery<UserSettings>({
     queryKey: ["/api/settings"],
-    retry: false, // Don't retry if it fails, so we can show the error
+    retry: 3, // Retry up to 3 times as migrations might be running
   });
 
   // Local state for form
@@ -58,6 +60,7 @@ export default function SettingsPage() {
   const [igdbClientId, setIgdbClientId] = useState("");
   const [igdbClientSecret, setIgdbClientSecret] = useState("");
   const [showClientSecret, setShowClientSecret] = useState(false);
+  const [downloadRules, setDownloadRules] = useState<DownloadRules | null>(null);
 
   // Sync with fetched settings
   useEffect(() => {
@@ -68,7 +71,22 @@ export default function SettingsPage() {
       setNotifyUpdates(userSettings.notifyUpdates);
       setSearchIntervalHours(userSettings.searchIntervalHours);
       setIgdbRateLimitPerSecond(userSettings.igdbRateLimitPerSecond);
+
+      // Parse download rules from JSON string
+      if (userSettings.downloadRules) {
+        try {
+          const parsed = JSON.parse(userSettings.downloadRules);
+          const validated = downloadRulesSchema.parse(parsed);
+          setDownloadRules(validated);
+        } catch (error) {
+          console.warn("Failed to parse download rules", error);
+          setDownloadRules(null);
+        }
+      } else {
+        setDownloadRules(null);
+      }
     }
+
     if (config?.igdb.clientId) {
       setIgdbClientId(config.igdb.clientId);
     }
@@ -471,6 +489,12 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
 
+        {/* Auto-Download Rules */}
+        <AutoDownloadRulesSettings
+          rules={downloadRules}
+          onChange={setDownloadRules}
+          onReset={() => setDownloadRules(null)}
+        />
 
         {/* Advanced Settings */}
         <Card>

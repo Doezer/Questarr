@@ -495,13 +495,14 @@ export class MemStorage implements IStorage {
     const id = randomUUID();
     const settings: UserSettings = {
       id,
-      ...insertSettings,
+      userId: insertSettings.userId,
       autoSearchEnabled: insertSettings.autoSearchEnabled ?? true,
       autoDownloadEnabled: insertSettings.autoDownloadEnabled ?? false,
       notifyMultipleDownloads: insertSettings.notifyMultipleDownloads ?? true,
       notifyUpdates: insertSettings.notifyUpdates ?? true,
       searchIntervalHours: insertSettings.searchIntervalHours ?? 6,
       igdbRateLimitPerSecond: insertSettings.igdbRateLimitPerSecond ?? 3,
+      downloadRules: insertSettings.downloadRules ?? null,
       lastAutoSearch: insertSettings.lastAutoSearch ?? null,
       updatedAt: new Date(),
     };

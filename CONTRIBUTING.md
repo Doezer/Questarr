@@ -1,84 +1,33 @@
 # Contributing to Questarr
 
-Thank you for your interest in contributing to Questarr! We welcome contributions from the community.
+Thank you for your interest in contributing to Questarr! This document provides guidelines and instructions for contributing.
 
-## Getting Started
+## Development Setup
 
-1. Fork the repository
-2. Clone your fork: `git clone https://github.com/YOUR_USERNAME/Questarr.git`
-3. Create a new branch: `git checkout -b feature/your-feature-name`
-4. Make your changes
-5. Test your changes thoroughly
-6. Commit with clear messages: `git commit -m "Add feature: description"`
-7. Push to your fork: `git push origin feature/your-feature-name`
-8. Open a Pull Request
-Note: do not merge into your own branch if you intend to do a PR
+1.  **Clone the repository**
+2.  **Install dependencies**: `npm install`
+3.  **Start development server**: `npm run dev`
+4.  **Run tests**: `npm test`
 
-## Development Guidelines
+## Coding Standards
 
-```bash
-# Run development server with hot reload
-npm run dev
+-   **TypeScript**: We use TypeScript for type safety. Avoid `any` whenever possible.
+-   **Linting**: Run `npm run lint` to check for linting errors. We follow standard ESLint rules.
+-   **Formatting**: We use Prettier. Run `npm run format` to format your code.
 
-# Type check
-npm run check
+## Testing
 
-# Run tests
-npm test
+-   All new features and bug fixes must include tests.
+-   Run `npm test` to execute the test suite.
+-   Ensure all tests pass before submitting a PR.
 
-# Lint code
-npm run lint
+## Pull Requests
 
-# Format code
-npm run format
-```
-### Code Style
+-   Use the provided PR template.
+-   Keep PRs focused and small.
+-   Include a clear description of the changes and the problem they solve.
+-   Ensure all checks pass (lint, build, test).
 
-- Follow the existing TypeScript and React patterns in the codebase
-- Use Tailwind CSS for styling (follow the design guidelines)
-- Run `npm run lint` and `npm run format` before committing
-- Ensure `npm run check` passes without TypeScript errors
+## Operational Procedures
 
-### Testing
-
-- Add tests for new features when applicable
-- Run `npm test` to ensure all tests pass
-- Test UI changes in both light and dark themes (currently dark-first)
-
-### Commit Messages
-
-- Use clear, descriptive commit messages
-- Start with a verb in the present tense (e.g., "Add", "Fix", "Update")
-- Reference issue numbers when applicable (e.g., "Fix #123: description")
-
-### Pull Requests
-
-- Provide a clear description of what your PR does
-- Link related issues
-- Ensure all checks pass before requesting review
-- Be responsive to feedback and questions
-
-### Installation
-
-
-## Project Structure
-
-- `/client` - React frontend application
-- `/server` - Express backend application
-- `/shared` - Shared types and schemas
-- 
-
-## Need Help?
-
-- Check existing issues for similar problems or questions
-- Open a new issue if you find a bug or have a feature request
-- Be respectful and constructive in all interactions
-
-## Code of Conduct
-
-- Be respectful and inclusive
-- Focus on constructive feedback
-- Help create a welcoming environment for all contributors
-- Use of AI is welcome
-
-Thank you for contributing to Questarr!
+See `.github/OPERATIONS.md` for detailed operational procedures.

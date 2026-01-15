@@ -948,7 +948,12 @@ class RTorrentClient implements DownloaderClient {
       const result = await this.makeXMLRPCRequest(addMethod, ["", buffer]);
 
       // Result is usually 0 on success
-      if (result === 0) {
+    // Some rTorrent versions might return an empty string or other success indicators,
+    // but the XML-RPC spec says 0 is success for load commands.
+    // However, if result is not exactly 0, we might still want to check if it's considered success by other means.
+    // But for now, we stick to strict check or specific known success values.
+    // Since result is typed as XMLValue which is `any`, we cast it.
+    if ((result as unknown) === 0) {
         // Set category/label if specified
         const category = request.category || this.downloader.category;
         if (category && infoHash !== "unknown") {
@@ -1007,8 +1012,10 @@ class RTorrentClient implements DownloaderClient {
       ]);
 
       // Filter for the specific ID since d.multicall2 returns all downloads in the view
-      if (result && result.length > 0) {
-        const download = result.find(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const resultCast = result as any[];
+      if (resultCast && resultCast.length > 0) {
+        const download = resultCast.find(
           (t: unknown[]) => (t as string[])[0].toLowerCase() === id.toLowerCase()
         );
         if (download) {
@@ -1043,6 +1050,8 @@ class RTorrentClient implements DownloaderClient {
         this.makeXMLRPCRequest("d.creation_date", [id]),
       ]);
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const basicInfoCast = basicInfo as any[];
       const [
         hash,
         name,
@@ -1058,7 +1067,7 @@ class RTorrentClient implements DownloaderClient {
         message,
         directory,
         creationDate,
-      ] = basicInfo;
+      ] = basicInfoCast;
 
       // Get files using f.multicall
       const filesResult = await this.makeXMLRPCRequest("f.multicall", [
@@ -1097,7 +1106,9 @@ class RTorrentClient implements DownloaderClient {
 
       // Map files
       // rTorrent priority: 0 = don't download (off), 1 = normal, 2 = high
-      const files: DownloadFile[] = (filesResult || []).map((file: unknown[]) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const filesResultCast = (filesResult || []) as any[];
+      const files: DownloadFile[] = filesResultCast.map((file: unknown[]) => {
         const [path, size, completedChunks, totalChunks, priority] = file;
         const fileProgress =
           (totalChunks as number) > 0
@@ -1118,7 +1129,9 @@ class RTorrentClient implements DownloaderClient {
       });
 
       // Map trackers
-      const trackers: DownloadTracker[] = (trackersResult || []).map((tracker: unknown[]) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const trackersResultCast = (trackersResult || []) as any[];
+      const trackers: DownloadTracker[] = trackersResultCast.map((tracker: unknown[]) => {
         // rTorrent tracker tuple: [url, group, isEnabled, seeders, leechers, ...optional fields]
         const [url, group, isEnabled, seeders, leechers, lastScrape, lastAnnounce, lastError] =
           tracker;
@@ -1193,8 +1206,10 @@ class RTorrentClient implements DownloaderClient {
       "d.custom1=",
     ]);
 
-    if (result) {
-      return result.map((torrent: unknown[]) => this.mapRTorrentStatus(torrent));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const resultCast = result as any[];
+    if (resultCast) {
+      return resultCast.map((torrent: unknown[]) => this.mapRTorrentStatus(torrent));
     }
 
     return [];
@@ -1844,11 +1859,13 @@ class QBittorrentClient implements DownloaderClient {
           {
             requestTitle: request.title,
             downloadCount: allDownloads.length,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             recentDownloads: allDownloads.slice(0, 3).map((t: any) => ({ name: t.name, hash: t.hash })),
           },
           "Looking for newly added download"
         );
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let matchingDownload: any = null;
         if (request.title) {
           const normalizedTitle = request.title
@@ -1857,6 +1874,7 @@ class QBittorrentClient implements DownloaderClient {
             .replace(/\s+/g, " ")
             .trim();
 
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           matchingDownload = allDownloads.find((t: any) => {
             if (!t.name) return false;
             const normalizedName = t.name
@@ -2470,8 +2488,7 @@ class QBittorrentClient implements DownloaderClient {
             "GET",
             `/api/v2/app/free_space?path=${encodeURIComponent(savePath)}`
           );
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const json = (await freeSpaceResponse.json()) as any;
+          const json = (await freeSpaceResponse.json()) as Record<string, unknown>;
           const bytes = coerceBytes(json?.free_space_on_disk);
 
           downloadersLogger.debug(
@@ -2491,8 +2508,7 @@ class QBittorrentClient implements DownloaderClient {
       // 2) Common endpoint: /api/v2/sync/maindata?rid=0 -> server_state.free_space_on_disk
       try {
         const maindataResponse = await this.makeRequest("GET", "/api/v2/sync/maindata?rid=0");
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const maindata = (await maindataResponse.json()) as any;
+        const maindata = (await maindataResponse.json()) as Record<string, unknown>;
         const bytes = coerceBytes(maindata?.server_state?.free_space_on_disk);
 
         downloadersLogger.debug(
@@ -2514,8 +2530,7 @@ class QBittorrentClient implements DownloaderClient {
       // 3) Last resort: some versions include it on /api/v2/transfer/info
       try {
         const transferResponse = await this.makeRequest("GET", "/api/v2/transfer/info");
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const transferInfo = (await transferResponse.json()) as any;
+        const transferInfo = (await transferResponse.json()) as Record<string, unknown>;
         const bytes = coerceBytes(transferInfo?.free_space_on_disk);
 
         downloadersLogger.debug(

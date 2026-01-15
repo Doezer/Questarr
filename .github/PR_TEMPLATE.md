@@ -1,21 +1,20 @@
-# Pull Request *Template*
-
 ## Description
+<!-- Describe your changes in detail -->
 
-Please include a summary of the change and which issue is fixed. Please also include relevant motivation and context. List any dependencies that are required for this change.
+## Motivation and Context
+<!-- Why is this change required? What problem does it solve? -->
 
-## Type of change
+## Changes
+<!-- List the main changes introduced by this PR -->
+-
 
-- [ ] Bug fix (non-breaking change which fixes an issue)
-- [ ] New feature (non-breaking change which adds functionality)
-- [ ] Breaking change (fix or feature that would cause existing functionality to not work as expected)
-- [ ] Documentation update
+## Verification
+<!-- How have you verified these changes? -->
+- [ ] Build succeeds
+- [ ] Tests pass
+- [ ] Linting passes
 
-## Checklist:
+## Screenshots (if applicable)
 
-- [ ] My code follows the style guidelines of this project
-- [ ] I have performed a self-review of my own code
-- [ ] I have commented my code, particularly in hard-to-understand areas
-- [ ] I have made corresponding changes to the documentation
-- [ ] I have added tests that prove my fix is effective or that my feature works
-- [ ] New and existing unit tests pass locally with my changes
+## Risks
+<!-- What are the potential risks of this change? -->

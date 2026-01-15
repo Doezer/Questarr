@@ -309,7 +309,7 @@ class IGDBClient {
     return results.length > 0 ? results[0] : null;
   }
 
-  async getGamesByIds(ids: number[]): Promise<IGDBGame[]> {
+  async getGamesByIds(ids: number[], concurrencyLimit: number = 3): Promise<IGDBGame[]> {
     if (!config.igdb.isConfigured) return [];
     if (ids.length === 0) return [];
 
@@ -322,12 +322,10 @@ class IGDBClient {
     const allResults: IGDBGame[] = [];
 
     // ⚡ Bolt: Fetch chunks in parallel batches to respect rate limits while improving performance.
-    // IGDB has a rate limit of 4 req/s. We process 3 chunks (300 games) concurrently,
-    // then wait 1s before the next batch to ensure we never exceed the per-second limit.
-    const CONCURRENCY_LIMIT = 3;
-
-    for (let i = 0; i < chunks.length; i += CONCURRENCY_LIMIT) {
-      const batch = chunks.slice(i, i + CONCURRENCY_LIMIT);
+    // IGDB has a default rate limit of 4 req/s. We use the user-configured limit (default 3)
+    // to process chunks concurrently, then wait 1s before the next batch.
+    for (let i = 0; i < chunks.length; i += concurrencyLimit) {
+      const batch = chunks.slice(i, i + concurrencyLimit);
 
       const batchResults = await Promise.all(
         batch.map(async (chunk) => {
@@ -344,8 +342,8 @@ class IGDBClient {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       batchResults.forEach((results: any) => allResults.push(...(results as IGDBGame[])));
 
-      // If we have more chunks to process, wait 1 second to respect 4 req/s limit
-      if (i + CONCURRENCY_LIMIT < chunks.length) {
+      // If we have more chunks to process, wait 1 second to respect the rate limit
+      if (i + concurrencyLimit < chunks.length) {
         await new Promise((resolve) => setTimeout(resolve, 1000));
       }
     }

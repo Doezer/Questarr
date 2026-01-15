@@ -476,8 +476,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .map((g) => g.igdbId)
         .filter((id): id is number => id !== null && id !== undefined);
 
+      // Get user's rate limit setting to throttle IGDB requests
+      const settings = await storage.getUserSettings(userId);
+      const rateLimit = settings?.igdbRateLimitPerSecond ?? 3;
+
       // Fetch all updated game data from IGDB in parallel/batches
-      const igdbGames = igdbIds.length > 0 ? await igdbClient.getGamesByIds(igdbIds) : [];
+      const igdbGames =
+        igdbIds.length > 0 ? await igdbClient.getGamesByIds(igdbIds, rateLimit) : [];
       const igdbGameMap = new Map(igdbGames.map((g) => [g.id, g]));
 
       let updatedCount = 0;

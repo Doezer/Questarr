@@ -11,11 +11,15 @@ on:
         type: choice
         options:
           - production
-          - staging
+          - dev
       tag:
         description: 'Docker image tag (leave empty for auto-generated tag)'
         required: false
         default: ''
+  
+  # Run daily at midnight for dev builds
+  schedule:
+    - cron: '0 0 * * *'
 
 permissions:
   contents: read
@@ -39,6 +43,24 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       
+      - name: Determine Environment
+        id: env
+        run: |
+          if [ "${{ github.event_name }}" == "schedule" ]; then
+            echo "ENVIRONMENT=dev" >> $GITHUB_ENV
+            echo "environment=dev" >> $GITHUB_OUTPUT
+          else
+            echo "ENVIRONMENT=${{ inputs.environment }}" >> $GITHUB_ENV
+            echo "environment=${{ inputs.environment }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get version from package.json
+        id: package_version
+        run: |
+          VERSION=$(jq -r .version package.json)
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
@@ -46,8 +68,10 @@ jobs:
           images: ghcr.io/${{ github.repository }}
           tags: |
             type=raw,value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
-            type=raw,value=${{ inputs.environment }}-latest
-            type=sha,prefix=${{ inputs.environment }}-sha-,format=short
+            type=raw,value=${{ steps.package_version.outputs.version }},enable=${{ env.ENVIRONMENT == 'production' }}
+            type=raw,value=latest,enable=${{ env.ENVIRONMENT == 'production' }}
+            type=raw,value=dev,enable=${{ env.ENVIRONMENT == 'dev' }}
+            type=sha,prefix=${{ env.ENVIRONMENT }}-sha-,format=short
       
       - name: Build and push Docker image
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
@@ -64,7 +88,7 @@ jobs:
         run: |
           echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment:** ${{ env.ENVIRONMENT }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Image:** ghcr.io/${{ github.repository }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Tags:**" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
@@ -73,10 +97,14 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Pull and run the image:" >> $GITHUB_STEP_SUMMARY
           echo '```bash' >> $GITHUB_STEP_SUMMARY
-          echo "docker pull ghcr.io/${{ github.repository }}:${{ inputs.environment }}-latest" >> $GITHUB_STEP_SUMMARY
+          TAG="latest"
+          if [ "${{ env.ENVIRONMENT }}" == "dev" ]; then
+            TAG="dev"
+          fi
+          echo "docker pull ghcr.io/${{ github.repository }}:$TAG" >> $GITHUB_STEP_SUMMARY
           echo "docker run -d -p 5000:5000 \\" >> $GITHUB_STEP_SUMMARY
           echo "  -e POSTGRES_PASSWORD=your_password \\" >> $GITHUB_STEP_SUMMARY
           echo "  -e IGDB_CLIENT_ID=your_client_id \\" >> $GITHUB_STEP_SUMMARY
           echo "  -e IGDB_CLIENT_SECRET=your_client_secret \\" >> $GITHUB_STEP_SUMMARY
-          echo "  ghcr.io/${{ github.repository }}:${{ inputs.environment }}-latest" >> $GITHUB_STEP_SUMMARY
+          echo "  ghcr.io/${{ github.repository }}:$TAG" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY

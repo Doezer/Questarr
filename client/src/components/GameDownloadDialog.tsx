@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Dialog,
@@ -102,42 +102,48 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     new Set(["main", "update", "dlc", "extra"] as DownloadCategory[])
   );
 
+  const setDefaults = useCallback(() => {
+    setSearchQuery("");
+    setShowBundleDialog(false);
+    setSelectedMainDownload(null);
+    setIsDirectDownloadMode(false);
+    setSelectedUpdateIndices(new Set());
+    setMinSeeders(0);
+    setSelectedIndexer("all");
+    setSortBy("seeders");
+    setShowFilters(false);
+    setVisibleCategories(new Set(["main", "update", "dlc", "extra"] as DownloadCategory[]));
+  }, []);
+
   const { data: userSettings } = useQuery<UserSettings>({
     queryKey: ["/api/settings"],
     enabled: open,
   });
 
+  const applyDownloadRules = useCallback(() => {
+    if (userSettings?.downloadRules) {
+      try {
+        const rules = downloadRulesSchema.parse(JSON.parse(userSettings.downloadRules));
+        setMinSeeders(rules.minSeeders);
+        setSortBy(rules.sortBy);
+        if (rules.visibleCategories) {
+          setVisibleCategories(new Set(rules.visibleCategories as DownloadCategory[]));
+        }
+      } catch (error) {
+        console.warn("Failed to apply download rules from settings", error);
+      }
+    }
+  }, [userSettings?.downloadRules]);
+
   // Auto-populate search when dialog opens with game title
   useEffect(() => {
     if (open && game) {
       setSearchQuery(game.title);
-
-      // Apply default download rules from settings
-      if (userSettings?.downloadRules) {
-        try {
-          const rules = downloadRulesSchema.parse(JSON.parse(userSettings.downloadRules));
-          setMinSeeders(rules.minSeeders);
-          setSortBy(rules.sortBy);
-          if (rules.visibleCategories) {
-            setVisibleCategories(new Set(rules.visibleCategories as DownloadCategory[]));
-          }
-        } catch (error) {
-          console.warn("Failed to apply download rules from settings", error);
-        }
-      }
+      applyDownloadRules();
     } else if (!open) {
-      setSearchQuery("");
-      setShowBundleDialog(false);
-      setSelectedMainDownload(null);
-      setIsDirectDownloadMode(false);
-      setSelectedUpdateIndices(new Set());
-      setMinSeeders(0);
-      setSelectedIndexer("all");
-      setSortBy("seeders");
-      setShowFilters(false);
-      setVisibleCategories(new Set(["main", "update", "dlc", "extra"] as DownloadCategory[]));
+      setDefaults();
     }
-  }, [open, game, userSettings]);
+  }, [open, game, applyDownloadRules, setDefaults]);
 
   const { data: searchResults, isLoading: isSearching } = useQuery<SearchResult>({
     queryKey: [`/api/search?query=${encodeURIComponent(searchQuery)}`],
@@ -301,6 +307,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     document.body.removeChild(link);
   };
 
+  // Unused currently, can this be removed?
   const _handleDirectDownload = (download: DownloadItem) => {
     // Check if this is a main game download and we have updates available
     if (categorizedDownloads.update.length > 0) {
@@ -325,6 +332,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     });
   };
 
+  // Unused currently, can this be removed?
   const _handleDirectDownloadWithUpdates = async (mainDownload: DownloadItem) => {
     // Check if there are updates to bundle
     if (categorizedDownloads.update.length === 0) {

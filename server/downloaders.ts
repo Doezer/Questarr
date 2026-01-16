@@ -10,6 +10,8 @@ import crypto from "crypto";
 import parseTorrent from "parse-torrent";
 import { XMLParser } from "fast-xml-parser";
 
+const DOWNLOAD_CLIENT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
+
 // Type definitions for API responses
 interface TransmissionTorrent {
   id: number;
@@ -206,8 +208,7 @@ class TransmissionClient implements DownloaderClient {
           const fetchTorrent = async (url: string) => {
             return fetch(url, {
               headers: {
-                "User-Agent":
-                  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+                "User-Agent": DOWNLOAD_CLIENT_USER_AGENT,
                 Accept: "application/x-bittorrent, */*",
               },
             });
@@ -830,8 +831,7 @@ class RTorrentClient implements DownloaderClient {
         downloadersLogger.debug({ url }, "Downloading file locally");
         return fetch(url, {
           headers: {
-            "User-Agent":
-              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "User-Agent": DOWNLOAD_CLIENT_USER_AGENT,
             Accept: "application/x-bittorrent, */*",
           },
         });
@@ -2040,22 +2040,36 @@ class QBittorrentClient implements DownloaderClient {
         { url: request.url },
         "Downloading torrent file from indexer (fallback)"
       );
+      
       let torrentFileBuffer: Buffer;
       let torrentFileName = "torrent.torrent";
       let parsedInfoHash: string | null = null;
 
       try {
-        const torrentResponse = await fetch(request.url, {
-          headers: {
-            "User-Agent": "Questarr/1.0",
-          },
-          signal: AbortSignal.timeout(30000),
-        });
+        const { response: torrentResponse, magnetLink } = await this.fetchWithMagnetDetection(request.url);
 
-        if (!torrentResponse.ok) {
-          throw new Error(
-            `Failed to download torrent: ${torrentResponse.status} ${torrentResponse.statusText}`
-          );
+        if (magnetLink) {
+          const magnetHash = extractHashFromUrl(magnetLink);
+          if (!magnetHash) {
+            // Should technically not happen if fetchWithMagnetDetection returns a magnet link that starts with magnet:
+            // but extractHashFromUrl does stricter checking
+            throw new Error("Could not extract hash from redirected magnet link");
+          }
+
+          downloadersLogger.info({ magnetHash }, "Adding redirected magnet link to qBittorrent");
+
+          // Recursively add the magnet link
+          // We construct a new request but preserve the original intent (category, path, etc.)
+          return this.addDownload({
+            ...request,
+            url: magnetLink
+          });
+        }
+
+        if (!torrentResponse || !torrentResponse.ok) {
+          const status = torrentResponse?.status || "unknown";
+          const statusText = torrentResponse?.statusText || "No response";
+          throw new Error(`Failed to download torrent: ${status} ${statusText}`);
         }
 
         const contentDisposition = torrentResponse.headers.get("content-disposition");
@@ -2084,13 +2098,34 @@ class QBittorrentClient implements DownloaderClient {
         );
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Unknown error";
+        const errorCause = error instanceof Error && "cause" in error
+          ? (error.cause as { code?: string; message?: string; errno?: number } | undefined)
+          : undefined;
+
+        // Detailed logging to diagnose "fetch failed"
         downloadersLogger.error(
-          { error: errorMessage, url: request.url },
+          {
+            error: errorMessage,
+            cause: errorCause,
+            code: errorCause?.code,
+            errno: errorCause?.errno,
+            url: request.url
+          },
           "Failed to download torrent file"
         );
+
+        let userFriendlyError = errorMessage;
+        if (errorMessage === "fetch failed" && errorCause) {
+          userFriendlyError += ` (${errorCause.code || errorCause.message || "Unknown cause"})`;
+
+          if (errorCause.code === 'ECONNREFUSED') {
+             userFriendlyError += " - The indexer refused the connection. Check if Prowlarr/Jackett is running and the port is correct.";
+          }
+        }
+
         return {
           success: false,
-          message: `Failed to download torrent file: ${errorMessage}`,
+          message: `Failed to download torrent file: ${userFriendlyError}`,
         };
       }
 
@@ -2859,6 +2894,97 @@ class QBittorrentClient implements DownloaderClient {
     }
 
     return response;
+  }
+
+  /**
+   * Helper to fetch a URL while manually handling redirects to detect magnet links.
+   * Standard fetch follows HTTP redirects but fails on protocol changes (HTTP -> magnet).
+   */
+  private async fetchWithMagnetDetection(
+    url: string,
+    maxRedirects = 5
+  ): Promise<{ response?: Response; magnetLink?: string }> {
+    let currentUrl = url;
+    let redirects = 0;
+
+    /**
+     * fetch function to use.
+     * Use a consistent User-Agent as some indexers block unknown or bot-like User-Agents
+     */
+    const fetchUrl = async (targetUrl: string) => {
+      return fetch(targetUrl, {
+        method: "GET",
+        headers: {
+          "User-Agent": DOWNLOAD_CLIENT_USER_AGENT,
+          Accept: "application/x-bittorrent, */*",
+        },
+        redirect: "manual",
+        signal: AbortSignal.timeout(30000),
+      });
+    };
+
+    while (redirects < maxRedirects) {
+      let response = await fetchUrl(currentUrl);
+
+      // Simple retry logic for 400 Bad Request with '+' in URL
+      // Some trackers/indexers don't handle '+' correctly in query params
+      if (!response.ok && response.status === 400 && currentUrl.includes("+")) {
+        try {
+          const urlObj = new URL(currentUrl);
+          const originalSearch = urlObj.search;
+          const fixedSearch = originalSearch.replace(/\+/g, "%20");
+          if (fixedSearch !== originalSearch) {
+            urlObj.search = fixedSearch;
+            const fixedUrl = urlObj.toString();
+            downloadersLogger.warn(
+              { original: currentUrl, fixed: fixedUrl },
+              "Retrying download with %20 instead of + in query string"
+            );
+            response = await fetchUrl(fixedUrl);
+          }
+        } catch (parseError) {
+          downloadersLogger.warn(
+            { url: currentUrl, error: parseError },
+            "Failed to parse URL when attempting '+' to '%20' retry"
+          );
+        }
+      }
+
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get("location");
+        if (!location) {
+          // Redirect without location, pass through so caller sees the 3xx response or handles it
+          return { response };
+        }
+
+        downloadersLogger.debug(
+          { currentUrl, location, status: response.status },
+          "Download URL returned redirect"
+        );
+
+        if (location.startsWith("magnet:")) {
+          downloadersLogger.info("Download URL redirected to a magnet link");
+          return { magnetLink: location };
+        }
+
+        // Handle relative URLs
+        try {
+          // If we have a base URL, use it
+          currentUrl = new URL(location, currentUrl).toString();
+        } catch (error) {
+          // Fallback if URL construction fails
+          downloadersLogger.warn({ location, error }, "Failed to parse redirect URL");
+          return { response };
+        }
+
+        redirects++;
+        continue;
+      }
+
+      return { response };
+    }
+
+    throw new Error(`Too many redirects (max ${maxRedirects})`);
   }
 }
 

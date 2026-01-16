@@ -1829,7 +1829,16 @@ class QBittorrentClient implements DownloaderClient {
         }
       };
 
-      const findRecentlyAddedDownload = async (): Promise<{ hash: string; name?: string } | null> => {
+      interface QBittorrentTorrent {
+        name: string;
+        hash: string;
+        added_on: number;
+      }
+
+      const findRecentlyAddedDownload = async (): Promise<{
+        hash: string;
+        name?: string;
+      } | null> => {
         // Wait a bit for qBittorrent to process the add (URL add or torrent upload)
         await new Promise((resolve) => setTimeout(resolve, 2000));
 
@@ -1837,19 +1846,18 @@ class QBittorrentClient implements DownloaderClient {
           "GET",
           "/api/v2/torrents/info?sort=added_on&reverse=true"
         );
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const allDownloads = (await allTorrentsResponse.json()) as any[];
+        const allDownloads = (await allTorrentsResponse.json()) as QBittorrentTorrent[];
 
         downloadersLogger.debug(
           {
             requestTitle: request.title,
             downloadCount: allDownloads.length,
-            recentDownloads: allDownloads.slice(0, 3).map((t: any) => ({ name: t.name, hash: t.hash })),
+            recentDownloads: allDownloads.slice(0, 3).map((t) => ({ name: t.name, hash: t.hash })),
           },
           "Looking for newly added download"
         );
 
-        let matchingDownload: any = null;
+        let matchingDownload: QBittorrentTorrent | undefined;
         if (request.title) {
           const normalizedTitle = request.title
             .toLowerCase()
@@ -1857,14 +1865,16 @@ class QBittorrentClient implements DownloaderClient {
             .replace(/\s+/g, " ")
             .trim();
 
-          matchingDownload = allDownloads.find((t: any) => {
+          matchingDownload = allDownloads.find((t) => {
             if (!t.name) return false;
             const normalizedName = t.name
               .toLowerCase()
               .replace(/[._-]/g, " ")
               .replace(/\s+/g, " ")
               .trim();
-            return normalizedName.includes(normalizedTitle) || normalizedTitle.includes(normalizedName);
+            return (
+              normalizedName.includes(normalizedTitle) || normalizedTitle.includes(normalizedName)
+            );
           });
         }
 
@@ -2019,12 +2029,18 @@ class QBittorrentClient implements DownloaderClient {
           };
         }
 
-        downloadersLogger.warn({ error, url: request.url }, "URL-based add failed; falling back to torrent-file upload");
+        downloadersLogger.warn(
+          { error, url: request.url },
+          "URL-based add failed; falling back to torrent-file upload"
+        );
       }
 
-      // 2) Fallback: download .torrent and upload it
-      // useful when qBittorrent can't reach the indexer URL or the URL is actually a redirect to a magnet
-      downloadersLogger.info({ url: request.url }, "Downloading torrent file from indexer (fallback)");
+      // 2) Fallback: download .torrent and upload it (useful when qBittorrent can't reach the indexer URL).
+      downloadersLogger.info(
+        { url: request.url },
+        "Downloading torrent file from indexer (fallback)"
+      );
+      
       let torrentFileBuffer: Buffer;
       let torrentFileName = "torrent.torrent";
       let parsedInfoHash: string | null = null;
@@ -2058,9 +2074,7 @@ class QBittorrentClient implements DownloaderClient {
 
         const contentDisposition = torrentResponse.headers.get("content-disposition");
         if (contentDisposition) {
-          const filenameMatch = contentDisposition.match(
-            /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/
-          );
+          const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
           if (filenameMatch && filenameMatch[1]) {
             torrentFileName = this.sanitizeMultipartFilename(filenameMatch[1].replace(/['"]/g, ""));
           }
@@ -2308,10 +2322,7 @@ class QBittorrentClient implements DownloaderClient {
       const torrent = downloads[0];
 
       // Get torrent properties for additional details
-      const propsResponse = await this.makeRequest(
-        "GET",
-        `/api/v2/torrents/properties?hash=${id}`
-      );
+      const propsResponse = await this.makeRequest("GET", `/api/v2/torrents/properties?hash=${id}`);
       const props = await propsResponse.json();
 
       // Get torrent files
@@ -2358,7 +2369,10 @@ class QBittorrentClient implements DownloaderClient {
 
       // Map trackers
       const trackers: DownloadTracker[] = trackersData
-        .filter((t) => t.url && t.url !== "** [DHT] **" && t.url !== "** [PeX] **" && t.url !== "** [LSD] **")
+        .filter(
+          (t) =>
+            t.url && t.url !== "** [DHT] **" && t.url !== "** [PeX] **" && t.url !== "** [LSD] **"
+        )
         .map((tracker) => {
           let status: DownloadTracker["status"] = "inactive";
           if (tracker.status === 2) {
@@ -2383,8 +2397,12 @@ class QBittorrentClient implements DownloaderClient {
         ...baseStatus,
         hash: torrent.hash,
         downloadDir: torrent.save_path,
-        addedDate: props.addition_date > 0 ? new Date(props.addition_date * 1000).toISOString() : undefined,
-        completedDate: props.completion_date > 0 ? new Date(props.completion_date * 1000).toISOString() : undefined,
+        addedDate:
+          props.addition_date > 0 ? new Date(props.addition_date * 1000).toISOString() : undefined,
+        completedDate:
+          props.completion_date > 0
+            ? new Date(props.completion_date * 1000).toISOString()
+            : undefined,
         files,
         trackers,
         totalPeers: props.peers_total || torrent.num_complete + torrent.num_incomplete,
@@ -2752,9 +2770,7 @@ class QBittorrentClient implements DownloaderClient {
           "qBittorrent authentication successful with cookie"
         );
       } else {
-        downloadersLogger.warn(
-          "qBittorrent authentication returned Ok but no SID cookie found"
-        );
+        downloadersLogger.warn("qBittorrent authentication returned Ok but no SID cookie found");
         // Some qBittorrent configs don't require cookies, so this might be okay
         this.cookie = null;
       }
@@ -2827,7 +2843,12 @@ class QBittorrentClient implements DownloaderClient {
     }
 
     downloadersLogger.debug(
-      { method, path, hasCookie: !!this.cookie, hasAuth: !!(this.downloader.username && this.downloader.password) },
+      {
+        method,
+        path,
+        hasCookie: !!this.cookie,
+        hasAuth: !!(this.downloader.username && this.downloader.password),
+      },
       "Making qBittorrent request"
     );
 
@@ -2840,10 +2861,7 @@ class QBittorrentClient implements DownloaderClient {
 
     if (response.status === 403 || response.status === 401) {
       // Session expired or unauthorized, re-authenticate
-      downloadersLogger.debug(
-        { status: response.status, path },
-        "Got 403/401, re-authenticating"
-      );
+      downloadersLogger.debug({ status: response.status, path }, "Got 403/401, re-authenticating");
       this.cookie = null;
       await this.authenticate(true);
 
@@ -3843,8 +3861,13 @@ class NZBGetClient implements DownloaderClient {
     const parsed = parser.parse(responseText);
 
     if (parsed.methodResponse?.fault) {
-      const fault = this.parseValueObj(parsed.methodResponse.fault.value) as Record<string, unknown>;
-      throw new Error(`NZBGet Fault: ${fault["faultString"] as string} (${fault["faultCode"] as number})`);
+      const fault = this.parseValueObj(parsed.methodResponse.fault.value) as Record<
+        string,
+        unknown
+      >;
+      throw new Error(
+        `NZBGet Fault: ${fault["faultString"] as string} (${fault["faultCode"] as number})`
+      );
     }
 
     if (parsed.methodResponse?.params?.param) {

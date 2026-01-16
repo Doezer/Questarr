@@ -24,7 +24,7 @@ describe("parseCategories", () => {
     // Standard qs parser produces strings or arrays of strings.
     // If we receive ['1000,2000', '3000'], we treat it as ['1000,2000', '3000'].
     // My implementation currently does NOT split strings inside arrays.
-    // It maps String() then filters. 
+    // It maps String() then filters.
     // If the input is ["1000", "2000"], it works.
     expect(parseCategories(["1000", "2000"])).toEqual(["1000", "2000"]);
   });

@@ -258,7 +258,9 @@ export default function SettingsPage() {
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>Database Migration Required</AlertTitle>
             <AlertDescription>
-              The user settings table hasn't been created yet. Please run <code className="px-1 py-0.5 bg-muted rounded">npm run db:migrate</code> to update the database schema, then restart the server.
+              The user settings table hasn't been created yet. Please run{" "}
+              <code className="px-1 py-0.5 bg-muted rounded">npm run db:migrate</code> to update the
+              database schema, then restart the server.
             </AlertDescription>
           </Alert>
         )}
@@ -281,21 +283,36 @@ export default function SettingsPage() {
                     <div className="space-y-2 text-sm">
                       <h4 className="font-bold">How to get IGDB credentials:</h4>
                       <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
-                        <li>Go to the <a href="https://dev.twitch.tv/console" target="_blank" rel="noreferrer" className="text-primary underline">Twitch Developer Portal</a></li>
+                        <li>
+                          Go to the{" "}
+                          <a
+                            href="https://dev.twitch.tv/console"
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-primary underline"
+                          >
+                            Twitch Developer Portal
+                          </a>
+                        </li>
                         <li>Register a new application (name it 'Questarr')</li>
-                        <li>Set Redirect URI to <code className="bg-muted px-1">http://localhost</code></li>
+                        <li>
+                          Set Redirect URI to{" "}
+                          <code className="bg-muted px-1">http://localhost</code>
+                        </li>
                         <li>Select 'Application Integration' as category</li>
-                        <li>Copy the <strong>Client ID</strong></li>
-                        <li>Click 'New Secret' to get your <strong>Client Secret</strong></li>
+                        <li>
+                          Copy the <strong>Client ID</strong>
+                        </li>
+                        <li>
+                          Click 'New Secret' to get your <strong>Client Secret</strong>
+                        </li>
                       </ol>
                     </div>
                   </PopoverContent>
                 </Popover>
               </div>
             </div>
-            <CardDescription>
-              Twitch/IGDB API integration for game metadata.
-            </CardDescription>
+            <CardDescription>Twitch/IGDB API integration for game metadata.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex flex-col space-y-2 pb-4 border-b">
@@ -303,14 +320,17 @@ export default function SettingsPage() {
                 <span className="text-sm font-medium">Status</span>
                 {config?.igdb.configured ? (
                   <Badge variant={config.igdb.source === "database" ? "default" : "secondary"}>
-                    {config.igdb.source === "database" ? "Database (Active)" : "Environment Variable"}
+                    {config.igdb.source === "database"
+                      ? "Database (Active)"
+                      : "Environment Variable"}
                   </Badge>
                 ) : (
                   <Badge variant="destructive">Not Configured</Badge>
                 )}
               </div>
               <p className="text-xs text-muted-foreground">
-                Credentials configured here will override environment variables (IGDB_CLIENT_ID, IGDB_CLIENT_SECRET).
+                Credentials configured here will override environment variables (IGDB_CLIENT_ID,
+                IGDB_CLIENT_SECRET).
               </p>
             </div>
 

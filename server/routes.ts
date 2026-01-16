@@ -45,7 +45,7 @@ import archiver from "archiver";
 // ⚡ Bolt: Simple in-memory cache implementation to avoid external dependencies
 // Caches storage info for 30 seconds to prevent spamming downloaders
 const storageCache = {
-  data: null as any,
+  data: null as unknown,
   expiry: 0,
   ttl: 30 * 1000, // 30 seconds in milliseconds
 };
@@ -1524,6 +1524,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await Promise.all(
           chunk.map(async (download: { link: string; title: string; downloadType?: string }) => {
             try {
+              if (!(await isSafeUrl(download.link))) {
+                console.warn(`Skipping unsafe URL in bundle: ${download.link}`);
+                return;
+              }
+
               const response = await fetch(download.link);
               if (response.ok) {
                 const buffer = await response.arrayBuffer();
@@ -1640,7 +1645,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Check database first (takes precedence)
       const dbClientId = await storage.getSystemConfig("igdb.clientId");
       const dbClientSecret = await storage.getSystemConfig("igdb.clientSecret");
-      
+
       let clientId: string | undefined;
 
       if (dbClientId && dbClientSecret) {
@@ -1679,7 +1684,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       await storage.setSystemConfig("igdb.clientId", clientId.trim());
       await storage.setSystemConfig("igdb.clientSecret", clientSecret.trim());
-      
+
       routesLogger.info("IGDB credentials updated via settings");
       res.json({ success: true });
     } catch (error) {

@@ -474,7 +474,9 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
           {showFilters && (
             <div className="grid grid-cols-3 gap-4 p-4 border rounded-md bg-muted/50">
               <div className="space-y-2">
-                <Label htmlFor="indexer" className="text-sm">Indexer</Label>
+                <Label htmlFor="indexer" className="text-sm">
+                  Indexer
+                </Label>
                 <Select
                   value={selectedIndexer}
                   onValueChange={setSelectedIndexer}
@@ -697,9 +699,8 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                           <span>grabs</span>
                                         </div>
                                       )}
-                                      {download.grabs !== undefined && download.age !== undefined && (
-                                        <span>•</span>
-                                      )}
+                                      {download.grabs !== undefined &&
+                                        download.age !== undefined && <span>•</span>}
                                       {download.age !== undefined && (
                                         <div className="flex items-center gap-1">
                                           <span className="text-purple-600 font-medium">
@@ -732,12 +733,12 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                       </span>
                                     </>
                                   )}
-                                {download.indexerName && (
-                                  <>
-                                    <span>•</span>
-                                    <span className="flex-shrink-0">{download.indexerName}</span>
-                                  </>
-                                )}
+                                  {download.indexerName && (
+                                    <>
+                                      <span>•</span>
+                                      <span className="flex-shrink-0">{download.indexerName}</span>
+                                    </>
+                                  )}
                                 </div>
                                 <div className="flex flex-grow-1 justify-end">
                                   <Badge

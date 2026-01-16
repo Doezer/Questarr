@@ -178,12 +178,29 @@ export default function SetupPage() {
                           <div className="space-y-2 text-sm">
                             <h4 className="font-bold">How to get IGDB credentials:</h4>
                             <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
-                              <li>Go to the <a href="https://dev.twitch.tv/console" target="_blank" rel="noreferrer" className="text-primary underline">Twitch Developer Portal</a></li>
+                              <li>
+                                Go to the{" "}
+                                <a
+                                  href="https://dev.twitch.tv/console"
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-primary underline"
+                                >
+                                  Twitch Developer Portal
+                                </a>
+                              </li>
                               <li>Register a new application (name it 'Questarr')</li>
-                              <li>Set Redirect URI to <code className="bg-muted px-1">http://localhost</code></li>
+                              <li>
+                                Set Redirect URI to{" "}
+                                <code className="bg-muted px-1">http://localhost</code>
+                              </li>
                               <li>Select 'Application Integration' as category</li>
-                              <li>Copy the <strong>Client ID</strong></li>
-                              <li>Click 'New Secret' to get your <strong>Client Secret</strong></li>
+                              <li>
+                                Copy the <strong>Client ID</strong>
+                              </li>
+                              <li>
+                                Click 'New Secret' to get your <strong>Client Secret</strong>
+                              </li>
                             </ol>
                           </div>
                         </PopoverContent>
@@ -215,11 +232,7 @@ export default function SetupPage() {
                       <FormItem>
                         <FormLabel>Client Secret</FormLabel>
                         <FormControl>
-                          <Input
-                            type="password"
-                            placeholder="IGDB Client Secret"
-                            {...field}
-                          />
+                          <Input type="password" placeholder="IGDB Client Secret" {...field} />
                         </FormControl>
                         <FormMessage />
                         <FormDescription>

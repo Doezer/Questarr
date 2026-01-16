@@ -47,7 +47,7 @@ describe("DownloaderManager", () => {
       addStopped: null,
       removeCompleted: null,
       postImportCategory: null,
-      settings: null
+      settings: null,
     };
 
     it("should connect and add download successfully", async () => {
@@ -114,7 +114,7 @@ describe("DownloaderManager", () => {
       addStopped: null,
       removeCompleted: null,
       postImportCategory: null,
-      settings: null
+      settings: null,
     };
 
     const downloader2: Downloader = {
@@ -137,7 +137,7 @@ describe("DownloaderManager", () => {
       addStopped: null,
       removeCompleted: null,
       postImportCategory: null,
-      settings: null
+      settings: null,
     };
 
     it("should fallback to second downloader if first fails", async () => {
@@ -228,7 +228,7 @@ describe("DownloaderManager", () => {
       addStopped: null,
       removeCompleted: null,
       postImportCategory: null,
-      settings: null
+      settings: null,
     };
 
     it("should connect successfully", async () => {
@@ -334,7 +334,7 @@ describe("DownloaderManager", () => {
       addStopped: null,
       removeCompleted: null,
       postImportCategory: null,
-      settings: null
+      settings: null,
     };
 
     it("should connect successfully with authentication", async () => {

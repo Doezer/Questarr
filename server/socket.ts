@@ -3,7 +3,6 @@ import { type Server as HttpServer } from "http";
 import { expressLogger } from "./logger.js";
 import { config } from "./config.js";
 
-
 let io: Server | undefined;
 
 export function setupSocketIO(httpServer: HttpServer) {

@@ -227,17 +227,17 @@ export const insertNotificationSchema = createInsertSchema(notifications).omit({
 export const downloadRulesSchema = z.object({
   minSeeders: z.number().int().min(0).default(0),
   sortBy: z.enum(["seeders", "date", "size"]).default("seeders"),
-  visibleCategories: z.array(z.enum(["main", "update", "dlc", "extra"]))
+  visibleCategories: z
+    .array(z.enum(["main", "update", "dlc", "extra"]))
     .default(["main", "update", "dlc", "extra"]),
 });
 
 export type DownloadRules = z.infer<typeof downloadRulesSchema>;
 
-export const insertUserSettingsSchema = createInsertSchema(userSettings)
-  .omit({
-    id: true,
-    updatedAt: true,
-  });
+export const insertUserSettingsSchema = createInsertSchema(userSettings).omit({
+  id: true,
+  updatedAt: true,
+});
 
 export const updateUserSettingsSchema = createInsertSchema(userSettings)
   .omit({
@@ -249,7 +249,7 @@ export const updateUserSettingsSchema = createInsertSchema(userSettings)
 
 // Type definitions - using Drizzle's table inference for select types
 export type User = typeof users.$inferSelect;
-export type InsertUser = typeof insertUserSchema["_output"];
+export type InsertUser = (typeof insertUserSchema)["_output"];
 
 export type Game = typeof games.$inferSelect & {
   // Additional fields for Discovery games
@@ -257,29 +257,29 @@ export type Game = typeof games.$inferSelect & {
   releaseYear?: number | null;
 };
 
-export type InsertGame = typeof insertGameSchema["_output"];
+export type InsertGame = (typeof insertGameSchema)["_output"];
 
-export type UpdateGameStatus = typeof updateGameStatusSchema["_output"];
+export type UpdateGameStatus = (typeof updateGameStatusSchema)["_output"];
 
 export type Indexer = typeof indexers.$inferSelect;
-export type InsertIndexer = typeof insertIndexerSchema["_output"];
+export type InsertIndexer = (typeof insertIndexerSchema)["_output"];
 
 export type Downloader = typeof downloaders.$inferSelect;
-export type InsertDownloader = typeof insertDownloaderSchema["_output"];
+export type InsertDownloader = (typeof insertDownloaderSchema)["_output"];
 
 export type GameDownload = typeof gameDownloads.$inferSelect;
-export type InsertGameDownload = typeof insertGameDownloadSchema["_output"];
+export type InsertGameDownload = (typeof insertGameDownloadSchema)["_output"];
 
 // Legacy type names for backward compatibility
 export type GameDownloadLegacy = GameDownload;
 export type InsertGameDownloadLegacy = InsertGameDownload;
 
 export type Notification = typeof notifications.$inferSelect;
-export type InsertNotification = typeof insertNotificationSchema["_output"];
+export type InsertNotification = (typeof insertNotificationSchema)["_output"];
 
 export type UserSettings = typeof userSettings.$inferSelect;
-export type InsertUserSettings = typeof insertUserSettingsSchema["_output"];
-export type UpdateUserSettings = typeof updateUserSettingsSchema["_output"];
+export type InsertUserSettings = (typeof insertUserSettingsSchema)["_output"];
+export type UpdateUserSettings = (typeof updateUserSettingsSchema)["_output"];
 
 // Application configuration type
 export interface Config {

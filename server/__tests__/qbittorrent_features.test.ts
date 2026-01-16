@@ -119,11 +119,16 @@ describe("QBittorrentClient - Advanced Features", () => {
 
     // Verify URL-based add call
     expect(fetchMock.mock.calls[1][0]).toBe("http://localhost:8080/api/v2/torrents/add");
-    const contentType = getHeader((fetchMock.mock.calls[1][1] as RequestInit).headers, "Content-Type");
+    const contentType = getHeader(
+      (fetchMock.mock.calls[1][1] as RequestInit).headers,
+      "Content-Type"
+    );
     expect(contentType ?? "").toContain("application/x-www-form-urlencoded");
     const urlAddBody = bodyToString((fetchMock.mock.calls[1][1] as RequestInit).body);
     expect(urlAddBody).toContain("urls=");
-    expect(decodeURIComponent(urlAddBody)).toContain("http://tracker.example.com/download/123.torrent");
+    expect(decodeURIComponent(urlAddBody)).toContain(
+      "http://tracker.example.com/download/123.torrent"
+    );
 
     // Verify info call (recently added)
     expect(fetchMock.mock.calls[2][0]).toBe(
@@ -359,9 +364,7 @@ describe("QBittorrentClient - Advanced Features", () => {
     expect(fetchMock.mock.calls[2][0]).toBe(
       "http://localhost:8080/api/v2/app/free_space?path=%2Fdownloads"
     );
-    expect(fetchMock.mock.calls[3][0]).toBe(
-      "http://localhost:8080/api/v2/sync/maindata?rid=0"
-    );
+    expect(fetchMock.mock.calls[3][0]).toBe("http://localhost:8080/api/v2/sync/maindata?rid=0");
   });
 
   it("should fall back when preferences fails but sync/maindata succeeds", async () => {
@@ -416,9 +419,7 @@ describe("QBittorrentClient - Advanced Features", () => {
 
     expect(fetchMock.mock.calls[0][0]).toBe("http://localhost:8080/api/v2/auth/login");
     expect(fetchMock.mock.calls[1][0]).toBe("http://localhost:8080/api/v2/app/preferences");
-    expect(fetchMock.mock.calls[2][0]).toBe(
-      "http://localhost:8080/api/v2/sync/maindata?rid=0"
-    );
+    expect(fetchMock.mock.calls[2][0]).toBe("http://localhost:8080/api/v2/sync/maindata?rid=0");
 
     // If preferences fails, savePath is unknown so app/free_space should be skipped.
     const calls = fetchMock.mock.calls.map((call) => call[0] as string);
@@ -495,9 +496,7 @@ describe("QBittorrentClient - Advanced Features", () => {
     expect(fetchMock.mock.calls[2][0]).toBe(
       "http://localhost:8080/api/v2/app/free_space?path=%2Fdownloads"
     );
-    expect(fetchMock.mock.calls[3][0]).toBe(
-      "http://localhost:8080/api/v2/sync/maindata?rid=0"
-    );
+    expect(fetchMock.mock.calls[3][0]).toBe("http://localhost:8080/api/v2/sync/maindata?rid=0");
     expect(fetchMock.mock.calls[4][0]).toBe("http://localhost:8080/api/v2/transfer/info");
   });
 
@@ -558,9 +557,7 @@ describe("QBittorrentClient - Advanced Features", () => {
     expect(fetchMock.mock.calls[2][0]).toBe(
       "http://localhost:8080/api/v2/app/free_space?path=%2Fdownloads"
     );
-    expect(fetchMock.mock.calls[3][0]).toBe(
-      "http://localhost:8080/api/v2/sync/maindata?rid=0"
-    );
+    expect(fetchMock.mock.calls[3][0]).toBe("http://localhost:8080/api/v2/sync/maindata?rid=0");
     expect(fetchMock.mock.calls[4][0]).toBe("http://localhost:8080/api/v2/transfer/info");
   });
 
@@ -629,9 +626,7 @@ describe("QBittorrentClient - Advanced Features", () => {
     expect(fetchMock.mock.calls[2][0]).toBe(
       "http://localhost:8080/api/v2/app/free_space?path=%2Fdownloads"
     );
-    expect(fetchMock.mock.calls[3][0]).toBe(
-      "http://localhost:8080/api/v2/sync/maindata?rid=0"
-    );
+    expect(fetchMock.mock.calls[3][0]).toBe("http://localhost:8080/api/v2/sync/maindata?rid=0");
     expect(fetchMock.mock.calls[4][0]).toBe("http://localhost:8080/api/v2/transfer/info");
   });
 });

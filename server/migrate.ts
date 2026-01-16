@@ -56,7 +56,8 @@ export async function runMigrations(): Promise<void> {
             } catch (e: unknown) {
               await tx.execute(sql.raw("ROLLBACK TO SAVEPOINT stmt"));
 
-              const code = (e as { code?: string })?.code || (e as { cause?: { code?: string } })?.cause?.code;
+              const code =
+                (e as { code?: string })?.code || (e as { cause?: { code?: string } })?.cause?.code;
               // Ignore "relation/object already exists" errors
               if (["42P07", "42701", "42710", "42703"].includes(code || "")) {
                 logger.warn(
@@ -114,7 +115,9 @@ export async function ensureDatabase(): Promise<void> {
       if (isLastAttempt) {
         logger.error({ err: error }, "Database check failed after multiple attempts");
         // Display user-friendly message for DB connection issues
-        console.error("\n\x1b[31m[ERROR]\x1b[0m Unable to contact the database. Please verify that your DATABASE_URL is correct and that your database server is online and accessible.\n");
+        console.error(
+          "\n\x1b[31m[ERROR]\x1b[0m Unable to contact the database. Please verify that your DATABASE_URL is correct and that your database server is online and accessible.\n"
+        );
         throw new Error(
           `Failed to connect to database after ${maxRetries} attempts. Last error: ${errorMessage} (${errorCode})`
         );

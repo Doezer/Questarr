@@ -1,7 +1,7 @@
 import React from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Download, Info, Star, Calendar, Eye, EyeOff, PackageCheck, Loader2 } from "lucide-react";
+import { Download, Info, Star, Calendar, Eye, EyeOff, Loader2 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import StatusBadge, { type GameStatus } from "./StatusBadge";
@@ -317,11 +317,7 @@ const GameCard = ({
           with many game cards, significantly improving initial render performance
           and reducing memory usage. */}
       {detailsOpen && (
-        <GameDetailsModal
-          game={resolvedGame}
-          open={detailsOpen}
-          onOpenChange={setDetailsOpen}
-        />
+        <GameDetailsModal game={resolvedGame} open={detailsOpen} onOpenChange={setDetailsOpen} />
       )}
 
       {downloadOpen && (

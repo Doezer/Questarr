@@ -2084,7 +2084,6 @@ class QBittorrentClient implements DownloaderClient {
         );
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Unknown error";
-        // Type-safe error cause extraction
         const errorCause = error instanceof Error && "cause" in error
           ? (error.cause as { code?: string; message?: string; errno?: number } | undefined)
           : undefined;

@@ -10,3 +10,4 @@ vite.config.ts.*
 gha-creds-*.json
 images/Screenshots/*
 infrastructure/
+gemini.md

@@ -10,6 +10,8 @@ import crypto from "crypto";
 import parseTorrent from "parse-torrent";
 import { XMLParser } from "fast-xml-parser";
 
+const DOWNLOAD_CLIENT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
+
 // Type definitions for API responses
 interface TransmissionTorrent {
   id: number;
@@ -206,8 +208,7 @@ class TransmissionClient implements DownloaderClient {
           const fetchTorrent = async (url: string) => {
             return fetch(url, {
               headers: {
-                "User-Agent":
-                  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+                "User-Agent": DOWNLOAD_CLIENT_USER_AGENT,
                 Accept: "application/x-bittorrent, */*",
               },
             });
@@ -830,8 +831,7 @@ class RTorrentClient implements DownloaderClient {
         downloadersLogger.debug({ url }, "Downloading file locally");
         return fetch(url, {
           headers: {
-            "User-Agent":
-              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "User-Agent": DOWNLOAD_CLIENT_USER_AGENT,
             Accept: "application/x-bittorrent, */*",
           },
         });
@@ -2085,15 +2085,15 @@ class QBittorrentClient implements DownloaderClient {
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Unknown error";
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const errorCause = (error as any)?.cause;
+        const errorCause = (error as any)?.cause as { code?: string; message?: string; errno?: number } | undefined;
 
         // Detailed logging to diagnose "fetch failed"
         downloadersLogger.error(
           {
             error: errorMessage,
             cause: errorCause,
-            code: (errorCause as any)?.code,
-            errno: (errorCause as any)?.errno,
+            code: errorCause?.code,
+            errno: errorCause?.errno,
             url: request.url
           },
           "Failed to download torrent file"
@@ -2101,9 +2101,9 @@ class QBittorrentClient implements DownloaderClient {
 
         let userFriendlyError = errorMessage;
         if (errorMessage === "fetch failed" && errorCause) {
-          userFriendlyError += ` (${(errorCause as any).code || (errorCause as any).message || "Unknown cause"})`;
+          userFriendlyError += ` (${errorCause.code || errorCause.message || "Unknown cause"})`;
 
-          if ((errorCause as any).code === 'ECONNREFUSED') {
+          if (errorCause.code === 'ECONNREFUSED') {
              userFriendlyError += " - The indexer refused the connection. Check if Prowlarr/Jackett is running and the port is correct.";
           }
         }
@@ -2896,8 +2896,7 @@ class QBittorrentClient implements DownloaderClient {
       return fetch(targetUrl, {
         method: "GET",
         headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+          "User-Agent": DOWNLOAD_CLIENT_USER_AGENT,
           Accept: "application/x-bittorrent, */*",
         },
         redirect: "manual",
@@ -2940,9 +2939,9 @@ class QBittorrentClient implements DownloaderClient {
         try {
           // If we have a base URL, use it
           currentUrl = new URL(location, currentUrl).toString();
-        } catch {
+        } catch (error) {
           // Fallback if URL construction fails
-          downloadersLogger.warn({ location }, "Failed to parse redirect URL");
+          downloadersLogger.warn({ location, error }, "Failed to parse redirect URL");
           return { response };
         }
 

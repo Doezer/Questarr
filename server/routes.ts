@@ -1524,6 +1524,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await Promise.all(
           chunk.map(async (download: { link: string; title: string; downloadType?: string }) => {
             try {
+              if (!(await isSafeUrl(download.link))) {
+                console.warn(`Skipping unsafe URL in bundle: ${download.link}`);
+                return;
+              }
+
               const response = await fetch(download.link);
               if (response.ok) {
                 const buffer = await response.arrayBuffer();

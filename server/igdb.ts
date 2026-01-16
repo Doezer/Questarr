@@ -64,7 +64,7 @@ interface IGDBAuthResponse {
  * could cause performance issues or circumvent other security measures.
  */
 // ⚡ Bolt: Move regex compilation outside the function to avoid recompilation on every call.
-const SPECIAL_CHARS_REGEX = /['"`;|&*()<>\[\]]/g;
+const SPECIAL_CHARS_REGEX = /['"`;|&*()<>[\]]/g;
 const WHITESPACE_REGEX = /\s+/g;
 
 function sanitizeIgdbInput(input: string): string {
@@ -282,9 +282,9 @@ class IGDBClient {
           );
           return results;
         }
-      } catch (error) {
+      } catch {
         igdbLogger.warn(
-          { approach: i + 1, query: sanitizedQuery, error },
+          { approach: i + 1, query: sanitizedQuery },
           `search approach ${i + 1} failed`
         );
       }
@@ -383,7 +383,7 @@ class IGDBClient {
       if (settings?.igdbRateLimitPerSecond) {
         rateLimit = settings.igdbRateLimitPerSecond;
       }
-    } catch (error) {
+    } catch {
       igdbLogger.warn("Failed to fetch user settings for rate limit, defaulting to 3");
     }
 
@@ -511,8 +511,8 @@ class IGDBClient {
     try {
       // ⚡ Bolt: Cache genre-based searches for 1 hour.
       return await this.makeRequest("games", igdbQuery, 60 * 60 * 1000);
-    } catch (error) {
-      igdbLogger.warn({ genres, error }, `genre search failed`);
+    } catch {
+      igdbLogger.warn({ genres }, `genre search failed`);
       return [];
     }
   }

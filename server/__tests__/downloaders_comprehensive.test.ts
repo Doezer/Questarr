@@ -247,7 +247,7 @@ describe("Downloader Comprehensive Tests", () => {
       headers: { get: () => "SID=123" },
     };
 
-    const torrentFileResponse = {
+    const _torrentFileResponse = {
       ok: true,
       status: 200,
       statusText: "OK",

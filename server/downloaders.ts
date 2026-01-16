@@ -1829,6 +1829,12 @@ class QBittorrentClient implements DownloaderClient {
         }
       };
 
+      interface QBittorrentTorrent {
+        name: string;
+        hash: string;
+        added_on: number;
+      }
+
       const findRecentlyAddedDownload = async (): Promise<{ hash: string; name?: string } | null> => {
         // Wait a bit for qBittorrent to process the add (URL add or torrent upload)
         await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -1837,19 +1843,18 @@ class QBittorrentClient implements DownloaderClient {
           "GET",
           "/api/v2/torrents/info?sort=added_on&reverse=true"
         );
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const allDownloads = (await allTorrentsResponse.json()) as any[];
+        const allDownloads = (await allTorrentsResponse.json()) as QBittorrentTorrent[];
 
         downloadersLogger.debug(
           {
             requestTitle: request.title,
             downloadCount: allDownloads.length,
-            recentDownloads: allDownloads.slice(0, 3).map((t: any) => ({ name: t.name, hash: t.hash })),
+            recentDownloads: allDownloads.slice(0, 3).map((t) => ({ name: t.name, hash: t.hash })),
           },
           "Looking for newly added download"
         );
 
-        let matchingDownload: any = null;
+        let matchingDownload: QBittorrentTorrent | undefined;
         if (request.title) {
           const normalizedTitle = request.title
             .toLowerCase()
@@ -1857,7 +1862,7 @@ class QBittorrentClient implements DownloaderClient {
             .replace(/\s+/g, " ")
             .trim();
 
-          matchingDownload = allDownloads.find((t: any) => {
+          matchingDownload = allDownloads.find((t) => {
             if (!t.name) return false;
             const normalizedName = t.name
               .toLowerCase()

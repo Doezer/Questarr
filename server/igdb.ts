@@ -93,7 +93,6 @@ class IGDBClient {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private cache = new Map<string, CacheEntry<any>>();
 
-<<<<<<< HEAD
   private async getCredentials(): Promise<{ clientId: string | undefined; clientSecret: string | undefined }> {
     const dbClientId = await storage.getSystemConfig("igdb.clientId");
     const dbClientSecret = await storage.getSystemConfig("igdb.clientSecret");

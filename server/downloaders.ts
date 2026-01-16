@@ -2084,8 +2084,10 @@ class QBittorrentClient implements DownloaderClient {
         );
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Unknown error";
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const errorCause = (error as any)?.cause as { code?: string; message?: string; errno?: number } | undefined;
+        // Type-safe error cause extraction
+        const errorCause = error instanceof Error && "cause" in error
+          ? (error.cause as { code?: string; message?: string; errno?: number } | undefined)
+          : undefined;
 
         // Detailed logging to diagnose "fetch failed"
         downloadersLogger.error(

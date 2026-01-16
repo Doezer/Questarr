@@ -2033,27 +2033,27 @@ class QBittorrentClient implements DownloaderClient {
         const { response: torrentResponse, magnetLink } = await this.fetchWithMagnetDetection(request.url);
 
         if (magnetLink) {
-             const magnetHash = extractHashFromUrl(magnetLink);
-             if (!magnetHash) {
-                // Should technically not happen if fetchWithMagnetDetection returns a magnet link that starts with magnet:
-                // but extractHashFromUrl does stricter checking
-                throw new Error("Could not extract hash from redirected magnet link");
-             }
+          const magnetHash = extractHashFromUrl(magnetLink);
+          if (!magnetHash) {
+            // Should technically not happen if fetchWithMagnetDetection returns a magnet link that starts with magnet:
+            // but extractHashFromUrl does stricter checking
+            throw new Error("Could not extract hash from redirected magnet link");
+          }
 
-             downloadersLogger.info({ magnetHash }, "Adding redirected magnet link to qBittorrent");
+          downloadersLogger.info({ magnetHash }, "Adding redirected magnet link to qBittorrent");
 
-             // Recursively add the magnet link
-             // We construct a new request but preserve the original intent (category, path, etc.)
-             return this.addDownload({
-               ...request,
-               url: magnetLink
-             });
+          // Recursively add the magnet link
+          // We construct a new request but preserve the original intent (category, path, etc.)
+          return this.addDownload({
+            ...request,
+            url: magnetLink
+          });
         }
 
         if (!torrentResponse || !torrentResponse.ok) {
-           const status = torrentResponse?.status || "unknown";
-           const statusText = torrentResponse?.statusText || "No response";
-           throw new Error(`Failed to download torrent: ${status} ${statusText}`);
+          const status = torrentResponse?.status || "unknown";
+          const statusText = torrentResponse?.statusText || "No response";
+          throw new Error(`Failed to download torrent: ${status} ${statusText}`);
         }
 
         const contentDisposition = torrentResponse.headers.get("content-disposition");
@@ -2911,12 +2911,25 @@ class QBittorrentClient implements DownloaderClient {
       // Simple retry logic for 400 Bad Request with '+' in URL
       // Some trackers/indexers don't handle '+' correctly in query params
       if (!response.ok && response.status === 400 && currentUrl.includes("+")) {
-        const fixedUrl = currentUrl.replace(/\+/g, "%20");
-        downloadersLogger.warn(
-          { original: currentUrl, fixed: fixedUrl },
-          "Retrying download with %20 instead of +"
-        );
-        response = await fetchUrl(fixedUrl);
+        try {
+          const urlObj = new URL(currentUrl);
+          const originalSearch = urlObj.search;
+          const fixedSearch = originalSearch.replace(/\+/g, "%20");
+          if (fixedSearch !== originalSearch) {
+            urlObj.search = fixedSearch;
+            const fixedUrl = urlObj.toString();
+            downloadersLogger.warn(
+              { original: currentUrl, fixed: fixedUrl },
+              "Retrying download with %20 instead of + in query string"
+            );
+            response = await fetchUrl(fixedUrl);
+          }
+        } catch (parseError) {
+          downloadersLogger.warn(
+            { url: currentUrl, error: parseError },
+            "Failed to parse URL when attempting '+' to '%20' retry"
+          );
+        }
       }
 
       if (response.status >= 300 && response.status < 400) {

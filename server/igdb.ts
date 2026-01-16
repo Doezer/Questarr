@@ -119,26 +119,6 @@ class IGDBClient {
   // IGDB limit is ~4 req/s. 250ms is 4 req/s. Use 300ms to be safe (~3.33 req/s).
   private readonly MIN_REQUEST_INTERVAL = 300;
 
-  private async getCredentials(): Promise<{ clientId: string | undefined; clientSecret: string | undefined }> {
-    const dbClientId = await storage.getSystemConfig("igdb.clientId");
-    const dbClientSecret = await storage.getSystemConfig("igdb.clientSecret");
-
-    if (dbClientId && dbClientSecret) {
-      return { clientId: dbClientId, clientSecret: dbClientSecret };
-    }
-
-    return {
-      clientId: config.igdb.clientId,
-      clientSecret: config.igdb.clientSecret,
-    };
-  }
-
-  private async ensureConfigured(): Promise<boolean> {
-    if (config.igdb.isConfigured) return true;
-    const { clientId, clientSecret } = await this.getCredentials();
-    return !!(clientId && clientSecret);
-  }
-
   private async queueRequest<T>(fn: () => Promise<T>): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       this.requestQueue = this.requestQueue.then(async () => {

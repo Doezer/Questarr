@@ -39,6 +39,10 @@ npm run format
 - Run `npm run lint` and `npm run format` before committing
 - Ensure `npm run check` passes without TypeScript errors
 
+### Verification
+
+Before submitting a PR, ensure you have followed the Verification Matrix defined in `.github/OPERATIONS.md`.
+
 ### Testing
 
 - Add tests for new features when applicable

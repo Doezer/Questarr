@@ -45,7 +45,7 @@ import archiver from "archiver";
 // ⚡ Bolt: Simple in-memory cache implementation to avoid external dependencies
 // Caches storage info for 30 seconds to prevent spamming downloaders
 const storageCache = {
-  data: null as any,
+  data: null as unknown,
   expiry: 0,
   ttl: 30 * 1000, // 30 seconds in milliseconds
 };

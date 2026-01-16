@@ -1,6 +1,8 @@
 import { config } from "./config.js";
 import { igdbLogger } from "./logger.js";
 import { storage } from "./storage.js";
+import { db } from "./db.js";
+import { userSettings } from "../shared/schema.js";
 
 // Configuration constants for search limits
 const MAX_SEARCH_ATTEMPTS = 5;
@@ -56,12 +58,13 @@ interface IGDBAuthResponse {
  * - Angle brackets (<>): Comparison operators
  * - Backslashes (\): Escape characters
  * - Square brackets ([]): Array/collection operators
+ * - Backticks (`): Sometimes used for execution or string templating
  *
  * The 100-character limit prevents abuse through extremely long inputs that
  * could cause performance issues or circumvent other security measures.
  */
 // ⚡ Bolt: Move regex compilation outside the function to avoid recompilation on every call.
-const SPECIAL_CHARS_REGEX = /['"`;|&*()<>\\[\]]/g;
+const SPECIAL_CHARS_REGEX = /['"`;|&*()<>\[\]]/g;
 const WHITESPACE_REGEX = /\s+/g;
 
 function sanitizeIgdbInput(input: string): string {
@@ -168,9 +171,42 @@ class IGDBClient {
     return this.accessToken;
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private async executeRequest(endpoint: string, query: string, ttl: number, cacheKey: string): Promise<any> {
+    const token = await this.authenticate();
+    const { clientId } = await this.getCredentials();
+
+    this.lastRequestTime = Date.now();
+
+    const response = await fetch(`https://api.igdb.com/v4/${endpoint}`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Client-ID": clientId!,
+        Authorization: `Bearer ${token}`,
+      },
+      body: query,
+    });
+
+    if (!response.ok) {
+      throw new Error(`IGDB API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    // ⚡ Bolt: If a TTL is specified, store the response in the cache.
+    if (ttl > 0) {
+      const expiry = Date.now() + ttl;
+      this.cache.set(cacheKey, { data, expiry });
+      igdbLogger.debug({ cacheKey, ttl }, "cached response");
+    }
+
+    return data;
+  }
+
   // IGDB API returns dynamic JSON structures
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private async makeRequest(endpoint: string, query: string, ttl: number = 0): Promise<any> {
+  private async makeRequest(endpoint: string, query: string, ttl: number = 0, skipQueue: boolean = false): Promise<any> {
     // ⚡ Bolt: Generate a unique cache key based on the endpoint and a normalized query.
     // Normalizing whitespace ensures that semantically identical queries
     // with different formatting hit the same cache entry.
@@ -188,35 +224,13 @@ class IGDBClient {
     }
     igdbLogger.debug({ cacheKey }, "cache miss");
 
+    if (skipQueue) {
+      return this.executeRequest(endpoint, query, ttl, cacheKey);
+    }
+
     // Queue the API request to respect rate limits
     return this.queueRequest(async () => {
-      const token = await this.authenticate();
-      const { clientId } = await this.getCredentials();
-
-      const response = await fetch(`https://api.igdb.com/v4/${endpoint}`, {
-        method: "POST",
-        headers: {
-          Accept: "application/json",
-          "Client-ID": clientId!,
-          Authorization: `Bearer ${token}`,
-        },
-        body: query,
-      });
-
-      if (!response.ok) {
-        throw new Error(`IGDB API error: ${response.status}`);
-      }
-
-      const data = await response.json();
-
-      // ⚡ Bolt: If a TTL is specified, store the response in the cache.
-      if (ttl > 0) {
-        const expiry = Date.now() + ttl;
-        this.cache.set(cacheKey, { data, expiry });
-        igdbLogger.debug({ cacheKey, ttl }, "cached response");
-      }
-
-      return data;
+      return this.executeRequest(endpoint, query, ttl, cacheKey);
     });
   }
 
@@ -362,6 +376,17 @@ class IGDBClient {
     if (!(await this.ensureConfigured())) return [];
     if (ids.length === 0) return [];
 
+    // Get rate limit from settings
+    let rateLimit = 3;
+    try {
+      const [settings] = await db.select().from(userSettings).limit(1);
+      if (settings?.igdbRateLimitPerSecond) {
+        rateLimit = settings.igdbRateLimitPerSecond;
+      }
+    } catch (error) {
+      igdbLogger.warn("Failed to fetch user settings for rate limit, defaulting to 3");
+    }
+
     // Split into chunks of 100 to avoid query length limits
     const chunks = [];
     for (let i = 0; i < ids.length; i += 100) {
@@ -370,15 +395,34 @@ class IGDBClient {
 
     const allResults: IGDBGame[] = [];
 
-    for (const chunk of chunks) {
-      const igdbQuery = `
+    // Process chunks in batches respecting rate limit
+    for (let i = 0; i < chunks.length; i += rateLimit) {
+      const batchStartTime = Date.now();
+      const startLastRequestTime = this.lastRequestTime;
+
+      const batch = chunks.slice(i, i + rateLimit);
+      const promises = batch.map((chunk) => {
+        const igdbQuery = `
         fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url, involved_companies.company.name, involved_companies.developer, involved_companies.publisher;
         where id = (${chunk.join(",")});
         limit 100;
       `;
-      // Cache batch requests for 1 hour
-      const results = await this.makeRequest("games", igdbQuery, 60 * 60 * 1000);
-      allResults.push(...results);
+        // Cache batch requests for 1 hour, skip queue for manual batching
+        return this.makeRequest("games", igdbQuery, 60 * 60 * 1000, true);
+      });
+
+      const results = await Promise.all(promises);
+      results.forEach((r) => allResults.push(...r));
+
+      // If we made actual requests (cache miss), enforce rate limit
+      if (this.lastRequestTime > startLastRequestTime && i + rateLimit < chunks.length) {
+        const elapsed = Date.now() - batchStartTime;
+        // Ensure at least 1 second passes per batch to respect X req/s
+        const delay = Math.max(0, 1000 - elapsed);
+        if (delay > 0) {
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      }
     }
 
     return allResults;

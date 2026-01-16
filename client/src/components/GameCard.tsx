@@ -5,9 +5,9 @@ import { Download, Info, Star, Calendar, Eye, EyeOff, PackageCheck, Loader2 } fr
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import StatusBadge, { type GameStatus } from "./StatusBadge";
-import { type Game, type SearchResult } from "@shared/schema";
+import { type Game } from "@shared/schema";
 import { useState, memo, useRef, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import GameDetailsModal from "./GameDetailsModal";
 import GameDownloadDialog from "./GameDownloadDialog";
 import { mapGameToInsertGame, isDiscoveryId } from "@/lib/utils";
@@ -64,7 +64,6 @@ const GameCard = ({
   const queryClient = useQueryClient();
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [downloadOpen, setDownloadOpen] = useState(false);
-  const [isVisible, setIsVisible] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
   const releaseStatus = getReleaseStatus(game);
 
@@ -105,38 +104,6 @@ const GameCard = ({
       setResolvedGame(newGame);
     },
   });
-
-  // Use Intersection Observer to detect when card is visible in viewport
-  // This prevents making API calls for games that aren't visible on screen
-  useEffect(() => {
-    // Only observe wanted games that need release availability check
-    if (game.status === "wanted") {
-      const element = cardRef.current;
-      if (!element) return;
-
-      const observer = new IntersectionObserver(
-        (entries) => {
-          if (entries[0].isIntersecting) {
-            setIsVisible(true);
-            observer.disconnect();
-          }
-        },
-        { threshold: 0.1 }
-      );
-
-      observer.observe(element);
-      return () => observer.disconnect();
-    }
-  }, [game.status]);
-
-  // Check for release availability for wanted games - only when visible
-  const { data: searchResults } = useQuery<SearchResult>({
-    queryKey: [`/api/search?query=${encodeURIComponent(game.title)}`],
-    enabled: isVisible && game.status === "wanted",
-    staleTime: 1000 * 60 * 60, // 1 hour
-  });
-
-  const hasReleasesAvailable = searchResults?.items && searchResults.items.length > 0;
 
   const handleStatusClick = () => {
     console.warn(`Status change triggered for game: ${game.title}`);
@@ -195,21 +162,6 @@ const GameCard = ({
         />
         <div className="absolute top-2 right-2 flex flex-col gap-1">
           {!isDiscovery && game.status && <StatusBadge status={game.status} />}
-          {game.status === "wanted" && hasReleasesAvailable && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Badge
-                  variant="default"
-                  className="text-xs bg-emerald-600 hover:bg-emerald-700 border-emerald-700 p-1 h-6 w-6 flex items-center justify-center cursor-help"
-                >
-                  <PackageCheck className="w-3 h-3" />
-                </Badge>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>Downloads Available</p>
-              </TooltipContent>
-            </Tooltip>
-          )}
           {game.status === "wanted" && (
             <Badge
               variant={releaseStatus.variant}

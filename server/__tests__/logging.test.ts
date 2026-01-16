@@ -23,7 +23,7 @@ vi.mock("../logger.js", () => ({
       info: infoMock,
       error: errorMock,
     }),
-  }
+  },
 }));
 
 // Mock DB
@@ -71,7 +71,7 @@ describe("Search Logging", () => {
       autoSearchEnabled: true,
       createdAt: new Date(),
       updatedAt: new Date(),
-      protocol: "torznab"
+      protocol: "torznab",
     };
 
     fetchMock.mockResolvedValueOnce({

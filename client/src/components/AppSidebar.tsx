@@ -87,7 +87,8 @@ interface AppSidebarProps {
 
 export default function AppSidebar({ activeItem = "/", onNavigate }: AppSidebarProps) {
   const latestVersion = useLatestQuestarrVersion();
-  const hasNewerVersion = latestVersion && semver.valid(latestVersion) && semver.gt(latestVersion, pkg.version);
+  const hasNewerVersion =
+    latestVersion && semver.valid(latestVersion) && semver.gt(latestVersion, pkg.version);
 
   const handleNavigation = (url: string) => {
     console.warn(`Navigation triggered: ${url}`);
@@ -212,7 +213,9 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: AppSidebarP
                 <span>Questarr v.{pkg.version}</span>
               </span>
               {hasNewerVersion && (
-                <span className="ml-1 text-emerald-500/70">v{latestVersion} <FaArrowUp className="inline" size={12} /></span>
+                <span className="ml-1 text-emerald-500/70">
+                  v{latestVersion} <FaArrowUp className="inline" size={12} />
+                </span>
               )}
             </span>
           </a>

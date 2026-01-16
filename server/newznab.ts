@@ -84,9 +84,9 @@ class NewznabClient {
           if (gameCategories.length > 0) {
             url.searchParams.set("cat", gameCategories.join(","));
           } else {
-            // If configured categories exist but none match games, use them anyway 
+            // If configured categories exist but none match games, use them anyway
             // (user might know what they are doing, e.g. custom category ID)
-             url.searchParams.set("cat", configuredCategories.join(","));
+            url.searchParams.set("cat", configuredCategories.join(","));
           }
         } else {
           // If NO categories are configured, default to standard Game categories
@@ -127,7 +127,7 @@ class NewznabClient {
         { indexer: indexer.name, responseLength: xmlText.length },
         "received newznab response"
       );
-      
+
       const data = parser.parse(xmlText);
 
       let results: NewznabResult[] = [];
@@ -168,7 +168,7 @@ class NewznabClient {
           }
 
           routesLogger.debug(
-            { title: item.title, categories, indexer: indexer.name }, 
+            { title: item.title, categories, indexer: indexer.name },
             "parsed newznab item category"
           );
 
@@ -210,24 +210,24 @@ class NewznabClient {
       if (params.category && params.category.length > 0) {
         const requestedCats = params.category;
         const initialCount = results.length;
-        
+
         results = results.filter((item) => {
           // If item has no category info, we keep it (conservative approach)
           if (!item.category || item.category.length === 0) return true;
-          
+
           // Check if any of the item's categories match any of the requested categories
-          return item.category.some((itemCat) => 
+          return item.category.some((itemCat) =>
             requestedCats.some((reqCat) => {
               if (itemCat === reqCat) return true;
-              
+
               // Handle parent categories (e.g. 4000 matches 4050)
               // If request is X000 (e.g. 4000), it matches 4xxx
               if (reqCat.endsWith("000") && itemCat.startsWith(reqCat.substring(0, 1))) {
                 return true;
               }
-              // If request is XX00 (e.g. 4000), it matches 40xx? 
+              // If request is XX00 (e.g. 4000), it matches 40xx?
               // Actually 4000 usually means the whole 4xxx block in Torznab/Newznab.
-              
+
               return false;
             })
           );
@@ -235,11 +235,11 @@ class NewznabClient {
 
         if (results.length < initialCount) {
           routesLogger.info(
-            { 
-              indexer: indexer.name, 
-              filtered: initialCount - results.length, 
-              remaining: results.length 
-            }, 
+            {
+              indexer: indexer.name,
+              filtered: initialCount - results.length,
+              remaining: results.length,
+            },
             "filtered newznab results by category"
           );
         }

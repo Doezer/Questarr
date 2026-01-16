@@ -96,7 +96,10 @@ class IGDBClient {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private cache = new Map<string, CacheEntry<any>>();
 
-  private async getCredentials(): Promise<{ clientId: string | undefined; clientSecret: string | undefined }> {
+  private async getCredentials(): Promise<{
+    clientId: string | undefined;
+    clientSecret: string | undefined;
+  }> {
     const dbClientId = await storage.getSystemConfig("igdb.clientId");
     const dbClientSecret = await storage.getSystemConfig("igdb.clientSecret");
 
@@ -172,7 +175,12 @@ class IGDBClient {
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private async executeRequest(endpoint: string, query: string, ttl: number, cacheKey: string): Promise<any> {
+  private async executeRequest(
+    endpoint: string,
+    query: string,
+    ttl: number,
+    cacheKey: string
+  ): Promise<any> {
     const token = await this.authenticate();
     const { clientId } = await this.getCredentials();
 
@@ -206,7 +214,12 @@ class IGDBClient {
 
   // IGDB API returns dynamic JSON structures
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private async makeRequest(endpoint: string, query: string, ttl: number = 0, skipQueue: boolean = false): Promise<any> {
+  private async makeRequest(
+    endpoint: string,
+    query: string,
+    ttl: number = 0,
+    skipQueue: boolean = false
+  ): Promise<any> {
     // ⚡ Bolt: Generate a unique cache key based on the endpoint and a normalized query.
     // Normalizing whitespace ensures that semantically identical queries
     // with different formatting hit the same cache entry.

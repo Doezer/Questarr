@@ -31,7 +31,7 @@ describe("Storage - insertGame with status null to wanted", () => {
       platforms: ["Xbox Series X|S"],
       genres: ["RPG"],
       screenshots: [],
-      hidden: null
+      hidden: null,
     };
 
     // Add the game to storage
@@ -55,7 +55,7 @@ describe("Storage - insertGame with status null to wanted", () => {
       platforms: ["Nintendo Switch"],
       genres: ["Platformer"],
       screenshots: [],
-      hidden: null
+      hidden: null,
     };
 
     // Add the game to storage
@@ -78,7 +78,7 @@ describe("Storage - insertGame with status null to wanted", () => {
       platforms: ["PC"],
       genres: ["Shooter"],
       screenshots: [],
-      hidden: null
+      hidden: null,
     };
 
     // Add the game to storage

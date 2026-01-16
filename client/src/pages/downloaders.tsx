@@ -398,9 +398,7 @@ export default function DownloadersPage() {
                     </Button>
                   </div>
                 </div>
-                <CardDescription
-                  className={cn(!downloader.enabled && "text-muted-foreground")}
-                >
+                <CardDescription className={cn(!downloader.enabled && "text-muted-foreground")}>
                   {downloader.url}
                 </CardDescription>
               </CardHeader>

@@ -370,7 +370,9 @@ async function checkAutoSearch() {
         }
 
         // Check if enough time has passed since last search
-        const lastSearch = settings.lastAutoSearch ? new Date(settings.lastAutoSearch).getTime() : 0;
+        const lastSearch = settings.lastAutoSearch
+          ? new Date(settings.lastAutoSearch).getTime()
+          : 0;
         const timeSinceLastSearch = Date.now() - lastSearch;
         const intervalMs = settings.searchIntervalHours * 60 * 60 * 1000;
 

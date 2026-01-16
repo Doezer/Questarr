@@ -43,7 +43,7 @@ describe("Downloader Comprehensive Tests", () => {
       addStopped: null,
       removeCompleted: null,
       postImportCategory: null,
-      settings: null
+      settings: null,
     };
 
     const sessionResponse = {
@@ -176,7 +176,7 @@ describe("Downloader Comprehensive Tests", () => {
       addStopped: null,
       removeCompleted: null,
       postImportCategory: null,
-      settings: null
+      settings: null,
     };
 
     const xmlResponseSuccess = `
@@ -238,7 +238,7 @@ describe("Downloader Comprehensive Tests", () => {
       addStopped: null,
       removeCompleted: null,
       postImportCategory: null,
-      settings: null
+      settings: null,
     };
 
     const loginResponse = {
@@ -344,7 +344,7 @@ describe("Downloader Comprehensive Tests", () => {
       addStopped: null,
       removeCompleted: null,
       postImportCategory: null,
-      settings: null
+      settings: null,
     };
 
     it("should add NZB successfully", async () => {
@@ -412,7 +412,7 @@ describe("Downloader Comprehensive Tests", () => {
       addStopped: null,
       removeCompleted: null,
       postImportCategory: null,
-      settings: null
+      settings: null,
     };
 
     it("should add NZB successfully", async () => {

@@ -5,11 +5,12 @@ import { DownloaderManager } from "../downloaders.js";
 describe("/api/downloads endpoint", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
-  type DownloadWithDownloader =
-    (Awaited<ReturnType<typeof DownloaderManager.getAllDownloads>>[number] & {
-      downloaderId: string;
-      downloaderName: string;
-    });
+  type DownloadWithDownloader = Awaited<
+    ReturnType<typeof DownloaderManager.getAllDownloads>
+  >[number] & {
+    downloaderId: string;
+    downloaderName: string;
+  };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -38,7 +39,7 @@ describe("/api/downloads endpoint", () => {
       label: null,
       addStopped: null,
       removeCompleted: null,
-      postImportCategory: null
+      postImportCategory: null,
     };
 
     const testDownloader2: Downloader = {
@@ -61,7 +62,7 @@ describe("/api/downloads endpoint", () => {
       label: null,
       addStopped: null,
       removeCompleted: null,
-      postImportCategory: null
+      postImportCategory: null,
     };
 
     // Mock successful response for first downloader
@@ -177,7 +178,7 @@ describe("/api/downloads endpoint", () => {
       label: null,
       addStopped: null,
       removeCompleted: null,
-      postImportCategory: null
+      postImportCategory: null,
     };
 
     // Mock successful response

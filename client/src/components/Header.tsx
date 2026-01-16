@@ -148,7 +148,8 @@ export default function Header({ title = "Dashboard" }: HeaderProps) {
           <AlertCircle className="h-4 w-4" />
           <AlertTitle>Configuration Required</AlertTitle>
           <AlertDescription className="flex items-center gap-2">
-            IGDB credentials are required. The application will only function for existing games until configured.
+            IGDB credentials are required. The application will only function for existing games
+            until configured.
             <Link href="/settings">
               <span className="underline font-bold cursor-pointer hover:text-white">
                 Configure in Settings

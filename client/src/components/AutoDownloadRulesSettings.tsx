@@ -58,9 +58,7 @@ export default function AutoDownloadRulesSettings({
   const queryClient = useQueryClient();
 
   const [minSeeders, setMinSeeders] = useState<number>(rules?.minSeeders ?? 0);
-  const [sortBy, setSortBy] = useState<"seeders" | "date" | "size">(
-    rules?.sortBy ?? "seeders"
-  );
+  const [sortBy, setSortBy] = useState<"seeders" | "date" | "size">(rules?.sortBy ?? "seeders");
   const [visibleCategories, setVisibleCategories] = useState<Set<DownloadCategory>>(
     new Set((rules?.visibleCategories ?? ["main", "update", "dlc", "extra"]) as DownloadCategory[])
   );
@@ -146,7 +144,8 @@ export default function AutoDownloadRulesSettings({
           <CardTitle className="text-lg">Download Rules</CardTitle>
         </div>
         <CardDescription>
-          These filters will be used as defaults when you open the manual download dialog, and applied to auto-searches.
+          These filters will be used as defaults when you open the manual download dialog, and
+          applied to auto-searches.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">

@@ -448,9 +448,7 @@ export default function IndexersPage() {
                     </Button>
                   </div>
                 </div>
-                <CardDescription
-                  className={cn(!indexer.enabled && "text-muted-foreground")}
-                >
+                <CardDescription className={cn(!indexer.enabled && "text-muted-foreground")}>
                   {indexer.url}
                 </CardDescription>
               </CardHeader>

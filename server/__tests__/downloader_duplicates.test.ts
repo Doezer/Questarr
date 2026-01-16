@@ -42,7 +42,7 @@ describe("Downloader Duplicates Handling", () => {
       addStopped: null,
       removeCompleted: null,
       postImportCategory: null,
-      settings: null
+      settings: null,
     };
 
     // Mock session-get
@@ -107,7 +107,7 @@ describe("Downloader Duplicates Handling", () => {
       addStopped: null,
       removeCompleted: null,
       postImportCategory: null,
-      settings: null
+      settings: null,
     };
 
     // Mock login
@@ -186,7 +186,7 @@ describe("Downloader Duplicates Handling", () => {
       addStopped: null,
       removeCompleted: null,
       postImportCategory: null,
-      settings: null
+      settings: null,
     };
 
     const duplicateResponse = {
@@ -230,7 +230,7 @@ describe("Downloader Duplicates Handling", () => {
       addStopped: null,
       removeCompleted: null,
       postImportCategory: null,
-      settings: null
+      settings: null,
     };
 
     const mergedResponse = {
@@ -274,7 +274,7 @@ describe("Downloader Duplicates Handling", () => {
       addStopped: null,
       removeCompleted: null,
       postImportCategory: null,
-      settings: null
+      settings: null,
     };
 
     const downloader2: Downloader = {
@@ -297,7 +297,7 @@ describe("Downloader Duplicates Handling", () => {
       addStopped: null,
       removeCompleted: null,
       postImportCategory: null,
-      settings: null
+      settings: null,
     };
 
     // Mock Transmission response (duplicate)

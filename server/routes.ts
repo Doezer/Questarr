@@ -1645,7 +1645,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Check database first (takes precedence)
       const dbClientId = await storage.getSystemConfig("igdb.clientId");
       const dbClientSecret = await storage.getSystemConfig("igdb.clientSecret");
-      
+
       let clientId: string | undefined;
 
       if (dbClientId && dbClientSecret) {
@@ -1684,7 +1684,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       await storage.setSystemConfig("igdb.clientId", clientId.trim());
       await storage.setSystemConfig("igdb.clientSecret", clientSecret.trim());
-      
+
       routesLogger.info("IGDB credentials updated via settings");
       res.json({ success: true });
     } catch (error) {

@@ -59,7 +59,10 @@ export class TorznabClient {
 
     const searchUrl = this.buildSearchUrl(indexer, params);
 
-    torznabLogger.info({ indexer: indexer.name, url: searchUrl, params }, "searching torznab indexer");
+    torznabLogger.info(
+      { indexer: indexer.name, url: searchUrl, params },
+      "searching torznab indexer"
+    );
 
     try {
       const response = await fetch(searchUrl, {
@@ -75,7 +78,10 @@ export class TorznabClient {
       }
 
       const xmlData = await response.text();
-      torznabLogger.debug({ indexer: indexer.name, responseLength: xmlData.length }, "received torznab response");
+      torznabLogger.debug(
+        { indexer: indexer.name, responseLength: xmlData.length },
+        "received torznab response"
+      );
       const result = this.parseResponse(xmlData, indexer.url, indexer);
 
       if (params.category && params.category.length > 0) {
@@ -102,7 +108,7 @@ export class TorznabClient {
             {
               indexer: indexer.name,
               filtered: initialCount - result.items.length,
-              remaining: result.items.length
+              remaining: result.items.length,
             },
             "filtered torznab results by category"
           );
@@ -370,7 +376,10 @@ export class TorznabClient {
     }
 
     if (torznabItem.category) {
-       torznabLogger.debug({ title: torznabItem.title, category: torznabItem.category, indexer: indexer?.name }, "parsed torznab item category");
+      torznabLogger.debug(
+        { title: torznabItem.title, category: torznabItem.category, indexer: indexer?.name },
+        "parsed torznab item category"
+      );
     }
 
     return torznabItem;

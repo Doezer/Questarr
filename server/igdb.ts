@@ -174,13 +174,12 @@ class IGDBClient {
     return this.accessToken;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private async executeRequest(
+  private async executeRequest<T>(
     endpoint: string,
     query: string,
     ttl: number,
     cacheKey: string
-  ): Promise<any> {
+  ): Promise<T> {
     const token = await this.authenticate();
     const { clientId } = await this.getCredentials();
 
@@ -209,17 +208,16 @@ class IGDBClient {
       igdbLogger.debug({ cacheKey, ttl }, "cached response");
     }
 
-    return data;
+    return data as T;
   }
 
   // IGDB API returns dynamic JSON structures
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private async makeRequest(
+  private async makeRequest<T>(
     endpoint: string,
     query: string,
     ttl: number = 0,
     skipQueue: boolean = false
-  ): Promise<any> {
+  ): Promise<T> {
     // ⚡ Bolt: Generate a unique cache key based on the endpoint and a normalized query.
     // Normalizing whitespace ensures that semantically identical queries
     // with different formatting hit the same cache entry.
@@ -230,7 +228,7 @@ class IGDBClient {
       const entry = this.cache.get(cacheKey)!;
       if (Date.now() < entry.expiry) {
         igdbLogger.debug({ cacheKey }, "cache hit");
-        return entry.data;
+        return entry.data as T;
       }
       igdbLogger.debug({ cacheKey }, "cache expired");
       this.cache.delete(cacheKey);
@@ -238,12 +236,12 @@ class IGDBClient {
     igdbLogger.debug({ cacheKey }, "cache miss");
 
     if (skipQueue) {
-      return this.executeRequest(endpoint, query, ttl, cacheKey);
+      return this.executeRequest<T>(endpoint, query, ttl, cacheKey);
     }
 
     // Queue the API request to respect rate limits
     return this.queueRequest(async () => {
-      return this.executeRequest(endpoint, query, ttl, cacheKey);
+      return this.executeRequest<T>(endpoint, query, ttl, cacheKey);
     });
   }
 
@@ -287,7 +285,11 @@ class IGDBClient {
           `trying approach ${i + 1}`
         );
         // Cache search results for 15 minutes to reduce redundant API calls
-        const results = await this.makeRequest("games", searchApproaches[i], 15 * 60 * 1000);
+        const results = await this.makeRequest<IGDBGame[]>(
+          "games",
+          searchApproaches[i],
+          15 * 60 * 1000
+        );
         if (results.length > 0) {
           igdbLogger.info(
             { approach: i + 1, query: sanitizedQuery, resultCount: results.length },
@@ -333,7 +335,7 @@ class IGDBClient {
 
           const wordQuery = `fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url, involved_companies.company.name, involved_companies.developer, involved_companies.publisher; where name ~ *"${sanitizedWord}"*; sort rating desc; limit ${limit};`;
           // Cache word search results for 15 minutes
-          return await this.makeRequest("games", wordQuery, 15 * 60 * 1000);
+          return await this.makeRequest<IGDBGame[]>("games", wordQuery, 15 * 60 * 1000);
         } catch (error) {
           igdbLogger.warn({ word, error }, `word search failed`);
           return [];
@@ -381,7 +383,7 @@ class IGDBClient {
     `;
 
     // ⚡ Bolt: Cache game data for 24 hours as it's unlikely to change frequently.
-    const results = await this.makeRequest("games", igdbQuery, 24 * 60 * 60 * 1000);
+    const results = await this.makeRequest<IGDBGame[]>("games", igdbQuery, 24 * 60 * 60 * 1000);
     return results.length > 0 ? results[0] : null;
   }
 
@@ -421,7 +423,7 @@ class IGDBClient {
         limit 100;
       `;
         // Cache batch requests for 1 hour, skip queue for manual batching
-        return this.makeRequest("games", igdbQuery, 60 * 60 * 1000, true);
+        return this.makeRequest<IGDBGame[]>("games", igdbQuery, 60 * 60 * 1000, true);
       });
 
       const results = await Promise.all(promises);
@@ -452,7 +454,7 @@ class IGDBClient {
     `;
 
     // ⚡ Bolt: Cache popular games for 1 hour to reduce load during high traffic.
-    return this.makeRequest("games", igdbQuery, 60 * 60 * 1000);
+    return this.makeRequest<IGDBGame[]>("games", igdbQuery, 60 * 60 * 1000);
   }
 
   async getRecentReleases(limit: number = 20): Promise<IGDBGame[]> {
@@ -469,7 +471,7 @@ class IGDBClient {
     `;
 
     // ⚡ Bolt: Cache recent releases for 1 hour.
-    return this.makeRequest("games", igdbQuery, 60 * 60 * 1000);
+    return this.makeRequest<IGDBGame[]>("games", igdbQuery, 60 * 60 * 1000);
   }
 
   async getUpcomingReleases(limit: number = 20): Promise<IGDBGame[]> {
@@ -486,7 +488,7 @@ class IGDBClient {
     `;
 
     // ⚡ Bolt: Cache upcoming releases for 1 hour.
-    return this.makeRequest("games", igdbQuery, 60 * 60 * 1000);
+    return this.makeRequest<IGDBGame[]>("games", igdbQuery, 60 * 60 * 1000);
   }
 
   async getGamesByGenres(
@@ -523,7 +525,7 @@ class IGDBClient {
 
     try {
       // ⚡ Bolt: Cache genre-based searches for 1 hour.
-      return await this.makeRequest("games", igdbQuery, 60 * 60 * 1000);
+      return await this.makeRequest<IGDBGame[]>("games", igdbQuery, 60 * 60 * 1000);
     } catch {
       igdbLogger.warn({ genres }, `genre search failed`);
       return [];
@@ -577,7 +579,7 @@ class IGDBClient {
 
     try {
       // ⚡ Bolt: Cache platform-based searches for 1 hour.
-      return await this.makeRequest("games", igdbQuery, 60 * 60 * 1000);
+      return await this.makeRequest<IGDBGame[]>("games", igdbQuery, 60 * 60 * 1000);
     } catch (error) {
       igdbLogger.warn({ platforms, error }, `platform search failed`);
       return [];
@@ -685,7 +687,7 @@ class IGDBClient {
 
     try {
       // ⚡ Bolt: Cache genre search results for 1 hour.
-      return await this.makeRequest("games", igdbQuery, 60 * 60 * 1000);
+      return await this.makeRequest<IGDBGame[]>("games", igdbQuery, 60 * 60 * 1000);
     } catch (error) {
       console.warn(`IGDB genre search failed for genre: ${genre}`, error);
       return [];
@@ -717,7 +719,7 @@ class IGDBClient {
 
     try {
       // ⚡ Bolt: Cache platform search results for 1 hour.
-      return await this.makeRequest("games", igdbQuery, 60 * 60 * 1000);
+      return await this.makeRequest<IGDBGame[]>("games", igdbQuery, 60 * 60 * 1000);
     } catch (error) {
       console.warn(`IGDB platform search failed for platform: ${platform}`, error);
       return [];
@@ -735,7 +737,11 @@ class IGDBClient {
 
     try {
       // ⚡ Bolt: Cache genres for 24 hours as they are static.
-      return await this.makeRequest("genres", igdbQuery, 24 * 60 * 60 * 1000);
+      return await this.makeRequest<{ id: number; name: string }[]>(
+        "genres",
+        igdbQuery,
+        24 * 60 * 60 * 1000
+      );
     } catch (error) {
       console.warn("IGDB genres fetch failed:", error);
       return [];
@@ -755,7 +761,11 @@ class IGDBClient {
 
     try {
       // ⚡ Bolt: Cache platforms for 24 hours as they are static.
-      return await this.makeRequest("platforms", igdbQuery, 24 * 60 * 60 * 1000);
+      return await this.makeRequest<{ id: number; name: string }[]>(
+        "platforms",
+        igdbQuery,
+        24 * 60 * 60 * 1000
+      );
     } catch (error) {
       console.warn("IGDB platforms fetch failed:", error);
       return [];

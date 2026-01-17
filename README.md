@@ -29,37 +29,19 @@ Docker is the easiest way to deploy Questarr with all dependencies included.
 - **Docker & Docker Compose**
 - **IGDB API credentials** (required for game discovery)
 
-Run Questarr directly using the published Docker image. It contains both the Questarr app & the PostgreSQL database.
+Questarr requires a PostgreSQL database. The easiest way to run both is using the provided Docker Compose configuration.
 
-1. **Pull the image from the registry:**
-   ```bash
-   docker pull ghcr.io/doezer/questarr:latest
-   ```
+1. **Get the `docker-compose.yml` file:**
+   
+   You can either clone this repository or just download the `docker-compose.yml` file from it.
 
-2. **Run the container:**
+2. **Start the application:**
    ```bash
-   docker run -d ghcr.io/doezer/questarr:latest
+   docker-compose up -d
    ```
 
 3. **Access the application:**
    Open your browser to `http://localhost:5000`
-
-#### Usage
-
-For advanced configuration, Modify the variables to your convenance.
-
-```bash
-   docker run \
-     -p <external_port>:5000 \
-     -e IGDB_CLIENT_ID=<your_client_id> \
-     -e IGDB_CLIENT_SECRET=<your_client_secret> \
-     -e POSTGRES_USER=postgres \
-     -e POSTGRES_PASSWORD=<your_password> \ --> This will be used for both the Questarr configuration and the db server
-     -e POSTGRES_DB=questarr \
-     -e POSTGRES_HOST=localhost \
-     -e POSTGRES_PORT=5432 \
--d ghcr.io/doezer/questarr:latest
-   ```
    
 ## Configuration
 

@@ -1,24 +1,17 @@
 services:
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: production
+    image: ghcr.io/doezer/questarr:latest
     ports:
-      - "5000:5000"
+      - "${PORT:-5000}:${PORT:-5000}"
     environment:
-      - NODE_ENV=production
-      - PORT=5000
-      - HOST=0.0.0.0 
       # Database connection settings
       - POSTGRES_HOST=db
-      - POSTGRES_USER=${POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-password}
-      - POSTGRES_DB=${POSTGRES_DB:-questarr}
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=questarr
       # IGDB Credentials (Optional - Required for game discovery, will be set at first startup if not set here)
       # - IGDB_CLIENT_ID=${IGDB_CLIENT_ID}
       # - IGDB_CLIENT_SECRET=${IGDB_CLIENT_SECRET}
-      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:5000}
     depends_on:
       db:
         condition: service_healthy
@@ -35,9 +28,9 @@ services:
     ports:
       - "5432:5432"
     environment:
-      - POSTGRES_USER=${POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-password}
-      - POSTGRES_DB=${POSTGRES_DB:-questarr}
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=questarr
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped

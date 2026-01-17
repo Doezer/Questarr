@@ -37,7 +37,7 @@ describe("Magnet Detection and Redirect Handling in QBittorrentClient", () => {
     addStopped: false,
     removeCompleted: false,
     postImportCategory: null,
-    settings: null
+    settings: null,
   };
 
   beforeEach(() => {
@@ -49,38 +49,41 @@ describe("Magnet Detection and Redirect Handling in QBittorrentClient", () => {
     vi.restoreAllMocks();
   });
 
-  const createResponse = (props: any = {}) => {
-      const headersMap = props.headersMap || {};
-      return {
-          ok: props.ok ?? true,
-          status: props.status ?? 200,
-          statusText: props.statusText ?? "OK",
-          headers: {
-              get: (name: string) => headersMap[name.toLowerCase()] || null,
-              getSetCookie: () => headersMap['set-cookie'] ? [headersMap['set-cookie']] : [],
-              entries: () => Object.entries(headersMap),
-          },
-          text: async () => props.text ?? "Ok.",
-          arrayBuffer: async () => props.arrayBuffer ?? new ArrayBuffer(0),
-      };
+  const createResponse = (props: Record<string, unknown> = {}) => {
+    const headersMap = (props.headersMap as Record<string, string>) || {};
+    return {
+      ok: (props.ok as boolean) ?? true,
+      status: (props.status as number) ?? 200,
+      statusText: (props.statusText as string) ?? "OK",
+      headers: {
+        get: (name: string) => headersMap[name.toLowerCase()] || null,
+        getSetCookie: () => (headersMap["set-cookie"] ? [headersMap["set-cookie"]] : []),
+        entries: () => Object.entries(headersMap),
+      },
+      text: async () => (props.text as string) ?? "Ok.",
+      arrayBuffer: async () => (props.arrayBuffer as ArrayBuffer) ?? new ArrayBuffer(0),
+    };
   };
 
-  const mockAuthSuccess = () => createResponse({
-      headersMap: { 'set-cookie': 'SID=123' },
-      text: "Ok."
-  });
+  const mockAuthSuccess = () =>
+    createResponse({
+      headersMap: { "set-cookie": "SID=123" },
+      text: "Ok.",
+    });
 
-  const mockAddTorrentSuccess = () => createResponse({
-      text: "Ok."
-  });
+  const mockAddTorrentSuccess = () =>
+    createResponse({
+      text: "Ok.",
+    });
 
-  const mockAddTorrentFail = () => createResponse({
+  const mockAddTorrentFail = () =>
+    createResponse({
       ok: false,
       status: 500,
       statusText: "Internal Server Error",
       text: "Failed",
-      headersMap: {}
-  });
+      headersMap: {},
+    });
 
   it("should retry with %20 when a URL with + returns 400 Bad Request", async () => {
     const urlWithPlus = "http://indexer.com/download?file=my+game.torrent";
@@ -92,18 +95,22 @@ describe("Magnet Detection and Redirect Handling in QBittorrentClient", () => {
       // 2. Try Add URL to qBittorrent -> FAIL (Trigger Fallback)
       .mockResolvedValueOnce(mockAddTorrentFail())
       // 3. Fetch original URL -> 400 Bad Request
-      .mockResolvedValueOnce(createResponse({
-        ok: false,
-        status: 400,
-        statusText: "Bad Request"
-      }))
+      .mockResolvedValueOnce(
+        createResponse({
+          ok: false,
+          status: 400,
+          statusText: "Bad Request",
+        })
+      )
       // 4. Fetch fixed URL -> 200 OK (Torrent file)
-      .mockResolvedValueOnce(createResponse({
-        ok: true,
-        status: 200,
-        headersMap: { 'content-disposition': 'attachment; filename="test.torrent"' },
-        arrayBuffer: new ArrayBuffer(10)
-      }))
+      .mockResolvedValueOnce(
+        createResponse({
+          ok: true,
+          status: 200,
+          headersMap: { "content-disposition": 'attachment; filename="test.torrent"' },
+          arrayBuffer: new ArrayBuffer(10),
+        })
+      )
       // 5. Add torrent file to qBittorrent
       .mockResolvedValueOnce(mockAddTorrentSuccess());
 
@@ -131,17 +138,21 @@ describe("Magnet Detection and Redirect Handling in QBittorrentClient", () => {
       // 2. Try Add URL -> FAIL
       .mockResolvedValueOnce(mockAddTorrentFail())
       // 3. Fetch URL -> 302 Redirect to Magnet
-      .mockResolvedValueOnce(createResponse({
-        ok: false,
-        status: 302,
-        headersMap: { 'location': magnetLink }
-      }))
+      .mockResolvedValueOnce(
+        createResponse({
+          ok: false,
+          status: 302,
+          headersMap: { location: magnetLink },
+        })
+      )
       // 4. Add magnet to qBittorrent (Auth is reused)
       .mockResolvedValueOnce(mockAddTorrentSuccess())
       // 5. Info check
-      .mockResolvedValueOnce(createResponse({
-        text: "[]"
-      }));
+      .mockResolvedValueOnce(
+        createResponse({
+          text: "[]",
+        })
+      );
 
     const result = await DownloaderManager.addDownload(qbDownloader, {
       url: startUrl,
@@ -172,18 +183,22 @@ describe("Magnet Detection and Redirect Handling in QBittorrentClient", () => {
       // 2. Try Add URL -> FAIL
       .mockResolvedValueOnce(mockAddTorrentFail())
       // 3. Fetch Start URL -> 302 Relative Redirect
-      .mockResolvedValueOnce(createResponse({
-        ok: false,
-        status: 302,
-        headersMap: { 'location': redirectPath }
-      }))
+      .mockResolvedValueOnce(
+        createResponse({
+          ok: false,
+          status: 302,
+          headersMap: { location: redirectPath },
+        })
+      )
       // 4. Fetch Final URL -> 200 Torrent File
-      .mockResolvedValueOnce(createResponse({
-        ok: true,
-        status: 200,
-        headersMap: { 'content-disposition': 'attachment; filename="game.torrent"' },
-        arrayBuffer: new ArrayBuffer(10)
-      }))
+      .mockResolvedValueOnce(
+        createResponse({
+          ok: true,
+          status: 200,
+          headersMap: { "content-disposition": 'attachment; filename="game.torrent"' },
+          arrayBuffer: new ArrayBuffer(10),
+        })
+      )
       // 5. Add to qBittorrent
       .mockResolvedValueOnce(mockAddTorrentSuccess());
 
@@ -201,13 +216,16 @@ describe("Magnet Detection and Redirect Handling in QBittorrentClient", () => {
     const url = "http://indexer.com/loop";
 
     fetchMock
-        .mockResolvedValueOnce(mockAuthSuccess()) // 1. Auth
-        .mockResolvedValueOnce(mockAddTorrentFail()) // 2. Add URL Fail
-        .mockResolvedValue(createResponse({ // Default: Infinite redirect
-             ok: false,
-             status: 302,
-             headersMap: { 'location': "http://indexer.com/loop" }
-        }));
+      .mockResolvedValueOnce(mockAuthSuccess()) // 1. Auth
+      .mockResolvedValueOnce(mockAddTorrentFail()) // 2. Add URL Fail
+      .mockResolvedValue(
+        createResponse({
+          // Default: Infinite redirect
+          ok: false,
+          status: 302,
+          headersMap: { location: "http://indexer.com/loop" },
+        })
+      );
 
     const result = await DownloaderManager.addDownload(qbDownloader, {
       url: url,

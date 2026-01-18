@@ -110,6 +110,8 @@ async function migrate() {
               console.log(`  Table ${table} does not exist in Postgres, skipping.`);
           } else {
               console.error(`  Error migrating ${table}:`, err);
+              console.error(`  ^ This error might be due to a schema mismatch.`);
+              console.error(`    Please ensure your source PostgreSQL database is fully migrated using the previous version of the application.`);
               // Don't throw, try next table
           }
       }

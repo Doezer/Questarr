@@ -1,3 +1,4 @@
+import React, { useMemo } from "react";
 import { useAuth } from "@/lib/auth";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -21,30 +22,44 @@ import {
 import { Lock, User, ShieldCheck, Gamepad2, HelpCircle } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
-const setupSchema = z
-  .object({
-    username: z.string().min(3, "Username must be at least 3 characters"),
-    password: z.string().min(6, "Password must be at least 6 characters"),
-    confirmPassword: z.string(),
-    igdbClientId: z.string().min(1, "IGDB Client ID is required"),
-    igdbClientSecret: z.string().min(1, "IGDB Client Secret is required"),
-  })
-  .refine((data) => data.password === data.confirmPassword, {
-    message: "Passwords do not match",
-    path: ["confirmPassword"],
-  });
-
-type SetupForm = z.infer<typeof setupSchema>;
+type SetupForm = {
+  username: string;
+  password: string;
+  confirmPassword: string;
+  igdbClientId?: string;
+  igdbClientSecret?: string;
+};
 
 export default function SetupPage() {
   const { checkSetup } = useAuth();
   const { toast } = useToast();
   // const [_, setLocation] = useLocation();
 
-  const { data: config } = useQuery({
+  const { data: config, isLoading: isLoadingConfig } = useQuery({
     queryKey: ["config"],
     queryFn: () => apiRequest("GET", "/api/config").then((res) => res.json()),
   });
+
+  const setupSchema = useMemo(() => {
+    const isIgdbConfigured = config?.igdb?.configured;
+
+    return z
+      .object({
+        username: z.string().min(3, "Username must be at least 3 characters"),
+        password: z.string().min(6, "Password must be at least 6 characters"),
+        confirmPassword: z.string(),
+        igdbClientId: isIgdbConfigured
+          ? z.string().optional()
+          : z.string().min(1, "IGDB Client ID is required"),
+        igdbClientSecret: isIgdbConfigured
+          ? z.string().optional()
+          : z.string().min(1, "IGDB Client Secret is required"),
+      })
+      .refine((data) => data.password === data.confirmPassword, {
+        message: "Passwords do not match",
+        path: ["confirmPassword"],
+      });
+  }, [config]);
 
   const form = useForm<SetupForm>({
     resolver: zodResolver(setupSchema),
@@ -106,12 +121,12 @@ export default function SetupPage() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Username</FormLabel>
-                    <FormControl>
-                      <div className="relative">
-                        <User className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                    <div className="relative">
+                      <User className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                      <FormControl>
                         <Input className="pl-9" placeholder="Choose a username" {...field} />
-                      </div>
-                    </FormControl>
+                      </FormControl>
+                    </div>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -122,17 +137,17 @@ export default function SetupPage() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Password</FormLabel>
-                    <FormControl>
-                      <div className="relative">
-                        <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                    <div className="relative">
+                      <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                      <FormControl>
                         <Input
                           type="password"
                           className="pl-9"
                           placeholder="Choose a password"
                           {...field}
                         />
-                      </div>
-                    </FormControl>
+                      </FormControl>
+                    </div>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -143,17 +158,17 @@ export default function SetupPage() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Confirm Password</FormLabel>
-                    <FormControl>
-                      <div className="relative">
-                        <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                    <div className="relative">
+                      <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                      <FormControl>
                         <Input
                           type="password"
                           className="pl-9"
                           placeholder="Confirm your password"
                           {...field}
                         />
-                      </div>
-                    </FormControl>
+                      </FormControl>
+                    </div>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -251,8 +266,8 @@ export default function SetupPage() {
                 </>
               )}
 
-              <Button type="submit" className="w-full" disabled={setupMutation.isPending}>
-                {setupMutation.isPending ? "Creating Account..." : "Create Account"}
+              <Button type="submit" className="w-full" disabled={setupMutation.isPending || isLoadingConfig}>
+                {isLoadingConfig ? "Loading..." : setupMutation.isPending ? "Creating Account..." : "Create Account"}
               </Button>
             </form>
           </Form>

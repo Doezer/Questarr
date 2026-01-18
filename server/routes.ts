@@ -222,6 +222,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.status(200).json({ status: "ok" });
   });
 
+  // Configuration endpoint - read-only access to key settings
+  app.get("/api/config", sensitiveEndpointLimiter, async (req, res) => {
+    try {
+      // 🛡️ Sentinel: Harden config endpoint to prevent information disclosure.
+      // Only expose boolean flags indicating if services are configured, not
+      // sensitive details like database URLs or partial API keys.
+      let isConfigured = false;
+      let source: "env" | "database" | undefined;
+
+      // Check database first (takes precedence)
+      const dbClientId = await storage.getSystemConfig("igdb.clientId");
+      const dbClientSecret = await storage.getSystemConfig("igdb.clientSecret");
+
+      let clientId: string | undefined;
+
+      if (dbClientId && dbClientSecret) {
+        isConfigured = true;
+        source = "database";
+        clientId = dbClientId;
+      } else if (appConfig.igdb.isConfigured) {
+        // Fallback to environment variables
+        isConfigured = true;
+        source = "env";
+        clientId = appConfig.igdb.clientId;
+      }
+
+      const config: Config = {
+        igdb: {
+          configured: isConfigured,
+          source,
+          clientId,
+        },
+      };
+      res.json(config);
+    } catch (error) {
+      routesLogger.error({ error }, "error fetching config");
+      res.status(500).json({ error: "Failed to fetch configuration" });
+    }
+  });
+
   // Protect all API routes from here
   app.use("/api", (req, res, next) => {
     // Skip authentication for specific public endpoints that were already defined or need to be excluded
@@ -1630,46 +1670,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       routesLogger.error({ error }, "error clearing notifications");
       res.status(500).json({ error: "Failed to clear notifications" });
-    }
-  });
-
-  // Configuration endpoint - read-only access to key settings
-  app.get("/api/config", sensitiveEndpointLimiter, async (req, res) => {
-    try {
-      // 🛡️ Sentinel: Harden config endpoint to prevent information disclosure.
-      // Only expose boolean flags indicating if services are configured, not
-      // sensitive details like database URLs or partial API keys.
-      let isConfigured = false;
-      let source: "env" | "database" | undefined;
-
-      // Check database first (takes precedence)
-      const dbClientId = await storage.getSystemConfig("igdb.clientId");
-      const dbClientSecret = await storage.getSystemConfig("igdb.clientSecret");
-
-      let clientId: string | undefined;
-
-      if (dbClientId && dbClientSecret) {
-        isConfigured = true;
-        source = "database";
-        clientId = dbClientId;
-      } else if (appConfig.igdb.isConfigured) {
-        // Fallback to environment variables
-        isConfigured = true;
-        source = "env";
-        clientId = appConfig.igdb.clientId;
-      }
-
-      const config: Config = {
-        igdb: {
-          configured: isConfigured,
-          source,
-          clientId,
-        },
-      };
-      res.json(config);
-    } catch (error) {
-      routesLogger.error({ error }, "error fetching config");
-      res.status(500).json({ error: "Failed to fetch configuration" });
     }
   });
 

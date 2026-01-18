@@ -12,3 +12,4 @@ images/Screenshots/*
 infrastructure/
 gemini.md
 .vscode/
+docker-compose.local.yml

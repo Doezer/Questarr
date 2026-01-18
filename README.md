@@ -14,7 +14,7 @@ A video game management application inspired by the -Arr apps (Sonarr, Radarr, P
 
 - **Frontend**: React 18, TypeScript, Vite, Tailwind CSS, shadcn/ui
 - **Backend**: Node.js, Express, TypeScript
-- **Database**: PostgreSQL with Drizzle ORM
+- **Database**: SQLite with Drizzle ORM
 - **APIs**: IGDB (game metadata), Torznab (indexer search)
 - **AIs**: Claude Sonnet 4.5, Gemini 3, Google Jules, GitHub Copilot
 
@@ -29,7 +29,7 @@ Docker is the easiest way to deploy Questarr with all dependencies included.
 - **Docker & Docker Compose**
 - **IGDB API credentials** (required for game discovery)
 
-Questarr requires a PostgreSQL database. The easiest way to run both is using the provided Docker Compose configuration.
+Questarr uses a SQLite database which is included in the application container. The easiest way to run the application is using the provided Docker Compose configuration.
 
 1. **Get the `docker-compose.yml` file:**
    
@@ -113,7 +113,7 @@ docker-compose up -d
 
 ### Manual Installation (npm) - NOT RECOMMENDED
 
-For development or custom deployments without Docker. Launching it requires having a PostgreSQL DB configured apart (can use the docker compose file). Not for normal users.
+For development or custom deployments without Docker.
 
 1. **Clone and install dependencies:**
 ```bash
@@ -121,20 +121,14 @@ git clone https://github.com/Doezer/Questarr.git
 npm install
 ```
 
-2. **Use the DB from docker file or Set up PostgreSQL:**
-- Install PostgreSQL 16+ on your system
-- Create a database: `createdb questarr`
-- Create a `.env` file and provide your custom database connection string
-
-3. **Configure environment variables in `.env`:**
+2. **Configure environment variables in `.env`:**
 See the .env.example for available variables.
 
-4. **Initialize the database:**
+3. **Initialize the database:**
 This will run available migration files.
 ```bash
 npm run db:migrate
 ```
-You may run db:push instead if you have set DATABASE_URL (only for development)
 
 5. **Development mode (with hot reload):**
 ```bash

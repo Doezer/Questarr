@@ -6,12 +6,8 @@ import { z } from "zod";
  */
 const envSchema = z.object({
   // Database configuration
-  DATABASE_URL: z.string().optional(),
-  POSTGRES_USER: z.string().default("postgres"),
-  POSTGRES_PASSWORD: z.string().default("password"),
-  POSTGRES_HOST: z.string().default("localhost"),
-  POSTGRES_PORT: z.string().default("5432"),
-  POSTGRES_DB: z.string().default("questarr"),
+  DATABASE_URL: z.string().optional(), // Kept for migration script compatibility
+  SQLITE_DB_PATH: z.string().optional(),
 
   // CORS configuration
   ALLOWED_ORIGINS: z.string().optional(),
@@ -59,10 +55,8 @@ function validateEnv() {
 // Validate and export typed configuration
 const env = validateEnv();
 
-// Construct database URL if not provided
-const databaseUrl =
-  env.DATABASE_URL ||
-  `postgresql://${env.POSTGRES_USER}:${env.POSTGRES_PASSWORD}@${env.POSTGRES_HOST}:${env.POSTGRES_PORT}/${env.POSTGRES_DB}`;
+// Database path logic
+const databaseUrl = env.SQLITE_DB_PATH || "sqlite.db";
 
 /**
  * Typed configuration object for the application.

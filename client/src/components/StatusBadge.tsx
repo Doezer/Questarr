@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 
-export type GameStatus = "wanted" | "owned" | "completed" | "downloading";
+export type GameStatus = string;
 
 interface StatusBadgeProps {
   status: GameStatus;
@@ -18,7 +18,11 @@ const statusConfig = {
 };
 
 export default function StatusBadge({ status }: StatusBadgeProps) {
-  const config = statusConfig[status];
+  const config = statusConfig[status as keyof typeof statusConfig] || {
+    label: status,
+    variant: "secondary" as const,
+    className: "",
+  };
 
   return (
     <Badge

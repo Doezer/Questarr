@@ -26,7 +26,7 @@ import {
 } from "../shared/schema.js";
 import { randomUUID } from "crypto";
 import { db } from "./db.js";
-import { eq, ilike, or, sql, desc, and, type SQL } from "drizzle-orm";
+import { eq, like, or, sql, desc, and, type SQL } from "drizzle-orm";
 
 export interface IStorage {
   // System Config methods
@@ -216,7 +216,7 @@ export class MemStorage implements IStorage {
       id,
       userId: insertGame.userId || null,
       status: insertGame.status || "wanted",
-      hidden: insertGame.hidden ?? false,
+      hidden: insertGame.hidden ?? false, // Convert boolean to number or keep as boolean depending on memory usage
       summary: insertGame.summary || null,
       coverUrl: insertGame.coverUrl || null,
       releaseDate: insertGame.releaseDate || null,
@@ -256,7 +256,7 @@ export class MemStorage implements IStorage {
 
     const updatedGame: Game = {
       ...game,
-      hidden,
+      hidden: hidden,
     };
 
     this.games.set(id, updatedGame);
@@ -556,7 +556,9 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const [user] = await db.insert(users).values(insertUser).returning();
+    // Manually generate UUID for SQLite
+    const id = randomUUID();
+    const [user] = await db.insert(users).values({ ...insertUser, id }).returning();
     return user;
   }
 
@@ -628,9 +630,11 @@ export class DatabaseStorage implements IStorage {
       .from(games)
       .where(
         or(
-          ilike(games.title, searchTerm),
-          sql`EXISTS (SELECT 1 FROM unnest(${games.genres}) AS genre WHERE genre ILIKE ${searchTerm})`,
-          sql`EXISTS (SELECT 1 FROM unnest(${games.platforms}) AS platform WHERE platform ILIKE ${searchTerm})`
+          like(sql`lower(${games.title})`, searchTerm),
+          // SQLite JSON array search workaround or explicit JSON handling
+          // Using LIKE for simple array search since platforms/genres are JSON arrays of strings
+          like(sql`lower(${games.genres})`, searchTerm),
+          like(sql`lower(${games.platforms})`, searchTerm)
         )
       )
       .orderBy(sql`${games.addedAt} DESC`);
@@ -646,9 +650,9 @@ export class DatabaseStorage implements IStorage {
           eq(games.userId, userId),
           includeHidden ? undefined : eq(games.hidden, false),
           or(
-            ilike(games.title, searchTerm),
-            sql`EXISTS (SELECT 1 FROM unnest(${games.genres}) AS genre WHERE genre ILIKE ${searchTerm})`,
-            sql`EXISTS (SELECT 1 FROM unnest(${games.platforms}) AS platform WHERE platform ILIKE ${searchTerm})`
+            like(sql`lower(${games.title})`, searchTerm),
+            like(sql`lower(${games.genres})`, searchTerm),
+            like(sql`lower(${games.platforms})`, searchTerm)
           )
         )
       )
@@ -674,6 +678,7 @@ export class DatabaseStorage implements IStorage {
       hidden: insertGame.hidden ?? false,
       originalReleaseDate: insertGame.originalReleaseDate ?? null,
       releaseStatus: insertGame.releaseStatus ?? "upcoming",
+      addedAt: new Date(),
     };
 
     const [game] = await db.insert(games).values(gameWithId).returning();
@@ -710,7 +715,6 @@ export class DatabaseStorage implements IStorage {
 
   async removeGame(id: string): Promise<boolean> {
     const _result = await db.delete(games).where(eq(games.id, id));
-    // For Drizzle, we assume success if no error is thrown
     return true;
   }
 
@@ -738,7 +742,9 @@ export class DatabaseStorage implements IStorage {
   }
 
   async addIndexer(insertIndexer: InsertIndexer): Promise<Indexer> {
-    const [indexer] = await db.insert(indexers).values(insertIndexer).returning();
+    // Generate UUID manually
+    const id = randomUUID();
+    const [indexer] = await db.insert(indexers).values({ ...insertIndexer, id }).returning();
     return indexer;
   }
 
@@ -776,7 +782,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async addDownloader(insertDownloader: InsertDownloader): Promise<Downloader> {
-    const [downloader] = await db.insert(downloaders).values(insertDownloader).returning();
+    const id = randomUUID();
+    const [downloader] = await db
+      .insert(downloaders)
+      .values({ ...insertDownloader, id })
+      .returning();
     return downloader;
   }
 
@@ -800,7 +810,6 @@ export class DatabaseStorage implements IStorage {
 
   // GameDownload methods
   async getDownloadingGameDownloads(): Promise<GameDownload[]> {
-    // Return all active downloads (not completed) so we can sync their status
     return db
       .select()
       .from(gameDownloads)
@@ -822,7 +831,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async addGameDownload(insertGameDownload: InsertGameDownload): Promise<GameDownload> {
-    const [gameDownload] = await db.insert(gameDownloads).values(insertGameDownload).returning();
+    const id = randomUUID();
+    const [gameDownload] = await db
+      .insert(gameDownloads)
+      .values({ ...insertGameDownload, id })
+      .returning();
     return gameDownload;
   }
 
@@ -840,7 +853,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async addNotification(insertNotification: InsertNotification): Promise<Notification> {
-    const [notification] = await db.insert(notifications).values(insertNotification).returning();
+    const id = randomUUID();
+    const [notification] = await db
+      .insert(notifications)
+      .values({ ...insertNotification, id })
+      .returning();
     return notification;
   }
 
@@ -868,7 +885,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createUserSettings(insertSettings: InsertUserSettings): Promise<UserSettings> {
-    const [settings] = await db.insert(userSettings).values(insertSettings).returning();
+    const id = randomUUID();
+    const [settings] = await db
+      .insert(userSettings)
+      .values({ ...insertSettings, id })
+      .returning();
     return settings;
   }
 

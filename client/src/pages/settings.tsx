@@ -62,6 +62,10 @@ export default function SettingsPage() {
   const [showClientSecret, setShowClientSecret] = useState(false);
   const [downloadRules, setDownloadRules] = useState<DownloadRules | null>(null);
 
+  // Local state for migration
+  const [pgConnectionString, setPgConnectionString] = useState("");
+  const [showPgPassword, setShowPgPassword] = useState(false);
+
   // Sync with fetched settings
   useEffect(() => {
     if (userSettings) {
@@ -159,6 +163,32 @@ export default function SettingsPage() {
     },
   });
 
+  const migratePgMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/settings/migrate-from-pg", {
+        connectionString: pgConnectionString,
+      });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Migration Completed",
+        description: "Data imported from PostgreSQL successfully.",
+      });
+      console.log("Migration logs:", data.logs);
+      setPgConnectionString("");
+      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Migration Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const refreshMetadataMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/games/refresh-metadata");
@@ -215,6 +245,18 @@ export default function SettingsPage() {
       return;
     }
     updateIgdbMutation.mutate();
+  };
+
+  const handleMigrate = () => {
+    if (!pgConnectionString) {
+      toast({
+        title: "Missing Connection String",
+        description: "Please provide the PostgreSQL connection URL.",
+        variant: "destructive",
+      });
+      return;
+    }
+    migratePgMutation.mutate();
   };
 
   if (isLoading) {
@@ -607,7 +649,7 @@ export default function SettingsPage() {
             <CardDescription>Application maintenance and data management tasks</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex flex-col space-y-2">
+            <div className="flex flex-col space-y-2 border-b pb-4">
               <div className="flex justify-between items-center">
                 <div>
                   <p className="text-sm font-medium">Refresh Metadata</p>
@@ -629,6 +671,80 @@ export default function SettingsPage() {
                   )}
                   Refresh All
                 </Button>
+              </div>
+            </div>
+
+            {/* Database Migration Section */}
+            <div className="flex flex-col space-y-4 pt-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium">Migrate from PostgreSQL</p>
+                  <p className="text-xs text-muted-foreground">
+                    Import data from a previous PostgreSQL installation.
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-4 bg-muted rounded-md space-y-4">
+                <Alert className="bg-amber-500/10 border-amber-500/20 text-amber-900 dark:text-amber-200">
+                  <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                  <AlertTitle className="text-amber-800 dark:text-amber-300">Warning</AlertTitle>
+                  <AlertDescription>
+                    This will attempt to read data from the provided PostgreSQL server and insert it into your current SQLite database.
+                    Existing records with the same IDs will be skipped. Ensure the PostgreSQL server is accessible.
+                  </AlertDescription>
+                </Alert>
+
+                <div className="space-y-2">
+                  <Label htmlFor="pg-connection">PostgreSQL Connection String</Label>
+                  <div className="relative">
+                    <Input
+                      id="pg-connection"
+                      type={showPgPassword ? "text" : "password"}
+                      placeholder="postgresql://user:password@host:5432/questarr"
+                      value={pgConnectionString}
+                      onChange={(e) => setPgConnectionString(e.target.value)}
+                      className="pr-10"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                      onClick={() => setShowPgPassword(!showPgPassword)}
+                    >
+                      {showPgPassword ? (
+                        <EyeOff className="h-4 w-4 text-muted-foreground" />
+                      ) : (
+                        <Eye className="h-4 w-4 text-muted-foreground" />
+                      )}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Format: <code>postgresql://USER:PASSWORD@HOST:PORT/DB_NAME</code>
+                  </p>
+                </div>
+
+                <div className="flex justify-end">
+                  <Button
+                    onClick={handleMigrate}
+                    disabled={migratePgMutation.isPending || !pgConnectionString}
+                    className="gap-2"
+                    variant="secondary"
+                  >
+                    {migratePgMutation.isPending ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        Migrating...
+                      </>
+                    ) : (
+                      <>
+                        <Server className="h-4 w-4" />
+                        Start Migration
+                      </>
+                    )}
+                  </Button>
+                </div>
               </div>
             </div>
           </CardContent>

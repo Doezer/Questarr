@@ -42,6 +42,7 @@ import { isSafeUrl } from "./ssrf.js";
 import { hashPassword, comparePassword, generateToken, authenticateToken } from "./auth.js";
 import { searchAllIndexers } from "./search.js";
 import archiver from "archiver";
+import { migrateFromPostgres } from "./lib/pg-migration.js";
 
 // ⚡ Bolt: Simple in-memory cache implementation to avoid external dependencies
 // Caches storage info for 30 seconds to prevent spamming downloaders
@@ -1691,6 +1692,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       routesLogger.error({ error }, "Failed to update IGDB credentials");
       res.status(500).json({ error: "Failed to update IGDB credentials" });
+    }
+  });
+
+  // Migrate from PostgreSQL
+  app.post("/api/settings/migrate-from-pg", authenticateToken, async (req, res) => {
+    try {
+      const { connectionString, sqlitePath } = req.body;
+
+      if (!connectionString) {
+        return res.status(400).json({ error: "Connection string is required" });
+      }
+
+      // Check if user is admin - implicit for now as there's no role system, but good to note
+      // In a real app we'd check req.user.role === 'admin'
+
+      routesLogger.info("Starting migration from PostgreSQL via API");
+
+      const result = await migrateFromPostgres(connectionString, sqlitePath);
+
+      if (result.success) {
+        res.json({ success: true, logs: result.logs });
+      } else {
+        res.status(500).json({ success: false, error: result.error, logs: result.logs });
+      }
+    } catch (error) {
+      routesLogger.error({ error }, "Migration API failed");
+      res.status(500).json({
+        error: "Migration failed",
+        message: error instanceof Error ? error.message : "Unknown error"
+      });
     }
   });
 

@@ -93,6 +93,12 @@ export async function runMigrations(): Promise<void> {
  * Verify database connection and tables exist
  */
 export async function ensureDatabase(): Promise<void> {
+  // Allow skipping DB check for testing environments without DB
+  if (process.env.SKIP_DB_CHECK === "true") {
+    logger.warn("Skipping database check due to SKIP_DB_CHECK=true");
+    return;
+  }
+
   const maxRetries = 10;
   const retryDelay = 2000;
 

@@ -12,3 +12,6 @@ images/Screenshots/*
 infrastructure/
 gemini.md
 .vscode/
+test-results/
+playwright-report/
+blob-report/

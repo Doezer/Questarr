@@ -13,8 +13,11 @@ This file tracks the progress of iterative hardening and maintenance tasks.
 ## In Progress
 
 - [ ] Iterative hardening pass (Jules).
+- [ ] Add comprehensive E2E tests for main user journeys.
 
 ## Completed
+
+- [x] Setup Playwright infrastructure and smoke tests.
 
 - [x] Initial repository setup.
 - [x] Basic unit and integration tests.

@@ -54,11 +54,15 @@ async function migrate() {
         // Note: this assumes all rows have same structure, which is true for SQL
         const columns = Object.keys(rows[0]);
         const placeholders = columns.map(() => "?").join(", ");
-        const insertSql = `INSERT OR IGNORE INTO "${table}" (${columns.map(c => `"${c}"`).join(", ")}) VALUES (${placeholders})`;
+
+        // We use plain INSERT to catch schema mismatches (e.g. missing non-null columns)
+        // but catch unique constraint violations to support idempotency.
+        const insertSql = `INSERT INTO "${table}" (${columns.map(c => `"${c}"`).join(", ")}) VALUES (${placeholders})`;
 
         const insertStmt = sqlite.prepare(insertSql);
 
         const runTransaction = sqlite.transaction((rowsToInsert) => {
+            let skipped = 0;
             for (const row of rowsToInsert) {
                 const values = columns.map(col => {
                     let val = row[col];
@@ -80,7 +84,21 @@ async function migrate() {
 
                     return val;
                 });
-                insertStmt.run(...values);
+
+                try {
+                    insertStmt.run(...values);
+                } catch (err: any) {
+                    // Ignore unique constraint violations (already exists)
+                    if (err.code === 'SQLITE_CONSTRAINT_PRIMARYKEY' || err.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+                        skipped++;
+                    } else {
+                        // Rethrow other errors (e.g. NOT NULL constraint) so user knows schema is incompatible
+                        throw err;
+                    }
+                }
+            }
+            if (skipped > 0) {
+                console.log(`    Skipped ${skipped} existing rows.`);
             }
         });
 

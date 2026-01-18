@@ -6,7 +6,7 @@
       "idx": 0,
       "version": "6",
       "when": 1768729631264,
-      "tag": "0000_eager_chat",
+      "tag": "0000_init_sqlite",
       "breakpoints": true
     }
   ]

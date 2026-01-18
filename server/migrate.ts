@@ -1,7 +1,7 @@
 import { logger } from "./logger.js";
 import { db } from "./db.js";
 import { sql } from "drizzle-orm";
-import { migrate } from "drizzle-orm/better-sqlite3/migrator";
+import fs from "fs";
 import path from "path";
 
 /**
@@ -10,10 +10,83 @@ import path from "path";
 export async function runMigrations(): Promise<void> {
   try {
     logger.info("Running database migrations...");
-    const migrationsFolder = path.resolve(process.cwd(), "migrations");
 
-    // Use Drizzle's built-in migrator for SQLite
-    migrate(db, { migrationsFolder });
+    // Create migrations table if it doesn't exist
+    // SQLite syntax for table creation
+    db.run(sql`
+      CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        hash text NOT NULL UNIQUE,
+        created_at integer
+      );
+    `);
+
+    const migrationsFolder = path.resolve(process.cwd(), "migrations");
+    const journalPath = path.join(migrationsFolder, "meta", "_journal.json");
+
+    if (!fs.existsSync(journalPath)) {
+      throw new Error(`Migrations journal not found at: ${journalPath}`);
+    }
+
+    const journal = JSON.parse(fs.readFileSync(journalPath, "utf-8"));
+    const appliedRows = db.all<{ hash: string }>(
+      sql`SELECT hash FROM "__drizzle_migrations"`
+    );
+    const appliedHashes = new Set(appliedRows.map((r) => r.hash));
+
+    for (const entry of journal.entries) {
+      const tag = entry.tag;
+      if (appliedHashes.has(tag)) {
+        continue;
+      }
+
+      logger.info(`Applying migration ${tag}...`);
+
+      const sqlPath = path.join(migrationsFolder, `${tag}.sql`);
+      const sqlContent = fs.readFileSync(sqlPath, "utf-8");
+
+      // SQLite doesn't strictly need statement splitting like pg if using exec() on the driver directly,
+      // but drizzle's .run() might be single-statement.
+      // Better-sqlite3's exec() handles multiple statements.
+      // However, we want transaction safety.
+
+      // We will assume the file content is a valid SQL script.
+      // Drizzle-kit generated files often use `--> statement-breakpoint` separator.
+      const statements = sqlContent.split("--> statement-breakpoint");
+
+      try {
+        db.transaction((tx) => {
+          for (const statement of statements) {
+            if (!statement.trim()) continue;
+            try {
+              tx.run(sql.raw(statement));
+            } catch (e: any) {
+              // Ignore "table already exists" etc if we want idempotency similar to the old script,
+              // but for SQLite it's often cleaner to just let it fail if schema drift is huge.
+              // The request specifically asked to "adapt the current file", which had error suppression.
+
+              const msg = e.message || "";
+              // SQLite error for existing object usually contains "already exists"
+              if (msg.includes("already exists")) {
+                logger.warn(`Skipping statement in ${tag} due to existing object: ${msg}`);
+              } else {
+                throw e;
+              }
+            }
+          }
+
+          tx.run(sql`
+            INSERT INTO "__drizzle_migrations" (hash, created_at)
+            VALUES (${tag}, ${Date.now()})
+          `);
+        });
+
+        logger.info(`Migration ${tag} applied successfully`);
+      } catch (err) {
+        logger.error(`Migration ${tag} failed: ${err}`);
+        throw err;
+      }
+    }
 
     logger.info("Database migrations completed successfully");
   } catch (error) {
@@ -48,8 +121,5 @@ export async function ensureDatabase(): Promise<void> {
  * Gracefully close database connection
  */
 export async function closeDatabase(): Promise<void> {
-    // Better-sqlite3 handles closing automatically on process exit mostly,
-    // but explicit closing if needed would be on the sqlite instance which is not exported from db.ts currently.
-    // Given the architecture, we can rely on process exit.
     logger.info("Database connection closed (noop for sqlite)");
 }

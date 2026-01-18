@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.5] - 2026-01-18
+
+### Changed
+- Update to docker-compose.yml file to make port a variable throughout.
+
+### Fixed
+- Initial setup not working
+
 
 ## [1.0.4] - 2026-01-13
 

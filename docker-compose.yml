@@ -5,16 +5,13 @@ services:
       - "${PORT:-5000}:5000"
     environment:
       # Database connection settings
-      - POSTGRES_HOST=db
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=password
-      - POSTGRES_DB=questarr
+      - SQLITE_DB_PATH=/app/data/sqlite.db
       # IGDB Credentials (Optional - Required for game discovery, will be set at first startup if not set here)
       # - IGDB_CLIENT_ID=${IGDB_CLIENT_ID}
       # - IGDB_CLIENT_SECRET=${IGDB_CLIENT_SECRET}
-    depends_on:
-      db:
-        condition: service_healthy
+    volumes:
+      # Persist SQLite database and other data
+      - ./data:/app/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:5000/api/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"]
@@ -22,23 +19,3 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-
-  db:
-    image: postgres:16-alpine
-    ports:
-      - "5432:5432"
-    environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=password
-      - POSTGRES_DB=questarr
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-volumes:
-  postgres_data:

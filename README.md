@@ -22,26 +22,62 @@ A video game management application inspired by the -Arr apps (Sonarr, Radarr, P
 
 ### Using Docker (Recommended)
 
-Docker is the easiest way to deploy Questarr with all dependencies included.
+Docker is the easiest way to deploy Questarr with all dependencies included. Questarr uses a SQLite database which is self-contained in the application container.
 
-### Prerequisites
+#### Fresh Install
 
-- **Docker & Docker Compose**
-- **IGDB API credentials** (required for game discovery)
-
-Questarr uses a SQLite database which is included in the application container. The easiest way to run the application is using the provided Docker Compose configuration.
-
-1. **Get the `docker-compose.yml` file:**
+1. **Create a `docker-compose.yml` file:**
    
-   You can either clone this repository or just download the `docker-compose.yml` file from it.
+   ```yaml
+   services:
+     app:
+       image: ghcr.io/doezer/questarr:latest
+       ports:
+         - "5000:5000"
+       volumes:
+         - ./data:/app/data
+       environment:
+         - SQLITE_DB_PATH=/app/data/sqlite.db
+       restart: unless-stopped
+   ```
 
 2. **Start the application:**
    ```bash
-   docker-compose up -d
+   docker compose up -d
    ```
 
 3. **Access the application:**
    Open your browser to `http://localhost:5000`
+
+#### Upgrading from v1.0 (PostgreSQL)
+
+If you are upgrading from an older version that used PostgreSQL, you need to migrate your data.
+
+1.  **Stop your current application:**
+    ```bash
+    docker compose down
+    ```
+
+2.  **Get the migration tools:**
+    Download the [`docker-compose.migrate.yml`](https://raw.githubusercontent.com/Doezer/Questarr/main/docker-compose.migrate.yml) file to your directory.
+
+3.  **Run the migration:**
+    This command spins up your old database and converts the data to the new format automatically.
+    ```bash
+    docker compose -f docker-compose.migrate.yml up --abort-on-container-exit
+    ```
+
+4.  **Update your deployment:**
+    Replace your `docker-compose.yml` with the new version (see "Fresh Install" above).
+
+5.  **Start the new version:**
+    ```bash
+    docker compose up -d
+    ```
+
+See [MIGRATION.md](MIGRATION.md) for more details.
+
+## Configuration
    
 ## Configuration
 

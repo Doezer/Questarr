@@ -33,6 +33,7 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/drizzle.config.ts ./
 COPY --from=builder /app/migrations ./migrations
 COPY --from=builder /app/shared ./shared
+COPY --from=builder /app/scripts ./scripts
 
 # Copy configuration files
 COPY --from=builder /app/package.json ./

@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.0] - 2026-01-19
+
+### Added
+- **SQLite Support**: Migrated database engine from PostgreSQL to SQLite for a simpler, "single-file" deployment.
+- **Migration Tooling**: Added `docker-compose.migrate.yml` and `pg-to-sqlite.ts` to automatically convert data from old PostgreSQL installations.
+- **Improved Docker Experience**: Default environment variables and automatic directory creation for a true "Pull & Run" experience.
+- **Migration UI Warning**: Added a prominent banner on the Setup page to prevent users from accidentally skipping the migration process.
+
+### Changed
+- Refactored `storage.ts` and `schema.ts` for SQLite compatibility.
+- Simplified `docker-compose.yml` (removed PostgreSQL service).
+- Updated `README.md` and added `docs/MIGRATION.md` with detailed upgrade instructions.
+
+### Fixed
+- Improved reliability of database initialization on fresh installs.
+
 ## [1.0.5] - 2026-01-18
 
 ### Changed

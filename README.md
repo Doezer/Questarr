@@ -26,6 +26,12 @@ Docker is the easiest way to deploy Questarr with all dependencies included. Que
 
 #### Fresh Install
 
+**Option 1: One-liner (Simplest)**
+```bash
+docker run -d -p 5000:5000 -v ./data:/app/data --name questarr ghcr.io/doezer/questarr:latest
+```
+
+**Option 2: Docker Compose**
 1. **Create a `docker-compose.yml` file:**
    
    ```yaml

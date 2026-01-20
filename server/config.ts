@@ -6,7 +6,6 @@ import { z } from "zod";
  */
 const envSchema = z.object({
   // Database configuration
-  DATABASE_URL: z.string().optional(), // Kept for migration script compatibility
   SQLITE_DB_PATH: z.string().optional(),
 
   // CORS configuration

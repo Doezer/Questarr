@@ -9,7 +9,6 @@ describe("Config Module", () => {
 
     // Clear all environment variables used by config
     process.env = { ...originalEnv };
-    delete process.env.DATABASE_URL;
     delete process.env.SQLITE_DB_PATH;
     delete process.env.IGDB_CLIENT_ID;
     delete process.env.IGDB_CLIENT_SECRET;

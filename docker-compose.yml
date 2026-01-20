@@ -1,15 +1,10 @@
 services:
-    app:
-      image: ghcr.io/doezer/questarr:latest
-      ports:
-  
+  app:
+    image: ghcr.io/doezer/questarr:latest
+    ports:
       - "${PORT:-5000}:5000"
     environment:
-      # Database connection settings
       - SQLITE_DB_PATH=/app/data/sqlite.db
-      # IGDB Credentials (Optional - Required for game discovery, will be set at first startup if not set here)
-      # - IGDB_CLIENT_ID=${IGDB_CLIENT_ID}
-      # - IGDB_CLIENT_SECRET=${IGDB_CLIENT_SECRET}
     volumes:
       # Persist SQLite database and other data
       - ./data:/app/data

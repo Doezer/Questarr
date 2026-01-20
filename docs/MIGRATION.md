@@ -15,7 +15,7 @@ The migration tool is compatible with all Questarr versions from v1.0.0 onwards.
 
 1.  **Stop the current application:**
     ```bash
-    docker compose down
+    docker compose down app
     ```
 
 2.  **Run the migration:**
@@ -43,15 +43,16 @@ The migration tool is compatible with all Questarr versions from v1.0.0 onwards.
                 - ./data:/app/data # Maps your SQLite database file
             environment:
                 - SQLITE_DB_PATH=/app/data/sqlite.db
+            ... rest of definitions
     ```
 
 
 5.  **Start the new version:**
     ```bash
-    docker compose up -d
+    docker compose up app -d
     ```
 
-    At this point, check that everything is as expected, and you are free to remove the db from your docker project.
+    At this point, check that everything is as expected, and you are free to remove the db and the migrator from your docker project. Just add ``--remove-orphans`` to the previous command (when starting the container).
 
 Alternatively, you can run Questarr directly with Docker:
 

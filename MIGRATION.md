@@ -24,7 +24,7 @@ The migration tool is compatible with all Questarr versions from v1.0.0 onwards.
 2.  **Run the migration:**
     This special compose file spins up your old database and the new migration tool. It will automatically initialize the SQLite database and copy your data.
     ```bash
-    docker compose -f docker-compose.migrate.yml up --build --abort-on-container-exit
+    docker compose -f docker-compose.migrate.yml up --abort-on-container-exit
     ```
     *The `--abort-on-container-exit` flag will stop everything once the migration is finished.*
     *Wait for the process to complete. You should see "Migration completed." in the logs.*

@@ -16,10 +16,7 @@ services:
 
   # The migrator service (your app)
   migrator:
-    #image: ghcr.io/doezer/questarr:latest
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/doezer/questarr:latest
     environment:
       - NODE_ENV=production
       - DATABASE_URL=postgresql://postgres:password@db:5432/questarr

@@ -111,10 +111,12 @@ export default function SetupPage() {
         <AlertDescription>
           <div className="mt-2 text-sm space-y-2">
             <p>
-              If you are upgrading from an older version (PostgreSQL), <strong>do not create a new account</strong>.
+              If you are upgrading from an older version (PostgreSQL),{" "}
+              <strong>do not create a new account</strong>.
             </p>
             <p>
-              You must migrate your data to the new database format first, otherwise your library will be empty.
+              You must migrate your data to the new database format first, otherwise your library
+              will be empty.
             </p>
             <a
               href="https://github.com/Doezer/Questarr/blob/main/docs/MIGRATION.md"
@@ -290,8 +292,16 @@ export default function SetupPage() {
                 </>
               )}
 
-              <Button type="submit" className="w-full" disabled={setupMutation.isPending || isLoadingConfig}>
-                {isLoadingConfig ? "Loading..." : setupMutation.isPending ? "Creating Account..." : "Create Account"}
+              <Button
+                type="submit"
+                className="w-full"
+                disabled={setupMutation.isPending || isLoadingConfig}
+              >
+                {isLoadingConfig
+                  ? "Loading..."
+                  : setupMutation.isPending
+                    ? "Creating Account..."
+                    : "Create Account"}
               </Button>
             </form>
           </Form>

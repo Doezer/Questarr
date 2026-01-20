@@ -15,12 +15,12 @@ try {
     console.log(`Creating database directory: ${dbDir}`);
     fs.mkdirSync(dbDir, { recursive: true });
   }
-  
+
   // Verify permissions/status of the file if it exists
   if (fs.existsSync(dbPath)) {
     const stats = fs.statSync(dbPath);
     if (stats.isDirectory()) {
-       console.error(`ERROR: Database path ${dbPath} is a directory, not a file!`);
+      console.error(`ERROR: Database path ${dbPath} is a directory, not a file!`);
     }
   }
 } catch (err) {
@@ -33,9 +33,9 @@ console.log(`Initializing SQLite database at: ${dbPath}`);
 const sqlite = new Database(dbPath);
 
 // Apply pragmas for performance and compatibility
-sqlite.pragma('journal_mode = WAL');
-sqlite.pragma('synchronous = NORMAL');
-sqlite.pragma('foreign_keys = ON');
+sqlite.pragma("journal_mode = WAL");
+sqlite.pragma("synchronous = NORMAL");
+sqlite.pragma("foreign_keys = ON");
 
 // Create the drizzle database instance
 export const db = drizzle(sqlite, { schema });

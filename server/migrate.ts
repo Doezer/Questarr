@@ -29,9 +29,7 @@ export async function runMigrations(): Promise<void> {
     }
 
     const journal = JSON.parse(fs.readFileSync(journalPath, "utf-8"));
-    const appliedRows = db.all<{ hash: string }>(
-      sql`SELECT hash FROM "__drizzle_migrations"`
-    );
+    const appliedRows = db.all<{ hash: string }>(sql`SELECT hash FROM "__drizzle_migrations"`);
     const appliedHashes = new Set(appliedRows.map((r) => r.hash));
 
     for (const entry of journal.entries) {
@@ -105,7 +103,7 @@ export async function ensureDatabase(): Promise<void> {
     // Test connection
     const result = db.get(sql`SELECT 1`);
     if (!result) {
-        throw new Error("Database connection test failed");
+      throw new Error("Database connection test failed");
     }
     logger.info("Database connection successful");
 
@@ -121,5 +119,5 @@ export async function ensureDatabase(): Promise<void> {
  * Gracefully close database connection
  */
 export async function closeDatabase(): Promise<void> {
-    logger.info("Database connection closed (noop for sqlite)");
+  logger.info("Database connection closed (noop for sqlite)");
 }

@@ -558,7 +558,10 @@ export class DatabaseStorage implements IStorage {
   async createUser(insertUser: InsertUser): Promise<User> {
     // Manually generate UUID for SQLite
     const id = randomUUID();
-    const [user] = await db.insert(users).values({ ...insertUser, id }).returning();
+    const [user] = await db
+      .insert(users)
+      .values({ ...insertUser, id })
+      .returning();
     return user;
   }
 
@@ -744,7 +747,10 @@ export class DatabaseStorage implements IStorage {
   async addIndexer(insertIndexer: InsertIndexer): Promise<Indexer> {
     // Generate UUID manually
     const id = randomUUID();
-    const [indexer] = await db.insert(indexers).values({ ...insertIndexer, id }).returning();
+    const [indexer] = await db
+      .insert(indexers)
+      .values({ ...insertIndexer, id })
+      .returning();
     return indexer;
   }
 

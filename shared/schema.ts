@@ -1,43 +1,43 @@
 import { sql } from "drizzle-orm";
-import {
-  sqliteTable,
-  text,
-  integer,
-  real,
-  blob,
-} from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, blob } from "drizzle-orm/sqlite-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 export const users = sqliteTable("users", {
-  id: text("id")
-    .primaryKey(),
+  id: text("id").primaryKey(),
   username: text("username").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
 });
 
 export const userSettings = sqliteTable("user_settings", {
-  id: text("id")
-    .primaryKey(),
+  id: text("id").primaryKey(),
   userId: text("user_id")
     .references(() => users.id, { onDelete: "cascade" })
     .notNull()
     .unique(),
   autoSearchEnabled: integer("auto_search_enabled", { mode: "boolean" }).notNull().default(true),
-  autoDownloadEnabled: integer("auto_download_enabled", { mode: "boolean" }).notNull().default(false),
-  notifyMultipleDownloads: integer("notify_multiple_downloads", { mode: "boolean" }).notNull().default(true),
+  autoDownloadEnabled: integer("auto_download_enabled", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  notifyMultipleDownloads: integer("notify_multiple_downloads", { mode: "boolean" })
+    .notNull()
+    .default(true),
   notifyUpdates: integer("notify_updates", { mode: "boolean" }).notNull().default(true),
   searchIntervalHours: integer("search_interval_hours").notNull().default(6),
   igdbRateLimitPerSecond: integer("igdb_rate_limit_per_second").notNull().default(3),
   downloadRules: text("download_rules"),
   lastAutoSearch: integer("last_auto_search", { mode: "timestamp" }),
-  updatedAt: integer("updated_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now') * 1000)`),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).default(
+    sql`(strftime('%s', 'now') * 1000)`
+  ),
 });
 
 export const systemConfig = sqliteTable("system_config", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),
-  updatedAt: integer("updated_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now') * 1000)`),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).default(
+    sql`(strftime('%s', 'now') * 1000)`
+  ),
 });
 
 export const games = sqliteTable("games", {
@@ -63,26 +63,26 @@ export const games = sqliteTable("games", {
 });
 
 export const indexers = sqliteTable("indexers", {
-  id: text("id")
-    .primaryKey(),
+  id: text("id").primaryKey(),
   name: text("name").notNull(),
   url: text("url").notNull(),
   apiKey: text("api_key").notNull(),
-  protocol: text("protocol")
-    .notNull()
-    .default("torznab"),
+  protocol: text("protocol").notNull().default("torznab"),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
   priority: integer("priority").notNull().default(1),
   categories: text("categories", { mode: "json" }).$type<string[]>().default([]),
   rssEnabled: integer("rss_enabled", { mode: "boolean" }).notNull().default(true),
   autoSearchEnabled: integer("auto_search_enabled", { mode: "boolean" }).notNull().default(true),
-  createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now') * 1000)`),
-  updatedAt: integer("updated_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now') * 1000)`),
+  createdAt: integer("created_at", { mode: "timestamp" }).default(
+    sql`(strftime('%s', 'now') * 1000)`
+  ),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).default(
+    sql`(strftime('%s', 'now') * 1000)`
+  ),
 });
 
 export const downloaders = sqliteTable("downloaders", {
-  id: text("id")
-    .primaryKey(),
+  id: text("id").primaryKey(),
   name: text("name").notNull(),
   type: text("type").notNull(), // Enum validation handled by Zod
   url: text("url").notNull(),
@@ -100,28 +100,27 @@ export const downloaders = sqliteTable("downloaders", {
   removeCompleted: integer("remove_completed", { mode: "boolean" }).default(false),
   postImportCategory: text("post_import_category"),
   settings: text("settings"),
-  createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now') * 1000)`),
-  updatedAt: integer("updated_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now') * 1000)`),
+  createdAt: integer("created_at", { mode: "timestamp" }).default(
+    sql`(strftime('%s', 'now') * 1000)`
+  ),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).default(
+    sql`(strftime('%s', 'now') * 1000)`
+  ),
 });
 
 // Track downloads associated with games for completion monitoring
 export const gameDownloads = sqliteTable("game_downloads", {
-  id: text("id")
-    .primaryKey(),
+  id: text("id").primaryKey(),
   gameId: text("game_id")
     .notNull()
     .references(() => games.id, { onDelete: "cascade" }),
   downloaderId: text("downloader_id")
     .notNull()
     .references(() => downloaders.id, { onDelete: "cascade" }),
-  downloadType: text("download_type")
-    .notNull()
-    .default("torrent"),
+  downloadType: text("download_type").notNull().default("torrent"),
   downloadHash: text("download_hash").notNull(),
   downloadTitle: text("download_title").notNull(),
-  status: text("status")
-    .notNull()
-    .default("downloading"),
+  status: text("status").notNull().default("downloading"),
   addedAt: integer("added_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now') * 1000)`),
   completedAt: integer("completed_at", { mode: "timestamp" }),
 });
@@ -130,14 +129,15 @@ export const gameDownloads = sqliteTable("game_downloads", {
 export const legacy_gameDownloads = gameDownloads;
 
 export const notifications = sqliteTable("notifications", {
-  id: text("id")
-    .primaryKey(),
+  id: text("id").primaryKey(),
   userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
   type: text("type").notNull(),
   title: text("title").notNull(),
   message: text("message").notNull(),
   read: integer("read", { mode: "boolean" }).notNull().default(false),
-  createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now') * 1000)`),
+  createdAt: integer("created_at", { mode: "timestamp" }).default(
+    sql`(strftime('%s', 'now') * 1000)`
+  ),
 });
 
 // Validation schemas using drizzle-zod for runtime validation

@@ -239,12 +239,8 @@
           "name": "game_downloads_game_id_games_id_fk",
           "tableFrom": "game_downloads",
           "tableTo": "games",
-          "columnsFrom": [
-            "game_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["game_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -252,12 +248,8 @@
           "name": "game_downloads_downloader_id_downloaders_id_fk",
           "tableFrom": "game_downloads",
           "tableTo": "downloaders",
-          "columnsFrom": [
-            "downloader_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["downloader_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -413,12 +405,8 @@
           "name": "games_user_id_users_id_fk",
           "tableFrom": "games",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -590,12 +578,8 @@
           "name": "notifications_user_id_users_id_fk",
           "tableFrom": "notifications",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -727,9 +711,7 @@
       "indexes": {
         "user_settings_user_id_unique": {
           "name": "user_settings_user_id_unique",
-          "columns": [
-            "user_id"
-          ],
+          "columns": ["user_id"],
           "isUnique": true
         }
       },
@@ -738,12 +720,8 @@
           "name": "user_settings_user_id_users_id_fk",
           "tableFrom": "user_settings",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -780,9 +758,7 @@
       "indexes": {
         "users_username_unique": {
           "name": "users_username_unique",
-          "columns": [
-            "username"
-          ],
+          "columns": ["username"],
           "isUnique": true
         }
       },

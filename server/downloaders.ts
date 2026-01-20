@@ -10,7 +10,8 @@ import crypto from "crypto";
 import parseTorrent from "parse-torrent";
 import { XMLParser } from "fast-xml-parser";
 
-const DOWNLOAD_CLIENT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
+const DOWNLOAD_CLIENT_USER_AGENT =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
 
 // Type definitions for API responses
 interface TransmissionTorrent {
@@ -2040,13 +2041,15 @@ class QBittorrentClient implements DownloaderClient {
         { url: request.url },
         "Downloading torrent file from indexer (fallback)"
       );
-      
+
       let torrentFileBuffer: Buffer;
       let torrentFileName = "torrent.torrent";
       let parsedInfoHash: string | null = null;
 
       try {
-        const { response: torrentResponse, magnetLink } = await this.fetchWithMagnetDetection(request.url);
+        const { response: torrentResponse, magnetLink } = await this.fetchWithMagnetDetection(
+          request.url
+        );
 
         if (magnetLink) {
           const magnetHash = extractHashFromUrl(magnetLink);
@@ -2062,7 +2065,7 @@ class QBittorrentClient implements DownloaderClient {
           // We construct a new request but preserve the original intent (category, path, etc.)
           return this.addDownload({
             ...request,
-            url: magnetLink
+            url: magnetLink,
           });
         }
 
@@ -2098,9 +2101,10 @@ class QBittorrentClient implements DownloaderClient {
         );
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Unknown error";
-        const errorCause = error instanceof Error && "cause" in error
-          ? (error.cause as { code?: string; message?: string; errno?: number } | undefined)
-          : undefined;
+        const errorCause =
+          error instanceof Error && "cause" in error
+            ? (error.cause as { code?: string; message?: string; errno?: number } | undefined)
+            : undefined;
 
         // Detailed logging to diagnose "fetch failed"
         downloadersLogger.error(
@@ -2109,7 +2113,7 @@ class QBittorrentClient implements DownloaderClient {
             cause: errorCause,
             code: errorCause?.code,
             errno: errorCause?.errno,
-            url: request.url
+            url: request.url,
           },
           "Failed to download torrent file"
         );
@@ -2118,8 +2122,9 @@ class QBittorrentClient implements DownloaderClient {
         if (errorMessage === "fetch failed" && errorCause) {
           userFriendlyError += ` (${errorCause.code || errorCause.message || "Unknown cause"})`;
 
-          if (errorCause.code === 'ECONNREFUSED') {
-             userFriendlyError += " - The indexer refused the connection. Check if Prowlarr/Jackett is running and the port is correct.";
+          if (errorCause.code === "ECONNREFUSED") {
+            userFriendlyError +=
+              " - The indexer refused the connection. Check if Prowlarr/Jackett is running and the port is correct.";
           }
         }
 

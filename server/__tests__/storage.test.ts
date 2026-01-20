@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { InsertGame } from "../../shared/schema";
 import type { MemStorage as MemStorageType } from "../storage.js";
 
-// Mock db.ts to avoid DATABASE_URL requirement
+// Mock db.ts to avoid SQLite connection
 vi.mock("../db.js", () => ({
   pool: {},
   db: {},

@@ -1,167 +1,143 @@
 import { sql } from "drizzle-orm";
-import {
-  pgTable,
-  text,
-  varchar,
-  integer,
-  real,
-  boolean,
-  timestamp,
-  serial,
-  bigint,
-} from "drizzle-orm/pg-core";
+import { sqliteTable, text, integer, real, blob } from "drizzle-orm/sqlite-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-export const users = pgTable("users", {
-  id: varchar("id")
-    .primaryKey()
-    .default(sql`gen_random_uuid()`),
+export const users = sqliteTable("users", {
+  id: text("id").primaryKey(),
   username: text("username").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
 });
 
-export const userSettings = pgTable("user_settings", {
-  id: varchar("id")
-    .primaryKey()
-    .default(sql`gen_random_uuid()`),
-  userId: varchar("user_id")
+export const userSettings = sqliteTable("user_settings", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
     .references(() => users.id, { onDelete: "cascade" })
     .notNull()
     .unique(),
-  autoSearchEnabled: boolean("auto_search_enabled").notNull().default(true),
-  autoDownloadEnabled: boolean("auto_download_enabled").notNull().default(false),
-  notifyMultipleDownloads: boolean("notify_multiple_downloads").notNull().default(true),
-  notifyUpdates: boolean("notify_updates").notNull().default(true),
+  autoSearchEnabled: integer("auto_search_enabled", { mode: "boolean" }).notNull().default(true),
+  autoDownloadEnabled: integer("auto_download_enabled", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  notifyMultipleDownloads: integer("notify_multiple_downloads", { mode: "boolean" })
+    .notNull()
+    .default(true),
+  notifyUpdates: integer("notify_updates", { mode: "boolean" }).notNull().default(true),
   searchIntervalHours: integer("search_interval_hours").notNull().default(6),
   igdbRateLimitPerSecond: integer("igdb_rate_limit_per_second").notNull().default(3),
   downloadRules: text("download_rules"),
-  lastAutoSearch: timestamp("last_auto_search"),
-  updatedAt: timestamp("updated_at").defaultNow(),
+  lastAutoSearch: integer("last_auto_search", { mode: "timestamp" }),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).default(
+    sql`(strftime('%s', 'now') * 1000)`
+  ),
 });
 
-export const systemConfig = pgTable("system_config", {
+export const systemConfig = sqliteTable("system_config", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),
-  updatedAt: timestamp("updated_at").defaultNow(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).default(
+    sql`(strftime('%s', 'now') * 1000)`
+  ),
 });
 
-export const games = pgTable("games", {
-  id: varchar("id").primaryKey(),
-  userId: varchar("user_id").references(() => users.id, { onDelete: "cascade" }),
-  igdbId: integer("igdb_id"), // Removed unique constraint to allow multiple users to have the same game
+export const games = sqliteTable("games", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+  igdbId: integer("igdb_id"),
   title: text("title").notNull(),
   summary: text("summary"),
   coverUrl: text("cover_url"),
   releaseDate: text("release_date"),
   rating: real("rating"),
-  platforms: text("platforms").array(),
-  genres: text("genres").array(),
-  publishers: text("publishers").array(),
-  developers: text("developers").array(),
-  screenshots: text("screenshots").array(),
-  status: text("status", { enum: ["wanted", "owned", "completed", "downloading"] })
-    .notNull()
-    .default("wanted"),
+  platforms: text("platforms", { mode: "json" }).$type<string[]>(),
+  genres: text("genres", { mode: "json" }).$type<string[]>(),
+  publishers: text("publishers", { mode: "json" }).$type<string[]>(),
+  developers: text("developers", { mode: "json" }).$type<string[]>(),
+  screenshots: text("screenshots", { mode: "json" }).$type<string[]>(),
+  status: text("status").notNull().default("wanted"), // Enum validation handled by Zod
   originalReleaseDate: text("original_release_date"),
-  releaseStatus: text("release_status", {
-    enum: ["released", "upcoming", "delayed", "tbd"],
-  }).default("upcoming"),
-  hidden: boolean("hidden").default(false),
-  addedAt: timestamp("added_at").defaultNow(),
-  completedAt: timestamp("completed_at"),
+  releaseStatus: text("release_status").default("upcoming"), // Enum validation handled by Zod
+  hidden: integer("hidden", { mode: "boolean" }).default(false),
+  addedAt: integer("added_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now') * 1000)`),
+  completedAt: integer("completed_at", { mode: "timestamp" }),
 });
 
-export const indexers = pgTable("indexers", {
-  id: varchar("id")
-    .primaryKey()
-    .default(sql`gen_random_uuid()`),
+export const indexers = sqliteTable("indexers", {
+  id: text("id").primaryKey(),
   name: text("name").notNull(),
   url: text("url").notNull(),
   apiKey: text("api_key").notNull(),
-  protocol: text("protocol", { enum: ["torznab", "newznab"] })
-    .notNull()
-    .default("torznab"), // Protocol type
-  enabled: boolean("enabled").notNull().default(true),
+  protocol: text("protocol").notNull().default("torznab"),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
   priority: integer("priority").notNull().default(1),
-  categories: text("categories").array().default([]), // Torznab/Newznab categories to search
-  rssEnabled: boolean("rss_enabled").notNull().default(true),
-  autoSearchEnabled: boolean("auto_search_enabled").notNull().default(true),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
+  categories: text("categories", { mode: "json" }).$type<string[]>().default([]),
+  rssEnabled: integer("rss_enabled", { mode: "boolean" }).notNull().default(true),
+  autoSearchEnabled: integer("auto_search_enabled", { mode: "boolean" }).notNull().default(true),
+  createdAt: integer("created_at", { mode: "timestamp" }).default(
+    sql`(strftime('%s', 'now') * 1000)`
+  ),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).default(
+    sql`(strftime('%s', 'now') * 1000)`
+  ),
 });
 
-export const downloaders = pgTable("downloaders", {
-  id: varchar("id")
-    .primaryKey()
-    .default(sql`gen_random_uuid()`),
+export const downloaders = sqliteTable("downloaders", {
+  id: text("id").primaryKey(),
   name: text("name").notNull(),
-  type: text("type", {
-    enum: ["transmission", "rtorrent", "qbittorrent", "sabnzbd", "nzbget"],
-  }).notNull(),
-  url: text("url").notNull(), // Host URL (without port for rTorrent/qBittorrent)
-  port: integer("port"), // Port number (used by rTorrent and qBittorrent)
-  useSsl: boolean("use_ssl").default(false), // Use SSL/TLS connection
-  urlPath: text("url_path"), // URL path to XMLRPC endpoint (rTorrent: typically "RPC2" or "plugins/rpc/rpc.php")
+  type: text("type").notNull(), // Enum validation handled by Zod
+  url: text("url").notNull(),
+  port: integer("port"),
+  useSsl: integer("use_ssl", { mode: "boolean" }).default(false),
+  urlPath: text("url_path"),
   username: text("username"),
   password: text("password"),
-  enabled: boolean("enabled").notNull().default(true),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
   priority: integer("priority").notNull().default(1),
   downloadPath: text("download_path"),
-  category: text("category").default("games"), // Category/label in the downloader
-  label: text("label").default("Questarr"), // Deprecated - use category instead
-  addStopped: boolean("add_stopped").default(false), // Add torrents in stopped/paused state
-  removeCompleted: boolean("remove_completed").default(false), // Remove torrents after completion
-  postImportCategory: text("post_import_category"), // Category to set after download completes
-  settings: text("settings"), // JSON string for additional client-specific settings
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
+  category: text("category").default("games"),
+  label: text("label").default("Questarr"),
+  addStopped: integer("add_stopped", { mode: "boolean" }).default(false),
+  removeCompleted: integer("remove_completed", { mode: "boolean" }).default(false),
+  postImportCategory: text("post_import_category"),
+  settings: text("settings"),
+  createdAt: integer("created_at", { mode: "timestamp" }).default(
+    sql`(strftime('%s', 'now') * 1000)`
+  ),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).default(
+    sql`(strftime('%s', 'now') * 1000)`
+  ),
 });
 
 // Track downloads associated with games for completion monitoring
-export const gameDownloads = pgTable("game_downloads", {
-  id: varchar("id")
-    .primaryKey()
-    .default(sql`gen_random_uuid()`),
-  gameId: varchar("game_id")
+export const gameDownloads = sqliteTable("game_downloads", {
+  id: text("id").primaryKey(),
+  gameId: text("game_id")
     .notNull()
     .references(() => games.id, { onDelete: "cascade" }),
-  downloaderId: varchar("downloader_id")
+  downloaderId: text("downloader_id")
     .notNull()
     .references(() => downloaders.id, { onDelete: "cascade" }),
-  downloadType: text("download_type", { enum: ["torrent", "usenet"] })
-    .notNull()
-    .default("torrent"),
-  downloadHash: text("download_hash").notNull(), // Hash/ID from the downloader client (torrent hash or NZB ID)
+  downloadType: text("download_type").notNull().default("torrent"),
+  downloadHash: text("download_hash").notNull(),
   downloadTitle: text("download_title").notNull(),
-  status: text("status", { enum: ["downloading", "completed", "failed", "paused"] })
-    .notNull()
-    .default("downloading"),
-  addedAt: timestamp("added_at").defaultNow(),
-  completedAt: timestamp("completed_at"),
+  status: text("status").notNull().default("downloading"),
+  addedAt: integer("added_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now') * 1000)`),
+  completedAt: integer("completed_at", { mode: "timestamp" }),
 });
 
 // Legacy table name for backward compatibility during migration
 export const legacy_gameDownloads = gameDownloads;
 
-export const notifications = pgTable("notifications", {
-  id: varchar("id")
-    .primaryKey()
-    .default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").references(() => users.id, { onDelete: "cascade" }), // Optional if we want global notifications too
-  type: text("type", { enum: ["info", "success", "warning", "error", "delayed"] }).notNull(),
+export const notifications = sqliteTable("notifications", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+  type: text("type").notNull(),
   title: text("title").notNull(),
   message: text("message").notNull(),
-  read: boolean("read").notNull().default(false),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-// Drizzle migrations tracking table (used in production)
-// Including this in schema allows db:push to work in dev without conflicts
-export const drizzleMigrations = pgTable("__drizzle_migrations", {
-  id: serial("id").primaryKey(),
-  hash: text("hash").notNull().unique(),
-  createdAt: bigint("created_at", { mode: "number" }),
+  read: integer("read", { mode: "boolean" }).notNull().default(false),
+  createdAt: integer("created_at", { mode: "timestamp" }).default(
+    sql`(strftime('%s', 'now') * 1000)`
+  ),
 });
 
 // Validation schemas using drizzle-zod for runtime validation

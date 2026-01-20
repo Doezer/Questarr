@@ -13,3 +13,12 @@ infrastructure/
 gemini.md
 .vscode/
 docker-compose.local.yml
+docker-compose.migratelocal.yml
+
+# SQLite
+sqlite.db
+sqlite.db-shm
+sqlite.db-wal
+*.db
+data/sqlite.db
+docker-compose.migratelocal.yml

@@ -1,6 +1,7 @@
 {
   "extends": "./tsconfig.json",
   "exclude": ["node_modules", "client", "dist", "**/*.test.ts", "**/__tests__/**"],
+  "include": ["server/**/*", "shared/**/*", "scripts/**/*"],
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": ".",

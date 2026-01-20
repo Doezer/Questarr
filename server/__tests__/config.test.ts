@@ -9,7 +9,7 @@ describe("Config Module", () => {
 
     // Clear all environment variables used by config
     process.env = { ...originalEnv };
-    delete process.env.DATABASE_URL;
+    delete process.env.SQLITE_DB_PATH;
     delete process.env.IGDB_CLIENT_ID;
     delete process.env.IGDB_CLIENT_SECRET;
     delete process.env.PORT;
@@ -22,11 +22,11 @@ describe("Config Module", () => {
     vi.restoreAllMocks();
   });
 
-  describe("when DATABASE_URL is missing", () => {
-    it("should use default fallback database URL if DATABASE_URL is missing", async () => {
+  describe("when configuration is missing", () => {
+    it("should use default fallback sqlite DB if paths are missing", async () => {
       // Import the config module - should not throw, should use default URL
       const { config } = await import("../config.js");
-      expect(config.database.url).toBe("postgresql://postgres:password@localhost:5432/questarr");
+      expect(config.database.url).toBe("sqlite.db");
       expect(config.server.port).toBe(5000);
       expect(config.server.host).toBe("0.0.0.0");
     });
@@ -34,7 +34,7 @@ describe("Config Module", () => {
 
   describe("when PORT is invalid", () => {
     it("should call process.exit(1) for non-numeric PORT", async () => {
-      process.env.DATABASE_URL = "postgresql://user:pass@localhost:5432/testdb";
+      process.env.SQLITE_DB_PATH = "test.db";
       process.env.PORT = "invalid";
 
       // Mock process.exit to prevent tests from exiting, but throw to stop execution
@@ -54,13 +54,13 @@ describe("Config Module", () => {
     });
   });
 
-  describe("when DATABASE_URL is set", () => {
+  describe("when SQLITE_DB_PATH is set", () => {
     it("should export valid config with defaults", async () => {
-      process.env.DATABASE_URL = "postgresql://user:pass@localhost:5432/testdb";
+      process.env.SQLITE_DB_PATH = "custom.db";
 
       const { config } = await import("../config.js");
 
-      expect(config.database.url).toBe("postgresql://user:pass@localhost:5432/testdb");
+      expect(config.database.url).toBe("custom.db");
       expect(config.server.port).toBe(5000); // default
       expect(config.server.host).toBe("0.0.0.0"); // default
       expect(config.server.nodeEnv).toBe("production"); // default
@@ -68,7 +68,7 @@ describe("Config Module", () => {
     });
 
     it("should respect custom PORT and HOST", async () => {
-      process.env.DATABASE_URL = "postgresql://user:pass@localhost:5432/testdb";
+      process.env.SQLITE_DB_PATH = "test.db";
       process.env.PORT = "3000";
       process.env.HOST = "0.0.0.0";
 
@@ -79,7 +79,7 @@ describe("Config Module", () => {
     });
 
     it("should detect IGDB as configured when both credentials are set", async () => {
-      process.env.DATABASE_URL = "postgresql://user:pass@localhost:5432/testdb";
+      process.env.SQLITE_DB_PATH = "test.db";
       process.env.IGDB_CLIENT_ID = "test-client-id";
       process.env.IGDB_CLIENT_SECRET = "test-client-secret";
 
@@ -91,7 +91,7 @@ describe("Config Module", () => {
     });
 
     it("should detect IGDB as not configured when only one credential is set", async () => {
-      process.env.DATABASE_URL = "postgresql://user:pass@localhost:5432/testdb";
+      process.env.SQLITE_DB_PATH = "test.db";
       process.env.IGDB_CLIENT_ID = "test-client-id";
       // IGDB_CLIENT_SECRET is not set
 
@@ -103,7 +103,7 @@ describe("Config Module", () => {
     });
 
     it("should set NODE_ENV correctly", async () => {
-      process.env.DATABASE_URL = "postgresql://user:pass@localhost:5432/testdb";
+      process.env.SQLITE_DB_PATH = "test.db";
       process.env.NODE_ENV = "production";
 
       const { config } = await import("../config.js");
@@ -115,7 +115,7 @@ describe("Config Module", () => {
     });
 
     it("should set test environment flags correctly", async () => {
-      process.env.DATABASE_URL = "postgresql://user:pass@localhost:5432/testdb";
+      process.env.SQLITE_DB_PATH = "test.db";
       process.env.NODE_ENV = "test";
 
       const { config } = await import("../config.js");

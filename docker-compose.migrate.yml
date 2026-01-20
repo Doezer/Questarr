@@ -1,0 +1,35 @@
+services:
+  # Temporary Postgres service to access old data
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=questarr
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # The migrator service (your app)
+  migrator:
+    image: ghcr.io/doezer/questarr:latest
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://postgres:password@db:5432/questarr
+      # Path where the SQLite DB will be created inside the container
+      - SQLITE_DB_PATH=/app/data/sqlite.db
+    volumes:
+      # Map a local 'data' folder to receive the migrated database
+      - ./data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+    # Chain: 1. Push schema to SQLite, 2. Run the PG->SQLite migration script
+    command: sh -c "node dist/server/run-migrations.js && node dist/scripts/pg-to-sqlite.js"
+
+volumes:
+  postgres_data:

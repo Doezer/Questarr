@@ -14,7 +14,7 @@ A video game management application inspired by the -Arr apps (Sonarr, Radarr, P
 
 - **Frontend**: React 18, TypeScript, Vite, Tailwind CSS, shadcn/ui
 - **Backend**: Node.js, Express, TypeScript
-- **Database**: PostgreSQL with Drizzle ORM
+- **Database**: SQLite with Drizzle ORM
 - **APIs**: IGDB (game metadata), Torznab (indexer search)
 - **AIs**: Claude Sonnet 4.5, Gemini 3, Google Jules, GitHub Copilot
 
@@ -22,26 +22,68 @@ A video game management application inspired by the -Arr apps (Sonarr, Radarr, P
 
 ### Using Docker (Recommended)
 
-Docker is the easiest way to deploy Questarr with all dependencies included.
+Docker is the easiest way to deploy Questarr with all dependencies included. Questarr uses a SQLite database which is self-contained in the application container.
 
-### Prerequisites
+#### Fresh Install
 
-- **Docker & Docker Compose**
-- **IGDB API credentials** (required for game discovery)
+**Option 1: One-liner (Simplest)**
+```bash
+docker run -d -p 5000:5000 -v ./data:/app/data --name questarr ghcr.io/doezer/questarr:latest
+```
 
-Questarr requires a PostgreSQL database. The easiest way to run both is using the provided Docker Compose configuration.
-
-1. **Get the `docker-compose.yml` file:**
+**Option 2: Docker Compose**
+1. **Create a `docker-compose.yml` file:**
    
-   You can either clone this repository or just download the `docker-compose.yml` file from it.
+   ```yaml
+   services:
+     app:
+       image: ghcr.io/doezer/questarr:latest
+       ports:
+         - "5000:5000"
+       volumes:
+         - ./data:/app/data
+       environment:
+         - SQLITE_DB_PATH=/app/data/sqlite.db
+       restart: unless-stopped
+   ```
 
 2. **Start the application:**
    ```bash
-   docker-compose up -d
+   docker compose up -d
    ```
 
 3. **Access the application:**
    Open your browser to `http://localhost:5000`
+
+#### Upgrading from v1.0 (PostgreSQL)
+
+If you are upgrading from an older version that used PostgreSQL, you need to migrate your data.
+
+1.  **Stop your current application:**
+    ```bash
+    docker compose down
+    ```
+
+2.  **Get the migration tools:**
+    Download the [`docker-compose.migrate.yml`](https://raw.githubusercontent.com/Doezer/Questarr/main/docker-compose.migrate.yml) file to your directory.
+
+3.  **Run the migration:**
+    This command spins up your old database and converts the data to the new format automatically.
+    ```bash
+    docker compose -f docker-compose.migrate.yml up --abort-on-container-exit
+    ```
+
+4.  **Update your deployment:**
+    Replace your `docker-compose.yml` with the new version (see "Fresh Install" above).
+
+5.  **Start the new version:**
+    ```bash
+    docker compose up -d
+    ```
+
+See [docs/MIGRATION.md](docs/MIGRATION.md) for more details.
+
+## Configuration
    
 ## Configuration
 
@@ -113,7 +155,7 @@ docker-compose up -d
 
 ### Manual Installation (npm) - NOT RECOMMENDED
 
-For development or custom deployments without Docker. Launching it requires having a PostgreSQL DB configured apart (can use the docker compose file). Not for normal users.
+For development or custom deployments without Docker.
 
 1. **Clone and install dependencies:**
 ```bash
@@ -121,20 +163,14 @@ git clone https://github.com/Doezer/Questarr.git
 npm install
 ```
 
-2. **Use the DB from docker file or Set up PostgreSQL:**
-- Install PostgreSQL 16+ on your system
-- Create a database: `createdb questarr`
-- Create a `.env` file and provide your custom database connection string
-
-3. **Configure environment variables in `.env`:**
+2. **Configure environment variables in `.env`:**
 See the .env.example for available variables.
 
-4. **Initialize the database:**
+3. **Initialize the database:**
 This will run available migration files.
 ```bash
 npm run db:migrate
 ```
-You may run db:push instead if you have set DATABASE_URL (only for development)
 
 5. **Development mode (with hot reload):**
 ```bash
@@ -156,7 +192,7 @@ See [Troubleshooting on the Wiki](https://github.com/Doezer/Questarr/wiki/Troubl
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to contribute to this project.
+See [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md) for guidelines on how to contribute to this project.
 
 ## Contributors
 

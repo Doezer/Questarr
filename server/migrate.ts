@@ -1,5 +1,5 @@
 import { logger } from "./logger.js";
-import { db, pool } from "./db.js";
+import { db } from "./db.js";
 import { sql } from "drizzle-orm";
 import fs from "fs";
 import path from "path";
@@ -12,11 +12,12 @@ export async function runMigrations(): Promise<void> {
     logger.info("Running database migrations...");
 
     // Create migrations table if it doesn't exist
-    await db.execute(sql`
+    // SQLite syntax for table creation
+    db.run(sql`
       CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
-        id SERIAL PRIMARY KEY,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         hash text NOT NULL UNIQUE,
-        created_at bigint
+        created_at integer
       );
     `);
 
@@ -28,8 +29,8 @@ export async function runMigrations(): Promise<void> {
     }
 
     const journal = JSON.parse(fs.readFileSync(journalPath, "utf-8"));
-    const appliedRows = await db.execute(sql`SELECT hash FROM "__drizzle_migrations"`);
-    const appliedHashes = new Set(appliedRows.rows.map((r) => r.hash));
+    const appliedRows = db.all<{ hash: string }>(sql`SELECT hash FROM "__drizzle_migrations"`);
+    const appliedHashes = new Set(appliedRows.map((r) => r.hash));
 
     for (const entry of journal.entries) {
       const tag = entry.tag;
@@ -41,35 +42,38 @@ export async function runMigrations(): Promise<void> {
 
       const sqlPath = path.join(migrationsFolder, `${tag}.sql`);
       const sqlContent = fs.readFileSync(sqlPath, "utf-8");
+
+      // SQLite doesn't strictly need statement splitting like pg if using exec() on the driver directly,
+      // but drizzle's .run() might be single-statement.
+      // Better-sqlite3's exec() handles multiple statements.
+      // However, we want transaction safety.
+
+      // We will assume the file content is a valid SQL script.
+      // Drizzle-kit generated files often use `--> statement-breakpoint` separator.
       const statements = sqlContent.split("--> statement-breakpoint");
 
       try {
-        await db.transaction(async (tx) => {
+        db.transaction((tx) => {
           for (const statement of statements) {
             if (!statement.trim()) continue;
-
-            // Use SAVEPOINT to allow ignoring specific errors without aborting the transaction
-            await tx.execute(sql.raw("SAVEPOINT stmt"));
             try {
-              await tx.execute(sql.raw(statement));
-              await tx.execute(sql.raw("RELEASE SAVEPOINT stmt"));
-            } catch (e: unknown) {
-              await tx.execute(sql.raw("ROLLBACK TO SAVEPOINT stmt"));
+              tx.run(sql.raw(statement));
+            } catch (e: any) {
+              // Ignore "table already exists" etc if we want idempotency similar to the old script,
+              // but for SQLite it's often cleaner to just let it fail if schema drift is huge.
+              // The request specifically asked to "adapt the current file", which had error suppression.
 
-              const code =
-                (e as { code?: string })?.code || (e as { cause?: { code?: string } })?.cause?.code;
-              // Ignore "relation/object already exists" errors
-              if (["42P07", "42701", "42710", "42703"].includes(code || "")) {
-                logger.warn(
-                  `Skipping statement in ${tag} due to existing object: ${(e as Error).message}`
-                );
+              const msg = e.message || "";
+              // SQLite error for existing object usually contains "already exists"
+              if (msg.includes("already exists")) {
+                logger.warn(`Skipping statement in ${tag} due to existing object: ${msg}`);
               } else {
                 throw e;
               }
             }
           }
 
-          await tx.execute(sql`
+          tx.run(sql`
             INSERT INTO "__drizzle_migrations" (hash, created_at)
             VALUES (${tag}, ${Date.now()})
           `);
@@ -93,44 +97,21 @@ export async function runMigrations(): Promise<void> {
  * Verify database connection and tables exist
  */
 export async function ensureDatabase(): Promise<void> {
-  const maxRetries = 10;
-  const retryDelay = 2000;
+  try {
+    logger.info(`Checking database connection...`);
 
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      logger.info(`Checking database connection (attempt ${attempt}/${maxRetries})...`);
-
-      // Test connection
-      await db.execute(sql`SELECT 1`);
-      logger.info("Database connection successful");
-
-      // Run migrations to ensure schema is up-to-date
-      await runMigrations();
-      return; // Success
-    } catch (error) {
-      const isLastAttempt = attempt === maxRetries;
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      const errorCode = (error as { code?: string })?.code;
-
-      if (isLastAttempt) {
-        logger.error({ err: error }, "Database check failed after multiple attempts");
-        // Display user-friendly message for DB connection issues
-        console.error(
-          "\n\x1b[31m[ERROR]\x1b[0m Unable to contact the database. Please verify that your DATABASE_URL is correct and that your database server is online and accessible.\n"
-        );
-        throw new Error(
-          `Failed to connect to database after ${maxRetries} attempts. Last error: ${errorMessage} (${errorCode})`
-        );
-      }
-
-      logger.warn(
-        { err: error },
-        `Database connection failed (attempt ${attempt}/${maxRetries}). Retrying in ${retryDelay}ms...`
-      );
-
-      // Wait before retrying
-      await new Promise((resolve) => setTimeout(resolve, retryDelay));
+    // Test connection
+    const result = db.get(sql`SELECT 1`);
+    if (!result) {
+      throw new Error("Database connection test failed");
     }
+    logger.info("Database connection successful");
+
+    // Run migrations to ensure schema is up-to-date
+    await runMigrations();
+  } catch (error) {
+    logger.error({ err: error }, "Database check failed");
+    throw error;
   }
 }
 
@@ -138,6 +119,5 @@ export async function ensureDatabase(): Promise<void> {
  * Gracefully close database connection
  */
 export async function closeDatabase(): Promise<void> {
-  await pool.end();
-  logger.info("Database connection closed");
+  logger.info("Database connection closed (noop for sqlite)");
 }

@@ -83,7 +83,7 @@ describe("SetupPage", () => {
         } as Response);
       }
       if (url === "/api/auth/setup") {
-         return Promise.resolve({
+        return Promise.resolve({
           json: async () => ({ token: "fake-token", user: { id: "1", username: "admin" } }),
         } as Response);
       }
@@ -101,7 +101,9 @@ describe("SetupPage", () => {
     // Fill form
     fireEvent.change(screen.getByLabelText(/username/i), { target: { value: "admin" } });
     fireEvent.change(screen.getByLabelText(/^password$/i), { target: { value: "password123" } });
-    fireEvent.change(screen.getByLabelText(/confirm password/i), { target: { value: "password123" } });
+    fireEvent.change(screen.getByLabelText(/confirm password/i), {
+      target: { value: "password123" },
+    });
 
     // Submit
     fireEvent.click(screen.getByRole("button", { name: /create account/i }));
@@ -126,7 +128,7 @@ describe("SetupPage", () => {
         } as Response);
       }
       return Promise.resolve({
-          json: async () => ({}),
+        json: async () => ({}),
       } as Response);
     });
 
@@ -141,19 +143,23 @@ describe("SetupPage", () => {
     // Fill only user fields
     fireEvent.change(screen.getByLabelText(/username/i), { target: { value: "admin" } });
     fireEvent.change(screen.getByLabelText(/^password$/i), { target: { value: "password123" } });
-    fireEvent.change(screen.getByLabelText(/confirm password/i), { target: { value: "password123" } });
+    fireEvent.change(screen.getByLabelText(/confirm password/i), {
+      target: { value: "password123" },
+    });
 
     // Submit
     fireEvent.click(screen.getByRole("button", { name: /create account/i }));
 
     // Should verify that API was NOT called (validation error)
     // We can check for validation error message if we want, or just that API request wasn't made
-    await new Promise(resolve => setTimeout(resolve, 100)); // Small delay
+    await new Promise((resolve) => setTimeout(resolve, 100)); // Small delay
     expect(mockApiRequest).not.toHaveBeenCalledWith("POST", "/api/auth/setup", expect.anything());
 
     // Fill IGDB fields
     fireEvent.change(screen.getByLabelText(/client id/i), { target: { value: "client_id" } });
-    fireEvent.change(screen.getByLabelText(/client secret/i), { target: { value: "client_secret" } });
+    fireEvent.change(screen.getByLabelText(/client secret/i), {
+      target: { value: "client_secret" },
+    });
 
     // Submit again
     fireEvent.click(screen.getByRole("button", { name: /create account/i }));

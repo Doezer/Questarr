@@ -2,8 +2,8 @@ import "@testing-library/jest-dom";
 import { vi } from "vitest";
 
 // Set environment variables for testing
-process.env.DATABASE_URL = "postgres://test:test@localhost:5432/test_db";
 process.env.NODE_ENV = "test";
+process.env.SQLITE_DB_PATH = ":memory:";
 
 global.ResizeObserver = vi.fn().mockImplementation(() => ({
   observe: vi.fn(),

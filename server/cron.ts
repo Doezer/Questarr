@@ -62,7 +62,17 @@ async function checkGameUpdates() {
   const igdbIds = gamesToCheck.map((g) => g.igdbId as number);
 
   // Batch fetch from IGDB
-  const igdbGames = await igdbClient.getGamesByIds(igdbIds);
+  let igdbGames;
+  try {
+    igdbGames = await igdbClient.getGamesByIds(igdbIds);
+  } catch (error: any) {
+    if (error.code === "ENOTFOUND" || error.code === "EAI_AGAIN" || error.message.includes("fetch failed")) {
+      igdbLogger.warn({ error: error.message }, "Network error fetching updates from IGDB. Skipping this check.");
+      return;
+    }
+    throw error;
+  }
+
   const igdbGameMap = new Map(igdbGames.map((g) => [g.id, g]));
 
   let updatedCount = 0;

@@ -1,94 +1,105 @@
 {
-  "id": "8129365f-715f-49c2-af15-a83eaacb51d4",
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "c797f625-6730-4d8a-b0cb-eda36137ea93",
   "prevId": "00000000-0000-0000-0000-000000000000",
-  "version": "7",
-  "dialect": "postgresql",
   "tables": {
-    "public.downloaders": {
+    "downloaders": {
       "name": "downloaders",
-      "schema": "",
       "columns": {
         "id": {
           "name": "id",
-          "type": "varchar",
+          "type": "text",
           "primaryKey": true,
           "notNull": true,
-          "default": "gen_random_uuid()"
+          "autoincrement": false
         },
         "name": {
           "name": "name",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "type": {
           "name": "type",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "url": {
           "name": "url",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "port": {
           "name": "port",
           "type": "integer",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "use_ssl": {
           "name": "use_ssl",
-          "type": "boolean",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false,
-          "default": false
+          "autoincrement": false,
+          "default": 0
         },
         "url_path": {
           "name": "url_path",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "username": {
           "name": "username",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "password": {
           "name": "password",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "enabled": {
           "name": "enabled",
-          "type": "boolean",
+          "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "default": true
+          "autoincrement": false,
+          "default": 1
         },
         "priority": {
           "name": "priority",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false,
           "default": 1
         },
         "download_path": {
           "name": "download_path",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "category": {
           "name": "category",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
+          "autoincrement": false,
           "default": "'games'"
         },
         "label": {
@@ -96,127 +107,146 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false,
+          "autoincrement": false,
           "default": "'Questarr'"
         },
         "add_stopped": {
           "name": "add_stopped",
-          "type": "boolean",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false,
-          "default": false
+          "autoincrement": false,
+          "default": 0
         },
         "remove_completed": {
           "name": "remove_completed",
-          "type": "boolean",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false,
-          "default": false
+          "autoincrement": false,
+          "default": 0
         },
         "post_import_category": {
           "name": "post_import_category",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "settings": {
           "name": "settings",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false,
-          "default": "now()"
+          "autoincrement": false,
+          "default": "(strftime('%s', 'now') * 1000)"
         },
         "updated_at": {
           "name": "updated_at",
-          "type": "timestamp",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false,
-          "default": "now()"
+          "autoincrement": false,
+          "default": "(strftime('%s', 'now') * 1000)"
         }
       },
       "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
+      "checkConstraints": {}
     },
-    "public.game_torrents": {
-      "name": "game_torrents",
-      "schema": "",
+    "game_downloads": {
+      "name": "game_downloads",
       "columns": {
         "id": {
           "name": "id",
-          "type": "varchar",
+          "type": "text",
           "primaryKey": true,
           "notNull": true,
-          "default": "gen_random_uuid()"
+          "autoincrement": false
         },
         "game_id": {
           "name": "game_id",
-          "type": "varchar",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "downloader_id": {
           "name": "downloader_id",
-          "type": "varchar",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "torrent_hash": {
-          "name": "torrent_hash",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
-        "torrent_title": {
-          "name": "torrent_title",
+        "download_type": {
+          "name": "download_type",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'torrent'"
+        },
+        "download_hash": {
+          "name": "download_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "download_title": {
+          "name": "download_title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
         },
         "status": {
           "name": "status",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false,
           "default": "'downloading'"
         },
         "added_at": {
           "name": "added_at",
-          "type": "timestamp",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false,
-          "default": "now()"
+          "autoincrement": false,
+          "default": "(strftime('%s', 'now') * 1000)"
         },
         "completed_at": {
           "name": "completed_at",
-          "type": "timestamp",
+          "type": "integer",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {},
       "foreignKeys": {
-        "game_torrents_game_id_games_id_fk": {
-          "name": "game_torrents_game_id_games_id_fk",
-          "tableFrom": "game_torrents",
+        "game_downloads_game_id_games_id_fk": {
+          "name": "game_downloads_game_id_games_id_fk",
+          "tableFrom": "game_downloads",
           "tableTo": "games",
           "columnsFrom": ["game_id"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "game_torrents_downloader_id_downloaders_id_fk": {
-          "name": "game_torrents_downloader_id_downloaders_id_fk",
-          "tableFrom": "game_torrents",
+        "game_downloads_downloader_id_downloaders_id_fk": {
+          "name": "game_downloads_downloader_id_downloaders_id_fk",
+          "tableFrom": "game_downloads",
           "tableTo": "downloaders",
           "columnsFrom": ["downloader_id"],
           "columnsTo": ["id"],
@@ -226,131 +256,147 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
+      "checkConstraints": {}
     },
-    "public.games": {
+    "games": {
       "name": "games",
-      "schema": "",
       "columns": {
         "id": {
           "name": "id",
-          "type": "varchar",
+          "type": "text",
           "primaryKey": true,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "user_id": {
           "name": "user_id",
-          "type": "varchar",
+          "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "igdb_id": {
           "name": "igdb_id",
           "type": "integer",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "title": {
           "name": "title",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "summary": {
           "name": "summary",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "cover_url": {
           "name": "cover_url",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "release_date": {
           "name": "release_date",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "rating": {
           "name": "rating",
           "type": "real",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "platforms": {
           "name": "platforms",
-          "type": "text[]",
+          "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "genres": {
           "name": "genres",
-          "type": "text[]",
+          "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "publishers": {
           "name": "publishers",
-          "type": "text[]",
+          "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "developers": {
           "name": "developers",
-          "type": "text[]",
+          "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "screenshots": {
           "name": "screenshots",
-          "type": "text[]",
+          "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "status": {
           "name": "status",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false,
           "default": "'wanted'"
         },
         "original_release_date": {
           "name": "original_release_date",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "release_status": {
           "name": "release_status",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
+          "autoincrement": false,
           "default": "'upcoming'"
         },
         "hidden": {
           "name": "hidden",
-          "type": "boolean",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false,
-          "default": false
+          "autoincrement": false,
+          "default": 0
         },
         "added_at": {
           "name": "added_at",
-          "type": "timestamp",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false,
-          "default": "now()"
+          "autoincrement": false,
+          "default": "(strftime('%s', 'now') * 1000)"
         },
         "completed_at": {
           "name": "completed_at",
-          "type": "timestamp",
+          "type": "integer",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {},
@@ -367,145 +413,163 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
+      "checkConstraints": {}
     },
-    "public.indexers": {
+    "indexers": {
       "name": "indexers",
-      "schema": "",
       "columns": {
         "id": {
           "name": "id",
-          "type": "varchar",
+          "type": "text",
           "primaryKey": true,
           "notNull": true,
-          "default": "gen_random_uuid()"
+          "autoincrement": false
         },
         "name": {
           "name": "name",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "url": {
           "name": "url",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "api_key": {
           "name": "api_key",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
+        },
+        "protocol": {
+          "name": "protocol",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'torznab'"
         },
         "enabled": {
           "name": "enabled",
-          "type": "boolean",
+          "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "default": true
+          "autoincrement": false,
+          "default": 1
         },
         "priority": {
           "name": "priority",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false,
           "default": 1
         },
         "categories": {
           "name": "categories",
-          "type": "text[]",
+          "type": "text",
           "primaryKey": false,
           "notNull": false,
-          "default": "'{}'"
+          "autoincrement": false,
+          "default": "'[]'"
         },
         "rss_enabled": {
           "name": "rss_enabled",
-          "type": "boolean",
+          "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "default": true
+          "autoincrement": false,
+          "default": 1
         },
         "auto_search_enabled": {
           "name": "auto_search_enabled",
-          "type": "boolean",
+          "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "default": true
+          "autoincrement": false,
+          "default": 1
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false,
-          "default": "now()"
+          "autoincrement": false,
+          "default": "(strftime('%s', 'now') * 1000)"
         },
         "updated_at": {
           "name": "updated_at",
-          "type": "timestamp",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false,
-          "default": "now()"
+          "autoincrement": false,
+          "default": "(strftime('%s', 'now') * 1000)"
         }
       },
       "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
+      "checkConstraints": {}
     },
-    "public.notifications": {
+    "notifications": {
       "name": "notifications",
-      "schema": "",
       "columns": {
         "id": {
           "name": "id",
-          "type": "varchar",
+          "type": "text",
           "primaryKey": true,
           "notNull": true,
-          "default": "gen_random_uuid()"
+          "autoincrement": false
         },
         "user_id": {
           "name": "user_id",
-          "type": "varchar",
+          "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "autoincrement": false
         },
         "type": {
           "name": "type",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "title": {
           "name": "title",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "message": {
           "name": "message",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "read": {
           "name": "read",
-          "type": "boolean",
+          "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "default": false
+          "autoincrement": false,
+          "default": 0
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamp",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false,
-          "default": "now()"
+          "autoincrement": false,
+          "default": "(strftime('%s', 'now') * 1000)"
         }
       },
       "indexes": {},
@@ -522,92 +586,95 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
+      "checkConstraints": {}
     },
-    "public.system_config": {
+    "system_config": {
       "name": "system_config",
-      "schema": "",
       "columns": {
         "key": {
           "name": "key",
           "type": "text",
           "primaryKey": true,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "value": {
           "name": "value",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "updated_at": {
           "name": "updated_at",
-          "type": "timestamp",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false,
-          "default": "now()"
+          "autoincrement": false,
+          "default": "(strftime('%s', 'now') * 1000)"
         }
       },
       "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
+      "checkConstraints": {}
     },
-    "public.user_settings": {
+    "user_settings": {
       "name": "user_settings",
-      "schema": "",
       "columns": {
         "id": {
           "name": "id",
-          "type": "varchar",
+          "type": "text",
           "primaryKey": true,
           "notNull": true,
-          "default": "gen_random_uuid()"
+          "autoincrement": false
         },
         "user_id": {
           "name": "user_id",
-          "type": "varchar",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "auto_search_enabled": {
           "name": "auto_search_enabled",
-          "type": "boolean",
+          "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "default": true
+          "autoincrement": false,
+          "default": 1
         },
         "auto_download_enabled": {
           "name": "auto_download_enabled",
-          "type": "boolean",
+          "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "default": false
+          "autoincrement": false,
+          "default": 0
         },
-        "notify_multiple_torrents": {
-          "name": "notify_multiple_torrents",
-          "type": "boolean",
+        "notify_multiple_downloads": {
+          "name": "notify_multiple_downloads",
+          "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "default": true
+          "autoincrement": false,
+          "default": 1
         },
         "notify_updates": {
           "name": "notify_updates",
-          "type": "boolean",
+          "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "default": true
+          "autoincrement": false,
+          "default": 1
         },
         "search_interval_hours": {
           "name": "search_interval_hours",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false,
           "default": 6
         },
         "igdb_rate_limit_per_second": {
@@ -615,17 +682,39 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false,
           "default": 3
+        },
+        "download_rules": {
+          "name": "download_rules",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "last_auto_search": {
+          "name": "last_auto_search",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         },
         "updated_at": {
           "name": "updated_at",
-          "type": "timestamp",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false,
-          "default": "now()"
+          "autoincrement": false,
+          "default": "(strftime('%s', 'now') * 1000)"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "user_settings_user_id_unique": {
+          "name": "user_settings_user_id_unique",
+          "columns": ["user_id"],
+          "isUnique": true
+        }
+      },
       "foreignKeys": {
         "user_settings_user_id_users_id_fk": {
           "name": "user_settings_user_id_users_id_fk",
@@ -638,65 +727,55 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "user_settings_user_id_unique": {
-          "name": "user_settings_user_id_unique",
-          "nullsNotDistinct": false,
-          "columns": ["user_id"]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
+      "uniqueConstraints": {},
+      "checkConstraints": {}
     },
-    "public.users": {
+    "users": {
       "name": "users",
-      "schema": "",
       "columns": {
         "id": {
           "name": "id",
-          "type": "varchar",
+          "type": "text",
           "primaryKey": true,
           "notNull": true,
-          "default": "gen_random_uuid()"
+          "autoincrement": false
         },
         "username": {
           "name": "username",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         },
         "password_hash": {
           "name": "password_hash",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "autoincrement": false
         }
       },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
+      "indexes": {
         "users_username_unique": {
           "name": "users_username_unique",
-          "nullsNotDistinct": false,
-          "columns": ["username"]
+          "columns": ["username"],
+          "isUnique": true
         }
       },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
     }
   },
-  "enums": {},
-  "schemas": {},
-  "sequences": {},
-  "roles": {},
-  "policies": {},
   "views": {},
+  "enums": {},
   "_meta": {
-    "columns": {},
     "schemas": {},
-    "tables": {}
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {}
   }
 }

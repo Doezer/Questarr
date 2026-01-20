@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   Form,
   FormControl,
@@ -19,7 +20,7 @@ import {
   FormMessage,
   FormDescription,
 } from "@/components/ui/form";
-import { Lock, User, ShieldCheck, Gamepad2, HelpCircle } from "lucide-react";
+import { Lock, User, ShieldCheck, Gamepad2, HelpCircle, Info, ExternalLink } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 type SetupForm = {
@@ -103,7 +104,30 @@ export default function SetupPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-background p-4 gap-6">
+      <Alert className="max-w-md border-amber-500/50 bg-amber-500/10 text-amber-600 dark:text-amber-400">
+        <Info className="h-4 w-4" />
+        <AlertTitle>Upgrading from v1.0?</AlertTitle>
+        <AlertDescription>
+          <div className="mt-2 text-sm space-y-2">
+            <p>
+              If you are upgrading from an older version (PostgreSQL), <strong>do not create a new account</strong>.
+            </p>
+            <p>
+              You must migrate your data to the new database format first, otherwise your library will be empty.
+            </p>
+            <a
+              href="https://github.com/Doezer/Questarr/blob/main/docs/MIGRATION.md"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 font-semibold underline underline-offset-4 hover:text-amber-800 dark:hover:text-amber-300 transition-colors"
+            >
+              Read Migration Guide <ExternalLink className="h-3 w-3" />
+            </a>
+          </div>
+        </AlertDescription>
+      </Alert>
+
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <div className="mx-auto bg-primary/10 p-3 rounded-full w-fit mb-2">

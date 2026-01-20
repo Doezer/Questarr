@@ -81,7 +81,7 @@ If you are upgrading from an older version that used PostgreSQL, you need to mig
     docker compose up -d
     ```
 
-See [MIGRATION.md](MIGRATION.md) for more details.
+See [docs/MIGRATION.md](docs/MIGRATION.md) for more details.
 
 ## Configuration
    

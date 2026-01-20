@@ -192,7 +192,7 @@ See [Troubleshooting on the Wiki](https://github.com/Doezer/Questarr/wiki/Troubl
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to contribute to this project.
+See [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md) for guidelines on how to contribute to this project.
 
 ## Contributors
 

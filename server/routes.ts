@@ -13,6 +13,7 @@ import {
   insertNotificationSchema,
   updateUserSettingsSchema,
   type Config,
+  type Game,
   type Indexer,
   type Downloader,
 } from "../shared/schema.js";
@@ -539,18 +540,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let errorCount = 0;
 
       // Process updates in batches to avoid overwhelming the database
-      const CONCURRENCY_LIMIT = 10;
-      for (let i = 0; i < userGames.length; i += CONCURRENCY_LIMIT) {
-        const chunk = userGames.slice(i, i + CONCURRENCY_LIMIT);
-        await Promise.all(
-          chunk.map(async (game) => {
-            if (!game.igdbId) return;
+      // ⚡ Bolt: Use a larger batch size since we are now using a single transaction per batch
+      const BATCH_SIZE = 50;
+      for (let i = 0; i < userGames.length; i += BATCH_SIZE) {
+        const chunk = userGames.slice(i, i + BATCH_SIZE);
+        const updates: { id: string; data: Partial<Game> }[] = [];
 
-            try {
-              const igdbGame = igdbGameMap.get(game.igdbId);
-              if (igdbGame) {
-                const updatedData = igdbClient.formatGameData(igdbGame);
-                await storage.updateGame(game.id, {
+        for (const game of chunk) {
+          if (!game.igdbId) continue;
+
+          try {
+            const igdbGame = igdbGameMap.get(game.igdbId);
+            if (igdbGame) {
+              const updatedData = igdbClient.formatGameData(igdbGame);
+              updates.push({
+                id: game.id,
+                data: {
                   publishers: updatedData.publishers as string[],
                   developers: updatedData.developers as string[],
                   summary: updatedData.summary as string,
@@ -560,15 +565,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   coverUrl: updatedData.coverUrl as string,
                   screenshots: updatedData.screenshots as string[],
                   releaseDate: updatedData.releaseDate as string,
-                });
-                updatedCount++;
-              }
-            } catch (error) {
-              routesLogger.error({ gameId: game.id, error }, "failed to refresh metadata for game");
-              errorCount++;
+                },
+              });
             }
-          })
-        );
+          } catch (error) {
+            routesLogger.error({ gameId: game.id, error }, "failed to prepare metadata update for game");
+            errorCount++;
+          }
+        }
+
+        if (updates.length > 0) {
+          try {
+            await storage.updateGamesBatch(updates);
+            updatedCount += updates.length;
+          } catch (error) {
+            routesLogger.error({ error }, "failed to execute batch update");
+            errorCount += updates.length;
+          }
+        }
       }
 
       routesLogger.info({ userId, updatedCount, errorCount }, "metadata refresh completed");

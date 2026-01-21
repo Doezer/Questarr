@@ -3,6 +3,12 @@ import { body, param, query, validationResult } from "express-validator";
 import type { Request, Response, NextFunction } from "express";
 import { storage } from "./storage.js";
 
+interface AuthenticatedRequest extends Request {
+  user?: {
+    id: string;
+  };
+}
+
 // Dynamic rate limiter for IGDB API endpoints to prevent blacklisting
 // IGDB has a limit of 4 requests per second, we default to 3 to be conservative
 // The rate limit can be configured per user in settings
@@ -10,8 +16,7 @@ export const igdbRateLimiter = rateLimit({
   windowMs: 1000, // 1 second
   max: async (req: Request) => {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const userId = (req as any).user?.id;
+      const userId = (req as AuthenticatedRequest).user?.id;
       if (!userId) {
         return 20; // Default for unauthenticated requests
       }

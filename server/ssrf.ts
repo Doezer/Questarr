@@ -9,6 +9,7 @@ import { isIP } from "net";
  * - 169.254.0.0/16 (IPv4 Link-Local / Cloud Metadata)
  * - fe80::/10 (IPv6 Link-Local)
  * - fd00:ec2::254 (AWS IPv6 Metadata)
+ * - ::ffff:169.254.0.0/16 (IPv4-mapped IPv6 Metadata)
  *
  * Allows:
  * - Localhost (127.0.0.1, ::1)
@@ -28,7 +29,13 @@ export async function isSafeUrl(urlStr: string): Promise<boolean> {
     return false;
   }
 
-  const hostname = url.hostname;
+  let hostname = url.hostname;
+
+  // Handle IPv6 brackets in hostname (e.g. [::1]) which URL.hostname might preserve
+  // but isIP and dns.lookup don't always handle correctly.
+  if (hostname.startsWith("[") && hostname.endsWith("]")) {
+    hostname = hostname.slice(1, -1);
+  }
 
   // Check if hostname is an IP
   const ipVersion = isIP(hostname);
@@ -39,9 +46,13 @@ export async function isSafeUrl(urlStr: string): Promise<boolean> {
   // Resolve hostname
   // We only check the first resolved address.
   // A sophisticated attack might use DNS rebinding, but this catches basic attempts.
-  // We allow dns.lookup to throw if resolution fails (e.g. network error)
-  const { address } = await dns.lookup(hostname);
-  return isSafeIp(address);
+  try {
+    const { address } = await dns.lookup(hostname);
+    return isSafeIp(address);
+  } catch {
+    // If resolution fails, fail safe (deny)
+    return false;
+  }
 }
 
 function isSafeIp(ip: string): boolean {
@@ -60,6 +71,17 @@ function isSafeIp(ip: string): boolean {
 
   // Block AWS IPv6 Metadata
   if (lowerIp === "fd00:ec2::254") {
+    return false;
+  }
+
+  // Block IPv4-mapped IPv6 Metadata (::ffff:169.254.0.0/16)
+  if (lowerIp.startsWith("::ffff:169.254.")) {
+    return false;
+  }
+
+  // Block IPv4-mapped IPv6 Metadata in Hex (::ffff:a9fe:...)
+  // 169.254.x.x -> a9fe:xxxx
+  if (lowerIp.startsWith("::ffff:a9fe:")) {
     return false;
   }
 

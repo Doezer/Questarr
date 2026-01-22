@@ -12,7 +12,10 @@ This file tracks the progress of iterative hardening and maintenance tasks.
 
 ## In Progress
 
-- [ ] Iterative hardening pass (Jules).
+- [x] Iterative hardening pass (Jules).
+  - [x] Fix `act(...)` warning in SetupPage tests.
+  - [x] Fix lint warnings in server/cron.ts, server/migrate.ts, server/db.ts.
+  - [x] Update PR Template.
 
 ## Completed
 

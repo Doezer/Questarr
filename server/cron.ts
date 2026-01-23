@@ -65,9 +65,17 @@ async function checkGameUpdates() {
   let igdbGames;
   try {
     igdbGames = await igdbClient.getGamesByIds(igdbIds);
-  } catch (error: any) {
-    if (error.code === "ENOTFOUND" || error.code === "EAI_AGAIN" || error.message.includes("fetch failed")) {
-      igdbLogger.warn({ error: error.message }, "Network error fetching updates from IGDB. Skipping this check.");
+  } catch (error: unknown) {
+    const err = error as { code?: string; message: string };
+    if (
+      err.code === "ENOTFOUND" ||
+      err.code === "EAI_AGAIN" ||
+      err.message?.includes("fetch failed")
+    ) {
+      igdbLogger.warn(
+        { error: err.message },
+        "Network error fetching updates from IGDB. Skipping this check."
+      );
       return;
     }
     throw error;

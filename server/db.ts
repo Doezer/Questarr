@@ -12,6 +12,7 @@ const dbPath = process.env.SQLITE_DB_PATH || path.join(process.cwd(), "sqlite.db
 const dbDir = path.dirname(dbPath);
 try {
   if (!fs.existsSync(dbDir)) {
+    // eslint-disable-next-line no-console
     console.log(`Creating database directory: ${dbDir}`);
     fs.mkdirSync(dbDir, { recursive: true });
   }
@@ -20,13 +21,16 @@ try {
   if (fs.existsSync(dbPath)) {
     const stats = fs.statSync(dbPath);
     if (stats.isDirectory()) {
+      // eslint-disable-next-line no-console
       console.error(`ERROR: Database path ${dbPath} is a directory, not a file!`);
     }
   }
 } catch (err) {
+  // eslint-disable-next-line no-console
   console.error(`Failed to verify/create database directory ${dbDir}:`, err);
 }
 
+// eslint-disable-next-line no-console
 console.log(`Initializing SQLite database at: ${dbPath}`);
 
 // Initialize the database connection

@@ -151,8 +151,12 @@ describe("SetupPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /create account/i }));
 
     // Should verify that API was NOT called (validation error)
-    // We can check for validation error message if we want, or just that API request wasn't made
-    await new Promise((resolve) => setTimeout(resolve, 100)); // Small delay
+    // We wait for validation error messages to appear, which ensures the form state update has completed
+    await waitFor(() => {
+      expect(screen.getByText("IGDB Client ID is required")).toBeInTheDocument();
+      expect(screen.getByText("IGDB Client Secret is required")).toBeInTheDocument();
+    });
+
     expect(mockApiRequest).not.toHaveBeenCalledWith("POST", "/api/auth/setup", expect.anything());
 
     // Fill IGDB fields

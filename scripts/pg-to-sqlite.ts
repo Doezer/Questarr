@@ -1,3 +1,4 @@
+/* eslint-disable no-console, @typescript-eslint/no-explicit-any */
 import pg from "pg";
 import Database from "better-sqlite3";
 import path from "path";

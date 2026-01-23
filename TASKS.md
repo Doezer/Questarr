@@ -12,9 +12,9 @@ This file tracks the progress of iterative hardening and maintenance tasks.
 
 ## In Progress
 
-- [ ] Iterative hardening pass (Jules).
-
 ## Completed
+
+- [x] Iterative hardening pass (Jules).
 
 - [x] Initial repository setup.
 - [x] Basic unit and integration tests.

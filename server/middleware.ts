@@ -2,6 +2,7 @@ import rateLimit from "express-rate-limit";
 import { body, param, query, validationResult } from "express-validator";
 import type { Request, Response, NextFunction } from "express";
 import { storage } from "./storage.js";
+import { middlewareLogger } from "./logger.js";
 
 // Dynamic rate limiter for IGDB API endpoints to prevent blacklisting
 // IGDB has a limit of 4 requests per second, we default to 3 to be conservative
@@ -19,7 +20,7 @@ export const igdbRateLimiter = rateLimit({
       const settings = await storage.getUserSettings(userId);
       return settings?.igdbRateLimitPerSecond ?? 20;
     } catch (error) {
-      console.error("Error fetching user rate limit:", error);
+      middlewareLogger.error({ error }, "Error fetching user rate limit");
       return 20; // Fallback to default on error
     }
   },

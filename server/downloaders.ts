@@ -404,7 +404,7 @@ class TransmissionClient implements DownloaderClient {
 
       return null;
     } catch (error) {
-      console.error("Error getting download details:", error);
+      downloadersLogger.error({ error }, "Error getting download details");
       return null;
     }
   }
@@ -1168,7 +1168,7 @@ class RTorrentClient implements DownloaderClient {
         connectedPeers: peersConnected,
       };
     } catch (error) {
-      console.error("Error getting download details:", error);
+      downloadersLogger.error({ error }, "Error getting download details");
       return null;
     }
   }
@@ -2305,7 +2305,7 @@ class QBittorrentClient implements DownloaderClient {
 
       return null;
     } catch (error) {
-      console.error("Error getting download status:", error);
+      downloadersLogger.error({ error }, "Error getting download status");
       return null;
     }
   }
@@ -2433,7 +2433,7 @@ class QBittorrentClient implements DownloaderClient {
 
       return [];
     } catch (error) {
-      console.error("Error getting all downloads:", error);
+      downloadersLogger.error({ error }, "Error getting all downloads");
       return [];
     }
   }
@@ -3085,7 +3085,7 @@ export class DownloaderManager {
       const client = this.createClient(downloader);
       return await client.getDownloadDetails(id);
     } catch (error) {
-      console.error("Error getting download details:", error);
+      downloadersLogger.error({ error }, "Error getting download details");
       return null;
     }
   }

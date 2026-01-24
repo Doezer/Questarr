@@ -104,7 +104,7 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
       errors: errors.length > 0 ? errors : undefined,
     });
   } catch (error) {
-    console.error("Error searching indexers:", error);
+    routesLogger.error({ error }, "Error searching indexers");
     res.status(500).json({ error: "Failed to search indexers" });
   }
 }
@@ -727,7 +727,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(formattedGames);
     } catch (error) {
-      console.error("Error fetching games by genre:", error);
+      routesLogger.error({ error }, "Error fetching games by genre");
       res.status(500).json({ error: "Failed to fetch games by genre" });
     }
   });
@@ -750,7 +750,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(formattedGames);
     } catch (error) {
-      console.error("Error fetching games by platform:", error);
+      routesLogger.error({ error }, "Error fetching games by platform");
       res.status(500).json({ error: "Failed to fetch games by platform" });
     }
   });
@@ -761,7 +761,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const genres = await igdbClient.getGenres();
       res.json(genres);
     } catch (error) {
-      console.error("Error fetching genres:", error);
+      routesLogger.error({ error }, "Error fetching genres");
       res.status(500).json({ error: "Failed to fetch genres" });
     }
   });
@@ -772,7 +772,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const platforms = await igdbClient.getPlatforms();
       res.json(platforms);
     } catch (error) {
-      console.error("Error fetching platforms:", error);
+      routesLogger.error({ error }, "Error fetching platforms");
       res.status(500).json({ error: "Failed to fetch platforms" });
     }
   });
@@ -1357,7 +1357,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(details);
     } catch (error) {
-      console.error("Error getting download details:", error);
+      routesLogger.error({ error }, "Error getting download details");
       res.status(500).json({ error: "Failed to get download details" });
     }
   });
@@ -1566,7 +1566,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           chunk.map(async (download: { link: string; title: string; downloadType?: string }) => {
             try {
               if (!(await isSafeUrl(download.link))) {
-                console.warn(`Skipping unsafe URL in bundle: ${download.link}`);
+                routesLogger.warn({ url: download.link }, "Skipping unsafe URL in bundle");
                 return;
               }
 
@@ -1583,7 +1583,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 archive.append(Buffer.from(buffer), { name: filename });
               }
             } catch (error) {
-              console.error(`Error adding ${download.title} to bundle:`, error);
+              routesLogger.error({ error, title: download.title }, "Error adding to bundle");
             }
           })
         );
@@ -1591,7 +1591,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       await archive.finalize();
     } catch (error) {
-      console.error("Error creating bundle:", error);
+      routesLogger.error({ error }, "Error creating bundle");
       res.status(500).json({ error: "Failed to create bundle" });
     }
   });

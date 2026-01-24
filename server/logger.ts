@@ -39,3 +39,4 @@ export const expressLogger = logger.child({ module: "express" });
 export const downloadersLogger = logger.child({ module: "downloaders" });
 export const torznabLogger = logger.child({ module: "torznab" });
 export const searchLogger = logger.child({ module: "search" });
+export const middlewareLogger = logger.child({ module: "middleware" });

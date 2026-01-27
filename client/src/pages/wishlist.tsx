@@ -13,6 +13,8 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import EmptyState from "@/components/EmptyState";
+import { Star } from "lucide-react";
 
 type SortOption = "release-asc" | "release-desc" | "added-desc" | "title-asc";
 
@@ -129,9 +131,13 @@ export default function WishlistPage() {
       </div>
 
       {wishlistGames.length === 0 && !isLoading ? (
-        <div className="text-center py-12 text-muted-foreground">
-          Your wishlist is empty. Add games from the Discover page.
-        </div>
+        <EmptyState
+          icon={Star}
+          title="Your wishlist is empty"
+          description="Keep track of games you want to play. Add them from the Discover page to get notified about releases and updates."
+          actionLabel="Find Games"
+          actionLink="/discover"
+        />
       ) : (
         <div className="space-y-8">
           {/* Upcoming Section */}

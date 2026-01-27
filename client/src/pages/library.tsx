@@ -3,6 +3,8 @@ import GameGrid from "@/components/GameGrid";
 import { type Game } from "@shared/schema";
 import { type GameStatus } from "@/components/StatusBadge";
 import { useToast } from "@/hooks/use-toast";
+import EmptyState from "@/components/EmptyState";
+import { Gamepad2 } from "lucide-react";
 
 export default function LibraryPage() {
   const { toast } = useToast();
@@ -51,9 +53,13 @@ export default function LibraryPage() {
       </div>
 
       {libraryGames.length === 0 && !isLoading ? (
-        <div className="text-center py-12 text-muted-foreground">
-          No games in your library. Add games from the Discover page.
-        </div>
+        <EmptyState
+          icon={Gamepad2}
+          title="No games in library"
+          description="Your library is looking a bit empty. Track games you own or want to play from the Discover page."
+          actionLabel="Discover Games"
+          actionLink="/discover"
+        />
       ) : (
         <GameGrid
           games={libraryGames}

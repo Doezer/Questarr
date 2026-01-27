@@ -52,6 +52,7 @@ export interface IStorage {
   updateGameStatus(id: string, statusUpdate: UpdateGameStatus): Promise<Game | undefined>;
   updateGameHidden(id: string, hidden: boolean): Promise<Game | undefined>;
   updateGame(id: string, updates: Partial<Game>): Promise<Game | undefined>;
+  updateGamesBatch(updates: { id: string; data: Partial<Game> }[]): Promise<void>;
   removeGame(id: string): Promise<boolean>;
   assignOrphanGamesToUser(userId: string): Promise<number>;
 
@@ -274,6 +275,12 @@ export class MemStorage implements IStorage {
 
     this.games.set(id, updatedGame);
     return updatedGame;
+  }
+
+  async updateGamesBatch(updates: { id: string; data: Partial<Game> }[]): Promise<void> {
+    for (const update of updates) {
+      await this.updateGame(update.id, update.data);
+    }
   }
 
   async removeGame(id: string): Promise<boolean> {
@@ -714,6 +721,14 @@ export class DatabaseStorage implements IStorage {
     const [updatedGame] = await db.update(games).set(updates).where(eq(games.id, id)).returning();
 
     return updatedGame || undefined;
+  }
+
+  async updateGamesBatch(updates: { id: string; data: Partial<Game> }[]): Promise<void> {
+    await db.transaction(async (tx) => {
+      for (const update of updates) {
+        await tx.update(games).set(update.data).where(eq(games.id, update.id));
+      }
+    });
   }
 
   async removeGame(id: string): Promise<boolean> {

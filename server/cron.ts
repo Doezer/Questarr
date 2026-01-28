@@ -605,61 +605,69 @@ async function checkXrelReleases() {
       process.env.XREL_API_BASE ||
       "https://api.xrel.to";
 
-    const allGames = await storage.getAllGames();
-    const gamesByUser = new Map<string, Game[]>();
-    for (const game of allGames) {
-      if (game.userId && game.status === "wanted" && !game.hidden) {
-        const list = gamesByUser.get(game.userId) || [];
-        list.push(game);
-        gamesByUser.set(game.userId, list);
-      }
+    // Fetch latest releases once to compare against all wanted games (better performance)
+    const { list: latestReleases } = await xrelClient.getLatestReleases({
+      perPage: 100,
+      baseUrl,
+    });
+
+    if (latestReleases.length === 0) {
+      igdbLogger.debug("No latest releases found on xREL.to, skipping check.");
+      return;
     }
 
-    for (const [userId, wantedGames] of Array.from(gamesByUser.entries())) {
-      if (wantedGames.length === 0) continue;
+    const allGames = await storage.getAllGames();
+    const wantedGames = allGames.filter((g) => g.userId && g.status === "wanted" && !g.hidden);
 
-      const settings = await storage.getUserSettings(userId);
-      const scene = settings?.xrelSceneReleases !== false;
-      const p2p = settings?.xrelP2pReleases === true;
+    if (wantedGames.length === 0) {
+      return;
+    }
 
-      igdbLogger.info(
-        { userId, count: wantedGames.length, scene, p2p },
-        "xREL check for wanted games"
-      );
+    // Cache user settings to avoid redundant DB hits
+    const userSettingsCache = new Map();
 
-      for (const game of wantedGames) {
-        try {
-          const releases = await xrelClient.searchReleases(game.title, {
-            scene,
-            p2p,
-            limit: 25,
-            baseUrl,
+    for (const game of wantedGames) {
+      try {
+        const userId = game.userId!;
+        if (!userSettingsCache.has(userId)) {
+          const settings = await storage.getUserSettings(userId);
+          userSettingsCache.set(userId, settings);
+        }
+        const settings = userSettingsCache.get(userId);
+        const scene = settings?.xrelSceneReleases !== false;
+        const p2p = settings?.xrelP2pReleases === true;
+
+        // Filter releases for this game based on user preferences and title match
+        const matchingReleases = latestReleases.filter((rel) => {
+          if (rel.source === "scene" && !scene) return false;
+          if (rel.source === "p2p" && !p2p) return false;
+          return rel.ext_info?.title && xrelClient.titleMatches(game.title, rel.ext_info.title);
+        });
+
+        for (const rel of matchingReleases) {
+          const already = await storage.hasXrelNotifiedRelease(game.id, rel.id);
+          if (already) continue;
+
+          await storage.addXrelNotifiedRelease({
+            gameId: game.id,
+            xrelReleaseId: rel.id,
           });
 
-          for (const rel of releases) {
-            const extTitle = rel.ext_info?.title;
-            if (!extTitle || !xrelClient.titleMatches(game.title, extTitle)) continue;
-
-            const already = await storage.hasXrelNotifiedRelease(game.id, rel.id);
-            if (already) continue;
-
-            await storage.addXrelNotifiedRelease({
-              gameId: game.id,
-              xrelReleaseId: rel.id,
-            });
-            const message = `${game.title} is listed on xREL.to: ${rel.dirname}`;
-            const notification = await storage.addNotification({
-              userId,
-              type: "info",
-              title: "Available on xREL.to",
-              message,
-            });
-            notifyUser("notification", notification);
-            igdbLogger.info({ gameTitle: game.title, dirname: rel.dirname }, "xREL notification sent");
-          }
-        } catch (error) {
-          igdbLogger.warn({ gameTitle: game.title, error }, "xREL search failed for game");
+          const message = `${game.title} is listed on xREL.to: ${rel.dirname}`;
+          const notification = await storage.addNotification({
+            userId,
+            type: "info",
+            title: "Available on xREL.to",
+            message,
+          });
+          notifyUser("notification", notification);
+          igdbLogger.info(
+            { gameTitle: game.title, dirname: rel.dirname },
+            "xREL notification sent"
+          );
         }
+      } catch (error) {
+        igdbLogger.warn({ gameTitle: game.title, error }, "xREL match failed for game");
       }
     }
   } catch (error) {

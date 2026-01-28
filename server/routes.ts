@@ -1830,12 +1830,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (typeof body.apiBase !== "undefined") {
         const v = typeof body.apiBase === "string" ? body.apiBase.trim() : "";
-        if (v !== "" && !/^https?:\/\/[^\s]+$/i.test(v)) {
-          return res.status(400).json({
-            error: "Invalid API base URL",
-            message:
-              "Must be empty or a valid URL (e.g. https://api.xrel.to or https://xrel-api.nfos.to)",
-          });
+        if (v !== "") {
+          if (!/^https?:\/\/[^\s]+$/i.test(v)) {
+            return res.status(400).json({
+              error: "Invalid API base URL",
+              message:
+                "Must be a valid URL (e.g. https://api.xrel.to or https://xrel-api.nfos.to)",
+            });
+          }
+
+          if (!(await isSafeUrl(v))) {
+            return res.status(400).json({
+              error: "Unsafe API base URL",
+              message: "The provided URL is not allowed for security reasons.",
+            });
+          }
         }
         await storage.setSystemConfig("xrel_api_base", v);
       }

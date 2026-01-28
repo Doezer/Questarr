@@ -128,7 +128,14 @@ export default function XrelReleasesPage() {
                 Loading…
               </div>
             ) : list.length === 0 ? (
-              <p className="text-muted-foreground text-center py-8">No game releases in this page.</p>
+              <div className="text-center py-12">
+                <p className="text-muted-foreground">No game releases found on this page.</p>
+                {page < totalPages && (
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Note: Results are filtered to games only, so some pages may appear empty.
+                  </p>
+                )}
+              </div>
             ) : (
               <>
                 <ul className="space-y-2">

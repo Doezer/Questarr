@@ -43,6 +43,7 @@ import { isSafeUrl } from "./ssrf.js";
 import { hashPassword, comparePassword, generateToken, authenticateToken } from "./auth.js";
 import { searchAllIndexers } from "./search.js";
 import archiver from "archiver";
+import helmet from "helmet";
 
 // ⚡ Bolt: Simple in-memory cache implementation to avoid external dependencies
 // Caches storage info for 30 seconds to prevent spamming downloaders
@@ -125,6 +126,20 @@ function validatePaginationParams(query: { limit?: string; offset?: string }): {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // 🛡️ Sentinel: Add security headers with Helmet
+  // Configured to allow Vite/React (unsafe-inline/eval) and IGDB images
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+          "script-src": ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+          "img-src": ["'self'", "data:", "https://images.igdb.com"],
+        },
+      },
+    })
+  );
+
   // Auth Routes
   app.get("/api/auth/status", async (_req, res) => {
     try {

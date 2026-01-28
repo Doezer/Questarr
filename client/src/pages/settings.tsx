@@ -19,6 +19,13 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -608,17 +615,21 @@ export default function SettingsPage() {
                     <Label htmlFor="xrel-api-base" className="text-sm font-medium">
                       API base URL
                     </Label>
-                    <Input
-                      id="xrel-api-base"
-                      placeholder="https://api.xrel.to"
-                      value={xrelApiBase}
-                      onChange={(e) => setXrelApiBase(e.target.value)}
-                      className="font-mono text-sm"
-                    />
+                    <Select value={xrelApiBase} onValueChange={setXrelApiBase}>
+                      <SelectTrigger id="xrel-api-base" className="w-full font-mono text-sm">
+                        <SelectValue placeholder="Select API base URL" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="https://xrel-api.nfos.to">
+                          https://xrel-api.nfos.to (Mirror - Recommended)
+                        </SelectItem>
+                        <SelectItem value="https://api.xrel.to">
+                          https://api.xrel.to (Official - Often blocked)
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
                     <p className="text-xs text-muted-foreground">
-                      Leave empty for default. Use{" "}
-                      <code className="bg-muted px-1 rounded">https://xrel-api.nfos.to</code> if your IP
-                      is blocked (e.g. some VPNs).
+                      Use the mirror if your IP is blocked by Cloudflare on the official API.
                     </p>
                   </div>
                   <div className="flex items-center justify-between">

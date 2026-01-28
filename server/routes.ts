@@ -43,7 +43,8 @@ import { prowlarrClient } from "./prowlarr.js";
 import { isSafeUrl } from "./ssrf.js";
 import { hashPassword, comparePassword, generateToken, authenticateToken } from "./auth.js";
 import { searchAllIndexers } from "./search.js";
-import { xrelClient } from "./xrel.js";
+import { xrelClient, DEFAULT_XREL_BASE } from "./xrel.js";
+import { releaseMatchesGame } from "../shared/title-utils.js";
 import archiver from "archiver";
 
 // ⚡ Bolt: Simple in-memory cache implementation to avoid external dependencies
@@ -284,7 +285,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const xrelApiBase =
         (await storage.getSystemConfig("xrel_api_base"))?.trim() ||
         process.env.XREL_API_BASE ||
-        "https://api.xrel.to";
+        DEFAULT_XREL_BASE;
       const config: Config = {
         igdb: {
           configured: isConfigured,
@@ -1835,7 +1836,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             return res.status(400).json({
               error: "Invalid API base URL",
               message:
-                "Must be a valid URL (e.g. https://api.xrel.to or https://xrel-api.nfos.to)",
+                "Must be a valid URL (e.g. https://xrel-api.nfos.to or https://api.xrel.to)",
             });
           }
 
@@ -1859,7 +1860,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const apiBase =
         (await storage.getSystemConfig("xrel_api_base"))?.trim() ||
         process.env.XREL_API_BASE ||
-        "https://api.xrel.to";
+        DEFAULT_XREL_BASE;
       const settings = await storage.getUserSettings(userId);
       res.json({
         success: true,
@@ -1884,15 +1885,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/xrel/latest", authenticateToken, async (req, res) => {
     try {
       const page = req.query.page ? parseInt(String(req.query.page), 10) : 1;
-      const perPage = req.query.per_page
-        ? Math.min(100, Math.max(1, parseInt(String(req.query.per_page), 10)))
-        : 50;
       const baseUrl =
         (await storage.getSystemConfig("xrel_api_base"))?.trim() ||
         process.env.XREL_API_BASE ||
-        "https://api.xrel.to";
-      const result = await xrelClient.getLatestReleases({ page, perPage, baseUrl });
-      res.json(result);
+        DEFAULT_XREL_BASE;
+      
+      // Use getLatestGames which handles pagination correctly across game-filtered results
+      const result = await xrelClient.getLatestGames({ 
+        page, 
+        perPage: 20, 
+        baseUrl
+      });
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const userId = (req as any).user.id;
+      const userGames = await storage.getUserGames(userId);
+      const wantedGames = userGames.filter(g => g.status === "wanted");
+
+      // Mark releases that match a wanted game
+      const listWithMatches = result.list.map(rel => {
+        const isWanted = wantedGames.some(g => 
+          (rel.ext_info?.title && xrelClient.titleMatches(g.title, rel.ext_info.title)) ||
+          releaseMatchesGame(rel.dirname, g.title)
+        );
+        return { ...rel, isWanted };
+      });
+
+      res.json({ ...result, list: listWithMatches });
     } catch (error) {
       routesLogger.error({ error }, "xREL latest failed");
       res.status(500).json({
@@ -1916,7 +1935,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const baseUrl =
         (await storage.getSystemConfig("xrel_api_base"))?.trim() ||
         process.env.XREL_API_BASE ||
-        "https://api.xrel.to";
+        DEFAULT_XREL_BASE;
       const list = await xrelClient.searchReleases(q, { scene, p2p, limit, baseUrl });
       res.json({ results: list });
     } catch (error) {

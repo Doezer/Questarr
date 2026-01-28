@@ -22,6 +22,7 @@ interface XrelRelease {
   sizeUnit?: string;
   ext_info?: { title: string; link_href: string };
   source: "scene" | "p2p";
+  isWanted?: boolean;
 }
 
 interface XrelLatestResponse {
@@ -44,13 +45,12 @@ function formatSize(mb?: number, unit?: string): string {
 }
 
 export default function XrelReleasesPage() {
-  const [perPage, setPerPage] = useState(50);
   const [page, setPage] = useState(1);
 
   const { data, isLoading, isFetching, refetch } = useQuery<XrelLatestResponse>({
-    queryKey: ["/api/xrel/latest", page, perPage],
+    queryKey: ["/api/xrel/latest", page],
     queryFn: async () => {
-      const params = new URLSearchParams({ page: String(page), per_page: String(perPage) });
+      const params = new URLSearchParams({ page: String(page) });
       const res = await fetch(`/api/xrel/latest?${params}`, {
         headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
       });
@@ -77,22 +77,6 @@ export default function XrelReleasesPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Select
-              value={String(perPage)}
-              onValueChange={(v) => {
-                setPerPage(Number(v));
-                setPage(1);
-              }}
-            >
-              <SelectTrigger className="w-[100px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="25">25</SelectItem>
-                <SelectItem value="50">50</SelectItem>
-                <SelectItem value="100">100</SelectItem>
-              </SelectContent>
-            </Select>
             <Button
               variant="outline"
               size="icon"
@@ -162,6 +146,11 @@ export default function XrelReleasesPage() {
                           <span className="text-sm text-muted-foreground">
                             {formatSize(rel.sizeMb, rel.sizeUnit)}
                           </span>
+                        )}
+                        {rel.isWanted && (
+                          <Badge variant="default" className="text-xs bg-primary text-primary-foreground">
+                            Wanted
+                          </Badge>
                         )}
                         <Badge variant="secondary" className="text-xs">
                           {rel.source}

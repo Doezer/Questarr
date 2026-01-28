@@ -4,10 +4,11 @@ import { igdbLogger } from "./logger.js";
 import { notifyUser } from "./socket.js";
 import { DownloaderManager } from "./downloaders.js";
 import { searchAllIndexers } from "./search.js";
-import { xrelClient } from "./xrel.js";
+import { xrelClient, DEFAULT_XREL_BASE } from "./xrel.js";
 import { type Game } from "../shared/schema.js";
 import { downloadRulesSchema } from "../shared/schema.js";
 import { categorizeDownload } from "../shared/download-categorizer.js";
+import { releaseMatchesGame } from "../shared/title-utils.js";
 
 const DELAY_THRESHOLD_DAYS = 7;
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -440,6 +441,14 @@ async function checkAutoSearch() {
               continue;
             }
 
+            // Double-check matches locally to ensure they actually match the game title
+            const matchedItems = items.filter(item => releaseMatchesGame(item.title, game.title));
+
+            if (matchedItems.length === 0) {
+              igdbLogger.debug({ gameTitle: game.title, originalCount: items.length }, "No items passed strict title matching");
+              continue;
+            }
+
             gamesWithResults++;
 
             // Load download rules from settings
@@ -460,7 +469,7 @@ async function checkAutoSearch() {
             }
 
             // Filter items by seeders
-            let filteredItems = items.filter((item) => {
+            let filteredItems = matchedItems.filter((item) => {
               const seeders = item.seeders ?? 0;
               return seeders >= minSeeders;
             });
@@ -603,7 +612,7 @@ async function checkXrelReleases() {
     const baseUrl =
       (await storage.getSystemConfig("xrel_api_base"))?.trim() ||
       process.env.XREL_API_BASE ||
-      "https://api.xrel.to";
+      DEFAULT_XREL_BASE;
 
     // Fetch latest releases once to compare against all wanted games (better performance)
     const { list: latestReleases } = await xrelClient.getLatestReleases({

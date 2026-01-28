@@ -1,3 +1,5 @@
+import { normalizeTitle, titleMatches } from "../shared/title-utils.js";
+
 /**
  * xREL.to API client (no official Node SDK).
  * API docs: https://www.xrel.to/wiki/1681/API.html
@@ -5,7 +7,7 @@
  * Base URL is passed per call (from app settings or env); default https://api.xrel.to
  */
 
-const DEFAULT_XREL_BASE = "https://api.xrel.to";
+export const DEFAULT_XREL_BASE = "https://xrel-api.nfos.to";
 const GAME_TYPE = "master_game";
 
 function resolveBaseUrl(baseUrl?: string | null): string {
@@ -110,13 +112,6 @@ function isGameRelease(extInfo: XrelExtInfo | undefined): boolean {
   return extInfo?.type === GAME_TYPE;
 }
 
-function normalizeTitle(title: string): string {
-  return title
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 /**
  * Normalize and merge scene + p2p results into a single list of game releases.
  */
@@ -182,7 +177,7 @@ export async function searchReleases(
   const res = await fetch(url, {
     headers: {
       Accept: "application/json",
-      "User-Agent": "Questar/1.0",
+      "User-Agent": "Questarr/1.1.0",
     },
   });
 
@@ -207,6 +202,7 @@ export async function getLatestReleases(options: {
   page?: number;
   perPage?: number;
   baseUrl?: string | null;
+  extInfoType?: string;
 } = {}): Promise<{ list: XrelReleaseListItem[]; pagination: XrelLatestResponse["pagination"]; total_count: number }> {
   checkHourlyLimit();
 
@@ -214,11 +210,14 @@ export async function getLatestReleases(options: {
   const page = Math.max(1, options.page ?? 1);
   const perPage = Math.min(100, Math.max(1, options.perPage ?? 50));
   const params = new URLSearchParams({ page: String(page), per_page: String(perPage) });
+  if (options.extInfoType) {
+    params.append("ext_info_type", options.extInfoType);
+  }
   const url = `${base}/v2/release/latest.json?${params}`;
   const res = await fetch(url, {
     headers: {
       Accept: "application/json",
-      "User-Agent": "Questar/1.0",
+      "User-Agent": "Questarr/1.1.0",
     },
   });
 
@@ -251,18 +250,57 @@ export async function getLatestReleases(options: {
 }
 
 /**
- * Check if a game title loosely matches an xREL ext_info title (for notifications).
+ * Fetch exactly (if possible) N game releases by scanning multiple API pages.
  */
-export function titleMatches(gameTitle: string, xrelTitle: string): boolean {
-  const a = normalizeTitle(gameTitle);
-  const b = normalizeTitle(xrelTitle);
-  if (a === b) return true;
-  // One contains the other (e.g. "Fable III" vs "Fable III - Game of the Year")
-  return a.includes(b) || b.includes(a);
-}
+export async function getLatestGames(options: {
+  page?: number;
+  perPage?: number;
+  baseUrl?: string | null;
+} = {}): Promise<{ list: XrelReleaseListItem[]; pagination: { current_page: number; per_page: number; total_pages: number }; total_count: number }> {
+  const targetPage = Math.max(1, options.page ?? 1);
+  const perPage = Math.max(1, options.perPage ?? 20);
+  const targetOffset = (targetPage - 1) * perPage;
+  const targetLimit = targetOffset + perPage;
 
-export const xrelClient = {
-  searchReleases,
-  getLatestReleases,
-  titleMatches,
-};
+  const allGames: XrelReleaseListItem[] = [];
+  let apiPage = 1;
+  let totalApiPages = 1;
+  let totalCountEstimate = 0;
+
+  // Fetch up to 5 pages of 100 items to find enough games
+  // This helps populate the requested page of games regardless of release density
+  while (allGames.length < targetLimit && apiPage <= 10 && apiPage <= totalApiPages) {
+    const result = await getLatestReleases({
+      page: apiPage,
+      perPage: 100,
+      baseUrl: options.baseUrl
+    });
+    
+    allGames.push(...result.list);
+    totalApiPages = result.pagination.total_pages;
+    totalCountEstimate = result.total_count; // This is total releases, not total games
+    apiPage++;
+
+    // If we're finding very few games, don't loop forever
+    if (apiPage > 5 && allGames.length === 0) break;
+  }
+
+  const list = allGames.slice(targetOffset, targetLimit);
+  
+  return {
+    list,
+    pagination: {
+      current_page: targetPage,
+      per_page: perPage,
+      total_pages: Math.ceil(allGames.length / perPage) + (apiPage <= totalApiPages ? 1 : 0)
+    },
+    total_count: allGames.length
+    };
+  }
+  
+  export const xrelClient = {
+    searchReleases,
+    getLatestReleases,
+    getLatestGames,
+    titleMatches,
+  };

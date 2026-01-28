@@ -567,29 +567,33 @@ export default function DownloadersPage() {
                     )}
                   />
                 </>
-                {form.watch("type") === "rtorrent" && (
-                  <FormField
-                    control={form.control}
-                    name="urlPath"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>URL Path</FormLabel>
-                        <FormControl>
-                          <Input
-                            placeholder="RPC2 or plugins/rpc/rpc.php"
-                            {...field}
-                            value={field.value || ""}
-                            data-testid="input-downloader-urlpath"
-                          />
-                        </FormControl>
-                        <FormDescription className="text-xs">
-                          Path to XMLRPC endpoint (e.g., "RPC2" or "plugins/rpc/rpc.php")
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                )}
+                <FormField
+                  control={form.control}
+                  name="urlPath"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>URL Path (Optional)</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder={
+                            form.watch("type") === "rtorrent"
+                              ? "RPC2"
+                              : form.watch("type") === "sabnzbd"
+                                ? "sabnzbd"
+                                : ""
+                          }
+                          {...field}
+                          value={field.value || ""}
+                          data-testid="input-downloader-urlpath"
+                        />
+                      </FormControl>
+                      <FormDescription className="text-xs">
+                        Base path or endpoint (e.g. "/sabnzbd" for reverse proxy)
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
                 <FormField
                   control={form.control}
                   name="username"

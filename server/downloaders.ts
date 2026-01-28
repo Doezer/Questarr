@@ -7,6 +7,7 @@ import type {
 } from "../shared/schema.js";
 import { downloadersLogger } from "./logger.js";
 import crypto from "crypto";
+import https from "https";
 import parseTorrent from "parse-torrent";
 import { XMLParser } from "fast-xml-parser";
 
@@ -153,6 +154,15 @@ class TransmissionClient implements DownloaderClient {
       if (this.downloader.port) {
         urlObj.port = this.downloader.port.toString();
       }
+
+      // Add urlPath logic here
+      if (this.downloader.urlPath) {
+        let path = this.downloader.urlPath;
+        if (!path.startsWith("/")) path = `/${path}`;
+        if (path.endsWith("/")) path = path.slice(0, -1);
+        urlObj.pathname = `${urlObj.pathname.replace(/\/$/, "")}${path}`;
+      }
+
       return urlObj.toString().replace(/\/$/, "");
     } catch {
       return baseUrl.replace(/\/$/, "");
@@ -2816,6 +2826,14 @@ class QBittorrentClient implements DownloaderClient {
       urlObj.port = this.downloader.port.toString();
     }
 
+    // Add urlPath if present
+    if (this.downloader.urlPath) {
+      let path = this.downloader.urlPath;
+      if (!path.startsWith("/")) path = `/${path}`;
+      if (path.endsWith("/")) path = path.slice(0, -1);
+      urlObj.pathname = `${urlObj.pathname.replace(/\/$/, "")}${path}`;
+    }
+
     // Remove trailing slash
     let url = urlObj.toString();
     if (url.endsWith("/")) {
@@ -3288,7 +3306,16 @@ class SABnzbdClient implements DownloaderClient {
 
   private getApiUrl(mode: string, params: Record<string, string> = {}): string {
     const baseUrl = this.getBaseUrl();
-    const url = new URL(`${baseUrl}/api`);
+    
+    let apiPath = "/api";
+    if (this.downloader.urlPath) {
+      const path = this.downloader.urlPath.startsWith("/")
+        ? this.downloader.urlPath
+        : `/${this.downloader.urlPath}`;
+      apiPath = `${path.replace(/\/$/, "")}/api`;
+    }
+
+    const url = new URL(`${baseUrl}${apiPath}`);
     url.searchParams.set("apikey", this.downloader.username || "");
     url.searchParams.set("mode", mode);
     url.searchParams.set("output", "json");
@@ -3300,11 +3327,82 @@ class SABnzbdClient implements DownloaderClient {
     return url.toString();
   }
 
+  private async fetchWithFallback(url: string, options: RequestInit = {}): Promise<Response> {
+    try {
+      return await fetch(url, options);
+    } catch (error) {
+      const isSslError =
+        error instanceof Error &&
+        (error.message.includes("self-signed") ||
+          error.message.includes("certificate") ||
+          (error.cause as any)?.code === "DEPTH_ZERO_SELF_SIGNED_CERT" ||
+          (error.cause as any)?.code === "UNABLE_TO_VERIFY_LEAF_SIGNATURE" ||
+          (error.cause as any)?.code === "CERT_HAS_EXPIRED");
+
+      if (isSslError) {
+        downloadersLogger.warn({ url }, "SSL verification failed, retrying with insecure connection");
+        return this.fetchInsecure(url, options);
+      }
+      throw error;
+    }
+  }
+
+  private fetchInsecure(url: string, options: RequestInit): Promise<Response> {
+    return new Promise((resolve, reject) => {
+      const req = https.request(
+        url,
+        {
+          method: options.method || "GET",
+          headers: options.headers as any,
+          rejectUnauthorized: false,
+          timeout: 30000,
+        },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on("data", (chunk) => chunks.push(chunk));
+          res.on("end", () => {
+            const body = Buffer.concat(chunks).toString();
+            resolve({
+              ok: !!(res.statusCode && res.statusCode >= 200 && res.statusCode < 300),
+              status: res.statusCode || 0,
+              statusText: res.statusMessage || "",
+              text: async () => body,
+              json: async () => {
+                try {
+                  return JSON.parse(body);
+                } catch {
+                  throw new Error(`Failed to parse JSON: ${body}`);
+                }
+              },
+              headers: {
+                get: (name: string) => {
+                  const val = res.headers[name.toLowerCase()];
+                  return Array.isArray(val) ? val[0] : val || null;
+                },
+              },
+            } as unknown as Response);
+          });
+        }
+      );
+
+      req.on("error", reject);
+      req.on("timeout", () => {
+        req.destroy();
+        reject(new Error("Timeout"));
+      });
+
+      if (options.body) {
+        req.write(options.body as string);
+      }
+      req.end();
+    });
+  }
+
   async testConnection(): Promise<{ success: boolean; message: string }> {
     const url = this.getApiUrl("version");
     try {
       downloadersLogger.debug({ url }, "Testing SABnzbd connection");
-      const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
+      const response = await this.fetchWithFallback(url, { signal: AbortSignal.timeout(10000) });
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => "No error details");
@@ -3341,7 +3439,10 @@ class SABnzbdClient implements DownloaderClient {
     });
 
     try {
-      const response = await fetch(url, { method: "GET", signal: AbortSignal.timeout(30000) });
+      const response = await this.fetchWithFallback(url, {
+        method: "GET",
+        signal: AbortSignal.timeout(30000),
+      });
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => "No error details");
@@ -3394,7 +3495,7 @@ class SABnzbdClient implements DownloaderClient {
   async getDownloadStatus(id: string): Promise<DownloadStatus | null> {
     try {
       const url = this.getApiUrl("queue");
-      const response = await fetch(url);
+      const response = await this.fetchWithFallback(url);
       const data = await response.json();
       const queue: SABnzbdQueue = data.queue;
 
@@ -3534,7 +3635,7 @@ class SABnzbdClient implements DownloaderClient {
   async getAllDownloads(): Promise<DownloadStatus[]> {
     try {
       const url = this.getApiUrl("queue");
-      const response = await fetch(url);
+      const response = await this.fetchWithFallback(url);
       const data = await response.json();
       const queue: SABnzbdQueue = data.queue;
 
@@ -3557,7 +3658,7 @@ class SABnzbdClient implements DownloaderClient {
   async pauseDownload(id: string): Promise<{ success: boolean; message: string }> {
     try {
       const url = this.getApiUrl("pause", { value: id });
-      const response = await fetch(url);
+      const response = await this.fetchWithFallback(url);
       const data = await response.json();
 
       if (data.status === true) {
@@ -3576,7 +3677,7 @@ class SABnzbdClient implements DownloaderClient {
   async resumeDownload(id: string): Promise<{ success: boolean; message: string }> {
     try {
       const url = this.getApiUrl("resume", { value: id });
-      const response = await fetch(url);
+      const response = await this.fetchWithFallback(url);
       const data = await response.json();
 
       if (data.status === true) {
@@ -3598,7 +3699,7 @@ class SABnzbdClient implements DownloaderClient {
   ): Promise<{ success: boolean; message: string }> {
     try {
       const url = this.getApiUrl("queue", { name: "delete", value: id });
-      const response = await fetch(url);
+      const response = await this.fetchWithFallback(url);
       const data = await response.json();
 
       if (data.status === true) {
@@ -3617,7 +3718,7 @@ class SABnzbdClient implements DownloaderClient {
   async getFreeSpace(): Promise<number> {
     try {
       const url = this.getApiUrl("queue");
-      const response = await fetch(url);
+      const response = await this.fetchWithFallback(url);
       const data = await response.json();
 
       if (data.queue?.diskspace1_norm) {

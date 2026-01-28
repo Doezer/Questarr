@@ -249,8 +249,16 @@ export const sanitizeDownloaderData = [
       const isUrl = /^https?:\/\/.+/.test(value);
       if (isUrl) return true;
 
-      // For qbittorrent, rtorrent, and transmission, allow hostname/IP without protocol
-      if (type === "qbittorrent" || type === "rtorrent" || type === "transmission") {
+      // For downloaders, allow hostname/IP without protocol
+      if (
+        [
+          "qbittorrent",
+          "rtorrent",
+          "transmission",
+          "sabnzbd",
+          "nzbget",
+        ].includes(type)
+      ) {
         // Accept hostname, IP address, or FQDN
         const hostnameRegex =
           /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
@@ -312,8 +320,16 @@ export const sanitizeDownloaderUpdateData = [
       const isUrl = /^https?:\/\/.+/.test(value);
       if (isUrl) return true;
 
-      // For qbittorrent, rtorrent, and transmission, allow hostname/IP without protocol
-      if (type === "qbittorrent" || type === "rtorrent" || type === "transmission") {
+      // For downloaders, allow hostname/IP without protocol
+      if (
+        [
+          "qbittorrent",
+          "rtorrent",
+          "transmission",
+          "sabnzbd",
+          "nzbget",
+        ].includes(type)
+      ) {
         // Accept hostname, IP address, or FQDN
         const hostnameRegex =
           /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;

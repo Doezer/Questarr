@@ -12,6 +12,7 @@ import {
   insertDownloaderSchema,
   insertNotificationSchema,
   updateUserSettingsSchema,
+  updatePasswordSchema,
   type Config,
   type Game,
   type Indexer,
@@ -214,6 +215,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const user = (req as any).user;
     res.json({ id: user.id, username: user.username });
+  });
+
+  app.patch("/api/auth/password", authenticateToken, sensitiveEndpointLimiter, async (req, res) => {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const userId = (req as any).user.id;
+      const { currentPassword, newPassword } = updatePasswordSchema.parse(req.body);
+
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      if (!(await comparePassword(currentPassword, user.passwordHash))) {
+        return res.status(401).json({ error: "Incorrect current password" });
+      }
+
+      const newPasswordHash = await hashPassword(newPassword);
+      await storage.updateUserPassword(userId, newPasswordHash);
+
+      routesLogger.info({ userId }, "User password updated");
+      res.json({ success: true, message: "Password updated successfully" });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid password data", details: error.errors });
+      }
+      routesLogger.error({ error }, "Failed to update password");
+      res.status(500).json({ error: "Failed to update password" });
+    }
   });
 
   // Health check endpoint

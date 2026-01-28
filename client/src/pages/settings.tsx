@@ -23,6 +23,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import AutoDownloadRulesSettings from "@/components/AutoDownloadRulesSettings";
+import PasswordSettings from "@/components/PasswordSettings";
 import type { Config, UserSettings, DownloadRules } from "@shared/schema";
 import { downloadRulesSchema } from "@shared/schema";
 import { useState, useEffect } from "react";
@@ -596,6 +597,9 @@ export default function SettingsPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Password Settings */}
+        <PasswordSettings />
 
         {/* Application Management */}
         <Card>

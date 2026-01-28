@@ -36,6 +36,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertDownloaderSchema, type Downloader, type InsertDownloader } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
+import { getDownloadTypeColor } from "@/lib/downloads-utils";
 
 const downloaderTypes = [
   { value: "transmission", label: "Transmission", protocol: "torrent" },
@@ -339,8 +340,7 @@ export default function DownloadersPage() {
                       {downloader.type}
                     </Badge>
                     <Badge
-                      variant={isUsenetDownloader(downloader.type) ? "secondary" : "default"}
-                      className="text-xs"
+                      className={`text-xs border-none ${getDownloadTypeColor(isUsenetDownloader(downloader.type) ? "usenet" : "torrent")}`}
                     >
                       {isUsenetDownloader(downloader.type) ? "USENET" : "TORRENT"}
                     </Badge>

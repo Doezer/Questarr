@@ -15,6 +15,13 @@
       "when": 1738080000000,
       "tag": "0001_xrel",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1769626514319,
+      "tag": "0002_mute_domino",
+      "breakpoints": true
     }
   ]
 }

@@ -232,7 +232,9 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: AppSidebarP
           <SidebarMenuItem>
             <SidebarMenuButton
               size="lg"
-              className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+              onClick={() => logout()}
+              className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground cursor-pointer w-full"
+              tooltip="Log out"
             >
               <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
                 <User className="size-4" />
@@ -241,10 +243,7 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: AppSidebarP
                 <span className="truncate font-semibold">{user?.username || "User"}</span>
                 <span className="truncate text-xs">Logged in</span>
               </div>
-              <LogOut
-                onClick={() => logout()}
-                className="ml-auto size-4 hover:text-destructive cursor-pointer"
-              />
+              <LogOut className="ml-auto size-4" />
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

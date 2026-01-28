@@ -64,6 +64,11 @@ const staticNavigation = [
     url: "/wishlist",
     icon: Star,
   },
+  {
+    title: "xREL.to releases",
+    url: "/xrel",
+    icon: Newspaper,
+  },
 ];
 
 const management = [

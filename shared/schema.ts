@@ -27,6 +27,8 @@ export const userSettings = sqliteTable("user_settings", {
   igdbRateLimitPerSecond: integer("igdb_rate_limit_per_second").notNull().default(3),
   downloadRules: text("download_rules"),
   lastAutoSearch: integer("last_auto_search", { mode: "timestamp" }),
+  xrelSceneReleases: integer("xrel_scene_releases", { mode: "boolean" }).notNull().default(true),
+  xrelP2pReleases: integer("xrel_p2p_releases", { mode: "boolean" }).notNull().default(false),
   updatedAt: integer("updated_at", { mode: "timestamp" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),
@@ -128,6 +130,18 @@ export const gameDownloads = sqliteTable("game_downloads", {
 // Legacy table name for backward compatibility during migration
 export const legacy_gameDownloads = gameDownloads;
 
+// Track xREL.to release notifications so we notify once per (game, release) and know which games have xREL listings
+export const xrelNotifiedReleases = sqliteTable("xrel_notified_releases", {
+  id: text("id").primaryKey(),
+  gameId: text("game_id")
+    .notNull()
+    .references(() => games.id, { onDelete: "cascade" }),
+  xrelReleaseId: text("xrel_release_id").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).default(
+    sql`(strftime('%s', 'now') * 1000)`
+  ),
+});
+
 export const notifications = sqliteTable("notifications", {
   id: text("id").primaryKey(),
   userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
@@ -210,6 +224,11 @@ export const downloadRulesSchema = z.object({
 
 export type DownloadRules = z.infer<typeof downloadRulesSchema>;
 
+export const insertXrelNotifiedReleaseSchema = createInsertSchema(xrelNotifiedReleases).omit({
+  id: true,
+  createdAt: true,
+});
+
 export const insertUserSettingsSchema = createInsertSchema(userSettings).omit({
   id: true,
   updatedAt: true,
@@ -244,6 +263,8 @@ export type Game = typeof games.$inferSelect & {
   // Additional fields for Discovery games
   isReleased?: boolean;
   releaseYear?: number | null;
+  // Set by API when game has been seen on xREL.to (wanted games)
+  hasXrelRelease?: boolean;
 };
 
 export type InsertGame = (typeof insertGameSchema)["_output"];
@@ -258,6 +279,9 @@ export type InsertDownloader = (typeof insertDownloaderSchema)["_output"];
 
 export type GameDownload = typeof gameDownloads.$inferSelect;
 export type InsertGameDownload = (typeof insertGameDownloadSchema)["_output"];
+
+export type XrelNotifiedRelease = typeof xrelNotifiedReleases.$inferSelect;
+export type InsertXrelNotifiedRelease = (typeof insertXrelNotifiedReleaseSchema)["_output"];
 
 // Legacy type names for backward compatibility
 export type GameDownloadLegacy = GameDownload;
@@ -276,6 +300,9 @@ export interface Config {
     configured: boolean;
     source?: "env" | "database";
     clientId?: string;
+  };
+  xrel?: {
+    apiBase: string;
   };
 }
 

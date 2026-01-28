@@ -11,6 +11,7 @@ import {
   Eye,
   EyeOff,
   HelpCircle,
+  Newspaper,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -63,6 +64,9 @@ export default function SettingsPage() {
   const [igdbClientSecret, setIgdbClientSecret] = useState("");
   const [showClientSecret, setShowClientSecret] = useState(false);
   const [downloadRules, setDownloadRules] = useState<DownloadRules | null>(null);
+  const [xrelSceneReleases, setXrelSceneReleases] = useState(true);
+  const [xrelP2pReleases, setXrelP2pReleases] = useState(false);
+  const [xrelApiBase, setXrelApiBase] = useState("");
 
   // Sync with fetched settings
   useEffect(() => {
@@ -87,6 +91,11 @@ export default function SettingsPage() {
       } else {
         setDownloadRules(null);
       }
+      setXrelSceneReleases(userSettings.xrelSceneReleases ?? true);
+      setXrelP2pReleases(userSettings.xrelP2pReleases ?? false);
+    }
+    if (config?.xrel) {
+      setXrelApiBase(config.xrel.apiBase ?? "");
     }
 
     if (config?.igdb.clientId) {
@@ -206,6 +215,36 @@ export default function SettingsPage() {
       },
       successMessage: "Advanced settings have been saved.",
     });
+  };
+
+  const saveXrelMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("PATCH", "/api/settings/xrel", {
+        apiBase: xrelApiBase.trim() || undefined,
+        xrelSceneReleases,
+        xrelP2pReleases,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Settings Updated",
+        description: "xREL.to options have been saved.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/config"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Update Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleSaveXrel = () => {
+    saveXrelMutation.mutate();
   };
 
   const handleSaveIgdb = () => {
@@ -545,6 +584,89 @@ export default function SettingsPage() {
                       <>
                         <Key className="h-4 w-4" />
                         Save Credentials
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* xREL.to Search Options */}
+            <Card id="xrel-settings">
+              <CardHeader>
+                <div className="flex items-center space-x-3">
+                  <Newspaper className="h-5 w-5 text-muted-foreground" />
+                  <CardTitle className="text-lg">xREL.to</CardTitle>
+                </div>
+                <CardDescription>
+                  Alert when a wanted game appears on xREL.to (scene/P2P release list). API base URL and search options for the auto-check.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="xrel-api-base" className="text-sm font-medium">
+                      API base URL
+                    </Label>
+                    <Input
+                      id="xrel-api-base"
+                      placeholder="https://api.xrel.to"
+                      value={xrelApiBase}
+                      onChange={(e) => setXrelApiBase(e.target.value)}
+                      className="font-mono text-sm"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Leave empty for default. Use{" "}
+                      <code className="bg-muted px-1 rounded">https://xrel-api.nfos.to</code> if your IP
+                      is blocked (e.g. some VPNs).
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="xrel-scene" className="text-sm font-medium">
+                        Include scene releases
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        Search scene releases when checking for wanted games on xREL.to
+                      </p>
+                    </div>
+                    <Switch
+                      id="xrel-scene"
+                      checked={xrelSceneReleases}
+                      onCheckedChange={setXrelSceneReleases}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="xrel-p2p" className="text-sm font-medium">
+                        Include P2P releases
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        Search P2P releases when checking for wanted games on xREL.to
+                      </p>
+                    </div>
+                    <Switch
+                      id="xrel-p2p"
+                      checked={xrelP2pReleases}
+                      onCheckedChange={setXrelP2pReleases}
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end pt-4 border-t">
+                  <Button
+                    onClick={handleSaveXrel}
+                    disabled={saveXrelMutation.isPending}
+                    className="gap-2"
+                  >
+                    {saveXrelMutation.isPending ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Newspaper className="h-4 w-4" />
+                        Save xREL.to options
                       </>
                     )}
                   </Button>

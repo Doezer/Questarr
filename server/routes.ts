@@ -43,6 +43,7 @@ import { prowlarrClient } from "./prowlarr.js";
 import { isSafeUrl } from "./ssrf.js";
 import { hashPassword, comparePassword, generateToken, authenticateToken } from "./auth.js";
 import { searchAllIndexers } from "./search.js";
+import { xrelClient } from "./xrel.js";
 import archiver from "archiver";
 
 // ⚡ Bolt: Simple in-memory cache implementation to avoid external dependencies
@@ -280,12 +281,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         clientId = appConfig.igdb.clientId;
       }
 
+      const xrelApiBase =
+        (await storage.getSystemConfig("xrel_api_base"))?.trim() ||
+        process.env.XREL_API_BASE ||
+        "https://api.xrel.to";
       const config: Config = {
         igdb: {
           configured: isConfigured,
           source,
           clientId,
         },
+        xrel: { apiBase: xrelApiBase },
       };
       res.json(config);
     } catch (error) {
@@ -393,7 +399,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Game collection routes
 
-  // Get all games in collection
+  // Get all games in collection (includes hasXrelRelease for wanted games with xREL listing)
   app.get("/api/games", authenticateToken, async (req, res) => {
     try {
       const { search, includeHidden } = req.query;
@@ -408,7 +414,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         games = await storage.getUserGames(userId, showHidden);
       }
 
-      res.json(games);
+      const xrelGameIds = new Set(await storage.getGameIdsWithXrelReleases());
+      const gamesWithXrel = games.map((g) => ({
+        ...g,
+        hasXrelRelease: xrelGameIds.has(g.id),
+      }));
+      res.json(gamesWithXrel);
     } catch (error) {
       routesLogger.error({ error }, "error fetching games");
       res.status(500).json({ error: "Failed to fetch games" });
@@ -1801,6 +1812,108 @@ export async function registerRoutes(app: Express): Promise<Server> {
       routesLogger.error({ error }, "error updating settings");
       res.status(500).json({
         error: "Failed to update settings",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
+  // xREL.to settings (API base URL in system config; scene/p2p in user settings)
+  app.patch("/api/settings/xrel", authenticateToken, async (req, res) => {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const userId = (req as any).user.id;
+      const body = req.body as {
+        apiBase?: string;
+        xrelSceneReleases?: boolean;
+        xrelP2pReleases?: boolean;
+      };
+
+      if (typeof body.apiBase !== "undefined") {
+        const v = typeof body.apiBase === "string" ? body.apiBase.trim() : "";
+        if (v !== "" && !/^https?:\/\/[^\s]+$/i.test(v)) {
+          return res.status(400).json({
+            error: "Invalid API base URL",
+            message:
+              "Must be empty or a valid URL (e.g. https://api.xrel.to or https://xrel-api.nfos.to)",
+          });
+        }
+        await storage.setSystemConfig("xrel_api_base", v);
+      }
+
+      if (typeof body.xrelSceneReleases === "boolean" || typeof body.xrelP2pReleases === "boolean") {
+        const updates: Record<string, boolean> = {};
+        if (typeof body.xrelSceneReleases === "boolean") updates.xrelSceneReleases = body.xrelSceneReleases;
+        if (typeof body.xrelP2pReleases === "boolean") updates.xrelP2pReleases = body.xrelP2pReleases;
+        await storage.updateUserSettings(userId, updates);
+      }
+
+      const apiBase =
+        (await storage.getSystemConfig("xrel_api_base"))?.trim() ||
+        process.env.XREL_API_BASE ||
+        "https://api.xrel.to";
+      const settings = await storage.getUserSettings(userId);
+      res.json({
+        success: true,
+        xrel: { apiBase },
+        settings: settings
+          ? {
+              xrelSceneReleases: settings.xrelSceneReleases,
+              xrelP2pReleases: settings.xrelP2pReleases,
+            }
+          : undefined,
+      });
+    } catch (error) {
+      routesLogger.error({ error }, "error updating xREL settings");
+      res.status(500).json({
+        error: "Failed to update xREL settings",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
+  // xREL.to API proxy (rate-limited on xREL side; base URL from app settings)
+  app.get("/api/xrel/latest", authenticateToken, async (req, res) => {
+    try {
+      const page = req.query.page ? parseInt(String(req.query.page), 10) : 1;
+      const perPage = req.query.per_page
+        ? Math.min(100, Math.max(1, parseInt(String(req.query.per_page), 10)))
+        : 50;
+      const baseUrl =
+        (await storage.getSystemConfig("xrel_api_base"))?.trim() ||
+        process.env.XREL_API_BASE ||
+        "https://api.xrel.to";
+      const result = await xrelClient.getLatestReleases({ page, perPage, baseUrl });
+      res.json(result);
+    } catch (error) {
+      routesLogger.error({ error }, "xREL latest failed");
+      res.status(500).json({
+        error: "Failed to fetch xREL latest releases",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
+  app.get("/api/xrel/search", authenticateToken, async (req, res) => {
+    try {
+      const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+      if (!q) {
+        return res.status(400).json({ error: "Search query (q) required" });
+      }
+      const scene = req.query.scene !== "false" && req.query.scene !== "0";
+      const p2p = req.query.p2p === "true" || req.query.p2p === "1";
+      const limit = req.query.limit
+        ? Math.min(100, Math.max(1, parseInt(String(req.query.limit), 10)))
+        : 25;
+      const baseUrl =
+        (await storage.getSystemConfig("xrel_api_base"))?.trim() ||
+        process.env.XREL_API_BASE ||
+        "https://api.xrel.to";
+      const list = await xrelClient.searchReleases(q, { scene, p2p, limit, baseUrl });
+      res.json({ results: list });
+    } catch (error) {
+      routesLogger.error({ error }, "xREL search failed");
+      res.status(500).json({
+        error: "xREL search failed",
         message: error instanceof Error ? error.message : "Unknown error",
       });
     }

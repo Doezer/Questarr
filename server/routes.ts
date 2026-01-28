@@ -1723,12 +1723,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { clientId, clientSecret } = req.body;
 
-      if (!clientId || !clientSecret) {
-        return res.status(400).json({ error: "Client ID and Client Secret are required" });
+      if (!clientId) {
+        return res.status(400).json({ error: "Client ID is required" });
+      }
+
+      // Check if already configured (in DB or Env)
+      const dbSecret = await storage.getSystemConfig("igdb.clientSecret");
+      const isConfigured = !!dbSecret || appConfig.igdb.isConfigured;
+
+      const isMaskedValue = clientSecret === "********";
+      const hasNewSecret = clientSecret && !isMaskedValue;
+
+      if (!isConfigured && !hasNewSecret) {
+        return res.status(400).json({ error: "Client Secret is required" });
       }
 
       await storage.setSystemConfig("igdb.clientId", clientId.trim());
-      await storage.setSystemConfig("igdb.clientSecret", clientSecret.trim());
+
+      if (hasNewSecret) {
+        await storage.setSystemConfig("igdb.clientSecret", clientSecret.trim());
+      }
 
       routesLogger.info("IGDB credentials updated via settings");
       res.json({ success: true });

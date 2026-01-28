@@ -334,44 +334,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const indexers = await prowlarrClient.getIndexers(url, apiKey);
 
-      const results = {
-        added: 0,
-        updated: 0,
-        failed: 0,
-        errors: [] as string[],
-      };
-
-      const existingIndexers = await storage.getAllIndexers();
-
-      for (const idx of indexers) {
-        try {
-          // Check for existing indexer with same URL (exact match)
-          const existing = existingIndexers.find((e) => e.url === idx.url);
-
-          if (existing) {
-            // Update existing
-            await storage.updateIndexer(existing.id, idx);
-            results.updated++;
-          } else {
-            // Create new
-            if (!idx.name || !idx.url || !idx.apiKey) {
-              results.failed++;
-              results.errors.push(`Skipping ${idx.name || "unknown"} - missing required fields`);
-              continue;
-            }
-
-            // Validate and sanitize using schema
-            const indexerData = insertIndexerSchema.parse(idx);
-            await storage.addIndexer(indexerData);
-            results.added++;
-          }
-        } catch (error) {
-          results.failed++;
-          results.errors.push(
-            `Failed to sync ${idx.name}: ${error instanceof Error ? error.message : "Unknown error"}`
-          );
-        }
-      }
+      // ⚡ Bolt: Use batched sync method to handle all indexers in a single transaction
+      const results = await storage.syncIndexers(indexers);
 
       res.json({
         success: true,
@@ -1891,9 +1855,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         xrel: { apiBase },
         settings: settings
           ? {
-              xrelSceneReleases: settings.xrelSceneReleases,
-              xrelP2pReleases: settings.xrelP2pReleases,
-            }
+            xrelSceneReleases: settings.xrelSceneReleases,
+            xrelP2pReleases: settings.xrelP2pReleases,
+          }
           : undefined,
       });
     } catch (error) {
@@ -1913,11 +1877,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         (await storage.getSystemConfig("xrel_api_base"))?.trim() ||
         process.env.XREL_API_BASE ||
         DEFAULT_XREL_BASE;
-      
+
       // Use getLatestGames which handles pagination correctly across game-filtered results
-      const result = await xrelClient.getLatestGames({ 
-        page, 
-        perPage: 20, 
+      const result = await xrelClient.getLatestGames({
+        page,
+        perPage: 20,
         baseUrl
       });
 
@@ -1930,7 +1894,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // ⚡ Bolt: Optimize matching for large collections by pre-processing wanted games
       // and using a Set for O(1) exact-match lookups.
       const wantedGamesLookup = wantedGames.map(g => {
-        const norm = normalizeTitle(g.title); 
+        const norm = normalizeTitle(g.title);
         return {
           normalized: norm,
           regex: norm.length >= 5 ? new RegExp(`\\b${norm.replace(/[.*+?^${}()|[\\]/g, "\\$&")}\\b`, "i") : null,
@@ -1951,7 +1915,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         // Slow path: Fuzzy matching (inclusion, word-based)
         const relDirLower = rel.dirname.toLowerCase().replace(/[._\-]/g, " ");
-        const relExtRegex = relExtTitleNorm && relExtTitleNorm.length >= 5 
+        const relExtRegex = relExtTitleNorm && relExtTitleNorm.length >= 5
           ? new RegExp(`\\b${relExtTitleNorm.replace(/[.*+?^${}()|[\\]/g, "\\$&")}\\b`, "i")
           : null;
 

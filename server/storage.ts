@@ -68,6 +68,9 @@ export interface IStorage {
   addIndexer(indexer: InsertIndexer): Promise<Indexer>;
   updateIndexer(id: string, updates: Partial<InsertIndexer>): Promise<Indexer | undefined>;
   removeIndexer(id: string): Promise<boolean>;
+  syncIndexers(
+    indexers: Partial<Indexer>[]
+  ): Promise<{ added: number; updated: number; failed: number; errors: string[] }>;
 
   // Downloader methods
   getAllDownloaders(): Promise<Downloader[]>;
@@ -393,6 +396,64 @@ export class MemStorage implements IStorage {
 
   async removeIndexer(id: string): Promise<boolean> {
     return this.indexers.delete(id);
+  }
+
+  async syncIndexers(
+    indexersToSync: Partial<Indexer>[]
+  ): Promise<{ added: number; updated: number; failed: number; errors: string[] }> {
+    const results = {
+      added: 0,
+      updated: 0,
+      failed: 0,
+      errors: [] as string[],
+    };
+
+    for (const idx of indexersToSync) {
+      try {
+        if (!idx.name || !idx.url || !idx.apiKey) {
+          results.failed++;
+          results.errors.push(`Skipping ${idx.name || "unknown"} - missing required fields`);
+          continue;
+        }
+
+        const existing = Array.from(this.indexers.values()).find((e) => e.url === idx.url);
+
+        if (existing) {
+          const updatedIndexer: Indexer = {
+            ...existing,
+            ...idx,
+            updatedAt: new Date(),
+          };
+          this.indexers.set(existing.id, updatedIndexer);
+          results.updated++;
+        } else {
+          const id = randomUUID();
+          const newIndexer: Indexer = {
+            id,
+            name: idx.name,
+            url: idx.url,
+            apiKey: idx.apiKey,
+            protocol: idx.protocol ?? "torznab",
+            enabled: idx.enabled ?? true,
+            priority: idx.priority ?? 1,
+            categories: idx.categories ?? [],
+            rssEnabled: idx.rssEnabled ?? true,
+            autoSearchEnabled: idx.autoSearchEnabled ?? true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          };
+          this.indexers.set(id, newIndexer);
+          results.added++;
+        }
+      } catch (error) {
+        results.failed++;
+        results.errors.push(
+          `Failed to sync ${idx.name}: ${error instanceof Error ? error.message : "Unknown error"}`
+        );
+      }
+    }
+
+    return results;
   }
 
   // Downloader methods
@@ -895,6 +956,73 @@ export class DatabaseStorage implements IStorage {
   async removeIndexer(id: string): Promise<boolean> {
     await db.delete(indexers).where(eq(indexers.id, id));
     return true;
+  }
+
+  async syncIndexers(
+    indexersToSync: Partial<Indexer>[]
+  ): Promise<{ added: number; updated: number; failed: number; errors: string[] }> {
+    const results = {
+      added: 0,
+      updated: 0,
+      failed: 0,
+      errors: [] as string[],
+    };
+
+    await db.transaction(async (tx) => {
+      // Fetch all existing indexers within the transaction to compare against
+      const existingIndexers = await tx.select().from(indexers);
+      const existingMap = new Map(existingIndexers.map((i) => [i.url, i]));
+
+      for (const idx of indexersToSync) {
+        try {
+          if (!idx.name || !idx.url || !idx.apiKey) {
+            results.failed++;
+            results.errors.push(`Skipping ${idx.name || "unknown"} - missing required fields`);
+            continue;
+          }
+
+          const existing = existingMap.get(idx.url);
+
+          if (existing) {
+            await tx
+              .update(indexers)
+              .set({
+                ...idx,
+                updatedAt: new Date(),
+              })
+              .where(eq(indexers.id, existing.id));
+            results.updated++;
+          } else {
+            const id = randomUUID();
+            // Default values for missing optional fields
+            const newIndexer = {
+              id,
+              name: idx.name,
+              url: idx.url,
+              apiKey: idx.apiKey,
+              protocol: idx.protocol ?? "torznab",
+              enabled: idx.enabled ?? true,
+              priority: idx.priority ?? 1,
+              categories: idx.categories ?? [],
+              rssEnabled: idx.rssEnabled ?? true,
+              autoSearchEnabled: idx.autoSearchEnabled ?? true,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            };
+
+            await tx.insert(indexers).values(newIndexer);
+            results.added++;
+          }
+        } catch (error) {
+          results.failed++;
+          results.errors.push(
+            `Failed to sync ${idx.name}: ${error instanceof Error ? error.message : "Unknown error"}`
+          );
+        }
+      }
+    });
+
+    return results;
   }
 
   // Downloader methods

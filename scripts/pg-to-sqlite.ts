@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 import pg from "pg";
 import Database from "better-sqlite3";
 import path from "path";
@@ -14,7 +15,7 @@ interface TableConfig {
   // Map source column (key) to target column (value). specific renames.
   columnMapping?: Record<string, string>;
   // Custom transform function for row data
-  transform?: (row: any) => any;
+  transform?: (row: Record<string, unknown>) => Record<string, unknown>;
   // Critical columns that MUST exist in source for migration to proceed
   requiredSourceColumns?: string[];
 }
@@ -134,7 +135,9 @@ const MIGRATION_CONFIG: Record<string, TableConfig> = {
       torrent_title: "download_title",
     },
     transform: (row) => {
-      if (row.status) row.status = row.status.toLowerCase();
+      if (typeof row.status === "string") {
+        row.status = row.status.toLowerCase();
+      }
       // If download_type is missing (from game_torrents), SQLite default is 'torrent', which is correct.
       return row;
     },
@@ -175,14 +178,15 @@ async function migrate() {
       try {
         // 1. Determine Source Table Name
         let sourceTableName = targetTableName;
-        let rows: any[] = [];
+        let rows: Record<string, unknown>[] = [];
 
         // Try main name
         try {
           const result = await pool.query(`SELECT * FROM "${sourceTableName}"`);
           rows = result.rows;
-        } catch (err: any) {
-          if (err.code === "42P01" && config.sourceTableAliases) {
+        } catch (err: unknown) {
+          const pgErr = err as { code?: string };
+          if (pgErr.code === "42P01" && config.sourceTableAliases) {
             // Try aliases
             for (const alias of config.sourceTableAliases) {
               try {
@@ -194,7 +198,7 @@ async function migrate() {
                 sourceTableName = alias; // Update source name for logging
                 console.log(`   Found match: ${alias}`);
                 break;
-              } catch (aliasErr) {
+              } catch {
                 // Continue to next alias
               }
             }
@@ -227,28 +231,6 @@ async function migrate() {
         if (config.requiredSourceColumns) {
           const missing = config.requiredSourceColumns.filter((c) => !sourceColumns.includes(c));
           if (missing.length > 0) {
-            // Check if missing columns are mapped
-            const unmappedMissing = missing.filter((m) => {
-              // Check if we have a mapping for a source column that maps to this required column?
-              // No, requiredSourceColumns lists SOURCE column names.
-              // But wait, if we renamed 'torrent_hash' -> 'download_hash', and we require 'download_hash'?
-              // Ah, requiredSourceColumns should be checked against available source columns.
-              // If the config says required: 'download_hash', but source has 'torrent_hash', validation fails.
-              // FIX: requiredSourceColumns should probably refer to TARGET columns that must be satisfyable?
-              // OR: We just rely on the mapping.
-
-              // Let's assume requiredSourceColumns refers to keys present in the SOURCE row (after mapping check?)
-              // Actually, let's keep it simple: requiredSourceColumns checks raw source keys.
-              // If I require 'torrent_hash' but table is new 'game_downloads', it fails.
-              // Logic issue here.
-
-              // IMPROVED LOGIC: skip strict validation if aliases were used, assume best effort?
-              // Or update config to reflect that required cols might change names.
-
-              // Let's rely on the mapping check below. If a value is undefined after mapping, SQLite will default or throw.
-              return true;
-            });
-
             // We will relax this check. SQLite will enforce NOT NULL constraints anyway.
             // console.warn(`   ⚠️ Potentially missing source columns: ${missing.join(", ")}`);
           }
@@ -261,7 +243,7 @@ async function migrate() {
         const insertStmt = sqlite.prepare(insertSql);
 
         // 4. Transform and Load
-        const runTransaction = sqlite.transaction((rowsToInsert) => {
+        const runTransaction = sqlite.transaction((rowsToInsert: Record<string, unknown>[]) => {
           let migrated = 0;
           let skipped = 0;
 
@@ -309,10 +291,11 @@ async function migrate() {
             try {
               insertStmt.run(...values);
               migrated++;
-            } catch (err: any) {
+            } catch (err: unknown) {
+              const sqliteErr = err as { code?: string };
               if (
-                err.code === "SQLITE_CONSTRAINT_PRIMARYKEY" ||
-                err.code === "SQLITE_CONSTRAINT_UNIQUE"
+                sqliteErr.code === "SQLITE_CONSTRAINT_PRIMARYKEY" ||
+                sqliteErr.code === "SQLITE_CONSTRAINT_UNIQUE"
               ) {
                 skipped++;
               } else {
@@ -344,12 +327,13 @@ async function migrate() {
             `   ⚠️ Integrity Check Failed: Target has ${targetCount.count} rows, expected at least ${result.migrated}`
           );
         }
-      } catch (err: any) {
-        if (err.code === "42P01") {
+      } catch (err: unknown) {
+        const pgErr = err as { code?: string };
+        if (pgErr.code === "42P01") {
           // Already handled in alias logic, but catch-all here
           console.log(`   Table ${targetTableName} skipped (not found).`);
         } else {
-          console.error(`   ❌ Error migrating ${targetTableName}:`, err);
+          console.error(`   ❌ Failed to migrate table ${targetTableName}:`, err);
         }
       }
     }

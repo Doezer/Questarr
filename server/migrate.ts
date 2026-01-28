@@ -56,21 +56,20 @@ export async function runMigrations(): Promise<void> {
         db.transaction((tx) => {
           for (const statement of statements) {
             if (!statement.trim()) continue;
-            try {
-              tx.run(sql.raw(statement));
-            } catch (e: any) {
-              // Ignore "table already exists" etc if we want idempotency similar to the old script,
-              // but for SQLite it's often cleaner to just let it fail if schema drift is huge.
-              // The request specifically asked to "adapt the current file", which had error suppression.
-
-              const msg = e.message || "";
-              // SQLite error for existing object usually contains "already exists"
-              if (msg.includes("already exists")) {
-                logger.warn(`Skipping statement in ${tag} due to existing object: ${msg}`);
-              } else {
-                throw e;
-              }
-            }
+                        try {
+                          tx.run(sql.raw(statement));
+                        } catch (e: unknown) {
+                          // Ignore "table already exists" etc if we want idempotency similar to the old script,
+                          // but for SQLite it's often cleaner to just let it fail if schema drift is huge.
+                          // The request specifically asked to "adapt the current file", which had error suppression.
+                          const msg = e instanceof Error ? e.message : String(e);
+                          // SQLite error for existing object usually contains "already exists"
+                          if (msg.includes("already exists")) {
+                            logger.warn(`Skipping statement in ${tag} due to existing object: ${msg}`);
+                          } else {
+                            throw e;
+                          }
+                        }
           }
 
           tx.run(sql`

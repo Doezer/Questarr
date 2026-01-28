@@ -1,7 +1,7 @@
-## 2025-05-26 - [Empty States]
-**Learning:** Users need clear guidance when they encounter empty states (like an empty library or wishlist). A simple text message is often missed and doesn't provide a clear next step.
-**Action:** Use a visual component with an icon, clear title, friendly description, and a direct call-to-action button to guide users to the relevant page (e.g., Discovery).
+PALETTE'S JOURNAL - CRITICAL LEARNINGS ONLY:
 
-## 2025-05-26 - [Button Links]
-**Learning:** Nesting a `<Button>` (which renders a `<button>`) inside a `<Link>` (which renders an `<a>`) produces invalid HTML.
-**Action:** Use the `asChild` prop on `Button` (if using Radix/shadcn) to pass styles to the child `Link`, ensuring a semantically correct `<a>` tag with button styling.
+## 2025-12-12 - Initial Enhancement: ARIA Labels for Icon Buttons
+
+**Learning:** This codebase contains several icon-only buttons without `aria-label` attributes, making them inaccessible to screen reader users. This is a common accessibility issue that can be easily resolved.
+
+**Action:** Prioritize adding descriptive `aria-label`s to all icon-only buttons to ensure they are understandable to users of assistive technologies. This will be the first micro-UX improvement.

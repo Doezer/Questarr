@@ -37,6 +37,7 @@ export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  updateUserPassword(userId: string, passwordHash: string): Promise<User | undefined>;
   countUsers(): Promise<number>;
 
   // Game methods
@@ -134,15 +135,22 @@ export class MemStorage implements IStorage {
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const id = randomUUID();
+    const id = insertUser.id || randomUUID();
     const user: User = { ...insertUser, id };
     this.users.set(id, user);
     return user;
   }
 
-  async countUsers(): Promise<number> {
-    return this.users.size;
+  async updateUserPassword(userId: string, passwordHash: string): Promise<User | undefined> {
+    const user = this.users.get(userId);
+    if (!user) return undefined;
+    const updatedUser = { ...user, passwordHash };
+    this.users.set(userId, updatedUser);
+    return updatedUser;
   }
+
+  async countUsers(): Promise<number> {
+}
 
   // Game methods
   async getGame(id: string): Promise<Game | undefined> {
@@ -568,6 +576,15 @@ export class DatabaseStorage implements IStorage {
     const [user] = await db
       .insert(users)
       .values({ ...insertUser, id })
+      .returning();
+    return user;
+  }
+
+  async updateUserPassword(userId: string, passwordHash: string): Promise<User | undefined> {
+    const [user] = await db
+      .update(users)
+      .set({ passwordHash })
+      .where(eq(users.id, userId))
       .returning();
     return user;
   }

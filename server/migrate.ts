@@ -62,12 +62,15 @@ export async function runMigrations(): Promise<void> {
             db.run(sql.raw(rawSql));
           } catch (e: any) {
             const msg = String(e);
+            const causeMsg = e.cause ? String(e.cause) : "";
             const isAlreadyExists =
               msg.toLowerCase().includes("already exists") ||
-              (e.cause && String(e.cause).toLowerCase().includes("already exists"));
+              msg.toLowerCase().includes("duplicate column name") ||
+              causeMsg.toLowerCase().includes("already exists") ||
+              causeMsg.toLowerCase().includes("duplicate column name");
 
             if (isAlreadyExists) {
-              logger.warn(`Skipping statement in ${tag} due to existing object`);
+              logger.warn(`Skipping statement in ${tag} due to existing object: ${rawSql.substring(0, 50)}...`);
             } else {
               throw e;
             }

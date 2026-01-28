@@ -4,14 +4,17 @@ import { igdbLogger } from "./logger.js";
 import { notifyUser } from "./socket.js";
 import { DownloaderManager } from "./downloaders.js";
 import { searchAllIndexers } from "./search.js";
+import { xrelClient, DEFAULT_XREL_BASE } from "./xrel.js";
 import { type Game } from "../shared/schema.js";
 import { downloadRulesSchema } from "../shared/schema.js";
 import { categorizeDownload } from "../shared/download-categorizer.js";
+import { releaseMatchesGame } from "../shared/title-utils.js";
 
 const DELAY_THRESHOLD_DAYS = 7;
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const DOWNLOAD_CHECK_INTERVAL_MS = 60 * 1000; // 1 minute
 const AUTO_SEARCH_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+const XREL_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours (xREL search rate limit: 2/5s)
 
 export function startCronJobs() {
   igdbLogger.info("🕐 Starting cron jobs...");
@@ -30,6 +33,7 @@ export function startCronJobs() {
     checkGameUpdates().catch((err) => igdbLogger.error({ err }, "Error in checkGameUpdates"));
     checkDownloadStatus().catch((err) => igdbLogger.error({ err }, "Error in checkDownloadStatus"));
     checkAutoSearch().catch((err) => igdbLogger.error({ err }, "Error in checkAutoSearch"));
+    checkXrelReleases().catch((err) => igdbLogger.error({ err }, "Error in checkXrelReleases"));
   }, 10000);
 
   // Schedule periodic checks
@@ -44,6 +48,10 @@ export function startCronJobs() {
   setInterval(() => {
     checkAutoSearch().catch((err) => igdbLogger.error({ err }, "Error in checkAutoSearch"));
   }, AUTO_SEARCH_CHECK_INTERVAL_MS);
+
+  setInterval(() => {
+    checkXrelReleases().catch((err) => igdbLogger.error({ err }, "Error in checkXrelReleases"));
+  }, XREL_CHECK_INTERVAL_MS);
 }
 
 async function checkGameUpdates() {
@@ -65,10 +73,20 @@ async function checkGameUpdates() {
   let igdbGames;
   try {
     igdbGames = await igdbClient.getGamesByIds(igdbIds);
-  } catch (error: any) {
-    if (error.code === "ENOTFOUND" || error.code === "EAI_AGAIN" || error.message.includes("fetch failed")) {
-      igdbLogger.warn({ error: error.message }, "Network error fetching updates from IGDB. Skipping this check.");
-      return;
+  } catch (error) {
+    if (error instanceof Error) {
+      const err = error as Error & { code?: string };
+      if (
+        err.code === "ENOTFOUND" ||
+        err.code === "EAI_AGAIN" ||
+        err.message.includes("fetch failed")
+      ) {
+        igdbLogger.warn(
+          { error: err.message },
+          "Network error fetching updates from IGDB. Skipping this check."
+        );
+        return;
+      }
     }
     throw error;
   }
@@ -423,6 +441,14 @@ async function checkAutoSearch() {
               continue;
             }
 
+            // Double-check matches locally to ensure they actually match the game title
+            const matchedItems = items.filter(item => releaseMatchesGame(item.title, game.title));
+
+            if (matchedItems.length === 0) {
+              igdbLogger.debug({ gameTitle: game.title, originalCount: items.length }, "No items passed strict title matching");
+              continue;
+            }
+
             gamesWithResults++;
 
             // Load download rules from settings
@@ -443,7 +469,7 @@ async function checkAutoSearch() {
             }
 
             // Filter items by seeders
-            let filteredItems = items.filter((item) => {
+            let filteredItems = matchedItems.filter((item) => {
               const seeders = item.seeders ?? 0;
               return seeders >= minSeeders;
             });
@@ -576,5 +602,84 @@ async function checkAutoSearch() {
     }
   } catch (error) {
     igdbLogger.error({ error }, "Error in checkAutoSearch");
+  }
+}
+
+async function checkXrelReleases() {
+  igdbLogger.debug("Checking xREL.to for wanted games...");
+
+  try {
+    const baseUrl =
+      (await storage.getSystemConfig("xrel_api_base"))?.trim() ||
+      process.env.XREL_API_BASE ||
+      DEFAULT_XREL_BASE;
+
+    // Fetch latest releases once to compare against all wanted games (better performance)
+    const { list: latestReleases } = await xrelClient.getLatestReleases({
+      perPage: 100,
+      baseUrl,
+    });
+
+    if (latestReleases.length === 0) {
+      igdbLogger.debug("No latest releases found on xREL.to, skipping check.");
+      return;
+    }
+
+    const allGames = await storage.getAllGames();
+    const wantedGames = allGames.filter((g) => g.userId && g.status === "wanted" && !g.hidden);
+
+    if (wantedGames.length === 0) {
+      return;
+    }
+
+    // Cache user settings to avoid redundant DB hits
+    const userSettingsCache = new Map();
+
+    for (const game of wantedGames) {
+      try {
+        const userId = game.userId!;
+        if (!userSettingsCache.has(userId)) {
+          const settings = await storage.getUserSettings(userId);
+          userSettingsCache.set(userId, settings);
+        }
+        const settings = userSettingsCache.get(userId);
+        const scene = settings?.xrelSceneReleases !== false;
+        const p2p = settings?.xrelP2pReleases === true;
+
+        // Filter releases for this game based on user preferences and title match
+        const matchingReleases = latestReleases.filter((rel) => {
+          if (rel.source === "scene" && !scene) return false;
+          if (rel.source === "p2p" && !p2p) return false;
+          return rel.ext_info?.title && xrelClient.titleMatches(game.title, rel.ext_info.title);
+        });
+
+        for (const rel of matchingReleases) {
+          const already = await storage.hasXrelNotifiedRelease(game.id, rel.id);
+          if (already) continue;
+
+          await storage.addXrelNotifiedRelease({
+            gameId: game.id,
+            xrelReleaseId: rel.id,
+          });
+
+          const message = `${game.title} is listed on xREL.to: ${rel.dirname}`;
+          const notification = await storage.addNotification({
+            userId,
+            type: "info",
+            title: "Available on xREL.to",
+            message,
+          });
+          notifyUser("notification", notification);
+          igdbLogger.info(
+            { gameTitle: game.title, dirname: rel.dirname },
+            "xREL notification sent"
+          );
+        }
+      } catch (error) {
+        igdbLogger.warn({ gameTitle: game.title, error }, "xREL match failed for game");
+      }
+    }
+  } catch (error) {
+    igdbLogger.error({ error }, "Error in checkXrelReleases");
   }
 }

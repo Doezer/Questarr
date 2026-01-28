@@ -1,7 +1,7 @@
 import React from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Download, Info, Star, Calendar, Eye, EyeOff, Loader2 } from "lucide-react";
+import { Download, Info, Star, Calendar, Eye, EyeOff, Loader2, Newspaper } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import StatusBadge, { type GameStatus } from "./StatusBadge";
@@ -279,6 +279,19 @@ const GameCard = ({
               {genre}
             </span>
           )) || <span className="text-xs text-muted-foreground">No genres</span>}
+          {game.status === "wanted" && game.hasXrelRelease && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge variant="secondary" className="text-xs gap-0.5" data-testid="badge-xrel">
+                  <Newspaper className="w-3 h-3" />
+                  On xREL
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Listed on xREL.to (scene/P2P)</p>
+              </TooltipContent>
+            </Tooltip>
+          )}
         </div>
         {isDiscovery ? (
           <Button

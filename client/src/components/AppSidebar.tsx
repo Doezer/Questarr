@@ -10,6 +10,7 @@ import {
   Compass,
   LogOut,
   User,
+  Newspaper,
 } from "lucide-react";
 import {
   Sidebar,
@@ -63,6 +64,11 @@ const staticNavigation = [
     title: "Wishlist",
     url: "/wishlist",
     icon: Star,
+  },
+  {
+    title: "xREL.to Releases",
+    url: "/xrel",
+    icon: Newspaper,
   },
 ];
 

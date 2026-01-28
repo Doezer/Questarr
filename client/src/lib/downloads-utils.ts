@@ -176,10 +176,32 @@ export function shouldShowPeersBadge(seeders: number | undefined): boolean {
 }
 
 /**
- * Get download type badge variant
+ * Get CSS class for download type color
+ */
+export function getDownloadTypeColor(type?: DownloadType): string {
+  if (type === "usenet") {
+    return "bg-amber-600 dark:bg-amber-500 text-white border-amber-700 dark:border-amber-400";
+  }
+  return "bg-violet-600 dark:bg-violet-500 text-white border-violet-700 dark:border-violet-400";
+}
+
+/**
+ * Get badge variant for download type
  */
 export function getDownloadTypeBadgeVariant(type?: DownloadType): "default" | "secondary" {
+  // Use custom colors via className instead of variants where possible, 
+  // but keep this for backward compatibility if needed.
   return type === "usenet" ? "secondary" : "default";
+}
+
+/**
+ * Get color for download type text
+ */
+export function getDownloadTypeTextExColor(type?: DownloadType): string {
+  if (type === "usenet") {
+    return "text-amber-600 dark:text-amber-400";
+  }
+  return "text-violet-600 dark:text-violet-400";
 }
 
 /**

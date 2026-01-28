@@ -19,6 +19,7 @@ import {
   formatRepairStatus,
   formatUnpackStatus,
   formatAge,
+  getDownloadTypeColor,
   type DownloadStatusType,
   type DownloadType,
 } from "@/lib/downloads-utils";
@@ -393,8 +394,7 @@ export default function Downloads() {
                         </Badge>
                         {/* Download Type Badge */}
                         <Badge
-                          variant={download.downloadType === "usenet" ? "secondary" : "default"}
-                          className="text-xs"
+                          className={`text-xs border-none ${getDownloadTypeColor(download.downloadType || "torrent")}`}
                           data-testid={`badge-type-${download.id}`}
                         >
                           {download.downloadType === "usenet" ? (

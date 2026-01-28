@@ -91,6 +91,9 @@ export default function SettingsPage() {
     if (config?.igdb.clientId) {
       setIgdbClientId(config.igdb.clientId);
     }
+    if (config?.igdb.configured) {
+      setIgdbClientSecret("");
+    }
   }, [userSettings, config]);
 
   const updateSettingsMutation = useMutation({
@@ -147,8 +150,6 @@ export default function SettingsPage() {
         title: "IGDB Updated",
         description: "Your IGDB credentials have been saved.",
       });
-      setIgdbClientId("");
-      setIgdbClientSecret("");
       queryClient.invalidateQueries({ queryKey: ["/api/config"] });
     },
     onError: (error: Error) => {

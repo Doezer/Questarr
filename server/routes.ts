@@ -127,13 +127,18 @@ function validatePaginationParams(query: { limit?: string; offset?: string }): {
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // 🛡️ Sentinel: Add security headers with Helmet
-  // Configured to allow Vite/React (unsafe-inline/eval) and IGDB images
+  // Configured to allow Vite/React (unsafe-inline/eval) in dev, and IGDB images everywhere
+  const scriptSrc = ["'self'"];
+  if (!appConfig.server.isProduction) {
+    scriptSrc.push("'unsafe-inline'", "'unsafe-eval'");
+  }
+
   app.use(
     helmet({
       contentSecurityPolicy: {
         directives: {
           ...helmet.contentSecurityPolicy.getDefaultDirectives(),
-          "script-src": ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+          "script-src": scriptSrc,
           "img-src": ["'self'", "data:", "https://images.igdb.com"],
         },
       },

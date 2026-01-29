@@ -4,11 +4,20 @@ import { type Game } from "@shared/schema";
 import { type GameStatus } from "@/components/StatusBadge";
 import { useToast } from "@/hooks/use-toast";
 import EmptyState from "@/components/EmptyState";
-import { Gamepad2 } from "lucide-react";
+import { Gamepad2, LayoutGrid, List } from "lucide-react";
+import { useState, useEffect } from "react";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 export default function LibraryPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [viewMode, setViewMode] = useState<"grid" | "list">(() => {
+    return (localStorage.getItem("libraryViewMode") as "grid" | "list") || "grid";
+  });
+
+  useEffect(() => {
+    localStorage.setItem("libraryViewMode", viewMode);
+  }, [viewMode]);
 
   const { data: games = [], isLoading } = useQuery<Game[]>({
     queryKey: ["/api/games"],
@@ -50,6 +59,18 @@ export default function LibraryPage() {
           <h1 className="text-3xl font-bold">Library</h1>
           <p className="text-muted-foreground">Your collection of games</p>
         </div>
+        <ToggleGroup
+          type="single"
+          value={viewMode}
+          onValueChange={(value) => value && setViewMode(value as "grid" | "list")}
+        >
+          <ToggleGroupItem value="grid" aria-label="Grid View">
+            <LayoutGrid className="h-4 w-4" />
+          </ToggleGroupItem>
+          <ToggleGroupItem value="list" aria-label="List View">
+            <List className="h-4 w-4" />
+          </ToggleGroupItem>
+        </ToggleGroup>
       </div>
 
       {libraryGames.length === 0 && !isLoading ? (
@@ -65,6 +86,7 @@ export default function LibraryPage() {
           games={libraryGames}
           onStatusChange={(id, status) => statusMutation.mutate({ gameId: id, status })}
           isLoading={isLoading}
+          viewMode={viewMode}
         />
       )}
     </div>

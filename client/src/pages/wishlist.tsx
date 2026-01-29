@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import GameGrid from "@/components/GameGrid";
 import { type Game } from "@shared/schema";
@@ -14,7 +14,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import EmptyState from "@/components/EmptyState";
-import { Star } from "lucide-react";
+import { Star, LayoutGrid, List } from "lucide-react";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 type SortOption = "release-asc" | "release-desc" | "added-desc" | "title-asc";
 
@@ -22,6 +23,13 @@ export default function WishlistPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [sortBy, setSortBy] = useState<SortOption>("release-desc");
+  const [viewMode, setViewMode] = useState<"grid" | "list">(() => {
+    return (localStorage.getItem("wishlistViewMode") as "grid" | "list") || "grid";
+  });
+
+  useEffect(() => {
+    localStorage.setItem("wishlistViewMode", viewMode);
+  }, [viewMode]);
 
   const { data: games = [], isLoading } = useQuery<Game[]>({
     queryKey: ["/api/games"],
@@ -114,19 +122,33 @@ export default function WishlistPage() {
           <h1 className="text-3xl font-bold">Wishlist</h1>
           <p className="text-muted-foreground">Games you want to play</p>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">Sort by:</span>
-          <Select value={sortBy} onValueChange={(value) => setSortBy(value as SortOption)}>
-            <SelectTrigger className="w-[180px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="release-desc">Release Date (Newest)</SelectItem>
-              <SelectItem value="release-asc">Release Date (Oldest)</SelectItem>
-              <SelectItem value="added-desc">Recently Added</SelectItem>
-              <SelectItem value="title-asc">Title (A-Z)</SelectItem>
-            </SelectContent>
-          </Select>
+        <div className="flex items-center gap-4">
+          <ToggleGroup
+            type="single"
+            value={viewMode}
+            onValueChange={(value) => value && setViewMode(value as "grid" | "list")}
+          >
+            <ToggleGroupItem value="grid" aria-label="Grid View">
+              <LayoutGrid className="h-4 w-4" />
+            </ToggleGroupItem>
+            <ToggleGroupItem value="list" aria-label="List View">
+              <List className="h-4 w-4" />
+            </ToggleGroupItem>
+          </ToggleGroup>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground hidden sm:inline">Sort by:</span>
+            <Select value={sortBy} onValueChange={(value) => setSortBy(value as SortOption)}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="release-desc">Release Date (Newest)</SelectItem>
+                <SelectItem value="release-asc">Release Date (Oldest)</SelectItem>
+                <SelectItem value="added-desc">Recently Added</SelectItem>
+                <SelectItem value="title-asc">Title (A-Z)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </div>
 
@@ -151,6 +173,7 @@ export default function WishlistPage() {
                 games={sortGames(upcomingGames)}
                 onStatusChange={(id, status) => statusMutation.mutate({ gameId: id, status })}
                 isLoading={isLoading}
+                viewMode={viewMode}
               />
               <Separator className="mt-8" />
             </section>
@@ -169,6 +192,7 @@ export default function WishlistPage() {
                 games={sortGames(releasedGames)}
                 onStatusChange={(id, status) => statusMutation.mutate({ gameId: id, status })}
                 isLoading={isLoading}
+                viewMode={viewMode}
               />
               <Separator className="mt-8" />
             </section>
@@ -185,6 +209,7 @@ export default function WishlistPage() {
                 games={sortGames(tbaGames)}
                 onStatusChange={(id, status) => statusMutation.mutate({ gameId: id, status })}
                 isLoading={isLoading}
+                viewMode={viewMode}
               />
             </section>
           )}

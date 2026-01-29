@@ -1,5 +1,6 @@
 import React, { useMemo } from "react";
 import GameCard from "./GameCard";
+import CompactGameCard from "./CompactGameCard";
 import { type Game } from "@shared/schema";
 import { type GameStatus } from "./StatusBadge";
 import { cn } from "@/lib/utils";
@@ -14,6 +15,7 @@ interface GameGridProps {
   isLoading?: boolean;
   isFetching?: boolean;
   columns?: number;
+  viewMode?: "grid" | "list";
 }
 
 export default function GameGrid({
@@ -26,9 +28,12 @@ export default function GameGrid({
   isLoading = false,
   isFetching = false,
   columns = 5,
+  viewMode = "grid",
 }: GameGridProps) {
   // Map column count to tailwind classes
   const gridColsClass = useMemo(() => {
+    if (viewMode === "list") return "grid-cols-1";
+
     switch (columns) {
       case 2:
         return "grid-cols-2";
@@ -51,17 +56,19 @@ export default function GameGrid({
       default:
         return "grid-cols-3 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10";
     }
-  }, [columns]);
+  }, [columns, viewMode]);
 
   if (isLoading) {
     return (
       <div className={cn("grid gap-4", gridColsClass)} data-testid="grid-games-loading">
         {Array.from({ length: 20 }).map((_, index) => (
-          <div key={index} className="animate-pulse min-w-[150px] min-h-[200px]">
-            <div className="bg-muted rounded-md aspect-[3/4] w-full max-w-[225px] max-h-[300px] mx-auto mb-4"></div>
-            <div className="space-y-2">
-              <div className="h-4 bg-muted rounded w-3/4 mx-auto"></div>
-              <div className="h-3 bg-muted rounded w-1/2 mx-auto"></div>
+          <div key={index} className={cn("animate-pulse bg-muted rounded-md", viewMode === 'list' ? "h-24 w-full" : "min-w-[150px] min-h-[200px]")}>
+            {viewMode === 'grid' && (
+              <div className="bg-muted-foreground/10 rounded-md aspect-[3/4] w-full max-w-[225px] max-h-[300px] mx-auto mb-4"></div>
+            )}
+            <div className="space-y-2 p-4">
+              <div className="h-4 bg-muted-foreground/10 rounded w-3/4"></div>
+              <div className="h-3 bg-muted-foreground/10 rounded w-1/2"></div>
             </div>
           </div>
         ))}
@@ -89,15 +96,27 @@ export default function GameGrid({
       aria-busy={isFetching}
     >
       {games.map((game) => (
-        <GameCard
-          key={game.id}
-          game={game}
-          onStatusChange={onStatusChange}
-          onViewDetails={onViewDetails}
-          onTrackGame={onTrackGame}
-          onToggleHidden={onToggleHidden}
-          isDiscovery={isDiscovery}
-        />
+        viewMode === 'list' ? (
+          <CompactGameCard
+            key={game.id}
+            game={game}
+            onStatusChange={onStatusChange}
+            onViewDetails={onViewDetails}
+            onTrackGame={onTrackGame}
+            onToggleHidden={onToggleHidden}
+            isDiscovery={isDiscovery}
+          />
+        ) : (
+          <GameCard
+            key={game.id}
+            game={game}
+            onStatusChange={onStatusChange}
+            onViewDetails={onViewDetails}
+            onTrackGame={onTrackGame}
+            onToggleHidden={onToggleHidden}
+            isDiscovery={isDiscovery}
+          />
+        )
       ))}
     </div>
   );

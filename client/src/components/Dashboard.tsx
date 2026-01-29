@@ -29,12 +29,17 @@ export default function Dashboard() {
   const [statusFilter, setStatusFilter] = useState<GameStatus | "all">("all");
   const [genreFilter, setGenreFilter] = useState<string>("all");
   const [platformFilter, setPlatformFilter] = useState<string>("all");
+
+  // View Settings
   const [gridColumns, setGridColumns] = useState<number>(() => {
     const saved = localStorage.getItem("dashboardGridColumns");
     return saved ? parseInt(saved, 10) : 5;
   });
   const [showHiddenGames, setShowHiddenGames] = useState<boolean>(() => {
     return localStorage.getItem("showHiddenGames") === "true";
+  });
+  const [viewMode, setViewMode] = useState<"grid" | "list">(() => {
+    return (localStorage.getItem("dashboardViewMode") as "grid" | "list") || "grid";
   });
 
   const { toast } = useToast();
@@ -47,6 +52,10 @@ export default function Dashboard() {
   useEffect(() => {
     localStorage.setItem("showHiddenGames", showHiddenGames.toString());
   }, [showHiddenGames]);
+
+  useEffect(() => {
+    localStorage.setItem("dashboardViewMode", viewMode);
+  }, [viewMode]);
 
   // Query user's collection
   const {
@@ -174,9 +183,9 @@ export default function Dashboard() {
     const avgYear =
       datedGames.length > 0
         ? Math.round(
-            datedGames.reduce((acc, g) => acc + new Date(g.releaseDate!).getFullYear(), 0) /
-              datedGames.length
-          )
+          datedGames.reduce((acc, g) => acc + new Date(g.releaseDate!).getFullYear(), 0) /
+          datedGames.length
+        )
         : "N/A";
 
     // Top Publisher
@@ -394,6 +403,8 @@ export default function Dashboard() {
             onGridColumnsChange={setGridColumns}
             showHiddenGames={showHiddenGames}
             onShowHiddenGamesChange={setShowHiddenGames}
+            viewMode={viewMode}
+            onViewModeChange={setViewMode}
           />
 
           <GameGrid
@@ -403,6 +414,7 @@ export default function Dashboard() {
             isLoading={isLoading}
             isFetching={isFetching}
             columns={gridColumns}
+            viewMode={viewMode}
           />
         </div>
       </div>

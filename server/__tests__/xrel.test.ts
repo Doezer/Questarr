@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { xrelClient, XrelSceneRelease, XrelP2pRelease, titleMatches } from "../xrel.js";
+import { xrelClient, XrelSceneRelease, XrelP2pRelease } from "../xrel.js";
 
 // Mock fetch globally
 const fetchMock = vi.fn();
@@ -65,9 +65,9 @@ describe("xREL Client", () => {
       const results = await xrelClient.searchReleases("Game Name");
 
       expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining("https://api.xrel.to/v2/search/releases.json"),
+        expect.stringContaining("https://xrel-api.nfos.to/v2/search/releases.json"),
         expect.objectContaining({
-          headers: expect.objectContaining({ "User-Agent": "Questar/1.0" }),
+          headers: expect.objectContaining({ "User-Agent": "Questarr/1.1.0" }),
         })
       );
 
@@ -215,24 +215,24 @@ describe("xREL Client", () => {
 
   describe("titleMatches", () => {
     it("should match identical titles", () => {
-      expect(titleMatches("Game Name", "Game Name")).toBe(true);
+      expect(xrelClient.titleMatches("Game Name", "Game Name")).toBe(true);
     });
 
     it("should match case-insensitive", () => {
-      expect(titleMatches("game name", "GAME NAME")).toBe(true);
+      expect(xrelClient.titleMatches("game name", "GAME NAME")).toBe(true);
     });
 
     it("should match loose inclusion", () => {
-      expect(titleMatches("Super Game", "Super Game - GOTY Edition")).toBe(true);
-      expect(titleMatches("Super Game - GOTY Edition", "Super Game")).toBe(true);
+      expect(xrelClient.titleMatches("Super Game", "Super Game - GOTY Edition")).toBe(true);
+      expect(xrelClient.titleMatches("Super Game - GOTY Edition", "Super Game")).toBe(true);
     });
 
     it("should not match unrelated titles", () => {
-      expect(titleMatches("Game A", "Game B")).toBe(false);
+      expect(xrelClient.titleMatches("Game A", "Game B")).toBe(false);
     });
     
     it("should normalize whitespace", () => {
-        expect(titleMatches("Game   Name", "Game Name")).toBe(true);
+        expect(xrelClient.titleMatches("Game   Name", "Game Name")).toBe(true);
     });
   });
 });

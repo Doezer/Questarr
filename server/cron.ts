@@ -650,7 +650,11 @@ async function checkXrelReleases() {
         const matchingReleases = latestReleases.filter((rel) => {
           if (rel.source === "scene" && !scene) return false;
           if (rel.source === "p2p" && !p2p) return false;
-          return rel.ext_info?.title && xrelClient.titleMatches(game.title, rel.ext_info.title);
+          
+          const titleMatch = rel.ext_info?.title && xrelClient.titleMatches(game.title, rel.ext_info.title);
+          const dirnameMatch = releaseMatchesGame(rel.dirname, game.title);
+          
+          return titleMatch || dirnameMatch;
         });
 
         for (const rel of matchingReleases) {

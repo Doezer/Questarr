@@ -145,7 +145,7 @@ export class MemStorage implements IStorage {
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const id = insertUser.id || randomUUID();
+    const id = (insertUser as any).id || randomUUID();
     const user: User = { ...insertUser, id };
     this.users.set(id, user);
     return user;
@@ -160,7 +160,8 @@ export class MemStorage implements IStorage {
   }
 
   async countUsers(): Promise<number> {
-}
+    return this.users.size;
+  }
 
   // Game methods
   async getGame(id: string): Promise<Game | undefined> {

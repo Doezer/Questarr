@@ -400,7 +400,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Game collection routes
 
-  // Get all games in collection (includes hasXrelRelease for wanted games with xREL listing)
+  // Get all games in collection
   app.get("/api/games", authenticateToken, async (req, res) => {
     try {
       const { search, includeHidden } = req.query;
@@ -415,12 +415,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         games = await storage.getUserGames(userId, showHidden);
       }
 
-      const xrelGameIds = new Set(await storage.getGameIdsWithXrelReleases());
-      const gamesWithXrel = games.map((g) => ({
-        ...g,
-        hasXrelRelease: xrelGameIds.has(g.id),
-      }));
-      res.json(gamesWithXrel);
+      res.json(games);
     } catch (error) {
       routesLogger.error({ error }, "error fetching games");
       res.status(500).json({ error: "Failed to fetch games" });

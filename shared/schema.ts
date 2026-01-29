@@ -263,8 +263,6 @@ export type Game = typeof games.$inferSelect & {
   // Additional fields for Discovery games
   isReleased?: boolean;
   releaseYear?: number | null;
-  // Set by API when game has been seen on xREL.to (wanted games)
-  hasXrelRelease?: boolean;
 };
 
 export type InsertGame = (typeof insertGameSchema)["_output"];

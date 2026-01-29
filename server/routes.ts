@@ -43,8 +43,8 @@ import { prowlarrClient } from "./prowlarr.js";
 import { isSafeUrl } from "./ssrf.js";
 import { hashPassword, comparePassword, generateToken, authenticateToken } from "./auth.js";
 import { searchAllIndexers } from "./search.js";
-import { xrelClient, DEFAULT_XREL_BASE } from "./xrel.js";
-import { releaseMatchesGame } from "../shared/title-utils.js";
+import { xrelClient, DEFAULT_XREL_BASE, ALLOWED_XREL_DOMAINS } from "./xrel.js";
+import { releaseMatchesGame, normalizeTitle, cleanReleaseName } from "../shared/title-utils.js";
 import archiver from "archiver";
 
 // ⚡ Bolt: Simple in-memory cache implementation to avoid external dependencies
@@ -1841,6 +1841,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
               message: "The provided URL is not allowed for security reasons.",
             });
           }
+
+          try {
+            const url = new URL(v);
+            if (!ALLOWED_XREL_DOMAINS.includes(url.hostname)) {
+              return res.status(400).json({
+                error: "Unauthorized xREL API domain",
+                message: `The provided domain is not in the allowed list: ${ALLOWED_XREL_DOMAINS.join(", ")}`,
+              });
+            }
+          } catch {
+            return res.status(400).json({
+              error: "Invalid API base URL",
+              message: "The provided string is not a valid URL.",
+            });
+          }
         }
         await storage.setSystemConfig("xrel_api_base", v);
       }
@@ -1898,11 +1913,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const wantedGames = userGames.filter(g => g.status === "wanted");
 
       // Mark releases that match a wanted game
+      // ⚡ Bolt: Optimize matching for large collections by pre-processing wanted games
+      // and using a Set for O(1) exact-match lookups.
+      const wantedGamesLookup = wantedGames.map(g => {
+        const norm = normalizeTitle(g.title); 
+        return {
+          normalized: norm,
+          regex: norm.length >= 5 ? new RegExp(`\\b${norm.replace(/[.*+?^${}()|[\\]/g, "\\$&")}\\b`, "i") : null,
+          words: norm.split(" ").filter((w: string) => w.length > 2)
+        };
+      });
+      const wantedNormSet = new Set(wantedGamesLookup.map(g => g.normalized));
+
       const listWithMatches = result.list.map(rel => {
-        const isWanted = wantedGames.some(g => 
-          (rel.ext_info?.title && xrelClient.titleMatches(g.title, rel.ext_info.title)) ||
-          releaseMatchesGame(rel.dirname, g.title)
-        );
+        const relExtTitleNorm = rel.ext_info?.title ? normalizeTitle(rel.ext_info.title) : null;
+        const relDirCleaned = cleanReleaseName(rel.dirname);
+        const relDirNorm = normalizeTitle(relDirCleaned);
+
+        // Fast path: Exact normalized match
+        if ((relExtTitleNorm && wantedNormSet.has(relExtTitleNorm)) || wantedNormSet.has(relDirNorm)) {
+          return { ...rel, isWanted: true };
+        }
+
+        // Slow path: Fuzzy matching (inclusion, word-based)
+        const relDirLower = rel.dirname.toLowerCase().replace(/[._\-]/g, " ");
+        const relExtRegex = relExtTitleNorm && relExtTitleNorm.length >= 5 
+          ? new RegExp(`\\b${relExtTitleNorm.replace(/[.*+?^${}()|[\\]/g, "\\$&")}\\b`, "i")
+          : null;
+
+        const isWanted = wantedGamesLookup.some(g => {
+          if (relExtTitleNorm) {
+            if (g.regex && g.regex.test(relExtTitleNorm)) return true;
+            if (relExtRegex && relExtRegex.test(g.normalized)) return true;
+          }
+          if (g.regex && g.regex.test(relDirNorm)) return true;
+          if (g.words.length > 0 && g.words.every((word: string) => relDirLower.includes(word))) return true;
+          return false;
+        });
+
         return { ...rel, isWanted };
       });
 

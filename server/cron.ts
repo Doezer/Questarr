@@ -8,7 +8,7 @@ import { xrelClient, DEFAULT_XREL_BASE } from "./xrel.js";
 import { type Game } from "../shared/schema.js";
 import { downloadRulesSchema } from "../shared/schema.js";
 import { categorizeDownload } from "../shared/download-categorizer.js";
-import { releaseMatchesGame } from "../shared/title-utils.js";
+import { releaseMatchesGame, normalizeTitle, cleanReleaseName } from "../shared/title-utils.js";
 
 const DELAY_THRESHOLD_DAYS = 7;
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -625,6 +625,24 @@ async function checkXrelReleases() {
       return;
     }
 
+    // ⚡ Bolt: Pre-process releases once to avoid redundant normalization in the nested loop
+    const processedReleases = latestReleases.map((rel) => {
+      const extTitleNorm = rel.ext_info?.title ? normalizeTitle(rel.ext_info.title) : null;
+      const dirCleaned = cleanReleaseName(rel.dirname);
+      const dirNorm = normalizeTitle(dirCleaned);
+      const extRegex =
+        extTitleNorm && extTitleNorm.length >= 5
+          ? new RegExp(`\\b${extTitleNorm.replace(/[.*+?^${}()|[\\]/g, "\\$&")}\\b`, "i")
+          : null;
+      return {
+        rel,
+        extTitleNorm,
+        dirNorm,
+        dirLower: rel.dirname.toLowerCase().replace(/[._\-]/g, " "),
+        extRegex,
+      };
+    });
+
     const allGames = await storage.getAllGames();
     const wantedGames = allGames.filter((g) => g.userId && g.status === "wanted" && !g.hidden);
 
@@ -646,16 +664,36 @@ async function checkXrelReleases() {
         const scene = settings?.xrelSceneReleases !== false;
         const p2p = settings?.xrelP2pReleases === true;
 
+        const gameNorm = normalizeTitle(game.title);
+        const gameRegex =
+          gameNorm.length >= 5
+            ? new RegExp(`\\b${gameNorm.replace(/[.*+?^${}()|[\\]/g, "\\$&")}\\b`, "i")
+            : null;
+        const gameWords = gameNorm.split(" ").filter((w: string) => w.length > 2);
+
         // Filter releases for this game based on user preferences and title match
-        const matchingReleases = latestReleases.filter((rel) => {
-          if (rel.source === "scene" && !scene) return false;
-          if (rel.source === "p2p" && !p2p) return false;
-          
-          const titleMatch = rel.ext_info?.title && xrelClient.titleMatches(game.title, rel.ext_info.title);
-          const dirnameMatch = releaseMatchesGame(rel.dirname, game.title);
-          
-          return titleMatch || dirnameMatch;
-        });
+        const matchingReleases = processedReleases
+          .filter((pr) => {
+            if (pr.rel.source === "scene" && !scene) return false;
+            if (pr.rel.source === "p2p" && !p2p) return false;
+
+            // 1. Exact match
+            if (pr.extTitleNorm === gameNorm || pr.dirNorm === gameNorm) return true;
+
+            // 2. Fuzzy match
+            if (gameRegex) {
+              if (pr.extTitleNorm && gameRegex.test(pr.extTitleNorm)) return true;
+              if (gameRegex.test(pr.dirNorm)) return true;
+            }
+            if (pr.extRegex && pr.extRegex.test(gameNorm)) return true;
+
+            // 3. Word-based fallback
+            if (gameWords.length > 0 && gameWords.every((word: string) => pr.dirLower.includes(word)))
+              return true;
+
+            return false;
+          })
+          .map((pr) => pr.rel);
 
         for (const rel of matchingReleases) {
           const already = await storage.hasXrelNotifiedRelease(game.id, rel.id);

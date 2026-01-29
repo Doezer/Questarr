@@ -10,9 +10,22 @@ import { normalizeTitle, titleMatches } from "../shared/title-utils.js";
 export const DEFAULT_XREL_BASE = "https://xrel-api.nfos.to";
 const GAME_TYPE = "master_game";
 
+export const ALLOWED_XREL_DOMAINS = ["api.xrel.to", "xrel-api.nfos.to"];
+
 function resolveBaseUrl(baseUrl?: string | null): string {
   const v = (baseUrl ?? process.env.XREL_API_BASE ?? "").trim();
-  return v || DEFAULT_XREL_BASE;
+  const url = v || DEFAULT_XREL_BASE;
+
+  try {
+    const parsed = new URL(url);
+    if (!ALLOWED_XREL_DOMAINS.includes(parsed.hostname)) {
+      // If the domain isn't in the allowed list, fallback to default for safety
+      return DEFAULT_XREL_BASE;
+    }
+    return url;
+  } catch {
+    return DEFAULT_XREL_BASE;
+  }
 }
 
 // Rate limiting: 900/hour; search: 2 per 5 seconds

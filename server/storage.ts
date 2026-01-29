@@ -15,6 +15,8 @@ import {
   type UserSettings,
   type InsertUserSettings,
   type UpdateUserSettings,
+  type XrelNotifiedRelease,
+  type InsertXrelNotifiedRelease,
   users,
   games,
   indexers,
@@ -23,6 +25,7 @@ import {
   gameDownloads,
   userSettings,
   systemConfig,
+  xrelNotifiedReleases,
 } from "../shared/schema.js";
 import { randomUUID } from "crypto";
 import { db } from "./db.js";
@@ -93,6 +96,12 @@ export interface IStorage {
     userId: string,
     updates: UpdateUserSettings
   ): Promise<UserSettings | undefined>;
+
+  // xREL notified releases (for notifications + "on xREL" indicator)
+  addXrelNotifiedRelease(insert: InsertXrelNotifiedRelease): Promise<XrelNotifiedRelease>;
+  hasXrelNotifiedRelease(gameId: string, xrelReleaseId: string): Promise<boolean>;
+  getGameIdsWithXrelReleases(): Promise<string[]>;
+  getWantedGamesGroupedByUser(): Promise<Map<string, Game[]>>;
 }
 
 export class MemStorage implements IStorage {
@@ -104,6 +113,7 @@ export class MemStorage implements IStorage {
   private gameDownloads: Map<string, GameDownload>;
   private userSettings: Map<string, UserSettings>;
   private systemConfig: Map<string, string>;
+  private xrelNotified: Map<string, XrelNotifiedRelease>;
 
   constructor() {
     this.users = new Map();
@@ -114,6 +124,7 @@ export class MemStorage implements IStorage {
     this.gameDownloads = new Map();
     this.userSettings = new Map();
     this.systemConfig = new Map();
+    this.xrelNotified = new Map();
   }
 
   // System Config methods
@@ -135,7 +146,7 @@ export class MemStorage implements IStorage {
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const id = insertUser.id || randomUUID();
+    const id = randomUUID();
     const user: User = { ...insertUser, id };
     this.users.set(id, user);
     return user;
@@ -150,7 +161,8 @@ export class MemStorage implements IStorage {
   }
 
   async countUsers(): Promise<number> {
-}
+    return this.users.size;
+  }
 
   // Game methods
   async getGame(id: string): Promise<Game | undefined> {
@@ -305,6 +317,18 @@ export class MemStorage implements IStorage {
       }
     });
     return count;
+  }
+
+  async getWantedGamesGroupedByUser(): Promise<Map<string, Game[]>> {
+    const gamesByUser = new Map<string, Game[]>();
+    for (const game of Array.from(this.games.values())) {
+      if (game.userId && game.status === "wanted" && !game.hidden) {
+        const list = gamesByUser.get(game.userId) || [];
+        list.push(game);
+        gamesByUser.set(game.userId, list);
+      }
+    }
+    return gamesByUser;
   }
 
   // Indexer methods
@@ -519,6 +543,8 @@ export class MemStorage implements IStorage {
       igdbRateLimitPerSecond: insertSettings.igdbRateLimitPerSecond ?? 3,
       downloadRules: insertSettings.downloadRules ?? null,
       lastAutoSearch: insertSettings.lastAutoSearch ?? null,
+      xrelSceneReleases: insertSettings.xrelSceneReleases ?? true,
+      xrelP2pReleases: insertSettings.xrelP2pReleases ?? false,
       updatedAt: new Date(),
     };
     this.userSettings.set(id, settings);
@@ -539,6 +565,28 @@ export class MemStorage implements IStorage {
     };
     this.userSettings.set(existing.id, updated);
     return updated;
+  }
+
+  async addXrelNotifiedRelease(insert: InsertXrelNotifiedRelease): Promise<XrelNotifiedRelease> {
+    const id = randomUUID();
+    const row: XrelNotifiedRelease = {
+      id,
+      gameId: insert.gameId,
+      xrelReleaseId: insert.xrelReleaseId,
+      createdAt: new Date(),
+    };
+    this.xrelNotified.set(`${insert.gameId}:${insert.xrelReleaseId}`, row);
+    return row;
+  }
+
+  async hasXrelNotifiedRelease(gameId: string, xrelReleaseId: string): Promise<boolean> {
+    return this.xrelNotified.has(`${gameId}:${xrelReleaseId}`);
+  }
+
+  async getGameIdsWithXrelReleases(): Promise<string[]> {
+    const ids = new Set<string>();
+    Array.from(this.xrelNotified.values()).forEach((r) => ids.add(r.gameId));
+    return Array.from(ids);
   }
 }
 
@@ -762,6 +810,23 @@ export class DatabaseStorage implements IStorage {
     return result.length;
   }
 
+  async getWantedGamesGroupedByUser(): Promise<Map<string, Game[]>> {
+    const wantedGames = await db
+      .select()
+      .from(games)
+      .where(and(eq(games.status, "wanted"), eq(games.hidden, false), sql`${games.userId} IS NOT NULL`));
+
+    const gamesByUser = new Map<string, Game[]>();
+    for (const game of wantedGames) {
+      if (game.userId) {
+        const list = gamesByUser.get(game.userId) || [];
+        list.push(game);
+        gamesByUser.set(game.userId, list);
+      }
+    }
+    return gamesByUser;
+  }
+
   // Indexer methods
   async getAllIndexers(): Promise<Indexer[]> {
     return db.select().from(indexers).orderBy(indexers.priority);
@@ -941,6 +1006,35 @@ export class DatabaseStorage implements IStorage {
       .where(eq(userSettings.userId, userId))
       .returning();
     return updated || undefined;
+  }
+
+  async addXrelNotifiedRelease(insert: InsertXrelNotifiedRelease): Promise<XrelNotifiedRelease> {
+    const id = randomUUID();
+    const [row] = await db
+      .insert(xrelNotifiedReleases)
+      .values({ ...insert, id })
+      .returning();
+    return row;
+  }
+
+  async hasXrelNotifiedRelease(gameId: string, xrelReleaseId: string): Promise<boolean> {
+    const rows = await db
+      .select()
+      .from(xrelNotifiedReleases)
+      .where(
+        and(
+          eq(xrelNotifiedReleases.gameId, gameId),
+          eq(xrelNotifiedReleases.xrelReleaseId, xrelReleaseId)
+        )
+      );
+    return rows.length > 0;
+  }
+
+  async getGameIdsWithXrelReleases(): Promise<string[]> {
+    const rows = await db
+      .selectDistinct({ gameId: xrelNotifiedReleases.gameId })
+      .from(xrelNotifiedReleases);
+    return rows.map((r) => r.gameId);
   }
 }
 

@@ -43,6 +43,8 @@ import { prowlarrClient } from "./prowlarr.js";
 import { isSafeUrl } from "./ssrf.js";
 import { hashPassword, comparePassword, generateToken, authenticateToken } from "./auth.js";
 import { searchAllIndexers } from "./search.js";
+import { xrelClient, DEFAULT_XREL_BASE, ALLOWED_XREL_DOMAINS } from "./xrel.js";
+import { releaseMatchesGame, normalizeTitle, cleanReleaseName } from "../shared/title-utils.js";
 import archiver from "archiver";
 
 // ⚡ Bolt: Simple in-memory cache implementation to avoid external dependencies
@@ -280,12 +282,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         clientId = appConfig.igdb.clientId;
       }
 
+      const xrelApiBase =
+        (await storage.getSystemConfig("xrel_api_base"))?.trim() ||
+        process.env.XREL_API_BASE ||
+        DEFAULT_XREL_BASE;
       const config: Config = {
         igdb: {
           configured: isConfigured,
           source,
           clientId,
         },
+        xrel: { apiBase: xrelApiBase },
       };
       res.json(config);
     } catch (error) {
@@ -1801,6 +1808,183 @@ export async function registerRoutes(app: Express): Promise<Server> {
       routesLogger.error({ error }, "error updating settings");
       res.status(500).json({
         error: "Failed to update settings",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
+  // xREL.to settings (API base URL in system config; scene/p2p in user settings)
+  app.patch("/api/settings/xrel", authenticateToken, async (req, res) => {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const userId = (req as any).user.id;
+      const body = req.body as {
+        apiBase?: string;
+        xrelSceneReleases?: boolean;
+        xrelP2pReleases?: boolean;
+      };
+
+      if (typeof body.apiBase !== "undefined") {
+        const v = typeof body.apiBase === "string" ? body.apiBase.trim() : "";
+        if (v !== "") {
+          if (!/^https?:\/\/[^\s]+$/i.test(v)) {
+            return res.status(400).json({
+              error: "Invalid API base URL",
+              message:
+                "Must be a valid URL (e.g. https://xrel-api.nfos.to or https://api.xrel.to)",
+            });
+          }
+
+          if (!(await isSafeUrl(v))) {
+            return res.status(400).json({
+              error: "Unsafe API base URL",
+              message: "The provided URL is not allowed for security reasons.",
+            });
+          }
+
+          try {
+            const url = new URL(v);
+            if (!ALLOWED_XREL_DOMAINS.includes(url.hostname)) {
+              return res.status(400).json({
+                error: "Unauthorized xREL API domain",
+                message: `The provided domain is not in the allowed list: ${ALLOWED_XREL_DOMAINS.join(", ")}`,
+              });
+            }
+          } catch {
+            return res.status(400).json({
+              error: "Invalid API base URL",
+              message: "The provided string is not a valid URL.",
+            });
+          }
+        }
+        await storage.setSystemConfig("xrel_api_base", v);
+      }
+
+      if (typeof body.xrelSceneReleases === "boolean" || typeof body.xrelP2pReleases === "boolean") {
+        const updates: Record<string, boolean> = {};
+        if (typeof body.xrelSceneReleases === "boolean") updates.xrelSceneReleases = body.xrelSceneReleases;
+        if (typeof body.xrelP2pReleases === "boolean") updates.xrelP2pReleases = body.xrelP2pReleases;
+        await storage.updateUserSettings(userId, updates);
+      }
+
+      const apiBase =
+        (await storage.getSystemConfig("xrel_api_base"))?.trim() ||
+        process.env.XREL_API_BASE ||
+        DEFAULT_XREL_BASE;
+      const settings = await storage.getUserSettings(userId);
+      res.json({
+        success: true,
+        xrel: { apiBase },
+        settings: settings
+          ? {
+              xrelSceneReleases: settings.xrelSceneReleases,
+              xrelP2pReleases: settings.xrelP2pReleases,
+            }
+          : undefined,
+      });
+    } catch (error) {
+      routesLogger.error({ error }, "error updating xREL settings");
+      res.status(500).json({
+        error: "Failed to update xREL settings",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
+  // xREL.to API proxy (rate-limited on xREL side; base URL from app settings)
+  app.get("/api/xrel/latest", authenticateToken, async (req, res) => {
+    try {
+      const page = req.query.page ? parseInt(String(req.query.page), 10) : 1;
+      const baseUrl =
+        (await storage.getSystemConfig("xrel_api_base"))?.trim() ||
+        process.env.XREL_API_BASE ||
+        DEFAULT_XREL_BASE;
+      
+      // Use getLatestGames which handles pagination correctly across game-filtered results
+      const result = await xrelClient.getLatestGames({ 
+        page, 
+        perPage: 20, 
+        baseUrl
+      });
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const userId = (req as any).user.id;
+      const userGames = await storage.getUserGames(userId);
+      const wantedGames = userGames.filter(g => g.status === "wanted");
+
+      // Mark releases that match a wanted game
+      // ⚡ Bolt: Optimize matching for large collections by pre-processing wanted games
+      // and using a Set for O(1) exact-match lookups.
+      const wantedGamesLookup = wantedGames.map(g => {
+        const norm = normalizeTitle(g.title); 
+        return {
+          normalized: norm,
+          regex: norm.length >= 5 ? new RegExp(`\\b${norm.replace(/[.*+?^${}()|[\\]/g, "\\$&")}\\b`, "i") : null,
+          words: norm.split(" ").filter((w: string) => w.length > 2)
+        };
+      });
+      const wantedNormSet = new Set(wantedGamesLookup.map(g => g.normalized));
+
+      const listWithMatches = result.list.map(rel => {
+        const relExtTitleNorm = rel.ext_info?.title ? normalizeTitle(rel.ext_info.title) : null;
+        const relDirCleaned = cleanReleaseName(rel.dirname);
+        const relDirNorm = normalizeTitle(relDirCleaned);
+
+        // Fast path: Exact normalized match
+        if ((relExtTitleNorm && wantedNormSet.has(relExtTitleNorm)) || wantedNormSet.has(relDirNorm)) {
+          return { ...rel, isWanted: true };
+        }
+
+        // Slow path: Fuzzy matching (inclusion, word-based)
+        const relDirLower = rel.dirname.toLowerCase().replace(/[._\-]/g, " ");
+        const relExtRegex = relExtTitleNorm && relExtTitleNorm.length >= 5 
+          ? new RegExp(`\\b${relExtTitleNorm.replace(/[.*+?^${}()|[\\]/g, "\\$&")}\\b`, "i")
+          : null;
+
+        const isWanted = wantedGamesLookup.some(g => {
+          if (relExtTitleNorm) {
+            if (g.regex && g.regex.test(relExtTitleNorm)) return true;
+            if (relExtRegex && relExtRegex.test(g.normalized)) return true;
+          }
+          if (g.regex && g.regex.test(relDirNorm)) return true;
+          if (g.words.length > 0 && g.words.every((word: string) => relDirLower.includes(word))) return true;
+          return false;
+        });
+
+        return { ...rel, isWanted };
+      });
+
+      res.json({ ...result, list: listWithMatches });
+    } catch (error) {
+      routesLogger.error({ error }, "xREL latest failed");
+      res.status(500).json({
+        error: "Failed to fetch xREL latest releases",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
+  app.get("/api/xrel/search", authenticateToken, async (req, res) => {
+    try {
+      const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+      if (!q) {
+        return res.status(400).json({ error: "Search query (q) required" });
+      }
+      const scene = req.query.scene !== "false" && req.query.scene !== "0";
+      const p2p = req.query.p2p === "true" || req.query.p2p === "1";
+      const limit = req.query.limit
+        ? Math.min(100, Math.max(1, parseInt(String(req.query.limit), 10)))
+        : 25;
+      const baseUrl =
+        (await storage.getSystemConfig("xrel_api_base"))?.trim() ||
+        process.env.XREL_API_BASE ||
+        DEFAULT_XREL_BASE;
+      const list = await xrelClient.searchReleases(q, { scene, p2p, limit, baseUrl });
+      res.json({ results: list });
+    } catch (error) {
+      routesLogger.error({ error }, "xREL search failed");
+      res.status(500).json({
+        error: "xREL search failed",
         message: error instanceof Error ? error.message : "Unknown error",
       });
     }

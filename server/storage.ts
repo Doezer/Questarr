@@ -419,9 +419,18 @@ export class MemStorage implements IStorage {
         const existing = Array.from(this.indexers.values()).find((e) => e.url === idx.url);
 
         if (existing) {
+          // Explicitly update only allowed fields
           const updatedIndexer: Indexer = {
             ...existing,
-            ...idx,
+            name: idx.name || existing.name,
+            url: idx.url || existing.url,
+            apiKey: idx.apiKey || existing.apiKey,
+            protocol: idx.protocol || existing.protocol,
+            enabled: idx.enabled ?? existing.enabled,
+            priority: idx.priority ?? existing.priority,
+            categories: idx.categories || existing.categories,
+            rssEnabled: idx.rssEnabled ?? existing.rssEnabled,
+            autoSearchEnabled: idx.autoSearchEnabled ?? existing.autoSearchEnabled,
             updatedAt: new Date(),
           };
           this.indexers.set(existing.id, updatedIndexer);
@@ -984,10 +993,19 @@ export class DatabaseStorage implements IStorage {
           const existing = existingMap.get(idx.url);
 
           if (existing) {
+            // Explicitly set allowed fields for update to prevent mass assignment
             await tx
               .update(indexers)
               .set({
-                ...idx,
+                name: idx.name,
+                url: idx.url,
+                apiKey: idx.apiKey,
+                protocol: idx.protocol,
+                enabled: idx.enabled,
+                priority: idx.priority,
+                categories: idx.categories,
+                rssEnabled: idx.rssEnabled,
+                autoSearchEnabled: idx.autoSearchEnabled,
                 updatedAt: new Date(),
               })
               .where(eq(indexers.id, existing.id));

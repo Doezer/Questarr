@@ -101,6 +101,7 @@ export interface IStorage {
   addXrelNotifiedRelease(insert: InsertXrelNotifiedRelease): Promise<XrelNotifiedRelease>;
   hasXrelNotifiedRelease(gameId: string, xrelReleaseId: string): Promise<boolean>;
   getGameIdsWithXrelReleases(): Promise<string[]>;
+  getWantedGamesGroupedByUser(): Promise<Map<string, Game[]>>;
 }
 
 export class MemStorage implements IStorage {
@@ -316,6 +317,18 @@ export class MemStorage implements IStorage {
       }
     });
     return count;
+  }
+
+  async getWantedGamesGroupedByUser(): Promise<Map<string, Game[]>> {
+    const gamesByUser = new Map<string, Game[]>();
+    for (const game of Array.from(this.games.values())) {
+      if (game.userId && game.status === "wanted" && !game.hidden) {
+        const list = gamesByUser.get(game.userId) || [];
+        list.push(game);
+        gamesByUser.set(game.userId, list);
+      }
+    }
+    return gamesByUser;
   }
 
   // Indexer methods
@@ -795,6 +808,23 @@ export class DatabaseStorage implements IStorage {
       .where(sql`${games.userId} IS NULL`)
       .returning();
     return result.length;
+  }
+
+  async getWantedGamesGroupedByUser(): Promise<Map<string, Game[]>> {
+    const wantedGames = await db
+      .select()
+      .from(games)
+      .where(and(eq(games.status, "wanted"), eq(games.hidden, false), sql`${games.userId} IS NOT NULL`));
+
+    const gamesByUser = new Map<string, Game[]>();
+    for (const game of wantedGames) {
+      if (game.userId) {
+        const list = gamesByUser.get(game.userId) || [];
+        list.push(game);
+        gamesByUser.set(game.userId, list);
+      }
+    }
+    return gamesByUser;
   }
 
   // Indexer methods

@@ -375,18 +375,8 @@ async function checkAutoSearch() {
   igdbLogger.debug("Checking auto-search for wanted games...");
 
   try {
-    // Get all users to check their settings
-    const allGames = await storage.getAllGames();
-
-    // Group games by user
-    const gamesByUser = new Map<string, typeof allGames>();
-    for (const game of allGames) {
-      if (game.userId) {
-        const userGames = gamesByUser.get(game.userId) || [];
-        userGames.push(game);
-        gamesByUser.set(game.userId, userGames);
-      }
-    }
+    // Get wanted games grouped by user directly from storage (optimized)
+    const gamesByUser = await storage.getWantedGamesGroupedByUser();
 
     for (const [userId, userGames] of Array.from(gamesByUser.entries())) {
       try {
@@ -408,8 +398,8 @@ async function checkAutoSearch() {
           continue;
         }
 
-        // Filter wanted games (not owned, not downloading)
-        const wantedGames = userGames.filter((g: Game) => g.status === "wanted" && !g.hidden);
+        // Games are already filtered for wanted and not hidden by the storage query
+        const wantedGames = userGames;
 
         if (wantedGames.length === 0) {
           igdbLogger.debug({ userId }, "No wanted games found");

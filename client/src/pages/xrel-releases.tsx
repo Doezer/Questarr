@@ -44,6 +44,16 @@ function formatSize(mb?: number, unit?: string): string {
   return `${mb} ${unit || "MB"}`;
 }
 
+function safeUrl(url: string | undefined): string {
+  if (!url) return "#";
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? url : "#";
+  } catch {
+    return "#";
+  }
+}
+
 export default function XrelReleasesPage() {
   const [page, setPage] = useState(1);
 
@@ -159,7 +169,7 @@ export default function XrelReleasesPage() {
                           {rel.group_name || "—"}
                         </Badge>
                         <a
-                          href={rel.link_href}
+                          href={safeUrl(rel.link_href)}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-primary hover:underline inline-flex items-center gap-0.5 text-sm"

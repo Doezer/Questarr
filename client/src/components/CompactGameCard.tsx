@@ -16,7 +16,6 @@ interface CompactGameCardProps {
     game: Game;
     onStatusChange?: (gameId: string, newStatus: GameStatus) => void;
     onViewDetails?: (gameId: string) => void;
-    onTrackGame?: (game: Game) => void;
     onToggleHidden?: (gameId: string, hidden: boolean) => void;
     isDiscovery?: boolean;
 }
@@ -51,7 +50,6 @@ const CompactGameCard = ({
     game,
     onStatusChange,
     onViewDetails,
-    onTrackGame,
     onToggleHidden,
     isDiscovery = false,
 }: CompactGameCardProps) => {

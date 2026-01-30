@@ -46,6 +46,7 @@ import { searchAllIndexers } from "./search.js";
 import { xrelClient, DEFAULT_XREL_BASE, ALLOWED_XREL_DOMAINS } from "./xrel.js";
 import { releaseMatchesGame, normalizeTitle, cleanReleaseName } from "../shared/title-utils.js";
 import archiver from "archiver";
+import { steamRoutes } from "./steam-routes.js";
 
 // ⚡ Bolt: Simple in-memory cache implementation to avoid external dependencies
 // Caches storage info for 30 seconds to prevent spamming downloaders
@@ -128,6 +129,9 @@ function validatePaginationParams(query: { limit?: string; offset?: string }): {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Use Steam Routes
+  app.use(steamRoutes);
+
   // Auth Routes
   app.get("/api/auth/status", async (_req, res) => {
     try {
@@ -227,8 +231,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/auth/me", authenticateToken, (req, res) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const user = req.user!;
-    res.json({ id: user.id, username: user.username });
+    const user = (req as any).user;
+    res.json({ id: user.id, username: user.username, steamId64: user.steamId64 });
   });
 
   app.patch("/api/auth/password", authenticateToken, sensitiveEndpointLimiter, async (req, res) => {
@@ -1891,9 +1895,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         xrel: { apiBase },
         settings: settings
           ? {
-              xrelSceneReleases: settings.xrelSceneReleases,
-              xrelP2pReleases: settings.xrelP2pReleases,
-            }
+            xrelSceneReleases: settings.xrelSceneReleases,
+            xrelP2pReleases: settings.xrelP2pReleases,
+          }
           : undefined,
       });
     } catch (error) {
@@ -1913,11 +1917,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         (await storage.getSystemConfig("xrel_api_base"))?.trim() ||
         process.env.XREL_API_BASE ||
         DEFAULT_XREL_BASE;
-      
+
       // Use getLatestGames which handles pagination correctly across game-filtered results
-      const result = await xrelClient.getLatestGames({ 
-        page, 
-        perPage: 20, 
+      const result = await xrelClient.getLatestGames({
+        page,
+        perPage: 20,
         baseUrl
       });
 
@@ -1930,7 +1934,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // ⚡ Bolt: Optimize matching for large collections by pre-processing wanted games
       // and using a Set for O(1) exact-match lookups.
       const wantedGamesLookup = wantedGames.map(g => {
-        const norm = normalizeTitle(g.title); 
+        const norm = normalizeTitle(g.title);
         return {
           normalized: norm,
           regex: norm.length >= 5 ? new RegExp(`\\b${norm.replace(/[.*+?^${}()|[\\]/g, "\\$&")}\\b`, "i") : null,
@@ -1951,7 +1955,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         // Slow path: Fuzzy matching (inclusion, word-based)
         const relDirLower = rel.dirname.toLowerCase().replace(/[._\-]/g, " ");
-        const relExtRegex = relExtTitleNorm && relExtTitleNorm.length >= 5 
+        const relExtRegex = relExtTitleNorm && relExtTitleNorm.length >= 5
           ? new RegExp(`\\b${relExtTitleNorm.replace(/[.*+?^${}()|[\\]/g, "\\$&")}\\b`, "i")
           : null;
 

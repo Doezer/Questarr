@@ -459,6 +459,26 @@ class IGDBClient {
     return results.length > 0 ? results[0] : null;
   }
 
+  async getGameIdBySteamAppId(steamAppId: number): Promise<number | null> {
+    if (!(await this.ensureConfigured())) return null;
+
+    // source 1 = Steam
+    const igdbQuery = `
+      fields game;
+      where uid = "${steamAppId}" & category = 1; 
+      limit 1;
+    `;
+
+    try {
+        // Cache external game lookups for 24 hours
+       const results = await this.makeRequest<{ id: number, game: number }[]>("external_games", igdbQuery, 24 * 60 * 60 * 1000);
+       return results.length > 0 ? results[0].game : null;
+    } catch (error) {
+        igdbLogger.warn({ steamAppId, error }, "Failed to lookup IGDB ID from Steam App ID");
+        return null;
+    }
+  }
+
   async getGamesByIds(ids: number[]): Promise<IGDBGame[]> {
     if (!(await this.ensureConfigured())) return [];
     if (ids.length === 0) return [];

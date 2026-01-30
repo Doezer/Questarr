@@ -117,7 +117,8 @@ const CompactGameCard = ({
                 const gameInLibrary = await addGameMutation.mutateAsync(resolvedGame);
                 setResolvedGame(gameInLibrary);
                 setDownloadOpen(true);
-            } catch {
+            } catch (error) {
+                console.error("Failed to add game to library before downloading:", error);
                 toast({
                     description: "Failed to add game to library before downloading",
                     variant: "destructive",

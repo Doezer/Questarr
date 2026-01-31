@@ -22,3 +22,5 @@ sqlite.db-wal
 *.db
 data/sqlite.db
 docker-compose.migratelocal.yml
+
+notes/

@@ -342,7 +342,7 @@ async function checkDownloadStatus() {
               downloadHash: download.downloadHash,
             },
             "Download not found in downloader - assuming completion and marking as owned. " +
-              "This could indicate the download was manually removed."
+            "This could indicate the download was manually removed."
           );
 
           // Mark download as completed (assumption)
@@ -628,7 +628,7 @@ async function checkXrelReleases() {
         rel,
         extTitleNorm,
         dirNorm,
-        dirLower: rel.dirname.toLowerCase().replace(/[._\-]/g, " "),
+        dirLower: rel.dirname.toLowerCase().replace(/[._-]/g, " "),
         extRegex,
       };
     });

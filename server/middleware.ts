@@ -379,7 +379,7 @@ export const sanitizeDownloaderUpdateData = [
 ];
 
 // Sanitization rules for download add requests
-export const sanitizeDownloadData = [
+export const sanitizeDownloaderDownloadData = [
   body("url")
     .trim()
     .custom((value) => {

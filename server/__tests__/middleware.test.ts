@@ -9,7 +9,7 @@ import {
   sanitizeGameData,
   sanitizeIndexerData,
   sanitizeDownloaderData,
-  sanitizeDownloadData,
+  sanitizeDownloaderDownloadData,
   sanitizeIndexerSearchQuery,
 } from "../middleware";
 
@@ -377,7 +377,7 @@ describe("Middleware - Input Sanitization", () => {
     });
   });
 
-  describe("sanitizeDownloadData", () => {
+  describe("sanitizeDownloaderDownloadData", () => {
     it("should allow valid download data", async () => {
       const validDownloadData = {
         url: "https://example.com/file.zip",
@@ -391,7 +391,7 @@ describe("Middleware - Input Sanitization", () => {
       const res = createMockResponse();
       const next = createMockNext();
 
-      for (const validator of sanitizeDownloadData) {
+      for (const validator of sanitizeDownloaderDownloadData) {
         await validator(req as Request, res as Response, next);
       }
 
@@ -408,7 +408,7 @@ describe("Middleware - Input Sanitization", () => {
       const res = createMockResponse();
       const next = createMockNext();
 
-      for (const validator of sanitizeDownloadData) {
+      for (const validator of sanitizeDownloaderDownloadData) {
         await validator(req as Request, res as Response, next);
       }
 
@@ -428,7 +428,7 @@ describe("Middleware - Input Sanitization", () => {
       const res = createMockResponse();
       const next = createMockNext();
 
-      for (const validator of sanitizeDownloadData) {
+      for (const validator of sanitizeDownloaderDownloadData) {
         await validator(req as Request, res as Response, next);
       }
 

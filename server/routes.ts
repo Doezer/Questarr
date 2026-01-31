@@ -2016,8 +2016,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors });
       }
-      if (error && typeof error === "object" && "name" in error && error.name === "ZodError" && "errors" in error) {
-        return res.status(400).json({ error: (error as { errors: unknown }).errors });
+      // Fallback for when instanceof fails (e.g. different zod versions/contexts)
+      if (
+        error &&
+        typeof error === "object" &&
+        "name" in error &&
+        (error as { name: string }).name === "ZodError" &&
+        ("errors" in error || "issues" in error)
+      ) {
+        const zodErr = error as { errors?: unknown; issues?: unknown };
+        return res.status(400).json({ error: zodErr.errors || zodErr.issues });
       }
       routesLogger.error({ error }, "Failed to add RSS feed");
       res.status(500).json({ error: "Failed to add RSS feed" });

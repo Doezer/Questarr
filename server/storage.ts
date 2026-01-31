@@ -32,10 +32,18 @@ import {
   xrelNotifiedReleases,
   rssFeeds,
   rssFeedItems,
+  pathMappings,
+  platformMappings,
+  type PathMapping,
+  type InsertPathMapping,
+  type PlatformMapping,
+  type InsertPlatformMapping,
+  type ImportConfig,
+  type RomMConfig,
 } from "../shared/schema.js";
 import { randomUUID } from "crypto";
 import { db } from "./db.js";
-import { eq, like, or, sql, desc, and, inArray, type SQL } from "drizzle-orm";
+import { eq, like, or, desc, and, not, inArray, type SQL, sql } from "drizzle-orm";
 
 export interface IStorage {
   // System Config methods
@@ -90,6 +98,7 @@ export interface IStorage {
 
   // GameDownload methods
   getDownloadingGameDownloads(): Promise<GameDownload[]>;
+  getGameDownload(id: string): Promise<GameDownload | undefined>;
   updateGameDownloadStatus(id: string, status: string): Promise<void>;
   addGameDownload(gameDownload: InsertGameDownload): Promise<GameDownload>;
 
@@ -129,6 +138,25 @@ export interface IStorage {
   hasXrelNotifiedRelease(gameId: string, xrelReleaseId: string): Promise<boolean>;
   getGameIdsWithXrelReleases(): Promise<string[]>;
   getWantedGamesGroupedByUser(): Promise<Map<string, Game[]>>;
+
+  // Path Mapping methods
+  getPathMappings(): Promise<PathMapping[]>;
+  getPathMapping(id: string): Promise<PathMapping | undefined>;
+  addPathMapping(mapping: InsertPathMapping): Promise<PathMapping>;
+  updatePathMapping(id: string, updates: Partial<InsertPathMapping>): Promise<PathMapping | undefined>;
+  removePathMapping(id: string): Promise<boolean>;
+
+  // Platform Mapping methods
+  getPlatformMappings(): Promise<PlatformMapping[]>;
+  getPlatformMapping(igdbPlatformId: number): Promise<PlatformMapping | undefined>;
+  addPlatformMapping(mapping: InsertPlatformMapping): Promise<PlatformMapping>;
+  updatePlatformMapping(id: string, updates: Partial<InsertPlatformMapping>): Promise<PlatformMapping | undefined>;
+  updatePlatformMapping(id: string, updates: Partial<InsertPlatformMapping>): Promise<PlatformMapping | undefined>;
+  removePlatformMapping(id: string): Promise<boolean>;
+
+  // Config Accessors (Helper methods)
+  getImportConfig(): Promise<ImportConfig>;
+  getRomMConfig(): Promise<RomMConfig>;
 }
 
 export class MemStorage implements IStorage {
@@ -143,6 +171,8 @@ export class MemStorage implements IStorage {
   private xrelNotified: Map<string, XrelNotifiedRelease>;
   private rssFeeds: Map<string, RssFeed>;
   private rssFeedItems: Map<string, RssFeedItem>;
+  private pathMappings: Map<string, PathMapping>;
+  private platformMappings: Map<string, PlatformMapping>;
 
   constructor() {
     this.users = new Map();
@@ -156,6 +186,8 @@ export class MemStorage implements IStorage {
     this.xrelNotified = new Map();
     this.rssFeeds = new Map();
     this.rssFeedItems = new Map();
+    this.pathMappings = new Map();
+    this.platformMappings = new Map();
   }
 
   // System Config methods
@@ -576,7 +608,13 @@ export class MemStorage implements IStorage {
 
   // GameDownload methods
   async getDownloadingGameDownloads(): Promise<GameDownload[]> {
-    return Array.from(this.gameDownloads.values()).filter((gd) => gd.status === "downloading");
+    return Array.from(this.gameDownloads.values()).filter(
+      (d) => !["completed", "error"].includes(d.status)
+    );
+  }
+
+  async getGameDownload(id: string): Promise<GameDownload | undefined> {
+    return this.gameDownloads.get(id);
   }
 
   async updateGameDownloadStatus(id: string, status: string): Promise<void> {
@@ -768,6 +806,21 @@ export class MemStorage implements IStorage {
       xrelP2pReleases: insertSettings.xrelP2pReleases ?? false,
       autoSearchUnreleased: insertSettings.autoSearchUnreleased ?? false,
       steamSyncFailures: 0,
+
+      // Import Engine Defaults
+      enablePostProcessing: insertSettings.enablePostProcessing ?? true,
+      autoUnpack: insertSettings.autoUnpack ?? false,
+      renamePattern: insertSettings.renamePattern ?? "{Title} ({Region})",
+      overwriteExisting: insertSettings.overwriteExisting ?? false,
+      deleteSource: insertSettings.deleteSource ?? true,
+      ignoredExtensions: insertSettings.ignoredExtensions ?? [],
+      minFileSize: insertSettings.minFileSize ?? 0,
+
+      // RomM Defaults
+      rommEnabled: insertSettings.rommEnabled ?? false,
+      rommUrl: insertSettings.rommUrl ?? null,
+      rommApiKey: insertSettings.rommApiKey ?? null,
+
       updatedAt: new Date(),
     };
     this.userSettings.set(id, settings);
@@ -811,6 +864,94 @@ export class MemStorage implements IStorage {
     Array.from(this.xrelNotified.values()).forEach((r) => ids.add(r.gameId));
     return Array.from(ids);
   }
+
+  // Path Mapping methods
+  async getPathMappings(): Promise<PathMapping[]> {
+    return Array.from(this.pathMappings.values());
+  }
+
+  async getPathMapping(id: string): Promise<PathMapping | undefined> {
+    return this.pathMappings.get(id);
+  }
+
+  async addPathMapping(insertMapping: InsertPathMapping): Promise<PathMapping> {
+    const id = randomUUID();
+    const mapping: PathMapping = { ...insertMapping, id, remoteHost: insertMapping.remoteHost ?? null };
+    this.pathMappings.set(id, mapping);
+    return mapping;
+  }
+
+  async updatePathMapping(
+    id: string,
+    updates: Partial<InsertPathMapping>
+  ): Promise<PathMapping | undefined> {
+    const existing = this.pathMappings.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...updates };
+    this.pathMappings.set(id, updated);
+    return updated;
+  }
+
+  async removePathMapping(id: string): Promise<boolean> {
+    return this.pathMappings.delete(id);
+  }
+
+  // Platform Mapping methods
+  async getPlatformMappings(): Promise<PlatformMapping[]> {
+    return Array.from(this.platformMappings.values());
+  }
+
+  async getPlatformMapping(igdbPlatformId: number): Promise<PlatformMapping | undefined> {
+    return Array.from(this.platformMappings.values()).find(
+      (m) => m.igdbPlatformId === igdbPlatformId
+    );
+  }
+
+  async addPlatformMapping(insertMapping: InsertPlatformMapping): Promise<PlatformMapping> {
+    const id = randomUUID();
+    const mapping: PlatformMapping = { ...insertMapping, id };
+    this.platformMappings.set(id, mapping);
+    return mapping;
+  }
+
+  async updatePlatformMapping(
+    id: string,
+    updates: Partial<InsertPlatformMapping>
+  ): Promise<PlatformMapping | undefined> {
+    const existing = this.platformMappings.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...updates };
+    this.platformMappings.set(id, updated);
+    return updated;
+  }
+
+  async removePlatformMapping(id: string): Promise<boolean> {
+    return this.platformMappings.delete(id);
+  }
+
+  // Config Accessors
+  async getImportConfig(): Promise<ImportConfig> {
+    // Return first available settings or default
+    const firstSettings = this.userSettings.values().next().value;
+    return {
+      enablePostProcessing: firstSettings?.enablePostProcessing ?? true,
+      autoUnpack: firstSettings?.autoUnpack ?? false,
+      renamePattern: firstSettings?.renamePattern ?? "{Title} ({Region})",
+      overwriteExisting: firstSettings?.overwriteExisting ?? false,
+      deleteSource: firstSettings?.deleteSource ?? true,
+      ignoredExtensions: firstSettings?.ignoredExtensions ?? [],
+      minFileSize: firstSettings?.minFileSize ?? 0,
+    };
+  }
+
+  async getRomMConfig(): Promise<RomMConfig> {
+    const firstSettings = this.userSettings.values().next().value;
+    return {
+      enabled: firstSettings?.rommEnabled ?? false,
+      url: firstSettings?.rommUrl ?? undefined,
+      apiKey: firstSettings?.rommApiKey ?? undefined,
+    };
+  }
 }
 
 export class DatabaseStorage implements IStorage {
@@ -828,6 +969,105 @@ export class DatabaseStorage implements IStorage {
         target: systemConfig.key,
         set: { value, updatedAt: new Date() },
       });
+  }
+
+  // Path Mapping methods
+  async getPathMappings(): Promise<PathMapping[]> {
+    return db.select().from(pathMappings);
+  }
+
+  async getPathMapping(id: string): Promise<PathMapping | undefined> {
+    const [mapping] = await db.select().from(pathMappings).where(eq(pathMappings.id, id));
+    return mapping || undefined;
+  }
+
+  async addPathMapping(insertMapping: InsertPathMapping): Promise<PathMapping> {
+    const id = randomUUID();
+    const [mapping] = await db
+      .insert(pathMappings)
+      .values({ ...insertMapping, id })
+      .returning();
+    return mapping;
+  }
+
+  async updatePathMapping(
+    id: string,
+    updates: Partial<InsertPathMapping>
+  ): Promise<PathMapping | undefined> {
+    const [updated] = await db
+      .update(pathMappings)
+      .set(updates)
+      .where(eq(pathMappings.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async removePathMapping(id: string): Promise<boolean> {
+    const res = await db.delete(pathMappings).where(eq(pathMappings.id, id));
+    return res.rowsAffected > 0; // Using rowsAffected directly if possible, or check driver behavior (better-sqlite3 usually returns info)
+    // Let's assume standard drizzle behavior
+  }
+
+  // Platform Mapping methods
+  async getPlatformMappings(): Promise<PlatformMapping[]> {
+    return db.select().from(platformMappings);
+  }
+
+  async getPlatformMapping(igdbPlatformId: number): Promise<PlatformMapping | undefined> {
+    const [mapping] = await db
+      .select()
+      .from(platformMappings)
+      .where(eq(platformMappings.igdbPlatformId, igdbPlatformId));
+    return mapping || undefined;
+  }
+
+  async addPlatformMapping(insertMapping: InsertPlatformMapping): Promise<PlatformMapping> {
+    const id = randomUUID();
+    const [mapping] = await db
+      .insert(platformMappings)
+      .values({ ...insertMapping, id })
+      .returning();
+    return mapping;
+  }
+
+  async updatePlatformMapping(
+    id: string,
+    updates: Partial<InsertPlatformMapping>
+  ): Promise<PlatformMapping | undefined> {
+    const [updated] = await db
+      .update(platformMappings)
+      .set(updates)
+      .where(eq(platformMappings.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async removePlatformMapping(id: string): Promise<boolean> {
+    const res = await db.delete(platformMappings).where(eq(platformMappings.id, id));
+    return res.rowsAffected > 0;
+  }
+
+  // Config Accessors
+  async getImportConfig(): Promise<ImportConfig> {
+    const [settings] = await db.select().from(userSettings).limit(1);
+    return {
+      enablePostProcessing: settings?.enablePostProcessing ?? true,
+      autoUnpack: settings?.autoUnpack ?? false,
+      renamePattern: settings?.renamePattern ?? "{Title} ({Region})",
+      overwriteExisting: settings?.overwriteExisting ?? false,
+      deleteSource: settings?.deleteSource ?? true,
+      ignoredExtensions: settings?.ignoredExtensions ?? [],
+      minFileSize: settings?.minFileSize ?? 0,
+    };
+  }
+
+  async getRomMConfig(): Promise<RomMConfig> {
+    const [settings] = await db.select().from(userSettings).limit(1);
+    return {
+      enabled: settings?.rommEnabled ?? false,
+      url: settings?.rommUrl ?? undefined,
+      apiKey: settings?.rommApiKey ?? undefined,
+    };
   }
 
   // User methods
@@ -1259,19 +1499,20 @@ export class DatabaseStorage implements IStorage {
     return db
       .select()
       .from(gameDownloads)
-      .where(
-        or(
-          eq(gameDownloads.status, "downloading"),
-          eq(gameDownloads.status, "paused"),
-          eq(gameDownloads.status, "failed")
-        ) as SQL
-      );
+      .where(not(inArray(gameDownloads.status, ["completed", "error"])));
+  }
+
+  async getGameDownload(id: string): Promise<GameDownload | undefined> {
+    const [download] = await db
+      .select()
+      .from(gameDownloads)
+      .where(eq(gameDownloads.id, id));
+    return download;
   }
 
   async updateGameDownloadStatus(id: string, status: string): Promise<void> {
     await db
       .update(gameDownloads)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .set({ status: status as any, completedAt: status === "completed" ? new Date() : null })
       .where(eq(gameDownloads.id, id));
   }

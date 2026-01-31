@@ -44,8 +44,11 @@ import { isSafeUrl } from "./ssrf.js";
 import { hashPassword, comparePassword, generateToken, authenticateToken } from "./auth.js";
 import { searchAllIndexers } from "./search.js";
 import { xrelClient, DEFAULT_XREL_BASE, ALLOWED_XREL_DOMAINS } from "./xrel.js";
-import { releaseMatchesGame, normalizeTitle, cleanReleaseName } from "../shared/title-utils.js";
+import { releaseMatchesGame as _releaseMatchesGame, normalizeTitle, cleanReleaseName } from "../shared/title-utils.js";
 import archiver from "archiver";
+import { importRouter } from "./routes/import.js";
+import { systemRouter } from "./routes/system.js";
+import { settingsRouter } from "./routes/settings.js";
 
 // ⚡ Bolt: Simple in-memory cache implementation to avoid external dependencies
 // Caches storage info for 30 seconds to prevent spamming downloaders
@@ -322,6 +325,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Just applying authenticateToken middleware
     authenticateToken(req, res, next);
   });
+
+  // Mount Feature Routers
+  app.use("/api/imports", importRouter);
+  app.use("/api/system", systemRouter);
+  app.use("/api/settings", settingsRouter);
+
+  // Sync indexers from Prowlarr
 
   // Sync indexers from Prowlarr
   app.post("/api/indexers/prowlarr/sync", sensitiveEndpointLimiter, async (req, res) => {
@@ -1950,7 +1960,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         // Slow path: Fuzzy matching (inclusion, word-based)
-        const relDirLower = rel.dirname.toLowerCase().replace(/[._\-]/g, " ");
+        const relDirLower = rel.dirname.toLowerCase().replace(/[._-]/g, " ");
         const relExtRegex = relExtTitleNorm && relExtTitleNorm.length >= 5 
           ? new RegExp(`\\b${relExtTitleNorm.replace(/[.*+?^${}()|[\\]/g, "\\$&")}\\b`, "i")
           : null;

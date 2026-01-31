@@ -228,7 +228,7 @@ export default function XrelReleasesPage() {
                             title={`Add "${rel.matchCandidate.title}" to wanted list`}
                           >
                             {addGameMutation.isPending &&
-                            addGameMutation.variables === rel.matchCandidate.title ? (
+                              addGameMutation.variables === rel.matchCandidate.title ? (
                               <Loader2 className="h-3 w-3 animate-spin" />
                             ) : (
                               <Plus className="h-3 w-3" />

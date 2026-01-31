@@ -470,13 +470,46 @@ class IGDBClient {
     `;
 
     try {
-        // Cache external game lookups for 24 hours
-       const results = await this.makeRequest<{ id: number, game: number }[]>("external_games", igdbQuery, 24 * 60 * 60 * 1000);
-       return results.length > 0 ? results[0].game : null;
+      // Cache external game lookups for 24 hours
+      const results = await this.makeRequest<{ id: number, game: number }[]>("external_games", igdbQuery, 24 * 60 * 60 * 1000);
+      return results.length > 0 ? results[0].game : null;
     } catch (error) {
-        igdbLogger.warn({ steamAppId, error }, "Failed to lookup IGDB ID from Steam App ID");
-        return null;
+      igdbLogger.warn({ steamAppId, error }, "Failed to lookup IGDB ID from Steam App ID");
+      return null;
     }
+  }
+
+  async getGameIdsBySteamAppIds(steamAppIds: number[]): Promise<Map<number, number>> {
+    if (!(await this.ensureConfigured()) || steamAppIds.length === 0) {
+      return new Map();
+    }
+
+    const idMap = new Map<number, number>();
+    const CHUNK_SIZE = 100; // IGDB might have a limit on URL length or number of IDs
+
+    for (let i = 0; i < steamAppIds.length; i += CHUNK_SIZE) {
+      const chunk = steamAppIds.slice(i, i + CHUNK_SIZE);
+      // uid is string in IGDB external_games
+      const igdbQuery = `
+        fields game, uid;
+        where uid = (${chunk.join(',')}) & category = 1;
+        limit ${chunk.length};
+      `;
+
+      try {
+        const results = await this.makeRequest<{ uid: string; game: number }[]>(
+          "external_games",
+          igdbQuery,
+          24 * 60 * 60 * 1000
+        );
+        for (const result of results) {
+          idMap.set(parseInt(result.uid, 10), result.game);
+        }
+      } catch (error) {
+        igdbLogger.warn({ steamAppIds: chunk, error }, "Failed to lookup a chunk of IGDB IDs from Steam App IDs");
+      }
+    }
+    return idMap;
   }
 
   async getGamesByIds(ids: number[]): Promise<IGDBGame[]> {

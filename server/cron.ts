@@ -8,7 +8,7 @@ import { xrelClient, DEFAULT_XREL_BASE } from "./xrel.js";
 import { steamService } from "./steam.js";
 import { downloadRulesSchema, type Game, type InsertNotification } from "../shared/schema.js";
 import { categorizeDownload } from "../shared/download-categorizer.js";
-import { releaseMatchesGame } from "../shared/title-utils.js";
+import { releaseMatchesGame, normalizeTitle, cleanReleaseName } from "../shared/title-utils.js";
 
 const DELAY_THRESHOLD_DAYS = 7;
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -682,8 +682,30 @@ async function checkXrelReleases() {
       return;
     }
 
+    // ⚡ Bolt: Pre-process releases once to avoid redundant normalization in the nested loop
+    const processedReleases = latestReleases.map((rel) => {
+      const extTitleNorm = rel.ext_info?.title ? normalizeTitle(rel.ext_info.title) : null;
+      const dirCleaned = cleanReleaseName(rel.dirname);
+      const dirNorm = normalizeTitle(dirCleaned);
+      const extRegex =
+        extTitleNorm && extTitleNorm.length >= 5
+          ? new RegExp(`\\b${extTitleNorm.replace(/[.*+?^${}()|[\\]/g, "\\$&")}\\b`, "i")
+          : null;
+      return {
+        rel,
+        extTitleNorm,
+        dirNorm,
+        dirLower: rel.dirname.toLowerCase().replace(/[._-]/g, " "),
+        extRegex,
+      };
+    });
     const allGames = await storage.getAllGames();
-    const wantedGames = allGames.filter((g) => g.userId && g.status === "wanted" && !g.hidden);
+    const wantedGames = allGames
+      .filter((g) => g.userId && g.status === "wanted" && !g.hidden)
+      .map((g) => ({
+        game: g,
+        normalized: normalizeTitle(g.title),
+      }));
 
     if (wantedGames.length === 0) {
       return;
@@ -692,7 +714,7 @@ async function checkXrelReleases() {
     // Cache user settings to avoid redundant DB hits
     const userSettingsCache = new Map();
 
-    for (const game of wantedGames) {
+    for (const { game, normalized } of wantedGames) {
       try {
         const userId = game.userId!;
         if (!userSettingsCache.has(userId)) {
@@ -704,19 +726,22 @@ async function checkXrelReleases() {
         const p2p = settings?.xrelP2pReleases === true;
 
         // Filter releases for this game based on user preferences and title match
-        const matchingReleases = latestReleases.filter((rel) => {
-          if (rel.source === "scene" && !scene) return false;
-          if (rel.source === "p2p" && !p2p) return false;
+        const matchingReleases = processedReleases.filter((pr) => {
+          if (pr.rel.source === "scene" && !scene) return false;
+          if (pr.rel.source === "p2p" && !p2p) return false;
 
-          // Use shared matching logic (handles cleaning, fuzzy match, and smart word fallback)
-          if (releaseMatchesGame(rel.dirname, game.title)) return true;
-          if (rel.ext_info?.title && releaseMatchesGame(rel.ext_info.title, game.title))
+          // 1. Pre-processed normalized match
+          if (pr.extTitleNorm === normalized || pr.dirNorm === normalized) return true;
+
+          // 2. Fallback to shared matching logic for fuzzy/word-based (still benefits from less cleaning)
+          if (releaseMatchesGame(pr.rel.dirname, game.title)) return true;
+          if (pr.rel.ext_info?.title && releaseMatchesGame(pr.rel.ext_info.title, game.title))
             return true;
 
           return false;
         });
 
-        for (const rel of matchingReleases) {
+        for (const { rel } of matchingReleases) {
           const already = await storage.hasXrelNotifiedRelease(game.id, rel.id);
           if (already) continue;
 
@@ -784,54 +809,71 @@ export async function syncUserSteamWishlist(userId: string) {
     const ownedIgdbIds = new Set(currentGames.filter(g => g.igdbId).map(g => g.igdbId));
     const ownedSteamAppIds = new Set(currentGames.filter(g => g.steamAppId).map(g => g.steamAppId));
 
-    for (const steamGame of wishlistGames) {
-      if (ownedSteamAppIds.has(steamGame.steamAppId)) continue;
+    // Identify games that need processing (not already linked by Steam App ID)
+    const pendingSteamAppIds = wishlistGames
+      .filter(sg => !ownedSteamAppIds.has(sg.steamAppId))
+      .map(sg => sg.steamAppId);
 
-      // Try to find IGDB ID via external_games
-      // 1. Check if we already have it in our DB games (maybe under a different user or already cached?) 
-      //    (Not implemented, simplified to API lookup)
+    if (pendingSteamAppIds.length > 0) {
+      // 1. Batch lookup matches from Steam App ID to IGDB ID
+      const steamToIgdbMap = await igdbClient.getGameIdsBySteamAppIds(pendingSteamAppIds);
 
-      // 2. Lookup IGDB
-      // We search by external_game_source=1 (Steam) and uid=steamAppId
-      const igdbId = await igdbClient.getGameIdBySteamAppId(steamGame.steamAppId);
+      // 2. Identify which matched games are new vs existing
+      const newIgdbIdsToFetch = new Set<number>();
 
-      if (igdbId) {
-        if (ownedIgdbIds.has(igdbId)) {
-          // We have the IGDB ID but not the Steam App ID on the game? Update it.
-          const existing = currentGames.find(g => g.igdbId === igdbId);
-          if (existing && !existing.steamAppId) {
-            await storage.updateGame(existing.id, { steamAppId: steamGame.steamAppId });
-          }
+      for (const steamAppId of pendingSteamAppIds) {
+        const igdbId = steamToIgdbMap.get(steamAppId);
+        if (!igdbId) {
+          igdbLogger.debug({ steamAppId }, "No IGDB ID found for Steam App ID");
           continue;
         }
 
-        // Add new game
-        const gameDetails = await igdbClient.getGameById(igdbId);
-        if (gameDetails) {
-          const formatted = igdbClient.formatGameData(gameDetails);
-          await storage.addGame({
-            userId,
-            title: formatted.title as string,
-            igdbId: formatted.igdbId as number,
-            steamAppId: steamGame.steamAppId,
-            status: "wanted",
-            coverUrl: formatted.coverUrl as string,
-            summary: formatted.summary as string,
-            releaseDate: formatted.releaseDate as string,
-            rating: formatted.rating as number,
-            platforms: formatted.platforms as string[],
-            genres: formatted.genres as string[],
-            developers: formatted.developers as string[],
-            publishers: formatted.publishers as string[],
-            screenshots: formatted.screenshots as string[],
-            hidden: false, // Explicitly set default
-          });
-          addedCount++;
+        if (ownedIgdbIds.has(igdbId)) {
+          // We have the IGDB ID but not the Steam App ID on the game? Update it.
+          // This updates existing local games to link them to Steam
+          const existing = currentGames.find(g => g.igdbId === igdbId);
+          if (existing && !existing.steamAppId) {
+            await storage.updateGame(existing.id, { steamAppId });
+          }
+        } else {
+          // New game to add
+          newIgdbIdsToFetch.add(igdbId);
         }
-      } else {
-        // Selective Sync / Fuzzy match notification could go here
-        // For now, we only sync definitive matches
-        igdbLogger.debug({ steamAppId: steamGame.steamAppId, title: steamGame.title }, "No IGDB ID found for Steam App ID");
+      }
+
+      // 3. Batch fetch details for completely new games
+      if (newIgdbIdsToFetch.size > 0) {
+        const gameDetailsList = await igdbClient.getGamesByIds(Array.from(newIgdbIdsToFetch));
+        const gameDetailsMap = new Map(gameDetailsList.map(g => [g.id, g]));
+
+        // 4. Add the new games
+        for (const steamAppId of pendingSteamAppIds) {
+          const igdbId = steamToIgdbMap.get(steamAppId);
+          if (!igdbId || ownedIgdbIds.has(igdbId)) continue;
+
+          const gameDetails = gameDetailsMap.get(igdbId);
+          if (gameDetails) {
+            const formatted = igdbClient.formatGameData(gameDetails);
+            await storage.addGame({
+              userId,
+              title: formatted.title as string,
+              igdbId: formatted.igdbId as number,
+              steamAppId: steamAppId,
+              status: "wanted",
+              coverUrl: formatted.coverUrl as string,
+              summary: formatted.summary as string,
+              releaseDate: formatted.releaseDate as string,
+              rating: formatted.rating as number,
+              platforms: formatted.platforms as string[],
+              genres: formatted.genres as string[],
+              developers: formatted.developers as string[],
+              publishers: formatted.publishers as string[],
+              screenshots: formatted.screenshots as string[],
+              hidden: false, // Explicitly set default
+            });
+            addedCount++;
+          }
+        }
       }
     }
 
@@ -851,7 +893,6 @@ export async function syncUserSteamWishlist(userId: string) {
     }
 
     return { success: true, addedCount };
-
   } catch (error) {
     igdbLogger.error({ userId, error }, "Steam Sync Failed");
 

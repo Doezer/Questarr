@@ -212,7 +212,7 @@ export class MemStorage implements IStorage {
       throw new Error("Setup already completed");
     }
     const id = randomUUID();
-    const user: User = { ...insertUser, id };
+    const user: User = { ...insertUser, id, steamId64: null };
     this.users.set(id, user);
     return user;
   }
@@ -893,7 +893,7 @@ export class DatabaseStorage implements IStorage {
       const id = randomUUID();
       const [user] = tx
         .insert(users)
-        .values({ ...insertUser, id })
+        .values({ ...insertUser, id, steamId64: null })
         .returning()
         .all();
       return user;

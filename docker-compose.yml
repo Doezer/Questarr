@@ -10,6 +10,9 @@ services:
     volumes:
       # Persist SQLite database and other data
       - ./data:/app/data
+      # Mount your root media/downloads folder here to allow atomic moves
+      # Example: - /mnt/user/data:/data
+      - /path/to/data:/data
     restart: unless-stopped
     healthcheck:
       test: [ "CMD", "node", "-e", "require('http').get('http://localhost:5000/api/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))" ]

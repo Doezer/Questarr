@@ -43,6 +43,13 @@
       "when": 1771766435000,
       "tag": "0005_steam_integration",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1771886598222,
+      "tag": "0006_cheerful_fantastic_four",
+      "breakpoints": true
     }
   ]
 }

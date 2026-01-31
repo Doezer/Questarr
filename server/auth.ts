@@ -98,7 +98,6 @@ export async function authenticateToken(req: Request, res: Response, next: NextF
       return res.status(401).json({ error: "User not found" });
     }
 
-     
     req.user = user;
     next();
   } catch {

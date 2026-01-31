@@ -8,20 +8,20 @@ const { mockConfig } = vi.hoisted(() => {
     mockConfig: {
       server: {
         isProduction: false,
-        allowedOrigins: []
+        allowedOrigins: [],
       },
       igdb: {
         isConfigured: true,
         clientId: "test-id",
-        clientSecret: "test-secret"
+        clientSecret: "test-secret",
       },
       auth: {
         jwtSecret: "test-secret",
       },
       database: {
-        url: "test.db"
-      }
-    }
+        url: "test.db",
+      },
+    },
   };
 });
 
@@ -105,7 +105,7 @@ describe("Security Headers", () => {
     const csp = response.headers["content-security-policy"] as string;
 
     // Prod mode should NOT have unsafe directives in script-src
-    const scriptSrc = csp.split(";").find(d => d.trim().startsWith("script-src"));
+    const scriptSrc = csp.split(";").find((d) => d.trim().startsWith("script-src"));
     expect(scriptSrc).toBeDefined();
     expect(scriptSrc).not.toContain("'unsafe-inline'");
     expect(scriptSrc).not.toContain("'unsafe-eval'");

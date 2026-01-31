@@ -115,10 +115,7 @@ describe("xREL Client", () => {
 
       const results = await xrelClient.searchReleases("Game Name", { p2p: true });
 
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining("p2p=1"),
-        expect.anything()
-      );
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("p2p=1"), expect.anything());
 
       expect(results).toHaveLength(1);
       expect(results[0]).toMatchObject({
@@ -230,9 +227,9 @@ describe("xREL Client", () => {
     it("should not match unrelated titles", () => {
       expect(xrelClient.titleMatches("Game A", "Game B")).toBe(false);
     });
-    
+
     it("should normalize whitespace", () => {
-        expect(xrelClient.titleMatches("Game   Name", "Game Name")).toBe(true);
+      expect(xrelClient.titleMatches("Game   Name", "Game Name")).toBe(true);
     });
   });
 });

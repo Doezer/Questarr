@@ -551,7 +551,9 @@ export default function SettingsPage() {
                       <Input
                         id="igdb-client-secret"
                         type={showClientSecret ? "text" : "password"}
-                        placeholder={config?.igdb.configured ? "********" : "Enter your IGDB Client Secret"}
+                        placeholder={
+                          config?.igdb.configured ? "********" : "Enter your IGDB Client Secret"
+                        }
                         value={igdbClientSecret}
                         onChange={(e) => setIgdbClientSecret(e.target.value)}
                         className="pr-10"
@@ -563,7 +565,9 @@ export default function SettingsPage() {
                           size="sm"
                           className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
                           onClick={() => setShowClientSecret(!showClientSecret)}
-                          aria-label={showClientSecret ? "Hide client secret" : "Show client secret"}
+                          aria-label={
+                            showClientSecret ? "Hide client secret" : "Show client secret"
+                          }
                         >
                           {showClientSecret ? (
                             <EyeOff className="h-4 w-4 text-muted-foreground" />
@@ -606,7 +610,8 @@ export default function SettingsPage() {
                   <CardTitle className="text-lg">xREL.to</CardTitle>
                 </div>
                 <CardDescription>
-                  Alert when a wanted game appears on xREL.to (scene/P2P release list). API base URL and search options for the auto-check.
+                  Alert when a wanted game appears on xREL.to (scene/P2P release list). API base URL
+                  and search options for the auto-check.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
@@ -717,8 +722,8 @@ export default function SettingsPage() {
                         conservative.
                       </p>
                       <p>
-                        Only increase if you experience slow loading times and are confident your usage
-                        won't exceed the limit.
+                        Only increase if you experience slow loading times and are confident your
+                        usage won't exceed the limit.
                       </p>
                       <p className="text-amber-500">
                         ⚠️ Setting too high may result in API blacklisting.

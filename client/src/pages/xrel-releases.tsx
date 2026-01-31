@@ -5,7 +5,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
-
 interface XrelRelease {
   id: string;
   dirname: string;
@@ -77,7 +76,8 @@ export default function XrelReleasesPage() {
               xREL.to releases
             </h1>
             <p className="text-muted-foreground text-sm mt-1">
-              Latest game releases listed on xREL.to (scene/P2P). No download links — for reference only.
+              Latest game releases listed on xREL.to (scene/P2P). No download links — for reference
+              only.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -152,7 +152,10 @@ export default function XrelReleasesPage() {
                           </span>
                         )}
                         {rel.isWanted && (
-                          <Badge variant="default" className="text-xs bg-primary text-primary-foreground">
+                          <Badge
+                            variant="default"
+                            className="text-xs bg-primary text-primary-foreground"
+                          >
                             Wanted
                           </Badge>
                         )}

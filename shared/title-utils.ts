@@ -1,7 +1,7 @@
 /**
  * Title Utilities
- * 
- * Shared logic for normalizing, cleaning, and matching game titles 
+ *
+ * Shared logic for normalizing, cleaning, and matching game titles
  * and release names (from xREL, Indexers, etc.)
  */
 
@@ -12,7 +12,7 @@ export function normalizeTitle(title: string): string {
   return title
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, " ") // Replace non-alphanumeric with space
-    .replace(/\s+/g, " ")        // Multiple spaces to single space
+    .replace(/\s+/g, " ") // Multiple spaces to single space
     .trim();
 }
 
@@ -39,7 +39,7 @@ export function cleanReleaseName(releaseName: string): string {
   let cleaned = releaseName.replace(/[[({][^\])}]*[\])}]/g, (match) => {
     // If the bracketed content contains known tags or is mostly numeric (like a build ID), remove it
     const inner = match.slice(1, -1).toLowerCase();
-    const hasTag = RELEASE_TAGS.some(tag => tag.test(inner)) || VERSION_REGEX.test(inner);
+    const hasTag = RELEASE_TAGS.some((tag) => tag.test(inner)) || VERSION_REGEX.test(inner);
     const isNumeric = /^\d+$/.test(inner.replace(/\s/g, ""));
     if (hasTag || isNumeric) return " ";
     return match; // Keep it if it might be part of the title (e.g. "Game (Special Edition)")
@@ -66,7 +66,10 @@ export function cleanReleaseName(releaseName: string): string {
   });
 
   // Final cleanup of extra symbols and spaces
-  return cleaned.replace(/[[\\]()]/g, " ").replace(/\s+/g, " ").trim();
+  return cleaned
+    .replace(/[[\\]()]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /**
@@ -100,11 +103,13 @@ export function releaseMatchesGame(releaseName: string, gameTitle: string): bool
   if (titleMatches(cleaned, gameTitle)) return true;
 
   // Fallback: Check if the normalized game title words are all present in the release name
-  const gameWords = normalizeTitle(gameTitle).split(" ").filter(w => w.length > 2);
+  const gameWords = normalizeTitle(gameTitle)
+    .split(" ")
+    .filter((w) => w.length > 2);
   if (gameWords.length === 0) return false;
 
   const normalizedRelease = releaseName.toLowerCase().replace(/[._-]/g, " ");
-  return gameWords.every(word => normalizedRelease.includes(word));
+  return gameWords.every((word) => normalizedRelease.includes(word));
 }
 
 export interface ReleaseMetadata {
@@ -181,4 +186,3 @@ export function parseReleaseMetadata(releaseName: string): ReleaseMetadata {
     isScene: !!group && !["p2p", "gls", "initial", "rarbg", "crack"].includes(group.toLowerCase()),
   };
 }
-

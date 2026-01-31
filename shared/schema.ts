@@ -441,4 +441,3 @@ export type InsertRssFeed = (typeof insertRssFeedSchema)["_output"];
 
 export type RssFeedItem = typeof rssFeedItems.$inferSelect;
 export type InsertRssFeedItem = (typeof insertRssFeedItemSchema)["_output"];
-

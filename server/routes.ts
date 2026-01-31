@@ -169,7 +169,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: "Setup already completed" });
       }
 
-
       const { username, password, igdbClientId, igdbClientSecret } = req.body;
 
       // Validate input
@@ -248,7 +247,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.get("/api/auth/me", authenticateToken, (req, res) => {
-
     const user = req.user!;
     res.json({ id: user.id, username: user.username });
   });
@@ -557,7 +555,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Refresh metadata for all games
   app.post("/api/games/refresh-metadata", authenticateToken, async (req, res) => {
     try {
-
       const userId = req.user!.id;
       const userGames = await storage.getUserGames(userId, true);
 
@@ -606,7 +603,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
               });
             }
           } catch (error) {
-            routesLogger.error({ gameId: game.id, error }, "failed to prepare metadata update for game");
+            routesLogger.error(
+              { gameId: game.id, error },
+              "failed to prepare metadata update for game"
+            );
             errorCount++;
           }
         }
@@ -1813,7 +1813,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-
   // xREL.to settings (API base URL in system config; scene/p2p in user settings)
   app.patch("/api/settings/xrel", authenticateToken, async (req, res) => {
     try {
@@ -1831,8 +1830,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (!/^https?:\/\/[^\s]+$/i.test(v)) {
             return res.status(400).json({
               error: "Invalid API base URL",
-              message:
-                "Must be a valid URL (e.g. https://xrel-api.nfos.to or https://api.xrel.to)",
+              message: "Must be a valid URL (e.g. https://xrel-api.nfos.to or https://api.xrel.to)",
             });
           }
 
@@ -1861,10 +1859,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await storage.setSystemConfig("xrel_api_base", v);
       }
 
-      if (typeof body.xrelSceneReleases === "boolean" || typeof body.xrelP2pReleases === "boolean") {
+      if (
+        typeof body.xrelSceneReleases === "boolean" ||
+        typeof body.xrelP2pReleases === "boolean"
+      ) {
         const updates: Record<string, boolean> = {};
-        if (typeof body.xrelSceneReleases === "boolean") updates.xrelSceneReleases = body.xrelSceneReleases;
-        if (typeof body.xrelP2pReleases === "boolean") updates.xrelP2pReleases = body.xrelP2pReleases;
+        if (typeof body.xrelSceneReleases === "boolean")
+          updates.xrelSceneReleases = body.xrelSceneReleases;
+        if (typeof body.xrelP2pReleases === "boolean")
+          updates.xrelP2pReleases = body.xrelP2pReleases;
         await storage.updateUserSettings(userId, updates);
       }
 
@@ -1878,9 +1881,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         xrel: { apiBase },
         settings: settings
           ? {
-            xrelSceneReleases: settings.xrelSceneReleases,
-            xrelP2pReleases: settings.xrelP2pReleases,
-          }
+              xrelSceneReleases: settings.xrelSceneReleases,
+              xrelP2pReleases: settings.xrelP2pReleases,
+            }
           : undefined,
       });
     } catch (error) {
@@ -1905,50 +1908,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const result = await xrelClient.getLatestGames({
         page,
         perPage: 20,
-        baseUrl
+        baseUrl,
       });
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const userId = (req as any).user.id;
       const userGames = await storage.getUserGames(userId);
-      const wantedGames = userGames.filter(g => g.status === "wanted");
+      const wantedGames = userGames.filter((g) => g.status === "wanted");
 
       // Mark releases that match a wanted game
       // ⚡ Bolt: Optimize matching for large collections by pre-processing wanted games
       // and using a Set for O(1) exact-match lookups.
-      const wantedGamesLookup = wantedGames.map(g => {
+      const wantedGamesLookup = wantedGames.map((g) => {
         const norm = normalizeTitle(g.title);
         return {
           normalized: norm,
-          regex: norm.length >= 5 ? new RegExp(`\\b${norm.replace(/[.*+?^${}()|[\\]/g, "\\$&")}\\b`, "i") : null,
-          words: norm.split(" ").filter((w: string) => w.length > 2)
+          regex:
+            norm.length >= 5
+              ? new RegExp(`\\b${norm.replace(/[.*+?^${}()|[\\]/g, "\\$&")}\\b`, "i")
+              : null,
+          words: norm.split(" ").filter((w: string) => w.length > 2),
         };
       });
-      const wantedNormSet = new Set(wantedGamesLookup.map(g => g.normalized));
+      const wantedNormSet = new Set(wantedGamesLookup.map((g) => g.normalized));
 
-      const listWithMatches = result.list.map(rel => {
+      const listWithMatches = result.list.map((rel) => {
         const relExtTitleNorm = rel.ext_info?.title ? normalizeTitle(rel.ext_info.title) : null;
         const relDirCleaned = cleanReleaseName(rel.dirname);
         const relDirNorm = normalizeTitle(relDirCleaned);
 
         // Fast path: Exact normalized match
-        if ((relExtTitleNorm && wantedNormSet.has(relExtTitleNorm)) || wantedNormSet.has(relDirNorm)) {
+        if (
+          (relExtTitleNorm && wantedNormSet.has(relExtTitleNorm)) ||
+          wantedNormSet.has(relDirNorm)
+        ) {
           return { ...rel, isWanted: true };
         }
 
         // Slow path: Fuzzy matching (inclusion, word-based)
         const relDirLower = rel.dirname.toLowerCase().replace(/[._-]/g, " ");
-        const relExtRegex = relExtTitleNorm && relExtTitleNorm.length >= 5
-          ? new RegExp(`\\b${relExtTitleNorm.replace(/[.*+?^${}()|[\\]/g, "\\$&")}\\b`, "i")
-          : null;
+        const relExtRegex =
+          relExtTitleNorm && relExtTitleNorm.length >= 5
+            ? new RegExp(`\\b${relExtTitleNorm.replace(/[.*+?^${}()|[\\]/g, "\\$&")}\\b`, "i")
+            : null;
 
-        const isWanted = wantedGamesLookup.some(g => {
+        const isWanted = wantedGamesLookup.some((g) => {
           if (relExtTitleNorm) {
             if (g.regex && g.regex.test(relExtTitleNorm)) return true;
             if (relExtRegex && relExtRegex.test(g.normalized)) return true;
           }
           if (g.regex && g.regex.test(relDirNorm)) return true;
-          if (g.words.length > 0 && g.words.every((word: string) => relDirLower.includes(word))) return true;
+          if (g.words.length > 0 && g.words.every((word: string) => relDirLower.includes(word)))
+            return true;
           return false;
         });
 
@@ -1988,7 +1999,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         error: "xREL search failed",
         message: error instanceof Error ? error.message : "Unknown error",
       });
-
     }
   });
 
@@ -2077,7 +2087,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       routesLogger.error({ error }, "Failed to refresh RSS feeds");
       res.status(500).json({ error: "Failed to refresh RSS feeds" });
-
     }
   });
 

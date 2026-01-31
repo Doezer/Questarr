@@ -65,7 +65,9 @@ export default function DisplaySettingsModal({
             </div>
           )}
 
-          <div className={`space-y-4 ${viewMode === 'list' ? 'opacity-50 pointer-events-none' : ''}`}>
+          <div
+            className={`space-y-4 ${viewMode === "list" ? "opacity-50 pointer-events-none" : ""}`}
+          >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-sm font-medium">
                 <LayoutGrid className="w-4 h-4" />
@@ -81,7 +83,7 @@ export default function DisplaySettingsModal({
                 max={10}
                 step={1}
                 className="flex-1"
-                disabled={viewMode === 'list'}
+                disabled={viewMode === "list"}
               />
             </div>
             <p className="text-xs text-muted-foreground">

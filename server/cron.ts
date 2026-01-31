@@ -342,7 +342,7 @@ async function checkDownloadStatus() {
               downloadHash: download.downloadHash,
             },
             "Download not found in downloader - assuming completion and marking as owned. " +
-            "This could indicate the download was manually removed."
+              "This could indicate the download was manually removed."
           );
 
           // Mark download as completed (assumption)
@@ -432,10 +432,13 @@ async function checkAutoSearch() {
             }
 
             // Double-check matches locally to ensure they actually match the game title
-            const matchedItems = items.filter(item => releaseMatchesGame(item.title, game.title));
+            const matchedItems = items.filter((item) => releaseMatchesGame(item.title, game.title));
 
             if (matchedItems.length === 0) {
-              igdbLogger.debug({ gameTitle: game.title, originalCount: items.length }, "No items passed strict title matching");
+              igdbLogger.debug(
+                { gameTitle: game.title, originalCount: items.length },
+                "No items passed strict title matching"
+              );
               continue;
             }
 
@@ -678,7 +681,10 @@ async function checkXrelReleases() {
             if (pr.extRegex && pr.extRegex.test(gameNorm)) return true;
 
             // 3. Word-based fallback
-            if (gameWords.length > 0 && gameWords.every((word: string) => pr.dirLower.includes(word)))
+            if (
+              gameWords.length > 0 &&
+              gameWords.every((word: string) => pr.dirLower.includes(word))
+            )
               return true;
 
             return false;

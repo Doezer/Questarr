@@ -10,7 +10,6 @@ export const igdbRateLimiter = rateLimit({
   windowMs: 1000, // 1 second
   max: async (req: Request) => {
     try {
-       
       const userId = req.user?.id;
       if (!userId) {
         return 20; // Default for unauthenticated requests
@@ -250,15 +249,7 @@ export const sanitizeDownloaderData = [
       if (isUrl) return true;
 
       // For downloaders, allow hostname/IP without protocol
-      if (
-        [
-          "qbittorrent",
-          "rtorrent",
-          "transmission",
-          "sabnzbd",
-          "nzbget",
-        ].includes(type)
-      ) {
+      if (["qbittorrent", "rtorrent", "transmission", "sabnzbd", "nzbget"].includes(type)) {
         // Accept hostname, IP address, or FQDN
         const hostnameRegex =
           /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
@@ -321,15 +312,7 @@ export const sanitizeDownloaderUpdateData = [
       if (isUrl) return true;
 
       // For downloaders, allow hostname/IP without protocol
-      if (
-        [
-          "qbittorrent",
-          "rtorrent",
-          "transmission",
-          "sabnzbd",
-          "nzbget",
-        ].includes(type)
-      ) {
+      if (["qbittorrent", "rtorrent", "transmission", "sabnzbd", "nzbget"].includes(type)) {
         // Accept hostname, IP address, or FQDN
         const hostnameRegex =
           /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;

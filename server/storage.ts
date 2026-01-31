@@ -830,9 +830,7 @@ export class DatabaseStorage implements IStorage {
 
   async registerSetupUser(insertUser: InsertUser): Promise<User> {
     return await db.transaction(async (tx) => {
-      const [result] = await tx
-        .select({ count: sql<number>`count(*)` })
-        .from(users);
+      const [result] = await tx.select({ count: sql<number>`count(*)` }).from(users);
 
       if (result.count > 0) {
         throw new Error("Setup already completed");
@@ -1020,7 +1018,9 @@ export class DatabaseStorage implements IStorage {
     const wantedGames = await db
       .select()
       .from(games)
-      .where(and(eq(games.status, "wanted"), eq(games.hidden, false), sql`${games.userId} IS NOT NULL`));
+      .where(
+        and(eq(games.status, "wanted"), eq(games.hidden, false), sql`${games.userId} IS NOT NULL`)
+      );
 
     const gamesByUser = new Map<string, Game[]>();
     for (const game of wantedGames) {
@@ -1305,11 +1305,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getAllRssFeedItems(limit: number = 100): Promise<RssFeedItem[]> {
-    return db
-      .select()
-      .from(rssFeedItems)
-      .orderBy(desc(rssFeedItems.pubDate))
-      .limit(limit);
+    return db.select().from(rssFeedItems).orderBy(desc(rssFeedItems.pubDate)).limit(limit);
   }
 
   async addRssFeedItem(item: InsertRssFeedItem): Promise<RssFeedItem> {
@@ -1393,7 +1389,6 @@ export class DatabaseStorage implements IStorage {
       .from(xrelNotifiedReleases);
     return rows.map((r) => r.gameId);
   }
-
 }
 
 export const storage = new DatabaseStorage();

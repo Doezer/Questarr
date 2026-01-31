@@ -36,7 +36,9 @@ describe("RssService", () => {
       mapping: null,
     };
 
-    vi.mocked(storage.getAllRssFeeds).mockResolvedValue([mockFeed] as unknown as import("../../shared/schema").RssFeed[]);
+    vi.mocked(storage.getAllRssFeeds).mockResolvedValue([
+      mockFeed,
+    ] as unknown as import("../../shared/schema").RssFeed[]);
     vi.mocked(storage.getRssFeedItemByGuid).mockResolvedValue(undefined); // Item doesn't exist
 
     mocks.parseURL.mockResolvedValue({
@@ -85,7 +87,9 @@ describe("RssService", () => {
       enabled: true,
     };
 
-    vi.mocked(storage.getAllRssFeeds).mockResolvedValue([mockFeed] as unknown as import("../../shared/schema").RssFeed[]);
+    vi.mocked(storage.getAllRssFeeds).mockResolvedValue([
+      mockFeed,
+    ] as unknown as import("../../shared/schema").RssFeed[]);
     mocks.parseURL.mockRejectedValue(new Error("Parsing failed"));
 
     await rssService.refreshFeeds();
@@ -108,7 +112,9 @@ describe("RssService", () => {
       mapping: { titleField: "customTitle", linkField: "customLink" },
     };
 
-    vi.mocked(storage.getAllRssFeeds).mockResolvedValue([mockFeed] as unknown as import("../../shared/schema").RssFeed[]);
+    vi.mocked(storage.getAllRssFeeds).mockResolvedValue([
+      mockFeed,
+    ] as unknown as import("../../shared/schema").RssFeed[]);
 
     mocks.parseURL.mockResolvedValue({
       items: [
@@ -131,7 +137,11 @@ describe("RssService", () => {
   });
 
   it("should use cache for IGDB lookups", async () => {
-    const mockFeed = { id: "feed-1", url: "url", enabled: true } as import("../../shared/schema").RssFeed;
+    const mockFeed = {
+      id: "feed-1",
+      url: "url",
+      enabled: true,
+    } as import("../../shared/schema").RssFeed;
     vi.mocked(storage.getAllRssFeeds).mockResolvedValue([mockFeed]);
 
     // Return same game twice
@@ -143,7 +153,7 @@ describe("RssService", () => {
     });
 
     vi.mocked(igdbClient.searchGames).mockResolvedValue([
-      { id: 1, name: "Game A" } as unknown as import("../igdb").IGDBGame
+      { id: 1, name: "Game A" } as unknown as import("../igdb").IGDBGame,
     ]);
 
     await rssService.refreshFeeds();

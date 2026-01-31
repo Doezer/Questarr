@@ -89,7 +89,9 @@ export default function PasswordSettings() {
               </div>
             </div>
             {form.formState.errors.currentPassword && (
-              <p className="text-xs text-red-500">{form.formState.errors.currentPassword.message}</p>
+              <p className="text-xs text-red-500">
+                {form.formState.errors.currentPassword.message}
+              </p>
             )}
           </div>
 
@@ -151,16 +153,14 @@ export default function PasswordSettings() {
               </div>
             </div>
             {form.formState.errors.confirmPassword && (
-              <p className="text-xs text-red-500">{form.formState.errors.confirmPassword.message}</p>
+              <p className="text-xs text-red-500">
+                {form.formState.errors.confirmPassword.message}
+              </p>
             )}
           </div>
 
           <div className="flex justify-end pt-4 border-t">
-            <Button
-              type="submit"
-              disabled={updatePasswordMutation.isPending}
-              className="gap-2"
-            >
+            <Button type="submit" disabled={updatePasswordMutation.isPending} className="gap-2">
               {updatePasswordMutation.isPending ? (
                 <>
                   <RefreshCw className="h-4 w-4 animate-spin" />

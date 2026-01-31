@@ -62,8 +62,14 @@ export default function GameGrid({
     return (
       <div className={cn("grid gap-4", gridColsClass)} data-testid="grid-games-loading">
         {Array.from({ length: 20 }).map((_, index) => (
-          <div key={index} className={cn("animate-pulse bg-muted rounded-md", viewMode === 'list' ? "h-24 w-full" : "min-w-[150px] min-h-[200px]")}>
-            {viewMode === 'grid' && (
+          <div
+            key={index}
+            className={cn(
+              "animate-pulse bg-muted rounded-md",
+              viewMode === "list" ? "h-24 w-full" : "min-w-[150px] min-h-[200px]"
+            )}
+          >
+            {viewMode === "grid" && (
               <div className="bg-muted-foreground/10 rounded-md aspect-[3/4] w-full max-w-[225px] max-h-[300px] mx-auto mb-4"></div>
             )}
             <div className="space-y-2 p-4">
@@ -95,14 +101,13 @@ export default function GameGrid({
       data-testid="grid-games"
       aria-busy={isFetching}
     >
-      {games.map((game) => (
-        viewMode === 'list' ? (
+      {games.map((game) =>
+        viewMode === "list" ? (
           <CompactGameCard
             key={game.id}
             game={game}
             onStatusChange={onStatusChange}
             onViewDetails={onViewDetails}
-
             onToggleHidden={onToggleHidden}
             isDiscovery={isDiscovery}
           />
@@ -117,7 +122,7 @@ export default function GameGrid({
             isDiscovery={isDiscovery}
           />
         )
-      ))}
+      )}
     </div>
   );
 }

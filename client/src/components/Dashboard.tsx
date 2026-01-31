@@ -183,9 +183,9 @@ export default function Dashboard() {
     const avgYear =
       datedGames.length > 0
         ? Math.round(
-          datedGames.reduce((acc, g) => acc + new Date(g.releaseDate!).getFullYear(), 0) /
-          datedGames.length
-        )
+            datedGames.reduce((acc, g) => acc + new Date(g.releaseDate!).getFullYear(), 0) /
+              datedGames.length
+          )
         : "N/A";
 
     // Top Publisher

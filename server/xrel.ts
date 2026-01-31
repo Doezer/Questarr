@@ -211,12 +211,18 @@ export async function searchReleases(
  * Fetch latest releases (all types). Filter client-side for games if needed.
  * Rate limit: general 900/hour only.
  */
-export async function getLatestReleases(options: {
-  page?: number;
-  perPage?: number;
-  baseUrl?: string | null;
-  extInfoType?: string;
-} = {}): Promise<{ list: XrelReleaseListItem[]; pagination: XrelLatestResponse["pagination"]; total_count: number }> {
+export async function getLatestReleases(
+  options: {
+    page?: number;
+    perPage?: number;
+    baseUrl?: string | null;
+    extInfoType?: string;
+  } = {}
+): Promise<{
+  list: XrelReleaseListItem[];
+  pagination: XrelLatestResponse["pagination"];
+  total_count: number;
+}> {
   checkHourlyLimit();
 
   const base = resolveBaseUrl(options.baseUrl);
@@ -265,11 +271,17 @@ export async function getLatestReleases(options: {
 /**
  * Fetch exactly (if possible) N game releases by scanning multiple API pages.
  */
-export async function getLatestGames(options: {
-  page?: number;
-  perPage?: number;
-  baseUrl?: string | null;
-} = {}): Promise<{ list: XrelReleaseListItem[]; pagination: { current_page: number; per_page: number; total_pages: number }; total_count: number }> {
+export async function getLatestGames(
+  options: {
+    page?: number;
+    perPage?: number;
+    baseUrl?: string | null;
+  } = {}
+): Promise<{
+  list: XrelReleaseListItem[];
+  pagination: { current_page: number; per_page: number; total_pages: number };
+  total_count: number;
+}> {
   const targetPage = Math.max(1, options.page ?? 1);
   const perPage = Math.max(1, options.perPage ?? 20);
   const targetOffset = (targetPage - 1) * perPage;
@@ -279,14 +291,13 @@ export async function getLatestGames(options: {
   let apiPage = 1;
   let totalApiPages = 1;
 
-
   // Fetch up to 5 pages of 100 items to find enough games
   // This helps populate the requested page of games regardless of release density
   while (allGames.length < targetLimit && apiPage <= 10 && apiPage <= totalApiPages) {
     const result = await getLatestReleases({
       page: apiPage,
       perPage: 100,
-      baseUrl: options.baseUrl
+      baseUrl: options.baseUrl,
     });
 
     allGames.push(...result.list);
@@ -305,9 +316,9 @@ export async function getLatestGames(options: {
     pagination: {
       current_page: targetPage,
       per_page: perPage,
-      total_pages: Math.ceil(allGames.length / perPage) + (apiPage <= totalApiPages ? 1 : 0)
+      total_pages: Math.ceil(allGames.length / perPage) + (apiPage <= totalApiPages ? 1 : 0),
     },
-    total_count: allGames.length
+    total_count: allGames.length,
   };
 }
 

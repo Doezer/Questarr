@@ -176,7 +176,7 @@ const GameCard = ({
             </Badge>
           )}
         </div>
-        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-t-md flex items-center justify-center gap-2">
+        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-200 rounded-t-md flex items-center justify-center gap-2">
           {isDiscovery && (
             <Tooltip>
               <TooltipTrigger asChild>

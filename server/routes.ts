@@ -1989,84 +1989,87 @@ export async function registerRoutes(app: Express): Promise<Server> {
         message: error instanceof Error ? error.message : "Unknown error",
       });
 
-      // RSS Feeds Routes
-      app.get("/api/rss/feeds", async (req, res) => {
-        try {
-          const feeds = await storage.getAllRssFeeds();
-          res.json(feeds);
-        } catch (error) {
-          routesLogger.error({ error }, "Failed to fetch RSS feeds");
-          res.status(500).json({ error: "Failed to fetch RSS feeds" });
-        }
-      });
-
-      app.post("/api/rss/feeds", async (req, res) => {
-        try {
-          const feedData = insertRssFeedSchema.parse(req.body);
-          const feed = await storage.addRssFeed(feedData);
-          // Trigger immediate refresh for new feed
-          rssService.refreshFeed(feed).catch((err) => {
-            routesLogger.error({ error: err }, "Initial RSS feed refresh failed");
-          });
-          res.status(201).json(feed);
-        } catch (error) {
-          if (error instanceof z.ZodError) {
-            return res.status(400).json({ error: error.errors });
-          }
-          routesLogger.error({ error }, "Failed to add RSS feed");
-          res.status(500).json({ error: "Failed to add RSS feed" });
-        }
-      });
-
-      app.put("/api/rss/feeds/:id", async (req, res) => {
-        try {
-          const updates = insertRssFeedSchema.partial().parse(req.body);
-          const feed = await storage.updateRssFeed(req.params.id, updates);
-          if (!feed) {
-            return res.status(404).json({ error: "Feed not found" });
-          }
-          res.json(feed);
-        } catch (error) {
-          routesLogger.error({ error }, "Failed to update RSS feed");
-          res.status(500).json({ error: "Failed to update RSS feed" });
-        }
-      });
-
-      app.delete("/api/rss/feeds/:id", async (req, res) => {
-        try {
-          const success = await storage.removeRssFeed(req.params.id);
-          if (!success) {
-            return res.status(404).json({ error: "Feed not found" });
-          }
-          res.json({ success: true });
-        } catch (error) {
-          routesLogger.error({ error }, "Failed to delete RSS feed");
-          res.status(500).json({ error: "Failed to delete RSS feed" });
-        }
-      });
-
-      app.get("/api/rss/items", async (req, res) => {
-        try {
-          const limit = req.query.limit ? parseInt(String(req.query.limit)) : 100;
-          const items = await storage.getAllRssFeedItems(limit);
-          res.json(items);
-        } catch (error) {
-          routesLogger.error({ error }, "Failed to fetch RSS items");
-          res.status(500).json({ error: "Failed to fetch RSS items" });
-        }
-      });
-
-      app.post("/api/rss/refresh", async (req, res) => {
-        try {
-          await rssService.refreshFeeds();
-          res.json({ success: true });
-        } catch (error) {
-          routesLogger.error({ error }, "Failed to refresh RSS feeds");
-          res.status(500).json({ error: "Failed to refresh RSS feeds" });
-
-        }
-      });
-
-      const httpServer = createServer(app);
-      return httpServer;
     }
+  });
+
+  // RSS Feeds Routes
+  app.get("/api/rss/feeds", async (req, res) => {
+    try {
+      const feeds = await storage.getAllRssFeeds();
+      res.json(feeds);
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to fetch RSS feeds");
+      res.status(500).json({ error: "Failed to fetch RSS feeds" });
+    }
+  });
+
+  app.post("/api/rss/feeds", async (req, res) => {
+    try {
+      const feedData = insertRssFeedSchema.parse(req.body);
+      const feed = await storage.addRssFeed(feedData);
+      // Trigger immediate refresh for new feed
+      rssService.refreshFeed(feed).catch((err) => {
+        routesLogger.error({ error: err }, "Initial RSS feed refresh failed");
+      });
+      res.status(201).json(feed);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      routesLogger.error({ error }, "Failed to add RSS feed");
+      res.status(500).json({ error: "Failed to add RSS feed" });
+    }
+  });
+
+  app.put("/api/rss/feeds/:id", async (req, res) => {
+    try {
+      const updates = insertRssFeedSchema.partial().parse(req.body);
+      const feed = await storage.updateRssFeed(req.params.id, updates);
+      if (!feed) {
+        return res.status(404).json({ error: "Feed not found" });
+      }
+      res.json(feed);
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to update RSS feed");
+      res.status(500).json({ error: "Failed to update RSS feed" });
+    }
+  });
+
+  app.delete("/api/rss/feeds/:id", async (req, res) => {
+    try {
+      const success = await storage.removeRssFeed(req.params.id);
+      if (!success) {
+        return res.status(404).json({ error: "Feed not found" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to delete RSS feed");
+      res.status(500).json({ error: "Failed to delete RSS feed" });
+    }
+  });
+
+  app.get("/api/rss/items", async (req, res) => {
+    try {
+      const limit = req.query.limit ? parseInt(String(req.query.limit)) : 100;
+      const items = await storage.getAllRssFeedItems(limit);
+      res.json(items);
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to fetch RSS items");
+      res.status(500).json({ error: "Failed to fetch RSS items" });
+    }
+  });
+
+  app.post("/api/rss/refresh", async (req, res) => {
+    try {
+      await rssService.refreshFeeds();
+      res.json({ success: true });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to refresh RSS feeds");
+      res.status(500).json({ error: "Failed to refresh RSS feeds" });
+
+    }
+  });
+
+  const httpServer = createServer(app);
+  return httpServer;
+}

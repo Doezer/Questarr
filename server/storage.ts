@@ -136,12 +136,9 @@ export class MemStorage implements IStorage {
   private gameDownloads: Map<string, GameDownload>;
   private userSettings: Map<string, UserSettings>;
   private systemConfig: Map<string, string>;
-<<<<<<< HEAD
   private xrelNotified: Map<string, XrelNotifiedRelease>;
-=======
   private rssFeeds: Map<string, RssFeed>;
   private rssFeedItems: Map<string, RssFeedItem>;
->>>>>>> 9263bd9 (feat: add rss service)
 
   constructor() {
     this.users = new Map();
@@ -152,12 +149,9 @@ export class MemStorage implements IStorage {
     this.gameDownloads = new Map();
     this.userSettings = new Map();
     this.systemConfig = new Map();
-<<<<<<< HEAD
     this.xrelNotified = new Map();
-=======
     this.rssFeeds = new Map();
     this.rssFeedItems = new Map();
->>>>>>> 9263bd9 (feat: add rss service)
   }
 
   // System Config methods
@@ -1399,17 +1393,7 @@ export class DatabaseStorage implements IStorage {
       .from(xrelNotifiedReleases);
     return rows.map((r) => r.gameId);
   }
-  async getWantedGamesGroupedByUser(): Promise<Map<string, Game[]>> {
-    const rows = await db.select().from(games).where(eq(games.status, "wanted"));
-    const grouped = new Map<string, Game[]>();
-    for (const game of rows) {
-      if (!game.userId) continue;
-      const list = grouped.get(game.userId) || [];
-      list.push(game);
-      grouped.set(game.userId, list);
-    }
-    return grouped;
-  }
+
 }
 
 export const storage = new DatabaseStorage();

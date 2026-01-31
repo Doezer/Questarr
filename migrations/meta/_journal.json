@@ -50,6 +50,13 @@
       "when": 1772821200000,
       "tag": "0006_hidden_not_null",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1771886598222,
+      "tag": "0006_cheerful_fantastic_four",
+      "breakpoints": true
     }
   ]
 }

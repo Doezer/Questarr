@@ -248,7 +248,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.get("/api/auth/me", authenticateToken, (req, res) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const user = req.user!;
     res.json({ id: user.id, username: user.username });
   });

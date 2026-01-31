@@ -628,7 +628,7 @@ async function checkXrelReleases() {
         rel,
         extTitleNorm,
         dirNorm,
-        dirLower: rel.dirname.toLowerCase().replace(/[._\-]/g, " "),
+        dirLower: rel.dirname.toLowerCase().replace(/[._-]/g, " "),
         extRegex,
       };
     });

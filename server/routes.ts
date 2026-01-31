@@ -1914,7 +1914,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         // Slow path: Fuzzy matching (inclusion, word-based)
-        const relDirLower = rel.dirname.toLowerCase().replace(/[._\-]/g, " ");
+        const relDirLower = rel.dirname.toLowerCase().replace(/[._-]/g, " ");
         const relExtRegex = relExtTitleNorm && relExtTitleNorm.length >= 5
           ? new RegExp(`\\b${relExtTitleNorm.replace(/[.*+?^${}()|[\\]/g, "\\$&")}\\b`, "i")
           : null;

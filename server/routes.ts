@@ -44,7 +44,7 @@ import { isSafeUrl } from "./ssrf.js";
 import { hashPassword, comparePassword, generateToken, authenticateToken } from "./auth.js";
 import { searchAllIndexers } from "./search.js";
 import { xrelClient, DEFAULT_XREL_BASE, ALLOWED_XREL_DOMAINS } from "./xrel.js";
-import { releaseMatchesGame, normalizeTitle, cleanReleaseName } from "../shared/title-utils.js";
+import { normalizeTitle, cleanReleaseName } from "../shared/title-utils.js";
 import archiver from "archiver";
 import { steamRoutes } from "./steam-routes.js";
 
@@ -1954,7 +1954,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         // Slow path: Fuzzy matching (inclusion, word-based)
-        const relDirLower = rel.dirname.toLowerCase().replace(/[._\-]/g, " ");
+        const relDirLower = rel.dirname.toLowerCase().replace(/[._-]/g, " ");
         const relExtRegex = relExtTitleNorm && relExtTitleNorm.length >= 5
           ? new RegExp(`\\b${relExtTitleNorm.replace(/[.*+?^${}()|[\\]/g, "\\$&")}\\b`, "i")
           : null;

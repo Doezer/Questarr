@@ -142,13 +142,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/auth/setup", async (req, res) => {
     try {
       // Atomic setup check and creation
-      /*
-      // Removed racy check:
       const userCount = await storage.countUsers();
       if (userCount > 0) {
         return res.status(403).json({ error: "Setup already completed" });
       }
-      */
+
 
       const { username, password, igdbClientId, igdbClientSecret } = req.body;
 
@@ -176,7 +174,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Create first user
       // Create first user atomically
       const passwordHash = await hashPassword(password);
-      
+
       let user;
       try {
         user = await storage.registerSetupUser({ username, passwordHash });
@@ -186,7 +184,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         throw error;
       }
-      
+
       const token = await generateToken(user);
 
       // Save IGDB creds if provided
@@ -361,8 +359,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
               results.errors.push(`Skipping ${idx.name || "unknown"} - missing required fields`);
               continue;
             }
-      
-            await storage.addIndexer(idx as any);
+
+            // Validate and sanitize using schema
+            const indexerData = insertIndexerSchema.parse(idx);
+            await storage.addIndexer(indexerData);
             results.added++;
           }
         } catch (error) {
@@ -462,7 +462,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     async (req: Request, res: Response) => {
       try {
         const { q, includeHidden } = req.query;
-  
+
         const userId = req.user!.id;
         const showHidden = includeHidden === "true";
 
@@ -488,7 +488,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     async (req: Request, res: Response) => {
       try {
         routesLogger.debug({ body: req.body }, "received game data");
-  
+
         const userId = req.user!.id;
         const gameData = insertGameSchema.parse({ ...req.body, userId });
 

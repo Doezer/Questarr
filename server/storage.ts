@@ -42,6 +42,8 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
   updateUserPassword(userId: string, passwordHash: string): Promise<User | undefined>;
   registerSetupUser(user: InsertUser): Promise<User>;
+  updateUserSteamId(userId: string, steamId: string): Promise<User | undefined>;
+  getAllUsers(): Promise<User[]>;
   countUsers(): Promise<number>;
 
   // Game methods
@@ -148,7 +150,7 @@ export class MemStorage implements IStorage {
 
   async createUser(insertUser: InsertUser): Promise<User> {
     const id = randomUUID();
-    const user: User = { ...insertUser, id };
+    const user: User = { ...insertUser, id, steamId64: null };
     this.users.set(id, user);
     return user;
   }
@@ -159,6 +161,18 @@ export class MemStorage implements IStorage {
     const updatedUser = { ...user, passwordHash };
     this.users.set(userId, updatedUser);
     return updatedUser;
+  }
+
+  async updateUserSteamId(userId: string, steamId: string): Promise<User | undefined> {
+    const user = this.users.get(userId);
+    if (!user) return undefined;
+    const updatedUser = { ...user, steamId64: steamId };
+    this.users.set(userId, updatedUser);
+    return updatedUser;
+  }
+
+  async getAllUsers(): Promise<User[]> {
+    return Array.from(this.users.values());
   }
 
   async countUsers(): Promise<number> {
@@ -259,6 +273,7 @@ export class MemStorage implements IStorage {
       developers: insertGame.developers || null,
       screenshots: insertGame.screenshots || null,
       igdbId: insertGame.igdbId || null,
+      steamAppId: insertGame.steamAppId || null,
       originalReleaseDate: insertGame.originalReleaseDate || null,
       releaseStatus: insertGame.releaseStatus || "upcoming",
       addedAt: new Date(),
@@ -556,6 +571,7 @@ export class MemStorage implements IStorage {
       lastAutoSearch: insertSettings.lastAutoSearch ?? null,
       xrelSceneReleases: insertSettings.xrelSceneReleases ?? true,
       xrelP2pReleases: insertSettings.xrelP2pReleases ?? false,
+      steamSyncFailures: 0,
       updatedAt: new Date(),
     };
     this.userSettings.set(id, settings);
@@ -646,6 +662,19 @@ export class DatabaseStorage implements IStorage {
       .where(eq(users.id, userId))
       .returning();
     return user;
+  }
+
+  async updateUserSteamId(userId: string, steamId: string): Promise<User | undefined> {
+    const [user] = await db
+      .update(users)
+      .set({ steamId64: steamId })
+      .where(eq(users.id, userId))
+      .returning();
+    return user;
+  }
+
+  async getAllUsers(): Promise<User[]> {
+    return db.select().from(users);
   }
 
   async countUsers(): Promise<number> {

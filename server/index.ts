@@ -9,10 +9,26 @@ import { expressLogger } from "./logger.js";
 import { startCronJobs } from "./cron.js";
 import { setupSocketIO } from "./socket.js";
 import { ensureDatabase } from "./migrate.js";
+import session from "express-session";
+import passport from "passport";
 
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
+
+// Setup Session (Required for Passport)
+app.use(session({
+    secret: process.env.SESSION_SECRET || 'questarr_session_secret',
+    resave: false,
+    saveUninitialized: false,
+    cookie: { 
+        secure: process.env.NODE_ENV === 'production', 
+        maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    }
+}));
+
+app.use(passport.initialize());
+app.use(passport.session());
 
 // Apply general rate limiting to all API routes
 app.use("/api", generalApiLimiter);

@@ -193,14 +193,18 @@ const CompactGameCard = ({
 
                     {/* Genres */}
                     <div className="flex flex-wrap gap-1 mt-1">
-                        {game.genres?.slice(0, 3).map((genre) => (
-                            <span
-                                key={genre}
-                                className="text-[10px] bg-muted px-1.5 py-0.5 rounded-sm"
-                            >
-                                {genre}
-                            </span>
-                        )) || <span className="text-[10px] text-muted-foreground">No genres</span>}
+                        {game.genres && game.genres.length > 0 ? (
+                            game.genres.slice(0, 3).map((genre) => (
+                                <span
+                                    key={genre}
+                                    className="text-[10px] bg-muted px-1.5 py-0.5 rounded-sm"
+                                >
+                                    {genre}
+                                </span>
+                            ))
+                        ) : (
+                            <span className="text-[10px] text-muted-foreground">No genres</span>
+                        )}
                     </div>
                 </div>
 

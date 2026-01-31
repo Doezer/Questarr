@@ -36,6 +36,7 @@ import PasswordSettings from "@/components/PasswordSettings";
 import type { Config, UserSettings, DownloadRules } from "@shared/schema";
 import { downloadRulesSchema } from "@shared/schema";
 import { useState, useEffect } from "react";
+import ImportSettings from "@/components/ImportSettings";
 
 export default function SettingsPage() {
   const { toast } = useToast();
@@ -319,6 +320,7 @@ export default function SettingsPage() {
             <TabsTrigger value="general">General</TabsTrigger>
             <TabsTrigger value="rules">Rules</TabsTrigger>
             <TabsTrigger value="services">Services</TabsTrigger>
+            <TabsTrigger value="import">Import</TabsTrigger>
             <TabsTrigger value="account">Account</TabsTrigger>
             <TabsTrigger value="system">System</TabsTrigger>
           </TabsList>
@@ -752,6 +754,10 @@ export default function SettingsPage() {
 
           <TabsContent value="account" className="space-y-6">
             <PasswordSettings />
+          </TabsContent>
+
+          <TabsContent value="import" className="space-y-6">
+            <ImportSettings />
           </TabsContent>
 
           <TabsContent value="system" className="space-y-6">

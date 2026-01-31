@@ -20,6 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import DisplaySettingsModal from "./DisplaySettingsModal";
+import PendingImportsCard from "./PendingImportsCard";
 
 export default function Dashboard() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -174,9 +175,9 @@ export default function Dashboard() {
     const avgYear =
       datedGames.length > 0
         ? Math.round(
-            datedGames.reduce((acc, g) => acc + new Date(g.releaseDate!).getFullYear(), 0) /
-              datedGames.length
-          )
+          datedGames.reduce((acc, g) => acc + new Date(g.releaseDate!).getFullYear(), 0) /
+          datedGames.length
+        )
         : "N/A";
 
     // Top Publisher
@@ -302,6 +303,7 @@ export default function Dashboard() {
         </div>
 
         <div className="space-y-4">
+          <PendingImportsCard />
           <h2 className="text-lg font-semibold">Recent Additions</h2>
           <SearchBar
             onSearch={handleSearch}

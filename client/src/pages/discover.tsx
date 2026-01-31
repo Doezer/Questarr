@@ -18,6 +18,10 @@ import {
 import { Button } from "@/components/ui/button";
 import DiscoverSettingsModal from "@/components/DiscoverSettingsModal";
 import { Link } from "wouter";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import RssFeedList from "@/components/RssFeedList";
+import RssSettings from "@/components/RssSettings";
+import { Rss } from "lucide-react";
 
 interface Genre {
   id: number;
@@ -530,141 +534,170 @@ export default function DiscoverPage() {
   return (
     <div className="h-full w-full overflow-x-hidden overflow-y-auto" data-testid="discover-page">
       <div className="p-6 space-y-8 max-w-full">
-        <div className="flex justify-between items-start">
-          <div>
-            <h1 className="text-2xl font-bold mb-2">Discover Games</h1>
-            <p className="text-muted-foreground">
-              Explore popular games, new releases, and find your next adventure
-            </p>
+        <Tabs defaultValue="igdb" className="space-y-6">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div>
+              <h1 className="text-2xl font-bold mb-2">Discover Games</h1>
+              <p className="text-muted-foreground">
+                Explore popular games, new releases, and find your next adventure
+              </p>
+            </div>
+
+            <TabsList>
+              <TabsTrigger value="igdb">IGDB Discovery</TabsTrigger>
+              <TabsTrigger value="rss" className="gap-2">
+                <Rss className="h-4 w-4" /> RSS Feeds
+              </TabsTrigger>
+            </TabsList>
           </div>
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={() => setShowSettings(true)}
-            aria-label="Discovery settings"
-          >
-            <Settings2 className="h-4 w-4" />
-          </Button>
-        </div>
 
-        <DiscoverSettingsModal
-          open={showSettings}
-          onOpenChange={setShowSettings}
-          hiddenGames={localGames.filter((g) => g.hidden)}
-          hideOwned={hideOwned}
-          onHideOwnedChange={setHideOwned}
-          hideWanted={hideWanted}
-          onHideWantedChange={setHideWanted}
-        />
-
-        {/* Popular Games Section */}
-        <GameCarouselSection
-          title="Popular Games"
-          queryKey={["/api/igdb/popular", hiddenIgdbIds.size, hideOwned, hideWanted]}
-          queryFn={fetchPopularGames}
-          onStatusChange={handleStatusChange}
-          onTrackGame={handleTrackGame}
-          onToggleHidden={handleToggleHidden}
-          isDiscovery={true}
-        />
-
-        {/* Recent Releases Section */}
-        <GameCarouselSection
-          title="Recent Releases"
-          queryKey={["/api/igdb/recent", hiddenIgdbIds.size, hideOwned, hideWanted]}
-          queryFn={fetchRecentGames}
-          onStatusChange={handleStatusChange}
-          onTrackGame={handleTrackGame}
-          onToggleHidden={handleToggleHidden}
-          isDiscovery={true}
-        />
-
-        {/* Upcoming Releases Section */}
-        <GameCarouselSection
-          title="Coming Soon"
-          queryKey={["/api/igdb/upcoming", hiddenIgdbIds.size, hideOwned, hideWanted]}
-          queryFn={fetchUpcomingGames}
-          onStatusChange={handleStatusChange}
-          onTrackGame={handleTrackGame}
-          onToggleHidden={handleToggleHidden}
-          isDiscovery={true}
-        />
-
-        {/* By Genre Section */}
-        <div className="space-y-4">
-          <div className="flex items-center gap-4">
-            <h2 className="text-xl font-semibold">By Genre</h2>
-            <Select value={selectedGenre} onValueChange={setSelectedGenre}>
-              <SelectTriggerWithSpinner
-                className="w-[180px]"
-                data-testid="select-genre"
-                loading={isFetchingGenres}
+          <TabsContent value="igdb" className="space-y-8">
+            <div className="flex justify-end">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={() => setShowSettings(true)}
+                aria-label="Discovery settings"
               >
-                <SelectValue placeholder="Select genre" />
-              </SelectTriggerWithSpinner>
-              <SelectContent>
-                {displayGenres.map((genre: Genre) => (
-                  <SelectItem key={genre.id} value={genre.name}>
-                    {genre.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <GameCarouselSection
-            title={`${selectedGenre} Games`}
-            queryKey={[
-              "/api/igdb/genre",
-              debouncedGenre,
-              hiddenIgdbIds.size,
-              hideOwned,
-              hideWanted,
-            ]}
-            queryFn={fetchGamesByGenre}
-            onStatusChange={handleStatusChange}
-            onTrackGame={handleTrackGame}
-            onToggleHidden={handleToggleHidden}
-            isDiscovery={true}
-          />
-        </div>
+                <Settings2 className="h-4 w-4" />
+                Discovery Settings
+              </Button>
+            </div>
 
-        {/* By Platform Section */}
-        <div className="space-y-4">
-          <div className="flex items-center gap-4">
-            <h2 className="text-xl font-semibold">By Platform</h2>
-            <Select value={selectedPlatform} onValueChange={setSelectedPlatform}>
-              <SelectTriggerWithSpinner
-                className="w-[180px]"
-                data-testid="select-platform"
-                loading={isFetchingPlatforms}
-              >
-                <SelectValue placeholder="Select platform" />
-              </SelectTriggerWithSpinner>
-              <SelectContent>
-                {displayPlatforms.map((platform: Platform) => (
-                  <SelectItem key={platform.id} value={platform.name}>
-                    {platform.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <GameCarouselSection
-            title={`${selectedPlatform} Games`}
-            queryKey={[
-              "/api/igdb/platform",
-              debouncedPlatform,
-              hiddenIgdbIds.size,
-              hideOwned,
-              hideWanted,
-            ]}
-            queryFn={fetchGamesByPlatform}
-            onStatusChange={handleStatusChange}
-            onTrackGame={handleTrackGame}
-            onToggleHidden={handleToggleHidden}
-            isDiscovery={true}
-          />
-        </div>
+            <DiscoverSettingsModal
+              open={showSettings}
+              onOpenChange={setShowSettings}
+              hiddenGames={localGames.filter((g) => g.hidden)}
+              hideOwned={hideOwned}
+              onHideOwnedChange={setHideOwned}
+              hideWanted={hideWanted}
+              onHideWantedChange={setHideWanted}
+            />
+
+            {/* Popular Games Section */}
+            <GameCarouselSection
+              title="Popular Games"
+              queryKey={["/api/igdb/popular", hiddenIgdbIds.size, hideOwned, hideWanted]}
+              queryFn={fetchPopularGames}
+              onStatusChange={handleStatusChange}
+              onTrackGame={handleTrackGame}
+              onToggleHidden={handleToggleHidden}
+              isDiscovery={true}
+            />
+
+            {/* Recent Releases Section */}
+            <GameCarouselSection
+              title="Recent Releases"
+              queryKey={["/api/igdb/recent", hiddenIgdbIds.size, hideOwned, hideWanted]}
+              queryFn={fetchRecentGames}
+              onStatusChange={handleStatusChange}
+              onTrackGame={handleTrackGame}
+              onToggleHidden={handleToggleHidden}
+              isDiscovery={true}
+            />
+
+            {/* Upcoming Releases Section */}
+            <GameCarouselSection
+              title="Coming Soon"
+              queryKey={["/api/igdb/upcoming", hiddenIgdbIds.size, hideOwned, hideWanted]}
+              queryFn={fetchUpcomingGames}
+              onStatusChange={handleStatusChange}
+              onTrackGame={handleTrackGame}
+              onToggleHidden={handleToggleHidden}
+              isDiscovery={true}
+            />
+
+            {/* By Genre Section */}
+            <div className="space-y-4">
+              <div className="flex items-center gap-4">
+                <h2 className="text-xl font-semibold">By Genre</h2>
+                <Select value={selectedGenre} onValueChange={setSelectedGenre}>
+                  <SelectTriggerWithSpinner
+                    className="w-[180px]"
+                    data-testid="select-genre"
+                    loading={isFetchingGenres}
+                  >
+                    <SelectValue placeholder="Select genre" />
+                  </SelectTriggerWithSpinner>
+                  <SelectContent>
+                    {displayGenres.map((genre: Genre) => (
+                      <SelectItem key={genre.id} value={genre.name}>
+                        {genre.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <GameCarouselSection
+                title={`${selectedGenre} Games`}
+                queryKey={[
+                  "/api/igdb/genre",
+                  debouncedGenre,
+                  hiddenIgdbIds.size,
+                  hideOwned,
+                  hideWanted,
+                ]}
+                queryFn={fetchGamesByGenre}
+                onStatusChange={handleStatusChange}
+                onTrackGame={handleTrackGame}
+                onToggleHidden={handleToggleHidden}
+                isDiscovery={true}
+              />
+            </div>
+
+            {/* By Platform Section */}
+            <div className="space-y-4">
+              <div className="flex items-center gap-4">
+                <h2 className="text-xl font-semibold">By Platform</h2>
+                <Select value={selectedPlatform} onValueChange={setSelectedPlatform}>
+                  <SelectTriggerWithSpinner
+                    className="w-[180px]"
+                    data-testid="select-platform"
+                    loading={isFetchingPlatforms}
+                  >
+                    <SelectValue placeholder="Select platform" />
+                  </SelectTriggerWithSpinner>
+                  <SelectContent>
+                    {displayPlatforms.map((platform: Platform) => (
+                      <SelectItem key={platform.id} value={platform.name}>
+                        {platform.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <GameCarouselSection
+                title={`${selectedPlatform} Games`}
+                queryKey={[
+                  "/api/igdb/platform",
+                  debouncedPlatform,
+                  hiddenIgdbIds.size,
+                  hideOwned,
+                  hideWanted,
+                ]}
+                queryFn={fetchGamesByPlatform}
+                onStatusChange={handleStatusChange}
+                onTrackGame={handleTrackGame}
+                onToggleHidden={handleToggleHidden}
+                isDiscovery={true}
+              />
+            </div>
+          </TabsContent>
+
+          <TabsContent value="rss" className="space-y-6">
+            <div className="flex justify-between items-center bg-muted/30 p-4 rounded-lg">
+              <div>
+                <h3 className="font-semibold">RSS Feed Discovery</h3>
+                <p className="text-sm text-muted-foreground">
+                  Track releases from your favorite sites.
+                </p>
+              </div>
+              <RssSettings />
+            </div>
+            <RssFeedList />
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );

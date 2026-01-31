@@ -1,4 +1,4 @@
-import { normalizeTitle, titleMatches } from "../shared/title-utils.js";
+import { titleMatches } from "../shared/title-utils.js";
 
 /**
  * xREL.to API client (no official Node SDK).
@@ -278,7 +278,7 @@ export async function getLatestGames(options: {
   const allGames: XrelReleaseListItem[] = [];
   let apiPage = 1;
   let totalApiPages = 1;
-  let totalCountEstimate = 0;
+
 
   // Fetch up to 5 pages of 100 items to find enough games
   // This helps populate the requested page of games regardless of release density
@@ -288,10 +288,10 @@ export async function getLatestGames(options: {
       perPage: 100,
       baseUrl: options.baseUrl
     });
-    
+
     allGames.push(...result.list);
     totalApiPages = result.pagination.total_pages;
-    totalCountEstimate = result.total_count; // This is total releases, not total games
+    // totalCountEstimate = result.total_count; // This is total releases, not total games
     apiPage++;
 
     // If we're finding very few games, don't loop forever
@@ -299,7 +299,7 @@ export async function getLatestGames(options: {
   }
 
   const list = allGames.slice(targetOffset, targetLimit);
-  
+
   return {
     list,
     pagination: {
@@ -308,12 +308,12 @@ export async function getLatestGames(options: {
       total_pages: Math.ceil(allGames.length / perPage) + (apiPage <= totalApiPages ? 1 : 0)
     },
     total_count: allGames.length
-    };
-  }
-  
-  export const xrelClient = {
-    searchReleases,
-    getLatestReleases,
-    getLatestGames,
-    titleMatches,
   };
+}
+
+export const xrelClient = {
+  searchReleases,
+  getLatestReleases,
+  getLatestGames,
+  titleMatches,
+};

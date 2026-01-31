@@ -385,3 +385,60 @@ export interface SearchResult {
   offset?: number;
   errors?: string[];
 }
+
+export const rssFeeds = sqliteTable("rss_feeds", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  url: text("url").notNull(),
+  type: text("type").notNull().default("custom"), // 'preset' or 'custom'
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  mapping: text("mapping", { mode: "json" }).$type<{ titleField?: string; linkField?: string }>(),
+  lastCheck: integer("last_check", { mode: "timestamp" }),
+  status: text("status").default("ok"), // 'ok' or 'error'
+  errorMessage: text("error_message"),
+  createdAt: integer("created_at", { mode: "timestamp" }).default(
+    sql`(strftime('%s', 'now') * 1000)`
+  ),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).default(
+    sql`(strftime('%s', 'now') * 1000)`
+  ),
+});
+
+export const rssFeedItems = sqliteTable("rss_feed_items", {
+  id: text("id").primaryKey(),
+  feedId: text("feed_id")
+    .notNull()
+    .references(() => rssFeeds.id, { onDelete: "cascade" }),
+  guid: text("guid").notNull(),
+  title: text("title").notNull(),
+  link: text("link").notNull(),
+  pubDate: integer("pub_date", { mode: "timestamp" }),
+  sourceName: text("source_name"),
+  igdbGameId: integer("igdb_game_id"),
+  igdbGameName: text("igdb_game_name"),
+  coverUrl: text("cover_url"),
+  createdAt: integer("created_at", { mode: "timestamp" }).default(
+    sql`(strftime('%s', 'now') * 1000)`
+  ),
+});
+
+export const insertRssFeedSchema = createInsertSchema(rssFeeds).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  lastCheck: true,
+  status: true,
+  errorMessage: true,
+});
+
+export const insertRssFeedItemSchema = createInsertSchema(rssFeedItems).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type RssFeed = typeof rssFeeds.$inferSelect;
+export type InsertRssFeed = (typeof insertRssFeedSchema)["_output"];
+
+export type RssFeedItem = typeof rssFeedItems.$inferSelect;
+export type InsertRssFeedItem = (typeof insertRssFeedItemSchema)["_output"];
+

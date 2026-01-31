@@ -5,7 +5,7 @@ import { notifyUser } from "./socket.js";
 import { DownloaderManager } from "./downloaders.js";
 import { searchAllIndexers } from "./search.js";
 import { xrelClient, DEFAULT_XREL_BASE } from "./xrel.js";
-import { type Game } from "../shared/schema.js";
+
 import { downloadRulesSchema } from "../shared/schema.js";
 import { categorizeDownload } from "../shared/download-categorizer.js";
 import { releaseMatchesGame, normalizeTitle, cleanReleaseName } from "../shared/title-utils.js";

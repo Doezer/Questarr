@@ -29,14 +29,14 @@ const RELEASE_TAGS = [
   /\b(goty|deluxe|complete|gold|ultimate|collectors|definitive|remastered|remake|remaster)\b/i,
 ];
 
-const VERSION_REGEX = /\b(v\d+([\.\s-]\d+)*|build[\.\s-]\d+)\b/i;
+const VERSION_REGEX = /\b(v\d+([.\s-]\d+)*|build[.\s-]\d+)\b/i;
 
 /**
  * Cleans a release name (e.g. from a torrent or NZB) to attempt to extract the base game title.
  */
 export function cleanReleaseName(releaseName: string): string {
   // First, handle content in brackets or parentheses that often contains metadata
-  let cleaned = releaseName.replace(/[\[\({][^\]\)}]*[\]\)}]/g, (match) => {
+  let cleaned = releaseName.replace(/[[({][^\])}]*[\])}]/g, (match) => {
     // If the bracketed content contains known tags or is mostly numeric (like a build ID), remove it
     const inner = match.slice(1, -1).toLowerCase();
     const hasTag = RELEASE_TAGS.some(tag => tag.test(inner)) || VERSION_REGEX.test(inner);
@@ -45,8 +45,8 @@ export function cleanReleaseName(releaseName: string): string {
     return match; // Keep it if it might be part of the title (e.g. "Game (Special Edition)")
   });
 
-  cleaned = cleaned.replace(/[._\-]/g, " "); // Replace dots, underscores, dashes with space
-  
+  cleaned = cleaned.replace(/[._-]/g, " "); // Replace dots, underscores, dashes with space
+
   // Remove common release group suffixes (usually -GROUP at the end)
   cleaned = cleaned.replace(/\s-\s?\w+$/g, "");
   cleaned = cleaned.replace(/-(\w+)$/g, " ");
@@ -66,7 +66,7 @@ export function cleanReleaseName(releaseName: string): string {
   });
 
   // Final cleanup of extra symbols and spaces
-  return cleaned.replace(/[\[\]\(\)]/g, " ").replace(/\s+/g, " ").trim();
+  return cleaned.replace(/[[\\]()]/g, " ").replace(/\s+/g, " ").trim();
 }
 
 /**
@@ -103,7 +103,7 @@ export function releaseMatchesGame(releaseName: string, gameTitle: string): bool
   const gameWords = normalizeTitle(gameTitle).split(" ").filter(w => w.length > 2);
   if (gameWords.length === 0) return false;
 
-  const normalizedRelease = releaseName.toLowerCase().replace(/[._\-]/g, " ");
+  const normalizedRelease = releaseName.toLowerCase().replace(/[._-]/g, " ");
   return gameWords.every(word => normalizedRelease.includes(word));
 }
 
@@ -122,7 +122,7 @@ export interface ReleaseMetadata {
  */
 export function parseReleaseMetadata(releaseName: string): ReleaseMetadata {
   const cleaned = releaseName.replace(/[._]/g, " ");
-  
+
   // 1. Extract Group (usually after the last dash)
   // More robust group detection: some releases use [Group] at start or end, or -Group at end
   let group: string | undefined;
@@ -133,10 +133,10 @@ export function parseReleaseMetadata(releaseName: string): ReleaseMetadata {
     const bracketMatch = releaseName.match(/^\[(\w+)\]/);
     if (bracketMatch) group = bracketMatch[1];
   }
-  
+
   // 2. Extract Version
   // Handles v1.0, v1 0, v1-0, build.123, etc.
-  const versionMatch = cleaned.match(/\b(v\d+([\.\s-]\d+)*|build[\.\s-]\d+)\b/i);
+  const versionMatch = cleaned.match(/\b(v\d+([.\s-]\d+)*|build[.\s-]\d+)\b/i);
   const version = versionMatch ? versionMatch[0].replace(/[\s-]/g, ".") : undefined;
 
   // 3. Extract Languages

@@ -9,6 +9,7 @@ import { expressLogger } from "./logger.js";
 import { startCronJobs } from "./cron.js";
 import { setupSocketIO } from "./socket.js";
 import { ensureDatabase } from "./migrate.js";
+import { rssService } from "./rss.js";
 
 const app = express();
 app.use(express.json());
@@ -77,6 +78,9 @@ app.use((req, res, next) => {
   try {
     // Ensure database is ready before starting server
     await ensureDatabase();
+
+    // Initialize RSS service (seeding default feeds)
+    await rssService.initialize();
 
     const server = await registerRoutes(app);
 

@@ -17,6 +17,10 @@ import {
   type UpdateUserSettings,
   type XrelNotifiedRelease,
   type InsertXrelNotifiedRelease,
+  type RssFeed,
+  type InsertRssFeed,
+  type RssFeedItem,
+  type InsertRssFeedItem,
   users,
   games,
   indexers,
@@ -26,6 +30,8 @@ import {
   userSettings,
   systemConfig,
   xrelNotifiedReleases,
+  rssFeeds,
+  rssFeedItems,
 } from "../shared/schema.js";
 import { randomUUID } from "crypto";
 import { db } from "./db.js";
@@ -91,7 +97,20 @@ export interface IStorage {
   addNotification(notification: InsertNotification): Promise<Notification>;
   markNotificationAsRead(id: string): Promise<Notification | undefined>;
   markAllNotificationsAsRead(): Promise<void>;
-  clearAllNotifications(): Promise<void>;
+  // RSS Feed methods
+  getAllRssFeeds(): Promise<RssFeed[]>;
+  getRssFeed(id: string): Promise<RssFeed | undefined>;
+  addRssFeed(feed: InsertRssFeed): Promise<RssFeed>;
+  updateRssFeed(id: string, updates: Partial<RssFeed>): Promise<RssFeed | undefined>;
+  removeRssFeed(id: string): Promise<boolean>;
+  getRssFeedItems(feedId: string): Promise<RssFeedItem[]>;
+  getAllRssFeedItems(limit?: number): Promise<RssFeedItem[]>;
+  addRssFeedItem(item: InsertRssFeedItem): Promise<RssFeedItem>;
+  getRssFeedItemByGuid(guid: string): Promise<RssFeedItem | undefined>;
+  updateRssFeedItem(
+    id: string,
+    updates: Partial<InsertRssFeedItem>
+  ): Promise<RssFeedItem | undefined>;
 
   // UserSettings methods
   getUserSettings(userId: string): Promise<UserSettings | undefined>;
@@ -118,6 +137,8 @@ export class MemStorage implements IStorage {
   private userSettings: Map<string, UserSettings>;
   private systemConfig: Map<string, string>;
   private xrelNotified: Map<string, XrelNotifiedRelease>;
+  private rssFeeds: Map<string, RssFeed>;
+  private rssFeedItems: Map<string, RssFeedItem>;
 
   constructor() {
     this.users = new Map();
@@ -129,6 +150,8 @@ export class MemStorage implements IStorage {
     this.userSettings = new Map();
     this.systemConfig = new Map();
     this.xrelNotified = new Map();
+    this.rssFeeds = new Map();
+    this.rssFeedItems = new Map();
   }
 
   // System Config methods
@@ -604,6 +627,88 @@ export class MemStorage implements IStorage {
 
   async clearAllNotifications(): Promise<void> {
     this.notifications.clear();
+  }
+
+  // RSS Feed methods
+  async getAllRssFeeds(): Promise<RssFeed[]> {
+    return Array.from(this.rssFeeds.values());
+  }
+
+  async getRssFeed(id: string): Promise<RssFeed | undefined> {
+    return this.rssFeeds.get(id);
+  }
+
+  async addRssFeed(feed: InsertRssFeed): Promise<RssFeed> {
+    const id = randomUUID();
+    const newFeed: RssFeed = {
+      ...feed,
+      id,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      lastCheck: null,
+      status: "ok",
+      errorMessage: null,
+      type: feed.type || "custom",
+      enabled: feed.enabled ?? true,
+      mapping: feed.mapping || null,
+    };
+    this.rssFeeds.set(id, newFeed);
+    return newFeed;
+  }
+
+  async updateRssFeed(id: string, updates: Partial<RssFeed>): Promise<RssFeed | undefined> {
+    const feed = this.rssFeeds.get(id);
+    if (!feed) return undefined;
+    const updatedFeed = { ...feed, ...updates, updatedAt: new Date() };
+    this.rssFeeds.set(id, updatedFeed);
+    return updatedFeed;
+  }
+
+  async removeRssFeed(id: string): Promise<boolean> {
+    return this.rssFeeds.delete(id);
+  }
+
+  async getRssFeedItems(feedId: string): Promise<RssFeedItem[]> {
+    return Array.from(this.rssFeedItems.values())
+      .filter((item) => item.feedId === feedId)
+      .sort((a, b) => (b.pubDate?.getTime() ?? 0) - (a.pubDate?.getTime() ?? 0));
+  }
+
+  async getAllRssFeedItems(limit: number = 100): Promise<RssFeedItem[]> {
+    return Array.from(this.rssFeedItems.values())
+      .sort((a, b) => (b.pubDate?.getTime() ?? 0) - (a.pubDate?.getTime() ?? 0))
+      .slice(0, limit);
+  }
+
+  async addRssFeedItem(item: InsertRssFeedItem): Promise<RssFeedItem> {
+    const id = randomUUID();
+    const newItem: RssFeedItem = {
+      ...item,
+      id,
+      createdAt: new Date(),
+      igdbGameId: item.igdbGameId ?? null,
+      igdbGameName: item.igdbGameName ?? null,
+      coverUrl: item.coverUrl ?? null,
+      pubDate: item.pubDate ?? null,
+      sourceName: item.sourceName ?? null,
+    };
+    this.rssFeedItems.set(id, newItem);
+    return newItem;
+  }
+
+  async getRssFeedItemByGuid(guid: string): Promise<RssFeedItem | undefined> {
+    return Array.from(this.rssFeedItems.values()).find((item) => item.guid === guid);
+  }
+
+  async updateRssFeedItem(
+    id: string,
+    updates: Partial<InsertRssFeedItem>
+  ): Promise<RssFeedItem | undefined> {
+    const item = this.rssFeedItems.get(id);
+    if (!item) return undefined;
+    const updatedItem = { ...item, ...updates };
+    this.rssFeedItems.set(id, updatedItem);
+    return updatedItem;
   }
 
   // UserSettings methods
@@ -1158,6 +1263,81 @@ export class DatabaseStorage implements IStorage {
     await db.delete(notifications);
   }
 
+  // RSS Feed methods
+  async getAllRssFeeds(): Promise<RssFeed[]> {
+    return db.select().from(rssFeeds);
+  }
+
+  async getRssFeed(id: string): Promise<RssFeed | undefined> {
+    const [feed] = await db.select().from(rssFeeds).where(eq(rssFeeds.id, id));
+    return feed;
+  }
+
+  async addRssFeed(feed: InsertRssFeed): Promise<RssFeed> {
+    const id = randomUUID();
+    const [newFeed] = await db
+      .insert(rssFeeds)
+      .values({ ...feed, id })
+      .returning();
+    return newFeed;
+  }
+
+  async updateRssFeed(id: string, updates: Partial<RssFeed>): Promise<RssFeed | undefined> {
+    const [updated] = await db
+      .update(rssFeeds)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(rssFeeds.id, id))
+      .returning();
+    return updated;
+  }
+
+  async removeRssFeed(id: string): Promise<boolean> {
+    const [deleted] = await db.delete(rssFeeds).where(eq(rssFeeds.id, id)).returning();
+    return !!deleted;
+  }
+
+  async getRssFeedItems(feedId: string): Promise<RssFeedItem[]> {
+    return db
+      .select()
+      .from(rssFeedItems)
+      .where(eq(rssFeedItems.feedId, feedId))
+      .orderBy(desc(rssFeedItems.pubDate));
+  }
+
+  async getAllRssFeedItems(limit: number = 100): Promise<RssFeedItem[]> {
+    return db
+      .select()
+      .from(rssFeedItems)
+      .orderBy(desc(rssFeedItems.pubDate))
+      .limit(limit);
+  }
+
+  async addRssFeedItem(item: InsertRssFeedItem): Promise<RssFeedItem> {
+    const id = randomUUID();
+    const [newItem] = await db
+      .insert(rssFeedItems)
+      .values({ ...item, id })
+      .returning();
+    return newItem;
+  }
+
+  async getRssFeedItemByGuid(guid: string): Promise<RssFeedItem | undefined> {
+    const [item] = await db.select().from(rssFeedItems).where(eq(rssFeedItems.guid, guid));
+    return item;
+  }
+
+  async updateRssFeedItem(
+    id: string,
+    updates: Partial<InsertRssFeedItem>
+  ): Promise<RssFeedItem | undefined> {
+    const [updated] = await db
+      .update(rssFeedItems)
+      .set(updates)
+      .where(eq(rssFeedItems.id, id))
+      .returning();
+    return updated;
+  }
+
   // UserSettings methods
   async getUserSettings(userId: string): Promise<UserSettings | undefined> {
     const [settings] = await db.select().from(userSettings).where(eq(userSettings.userId, userId));
@@ -1213,6 +1393,7 @@ export class DatabaseStorage implements IStorage {
       .from(xrelNotifiedReleases);
     return rows.map((r) => r.gameId);
   }
+
 }
 
 export const storage = new DatabaseStorage();

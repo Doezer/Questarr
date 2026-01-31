@@ -1,4 +1,4 @@
-import React, { memo, useState, useRef, useEffect } from "react";
+import React, { memo, useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Download, Info, Star, Calendar, Eye, EyeOff, Loader2 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";

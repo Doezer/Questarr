@@ -9,7 +9,9 @@ import {
 
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
-import { LayoutGrid, EyeOff } from "lucide-react";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { LayoutGrid, EyeOff, List } from "lucide-react";
+import { Label } from "@/components/ui/label";
 
 interface DisplaySettingsModalProps {
   open: boolean;
@@ -18,6 +20,8 @@ interface DisplaySettingsModalProps {
   onGridColumnsChange: (columns: number) => void;
   showHiddenGames: boolean;
   onShowHiddenGamesChange: (show: boolean) => void;
+  viewMode?: "grid" | "list";
+  onViewModeChange?: (mode: "grid" | "list") => void;
 }
 
 export default function DisplaySettingsModal({
@@ -27,6 +31,8 @@ export default function DisplaySettingsModal({
   onGridColumnsChange,
   showHiddenGames,
   onShowHiddenGamesChange,
+  viewMode = "grid",
+  onViewModeChange,
 }: DisplaySettingsModalProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -35,8 +41,31 @@ export default function DisplaySettingsModal({
           <DialogTitle>Display Settings</DialogTitle>
           <DialogDescription>Customize how your game library is displayed.</DialogDescription>
         </DialogHeader>
-        <div className="grid gap-4 py-4">
-          <div className="space-y-4">
+        <div className="grid gap-6 py-4">
+          {onViewModeChange && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <Label>View Mode</Label>
+              </div>
+              <ToggleGroup
+                type="single"
+                value={viewMode}
+                onValueChange={(value) => value && onViewModeChange(value as "grid" | "list")}
+                className="justify-start"
+              >
+                <ToggleGroupItem value="grid" aria-label="Grid View">
+                  <LayoutGrid className="h-4 w-4 mr-2" />
+                  Grid
+                </ToggleGroupItem>
+                <ToggleGroupItem value="list" aria-label="List View">
+                  <List className="h-4 w-4 mr-2" />
+                  List
+                </ToggleGroupItem>
+              </ToggleGroup>
+            </div>
+          )}
+
+          <div className={`space-y-4 ${viewMode === 'list' ? 'opacity-50 pointer-events-none' : ''}`}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-sm font-medium">
                 <LayoutGrid className="w-4 h-4" />
@@ -52,6 +81,7 @@ export default function DisplaySettingsModal({
                 max={10}
                 step={1}
                 className="flex-1"
+                disabled={viewMode === 'list'}
               />
             </div>
             <p className="text-xs text-muted-foreground">

@@ -122,8 +122,8 @@ class IGDBClient {
   // Request queueing properties
   private requestQueue: Promise<void> = Promise.resolve();
   private lastRequestTime: number = 0;
-  // IGDB limit is ~4 req/s. 250ms is 4 req/s. Use 300ms to be safe (~3.33 req/s).
-  private readonly MIN_REQUEST_INTERVAL = 300;
+  // Disable throttling in test environment
+  private readonly MIN_REQUEST_INTERVAL = config.server.nodeEnv === "test" ? 0 : 300;
 
   private async queueRequest<T>(fn: () => Promise<T>): Promise<T> {
     return new Promise<T>((resolve, reject) => {

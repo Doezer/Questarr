@@ -141,11 +141,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/auth/setup", async (req, res) => {
     try {
-      // Check if setup already completed
+      // Atomic setup check and creation
       const userCount = await storage.countUsers();
       if (userCount > 0) {
         return res.status(403).json({ error: "Setup already completed" });
       }
+
 
       const { username, password, igdbClientId, igdbClientSecret } = req.body;
 
@@ -171,8 +172,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Create first user
+      // Create first user atomically
       const passwordHash = await hashPassword(password);
-      const user = await storage.createUser({ username, passwordHash });
+
+      let user;
+      try {
+        user = await storage.registerSetupUser({ username, passwordHash });
+      } catch (error) {
+        if (error instanceof Error && error.message === "Setup already completed") {
+          return res.status(403).json({ error: "Setup already completed" });
+        }
+        throw error;
+      }
+
       const token = await generateToken(user);
 
       // Save IGDB creds if provided
@@ -215,7 +227,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/auth/me", authenticateToken, (req, res) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const user = (req as any).user;
+    const user = req.user!;
     res.json({ id: user.id, username: user.username });
   });
 
@@ -347,8 +359,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
               results.errors.push(`Skipping ${idx.name || "unknown"} - missing required fields`);
               continue;
             }
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            await storage.addIndexer(idx as any);
+
+            // Validate and sanitize using schema
+            const indexerData = insertIndexerSchema.parse(idx);
+            await storage.addIndexer(indexerData);
             results.added++;
           }
         } catch (error) {
@@ -404,8 +418,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/games", authenticateToken, async (req, res) => {
     try {
       const { search, includeHidden } = req.query;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const userId = (req as any).user.id;
+
+      const userId = req.user!.id;
       const showHidden = includeHidden === "true";
 
       let games;
@@ -427,8 +441,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { status } = req.params;
       const { includeHidden } = req.query;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const userId = (req as any).user.id;
+
+      const userId = req.user!.id;
       const showHidden = includeHidden === "true";
 
       const games = await storage.getUserGamesByStatus(userId, status, showHidden);
@@ -448,8 +462,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     async (req: Request, res: Response) => {
       try {
         const { q, includeHidden } = req.query;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const userId = (req as any).user.id;
+
+        const userId = req.user!.id;
         const showHidden = includeHidden === "true";
 
         if (!q || typeof q !== "string") {
@@ -474,8 +488,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     async (req: Request, res: Response) => {
       try {
         routesLogger.debug({ body: req.body }, "received game data");
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const userId = (req as any).user.id;
+
+        const userId = req.user!.id;
         const gameData = insertGameSchema.parse({ ...req.body, userId });
 
         const userGames = await storage.getUserGames(userId, true); // Check against all games including hidden
@@ -557,8 +571,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Refresh metadata for all games
   app.post("/api/games/refresh-metadata", authenticateToken, async (req, res) => {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const userId = (req as any).user.id;
+
+      const userId = req.user!.id;
       const userGames = await storage.getUserGames(userId, true);
 
       routesLogger.info({ userId, gameCount: userGames.length }, "starting metadata refresh");

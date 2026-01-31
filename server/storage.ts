@@ -41,6 +41,7 @@ export interface IStorage {
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   updateUserPassword(userId: string, passwordHash: string): Promise<User | undefined>;
+  registerSetupUser(user: InsertUser): Promise<User>;
   countUsers(): Promise<number>;
 
   // Game methods
@@ -162,6 +163,16 @@ export class MemStorage implements IStorage {
 
   async countUsers(): Promise<number> {
     return this.users.size;
+  }
+
+  async registerSetupUser(insertUser: InsertUser): Promise<User> {
+    if (this.users.size > 0) {
+      throw new Error("Setup already completed");
+    }
+    const id = randomUUID();
+    const user: User = { ...insertUser, id };
+    this.users.set(id, user);
+    return user;
   }
 
   // Game methods
@@ -640,6 +651,26 @@ export class DatabaseStorage implements IStorage {
   async countUsers(): Promise<number> {
     const [result] = await db.select({ count: sql<number>`count(*)` }).from(users);
     return result.count;
+  }
+
+  async registerSetupUser(insertUser: InsertUser): Promise<User> {
+    return await db.transaction(async (tx) => {
+      const [result] = await tx
+        .select({ count: sql<number>`count(*)` })
+        .from(users);
+
+      if (result.count > 0) {
+        throw new Error("Setup already completed");
+      }
+
+      // Manually generate UUID for SQLite
+      const id = randomUUID();
+      const [user] = await tx
+        .insert(users)
+        .values({ ...insertUser, id })
+        .returning();
+      return user;
+    });
   }
 
   // Game methods

@@ -11,7 +11,7 @@ export const igdbRateLimiter = rateLimit({
   max: async (req: Request) => {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const userId = (req as any).user?.id;
+      const userId = req.user?.id;
       if (!userId) {
         return 20; // Default for unauthenticated requests
       }

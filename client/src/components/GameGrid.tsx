@@ -102,7 +102,7 @@ export default function GameGrid({
             game={game}
             onStatusChange={onStatusChange}
             onViewDetails={onViewDetails}
-            onTrackGame={onTrackGame}
+
             onToggleHidden={onToggleHidden}
             isDiscovery={isDiscovery}
           />

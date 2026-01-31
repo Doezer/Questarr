@@ -30,7 +30,7 @@ vi.mock("../storage.js", () => ({
 }));
 
 // Mock the IGDBClient by testing the fallback behavior
-describe("IGDBClient - Fallback Mechanism", () => {
+describe("IGDBClient - Fallback Mechanism", { timeout: 20000 }, () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {

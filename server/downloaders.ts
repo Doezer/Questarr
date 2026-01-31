@@ -3306,7 +3306,7 @@ class SABnzbdClient implements DownloaderClient {
 
   private getApiUrl(mode: string, params: Record<string, string> = {}): string {
     const baseUrl = this.getBaseUrl();
-    
+
     let apiPath = "/api";
     if (this.downloader.urlPath) {
       const path = this.downloader.urlPath.startsWith("/")
@@ -3335,9 +3335,9 @@ class SABnzbdClient implements DownloaderClient {
         error instanceof Error &&
         (error.message.includes("self-signed") ||
           error.message.includes("certificate") ||
-          (error.cause as any)?.code === "DEPTH_ZERO_SELF_SIGNED_CERT" ||
-          (error.cause as any)?.code === "UNABLE_TO_VERIFY_LEAF_SIGNATURE" ||
-          (error.cause as any)?.code === "CERT_HAS_EXPIRED");
+          (error.cause as { code: string })?.code === "DEPTH_ZERO_SELF_SIGNED_CERT" ||
+          (error.cause as { code: string })?.code === "UNABLE_TO_VERIFY_LEAF_SIGNATURE" ||
+          (error.cause as { code: string })?.code === "CERT_HAS_EXPIRED");
 
       if (isSslError) {
         downloadersLogger.warn({ url }, "SSL verification failed, retrying with insecure connection");
@@ -3353,7 +3353,7 @@ class SABnzbdClient implements DownloaderClient {
         url,
         {
           method: options.method || "GET",
-          headers: options.headers as any,
+          headers: options.headers as unknown as import("http").OutgoingHttpHeaders,
           rejectUnauthorized: false,
           timeout: 30000,
         },

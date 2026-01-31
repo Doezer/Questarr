@@ -130,8 +130,7 @@ describe("RSS Routes", () => {
             const res = await request(app).post("/api/rss/feeds").send(invalidFeed);
 
             if (res.status !== 400 || !res.body.error) {
-                console.log("DEBUG: Status:", res.status);
-                console.log("DEBUG: Body:", JSON.stringify(res.body, null, 2));
+                // Debug logging removed
             }
 
             expect(res.status).toBe(400);

@@ -21,6 +21,7 @@ vi.mock("../db", () => ({
 
 describe("DatabaseStorage - syncIndexers", () => {
     let storage: DatabaseStorage;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let mockTx: any;
 
     beforeEach(async () => {
@@ -39,6 +40,7 @@ describe("DatabaseStorage - syncIndexers", () => {
 
         // Re-import to ensure fresh mock
         const { db } = await import("../db");
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (db.transaction as any).mockImplementation((cb: any) => cb(mockTx));
 
         storage = new DatabaseStorage();

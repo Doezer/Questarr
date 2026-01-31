@@ -7,7 +7,7 @@ import { userSettings } from "../shared/schema.js";
 // Configuration constants for search limits
 const MAX_SEARCH_ATTEMPTS = 5;
 
-interface IGDBGame {
+export interface IGDBGame {
   id: number;
   name: string;
   summary?: string;

@@ -36,7 +36,7 @@ describe("RssService", () => {
       mapping: null,
     };
 
-    vi.mocked(storage.getAllRssFeeds).mockResolvedValue([mockFeed] as unknown as any);
+    vi.mocked(storage.getAllRssFeeds).mockResolvedValue([mockFeed] as unknown as import("../../shared/schema").RssFeed[]);
     vi.mocked(storage.getRssFeedItemByGuid).mockResolvedValue(undefined); // Item doesn't exist
 
     mocks.parseURL.mockResolvedValue({
@@ -55,7 +55,7 @@ describe("RssService", () => {
         id: 123,
         name: "My Game",
         cover: { id: 1, url: "//images.igdb.com/igdb/image/upload/t_thumb/123.jpg" },
-      } as unknown as any,
+      } as unknown as import("../igdb").IGDBGame,
     ]);
 
     await rssService.refreshFeeds();
@@ -85,7 +85,7 @@ describe("RssService", () => {
       enabled: true,
     };
 
-    vi.mocked(storage.getAllRssFeeds).mockResolvedValue([mockFeed] as unknown as any);
+    vi.mocked(storage.getAllRssFeeds).mockResolvedValue([mockFeed] as unknown as import("../../shared/schema").RssFeed[]);
     mocks.parseURL.mockRejectedValue(new Error("Parsing failed"));
 
     await rssService.refreshFeeds();
@@ -108,7 +108,7 @@ describe("RssService", () => {
       mapping: { titleField: "customTitle", linkField: "customLink" },
     };
 
-    vi.mocked(storage.getAllRssFeeds).mockResolvedValue([mockFeed] as unknown as any);
+    vi.mocked(storage.getAllRssFeeds).mockResolvedValue([mockFeed] as unknown as import("../../shared/schema").RssFeed[]);
 
     mocks.parseURL.mockResolvedValue({
       items: [
@@ -131,8 +131,8 @@ describe("RssService", () => {
   });
 
   it("should use cache for IGDB lookups", async () => {
-    const mockFeed = { id: "feed-1", url: "url", enabled: true };
-    vi.mocked(storage.getAllRssFeeds).mockResolvedValue([mockFeed] as unknown as any);
+    const mockFeed = { id: "feed-1", url: "url", enabled: true } as import("../../shared/schema").RssFeed;
+    vi.mocked(storage.getAllRssFeeds).mockResolvedValue([mockFeed]);
 
     // Return same game twice
     mocks.parseURL.mockResolvedValue({
@@ -143,7 +143,7 @@ describe("RssService", () => {
     });
 
     vi.mocked(igdbClient.searchGames).mockResolvedValue([
-      { id: 1, name: "Game A" } as unknown as any
+      { id: 1, name: "Game A" } as unknown as import("../igdb").IGDBGame
     ]);
 
     await rssService.refreshFeeds();

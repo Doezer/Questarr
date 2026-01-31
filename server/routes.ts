@@ -2013,8 +2013,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       res.status(201).json(feed);
     } catch (error) {
-      if (error instanceof z.ZodError || (error as any).name === "ZodError") {
-        return res.status(400).json({ error: (error as any).errors });
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      if (error && typeof error === "object" && "name" in error && error.name === "ZodError" && "errors" in error) {
+        return res.status(400).json({ error: (error as { errors: unknown }).errors });
       }
       routesLogger.error({ error }, "Failed to add RSS feed");
       res.status(500).json({ error: "Failed to add RSS feed" });

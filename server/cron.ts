@@ -342,7 +342,7 @@ async function checkDownloadStatus() {
               downloadHash: download.downloadHash,
             },
             "Download not found in downloader - assuming completion and marking as owned. " +
-              "This could indicate the download was manually removed."
+            "This could indicate the download was manually removed."
           );
 
           // Mark download as completed (assumption)

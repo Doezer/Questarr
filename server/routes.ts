@@ -35,7 +35,7 @@ import {
   sanitizeIndexerUpdateData,
   sanitizeDownloaderData,
   sanitizeDownloaderUpdateData,
-  sanitizeDownloadData,
+  sanitizeDownloaderDownloadData,
   sanitizeIndexerSearchQuery,
 } from "./middleware.js";
 import { config as appConfig } from "./config.js";
@@ -1290,7 +1290,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post(
     "/api/downloaders/:id/downloads",
     sensitiveEndpointLimiter,
-    sanitizeDownloadData, // TODO: Rename to sanitizeDownloadData
+    sanitizeDownloaderDownloadData,
     validateRequest,
     async (req: Request, res: Response) => {
       try {
@@ -1511,7 +1511,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post(
     "/api/downloads",
     sensitiveEndpointLimiter,
-    sanitizeDownloadData,
+    sanitizeDownloaderDownloadData,
     validateRequest,
     async (req: Request, res: Response) => {
       try {

@@ -53,29 +53,27 @@ export async function runMigrations(): Promise<void> {
       const statements = sqlContent.split("--> statement-breakpoint");
 
       try {
-        // Run statements individually to allow skipping "already exists" errors.
-        // SQLite transactions enter an error state if a statement fails, preventing further execution.
-        for (const statement of statements) {
-          const rawSql = statement.trim();
-          if (!rawSql) continue;
-          try {
-            db.run(sql.raw(rawSql));
-          } catch (e: any) {
-            const msg = String(e);
-            const causeMsg = e.cause ? String(e.cause) : "";
-            const isAlreadyExists =
-              msg.toLowerCase().includes("already exists") ||
-              msg.toLowerCase().includes("duplicate column name") ||
-              causeMsg.toLowerCase().includes("already exists") ||
-              causeMsg.toLowerCase().includes("duplicate column name");
+        db.transaction((tx) => {
+          for (const statement of statements) {
+            if (!statement.trim()) continue;
+            try {
+              tx.run(sql.raw(statement));
+            } catch (e) {
+              // Ignore "table already exists" etc if we want idempotency similar to the old script,
+              // but for SQLite it's often cleaner to just let it fail if schema drift is huge.
+              // The request specifically asked to "adapt the current file", which had error suppression.
 
-            if (isAlreadyExists) {
-              logger.warn(`Skipping statement in ${tag} due to existing object: ${rawSql.substring(0, 50)}...`);
-            } else {
-              throw e;
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const msg = (e as any).message || "";
+              // SQLite error for existing object usually contains "already exists"
+              if (msg.includes("already exists")) {
+                logger.warn(`Skipping statement in ${tag} due to existing object: ${msg}`);
+              } else {
+                throw e;
+              }
             }
           }
-        }
+        });
 
         db.run(sql`
           INSERT INTO "__drizzle_migrations" (hash, created_at)

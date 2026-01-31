@@ -36,7 +36,7 @@ describe("RssService", () => {
       mapping: null,
     };
 
-    vi.mocked(storage.getAllRssFeeds).mockResolvedValue([mockFeed as any]);
+    vi.mocked(storage.getAllRssFeeds).mockResolvedValue([mockFeed] as unknown as any);
     vi.mocked(storage.getRssFeedItemByGuid).mockResolvedValue(undefined); // Item doesn't exist
 
     mocks.parseURL.mockResolvedValue({
@@ -55,7 +55,7 @@ describe("RssService", () => {
         id: 123,
         name: "My Game",
         cover: { id: 1, url: "//images.igdb.com/igdb/image/upload/t_thumb/123.jpg" },
-      } as any,
+      } as unknown as any,
     ]);
 
     await rssService.refreshFeeds();
@@ -85,7 +85,7 @@ describe("RssService", () => {
       enabled: true,
     };
 
-    vi.mocked(storage.getAllRssFeeds).mockResolvedValue([mockFeed as any]);
+    vi.mocked(storage.getAllRssFeeds).mockResolvedValue([mockFeed] as unknown as any);
     mocks.parseURL.mockRejectedValue(new Error("Parsing failed"));
 
     await rssService.refreshFeeds();
@@ -108,8 +108,8 @@ describe("RssService", () => {
       mapping: { titleField: "customTitle", linkField: "customLink" },
     };
 
-    vi.mocked(storage.getAllRssFeeds).mockResolvedValue([mockFeed as any]);
-    
+    vi.mocked(storage.getAllRssFeeds).mockResolvedValue([mockFeed] as unknown as any);
+
     mocks.parseURL.mockResolvedValue({
       items: [
         {
@@ -132,8 +132,8 @@ describe("RssService", () => {
 
   it("should use cache for IGDB lookups", async () => {
     const mockFeed = { id: "feed-1", url: "url", enabled: true };
-    vi.mocked(storage.getAllRssFeeds).mockResolvedValue([mockFeed as any]);
-    
+    vi.mocked(storage.getAllRssFeeds).mockResolvedValue([mockFeed] as unknown as any);
+
     // Return same game twice
     mocks.parseURL.mockResolvedValue({
       items: [
@@ -143,7 +143,7 @@ describe("RssService", () => {
     });
 
     vi.mocked(igdbClient.searchGames).mockResolvedValue([
-      { id: 1, name: "Game A" } as any
+      { id: 1, name: "Game A" } as unknown as any
     ]);
 
     await rssService.refreshFeeds();

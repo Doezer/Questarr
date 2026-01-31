@@ -46,7 +46,7 @@ import { isSafeUrl } from "./ssrf.js";
 import { hashPassword, comparePassword, generateToken, authenticateToken } from "./auth.js";
 import { searchAllIndexers } from "./search.js";
 import { xrelClient, DEFAULT_XREL_BASE, ALLOWED_XREL_DOMAINS } from "./xrel.js";
-import { releaseMatchesGame, normalizeTitle, cleanReleaseName } from "../shared/title-utils.js";
+import { normalizeTitle, cleanReleaseName } from "../shared/title-utils.js";
 import archiver from "archiver";
 import helmet from "helmet";
 
@@ -248,7 +248,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.get("/api/auth/me", authenticateToken, (req, res) => {
-     
+
     const user = req.user!;
     res.json({ id: user.id, username: user.username });
   });
@@ -2013,8 +2013,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       res.status(201).json(feed);
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: error.errors });
+      if (error instanceof z.ZodError || (error as any).name === "ZodError") {
+        return res.status(400).json({ error: (error as any).errors });
       }
       routesLogger.error({ error }, "Failed to add RSS feed");
       res.status(500).json({ error: "Failed to add RSS feed" });

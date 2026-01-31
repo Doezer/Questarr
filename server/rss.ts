@@ -61,7 +61,7 @@ export class RssService {
 
   async refreshFeed(feed: RssFeed) {
     rssLogger.debug(`Fetching feed: ${feed.name} (${feed.url})`);
-    
+
     // Set timeout for parsing
     const feedContent = await this.parser.parseURL(feed.url);
 
@@ -81,7 +81,7 @@ export class RssService {
 
       // 3. Match with IGDB
       const match = await this.matchGame(normalized.title);
-      
+
       const newItem: InsertRssFeedItem = {
         feedId: feed.id,
         guid: normalized.guid,
@@ -106,7 +106,7 @@ export class RssService {
 
   private normalizeItem(
     feed: RssFeed,
-    item: Record<string, any>
+    item: Record<string, unknown>
   ): { title: string; link: string; pubDate: Date; guid: string } | null {
     const titleField = feed.mapping?.titleField || "title";
     const linkField = feed.mapping?.linkField || "link";
@@ -135,7 +135,7 @@ export class RssService {
     return {
       title: String(title).trim(),
       link: String(link).trim(),
-      pubDate: pubDateStr ? new Date(pubDateStr) : new Date(),
+      pubDate: pubDateStr ? new Date(String(pubDateStr)) : new Date(),
       guid: String(guid).trim(),
     };
   }
@@ -143,7 +143,7 @@ export class RssService {
   private async matchGame(releaseTitle: string): Promise<IgdbCacheEntry | null> {
     // Extract potential game name
     const cleanName = this.extractGameName(releaseTitle);
-    
+
     // Check cache
     const cached = igdbCache.get(cleanName.toLowerCase());
     if (cached) {
@@ -190,12 +190,12 @@ export class RssService {
     ];
 
     for (const sep of separators) {
-        const regex = new RegExp(sep);
-        const parts = name.split(regex);
-        if (parts.length > 1 && parts[0].length > 2) {
-            name = parts[0];
-            break; // Stop at first split match
-        }
+      const regex = new RegExp(sep);
+      const parts = name.split(regex);
+      if (parts.length > 1 && parts[0].length > 2) {
+        name = parts[0];
+        break; // Stop at first split match
+      }
     }
 
     return name.trim();

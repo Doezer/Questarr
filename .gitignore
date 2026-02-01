@@ -8,7 +8,6 @@ vite.config.ts.*
 *.log
 .gemini/
 gha-creds-*.json
-images/Screenshots/*
 infrastructure/
 gemini.md
 .vscode/

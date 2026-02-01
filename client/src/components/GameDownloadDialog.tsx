@@ -17,7 +17,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -30,12 +30,24 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuPortal,
+} from "@/components/ui/dropdown-menu";
 import { Label } from "@/components/ui/label";
-import { Download, Loader2, PackagePlus, SlidersHorizontal, Newspaper } from "lucide-react";
+import { Download, Loader2, PackagePlus, SlidersHorizontal, Newspaper, Magnet, MoreVertical, Copy, ArrowUpDown, ArrowUp, ArrowDown, Activity } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
-import { type Game, type Indexer, type UserSettings, downloadRulesSchema } from "@shared/schema";
+import { cn } from "@/lib/utils";
+import { type Game, type Indexer, type UserSettings, type Downloader, downloadRulesSchema } from "@shared/schema";
 import { groupDownloadsByCategory, type DownloadCategory } from "@shared/download-categorizer";
+import { parseReleaseMetadata } from "@shared/title-utils";
 
 interface DownloadItem {
   title: string;
@@ -97,6 +109,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   const [minSeeders, setMinSeeders] = useState<number>(0);
   const [selectedIndexer, setSelectedIndexer] = useState<string>("all");
   const [sortBy, setSortBy] = useState<"seeders" | "date" | "size">("seeders");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [showFilters, setShowFilters] = useState(false);
   const [visibleCategories, setVisibleCategories] = useState<Set<DownloadCategory>>(
     new Set(["main", "update", "dlc", "extra"] as DownloadCategory[])
@@ -111,6 +124,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     setMinSeeders(0);
     setSelectedIndexer("all");
     setSortBy("seeders");
+    setSortOrder("desc");
     setShowFilters(false);
     setVisibleCategories(new Set(["main", "update", "dlc", "extra"] as DownloadCategory[]));
   }, []);
@@ -126,6 +140,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         const rules = downloadRulesSchema.parse(JSON.parse(userSettings.downloadRules));
         setMinSeeders(rules.minSeeders);
         setSortBy(rules.sortBy);
+        setSortOrder("desc"); // Default to desc when applying rules
         if (rules.visibleCategories) {
           setVisibleCategories(new Set(rules.visibleCategories as DownloadCategory[]));
         }
@@ -152,6 +167,11 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
 
   const { data: enabledIndexers } = useQuery<Indexer[]>({
     queryKey: ["/api/indexers/enabled"],
+    enabled: open,
+  });
+
+  const { data: downloaders = [] } = useQuery<Downloader[]>({
+    queryKey: ["/api/downloaders/enabled"],
     enabled: open,
   });
 
@@ -194,19 +214,23 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         .filter((t) => (t.seeders ?? 0) >= minSeeders)
         .filter((t) => selectedIndexer === "all" || t.indexerName === selectedIndexer)
         .sort((a, b) => {
+          let comparison = 0;
           if (sortBy === "seeders") {
-            return (b.seeders ?? 0) - (a.seeders ?? 0);
+            comparison = (b.seeders ?? 0) - (a.seeders ?? 0);
           } else if (sortBy === "date") {
-            return new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime();
+            comparison = new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime();
           } else {
             // size
-            return (b.size ?? 0) - (a.size ?? 0);
+            comparison = (b.size ?? 0) - (a.size ?? 0);
           }
+          return sortOrder === "desc" ? comparison : -comparison;
         });
     }
 
     return filtered;
-  }, [categorizedDownloads, minSeeders, selectedIndexer, sortBy, visibleCategories]);
+  }, [categorizedDownloads, minSeeders, selectedIndexer, sortBy, sortOrder, visibleCategories]);
+
+
 
   // Sorted items for display (by date)
   const _sortedItems = useMemo(() => {
@@ -254,6 +278,34 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       setDownloadingGuid(null);
       setShowBundleDialog(false);
       setSelectedMainDownload(null);
+    },
+  });
+
+  const sendToDownloaderMutation = useMutation({
+    mutationFn: async ({ download, downloaderId }: { download: DownloadItem; downloaderId: string }) => {
+      const response = await apiRequest("POST", `/api/downloaders/${downloaderId}/downloads`, {
+        url: download.link,
+        title: download.title,
+        gameId: game?.id,
+        downloadType: isUsenetItem(download) ? "usenet" : "torrent",
+      });
+      return response.json();
+    },
+    onSuccess: (result) => {
+      if (result.success) {
+        toast({ title: "Download started successfully" });
+        queryClient.invalidateQueries({ queryKey: ["/api/downloads"] });
+        onOpenChange(false);
+      } else {
+        toast({ title: result.message || "Failed to start download", variant: "destructive" });
+      }
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to start download",
+        description: error.message,
+        variant: "destructive",
+      });
     },
   });
 
@@ -430,11 +482,50 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     });
   };
 
+  const toggleSort = (field: "seeders" | "date" | "size") => {
+    if (sortBy === field) {
+      setSortOrder(sortOrder === "asc" ? "desc" : "asc");
+    } else {
+      setSortBy(field);
+      setSortOrder("desc");
+    }
+  };
+
+  const SortHeader = ({
+    field,
+    label,
+    className = "",
+  }: {
+    field: "seeders" | "date" | "size";
+    label: string;
+    className?: string;
+  }) => (
+    <button
+      onClick={() => toggleSort(field)}
+      className={cn(
+        "flex items-center hover:text-foreground transition-colors uppercase tracking-wider font-bold",
+        sortBy === field ? "text-foreground" : "text-muted-foreground/70",
+        className
+      )}
+    >
+      {label}
+      {sortBy === field ? (
+        sortOrder === "asc" ? (
+          <ArrowUp className="h-3 w-3 ml-1" />
+        ) : (
+          <ArrowDown className="h-3 w-3 ml-1" />
+        )
+      ) : (
+        <ArrowUpDown className="h-3 w-3 ml-1 opacity-0 group-hover:opacity-100 transition-opacity" />
+      )}
+    </button>
+  );
+
   if (!game) return null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[80vh] flex flex-col overflow-hidden">
+      <DialogContent className="max-w-6xl max-h-[90vh] flex flex-col overflow-hidden">
         <DialogHeader className="flex-shrink-0">
           <DialogTitle>Download {game.title}</DialogTitle>
           <DialogDescription>
@@ -469,6 +560,9 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                 Min Seeders: {minSeeders}
               </Badge>
             )}
+            <Badge variant="outline" className="text-xs capitalize">
+              Sorted by: {sortBy} ({sortOrder === "asc" ? "Asc" : "Desc"})
+            </Badge>
           </div>
 
           {showFilters && (
@@ -511,25 +605,6 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                   onChange={(e) => setMinSeeders(parseInt(e.target.value) || 0)}
                   className="w-full"
                 />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="sortBy" className="text-sm">
-                  Sort By
-                </Label>
-                <Select
-                  value={sortBy}
-                  onValueChange={(v) => setSortBy(v as "seeders" | "date" | "size")}
-                >
-                  <SelectTrigger id="sortBy">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="seeders">Seeders (High to Low)</SelectItem>
-                    <SelectItem value="date">Date (Newest First)</SelectItem>
-                    <SelectItem value="size">Size (Largest First)</SelectItem>
-                  </SelectContent>
-                </Select>
               </div>
 
               <div className="col-span-3 space-y-2">
@@ -583,24 +658,17 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
             )}
 
             {!isSearching && searchResults && searchResults.items.length > 0 && (
-              <div className="space-y-6">
+              <div className="space-y-8">
                 {/* Render each category separately */}
                 {(["main", "update", "dlc", "extra"] as const).map((category) => {
-                  const downloadsInCategory = filteredCategorizedDownloads[category];
+                  const downloadsInCategory = filteredCategorizedDownloads[category] || [];
                   if (downloadsInCategory.length === 0) return null;
 
-                  // Sort by seeders within category
-                  const sortedCategoryDownloads = [...downloadsInCategory].sort((a, b) => {
-                    const seedersA = a.seeders || 0;
-                    const seedersB = b.seeders || 0;
-                    return seedersB - seedersA;
-                  });
-
                   return (
-                    <div key={category}>
+                    <div key={category} className="relative">
                       {/* Category Header */}
-                      <div className="flex items-center gap-2 mb-3">
-                        <h3 className="font-semibold text-base capitalize">
+                      <div className="flex items-center gap-2 mb-3 px-1">
+                        <h3 className="font-bold text-lg capitalize tracking-tight">
                           {category === "main"
                             ? "Main Game"
                             : category === "update"
@@ -609,154 +677,239 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                 ? "DLC & Expansions"
                                 : "Extras"}
                         </h3>
-                        <Badge variant="secondary" className="text-xs">
+                        <Badge variant="secondary" className="text-xs font-semibold">
                           {downloadsInCategory.length}
                         </Badge>
                       </div>
-                      <div className="text-xs text-muted-foreground mb-2">
-                        {category === "main"
-                          ? "Full game downloads"
-                          : category === "update"
-                            ? "Game updates, patches, hotfixes, and crackfixes"
-                            : category === "dlc"
-                              ? "Downloadable content, expansions, and season passes"
-                              : "Soundtracks, artbooks, and other bonus content"}
-                      </div>
 
                       {/* Downloads in this category */}
-                      <div className="border rounded-md divide-y mb-4">
-                        <div className="bg-muted/50 p-2 text-xs font-medium flex justify-between items-center">
-                          <div>Release Name</div>
-                          <div className="w-[80px] text-right">Actions</div>
+                      <div className="border rounded-md divide-y mb-4 bg-card overflow-hidden">
+                        {/* Sticky Sort Header */}
+                        <div className="sticky top-0 z-10 bg-muted/95 backdrop-blur-md p-3 text-[10px] font-bold flex items-center px-4 border-b group">
+                          <div className="flex-1 flex items-center">
+                            <span className="text-muted-foreground/70 uppercase tracking-widest">
+                              Release Information
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-6 md:gap-10">
+                            <SortHeader field="date" label="Date" className="min-w-[70px] justify-end" />
+                            <SortHeader field="size" label="Size" className="min-w-[70px] justify-end" />
+                            <SortHeader field="seeders" label="Health" className="min-w-[70px] justify-end" />
+                            <div className="w-[80px] text-right text-muted-foreground/70 uppercase tracking-widest">
+                              Actions
+                            </div>
+                          </div>
                         </div>
-                        {sortedCategoryDownloads.map((download: DownloadItem) => {
+
+                        {downloadsInCategory.map((download: DownloadItem) => {
                           const isUsenet = isUsenetItem(download);
+                          const metadata = parseReleaseMetadata(download.title);
+
+                          // Health calculation
+                          let healthColor = "text-muted-foreground";
+
+                          if (isUsenet) {
+                            const grabs = download.grabs ?? 0;
+                            if (grabs > 100) healthColor = "text-green-500";
+                            else if (grabs > 20) healthColor = "text-amber-500";
+                            else healthColor = "text-red-500";
+                          } else {
+                            const seeders = download.seeders ?? 0;
+                            if (seeders >= 20) healthColor = "text-green-500";
+                            else if (seeders >= 5) healthColor = "text-amber-500";
+                            else healthColor = "text-red-500";
+                          }
+
+                          const pubDate = new Date(download.pubDate);
+                          const hoursOld = (Date.now() - pubDate.getTime()) / (1000 * 60 * 60);
+                          const isNew = hoursOld <= 24;
+
                           return (
                             <div
                               key={download.guid || download.link}
-                              className="p-2 text-sm hover:bg-muted/30 transition-colors"
+                              className="p-4 text-sm hover:bg-muted/30 transition-colors group/row"
                             >
-                              <div className="flex justify-between items-start gap-4 mb-2">
-                                <div className="flex-1 min-w-0 flex items-center gap-2">
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      {download.comments ? (
-                                        <a
-                                          href={download.comments}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          aria-label={`${download.title}`}
-                                          className="font-medium flex-1 overflow-hidden whitespace-nowrap text-ellipsis max-w-100 cursor-pointer hover:underline"
-                                        >
-                                          {download.title}
-                                        </a>
-                                      ) : (
-                                        <div className="font-medium flex-1 overflow-hidden whitespace-nowrap text-ellipsis max-w-100">
-                                          {download.title}
+                              <div className="flex items-center gap-4">
+                                {/* Left Side: Title and Metadata */}
+                                <div className="flex-1 min-w-0 space-y-1">
+                                  <div className="flex items-center gap-2">
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <div className={cn(
+                                          "h-5 w-5 flex items-center justify-center rounded-full flex-shrink-0",
+                                          isUsenet ? "text-amber-500" : "text-violet-500"
+                                        )}>
+                                          {isUsenet ? (
+                                            <Newspaper className="h-4 w-4" />
+                                          ) : (
+                                            <Magnet className="h-4 w-4" />
+                                          )}
                                         </div>
-                                      )}
-                                    </TooltipTrigger>
-                                    <TooltipContent side="top" align="start">
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        {isUsenet ? "Usenet (NZB)" : "Torrent"}
+                                      </TooltipContent>
+                                    </Tooltip>
+
+                                    <h4 className="font-bold text-base truncate leading-tight">
+                                      {metadata.gameTitle || download.title}
+                                    </h4>
+
+                                    {isNew && (
+                                      <Badge variant="default" className="h-4 px-1 text-[8px] uppercase bg-blue-600 hover:bg-blue-600">
+                                        NEW
+                                      </Badge>
+                                    )}
+                                  </div>
+
+                                  {/* Metadata Line */}
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    {metadata.version && (
+                                      <Badge variant="secondary" className="h-5 px-1.5 text-[10px] font-mono bg-blue-500/10 text-blue-600 dark:text-blue-400 border-none">
+                                        {metadata.version}
+                                      </Badge>
+                                    )}
+                                    {metadata.languages?.map(lang => (
+                                      <Badge key={lang} variant="secondary" className="h-5 px-1.5 text-[10px] bg-green-500/10 text-green-600 dark:text-green-400 border-none">
+                                        {lang}
+                                      </Badge>
+                                    ))}
+                                    {metadata.drm && (
+                                      <Badge variant="secondary" className="h-5 px-1.5 text-[10px] bg-purple-500/10 text-purple-600 dark:text-purple-400 border-none">
+                                        {metadata.drm}
+                                      </Badge>
+                                    )}
+                                    {metadata.platform && (
+                                      <Badge variant="secondary" className="h-5 px-1.5 text-[10px] bg-orange-500/10 text-orange-600 dark:text-orange-400 border-none">
+                                        {metadata.platform}
+                                      </Badge>
+                                    )}
+                                    {metadata.isScene && (
+                                      <Badge variant="outline" className="h-5 px-1.5 text-[10px] border-muted-foreground/30 text-muted-foreground uppercase tracking-tighter">
+                                        Scene
+                                      </Badge>
+                                    )}
+                                  </div>
+
+                                  {/* Release info line */}
+                                  <div className="flex items-center gap-2 text-[11px] text-muted-foreground/70">
+                                    <span className="font-medium truncate max-w-[300px]" title={download.title}>
                                       {download.title}
-                                    </TooltipContent>
-                                  </Tooltip>
-                                </div>
-                                <Button
-                                  size="sm"
-                                  onClick={() => handleDownload(download)}
-                                  disabled={downloadingGuid === (download.guid || download.link)}
-                                  className="h-7 flex-shrink-0"
-                                >
-                                  {downloadingGuid === (download.guid || download.link) ? (
-                                    <>
-                                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                                      Downloading...
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Download
-                                        className="h-3 w-3 mr-1"
-                                        data-testid="icon-download-action"
-                                      />
-                                      Download
-                                    </>
-                                  )}
-                                </Button>
-                              </div>
-                              <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap justify-between">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span>{formatDate(download.pubDate)}</span>
-                                  <span>•</span>
-                                  <span>{download.size ? formatBytes(download.size) : "-"}</span>
-                                  <span>•</span>
-                                  {isUsenet ? (
-                                    <div className="flex items-center gap-2">
-                                      {download.grabs !== undefined && (
-                                        <div className="flex items-center gap-1">
-                                          <span className="text-blue-600 font-medium">
-                                            {download.grabs}
-                                          </span>
-                                          <span>grabs</span>
-                                        </div>
-                                      )}
-                                      {download.grabs !== undefined &&
-                                        download.age !== undefined && <span>•</span>}
-                                      {download.age !== undefined && (
-                                        <div className="flex items-center gap-1">
-                                          <span className="text-purple-600 font-medium">
-                                            {formatAge(download.age)}
-                                          </span>
-                                          <span>old</span>
-                                        </div>
-                                      )}
-                                    </div>
-                                  ) : (
-                                    <div className="flex items-center gap-1">
-                                      <span className="text-green-600 font-medium">
-                                        {download.seeders ?? 0}
-                                      </span>
-                                      <span>/</span>
-                                      <span className="text-red-600 font-medium">
-                                        {download.leechers ?? 0}
-                                      </span>
-                                      <span>peers</span>
-                                    </div>
-                                  )}
-                                  {download.description && (
-                                    <>
-                                      <span>•</span>
-                                      <span
-                                        className="truncate max-w-[200px]"
-                                        title={download.description}
-                                      >
-                                        {download.description}
-                                      </span>
-                                    </>
-                                  )}
-                                  {download.indexerName && (
-                                    <>
-                                      <span>•</span>
-                                      <span className="flex-shrink-0">{download.indexerName}</span>
-                                    </>
-                                  )}
-                                </div>
-                                <div className="flex flex-grow-1 justify-end">
-                                  <Badge
-                                    variant={isUsenet ? "secondary" : "default"}
-                                    className="text-xs flex-shrink-0"
-                                  >
-                                    {isUsenet ? (
+                                    </span>
+                                    {metadata.group && (
                                       <>
-                                        <Newspaper className="h-3 w-3 mr-1" />
-                                        NZB
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Download className="h-3 w-3 mr-1" />
-                                        TORRENT
+                                        <span>•</span>
+                                        <span className="font-bold text-foreground/50">{metadata.group}</span>
                                       </>
                                     )}
-                                  </Badge>
+                                    <span>•</span>
+                                    <span>{download.indexerName}</span>
+                                  </div>
+                                </div>
+
+                                {/* Right Side: Metrics and Actions */}
+                                <div className="flex items-center gap-6 md:gap-10 flex-shrink-0">
+                                  {/* Date Column */}
+                                  <div className="min-w-[70px] text-right">
+                                    <div className="text-xs font-medium">
+                                      {formatDate(download.pubDate)}
+                                    </div>
+                                    <div className="text-[10px] text-muted-foreground/50">
+                                      {formatAge(isUsenet ? download.age : hoursOld / 24)}
+                                    </div>
+                                  </div>
+
+                                  {/* Size Column */}
+                                  <div className="min-w-[70px] text-right font-mono text-xs font-bold">
+                                    {download.size ? formatBytes(download.size) : "-"}
+                                  </div>
+
+                                  {/* Health Column */}
+                                  <div className={cn("min-w-[70px] text-right flex flex-col items-end justify-center", healthColor)}>
+                                    <div className="flex items-center gap-1 font-bold">
+                                      <Activity className="h-3 w-3" />
+                                      {isUsenet ? (download.grabs ?? 0) : (download.seeders ?? 0)}
+                                    </div>
+                                    <div className="text-[10px] uppercase font-bold opacity-70">
+                                      {isUsenet ? "Grabs" : "Seeds"}
+                                    </div>
+                                  </div>
+
+                                  {/* Actions Column */}
+                                  <div className="w-[80px] flex items-center justify-end gap-1">
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() => handleDownload(download)}
+                                      disabled={downloadingGuid === (download.guid || download.link)}
+                                      className="h-9 w-9 hover:bg-primary hover:text-primary-foreground transition-all"
+                                    >
+                                      {downloadingGuid === (download.guid || download.link) ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                      ) : (
+                                        <Download className="h-4 w-4" />
+                                      )}
+                                    </Button>
+
+                                    <DropdownMenu>
+                                      <DropdownMenuTrigger asChild>
+                                        <Button variant="ghost" size="icon" className="h-9 w-9">
+                                          <MoreVertical className="h-4 w-4" />
+                                        </Button>
+                                      </DropdownMenuTrigger>
+                                      <DropdownMenuContent align="end">
+                                        <DropdownMenuItem
+                                          onClick={() => {
+                                            navigator.clipboard.writeText(download.link);
+                                            toast({ description: "Link copied to clipboard" });
+                                          }}
+                                        >
+                                          <Copy className="h-4 w-4 mr-2" />
+                                          Copy {isUsenet ? "NZB" : "Torrent"} Link
+                                        </DropdownMenuItem>
+
+                                        {(() => {
+                                          const compatibleDownloaders = downloaders.filter((d) =>
+                                            isUsenet
+                                              ? ["sabnzbd", "nzbget"].includes(d.type)
+                                              : ["transmission", "rtorrent", "qbittorrent"].includes(
+                                                d.type
+                                              )
+                                          );
+
+                                          if (compatibleDownloaders.length <= 1) {
+                                            return null;
+                                          }
+
+                                          return (
+                                            <DropdownMenuSub>
+                                              <DropdownMenuSubTrigger>
+                                                <Download className="h-4 w-4 mr-2" />
+                                                Send to downloader
+                                              </DropdownMenuSubTrigger>
+                                              <DropdownMenuPortal>
+                                                <DropdownMenuSubContent>
+                                                  {compatibleDownloaders.map((d) => (
+                                                    <DropdownMenuItem
+                                                      key={d.id}
+                                                      onClick={() =>
+                                                        sendToDownloaderMutation.mutate({
+                                                          download,
+                                                          downloaderId: d.id,
+                                                        })
+                                                      }
+                                                    >
+                                                      {d.name}
+                                                    </DropdownMenuItem>
+                                                  ))}
+                                                </DropdownMenuSubContent>
+                                              </DropdownMenuPortal>
+                                            </DropdownMenuSub>
+                                          );
+                                        })()}
+                                      </DropdownMenuContent>
+                                    </DropdownMenu>
+                                  </div>
                                 </div>
                               </div>
                             </div>
@@ -866,7 +1019,9 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
           )}
 
           <AlertDialogFooter>
-            <AlertDialogCancel
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className={buttonVariants({ variant: "outline" })}
               onClick={() => {
                 if (isDirectDownloadMode) {
                   handleBundleDirectDownload(false);
@@ -875,8 +1030,8 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                 }
               }}
             >
-              No, just the main game
-            </AlertDialogCancel>
+              Only the main game
+            </AlertDialogAction>
             <AlertDialogAction
               onClick={() => {
                 if (isDirectDownloadMode) {

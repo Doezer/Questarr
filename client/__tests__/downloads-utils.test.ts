@@ -11,6 +11,20 @@ import {
   shouldShowRatioBadge,
   shouldShowSizeBadge,
   shouldShowPeersBadge,
+  getDownloadTypeColor,
+  getDownloadTypeBadgeVariant,
+  getDownloadTypeTextExColor,
+  formatDownloadType,
+  shouldShowTorrentMetrics,
+  shouldShowUsenetMetrics,
+  shouldShowRepairStatus,
+  shouldShowUnpackStatus,
+  getRepairStatusBadgeVariant,
+  getUnpackStatusBadgeVariant,
+  formatRepairStatus,
+  formatUnpackStatus,
+  formatAge,
+  isUsenetItem,
   type DownloadData,
   type DownloadStatusType,
 } from "../src/lib/downloads-utils";
@@ -378,5 +392,198 @@ describe("Badge visibility edge cases", () => {
     expect(shouldShowSpeedBadge(download.downloadSpeed)).toBe(false);
     expect(shouldShowSpeedBadge(download.uploadSpeed)).toBe(false);
     expect(shouldShowRatioBadge(download.ratio)).toBe(true);
+  });
+});
+
+describe("Usenet Utility Functions", () => {
+  describe("getDownloadTypeColor", () => {
+    it("should return correct color for usenet", () => {
+      const color = getDownloadTypeColor("usenet");
+      expect(color).toContain("bg-amber-600");
+    });
+
+    it("should return correct color for torrent", () => {
+      const color = getDownloadTypeColor("torrent");
+      expect(color).toContain("bg-violet-600");
+    });
+
+    it("should return default color (torrent) when undefined", () => {
+      const color = getDownloadTypeColor(undefined);
+      expect(color).toContain("bg-violet-600");
+    });
+  });
+
+  describe("getDownloadTypeBadgeVariant", () => {
+    it("should return secondary for usenet", () => {
+      expect(getDownloadTypeBadgeVariant("usenet")).toBe("secondary");
+    });
+
+    it("should return default for torrent", () => {
+      expect(getDownloadTypeBadgeVariant("torrent")).toBe("default");
+    });
+
+    it("should return default when undefined", () => {
+      expect(getDownloadTypeBadgeVariant(undefined)).toBe("default");
+    });
+  });
+
+  describe("getDownloadTypeTextExColor", () => {
+    it("should return amber text for usenet", () => {
+      expect(getDownloadTypeTextExColor("usenet")).toContain("text-amber-600");
+    });
+
+    it("should return violet text for torrent", () => {
+      expect(getDownloadTypeTextExColor("torrent")).toContain("text-violet-600");
+    });
+
+    it("should return violet text when undefined", () => {
+      expect(getDownloadTypeTextExColor(undefined)).toContain("text-violet-600");
+    });
+  });
+
+  describe("formatDownloadType", () => {
+    it("should return Usenet for usenet type", () => {
+      expect(formatDownloadType("usenet")).toBe("Usenet");
+    });
+
+    it("should return Torrent for torrent type", () => {
+      expect(formatDownloadType("torrent")).toBe("Torrent");
+    });
+
+    it("should return Torrent when undefined", () => {
+      expect(formatDownloadType(undefined)).toBe("Torrent");
+    });
+  });
+
+  describe("shouldShowTorrentMetrics", () => {
+    it("should return true for torrent type", () => {
+      const download = { downloadType: "torrent" } as DownloadData;
+      expect(shouldShowTorrentMetrics(download)).toBe(true);
+    });
+
+    it("should return true when type is undefined (backward compatibility)", () => {
+      const download = {} as DownloadData;
+      expect(shouldShowTorrentMetrics(download)).toBe(true);
+    });
+
+    it("should return false for usenet type", () => {
+      const download = { downloadType: "usenet" } as DownloadData;
+      expect(shouldShowTorrentMetrics(download)).toBe(false);
+    });
+  });
+
+  describe("shouldShowUsenetMetrics", () => {
+    it("should return true for usenet type", () => {
+      const download = { downloadType: "usenet" } as DownloadData;
+      expect(shouldShowUsenetMetrics(download)).toBe(true);
+    });
+
+    it("should return false for torrent type", () => {
+      const download = { downloadType: "torrent" } as DownloadData;
+      expect(shouldShowUsenetMetrics(download)).toBe(false);
+    });
+  });
+
+  describe("shouldShowRepairStatus", () => {
+    it("should return true for usenet with repair status", () => {
+      const download = { downloadType: "usenet", repairStatus: "repairing" } as DownloadData;
+      expect(shouldShowRepairStatus(download)).toBe(true);
+    });
+
+    it("should return false if not usenet", () => {
+      const download = { downloadType: "torrent", repairStatus: "repairing" } as DownloadData;
+      expect(shouldShowRepairStatus(download)).toBe(false);
+    });
+
+    it("should return false if repair status is undefined", () => {
+      const download = { downloadType: "usenet" } as DownloadData;
+      expect(shouldShowRepairStatus(download)).toBe(false);
+    });
+  });
+
+  describe("shouldShowUnpackStatus", () => {
+    it("should return true for usenet with unpack status", () => {
+      const download = { downloadType: "usenet", unpackStatus: "unpacking" } as DownloadData;
+      expect(shouldShowUnpackStatus(download)).toBe(true);
+    });
+
+    it("should return false if not usenet", () => {
+      const download = { downloadType: "torrent", unpackStatus: "unpacking" } as DownloadData;
+      expect(shouldShowUnpackStatus(download)).toBe(false);
+    });
+
+    it("should return false if unpack status is undefined", () => {
+      const download = { downloadType: "usenet" } as DownloadData;
+      expect(shouldShowUnpackStatus(download)).toBe(false);
+    });
+  });
+
+  describe("getRepairStatusBadgeVariant", () => {
+    it("should return correct variants", () => {
+      expect(getRepairStatusBadgeVariant("good")).toBe("outline");
+      expect(getRepairStatusBadgeVariant("repairing")).toBe("default");
+      expect(getRepairStatusBadgeVariant("failed")).toBe("destructive");
+      expect(getRepairStatusBadgeVariant(undefined)).toBe("outline");
+    });
+  });
+
+  describe("getUnpackStatusBadgeVariant", () => {
+    it("should return correct variants", () => {
+      expect(getUnpackStatusBadgeVariant("completed")).toBe("outline");
+      expect(getUnpackStatusBadgeVariant("unpacking")).toBe("default");
+      expect(getUnpackStatusBadgeVariant("failed")).toBe("destructive");
+      expect(getUnpackStatusBadgeVariant(undefined)).toBe("outline");
+    });
+  });
+
+  describe("formatRepairStatus", () => {
+    it("should format correctly", () => {
+      expect(formatRepairStatus("good")).toBe("Repair OK");
+      expect(formatRepairStatus("repairing")).toBe("Repairing...");
+      expect(formatRepairStatus("failed")).toBe("Repair Failed");
+      expect(formatRepairStatus(undefined)).toBe("Unknown");
+    });
+  });
+
+  describe("formatUnpackStatus", () => {
+    it("should format correctly", () => {
+      expect(formatUnpackStatus("completed")).toBe("Unpacked");
+      expect(formatUnpackStatus("unpacking")).toBe("Unpacking...");
+      expect(formatUnpackStatus("failed")).toBe("Unpack Failed");
+      expect(formatUnpackStatus(undefined)).toBe("Unknown");
+    });
+  });
+
+  describe("formatAge", () => {
+    it("should handle undefined", () => {
+      expect(formatAge(undefined)).toBe("");
+    });
+    it("should handle 0 days", () => {
+      expect(formatAge(0)).toBe("Today");
+    });
+    it("should handle partial days", () => {
+      expect(formatAge(0.5)).toBe("< 1 day");
+    });
+    it("should handle 1 day", () => {
+      expect(formatAge(1)).toBe("1 day");
+    });
+    it("should handle multiple days", () => {
+      expect(formatAge(5)).toBe("5 days");
+    });
+  });
+
+  describe("isUsenetItem", () => {
+    it("should identify usenet item by grabs", () => {
+      expect(isUsenetItem({ grabs: 10 })).toBe(true);
+    });
+    it("should identify usenet item by age", () => {
+      expect(isUsenetItem({ age: 10 })).toBe(true);
+    });
+    it("should return false if seeders are present (torrent)", () => {
+      expect(isUsenetItem({ seeders: 10, grabs: 5 })).toBe(false);
+    });
+    it("should return false if no identifying fields", () => {
+      expect(isUsenetItem({})).toBe(false);
+    });
   });
 });

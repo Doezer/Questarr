@@ -1,21 +1,87 @@
-# Questarr
+<div align="center">
+  <img src="images/Questarr_Logo-nobg.png" alt="Questarr Logo" width="400">
 
-A video game management application inspired by the -Arr apps (Sonarr, Radarr, Prowlarr...) and GamezServer. Track and organize your video game collection with automated discovery and download management.
+  <p>
+    A video game management application inspired by the -Arr apps (Sonarr, Radarr, Prowlarr...) and GamezServer. Track and organize your video game collection with automated discovery and download management.
+  </p>
+
+  <p>
+    <a href="https://hub.docker.com/r/doezer/questarr">
+      <img src="https://img.shields.io/docker/pulls/doezer/questarr?logo=docker&logoColor=white" alt="Docker Pulls">
+    </a>
+    <a href="https://github.com/Doezer/Questarr/pkgs/container/questarr">
+      <img src="https://img.shields.io/badge/ghcr.io-questarr-blue?logo=github&logoColor=white" alt="GHCR">
+    </a>
+    <a href="https://github.com/Doezer/Questarr/blob/main/COPYING">
+      <img src="https://img.shields.io/github/license/Doezer/Questarr" alt="License">
+    </a>
+    <a href="https://github.com/Doezer/Questarr/actions/workflows/ci.yml">
+      <img src="https://github.com/Doezer/Questarr/actions/workflows/ci.yml/badge.svg" alt="CI">
+    </a>
+    <a href="https://codecov.io/gh/Doezer/Questarr">
+      <img src="https://codecov.io/gh/Doezer/Questarr/branch/main/graph/badge.svg" alt="Codecov">
+    </a>
+  </p>
+
+  <p>
+    <a href="https://discord.gg/STkp86wP9F">
+      <img src="https://img.shields.io/badge/Discord-Join%20Us-7289da?logo=discord&logoColor=white" alt="Discord">
+    </a>
+    <a href="https://buymeacoffee.com/doezer">
+      <img src="https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-FFDD00?logo=buymeacoffee&logoColor=black" alt="Buy Me A Coffee">
+    </a>
+  </p>
+</div>
 
 ## Features
 
-- **Game Discovery**: Browse popular games, new releases, and upcoming titles via IGDB integration
-- **Library Management**: Track your game collection with status indicators (Wanted, Owned, Playing, Completed)
-- **Download Management**: Optionally integrate with indexers (Prowlarr/Torznab/Newsznab), torrent/usenet downloaders (qBittorrent, Transmission, rTorrent / sabnzbd, nzbget), and optionally enable auto-download to get them right when they're there.
-- **Search & Filter**: Find games by genre, platform, and search terms. Automatically search for added games until available on your indexers.
-- **Clean Interface**: UI optimized for browsing game covers and metadata, with light/dark mode
+- **🎮 Game Discovery**: Browse popular games, new releases, and upcoming titles via IGDB integration and xREL.to.
+- **📚 Library Management**: Track your game collection with status indicators (Wanted, Owned, Playing, Completed).
+<!-- v1.2.0 only -->
+<!--  - **☁️ Steam Integration**: Sync your Steam wishlist and import your library automatically. -->
+- **⬇️ Download Management**: Integrate with indexers (Prowlarr/Torznab/Newsznab), torrent/usenet downloaders (qBittorrent, Transmission, rTorrent / sabnzbd, nzbget), and optionally enable auto-download to get them right when they're there.
+- **🔍 Search & Filter**: Find games by genre, platform, and search terms. Automatically search for added games until available on your indexers.
+- **✨ Clean Interface**: UI optimized for browsing game covers and metadata, with light/dark mode.
+
+## Screenshots
+
+<details open>
+<summary><b>👀 See the app in action</b></summary>
+
+### Dashboard
+Your central hub for recent activity and collection overview.
+![Dashboard](images/Screenshots/dashboard.png)
+
+### Discover Games
+Browse and find new games to add to your collection.
+![Discover](images/Screenshots/discover.png)
+
+### Library & Wishlist
+Manage your wanted and owned games.
+![Wishlist](images/Screenshots/wishlist.png)
+
+### Calendar
+Keep track of upcoming releases.
+![Calendar](images/Screenshots/calendar.png)
+
+</details>
 
 ## Tech Stack
+<div align="center">
+  <p>
+    <img src="https://img.shields.io/badge/React-20232A?style=flat&logo=react&logoColor=61DAFB" alt="React">
+    <img src="https://img.shields.io/badge/TypeScript-007ACC?style=flat&logo=typescript&logoColor=white" alt="TypeScript">
+    <img src="https://img.shields.io/badge/Vite-646CFF?style=flat&logo=vite&logoColor=white" alt="Vite">
+    <img src="https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=flat&logo=tailwind-css&logoColor=white" alt="Tailwind CSS">
+    <img src="https://img.shields.io/badge/Node.js-43853D?style=flat&logo=node.js&logoColor=white" alt="Node.js">
+    <img src="https://img.shields.io/badge/SQLite-07405E?style=flat&logo=sqlite&logoColor=white" alt="SQLite">
+  </p>
+</div>
 
 - **Frontend**: React 18, TypeScript, Vite, Tailwind CSS, shadcn/ui
 - **Backend**: Node.js, Express, TypeScript
 - **Database**: SQLite with Drizzle ORM
-- **APIs**: IGDB (game metadata), Torznab (indexer search)
+- **APIs**: IGDB (game metadata), Torznab (indexer search), Steam API (user library sync)
 - **AIs**: Claude Sonnet 4.5, Gemini 3, Google Jules, GitHub Copilot
 
 ## Installation
@@ -84,13 +150,12 @@ If you are upgrading from an older version that used PostgreSQL, you need to mig
 See [docs/MIGRATION.md](docs/MIGRATION.md) for more details.
 
 ## Configuration
-   
-## Configuration
-
 
 1. **First-time setup:**
 - Create your admin account
 - Configure the IGDB credentials
+- Connect your Steam account (Optional)
+
 Once logged-in: 
 - Configure indexers
 - Add downloaders
@@ -189,6 +254,7 @@ See [Troubleshooting on the Wiki](https://github.com/Doezer/Questarr/wiki/Troubl
 
 - **Issues**: [GitHub Issues](https://github.com/Doezer/Questarr/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/Doezer/Questarr/discussions)
+- **Discord**: [Join our Server](https://discord.gg/STkp86wP9F)
 
 ## Contributing
 

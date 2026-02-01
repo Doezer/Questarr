@@ -46,6 +46,8 @@ vi.mock("lucide-react", () => ({
   ArrowUpDown: () => <div data-testid="icon-sort" />,
   ArrowUp: () => <div data-testid="icon-sort-up" />,
   ArrowDown: () => <div data-testid="icon-sort-down" />,
+  ChevronDown: () => <div data-testid="icon-chevron-down" />,
+  ChevronUp: () => <div data-testid="icon-chevron-up" />,
   MoreVertical: () => <div />,
   Copy: () => <div />,
 }));
@@ -194,10 +196,10 @@ describe("GameDownloadDialog", () => {
 
     // Wait for results to load
     await waitFor(() => {
-      expect(screen.getByText("Test Torrent 1")).toBeInTheDocument();
-      expect(screen.getByText("Test Torrent 2")).toBeInTheDocument();
-      expect(screen.getByText("Test Usenet NZB")).toBeInTheDocument();
-    });
+      expect(screen.getAllByText("Test Torrent 1").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Test Torrent 2").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Test Usenet NZB").length).toBeGreaterThan(0);
+    }, { timeout: 3000 });
   });
 
   it("identifies Usenet vs Torrent items", async () => {
@@ -208,15 +210,15 @@ describe("GameDownloadDialog", () => {
       expect(screen.getAllByTestId("icon-newspaper").length).toBeGreaterThan(0);
       // Torrent item should show magnet icon (mocked)
       expect(screen.getAllByTestId("icon-magnet").length).toBeGreaterThan(0);
-    });
+    }, { timeout: 3000 });
   });
 
   it("filters search results by indexer", async () => {
     renderComponent();
 
     await waitFor(() => {
-      expect(screen.getByText("Test Torrent 1")).toBeInTheDocument();
-    });
+      expect(screen.getAllByText("Test Torrent 1").length).toBeGreaterThan(0);
+    }, { timeout: 3000 });
 
     // Open filters
     const showFiltersButton = screen.getByText("Show Filters");

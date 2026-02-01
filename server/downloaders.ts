@@ -134,7 +134,7 @@ interface DownloaderClient {
   getFreeSpace(): Promise<number>;
 }
 
-class TransmissionClient implements DownloaderClient {
+export class TransmissionClient implements DownloaderClient {
   private downloader: Downloader;
   private sessionId: string | null = null;
 
@@ -788,7 +788,7 @@ class TransmissionClient implements DownloaderClient {
  * - Status mapping: state (0=stopped, 1=started) + complete (0/1)
  * - Supports Basic Authentication via username/password
  */
-class RTorrentClient implements DownloaderClient {
+export class RTorrentClient implements DownloaderClient {
   private downloader: Downloader;
 
   constructor(downloader: Downloader) {
@@ -806,7 +806,7 @@ class RTorrentClient implements DownloaderClient {
         },
         "rTorrent connection test successful"
       );
-      return { success: true, message: "Connected successfully to rTorrent" };
+      return { success: true, message: `Connected to rTorrent v${version}` };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       downloadersLogger.error(
@@ -1763,7 +1763,7 @@ class RTorrentClient implements DownloaderClient {
  * - Status mapping: state field from API response
  * - Supports username/password authentication
  */
-class QBittorrentClient implements DownloaderClient {
+export class QBittorrentClient implements DownloaderClient {
   private downloader: Downloader;
   private cookie: string | null = null;
 
@@ -3279,7 +3279,7 @@ interface SABnzbdHistory {
   }>;
 }
 
-class SABnzbdClient implements DownloaderClient {
+export class SABnzbdClient implements DownloaderClient {
   private downloader: Downloader;
 
   constructor(downloader: Downloader) {
@@ -3781,7 +3781,7 @@ interface NZBGetHistoryResult {
   DestDir: string;
 }
 
-class NZBGetClient implements DownloaderClient {
+export class NZBGetClient implements DownloaderClient {
   private downloader: Downloader;
 
   constructor(downloader: Downloader) {

@@ -396,7 +396,7 @@ class NewznabClient {
       if (data.error) {
         return {
           success: false,
-          message: data.error.description || "Unknown error",
+          message: data.error["@_description"] || data.error.description || "Unknown error",
         };
       }
 

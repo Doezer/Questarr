@@ -41,13 +41,13 @@ import {
   DropdownMenuPortal,
 } from "@/components/ui/dropdown-menu";
 import { Label } from "@/components/ui/label";
-import { Download, Loader2, PackagePlus, SlidersHorizontal, Newspaper, Magnet, MoreVertical, Copy, ArrowUpDown, ArrowUp, ArrowDown, Activity, ShieldCheck, Flame, Clock, AlertTriangle } from "lucide-react";
+import { Download, Loader2, PackagePlus, SlidersHorizontal, Newspaper, Magnet, MoreVertical, Copy, ArrowUpDown, ArrowUp, ArrowDown, Activity } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { type Game, type Indexer, type UserSettings, type Downloader, downloadRulesSchema } from "@shared/schema";
 import { groupDownloadsByCategory, type DownloadCategory } from "@shared/download-categorizer";
-import { releaseMatchesGame, parseReleaseMetadata } from "@shared/title-utils";
+import { parseReleaseMetadata } from "@shared/title-utils";
 
 interface DownloadItem {
   title: string;
@@ -93,7 +93,7 @@ function formatDate(dateString: string): string {
 }
 
 import { apiRequest } from "@/lib/queryClient";
-import { formatBytes, formatAge, isUsenetItem, getDownloadTypeColor } from "@/lib/downloads-utils";
+import { formatBytes, formatAge, isUsenetItem } from "@/lib/downloads-utils";
 
 export default function GameDownloadDialog({ game, open, onOpenChange }: GameDownloadDialogProps) {
   const { toast } = useToast();
@@ -230,11 +230,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     return filtered;
   }, [categorizedDownloads, minSeeders, selectedIndexer, sortBy, sortOrder, visibleCategories]);
 
-  const mostRecentGuid = useMemo(() => {
-    const all = Object.values(filteredCategorizedDownloads).flat();
-    if (all.length === 0) return null;
-    return all.sort((a, b) => new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime())[0].guid || null;
-  }, [filteredCategorizedDownloads]);
+
 
   // Sorted items for display (by date)
   const _sortedItems = useMemo(() => {
@@ -665,7 +661,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
               <div className="space-y-8">
                 {/* Render each category separately */}
                 {(["main", "update", "dlc", "extra"] as const).map((category) => {
-                  const downloadsInCategory = filteredCategorizedDownloads[category];
+                  const downloadsInCategory = filteredCategorizedDownloads[category] || [];
                   if (downloadsInCategory.length === 0) return null;
 
                   return (
@@ -708,11 +704,10 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                         {downloadsInCategory.map((download: DownloadItem) => {
                           const isUsenet = isUsenetItem(download);
                           const metadata = parseReleaseMetadata(download.title);
-                          
+
                           // Health calculation
                           let healthColor = "text-muted-foreground";
-                          let healthIcon = null;
-                          
+
                           if (isUsenet) {
                             const grabs = download.grabs ?? 0;
                             if (grabs > 100) healthColor = "text-green-500";
@@ -724,7 +719,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                             else if (seeders >= 5) healthColor = "text-amber-500";
                             else healthColor = "text-red-500";
                           }
-                          
+
                           const pubDate = new Date(download.pubDate);
                           const hoursOld = (Date.now() - pubDate.getTime()) / (1000 * 60 * 60);
                           const isNew = hoursOld <= 24;
@@ -759,7 +754,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                     <h4 className="font-bold text-base truncate leading-tight">
                                       {metadata.gameTitle || download.title}
                                     </h4>
-                                    
+
                                     {isNew && (
                                       <Badge variant="default" className="h-4 px-1 text-[8px] uppercase bg-blue-600 hover:bg-blue-600">
                                         NEW
@@ -878,8 +873,8 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                             isUsenet
                                               ? ["sabnzbd", "nzbget"].includes(d.type)
                                               : ["transmission", "rtorrent", "qbittorrent"].includes(
-                                                  d.type
-                                                )
+                                                d.type
+                                              )
                                           );
 
                                           if (compatibleDownloaders.length <= 1) {

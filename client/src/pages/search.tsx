@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useDebounce } from "@/hooks/use-debounce";
 import { queryClient } from "@/lib/queryClient";
-import { formatBytes, formatAge, isUsenetItem } from "@/lib/downloads-utils";
+import { formatBytes, formatAge, isUsenetItem, getDownloadTypeColor } from "@/lib/downloads-utils";
+import { cleanReleaseName } from "@shared/title-utils";
 import { Search, Download, Newspaper } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -357,9 +358,11 @@ export default function SearchPage() {
                         <div className="font-medium truncate flex-1" title={download.title}>
                           {download.title}
                         </div>
+                        <div className="text-[10px] text-muted-foreground/70 bg-muted px-1.5 py-0.5 rounded uppercase font-bold">
+                          {cleanReleaseName(download.title)}
+                        </div>
                         <Badge
-                          variant={isUsenet ? "secondary" : "default"}
-                          className="text-xs flex-shrink-0"
+                          className={`text-xs flex-shrink-0 border-none ${getDownloadTypeColor(isUsenet ? "usenet" : "torrent")}`}
                         >
                           {isUsenet ? (
                             <>

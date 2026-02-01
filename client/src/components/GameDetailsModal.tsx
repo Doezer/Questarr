@@ -1,6 +1,12 @@
 import React, { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -77,6 +83,9 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                 >
                   {game.title}
                 </DialogTitle>
+                <DialogDescription className="sr-only">
+                  Detailed information about {game.title}
+                </DialogDescription>
                 <div className="flex items-center gap-2 mb-3">
                   <StatusBadge status={game.status} />
                   {game.rating && (
@@ -266,10 +275,12 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
       {selectedScreenshot && (
         <Dialog open={!!selectedScreenshot} onOpenChange={() => setSelectedScreenshot(null)}>
           <DialogContent className="max-w-4xl">
-            <DialogHeader>
-              <DialogTitle>Screenshot</DialogTitle>
-            </DialogHeader>
-            <div className="flex justify-center">
+                      <DialogHeader>
+                        <DialogTitle>Screenshot</DialogTitle>
+                        <DialogDescription className="sr-only">
+                          Full size game screenshot
+                        </DialogDescription>
+                      </DialogHeader>            <div className="flex justify-center">
               <img
                 src={selectedScreenshot}
                 alt={`${game.title} screenshot`}

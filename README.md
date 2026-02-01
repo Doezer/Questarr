@@ -49,20 +49,43 @@
 <summary><b>👀 See the app in action</b></summary>
 
 ### Dashboard
-Your central hub for recent activity and collection overview.
-![Dashboard](images/Screenshots/dashboard.png)
+Your central hub for recent activity, collection overview and downloading available games.
+[![Dashboard](images/Screenshots/dashboard.png)](images/Screenshots/dashboard.png)
+[![Search and download](images/Screenshots/download_modal.png)](images/Screenshots/download_modal.png)
 
 ### Discover Games
 Browse and find new games to add to your collection.
-![Discover](images/Screenshots/discover.png)
+
+<p float="left">
+  <a href="images/Screenshots/discover.png"><img src="images/Screenshots/discover.png" width="49%" /></a>
+  <a href="images/Screenshots/xrelto.png"><img src="images/Screenshots/xrelto.png" width="49%" /></a> 
+</p>
 
 ### Library & Wishlist
 Manage your wanted and owned games.
-![Wishlist](images/Screenshots/wishlist.png)
+
+<p float="left">
+  <a href="images/Screenshots/library.png"><img src="images/Screenshots/library.png" width="49%" /></a>
+  <a href="images/Screenshots/wishlist.png"><img src="images/Screenshots/wishlist.png" width="49%" /></a> 
+</p>
 
 ### Calendar
 Keep track of upcoming releases.
-![Calendar](images/Screenshots/calendar.png)
+[![Calendar](images/Screenshots/calendar.png)](images/Screenshots/calendar.png)
+
+### Downloads Queue (WIP)
+Monitor your downloaders' active downloads and history.
+[![Downloads](images/Screenshots/downloads.png)](images/Screenshots/downloads.png)
+
+### Settings
+Configure indexers, downloaders, and application preferences.
+<p float="left">
+  <a href="images/Screenshots/indexers.png"><img src="images/Screenshots/indexers.png" width="49%" /></a>
+  <a href="images/Screenshots/downloaders.png"><img src="images/Screenshots/downloaders.png" width="49%" /></a> 
+</p>
+
+[![Settings](images/Screenshots/settings.png)](images/Screenshots/settings.png)
+
 
 </details>
 

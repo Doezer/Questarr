@@ -114,6 +114,7 @@
     "@types/semver": "^7.7.1",
     "@types/supertest": "^6.0.3",
     "@vitejs/plugin-react": "^4.7.0",
+    "@vitest/coverage-v8": "^4.0.18",
     "@vitest/ui": "^4.0.18",
     "autoprefixer": "^10.4.23",
     "cross-env": "^10.1.0",
@@ -133,7 +134,7 @@
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.53.1",
     "vite": "^5.4.21",
-    "vitest": "^4.0.8"
+    "vitest": "^4.0.18"
   },
   "optionalDependencies": {
     "bufferutil": "^4.0.8"

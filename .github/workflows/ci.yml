@@ -33,7 +33,7 @@ jobs:
         run: npm run check
       
       - name: Tests
-        run: npm run test
+        run: npx vitest run --coverage
       
       - name: Build project
         run: npm run build
@@ -45,6 +45,12 @@ jobs:
             exit 1
           fi
           echo "Build successful - dist directory created"
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
 
   docker-build:
     runs-on: ubuntu-latest

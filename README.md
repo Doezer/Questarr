@@ -103,7 +103,7 @@ Configure indexers, downloaders, and application preferences.
 - **Frontend**: React 18, TypeScript, Vite, Tailwind CSS, shadcn/ui
 - **Backend**: Node.js, Express, TypeScript
 - **Database**: SQLite with Drizzle ORM
-- **APIs**: IGDB (game metadata), Torznab (indexer search), Steam API (user library sync)
+- **APIs**: IGDB (game metadata), Torznab (indexer search)<!-- v1.2.0 only - , Steam API (user library sync)-->
 - **AIs**: Claude Sonnet 4.5, Gemini 3, Google Jules, GitHub Copilot
 
 ## Installation

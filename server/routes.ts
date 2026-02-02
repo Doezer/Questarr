@@ -225,7 +225,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       routesLogger.info({ username }, "Initial setup completed");
       res.json({ token, user: { id: user.id, username: user.username } });
     } catch (error) {
-      routesLogger.error({ error }, "Setup failed");
+      routesLogger.error({
+        error,
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      }, "Setup failed");
       res.status(500).json({ error: "Setup failed. Please try again." });
     }
   });
@@ -1881,9 +1885,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         xrel: { apiBase },
         settings: settings
           ? {
-              xrelSceneReleases: settings.xrelSceneReleases,
-              xrelP2pReleases: settings.xrelP2pReleases,
-            }
+            xrelSceneReleases: settings.xrelSceneReleases,
+            xrelP2pReleases: settings.xrelP2pReleases,
+          }
           : undefined,
       });
     } catch (error) {

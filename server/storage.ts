@@ -829,8 +829,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   async registerSetupUser(insertUser: InsertUser): Promise<User> {
-    return await db.transaction(async (tx) => {
-      const [result] = await tx.select({ count: sql<number>`count(*)` }).from(users);
+    return db.transaction((tx) => {
+      const [result] = tx.select({ count: sql<number>`count(*)` }).from(users).all();
 
       if (result.count > 0) {
         throw new Error("Setup already completed");
@@ -838,10 +838,11 @@ export class DatabaseStorage implements IStorage {
 
       // Manually generate UUID for SQLite
       const id = randomUUID();
-      const [user] = await tx
+      const [user] = tx
         .insert(users)
         .values({ ...insertUser, id })
-        .returning();
+        .returning()
+        .all();
       return user;
     });
   }
@@ -993,9 +994,9 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateGamesBatch(updates: { id: string; data: Partial<Game> }[]): Promise<void> {
-    await db.transaction(async (tx) => {
+    db.transaction((tx) => {
       for (const update of updates) {
-        await tx.update(games).set(update.data).where(eq(games.id, update.id));
+        tx.update(games).set(update.data).where(eq(games.id, update.id)).run();
       }
     });
   }
@@ -1082,9 +1083,9 @@ export class DatabaseStorage implements IStorage {
       errors: [] as string[],
     };
 
-    await db.transaction(async (tx) => {
+    db.transaction((tx) => {
       // Fetch all existing indexers within the transaction to compare against
-      const existingIndexers = await tx.select().from(indexers);
+      const existingIndexers = tx.select().from(indexers).all();
       const existingMap = new Map(existingIndexers.map((i) => [i.url, i]));
 
       for (const idx of indexersToSync) {
@@ -1099,8 +1100,7 @@ export class DatabaseStorage implements IStorage {
 
           if (existing) {
             // Explicitly set allowed fields for update to prevent mass assignment
-            await tx
-              .update(indexers)
+            tx.update(indexers)
               .set({
                 name: idx.name,
                 url: idx.url,
@@ -1113,7 +1113,8 @@ export class DatabaseStorage implements IStorage {
                 autoSearchEnabled: idx.autoSearchEnabled,
                 updatedAt: new Date(),
               })
-              .where(eq(indexers.id, existing.id));
+              .where(eq(indexers.id, existing.id))
+              .run();
             results.updated++;
           } else {
             const id = randomUUID();
@@ -1133,7 +1134,7 @@ export class DatabaseStorage implements IStorage {
               updatedAt: new Date(),
             };
 
-            await tx.insert(indexers).values(newIndexer);
+            tx.insert(indexers).values(newIndexer).run();
             results.added++;
           }
         } catch (error) {

@@ -18,7 +18,9 @@
     "db:push": "drizzle-kit push",
     "test": "vitest",
     "test:ui": "vitest --ui",
-    "test:run": "vitest run"
+    "test:run": "vitest run",
+    "test:e2e": "playwright test",
+    "dev:test": "tsx scripts/clean-test-db.ts && cross-env SQLITE_DB_PATH=data/test.db PORT=5100 npm run dev"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -99,6 +101,7 @@
   "devDependencies": {
     "@codecov/vite-plugin": "^1.9.1",
     "@eslint/js": "^9.39.2",
+    "@playwright/test": "^1.58.1",
     "@tailwindcss/typography": "^0.5.19",
     "@tailwindcss/vite": "^4.1.18",
     "@testing-library/jest-dom": "^6.9.1",

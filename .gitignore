@@ -19,7 +19,7 @@ gha-creds-*.json
 
 # Testing
 coverage/
-playwright-report/
+playwright*/
 test-results/
 
 # SQLite

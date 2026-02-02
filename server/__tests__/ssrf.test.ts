@@ -1,11 +1,35 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { isSafeUrl } from "../ssrf";
+import dns from "dns/promises";
+
+// Mock dns module
+vi.mock("dns/promises", () => ({
+  default: {
+    lookup: vi.fn(),
+  },
+}));
 
 describe("isSafeUrl Security Check", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("should allow valid safe URLs", async () => {
+    // Mock DNS lookup for google.com to return a safe IP
+    vi.mocked(dns.lookup).mockResolvedValueOnce({ address: "142.250.185.46", family: 4 });
     expect(await isSafeUrl("http://google.com")).toBe(true);
+
+    // Direct IPs don't need DNS lookup
     expect(await isSafeUrl("http://127.0.0.1")).toBe(true);
+    
+    // Mock DNS lookup for localhost
+    vi.mocked(dns.lookup).mockResolvedValueOnce({ address: "127.0.0.1", family: 4 });
     expect(await isSafeUrl("http://localhost")).toBe(true);
+    
     expect(await isSafeUrl("http://[::1]")).toBe(true); // Localhost IPv6
   });
 

@@ -34,6 +34,8 @@ export async function runMigrations(): Promise<void> {
 
     for (const entry of journal.entries) {
       const tag = entry.tag;
+      logger.debug(`Checking migration status: ${tag}`);
+
       if (appliedHashes.has(tag)) {
         continue;
       }

@@ -17,7 +17,7 @@ const AUTO_SEARCH_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const XREL_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours (xREL search rate limit: 2/5s)
 
 export function startCronJobs() {
-  igdbLogger.info("🕐 Starting cron jobs...");
+  igdbLogger.info("Starting cron jobs...");
   igdbLogger.info(
     {
       gameUpdates: `every ${CHECK_INTERVAL_MS / 1000 / 60 / 60} hours`,
@@ -29,7 +29,7 @@ export function startCronJobs() {
 
   // Run immediately on startup (or after a slight delay to ensure DB is ready)
   setTimeout(() => {
-    igdbLogger.info("🚀 Running initial cron job checks...");
+    igdbLogger.info("Running initial cron job checks...");
     checkGameUpdates().catch((err) => igdbLogger.error({ err }, "Error in checkGameUpdates"));
     checkDownloadStatus().catch((err) => igdbLogger.error({ err }, "Error in checkDownloadStatus"));
     checkAutoSearch().catch((err) => igdbLogger.error({ err }, "Error in checkAutoSearch"));
@@ -342,7 +342,7 @@ async function checkDownloadStatus() {
               downloadHash: download.downloadHash,
             },
             "Download not found in downloader - assuming completion and marking as owned. " +
-              "This could indicate the download was manually removed."
+            "This could indicate the download was manually removed."
           );
 
           // Mark download as completed (assumption)

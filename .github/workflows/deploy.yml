@@ -88,7 +88,7 @@ jobs:
             type=raw,value=${{ steps.package_version.outputs.version }},enable=${{ env.ENVIRONMENT == 'production' }}
             type=raw,value=latest,enable=${{ env.ENVIRONMENT == 'production' }}
             type=raw,value=dev,enable=${{ env.ENVIRONMENT == 'dev' }}
-            type=sha,prefix=${{ env.ENVIRONMENT }}-sha-,format=short
+            type=sha,prefix=${{ env.ENVIRONMENT }}-sha-,format=short,enable=${{ env.ENVIRONMENT != 'dev' }}
       
       - name: Build and push Docker image
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0

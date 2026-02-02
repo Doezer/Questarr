@@ -1,5 +1,5 @@
 # Build stage with shared dependencies
-FROM node:20-alpine AS base
+FROM node:22-alpine AS base
 
 WORKDIR /app
 
@@ -18,7 +18,7 @@ COPY . .
 RUN npm run build
 
 # Production stage
-FROM node:20-alpine AS production
+FROM node:22-alpine AS production
 
 WORKDIR /app
 

@@ -1,26 +1,35 @@
-node_modules
-dist
-.DS_Store
-server/public
-vite.config.ts.*
+# Dependencies
+node_modules/
+
+# Build and distribution
+dist/
+server/public/
 *.tar.gz
-.env
-*.log
-.gemini/
-gha-creds-*.json
-infrastructure/
-gemini.md
+
+# OS and IDE
+.DS_Store
 .vscode/
-docker-compose.local.yml
-docker-compose.migratelocal.yml
+
+# Environment and secrets
+.env
+gha-creds-*.json
+
+# Logs
+*.log
+
+# Testing
+coverage/
+playwright-report/
+test-results/
 
 # SQLite
-sqlite.db
-sqlite.db-shm
-sqlite.db-wal
-*.db
-data/sqlite.db
-docker-compose.migratelocal.yml
 
+data/*
+
+# Project specific
+.gemini/
+gemini.md
+infrastructure/
+vite.config.ts.*
+docker-compose.*local.yml
 notes/
-coverage/

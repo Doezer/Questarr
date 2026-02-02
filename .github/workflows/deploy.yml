@@ -60,6 +60,14 @@ jobs:
             echo "ENVIRONMENT=${{ inputs.environment }}" >> $GITHUB_ENV
             echo "environment=${{ inputs.environment }}" >> $GITHUB_OUTPUT
           fi
+          
+          # Normalize repository name to lowercase and strip owner for Docker Hub
+          REPO_NAME="${{ github.repository }}"
+          # Get the part after the slash (repo name only)
+          REPO_SHOULD_BE_NAME="${REPO_NAME##*/}"
+          # Lowercase
+          REPO_NAME_LC=$(echo "$REPO_SHOULD_BE_NAME" | tr '[:upper:]' '[:lower:]')
+          echo "REPO_NAME_LC=$REPO_NAME_LC" >> $GITHUB_ENV
 
       - name: Get version from package.json
         id: package_version
@@ -74,7 +82,7 @@ jobs:
         with:
           images: |
             ghcr.io/${{ github.repository }}
-            doezer/${{ github.repository }}
+            doezer/${{ env.REPO_NAME_LC }}
           tags: |
             type=raw,value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
             type=raw,value=${{ steps.package_version.outputs.version }},enable=${{ env.ENVIRONMENT == 'production' }}
@@ -99,6 +107,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Environment:** ${{ env.ENVIRONMENT }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Image:** ghcr.io/${{ github.repository }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Docker Hub:** doezer/${{ env.REPO_NAME_LC }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Tags:**" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY

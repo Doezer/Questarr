@@ -37,7 +37,8 @@ app.use((req, res, next) => {
         ((path === "/api/downloads" ||
           path === "/api/games" ||
           path === "/api/notifications" ||
-          path === "/api/search") &&
+          path === "/api/search" ||
+          path === "/api/rss/items") &&
           req.method === "GET") ||
         path.startsWith("/api/igdb/genre/") ||
         path === "/api/igdb/popular" ||

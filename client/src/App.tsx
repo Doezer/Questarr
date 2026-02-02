@@ -26,6 +26,7 @@ const LibraryPage = lazy(() => import("@/pages/library"));
 const CalendarPage = lazy(() => import("@/pages/calendar"));
 const WishlistPage = lazy(() => import("@/pages/wishlist"));
 const XrelReleasesPage = lazy(() => import("@/pages/xrel-releases"));
+const RssPage = lazy(() => import("@/pages/rss"));
 const LoginPage = lazy(() => import("@/pages/auth/login"));
 const SetupPage = lazy(() => import("@/pages/auth/setup"));
 
@@ -46,6 +47,7 @@ function Router() {
         <Route path="/calendar" component={CalendarPage} />
         <Route path="/wishlist" component={WishlistPage} />
         <Route path="/xrel" component={XrelReleasesPage} />
+        <Route path="/rss" component={RssPage} />
         <Route component={NotFound} />
       </Switch>
     </Suspense>
@@ -92,6 +94,8 @@ function App() {
         return "Wishlist";
       case "/xrel":
         return "xREL.to releases";
+      case "/rss":
+        return "RSS Feeds";
       default:
         return "Questarr";
     }

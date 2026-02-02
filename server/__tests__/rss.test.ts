@@ -60,19 +60,48 @@ describe("RssService", () => {
       } as unknown as import("../igdb").IGDBGame,
     ]);
 
+    // Mock addRssFeedItem to return an item with ID so background process can use it
+    vi.mocked(storage.addRssFeedItem).mockResolvedValue({
+      id: "item-1",
+      title: "My Game v1.0 - Repack",
+    } as any);
+
+    // Mock getRssFeedItem for background process
+    vi.mocked(storage.getRssFeedItem).mockResolvedValue({
+      id: "item-1",
+      title: "My Game v1.0 - Repack",
+      igdbGameId: null,
+    } as any);
+
     await rssService.refreshFeeds();
 
     expect(storage.getAllRssFeeds).toHaveBeenCalled();
     expect(mocks.parseURL).toHaveBeenCalledWith(mockFeed.url);
-    expect(igdbClient.searchGames).toHaveBeenCalledWith("My Game", 1);
+
+    // 1. Check immediate insertion (should have null matches)
     expect(storage.addRssFeedItem).toHaveBeenCalledWith(
       expect.objectContaining({
         title: "My Game v1.0 - Repack",
         guid: "guid-1",
+        igdbGameId: null,
+        igdbGameName: null,
+      })
+    );
+
+    // 2. Wait for background processing
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    // 3. Verify background matching behaviors
+    expect(igdbClient.searchGames).toHaveBeenCalledWith("My Game", 1);
+
+    expect(storage.updateRssFeedItem).toHaveBeenCalledWith(
+      "item-1",
+      expect.objectContaining({
         igdbGameId: 123,
         igdbGameName: "My Game",
       })
     );
+
     expect(storage.updateRssFeed).toHaveBeenCalledWith(
       mockFeed.id,
       expect.objectContaining({ status: "ok" })
@@ -152,11 +181,19 @@ describe("RssService", () => {
       ],
     });
 
+
     vi.mocked(igdbClient.searchGames).mockResolvedValue([
       { id: 1, name: "Game A" } as unknown as import("../igdb").IGDBGame,
     ]);
 
+    // Mock returns
+    vi.mocked(storage.addRssFeedItem).mockImplementation(async (item) => ({ ...item, id: Math.random().toString() } as any));
+    vi.mocked(storage.getRssFeedItem).mockImplementation(async (id) => ({ title: "Game A", id } as any));
+
     await rssService.refreshFeeds();
+
+    // Wait for background processing
+    await new Promise(resolve => setTimeout(resolve, 10));
 
     // Should be called once per unique game name extraction (assuming extraction works same for both)
     expect(igdbClient.searchGames).toHaveBeenCalledTimes(1);

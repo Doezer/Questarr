@@ -67,6 +67,8 @@ export class RssService {
 
     rssLogger.debug(`Parsed ${feedContent.items.length} items from ${feed.name}`);
 
+    const newIds: string[] = [];
+
     for (const item of feedContent.items) {
       // 1. Normalize
       const normalized = this.normalizeItem(feed, item);
@@ -79,9 +81,7 @@ export class RssService {
         continue;
       }
 
-      // 3. Match with IGDB
-      const match = await this.matchGame(normalized.title);
-
+      // 3. Insert immediately without matching
       const newItem: InsertRssFeedItem = {
         feedId: feed.id,
         guid: normalized.guid,
@@ -89,12 +89,14 @@ export class RssService {
         link: normalized.link,
         pubDate: normalized.pubDate,
         sourceName: feed.name,
-        igdbGameId: match?.id,
-        igdbGameName: match?.name,
-        coverUrl: match?.coverUrl,
+        // Match asynchronously later
+        igdbGameId: null,
+        igdbGameName: null,
+        coverUrl: null,
       };
 
-      await storage.addRssFeedItem(newItem);
+      const created = await storage.addRssFeedItem(newItem);
+      newIds.push(String(created.id)); // Convert number ID to string
     }
 
     await storage.updateRssFeed(feed.id, {
@@ -102,6 +104,39 @@ export class RssService {
       status: "ok",
       errorMessage: null,
     });
+
+    // 4. Trigger background matching
+    if (newIds.length > 0) {
+      this.processPendingItems(newIds).catch(err => {
+        rssLogger.error({ err }, "Error in background item processing");
+      });
+    }
+  }
+
+  private async processPendingItems(itemIds: string[]) {
+    rssLogger.info(`Starting background match for ${itemIds.length} items`);
+
+    for (const id of itemIds) {
+      try {
+        // Assuming storage methods can handle string IDs or convert internally
+        const item = await storage.getRssFeedItem(id);
+        if (!item || item.igdbGameId) continue; // Already matched or gone
+
+        const match = await this.matchGame(item.title);
+        if (match) {
+          await storage.updateRssFeedItem(id, {
+            igdbGameId: match.id,
+            igdbGameName: match.name,
+            coverUrl: match.coverUrl,
+          });
+          rssLogger.debug(`Matched item ${id} to game ${match.name}`);
+        }
+      } catch (error) {
+        rssLogger.warn({ itemId: id, error }, "Failed to process item match");
+      }
+    }
+
+    rssLogger.info(`Completed background match for ${itemIds.length} items`);
   }
 
   private normalizeItem(

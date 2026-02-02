@@ -103,6 +103,7 @@ export interface IStorage {
   addRssFeed(feed: InsertRssFeed): Promise<RssFeed>;
   updateRssFeed(id: string, updates: Partial<RssFeed>): Promise<RssFeed | undefined>;
   removeRssFeed(id: string): Promise<boolean>;
+  getRssFeedItem(id: string): Promise<RssFeedItem | undefined>;
   getRssFeedItems(feedId: string): Promise<RssFeedItem[]>;
   getAllRssFeedItems(limit?: number): Promise<RssFeedItem[]>;
   addRssFeedItem(item: InsertRssFeedItem): Promise<RssFeedItem>;
@@ -666,6 +667,10 @@ export class MemStorage implements IStorage {
 
   async removeRssFeed(id: string): Promise<boolean> {
     return this.rssFeeds.delete(id);
+  }
+
+  async getRssFeedItem(id: string): Promise<RssFeedItem | undefined> {
+    return this.rssFeedItems.get(id);
   }
 
   async getRssFeedItems(feedId: string): Promise<RssFeedItem[]> {
@@ -1295,6 +1300,11 @@ export class DatabaseStorage implements IStorage {
   async removeRssFeed(id: string): Promise<boolean> {
     const [deleted] = await db.delete(rssFeeds).where(eq(rssFeeds.id, id)).returning();
     return !!deleted;
+  }
+
+  async getRssFeedItem(id: string): Promise<RssFeedItem | undefined> {
+    const [item] = await db.select().from(rssFeedItems).where(eq(rssFeedItems.id, id));
+    return item;
   }
 
   async getRssFeedItems(feedId: string): Promise<RssFeedItem[]> {

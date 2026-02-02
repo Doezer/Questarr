@@ -11,6 +11,7 @@ import {
   LogOut,
   User,
   Newspaper,
+  Rss,
 } from "lucide-react";
 import {
   Sidebar,
@@ -69,6 +70,11 @@ const staticNavigation = [
     title: "xREL.to Releases",
     url: "/xrel",
     icon: Newspaper,
+  },
+  {
+    title: "RSS Feeds",
+    url: "/rss",
+    icon: Rss,
   },
 ];
 

@@ -1,4 +1,3 @@
-/* eslint-disable no-console */
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { type Request, Response, NextFunction } from "express";
@@ -6,6 +5,7 @@ import { storage } from "./storage.js";
 import { config } from "./config.js";
 import { type User } from "@shared/schema";
 import crypto from "crypto";
+import { logger } from "./logger.js";
 
 const SALT_ROUNDS = 10;
 
@@ -27,7 +27,7 @@ async function getJwtSecret(): Promise<string> {
 
   // If env var is set and NOT the default, use it (override)
   if (config.auth.jwtSecret && config.auth.jwtSecret !== "questarr-default-secret-change-me") {
-    console.log("Using JWT secret from environment variable");
+    logger.info("Using JWT secret from environment variable");
     cachedJwtSecret = config.auth.jwtSecret;
     return cachedJwtSecret;
   }
@@ -36,12 +36,12 @@ async function getJwtSecret(): Promise<string> {
   try {
     const dbSecret = await storage.getSystemConfig("jwt_secret");
     if (dbSecret) {
-      console.log("Loaded JWT secret from database");
+      logger.info("Loaded JWT secret from database");
       cachedJwtSecret = dbSecret;
       return cachedJwtSecret;
     }
   } catch (error) {
-    console.warn("Failed to load JWT secret from database, generating new one", error);
+    logger.warn("Failed to load JWT secret from database, generating new one: %s", error);
   }
 
   // Generate new secret
@@ -49,16 +49,16 @@ async function getJwtSecret(): Promise<string> {
 
   try {
     await storage.setSystemConfig("jwt_secret", newSecret);
-    console.log("Generated and stored new JWT secret in database");
+    logger.info("Generated and stored new JWT secret in database");
   } catch (error) {
-    console.error("Failed to store JWT secret in database", error);
+    logger.error("Failed to store JWT secret in database: %s", error);
   }
 
   cachedJwtSecret = newSecret;
 
   if (!config.auth.jwtSecret || config.auth.jwtSecret === "questarr-default-secret-change-me") {
-    console.warn("⚠️  Using generated JWT secret.");
-    console.warn(
+    logger.warn("⚠️  Using generated JWT secret.");
+    logger.warn(
       "⚠️  Set JWT_SECRET in your .env file to use a persistent secret across database resets."
     );
   }

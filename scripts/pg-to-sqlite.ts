@@ -1,4 +1,3 @@
-/* eslint-disable */
 import pg from "pg";
 import Database from "better-sqlite3";
 import path from "path";

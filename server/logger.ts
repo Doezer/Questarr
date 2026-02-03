@@ -11,16 +11,16 @@ const transport = pino.transport({
     },
     isProduction
       ? {
-        target: "pino/file",
-        options: { destination: 1 }, // stdout
-      }
+          target: "pino/file",
+          options: { destination: 1 }, // stdout
+        }
       : {
-        target: "pino-pretty",
-        options: {
-          colorize: true,
-          destination: 1, // stdout
+          target: "pino-pretty",
+          options: {
+            colorize: true,
+            destination: 1, // stdout
+          },
         },
-      },
   ],
 });
 
@@ -30,10 +30,10 @@ function getCallerInfo() {
   if (!stack) return {};
 
   // Parse stack lines
-  const lines = stack.split('\n');
+  const lines = stack.split("\n");
 
   // Find the first line that is NOT from pino or this file
-  // Typically: 
+  // Typically:
   // 0: Error
   // 1: at getCallerInfo ...
   // 2: at pino mixin ...
@@ -42,7 +42,7 @@ function getCallerInfo() {
   for (let i = 2; i < lines.length; i++) {
     const line = lines[i];
     // normalized check for node_modules and logger.ts
-    if (!line.includes('node_modules') && !line.includes('logger.ts')) {
+    if (!line.includes("node_modules") && !line.includes("logger.ts")) {
       // Basic extraction - this can be refined based on stack format
       const match = line.match(/at\s+(?:(.+?)\s+\()?(?:(.+?):(\d+):(\d+))\)?/);
       if (match) {
@@ -54,7 +54,7 @@ function getCallerInfo() {
         }
 
         return {
-          logSource: `${filePath}:${match[3]} (${match[1] || '<anonymous>'})`
+          logSource: `${filePath}:${match[3]} (${match[1] || "<anonymous>"})`,
         };
       }
     }
@@ -67,9 +67,8 @@ export const logger = pino(
     level: process.env.LOG_LEVEL || "debug",
     timestamp: pino.stdTimeFunctions.isoTime,
     mixin: () => {
-      // @ts-ignore
       return getCallerInfo();
-    }
+    },
   },
   transport
 );

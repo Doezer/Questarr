@@ -3,6 +3,7 @@ import { igdbLogger } from "./logger.js";
 import { storage } from "./storage.js";
 import { db } from "./db.js";
 import { userSettings } from "../shared/schema.js";
+import { logger } from "./logger.js";
 
 // Configuration constants for search limits
 const MAX_SEARCH_ATTEMPTS = 5;
@@ -378,9 +379,7 @@ class IGDBClient {
    * Search for multiple game titles efficiently using the multiquery endpoint.
    * Returns a map of QueryString -> IGDBGame | null
    */
-  async batchSearchGames(
-    queries: string[]
-  ): Promise<Map<string, IGDBGame | null>> {
+  async batchSearchGames(queries: string[]): Promise<Map<string, IGDBGame | null>> {
     if (!(await this.ensureConfigured()) || queries.length === 0) {
       return new Map();
     }
@@ -399,14 +398,15 @@ class IGDBClient {
 
           // Split into words, remove common short words to improve match robustness
           // (e.g. "the", "and", "of", "a")
-          const words = sanitized.toLowerCase()
+          const words = sanitized
+            .toLowerCase()
             .split(/\s+/)
-            .filter(word => word.length >= 3 || /\d/.test(word)); // Keep words >= 3 chars or containing digits
+            .filter((word) => word.length >= 3 || /\d/.test(word)); // Keep words >= 3 chars or containing digits
 
           if (words.length === 0) return null;
 
           // Join with & logic: all words must be present in the name
-          const intersection = words.map(w => `name ~ *"${w}"*`).join(" & ");
+          const intersection = words.map((w) => `name ~ *"${w}"*`).join(" & ");
 
           // Alias the result with the index `q${idx}` to map back
           return `query games "q${idx}" { fields name, cover.url, first_release_date, platforms.name, genres.name, involved_companies.company.name; where ${intersection}; limit 1; };`;
@@ -416,15 +416,15 @@ class IGDBClient {
 
       if (!multiqueryBody) continue;
 
-      // console.log(`[DEBUG] Multiquery Body:\n${multiqueryBody}`);
-
       try {
-        const responseData = await this.makeRequest<
-          Array<{ name: string; result: IGDBGame[] }>
-        >("multiquery", multiqueryBody, 60 * 60 * 1000); // Cache for 1 hour
+        const responseData = await this.makeRequest<Array<{ name: string; result: IGDBGame[] }>>(
+          "multiquery",
+          multiqueryBody,
+          60 * 60 * 1000
+        ); // Cache for 1 hour
 
-        console.log(`[DEBUG] Multiquery response length: ${responseData.length}`);
-        // console.log(`[DEBUG] Multiquery response: ${JSON.stringify(responseData)}`); // Verbose
+        logger.debug(`[DEBUG] Multiquery response length: ${responseData.length}`);
+        logger.debug(`[DEBUG] Multiquery response: ${JSON.stringify(responseData)}`); // Verbose
 
         // Map results back to queries
         batch.forEach((originalQuery, idx) => {

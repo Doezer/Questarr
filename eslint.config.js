@@ -55,7 +55,7 @@ export default tseslint.config(
       "@typescript-eslint/no-empty-interface": "off",
 
       // General rules
-      "no-console": ["warn", { allow: ["warn", "error"] }],
+      "no-console": "off",
       "prefer-const": "warn",
       "no-var": "error",
     },

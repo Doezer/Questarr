@@ -374,6 +374,78 @@ class IGDBClient {
     return [];
   }
 
+  /**
+   * Search for multiple game titles efficiently using the multiquery endpoint.
+   * Returns a map of QueryString -> IGDBGame | null
+   */
+  async batchSearchGames(
+    queries: string[]
+  ): Promise<Map<string, IGDBGame | null>> {
+    if (!(await this.ensureConfigured()) || queries.length === 0) {
+      return new Map();
+    }
+
+    const uniqueQueries = Array.from(new Set(queries));
+    // Multiquery limit is usually 10 sub-queries per request
+    const BATCH_SIZE = 10;
+    const results = new Map<string, IGDBGame | null>();
+
+    for (let i = 0; i < uniqueQueries.length; i += BATCH_SIZE) {
+      const batch = uniqueQueries.slice(i, i + BATCH_SIZE);
+      const multiqueryBody = batch
+        .map((q, idx) => {
+          const sanitized = sanitizeIgdbInput(q);
+          if (!sanitized) return null;
+
+          // Split into words, remove common short words to improve match robustness
+          // (e.g. "the", "and", "of", "a")
+          const words = sanitized.toLowerCase()
+            .split(/\s+/)
+            .filter(word => word.length >= 3 || /\d/.test(word)); // Keep words >= 3 chars or containing digits
+
+          if (words.length === 0) return null;
+
+          // Join with & logic: all words must be present in the name
+          const intersection = words.map(w => `name ~ *"${w}"*`).join(" & ");
+
+          // Alias the result with the index `q${idx}` to map back
+          return `query games "q${idx}" { fields name, cover.url, first_release_date, platforms.name, genres.name, involved_companies.company.name; where ${intersection}; limit 1; };`;
+        })
+        .filter(Boolean)
+        .join("\n");
+
+      if (!multiqueryBody) continue;
+
+      // console.log(`[DEBUG] Multiquery Body:\n${multiqueryBody}`);
+
+      try {
+        const responseData = await this.makeRequest<
+          Array<{ name: string; result: IGDBGame[] }>
+        >("multiquery", multiqueryBody, 60 * 60 * 1000); // Cache for 1 hour
+
+        console.log(`[DEBUG] Multiquery response length: ${responseData.length}`);
+        // console.log(`[DEBUG] Multiquery response: ${JSON.stringify(responseData)}`); // Verbose
+
+        // Map results back to queries
+        batch.forEach((originalQuery, idx) => {
+          const alias = `q${idx}`;
+          const match = responseData.find((r) => r.name === alias);
+          if (match && match.result && match.result.length > 0) {
+            results.set(originalQuery, match.result[0]);
+          } else {
+            results.set(originalQuery, null);
+          }
+        });
+      } catch (error) {
+        igdbLogger.error({ error }, "Multiquery batch failed");
+        // Fallback: Set all in this batch to null
+        batch.forEach((q) => results.set(q, null));
+      }
+    }
+
+    return results;
+  }
+
   async getGameById(id: number): Promise<IGDBGame | null> {
     if (!(await this.ensureConfigured())) return null;
 

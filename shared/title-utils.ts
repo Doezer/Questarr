@@ -20,13 +20,13 @@ export function normalizeTitle(title: string): string {
  * Common scene release tags and patterns to remove from release names.
  */
 const RELEASE_TAGS = [
-  /\b(1080p|720p|2160p|4k|uhd|bluray|h264|x264|h265|x265|hevc)\b/i,
-  /\b(multi\d*|multilingual|german|english|french|italian|spanish|nordic|pal|ntsc|russian|japanese)\b/i,
-  /\b(iso|rip|repack|re-repack|proper|internal|readnfo|nfo|re-nfo|crackfix|fix)\b/i,
-  /\b(ps3|ps4|ps5|xbox|xbox360|x360|switch|nsw|wii|wiiu|nds|3ds|gba|psp|psvita|vita)\b/i,
-  /\b(mac|linux|osx|os\.x|macos)\b/i,
-  /\b(gog|steam|epic|uplay|origin|drm[ -]?free)\b/i,
-  /\b(goty|deluxe|complete|gold|ultimate|collectors|definitive|remastered|remake|remaster)\b/i,
+  /\b(1080p|720p|2160p|4k|uhd|bluray|h264|x264|h265|x265|hevc)\b/gi,
+  /\b(multi\d*|multilingual|language|languages|german|english|french|italian|spanish|nordic|pal|ntsc|russian|japanese)\b/gi,
+  /\b(iso|rip|repack|re-repack|proper|internal|readnfo|nfo|re-nfo|crackfix|fix|fixed|hotfix|update|dlc|unlocker)\b/gi,
+  /\b(ps3|ps4|ps5|xbox|xbox360|x360|switch|nsw|wii|wiiu|nds|3ds|gba|psp|psvita|vita)\b/gi,
+  /\b(mac|linux|osx|os\.x|macos)\b/gi,
+  /\b(gog|steam|epic|uplay|origin|drm[ -]?free)\b/gi,
+  /\b(goty|deluxe|complete|gold|ultimate|collectors|definitive|remastered|remake|remaster)\b/gi,
 ];
 
 const VERSION_REGEX = /\b(v\d+([.\s-]\d+)*|build[.\s-]\d+)\b/i;
@@ -35,8 +35,16 @@ const VERSION_REGEX = /\b(v\d+([.\s-]\d+)*|build[.\s-]\d+)\b/i;
  * Cleans a release name (e.g. from a torrent or NZB) to attempt to extract the base game title.
  */
 export function cleanReleaseName(releaseName: string): string {
-  // First, handle content in brackets or parentheses that often contains metadata
-  let cleaned = releaseName.replace(/[[({][^\])}]*[\])}]/g, (match) => {
+  // 1. Convert underscores and dots (but not dashes) to spaces early to help regex word boundaries
+  // We keep dashes for now to detect -GROUP suffixes
+  let cleaned = releaseName.replace(/[._]/g, " ");
+
+  // 2. Remove common release group suffixes (usually -GROUP at the end)
+  // Handle simple -GROUP at end
+  cleaned = cleaned.replace(/-[a-zA-Z0-9]+$/, "");
+
+  // 2. Handle content in brackets or parentheses that often contains metadata
+  cleaned = cleaned.replace(/[[({][^\])}]*[\])}]/g, (match) => {
     // If the bracketed content contains known tags or is mostly numeric (like a build ID), remove it
     const inner = match.slice(1, -1).toLowerCase();
     const hasTag = RELEASE_TAGS.some((tag) => tag.test(inner)) || VERSION_REGEX.test(inner);
@@ -45,18 +53,21 @@ export function cleanReleaseName(releaseName: string): string {
     return match; // Keep it if it might be part of the title (e.g. "Game (Special Edition)")
   });
 
-  cleaned = cleaned.replace(/[._-]/g, " "); // Replace dots, underscores, dashes with space
+  // 3. Remove version patterns explicitly
+  cleaned = cleaned.replace(VERSION_REGEX, " ");
 
-  // Remove common release group suffixes (usually -GROUP at the end)
-  cleaned = cleaned.replace(/\s-\s?\w+$/g, "");
-  cleaned = cleaned.replace(/-(\w+)$/g, " ");
+  // 4. Replace dots, underscores, dashes with space
+  cleaned = cleaned.replace(/[._-]/g, " ");
 
-  // Remove all known release tags
+  // Normalize " and " to " & " to improve matching (e.g. Tales And Tactics -> Tales & Tactics)
+  cleaned = cleaned.replace(/\s+and\s+/gi, " & ");
+
+  // 5. Remove all known release tags
   for (const tag of RELEASE_TAGS) {
     cleaned = cleaned.replace(tag, " ");
   }
 
-  // Remove years (only if they are between 1975 and 2040 to avoid removing titles like Cyberpunk 2077)
+  // 6. Remove years (only if they are between 1975 and 2040)
   cleaned = cleaned.replace(/\b\d{4}\b/g, (match) => {
     const year = parseInt(match);
     if (year >= 1975 && year <= 2040) {

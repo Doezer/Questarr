@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { ExternalLink, Gamepad2, RefreshCw } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ExternalLink, Gamepad2, RefreshCw, Loader2, Plus } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
 
 interface XrelRelease {
   id: string;
@@ -16,6 +17,13 @@ interface XrelRelease {
   ext_info?: { title: string; link_href: string };
   source: "scene" | "p2p";
   isWanted?: boolean;
+  libraryStatus?: string;
+  gameId?: string;
+  matchCandidate?: {
+    title: string;
+    igdbId: number;
+    // other fields if needed for UI
+  };
 }
 
 interface XrelLatestResponse {
@@ -50,6 +58,9 @@ function safeUrl(url: string | undefined): string {
 export default function XrelReleasesPage() {
   const [page, setPage] = useState(1);
 
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
   const { data, isLoading, isFetching, refetch } = useQuery<XrelLatestResponse>({
     queryKey: ["/api/xrel/latest", page],
     queryFn: async () => {
@@ -59,6 +70,41 @@ export default function XrelReleasesPage() {
       });
       if (!res.ok) throw new Error("Failed to fetch xREL latest");
       return res.json();
+    },
+  });
+
+  const addGameMutation = useMutation({
+    mutationFn: async (title: string) => {
+      const res = await fetch("/api/games/match-and-add", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
+        },
+        body: JSON.stringify({ title }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to add game");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Game added",
+        description: `Added "${data.title}" to your wanted list`,
+      });
+      // Iterate over the list and update the item that was added to avoid full refetch if possible,
+      // but simpler to just invalidates queries
+      queryClient.invalidateQueries({ queryKey: ["/api/xrel/latest"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        variant: "destructive",
+        title: "Failed to add game",
+        description: error.message,
+      });
     },
   });
 
@@ -151,14 +197,46 @@ export default function XrelReleasesPage() {
                             {formatSize(rel.sizeMb, rel.sizeUnit)}
                           </span>
                         )}
-                        {rel.isWanted && (
+                        {rel.libraryStatus ? (
                           <Badge
-                            variant="default"
-                            className="text-xs bg-primary text-primary-foreground"
+                            variant={rel.libraryStatus === "wanted" ? "default" : "secondary"}
+                            className={`text-xs ${rel.libraryStatus === "wanted" ? "bg-primary text-primary-foreground" : ""}`}
                           >
-                            Wanted
+                            {rel.libraryStatus.charAt(0).toUpperCase() + rel.libraryStatus.slice(1)}
                           </Badge>
-                        )}
+
+                        ) : rel.matchCandidate ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 text-xs gap-1"
+                            onClick={() => {
+                              // We use matchCandidate data which is already formatted via IGDB
+                              // But our API expects just the fields to add.
+                              // Actually, reusing the same POST endpoint /api/games/match-and-add might be weird
+                              // if we already have the ID.
+                              // Let's call /api/games directly or use match-and-add with title (but that re-searches).
+                              // Better to call match-and-add which we updated? No we didn't update it to take ID.
+                              // Let's just use match-and-add with the *candidate* title, which is the official IGDB title.
+                              if (rel.matchCandidate) {
+                                addGameMutation.mutate(rel.matchCandidate.title);
+                              }
+                            }}
+                            disabled={
+                              addGameMutation.isPending &&
+                              addGameMutation.variables === rel.matchCandidate.title
+                            }
+                            title={`Add "${rel.matchCandidate.title}" to wanted list`}
+                          >
+                            {addGameMutation.isPending &&
+                              addGameMutation.variables === rel.matchCandidate.title ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <Plus className="h-3 w-3" />
+                            )}
+                            Add
+                          </Button>
+                        ) : null}
                         <Badge variant="secondary" className="text-xs">
                           {rel.source}
                         </Badge>
@@ -206,6 +284,6 @@ export default function XrelReleasesPage() {
           </CardContent>
         </Card>
       </div>
-    </div>
+    </div >
   );
 }

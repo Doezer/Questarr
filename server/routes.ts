@@ -1918,14 +1918,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const userId = (req as any).user.id;
       const userGames = await storage.getUserGames(userId);
-      const wantedGames = userGames.filter((g) => g.status === "wanted");
-
-      // Mark releases that match a wanted game
-      // ⚡ Bolt: Optimize matching for large collections by pre-processing wanted games
-      // and using a Set for O(1) exact-match lookups.
-      const wantedGamesLookup = wantedGames.map((g) => {
+      // Match releases exact or fuzzy against ALL user games
+      const gamesLookup = userGames.map((g) => {
         const norm = normalizeTitle(g.title);
         return {
+          game: g,
           normalized: norm,
           regex:
             norm.length >= 5
@@ -1934,43 +1931,97 @@ export async function registerRoutes(app: Express): Promise<Server> {
           words: norm.split(" ").filter((w: string) => w.length > 2),
         };
       });
-      const wantedNormSet = new Set(wantedGamesLookup.map((g) => g.normalized));
+      // Map normalized title -> Game
+      const gamesMap = new Map<string, Game>();
+      gamesLookup.forEach((gl) => gamesMap.set(gl.normalized, gl.game));
+
+      // Collect potential titles for batch matching
+      const candidatesToMatch = new Set<string>();
 
       const listWithMatches = result.list.map((rel) => {
         const relExtTitleNorm = rel.ext_info?.title ? normalizeTitle(rel.ext_info.title) : null;
         const relDirCleaned = cleanReleaseName(rel.dirname);
         const relDirNorm = normalizeTitle(relDirCleaned);
 
+        let matchedGame: Game | undefined;
+
         // Fast path: Exact normalized match
-        if (
-          (relExtTitleNorm && wantedNormSet.has(relExtTitleNorm)) ||
-          wantedNormSet.has(relDirNorm)
-        ) {
-          return { ...rel, isWanted: true };
+        if (relExtTitleNorm && gamesMap.has(relExtTitleNorm)) {
+          matchedGame = gamesMap.get(relExtTitleNorm);
+        } else if (gamesMap.has(relDirNorm)) {
+          matchedGame = gamesMap.get(relDirNorm);
         }
 
-        // Slow path: Fuzzy matching (inclusion, word-based)
-        const relDirLower = rel.dirname.toLowerCase().replace(/[._-]/g, " ");
-        const relExtRegex =
-          relExtTitleNorm && relExtTitleNorm.length >= 5
-            ? new RegExp(`\\b${relExtTitleNorm.replace(/[.*+?^${}()|[\\]/g, "\\$&")}\\b`, "i")
-            : null;
+        if (!matchedGame) {
+          // Slow path: Fuzzy matching (inclusion, word-based)
+          const relDirLower = rel.dirname.toLowerCase().replace(/[._-]/g, " ");
+          const relExtRegex =
+            relExtTitleNorm && relExtTitleNorm.length >= 5
+              ? new RegExp(`\\b${relExtTitleNorm.replace(/[.*+?^${}()|[\\]/g, "\\$&")}\\b`, "i")
+              : null;
 
-        const isWanted = wantedGamesLookup.some((g) => {
-          if (relExtTitleNorm) {
-            if (g.regex && g.regex.test(relExtTitleNorm)) return true;
-            if (relExtRegex && relExtRegex.test(g.normalized)) return true;
+          const found = gamesLookup.find((gl) => {
+            if (relExtTitleNorm) {
+              if (gl.regex && gl.regex.test(relExtTitleNorm)) return true;
+              if (relExtRegex && relExtRegex.test(gl.normalized)) return true;
+            }
+            if (gl.regex && gl.regex.test(relDirNorm)) return true;
+            if (
+              gl.words.length > 0 &&
+              gl.words.every((word: string) => relDirLower.includes(word))
+            )
+              return true;
+            return false;
+          });
+          matchedGame = found?.game;
+        }
+
+        // If still no match, prepare for IGDB search
+        if (!matchedGame) {
+          // User feedback: xREL title is often "Indie-Spiele", so rely on dirname
+          const title = cleanReleaseName(rel.dirname);
+          if (title.length > 2) {
+            candidatesToMatch.add(title);
           }
-          if (g.regex && g.regex.test(relDirNorm)) return true;
-          if (g.words.length > 0 && g.words.every((word: string) => relDirLower.includes(word)))
-            return true;
-          return false;
-        });
+        }
 
-        return { ...rel, isWanted };
+        return {
+          ...rel,
+          libraryStatus: matchedGame?.status,
+          gameId: matchedGame?.id,
+          // Keep isWanted for backward compatibility
+          isWanted: matchedGame?.status === "wanted",
+        };
       });
 
-      res.json({ ...result, list: listWithMatches });
+      // Batch search IGDB for unmatched titles
+      const candidatesArray = Array.from(candidatesToMatch);
+      // routesLogger.debug({ count: candidatesArray.length, candidates: candidatesArray }, "Batch searching IGDB");
+
+      const igdbMatches = await igdbClient.batchSearchGames(candidatesArray);
+
+      if (igdbMatches.size > 0) {
+        routesLogger.debug({ count: igdbMatches.size, matches: Array.from(igdbMatches.entries()).map(([k, v]) => `${k} => ${v?.name}`) }, "IGDB Matches found");
+      }
+
+      // Attach IGDB match candidates to results
+      const finallist = listWithMatches.map((item) => {
+        if (item.libraryStatus) return item;
+
+        const title = cleanReleaseName(item.dirname);
+        const match = igdbMatches.get(title);
+
+        if (match) {
+          const formattedMatch = igdbClient.formatGameData(match);
+          return {
+            ...item,
+            matchCandidate: formattedMatch,
+          };
+        }
+        return item;
+      });
+
+      res.json({ ...result, list: finallist });
     } catch (error) {
       routesLogger.error({ error }, "xREL latest failed");
       res.status(500).json({
@@ -2001,6 +2052,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
       routesLogger.error({ error }, "xREL search failed");
       res.status(500).json({
         error: "xREL search failed",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
+  // Match and add game from name (Quick Add)
+  app.post("/api/games/match-and-add", authenticateToken, async (req, res) => {
+    try {
+      const { title } = req.body;
+      if (!title || typeof title !== "string") {
+        return res.status(400).json({ error: "Title is required" });
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const userId = (req as any).user.id;
+
+      // 1. Search IGDB for the title
+      const igdbResults = await igdbClient.searchGames(title, 1);
+      if (igdbResults.length === 0) {
+        return res.status(404).json({ error: "No game found on IGDB for this title" });
+      }
+
+      const match = igdbResults[0];
+      const formattedMatch = igdbClient.formatGameData(match);
+
+      // 2. Add to library (similar to POST /api/games)
+      const gameData = insertGameSchema.parse({
+        userId,
+        title: formattedMatch.title,
+        igdbId: formattedMatch.igdbId,
+        status: "wanted", // Default status for quick add
+        platform: "PC", // Default platform, user can change later
+        platforms: formattedMatch.platforms,
+        genres: formattedMatch.genres,
+        coverUrl: formattedMatch.coverUrl,
+        releaseDate: formattedMatch.releaseDate,
+        summary: formattedMatch.summary,
+        publishers: formattedMatch.publishers,
+        developers: formattedMatch.developers,
+        screenshots: formattedMatch.screenshots,
+        rating: formattedMatch.rating,
+      });
+
+      // Check for existing
+      const userGames = await storage.getUserGames(userId, true);
+      const existingGame = userGames.find((g) => g.igdbId === gameData.igdbId);
+
+      if (existingGame) {
+        return res.status(409).json({ error: "Game already in collection", game: existingGame });
+      }
+
+      const game = await storage.addGame(gameData);
+      routesLogger.info(
+        { userId, title: game.title, igdbId: game.igdbId },
+        "Game quick-added from matching"
+      );
+      res.status(201).json(game);
+    } catch (error) {
+      routesLogger.error({ error }, "match and add failed");
+      res.status(500).json({
+        error: "Failed to add game",
         message: error instanceof Error ? error.message : "Unknown error",
       });
     }

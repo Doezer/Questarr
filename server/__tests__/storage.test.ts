@@ -1,6 +1,4 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import type { InsertGame } from "../../shared/schema";
-import type { MemStorage as MemStorageType } from "../storage.js";
 
 // Mock db.ts to avoid SQLite connection
 vi.mock("../db.js", () => ({
@@ -37,15 +35,17 @@ vi.mock("../db", () => {
       update: vi.fn().mockReturnThis(),
       set: vi.fn().mockReturnThis(),
       delete: vi.fn().mockReturnThis(),
-      transaction: vi.fn((cb) => cb({
-        select: vi.fn().mockReturnThis(),
-        from: vi.fn().mockReturnThis(),
-        insert: vi.fn().mockReturnThis(),
-        values: vi.fn().mockReturnThis(),
-        returning: vi.fn().mockReturnThis(),
-        update: vi.fn().mockReturnThis(),
-        set: vi.fn().mockReturnThis(),
-      })),
+      transaction: vi.fn((cb) =>
+        cb({
+          select: vi.fn().mockReturnThis(),
+          from: vi.fn().mockReturnThis(),
+          insert: vi.fn().mockReturnThis(),
+          values: vi.fn().mockReturnThis(),
+          returning: vi.fn().mockReturnThis(),
+          update: vi.fn().mockReturnThis(),
+          set: vi.fn().mockReturnThis(),
+        })
+      ),
     },
   };
 });
@@ -97,7 +97,7 @@ describe("MemStorage", () => {
         genres: ["Action"],
         screenshots: [],
         hidden: false,
-        userId: "user-1"
+        userId: "user-1",
       };
 
       const game = await storage.addGame(gameData);
@@ -115,14 +115,20 @@ describe("MemStorage", () => {
         igdbId: 67890,
         status: "owned",
         hidden: null,
-        userId: "user-1"
+        userId: "user-1",
       };
       const addedGame = await storage.addGame(gameData);
       expect(addedGame.status).toBe("owned");
     });
 
     it("should update game status", async () => {
-      const gameData: InsertGame = { title: "Game", igdbId: 1, status: "wanted", userId: "user-1" };
+      const gameData: InsertGame = {
+        title: "Game",
+        igdbId: 1,
+        status: "wanted",
+        userId: "user-1",
+        hidden: null,
+      };
       const game = await storage.addGame(gameData);
 
       const updated = await storage.updateGameStatus(game.id, { status: "downloading" });
@@ -133,7 +139,13 @@ describe("MemStorage", () => {
     });
 
     it("should remove a game", async () => {
-      const gameData: InsertGame = { title: "Game to Remove", igdbId: 2, status: "wanted", userId: "user-1" };
+      const gameData: InsertGame = {
+        title: "Game to Remove",
+        igdbId: 2,
+        status: "wanted",
+        userId: "user-1",
+        hidden: null,
+      };
       const game = await storage.addGame(gameData);
 
       const result = await storage.removeGame(game.id);
@@ -160,7 +172,7 @@ describe("MemStorage", () => {
         apiKey: "key",
         protocol: "torznab",
         enabled: true,
-        priority: 1
+        priority: 1,
       };
 
       // MemStorage needs syncIndexers to be consistent with IStorage
@@ -168,7 +180,7 @@ describe("MemStorage", () => {
       // MemStorage interface usually has CRUD. Let's assume standard behavior.
 
       // syncIndexers is the main way to add in bulk
-      const result = await storage.syncIndexers([indexerData as any]); // partial match
+      const result = await storage.syncIndexers([indexerData]); // partial match
       expect(result.added).toBe(1);
 
       const indexers = await storage.getAllIndexers();
@@ -184,7 +196,7 @@ describe("MemStorage", () => {
         type: "transmission",
         url: "http://localhost:9091",
         enabled: true,
-        priority: 1
+        priority: 1,
       };
 
       const downloader = await storage.addDownloader(dlData); // Changed createDownloader to addDownloader

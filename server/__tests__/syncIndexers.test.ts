@@ -9,12 +9,14 @@ vi.mock("../db", () => ({
     transaction: vi.fn((callback) =>
       callback({
         select: vi.fn().mockReturnThis(),
-        from: vi.fn().mockReturnValue([]), // Default empty
+        from: vi.fn().mockReturnThis(),
+        all: vi.fn().mockReturnValue([]),
         insert: vi.fn().mockReturnThis(),
-        values: vi.fn(),
+        values: vi.fn().mockReturnThis(),
+        run: vi.fn().mockReturnValue({ changes: 0 }),
         update: vi.fn().mockReturnThis(),
         set: vi.fn().mockReturnThis(),
-        where: vi.fn(),
+        where: vi.fn().mockReturnThis(),
       })
     ),
   },
@@ -32,12 +34,14 @@ describe("DatabaseStorage - syncIndexers", () => {
     // Setup mock transaction object
     mockTx = {
       select: vi.fn().mockReturnThis(),
-      from: vi.fn().mockReturnValue([]),
+      from: vi.fn().mockReturnThis(),
+      all: vi.fn().mockReturnValue([]),
       insert: vi.fn().mockReturnThis(),
-      values: vi.fn(),
+      values: vi.fn().mockReturnThis(),
+      run: vi.fn().mockReturnValue({ changes: 0 }),
       update: vi.fn().mockReturnThis(),
       set: vi.fn().mockReturnThis(),
-      where: vi.fn(),
+      where: vi.fn().mockReturnThis(),
     };
 
     // Re-import to ensure fresh mock
@@ -58,7 +62,7 @@ describe("DatabaseStorage - syncIndexers", () => {
       },
     ];
 
-    mockTx.from.mockResolvedValue([]); // No existing indexers
+    mockTx.all.mockReturnValue([]); // No existing indexers
 
     const result = await storage.syncIndexers(indexersToSync);
 
@@ -92,7 +96,7 @@ describe("DatabaseStorage - syncIndexers", () => {
       },
     ];
 
-    mockTx.from.mockResolvedValue([existingIndexer]);
+    mockTx.all.mockReturnValue([existingIndexer]);
 
     const result = await storage.syncIndexers(indexersToSync);
 

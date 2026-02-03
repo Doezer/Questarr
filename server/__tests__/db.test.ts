@@ -19,8 +19,9 @@ describe("Database Initialization", () => {
 
   it("should initialize with :memory: database in test environment", async () => {
     process.env.SQLITE_DB_PATH = ":memory:";
-    const { db } = await import("../db.js");
+    const { db, pool } = await import("../db.js");
     expect(db).toBeDefined();
+    pool.close();
   });
 
   it("should create database directory if it doesn't exist", async () => {
@@ -34,11 +35,14 @@ describe("Database Initialization", () => {
     }
 
     // Import db module which should create the directory
-    const { db } = await import("../db.js");
+    const { db, pool } = await import("../db.js");
     expect(db).toBeDefined();
-    
+
     // Verify directory was created
     expect(fs.existsSync(testDir)).toBe(true);
+
+    // Close connection before cleanup
+    pool.close();
 
     // Cleanup
     if (fs.existsSync(testDbPath)) {
@@ -51,13 +55,14 @@ describe("Database Initialization", () => {
 
   it("should use default path when SQLITE_DB_PATH is not set", async () => {
     delete process.env.SQLITE_DB_PATH;
-    const { db } = await import("../db.js");
+    const { db, pool } = await import("../db.js");
     expect(db).toBeDefined();
+    pool.close();
   });
 
   it("should handle existing valid database file", async () => {
     const testDbPath = path.join("/tmp", "existing-valid-test.db");
-    
+
     // Create a valid SQLite database file first
     const testDir = path.dirname(testDbPath);
     if (!fs.existsSync(testDir)) {
@@ -70,10 +75,13 @@ describe("Database Initialization", () => {
     tempDb.close();
 
     process.env.SQLITE_DB_PATH = testDbPath;
-    
+
     // Should not throw error when file already exists
-    const { db } = await import("../db.js");
+    const { db, pool } = await import("../db.js");
     expect(db).toBeDefined();
+
+    // Close connection before cleanup
+    pool.close();
 
     // Cleanup
     if (fs.existsSync(testDbPath)) {
@@ -83,7 +91,7 @@ describe("Database Initialization", () => {
 
   it("should detect when database path is a directory", async () => {
     const testDirPath = path.join("/tmp", "test-questarr-dir-db");
-    
+
     // Create a directory at the database path
     if (!fs.existsSync(testDirPath)) {
       fs.mkdirSync(testDirPath, { recursive: true });
@@ -106,11 +114,12 @@ describe("Database Initialization", () => {
 
   it("should apply SQLite pragmas for performance", async () => {
     process.env.SQLITE_DB_PATH = ":memory:";
-    
+
     // We can't directly test pragma application without accessing the underlying
     // SQLite connection, but we can verify the db object is created successfully
-    const { db } = await import("../db.js");
+    const { db, pool } = await import("../db.js");
     expect(db).toBeDefined();
     expect(typeof db.select).toBe("function");
+    pool.close();
   });
 });

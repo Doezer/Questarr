@@ -141,7 +141,7 @@ export function NotificationCenter() {
             <span className="sr-only">Notifications</span>
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-80 p-0" align="end">
+        <PopoverContent className="w-[640px] p-0" align="end">
           <div className="flex items-center justify-between p-4 border-b">
             <h4 className="font-semibold leading-none">Notifications</h4>
             <div className="flex gap-1">
@@ -169,10 +169,10 @@ export function NotificationCenter() {
               </Button>
             </div>
           </div>
-          <ScrollArea className="h-[300px]">
+          <ScrollArea className="h-[600px]">
             {notifications.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-[200px] text-muted-foreground">
-                <Bell className="h-8 w-8 mb-2 opacity-50" />
+              <div className="flex flex-col items-center justify-center h-[400px] text-muted-foreground">
+                <Bell className="h-16 w-16 mb-2 opacity-50" />
                 <p className="text-sm">No notifications</p>
               </div>
             ) : (

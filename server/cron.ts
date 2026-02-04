@@ -428,7 +428,27 @@ async function checkAutoSearch() {
             });
 
             if (errors.length > 0) {
-              igdbLogger.warn({ gameTitle: game.title, errors }, "Errors during search");
+              const networkKeywords = [
+                "fetch failed",
+                "Unsafe URL detected",
+                "ENOTFOUND",
+                "EAI_AGAIN",
+                "ETIMEDOUT",
+                "network timeout",
+              ];
+
+              const areAllErrorsNetworkRelated = errors.every((err) =>
+                networkKeywords.some((keyword) => err.includes(keyword))
+              );
+
+              if (areAllErrorsNetworkRelated) {
+                igdbLogger.warn(
+                  { gameTitle: game.title, errorCount: errors.length },
+                  "Search failed due to network connectivity issues (DNS/Fetch/Safety check). Please check your internet connection."
+                );
+              } else {
+                igdbLogger.warn({ gameTitle: game.title, errors }, "Errors during search");
+              }
             }
 
             if (items.length === 0) {

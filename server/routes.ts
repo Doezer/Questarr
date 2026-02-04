@@ -566,22 +566,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // ⚡ Bolt: Optimize metadata refresh by fetching all games in batches
       // instead of sequential 1-by-1 requests.
-      const igdbIds = userGames
-        .map((g) => g.igdbId)
-        .filter((id): id is number => id !== null && id !== undefined);
-
-      // Fetch all updated game data from IGDB in parallel/batches
-      const igdbGames = igdbIds.length > 0 ? await igdbClient.getGamesByIds(igdbIds) : [];
-      const igdbGameMap = new Map(igdbGames.map((g) => [g.id, g]));
+      // We also batch the IGDB fetching to avoid loading all game data into memory at once.
 
       let updatedCount = 0;
       let errorCount = 0;
 
-      // Process updates in batches to avoid overwhelming the database
-      // ⚡ Bolt: Use a larger batch size since we are now using a single transaction per batch
-      const BATCH_SIZE = 50;
+      // Process updates in batches to avoid overwhelming the database and memory
+      // ⚡ Bolt: Use a batch size of 100 to match IGDB's max limit per request
+      const BATCH_SIZE = 100;
       for (let i = 0; i < userGames.length; i += BATCH_SIZE) {
         const chunk = userGames.slice(i, i + BATCH_SIZE);
+
+        // 1. Collect IDs for this chunk
+        const chunkIgdbIds = chunk
+          .map((g) => g.igdbId)
+          .filter((id): id is number => id !== null && id !== undefined);
+
+        // 2. Fetch IGDB data only for this chunk
+        const igdbGames =
+          chunkIgdbIds.length > 0 ? await igdbClient.getGamesByIds(chunkIgdbIds) : [];
+        const igdbGameMap = new Map(igdbGames.map((g) => [g.id, g]));
+
         const updates: { id: string; data: Partial<Game> }[] = [];
 
         for (const game of chunk) {

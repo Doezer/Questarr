@@ -9,7 +9,7 @@ import { Notification, Game } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 import { io } from "socket.io-client";
 import { useToast } from "@/hooks/use-toast";
-
+import { useLocation } from "wouter";
 import GameDownloadDialog from "./GameDownloadDialog";
 
 export function NotificationCenter() {
@@ -17,6 +17,7 @@ export function NotificationCenter() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
   const [downloadDialogOpen, setDownloadDialogOpen] = useState(false);
+  const [_, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -102,7 +103,25 @@ export function NotificationCenter() {
       markAsReadMutation.mutate(notification.id);
     }
 
-    // Check if notification is about multiple results or updates
+    // Handle new link field
+    if (notification.link) {
+      if (notification.link.startsWith("modal:game:")) {
+        const gameId = notification.link.split(":").pop();
+        const game = games.find((g) => g.id === gameId);
+        if (game) {
+          setSelectedGame(game);
+          setDownloadDialogOpen(true);
+          setOpen(false);
+          return;
+        }
+      } else {
+        setLocation(notification.link);
+        setOpen(false);
+        return;
+      }
+    }
+
+    // Check if notification is about multiple results or updates (fallback to heuristic)
     if (
       notification.title === "Multiple Results Found" ||
       notification.title === "Multiple Releases Found" ||

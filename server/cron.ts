@@ -140,6 +140,7 @@ async function checkGameUpdates() {
         type: "success",
         title: "Game Released",
         message,
+        link: "/library",
       });
       notifyUser("notification", notification);
     }
@@ -171,6 +172,7 @@ async function checkGameUpdates() {
           type: "delayed",
           title: "Game Delayed",
           message,
+          link: "/wishlist",
         });
         notifyUser("notification", notification);
       }
@@ -272,6 +274,7 @@ async function checkDownloadStatus() {
               type: "success",
               title: "Download Completed",
               message,
+              link: "/library",
             });
             notifyUser("notification", notification);
           } else {
@@ -342,7 +345,7 @@ async function checkDownloadStatus() {
               downloadHash: download.downloadHash,
             },
             "Download not found in downloader - assuming completion and marking as owned. " +
-            "This could indicate the download was manually removed."
+              "This could indicate the download was manually removed."
           );
 
           // Mark download as completed (assumption)
@@ -356,6 +359,7 @@ async function checkDownloadStatus() {
             type: "info",
             title: "Download Status Changed",
             message: `Download for "${gameTitle}" was not found in the downloader and has been marked as completed. If this was removed due to an error, you may need to re-download it.`,
+            link: "/library",
           });
           notifyUser("notification", notification);
 
@@ -502,6 +506,7 @@ async function checkAutoSearch() {
                 type: "info",
                 title: "Game Updates Available",
                 message: `${updateItems.length} update(s) found for ${game.title}`,
+                link: `modal:game:${game.id}`,
               });
               notifyUser("notification", notification);
             }
@@ -545,6 +550,7 @@ async function checkAutoSearch() {
                         type: "success",
                         title: "Download Started",
                         message: `Started downloading ${game.title} via ${item.downloadType === "usenet" ? "Usenet" : "Torrent"}`,
+                        link: "/library",
                       });
                       notifyUser("notification", notification);
 
@@ -564,6 +570,7 @@ async function checkAutoSearch() {
                   type: "success",
                   title: "Game Available",
                   message: `${game.title} is now available for download`,
+                  link: `modal:game:${game.id}`,
                 });
                 notifyUser("notification", notification);
               }
@@ -574,6 +581,7 @@ async function checkAutoSearch() {
                 type: "info",
                 title: "Multiple Results Found",
                 message: `${mainItems.length} result(s) found for ${game.title}. Please review and choose.`,
+                link: `modal:game:${game.id}`,
               });
               notifyUser("notification", notification);
             }
@@ -706,6 +714,7 @@ async function checkXrelReleases() {
             type: "info",
             title: "Available on xREL.to",
             message,
+            link: `modal:game:${game.id}`,
           });
           notifyUser("notification", notification);
           igdbLogger.info(

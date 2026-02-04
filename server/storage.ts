@@ -599,6 +599,7 @@ export class MemStorage implements IStorage {
       type: insertNotification.type,
       title: insertNotification.title,
       message: insertNotification.message,
+      link: insertNotification.link ?? null,
       read: false,
       createdAt: new Date(),
     };
@@ -835,7 +836,10 @@ export class DatabaseStorage implements IStorage {
 
   async registerSetupUser(insertUser: InsertUser): Promise<User> {
     return db.transaction((tx) => {
-      const [result] = tx.select({ count: sql<number>`count(*)` }).from(users).all();
+      const [result] = tx
+        .select({ count: sql<number>`count(*)` })
+        .from(users)
+        .all();
 
       if (result.count > 0) {
         throw new Error("Setup already completed");

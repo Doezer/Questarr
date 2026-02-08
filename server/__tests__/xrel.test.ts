@@ -1,9 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { xrelClient, XrelSceneRelease, XrelP2pRelease } from "../xrel.js";
 
+vi.mock("../ssrf.js", () => ({
+  safeFetch: vi.fn((url, options) => fetch(url, options)) as any,
+  isSafeUrl: vi.fn().mockResolvedValue(true),
+}));
+
 // Mock fetch globally
 const fetchMock = vi.fn();
-global.fetch = fetchMock;
+global.fetch = fetchMock as any;
 
 describe("xREL Client", () => {
   let currentTime = 1600000000000;

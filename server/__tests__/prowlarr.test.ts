@@ -2,6 +2,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { prowlarrClient } from "../prowlarr.js";
 
 // Mock logger
+vi.mock("../ssrf.js", () => ({
+  isSafeUrl: vi.fn().mockResolvedValue(true),
+  safeFetch: vi.fn((url, options) => fetch(url, options)) as any,
+}));
+
 vi.mock("../logger.js", () => ({
   torznabLogger: {
     info: vi.fn(),
@@ -15,7 +20,7 @@ describe("ProwlarrClient", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     fetchMock = vi.fn();
-    global.fetch = fetchMock;
+    global.fetch = fetchMock as any;
   });
 
   const mockProwlarrIndexers = [

@@ -204,6 +204,7 @@ export default function XrelReleasesPage() {
                           >
                             {rel.libraryStatus.charAt(0).toUpperCase() + rel.libraryStatus.slice(1)}
                           </Badge>
+
                         ) : rel.matchCandidate ? (
                           <Button
                             variant="ghost"
@@ -228,7 +229,7 @@ export default function XrelReleasesPage() {
                             title={`Add "${rel.matchCandidate.title}" to wanted list`}
                           >
                             {addGameMutation.isPending &&
-                            addGameMutation.variables === rel.matchCandidate.title ? (
+                              addGameMutation.variables === rel.matchCandidate.title ? (
                               <Loader2 className="h-3 w-3 animate-spin" />
                             ) : (
                               <Plus className="h-3 w-3" />
@@ -283,6 +284,6 @@ export default function XrelReleasesPage() {
           </CardContent>
         </Card>
       </div>
-    </div>
+    </div >
   );
 }

@@ -107,7 +107,7 @@ export class RssService {
 
     // 4. Trigger background matching
     if (newIds.length > 0) {
-      this.processPendingItems(newIds).catch((err) => {
+      this.processPendingItems(newIds).catch(err => {
         rssLogger.error({ err }, "Error in background item processing");
       });
     }

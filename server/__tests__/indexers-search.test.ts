@@ -7,6 +7,12 @@ vi.mock("../db.js", () => ({
   db: {},
 }));
 
+// Mock ssrf check to allow all URLs in tests
+vi.mock("../ssrf.js", () => ({
+  isSafeUrl: vi.fn().mockResolvedValue(true),
+  safeFetch: vi.fn((url, options) => fetch(url, options)),
+}));
+
 // Import TorznabClient after mocking
 const { TorznabClient } = await import("../torznab.js");
 

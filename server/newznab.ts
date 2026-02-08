@@ -1,7 +1,7 @@
 import { XMLParser } from "fast-xml-parser";
 import { type Indexer } from "@shared/schema";
 import { routesLogger } from "./logger.js";
-import { isSafeUrl } from "./ssrf.js";
+import { isSafeUrl, safeFetch } from "./ssrf.js";
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -111,7 +111,7 @@ class NewznabClient {
         "searching newznab indexer"
       );
 
-      const response = await fetch(url.toString(), {
+      const response = await safeFetch(url.toString(), {
         headers: {
           "User-Agent": "Questarr/1.0",
         },
@@ -317,7 +317,7 @@ class NewznabClient {
       url.searchParams.set("apikey", indexer.apiKey);
       url.searchParams.set("t", "caps"); // Get capabilities
 
-      const response = await fetch(url.toString(), {
+      const response = await safeFetch(url.toString(), {
         signal: AbortSignal.timeout(10000),
       });
 
@@ -379,7 +379,7 @@ class NewznabClient {
       url.searchParams.set("apikey", indexer.apiKey);
       url.searchParams.set("t", "caps");
 
-      const response = await fetch(url.toString(), {
+      const response = await safeFetch(url.toString(), {
         signal: AbortSignal.timeout(10000),
       });
 

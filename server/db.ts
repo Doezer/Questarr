@@ -7,7 +7,7 @@ import { logger } from "./logger.js";
 
 // In production, the database file should be in a persistent location
 // For development, it's in the project root
-const dbPath = process.env.SQLITE_DB_PATH || path.join(process.cwd(), "sqlite.db");
+let dbPath = process.env.SQLITE_DB_PATH || path.join(process.cwd(), "sqlite.db");
 
 // Ensure directory exists
 const dbDir = path.dirname(dbPath);
@@ -21,7 +21,8 @@ try {
   if (fs.existsSync(dbPath)) {
     const stats = fs.statSync(dbPath);
     if (stats.isDirectory()) {
-      logger.error(`ERROR: Database path ${dbPath} is a directory, not a file!`);
+      logger.warn(`Database path ${dbPath} is a directory, appending /sqlite.db`);
+      dbPath = path.join(dbPath, "sqlite.db");
     }
   }
 } catch (err) {

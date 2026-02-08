@@ -13,6 +13,7 @@ vi.mock("../logger.js", () => ({
 
 vi.mock("../ssrf.js", () => ({
   isSafeUrl: vi.fn().mockResolvedValue(true),
+  safeFetch: vi.fn((url, options) => fetch(url, options)) as any,
 }));
 
 describe("NewznabClient", () => {
@@ -21,7 +22,7 @@ describe("NewznabClient", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     fetchMock = vi.fn();
-    global.fetch = fetchMock;
+    global.fetch = fetchMock as any;
   });
 
   const mockIndexer: Indexer = {

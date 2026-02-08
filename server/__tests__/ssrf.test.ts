@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { isSafeUrl } from "../ssrf";
+import { isSafeUrl, safeFetch } from "../ssrf";
 import dns from "dns/promises";
 
 // Mock dns module
@@ -18,19 +18,28 @@ describe("isSafeUrl Security Check", () => {
     vi.restoreAllMocks();
   });
 
-  it("should allow valid safe URLs", async () => {
+  it("should allow private IPs by default (self-hosted use case)", async () => {
     // Mock DNS lookup for google.com to return a safe IP
     vi.mocked(dns.lookup).mockResolvedValueOnce({ address: "142.250.185.46", family: 4 });
     expect(await isSafeUrl("http://google.com")).toBe(true);
 
-    // Direct IPs don't need DNS lookup
+    // Private IPs are allowed by default for self-hosted projects
     expect(await isSafeUrl("http://127.0.0.1")).toBe(true);
+    expect(await isSafeUrl("http://192.168.1.1")).toBe(true);
+    expect(await isSafeUrl("http://10.0.0.1")).toBe(true);
 
     // Mock DNS lookup for localhost
     vi.mocked(dns.lookup).mockResolvedValueOnce({ address: "127.0.0.1", family: 4 });
     expect(await isSafeUrl("http://localhost")).toBe(true);
 
     expect(await isSafeUrl("http://[::1]")).toBe(true); // Localhost IPv6
+  });
+
+  it("should block private IPs when allowPrivate is false", async () => {
+    expect(await isSafeUrl("http://127.0.0.1", { allowPrivate: false })).toBe(false);
+    expect(await isSafeUrl("http://192.168.1.1", { allowPrivate: false })).toBe(false);
+    expect(await isSafeUrl("http://10.0.0.1", { allowPrivate: false })).toBe(false);
+    expect(await isSafeUrl("http://[::1]", { allowPrivate: false })).toBe(false);
   });
 
   it("should block IPv4 metadata service", async () => {
@@ -51,5 +60,73 @@ describe("isSafeUrl Security Check", () => {
   it("should handle DNS lookup failure gracefully", async () => {
     const isSafe = await isSafeUrl("http://non-existent-domain-xyz-123.com");
     expect(isSafe).toBe(false);
+  });
+});
+
+describe("safeFetch", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Mock global fetch
+    global.fetch = vi.fn();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("should use original hostname for HTTPS (SSL certificate compatibility)", async () => {
+    // Mock DNS lookup to return a safe IP
+    vi.mocked(dns.lookup).mockResolvedValueOnce({ address: "142.250.185.46", family: 4 });
+    vi.mocked(fetch).mockResolvedValueOnce(new Response("ok"));
+
+    await safeFetch("https://example.com/api");
+
+    // For HTTPS, should use the original URL (not rewritten to IP)
+    expect(fetch).toHaveBeenCalledWith("https://example.com/api", expect.any(Object));
+  });
+
+  it("should rewrite HTTP URLs to use resolved IP for DNS rebinding protection", async () => {
+    // Mock DNS lookup to return a safe IP
+    vi.mocked(dns.lookup).mockResolvedValueOnce({ address: "142.250.185.46", family: 4 });
+    vi.mocked(fetch).mockResolvedValueOnce(new Response("ok"));
+
+    await safeFetch("http://example.com/api");
+
+    // For HTTP, should rewrite to use IP address
+    expect(fetch).toHaveBeenCalledWith(
+      "http://142.250.185.46/api",
+      expect.objectContaining({
+        headers: expect.any(Headers),
+      })
+    );
+
+    // Verify Host header is set
+    const calledHeaders = (fetch as any).mock.calls[0][1].headers as Headers;
+    expect(calledHeaders.get("Host")).toBe("example.com");
+  });
+
+  it("should reject URLs that resolve to metadata service IPs", async () => {
+    // Mock DNS lookup to return a metadata service IP
+    vi.mocked(dns.lookup).mockResolvedValueOnce({ address: "169.254.169.254", family: 4 });
+
+    await expect(safeFetch("https://evil.example.com/")).rejects.toThrow("Invalid or unsafe URL");
+  });
+
+  it("should reject URLs that fail DNS resolution", async () => {
+    // Mock DNS lookup to fail
+    vi.mocked(dns.lookup).mockRejectedValueOnce(new Error("ENOTFOUND"));
+
+    await expect(safeFetch("https://non-existent-domain.com/")).rejects.toThrow(
+      "Failed to resolve hostname"
+    );
+  });
+
+  it("should allow private IPs by default for HTTPS", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response("ok"));
+
+    // Direct IP URL (no DNS lookup needed)
+    await safeFetch("https://192.168.1.1:8080/api");
+
+    expect(fetch).toHaveBeenCalledWith("https://192.168.1.1:8080/api", expect.any(Object));
   });
 });

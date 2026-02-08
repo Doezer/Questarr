@@ -4,7 +4,6 @@ import { RssFeed, InsertRssFeed } from "@shared/schema";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -96,7 +95,6 @@ export default function RssSettings() {
       <DialogContent className="max-w-3xl">
         <DialogHeader>
           <DialogTitle>RSS Feed Management</DialogTitle>
-          <DialogDescription>Manage your custom RSS feeds.</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6">

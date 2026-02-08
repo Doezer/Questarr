@@ -85,7 +85,7 @@ describe("GameCard", () => {
     renderWithProviders(<GameCard game={mockGame} />);
 
     // Find by role 'img' and the expected label
-    const ratingElement = screen.getByRole("group", { name: "Rating: 8.5 out of 10" });
+    const ratingElement = screen.getByRole("img", { name: "Rating: 8.5 out of 10" });
     expect(ratingElement).toBeInTheDocument();
 
     // Also verify the visible text is still there
@@ -96,7 +96,7 @@ describe("GameCard", () => {
     renderWithProviders(<GameCard game={mockGame} />);
 
     // Find by role 'img' and the expected label
-    const dateElement = screen.getByRole("group", { name: "Release Date: 2023-01-01" });
+    const dateElement = screen.getByRole("img", { name: "Release Date: 2023-01-01" });
     expect(dateElement).toBeInTheDocument();
 
     // Also verify the visible text is still there
@@ -107,7 +107,7 @@ describe("GameCard", () => {
     const gameWithoutRating = { ...mockGame, rating: null };
     renderWithProviders(<GameCard game={gameWithoutRating} />);
 
-    const ratingElement = screen.getByRole("group", { name: "Rating: Not available" });
+    const ratingElement = screen.getByRole("img", { name: "Rating: Not available" });
     expect(ratingElement).toBeInTheDocument();
     expect(screen.getByText("N/A")).toBeInTheDocument();
   });
@@ -116,7 +116,7 @@ describe("GameCard", () => {
     const gameWithoutDate = { ...mockGame, releaseDate: null };
     renderWithProviders(<GameCard game={gameWithoutDate} />);
 
-    const dateElement = screen.getByRole("group", { name: "Release Date: To be announced" });
+    const dateElement = screen.getByRole("img", { name: "Release Date: To be announced" });
     expect(dateElement).toBeInTheDocument();
 
     // Verify the visible text in the release date section

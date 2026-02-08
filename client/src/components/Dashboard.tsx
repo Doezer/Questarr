@@ -41,16 +41,6 @@ export default function Dashboard() {
   const [viewMode, setViewMode] = useState<"grid" | "list">(() => {
     return (localStorage.getItem("dashboardViewMode") as "grid" | "list") || "grid";
   });
-  const [listDensity, setListDensity] = useState<"comfortable" | "compact" | "ultra-compact">(
-    () => {
-      return (
-        (localStorage.getItem("dashboardListDensity") as
-          | "comfortable"
-          | "compact"
-          | "ultra-compact") || "comfortable"
-      );
-    }
-  );
 
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -66,10 +56,6 @@ export default function Dashboard() {
   useEffect(() => {
     localStorage.setItem("dashboardViewMode", viewMode);
   }, [viewMode]);
-
-  useEffect(() => {
-    localStorage.setItem("dashboardListDensity", listDensity);
-  }, [listDensity]);
 
   // Query user's collection
   const {
@@ -419,8 +405,6 @@ export default function Dashboard() {
             onShowHiddenGamesChange={setShowHiddenGames}
             viewMode={viewMode}
             onViewModeChange={setViewMode}
-            listDensity={listDensity}
-            onListDensityChange={setListDensity}
           />
 
           <GameGrid
@@ -431,7 +415,6 @@ export default function Dashboard() {
             isFetching={isFetching}
             columns={gridColumns}
             viewMode={viewMode}
-            density={listDensity}
           />
         </div>
       </div>

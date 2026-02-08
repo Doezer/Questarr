@@ -4,18 +4,9 @@ import { type Game } from "@shared/schema";
 import { type GameStatus } from "@/components/StatusBadge";
 import { useToast } from "@/hooks/use-toast";
 import EmptyState from "@/components/EmptyState";
-import { Gamepad2, LayoutGrid, List, Settings2 } from "lucide-react";
+import { Gamepad2, LayoutGrid, List } from "lucide-react";
 import { useState, useEffect } from "react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Button } from "@/components/ui/button";
 
 export default function LibraryPage() {
   const { toast } = useToast();
@@ -23,24 +14,10 @@ export default function LibraryPage() {
   const [viewMode, setViewMode] = useState<"grid" | "list">(() => {
     return (localStorage.getItem("libraryViewMode") as "grid" | "list") || "grid";
   });
-  const [listDensity, setListDensity] = useState<"comfortable" | "compact" | "ultra-compact">(
-    () => {
-      return (
-        (localStorage.getItem("libraryListDensity") as
-          | "comfortable"
-          | "compact"
-          | "ultra-compact") || "comfortable"
-      );
-    }
-  );
 
   useEffect(() => {
     localStorage.setItem("libraryViewMode", viewMode);
   }, [viewMode]);
-
-  useEffect(() => {
-    localStorage.setItem("libraryListDensity", listDensity);
-  }, [listDensity]);
 
   const { data: games = [], isLoading } = useQuery<Game[]>({
     queryKey: ["/api/games"],
@@ -82,50 +59,18 @@ export default function LibraryPage() {
           <h1 className="text-3xl font-bold">Library</h1>
           <p className="text-muted-foreground">Your collection of games</p>
         </div>
-        <div className="flex items-center gap-2">
-          {viewMode === "list" && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="h-8 gap-1">
-                  <Settings2 className="h-3.5 w-3.5" />
-                  <span className="sr-only sm:not-sr-only sm:inline-block">
-                    {listDensity === "comfortable"
-                      ? "Comfortable"
-                      : listDensity === "compact"
-                        ? "Compact"
-                        : "Ultra-compact"}
-                  </span>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuLabel>Row Density</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => setListDensity("comfortable")}>
-                  Comfortable
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setListDensity("compact")}>
-                  Compact
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setListDensity("ultra-compact")}>
-                  Ultra-compact
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-
-          <ToggleGroup
-            type="single"
-            value={viewMode}
-            onValueChange={(value) => value && setViewMode(value as "grid" | "list")}
-          >
-            <ToggleGroupItem value="grid" aria-label="Grid View">
-              <LayoutGrid className="h-4 w-4" />
-            </ToggleGroupItem>
-            <ToggleGroupItem value="list" aria-label="List View">
-              <List className="h-4 w-4" />
-            </ToggleGroupItem>
-          </ToggleGroup>
-        </div>
+        <ToggleGroup
+          type="single"
+          value={viewMode}
+          onValueChange={(value) => value && setViewMode(value as "grid" | "list")}
+        >
+          <ToggleGroupItem value="grid" aria-label="Grid View">
+            <LayoutGrid className="h-4 w-4" />
+          </ToggleGroupItem>
+          <ToggleGroupItem value="list" aria-label="List View">
+            <List className="h-4 w-4" />
+          </ToggleGroupItem>
+        </ToggleGroup>
       </div>
 
       {libraryGames.length === 0 && !isLoading ? (
@@ -142,7 +87,6 @@ export default function LibraryPage() {
           onStatusChange={(id, status) => statusMutation.mutate({ gameId: id, status })}
           isLoading={isLoading}
           viewMode={viewMode}
-          density={listDensity}
         />
       )}
     </div>

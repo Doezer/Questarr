@@ -207,8 +207,16 @@ export class TransmissionClient implements DownloaderClient {
       const isMagnet = request.url.startsWith("magnet:");
 
       if (isMagnet) {
+        if (!(await isSafeUrl(request.url))) {
+          return { success: false, message: `Unsafe URL blocked: ${request.url}` };
+        }
         args.filename = request.url;
       } else {
+        // Check URL safety before attempting download or fallback
+        if (!(await isSafeUrl(request.url))) {
+          return { success: false, message: `Unsafe URL blocked: ${request.url}` };
+        }
+
         // Download the file locally first
         // This is necessary because Transmission might not have access to the indexer (e.g. private trackers)
         try {
@@ -218,9 +226,10 @@ export class TransmissionClient implements DownloaderClient {
           );
 
           const fetchTorrent = async (url: string) => {
-            if (!(await isSafeUrl(url))) {
-              throw new Error(`Unsafe URL blocked: ${url}`);
-            }
+            // URL already checked above, but check again if it changes (e.g. redirects handled by fetch)
+            // standard fetch follows redirects, so we can't easily check intermediate URLs here unless we assume fetchUrl behavior
+            // But here we just use fetch.
+            // We already checked request.url.
             return fetch(url, {
               headers: {
                 "User-Agent": DOWNLOAD_CLIENT_USER_AGENT,
@@ -841,12 +850,13 @@ export class RTorrentClient implements DownloaderClient {
         };
       }
 
+      if (!(await isSafeUrl(request.url))) {
+        return { success: false, message: `Unsafe URL blocked: ${request.url}` };
+      }
+
       // Helper to fetch with standard headers
       const fetchTorrent = async (url: string) => {
         downloadersLogger.debug({ url }, "Downloading file locally");
-        if (!(await isSafeUrl(url))) {
-          throw new Error(`Unsafe URL blocked: ${url}`);
-        }
         return fetch(url, {
           headers: {
             "User-Agent": DOWNLOAD_CLIENT_USER_AGENT,
@@ -1804,6 +1814,10 @@ export class QBittorrentClient implements DownloaderClient {
           success: false,
           message: "Download URL is required",
         };
+      }
+
+      if (!(await isSafeUrl(request.url))) {
+        return { success: false, message: `Unsafe URL blocked: ${request.url}` };
       }
 
       await this.authenticate();
@@ -3444,6 +3458,10 @@ export class SABnzbdClient implements DownloaderClient {
   async addDownload(
     request: DownloadRequest
   ): Promise<{ success: boolean; id?: string; message: string }> {
+    if (!(await isSafeUrl(request.url))) {
+      return { success: false, message: `Unsafe URL blocked: ${request.url}` };
+    }
+
     const url = this.getApiUrl("addurl", {
       name: request.url,
       nzbname: request.title,

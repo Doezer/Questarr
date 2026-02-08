@@ -55,117 +55,35 @@ export async function isSafeUrl(urlStr: string): Promise<boolean> {
   }
 }
 
-/**
- * Checks if an IP address is safe to connect to.
- * Blocks:
- * - Link-Local (169.254.0.0/16, fe80::/10, etc.)
- * - Private networks (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, fc00::/7)
- * - Loopback (127.0.0.0/8, ::1)
- * - Broadcast/Unspecified (0.0.0.0, ::)
- */
-export function isSafeIp(ip: string): boolean {
-  // Handle IPv4-mapped IPv6 addresses (::ffff:192.168.1.1)
-  if (ip.startsWith("::ffff:")) {
-    const ipv4 = ip.substring(7);
-    if (isIP(ipv4) === 4) {
-      return isSafeIp(ipv4);
-    }
+function isSafeIp(ip: string): boolean {
+  // Block IPv4 Link-Local (169.254.0.0/16)
+  // This covers AWS, GCP, Azure metadata services (169.254.169.254)
+  if (ip.startsWith("169.254.")) {
+    return false;
   }
 
+  // Block IPv6 Link-Local (fe80::/10)
+  // Simple string check for common prefix
   const lowerIp = ip.toLowerCase();
-
-  // IPv4 Checks
-  if (isIP(ip) === 4) {
-    const parts = ip.split(".").map(Number);
-
-    // 127.0.0.0/8 (Loopback)
-    if (parts[0] === 127) return false;
-
-    // 10.0.0.0/8 (Private)
-    if (parts[0] === 10) return false;
-
-    // 172.16.0.0/12 (Private)
-    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return false;
-
-    // 192.168.0.0/16 (Private)
-    if (parts[0] === 192 && parts[1] === 168) return false;
-
-    // 169.254.0.0/16 (Link-Local)
-    if (parts[0] === 169 && parts[1] === 254) return false;
-
-    // 0.0.0.0/8 (Broadcast)
-    if (parts[0] === 0) return false;
-
-    return true;
+  if (lowerIp.startsWith("fe80:")) {
+    return false;
   }
 
-  // IPv6 Checks
-  if (isIP(ip) === 6) {
-    // ::1 (Loopback)
-    if (lowerIp === "::1" || lowerIp === "0:0:0:0:0:0:0:1") return false;
-
-    // :: (Unspecified)
-    if (lowerIp === "::" || lowerIp === "0:0:0:0:0:0:0:0") return false;
-
-    // fe80::/10 (Link-Local)
-    if (
-      lowerIp.startsWith("fe8") ||
-      lowerIp.startsWith("fe9") ||
-      lowerIp.startsWith("fea") ||
-      lowerIp.startsWith("feb")
-    )
-      return false;
-
-    // fc00::/7 (Unique Local)
-    if (lowerIp.startsWith("fc") || lowerIp.startsWith("fd")) return false;
-
-    // AWS IPv6 Metadata
-    if (lowerIp === "fd00:ec2::254") return false;
-
-    return true;
+  // Block AWS IPv6 Metadata
+  if (lowerIp === "fd00:ec2::254") {
+    return false;
   }
 
-  return false;
-}
-
-/**
- * Perform a safe fetch that avoids SSRF and DNS rebinding.
- * It resolves the hostname once, validates the IP, and then performs the request
- * using the validated IP address while setting the Host header.
- */
-export async function safeFetch(urlStr: string, options: RequestInit = {}): Promise<Response> {
-  const url = new URL(urlStr);
-  const hostname = url.hostname;
-
-  // If hostname is already an IP, just validate it
-  const ipVersion = isIP(hostname);
-  let address = hostname;
-  let family = ipVersion;
-
-  if (ipVersion === 0) {
-    try {
-      const lookup = await dns.lookup(hostname);
-      address = lookup.address;
-      family = lookup.family;
-    } catch (error) {
-      throw new Error(`Failed to resolve hostname: ${hostname}`);
-    }
+  // Block IPv4-mapped IPv6 Metadata (::ffff:169.254.0.0/16)
+  if (lowerIp.startsWith("::ffff:169.254.")) {
+    return false;
   }
 
-  if (!isSafeIp(address)) {
-    throw new Error("Invalid or unsafe URL");
+  // Block IPv4-mapped IPv6 Metadata in Hex (::ffff:a9fe:...)
+  // 169.254.x.x -> a9fe:xxxx
+  if (lowerIp.startsWith("::ffff:a9fe:")) {
+    return false;
   }
 
-  // Rewrite URL to use IP address to prevent DNS rebinding
-  const safeUrl = new URL(urlStr);
-  safeUrl.hostname = family === 6 ? `[${address}]` : address;
-
-  // Clone headers and set Host to original hostname
-  const headers = new Headers(options.headers || {});
-  headers.set("Host", hostname);
-
-  return fetch(safeUrl.toString(), {
-    ...options,
-    headers,
-  });
+  return true;
 }

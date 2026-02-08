@@ -921,6 +921,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     async (req: Request, res: Response) => {
       try {
         const indexerData = insertIndexerSchema.parse(req.body);
+
+        if (!(await isSafeUrl(indexerData.url))) {
+          return res.status(400).json({ error: "Invalid or unsafe URL" });
+        }
+
         const indexer = await storage.addIndexer(indexerData);
         res.status(201).json(indexer);
       } catch (error) {
@@ -943,6 +948,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       try {
         const { id } = req.params;
         const updates = req.body; // Partial updates
+
+        if (updates.url && !(await isSafeUrl(updates.url))) {
+          return res.status(400).json({ error: "Invalid or unsafe URL" });
+        }
+
         const indexer = await storage.updateIndexer(id, updates);
         if (!indexer) {
           return res.status(404).json({ error: "Indexer not found" });
@@ -1068,6 +1078,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     async (req: Request, res: Response) => {
       try {
         const downloaderData = insertDownloaderSchema.parse(req.body);
+
+        if (!(await isSafeUrl(downloaderData.url))) {
+          return res.status(400).json({ error: "Invalid or unsafe URL" });
+        }
+
         const downloader = await storage.addDownloader(downloaderData);
         res.status(201).json(downloader);
       } catch (error) {
@@ -1090,6 +1105,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       try {
         const { id } = req.params;
         const updates = req.body; // Partial updates
+
+        if (updates.url && !(await isSafeUrl(updates.url))) {
+          return res.status(400).json({ error: "Invalid or unsafe URL" });
+        }
+
         const downloader = await storage.updateDownloader(id, updates);
         if (!downloader) {
           return res.status(404).json({ error: "Downloader not found" });

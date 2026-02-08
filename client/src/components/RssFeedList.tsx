@@ -92,13 +92,11 @@ export default function RssFeedList() {
         </Button>
       </div>
 
-      <div
-        className={cn(
-          "grid gap-4",
-          viewMode === "grid" ? "md:grid-cols-2 lg:grid-cols-3" : "grid-cols-1"
-        )}
-      >
-        {items.map((item) =>
+      <div className={cn(
+        "grid gap-4",
+        viewMode === "grid" ? "md:grid-cols-2 lg:grid-cols-3" : "grid-cols-1"
+      )}>
+        {items.map((item) => (
           viewMode === "list" ? (
             <CompactRssFeedItem key={item.id} item={item} />
           ) : (
@@ -148,7 +146,7 @@ export default function RssFeedList() {
               </CardContent>
             </Card>
           )
-        )}
+        ))}
       </div>
     </div>
   );

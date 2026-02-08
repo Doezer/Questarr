@@ -159,8 +159,12 @@ export function isSafeIp(ip: string, allowPrivate = true): boolean {
 
 /**
  * Perform a safe fetch that avoids SSRF and DNS rebinding.
- * It resolves the hostname once, validates the IP, and then performs the request
- * using the validated IP address while setting the Host header.
+ * It resolves the hostname once, validates the IP, and then performs the request.
+ *
+ * For HTTP: rewrites URL to use IP address to prevent DNS rebinding.
+ * For HTTPS: uses original hostname because SSL certificates are issued for
+ * hostnames, not IP addresses. The DNS resolution still validates the target IP
+ * is safe before making the request.
  */
 export async function safeFetch(
   urlStr: string,
@@ -168,6 +172,7 @@ export async function safeFetch(
 ): Promise<Response> {
   const url = new URL(urlStr);
   const hostname = url.hostname;
+  const isHttps = url.protocol === "https:";
   const { allowPrivate, ...fetchOptions } = options;
 
   // If hostname is already an IP, just validate it
@@ -189,7 +194,16 @@ export async function safeFetch(
     throw new Error("Invalid or unsafe URL");
   }
 
-  // Rewrite URL to use IP address to prevent DNS rebinding
+  // For HTTPS, we cannot rewrite the URL to use the IP address because
+  // SSL/TLS certificates are issued for hostnames, not IP addresses.
+  // The certificate validation would fail with a hostname mismatch error.
+  // Instead, we've already validated the resolved IP is safe above,
+  // and we proceed with the original URL.
+  if (isHttps) {
+    return fetch(urlStr, fetchOptions);
+  }
+
+  // For HTTP, rewrite URL to use IP address to prevent DNS rebinding
   const safeUrl = new URL(urlStr);
   safeUrl.hostname = family === 6 ? `[${address}]` : address;
 

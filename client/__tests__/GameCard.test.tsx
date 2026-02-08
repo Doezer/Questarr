@@ -119,8 +119,8 @@ describe("GameCard", () => {
     const dateElement = screen.getByRole("img", { name: "Release Date: To be announced" });
     expect(dateElement).toBeInTheDocument();
 
-    // "TBA" appears in both the release date text and the status badge
-    const tbaElements = screen.getAllByText("TBA");
-    expect(tbaElements.length).toBeGreaterThan(0);
+    // Verify the visible text in the release date section
+    const releaseText = screen.getByTestId("text-release-1");
+    expect(releaseText).toHaveTextContent("TBA");
   });
 });

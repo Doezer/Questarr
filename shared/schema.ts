@@ -26,10 +26,10 @@ export const userSettings = sqliteTable("user_settings", {
   searchIntervalHours: integer("search_interval_hours").notNull().default(6),
   igdbRateLimitPerSecond: integer("igdb_rate_limit_per_second").notNull().default(3),
   downloadRules: text("download_rules"),
-  lastAutoSearch: integer("last_auto_search", { mode: "timestamp" }),
+  lastAutoSearch: integer("last_auto_search", { mode: "timestamp_ms" }),
   xrelSceneReleases: integer("xrel_scene_releases", { mode: "boolean" }).notNull().default(true),
   xrelP2pReleases: integer("xrel_p2p_releases", { mode: "boolean" }).notNull().default(false),
-  updatedAt: integer("updated_at", { mode: "timestamp" }).default(
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),
 });
@@ -37,7 +37,7 @@ export const userSettings = sqliteTable("user_settings", {
 export const systemConfig = sqliteTable("system_config", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),
-  updatedAt: integer("updated_at", { mode: "timestamp" }).default(
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),
 });
@@ -60,8 +60,10 @@ export const games = sqliteTable("games", {
   originalReleaseDate: text("original_release_date"),
   releaseStatus: text("release_status").default("upcoming"), // Enum validation handled by Zod
   hidden: integer("hidden", { mode: "boolean" }).default(false),
-  addedAt: integer("added_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now') * 1000)`),
-  completedAt: integer("completed_at", { mode: "timestamp" }),
+  addedAt: integer("added_at", { mode: "timestamp_ms" }).default(
+    sql`(strftime('%s', 'now') * 1000)`
+  ),
+  completedAt: integer("completed_at", { mode: "timestamp_ms" }),
 });
 
 export const indexers = sqliteTable("indexers", {
@@ -75,10 +77,10 @@ export const indexers = sqliteTable("indexers", {
   categories: text("categories", { mode: "json" }).$type<string[]>().default([]),
   rssEnabled: integer("rss_enabled", { mode: "boolean" }).notNull().default(true),
   autoSearchEnabled: integer("auto_search_enabled", { mode: "boolean" }).notNull().default(true),
-  createdAt: integer("created_at", { mode: "timestamp" }).default(
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),
-  updatedAt: integer("updated_at", { mode: "timestamp" }).default(
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),
 });
@@ -102,10 +104,10 @@ export const downloaders = sqliteTable("downloaders", {
   removeCompleted: integer("remove_completed", { mode: "boolean" }).default(false),
   postImportCategory: text("post_import_category"),
   settings: text("settings"),
-  createdAt: integer("created_at", { mode: "timestamp" }).default(
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),
-  updatedAt: integer("updated_at", { mode: "timestamp" }).default(
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),
 });
@@ -123,8 +125,10 @@ export const gameDownloads = sqliteTable("game_downloads", {
   downloadHash: text("download_hash").notNull(),
   downloadTitle: text("download_title").notNull(),
   status: text("status").notNull().default("downloading"),
-  addedAt: integer("added_at", { mode: "timestamp" }).default(sql`(strftime('%s', 'now') * 1000)`),
-  completedAt: integer("completed_at", { mode: "timestamp" }),
+  addedAt: integer("added_at", { mode: "timestamp_ms" }).default(
+    sql`(strftime('%s', 'now') * 1000)`
+  ),
+  completedAt: integer("completed_at", { mode: "timestamp_ms" }),
 });
 
 // Legacy table name for backward compatibility during migration
@@ -137,7 +141,7 @@ export const xrelNotifiedReleases = sqliteTable("xrel_notified_releases", {
     .notNull()
     .references(() => games.id, { onDelete: "cascade" }),
   xrelReleaseId: text("xrel_release_id").notNull(),
-  createdAt: integer("created_at", { mode: "timestamp" }).default(
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),
 });
@@ -150,7 +154,7 @@ export const notifications = sqliteTable("notifications", {
   message: text("message").notNull(),
   link: text("link"),
   read: integer("read", { mode: "boolean" }).notNull().default(false),
-  createdAt: integer("created_at", { mode: "timestamp" }).default(
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),
 });
@@ -394,13 +398,13 @@ export const rssFeeds = sqliteTable("rss_feeds", {
   type: text("type").notNull().default("custom"), // 'preset' or 'custom'
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
   mapping: text("mapping", { mode: "json" }).$type<{ titleField?: string; linkField?: string }>(),
-  lastCheck: integer("last_check", { mode: "timestamp" }),
+  lastCheck: integer("last_check", { mode: "timestamp_ms" }),
   status: text("status").default("ok"), // 'ok' or 'error'
   errorMessage: text("error_message"),
-  createdAt: integer("created_at", { mode: "timestamp" }).default(
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),
-  updatedAt: integer("updated_at", { mode: "timestamp" }).default(
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),
 });
@@ -413,12 +417,12 @@ export const rssFeedItems = sqliteTable("rss_feed_items", {
   guid: text("guid").notNull(),
   title: text("title").notNull(),
   link: text("link").notNull(),
-  pubDate: integer("pub_date", { mode: "timestamp" }),
+  pubDate: integer("pub_date", { mode: "timestamp_ms" }),
   sourceName: text("source_name"),
   igdbGameId: integer("igdb_game_id"),
   igdbGameName: text("igdb_game_name"),
   coverUrl: text("cover_url"),
-  createdAt: integer("created_at", { mode: "timestamp" }).default(
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),
 });

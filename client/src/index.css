@@ -2,7 +2,7 @@
 
 /* Tailwind v4 theme configuration */
 @theme {
-  --font-sans: Inter, Open Sans, sans-serif;
+  --font-sans: "Inter Variable", "Open Sans Variable", sans-serif;
   --font-serif: Georgia, serif;
   --font-mono: Menlo, monospace;
 
@@ -145,7 +145,7 @@
   --chart-4: 262 83% 58%;
   --chart-5: 346 87% 43%;
 
-  --font-sans: Inter, Open Sans, sans-serif;
+  --font-sans: "Inter Variable", "Open Sans Variable", sans-serif;
   --font-serif: Georgia, serif;
   --font-mono: Menlo, monospace;
   --radius: 0.5rem; /* 8px */

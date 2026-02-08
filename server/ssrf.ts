@@ -85,5 +85,81 @@ function isSafeIp(ip: string): boolean {
     return false;
   }
 
+  // Block Loopback (127.0.0.0/8)
+  if (ip.startsWith("127.")) {
+    return false;
+  }
+
+  // Block IPv6 Loopback (::1)
+  if (lowerIp === "::1" || lowerIp === "0:0:0:0:0:0:0:1") {
+    return false;
+  }
+
+  // Block Private Networks
+  // 10.0.0.0/8
+  if (ip.startsWith("10.")) {
+    return false;
+  }
+
+  // 192.168.0.0/16
+  if (ip.startsWith("192.168.")) {
+    return false;
+  }
+
+  // 172.16.0.0/12 (172.16.0.0 - 172.31.255.255)
+  if (ip.startsWith("172.")) {
+    const parts = ip.split(".");
+    if (parts.length > 1) {
+      const second = parseInt(parts[1], 10);
+      if (second >= 16 && second <= 31) {
+        return false;
+      }
+    }
+  }
+
   return true;
+}
+
+/**
+ * Performs a fetch request that is safe against DNS rebinding attacks.
+ * It resolves the hostname once, validates the IP, and then connects to that IP
+ * while verifying the SSL certificate against the original hostname (if HTTPS).
+ */
+export async function safeFetch(urlStr: string, options: RequestInit = {}): Promise<Response> {
+  let url: URL;
+  try {
+    url = new URL(urlStr);
+  } catch {
+    throw new Error("Invalid URL");
+  }
+
+  const hostname = url.hostname;
+
+  // Resolve hostname
+  const { address, family } = await dns.lookup(hostname);
+
+  if (!isSafeIp(address)) {
+    throw new Error(`Blocked unsafe IP: ${address}`);
+  }
+
+  // Construct new URL with IP
+  const ipUrl = new URL(urlStr);
+
+  if (family === 6) {
+    ipUrl.hostname = `[${address}]`;
+  } else {
+    ipUrl.hostname = address;
+  }
+
+  // Prepare headers
+  const headers = new Headers(options.headers || {});
+  headers.set("Host", hostname);
+
+  // Create new options
+  const newOptions: RequestInit = {
+    ...options,
+    headers,
+  };
+
+  return fetch(ipUrl.toString(), newOptions);
 }

@@ -7,6 +7,10 @@ vi.mock("../db.js", () => ({
   db: {},
 }));
 
+vi.mock("../ssrf.js", () => ({
+  safeFetch: vi.fn((url, options) => fetch(url, options)),
+}));
+
 // Import TorznabClient after mocking
 const { TorznabClient } = await import("../torznab.js");
 

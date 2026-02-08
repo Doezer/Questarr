@@ -9,6 +9,10 @@ vi.mock("../logger.js", () => ({
   },
 }));
 
+vi.mock("../ssrf.js", () => ({
+  safeFetch: vi.fn((url, options) => fetch(url, options)),
+}));
+
 describe("ProwlarrClient", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 

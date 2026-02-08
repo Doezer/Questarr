@@ -75,7 +75,11 @@ vi.mock("../auth.js", () => ({
   hashPassword: vi.fn(),
   comparePassword: vi.fn(),
   generateToken: vi.fn(),
-  authenticateToken: (req: any, res: any, next: any) => {
+  authenticateToken: (
+    req: express.Request & { user: any },
+    res: express.Response,
+    next: express.NextFunction
+  ) => {
     req.user = { id: "test-user-id", username: "testuser" };
     next();
   },
@@ -104,7 +108,7 @@ describe("SSRF Vulnerability in Routes", () => {
 
   const UNSAFE_URL = "http://169.254.169.254/latest/meta-data/";
 
-  it("should allow unsafe URL in /api/indexers/prowlarr/sync (VULNERABILITY)", async () => {
+  it("should block unsafe URL in /api/indexers/prowlarr/sync", async () => {
     const app = await createApp();
 
     // We mock prowlarrClient to succeed.
@@ -122,13 +126,11 @@ describe("SSRF Vulnerability in Routes", () => {
   it("should block unsafe URL in /api/indexers/test", async () => {
     const app = await createApp();
 
-    const response = await request(app)
-      .post("/api/indexers/test")
-      .send({
-        url: UNSAFE_URL,
-        apiKey: "abc",
-        name: "Test Indexer"
-      });
+    const response = await request(app).post("/api/indexers/test").send({
+      url: UNSAFE_URL,
+      apiKey: "abc",
+      name: "Test Indexer",
+    });
 
     // Expect 400 (Vulnerability fixed)
     expect(response.status).toBe(400);

@@ -1,6 +1,7 @@
 import { XMLParser } from "fast-xml-parser";
-import type { Indexer } from "../shared/schema.js";
+import { type Indexer } from "../shared/schema.js";
 import { torznabLogger } from "./logger.js";
+import { safeFetch } from "./ssrf.js";
 
 interface TorznabItem {
   title: string;
@@ -65,7 +66,7 @@ export class TorznabClient {
     );
 
     try {
-      const response = await fetch(searchUrl, {
+      const response = await safeFetch(searchUrl, {
         headers: {
           "User-Agent": "Questarr/1.0",
         },
@@ -416,7 +417,7 @@ export class TorznabClient {
     url.searchParams.set("apikey", indexer.apiKey);
 
     try {
-      const response = await fetch(url.toString(), {
+      const response = await safeFetch(url.toString(), {
         headers: { "User-Agent": "Questarr/1.0" },
         signal: AbortSignal.timeout(30000),
       });

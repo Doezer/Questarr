@@ -16,7 +16,6 @@ interface GameGridProps {
   isFetching?: boolean;
   columns?: number;
   viewMode?: "grid" | "list";
-  density?: "comfortable" | "compact" | "ultra-compact";
 }
 
 export default function GameGrid({
@@ -30,7 +29,6 @@ export default function GameGrid({
   isFetching = false,
   columns = 5,
   viewMode = "grid",
-  density = "comfortable",
 }: GameGridProps) {
   // Map column count to tailwind classes
   const gridColsClass = useMemo(() => {
@@ -112,7 +110,6 @@ export default function GameGrid({
             onViewDetails={onViewDetails}
             onToggleHidden={onToggleHidden}
             isDiscovery={isDiscovery}
-            density={density}
           />
         ) : (
           <GameCard

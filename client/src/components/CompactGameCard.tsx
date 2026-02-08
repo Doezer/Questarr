@@ -134,8 +134,9 @@ const CompactGameCard = ({
   return (
     <>
       <div
+        onClick={handleDetailsClick}
         className={cn(
-          "group flex items-center gap-4 p-3 rounded-lg border bg-card text-card-foreground shadow-sm transition-colors hover:bg-accent/50",
+          "group flex items-center gap-4 p-3 rounded-lg border bg-card text-card-foreground shadow-sm transition-colors hover:bg-accent/50 cursor-pointer",
           game.hidden && "opacity-60 grayscale"
         )}
         data-testid={`card-game-compact-${game.id}`}
@@ -206,7 +207,7 @@ const CompactGameCard = ({
         </div>
 
         {/* Actions */}
-        <div className="flex items-center gap-2 self-center">
+        <div className="flex items-center gap-2 self-center" onClick={(e) => e.stopPropagation()}>
           {isDiscovery ? (
             <Tooltip>
               <TooltipTrigger asChild>

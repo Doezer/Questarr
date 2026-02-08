@@ -15,6 +15,7 @@ import { type Game, type Config } from "@shared/schema";
 import { cn } from "@/lib/utils";
 import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
+import GameDownloadDialog from "@/components/GameDownloadDialog";
 
 type ViewMode = "year" | "month" | "week";
 
@@ -72,6 +73,13 @@ function getDaysInMonth(year: number, month: number): Date[] {
 export default function CalendarPage() {
   const [viewMode, setViewMode] = useState<ViewMode>("year");
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [selectedGame, setSelectedGame] = useState<Game | null>(null);
+  const [downloadDialogOpen, setDownloadDialogOpen] = useState(false);
+
+  const handleGameClick = (game: Game) => {
+    setSelectedGame(game);
+    setDownloadDialogOpen(true);
+  };
 
   const { data: config } = useQuery<Config>({
     queryKey: ["/api/config"],
@@ -199,18 +207,48 @@ export default function CalendarPage() {
         </div>
       ) : (
         <>
-          {viewMode === "year" && <YearView currentDate={currentDate} gamesByDate={gamesByDate} />}
-          {viewMode === "month" && (
-            <MonthView currentDate={currentDate} gamesByDate={gamesByDate} />
+          {viewMode === "year" && (
+            <YearView
+              currentDate={currentDate}
+              gamesByDate={gamesByDate}
+              onGameClick={handleGameClick}
+            />
           )}
-          {viewMode === "week" && <WeekView currentDate={currentDate} gamesByDate={gamesByDate} />}
+          {viewMode === "month" && (
+            <MonthView
+              currentDate={currentDate}
+              gamesByDate={gamesByDate}
+              onGameClick={handleGameClick}
+            />
+          )}
+          {viewMode === "week" && (
+            <WeekView
+              currentDate={currentDate}
+              gamesByDate={gamesByDate}
+              onGameClick={handleGameClick}
+            />
+          )}
         </>
       )}
+
+      <GameDownloadDialog
+        game={selectedGame}
+        open={downloadDialogOpen}
+        onOpenChange={setDownloadDialogOpen}
+      />
     </div>
   );
 }
 
-function YearView({ currentDate, gamesByDate }: { currentDate: Date; gamesByDate: GamesByDate }) {
+function YearView({
+  currentDate,
+  gamesByDate,
+  onGameClick,
+}: {
+  currentDate: Date;
+  gamesByDate: GamesByDate;
+  onGameClick: (game: Game) => void;
+}) {
   const year = currentDate.getFullYear();
   const months = Array.from({ length: 12 }, (_, i) => i);
 
@@ -246,7 +284,7 @@ function YearView({ currentDate, gamesByDate }: { currentDate: Date; gamesByDate
                       })}
                     </div>
                     {games.map((game) => (
-                      <GameBadge key={game.id} game={game} />
+                      <GameBadge key={game.id} game={game} onClick={() => onGameClick(game)} />
                     ))}
                   </div>
                 ))
@@ -261,7 +299,15 @@ function YearView({ currentDate, gamesByDate }: { currentDate: Date; gamesByDate
   );
 }
 
-function MonthView({ currentDate, gamesByDate }: { currentDate: Date; gamesByDate: GamesByDate }) {
+function MonthView({
+  currentDate,
+  gamesByDate,
+  onGameClick,
+}: {
+  currentDate: Date;
+  gamesByDate: GamesByDate;
+  onGameClick: (game: Game) => void;
+}) {
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
   const days = getDaysInMonth(year, month);
@@ -303,7 +349,7 @@ function MonthView({ currentDate, gamesByDate }: { currentDate: Date; gamesByDat
               </div>
               <div className="space-y-1">
                 {gamesOnDay.map((game) => (
-                  <GameBadge key={game.id} game={game} compact />
+                  <GameBadge key={game.id} game={game} compact onClick={() => onGameClick(game)} />
                 ))}
               </div>
             </div>
@@ -314,7 +360,15 @@ function MonthView({ currentDate, gamesByDate }: { currentDate: Date; gamesByDat
   );
 }
 
-function WeekView({ currentDate, gamesByDate }: { currentDate: Date; gamesByDate: GamesByDate }) {
+function WeekView({
+  currentDate,
+  gamesByDate,
+  onGameClick,
+}: {
+  currentDate: Date;
+  gamesByDate: GamesByDate;
+  onGameClick: (game: Game) => void;
+}) {
   const weekDays = getWeekDays(new Date(currentDate));
 
   return (
@@ -342,7 +396,9 @@ function WeekView({ currentDate, gamesByDate }: { currentDate: Date; gamesByDate
               </div>
               <div className="space-y-2">
                 {gamesOnDay.length > 0 ? (
-                  gamesOnDay.map((game) => <GameBadge key={game.id} game={game} />)
+                  gamesOnDay.map((game) => (
+                    <GameBadge key={game.id} game={game} onClick={() => onGameClick(game)} />
+                  ))
                 ) : (
                   <p className="text-xs text-muted-foreground text-center">No releases</p>
                 )}
@@ -355,7 +411,15 @@ function WeekView({ currentDate, gamesByDate }: { currentDate: Date; gamesByDate
   );
 }
 
-function GameBadge({ game, compact = false }: { game: Game; compact?: boolean }) {
+function GameBadge({
+  game,
+  compact = false,
+  onClick,
+}: {
+  game: Game;
+  compact?: boolean;
+  onClick?: () => void;
+}) {
   const isDelayed = game.releaseStatus === "delayed";
 
   if (compact) {
@@ -363,6 +427,7 @@ function GameBadge({ game, compact = false }: { game: Game; compact?: boolean })
       <Tooltip>
         <TooltipTrigger asChild>
           <div
+            onClick={onClick}
             className={cn(
               "flex items-center gap-1 p-1 rounded hover:opacity-80 cursor-pointer transition-opacity",
               isDelayed ? "bg-destructive/20 border border-destructive/30" : "bg-muted"
@@ -416,6 +481,7 @@ function GameBadge({ game, compact = false }: { game: Game; compact?: boolean })
     <Tooltip>
       <TooltipTrigger asChild>
         <div
+          onClick={onClick}
           className={cn(
             "flex items-center gap-2 p-2 rounded hover:opacity-80 cursor-pointer transition-all",
             isDelayed ? "bg-destructive/10 border border-destructive/20" : "bg-muted"

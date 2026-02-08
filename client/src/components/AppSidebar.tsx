@@ -108,7 +108,6 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: AppSidebarP
   const { logout, user } = useAuth();
 
   const handleNavigation = (url: string) => {
-    console.warn(`Navigation triggered: ${url}`);
     onNavigate?.(url);
   };
 

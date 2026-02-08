@@ -147,7 +147,8 @@ const GameCard = ({
   return (
     <Card
       ref={cardRef}
-      className={`group hover-elevate transition-all duration-200 max-w-[225px] mx-auto w-full ${game.hidden ? "opacity-60 grayscale" : ""}`}
+      onClick={handleDetailsClick}
+      className={`group hover-elevate transition-all duration-200 max-w-[225px] mx-auto w-full cursor-pointer ${game.hidden ? "opacity-60 grayscale" : ""}`}
       data-testid={`card-game-${game.id}`}
     >
       <div className="relative">
@@ -176,7 +177,10 @@ const GameCard = ({
             </Badge>
           )}
         </div>
-        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-200 rounded-t-md flex items-center justify-center gap-2">
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-200 rounded-t-md flex items-center justify-center gap-2"
+        >
           {isDiscovery && (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -236,7 +240,7 @@ const GameCard = ({
           )}
         </div>
       </div>
-      <CardContent className="p-3">
+      <CardContent className="p-3" onClick={(e) => e.stopPropagation()}>
         <h3
           className="font-semibold text-sm mb-2 line-clamp-2"
           data-testid={`text-title-${game.id}`}

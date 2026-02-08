@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { Indexer } from "@shared/schema";
+import type { Indexer } from "../../shared/schema.js";
 
 // Mock logger
 const debugMock = vi.fn();
@@ -26,6 +26,11 @@ vi.mock("../logger.js", () => ({
   },
 }));
 
+vi.mock("../ssrf.js", () => ({
+  safeFetch: vi.fn((url, options) => fetch(url, options)) as any,
+  isSafeUrl: vi.fn().mockResolvedValue(true),
+}));
+
 // Mock DB
 vi.mock("../db.js", () => ({
   pool: {},
@@ -42,7 +47,7 @@ describe("Search Logging", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     fetchMock = vi.fn();
-    global.fetch = fetchMock;
+    global.fetch = fetchMock as any;
     torznabClient = new TorznabClient();
   });
 

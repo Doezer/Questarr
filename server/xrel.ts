@@ -1,4 +1,5 @@
 import { titleMatches } from "../shared/title-utils.js";
+import { safeFetch } from "./ssrf.js";
 
 /**
  * xREL.to API client (no official Node SDK).
@@ -187,7 +188,7 @@ export async function searchReleases(
     limit: String(limit),
   });
   const url = `${base}/v2/search/releases.json?${params}`;
-  const res = await fetch(url, {
+  const res = await safeFetch(url, {
     headers: {
       Accept: "application/json",
       "User-Agent": "Questarr/1.1.0",
@@ -233,7 +234,7 @@ export async function getLatestReleases(
     params.append("ext_info_type", options.extInfoType);
   }
   const url = `${base}/v2/release/latest.json?${params}`;
-  const res = await fetch(url, {
+  const res = await safeFetch(url, {
     headers: {
       Accept: "application/json",
       "User-Agent": "Questarr/1.1.0",

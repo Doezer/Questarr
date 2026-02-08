@@ -10,7 +10,7 @@ import crypto from "crypto";
 import https from "https";
 import parseTorrent from "parse-torrent";
 import { XMLParser } from "fast-xml-parser";
-import { isSafeUrl } from "./ssrf.js";
+import { isSafeUrl, safeFetch } from "./ssrf.js";
 
 const DOWNLOAD_CLIENT_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
@@ -230,7 +230,7 @@ export class TransmissionClient implements DownloaderClient {
             // standard fetch follows redirects, so we can't easily check intermediate URLs here unless we assume fetchUrl behavior
             // But here we just use fetch.
             // We already checked request.url.
-            return fetch(url, {
+            return safeFetch(url, {
               headers: {
                 "User-Agent": DOWNLOAD_CLIENT_USER_AGENT,
                 Accept: "application/x-bittorrent, */*",
@@ -696,7 +696,7 @@ export class TransmissionClient implements DownloaderClient {
       headers["Authorization"] = `Basic ${auth}`;
     }
 
-    const response = await fetch(url, {
+    const response = await safeFetch(url, {
       method: "POST",
       headers,
       body: JSON.stringify(body),
@@ -713,7 +713,7 @@ export class TransmissionClient implements DownloaderClient {
         downloadersLogger.debug({ method, url }, "Retrying Transmission request with session ID");
 
         // Retry with session ID
-        const retryResponse = await fetch(url, {
+        const retryResponse = await safeFetch(url, {
           method: "POST",
           headers,
           body: JSON.stringify(body),
@@ -857,7 +857,7 @@ export class RTorrentClient implements DownloaderClient {
       // Helper to fetch with standard headers
       const fetchTorrent = async (url: string) => {
         downloadersLogger.debug({ url }, "Downloading file locally");
-        return fetch(url, {
+        return safeFetch(url, {
           headers: {
             "User-Agent": DOWNLOAD_CLIENT_USER_AGENT,
             Accept: "application/x-bittorrent, */*",
@@ -1510,7 +1510,7 @@ export class RTorrentClient implements DownloaderClient {
       headers["Authorization"] = `Basic ${auth}`;
     }
 
-    const response = await fetch(url, {
+    const response = await safeFetch(url, {
       method: "POST",
       headers,
       body: xmlBody,
@@ -1543,7 +1543,7 @@ export class RTorrentClient implements DownloaderClient {
 
             downloadersLogger.debug({ url }, "Retrying rTorrent request with Digest Auth");
 
-            const retryResponse = await fetch(url, {
+            const retryResponse = await safeFetch(url, {
               method: "POST",
               headers,
               body: xmlBody,
@@ -2748,7 +2748,7 @@ export class QBittorrentClient implements DownloaderClient {
     formData.append("password", this.downloader.password);
 
     try {
-      const response = await fetch(url, {
+      const response = await safeFetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
@@ -2896,7 +2896,7 @@ export class QBittorrentClient implements DownloaderClient {
       "Making qBittorrent request"
     );
 
-    let response = await fetch(url, {
+    let response = await safeFetch(url, {
       method,
       headers,
       body: requestBody,
@@ -2915,7 +2915,7 @@ export class QBittorrentClient implements DownloaderClient {
         retryHeaders["Cookie"] = this.cookie;
       }
 
-      response = await fetch(url, {
+      response = await safeFetch(url, {
         method,
         headers: retryHeaders,
         body: requestBody,
@@ -2959,7 +2959,7 @@ export class QBittorrentClient implements DownloaderClient {
       if (!(await isSafeUrl(targetUrl))) {
         throw new Error(`Unsafe URL blocked: ${targetUrl}`);
       }
-      return fetch(targetUrl, {
+      return safeFetch(targetUrl, {
         method: "GET",
         headers: {
           "User-Agent": DOWNLOAD_CLIENT_USER_AGENT,
@@ -3972,7 +3972,7 @@ export class NZBGetClient implements DownloaderClient {
 
     downloadersLogger.debug({ url, method, params: logParams }, "Making NZBGet XML-RPC request");
 
-    const response = await fetch(url, {
+    const response = await safeFetch(url, {
       method: "POST",
       headers,
       body: xmlBody,

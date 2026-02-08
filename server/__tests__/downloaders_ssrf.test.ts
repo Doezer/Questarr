@@ -1,6 +1,11 @@
-
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { TransmissionClient, RTorrentClient, QBittorrentClient, SABnzbdClient, NZBGetClient } from "../downloaders.js";
+import {
+  TransmissionClient,
+  RTorrentClient,
+  QBittorrentClient,
+  SABnzbdClient,
+  NZBGetClient,
+} from "../downloaders.js";
 import { Downloader } from "../../shared/schema";
 
 // Mock dependencies
@@ -16,6 +21,7 @@ vi.mock("../logger.js", () => ({
 // We will mock isSafeUrl differently in each test
 vi.mock("../ssrf.js", () => ({
   isSafeUrl: vi.fn(),
+  safeFetch: vi.fn((url, options) => fetch(url, options)),
 }));
 
 import { isSafeUrl } from "../ssrf.js";
@@ -55,7 +61,7 @@ describe("Downloader SSRF Protection", () => {
       const client = new TransmissionClient({ ...mockDownloader, type: "transmission" });
       const result = await client.addDownload({
         url: "magnet:?xt=urn:btih:unsafe",
-        title: "Unsafe Magnet"
+        title: "Unsafe Magnet",
       });
 
       expect(isSafeUrl).toHaveBeenCalledWith("magnet:?xt=urn:btih:unsafe");
@@ -68,7 +74,7 @@ describe("Downloader SSRF Protection", () => {
       const client = new TransmissionClient({ ...mockDownloader, type: "transmission" });
       const result = await client.addDownload({
         url: "http://unsafe.com/file.torrent",
-        title: "Unsafe Torrent"
+        title: "Unsafe Torrent",
       });
 
       expect(isSafeUrl).toHaveBeenCalledWith("http://unsafe.com/file.torrent");
@@ -82,7 +88,7 @@ describe("Downloader SSRF Protection", () => {
       const client = new RTorrentClient({ ...mockDownloader, type: "rtorrent" });
       const result = await client.addDownload({
         url: "http://unsafe.com/file.torrent",
-        title: "Unsafe Torrent"
+        title: "Unsafe Torrent",
       });
 
       expect(isSafeUrl).toHaveBeenCalledWith("http://unsafe.com/file.torrent");
@@ -103,12 +109,12 @@ describe("Downloader SSRF Protection", () => {
       global.fetch = vi.fn().mockResolvedValue({
         ok: true,
         text: async () => "Ok.",
-        headers: { getSetCookie: () => [] }
+        headers: { getSetCookie: () => [] },
       });
 
       const result = await client.addDownload({
         url: "http://unsafe.com/file.torrent",
-        title: "Unsafe Torrent"
+        title: "Unsafe Torrent",
       });
 
       // QBittorrent authenticate doesn't take URL arg, so it's fine.
@@ -125,7 +131,6 @@ describe("Downloader SSRF Protection", () => {
       // If we want to test that specific line, we need to mock isSafeUrl to return true for the first call
       // but false for the fallback call?
       // Actually, if we mock isSafeUrl to true initially, we can test the fallback logic.
-
       // Let's rely on the main check for now. The Coverage report likely flagged the `if (!isSafeUrl) throw` lines.
       // The `addDownload` check covers the first one.
       // There are other checks in `fetchWithMagnetDetection`.
@@ -137,7 +142,7 @@ describe("Downloader SSRF Protection", () => {
       const client = new SABnzbdClient({ ...mockDownloader, type: "sabnzbd" });
       const result = await client.addDownload({
         url: "http://unsafe.com/file.nzb",
-        title: "Unsafe NZB"
+        title: "Unsafe NZB",
       });
 
       expect(isSafeUrl).toHaveBeenCalledWith("http://unsafe.com/file.nzb");
@@ -151,7 +156,7 @@ describe("Downloader SSRF Protection", () => {
       const client = new NZBGetClient({ ...mockDownloader, type: "nzbget" });
       const result = await client.addDownload({
         url: "http://unsafe.com/file.nzb",
-        title: "Unsafe NZB"
+        title: "Unsafe NZB",
       });
 
       expect(isSafeUrl).toHaveBeenCalledWith("http://unsafe.com/file.nzb");

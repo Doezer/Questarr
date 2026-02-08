@@ -14,6 +14,7 @@ vi.mock("parse-torrent", () => ({
 // Mock ssrf check to allow all URLs in tests
 vi.mock("../ssrf.js", () => ({
   isSafeUrl: vi.fn().mockResolvedValue(true),
+  safeFetch: vi.fn((url, options) => fetch(url, options)),
 }));
 
 // Mock fetch

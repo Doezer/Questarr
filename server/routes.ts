@@ -42,7 +42,7 @@ import {
 } from "./middleware.js";
 import { config as appConfig } from "./config.js";
 import { prowlarrClient } from "./prowlarr.js";
-import { isSafeUrl } from "./ssrf.js";
+import { isSafeUrl, safeFetch } from "./ssrf.js";
 import { hashPassword, comparePassword, generateToken, authenticateToken } from "./auth.js";
 import { searchAllIndexers } from "./search.js";
 import { xrelClient, DEFAULT_XREL_BASE, ALLOWED_XREL_DOMAINS } from "./xrel.js";
@@ -225,11 +225,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       routesLogger.info({ username }, "Initial setup completed");
       res.json({ token, user: { id: user.id, username: user.username } });
     } catch (error) {
-      routesLogger.error({
-        error,
-        message: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined
-      }, "Setup failed");
+      routesLogger.error(
+        {
+          error,
+          message: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+        },
+        "Setup failed"
+      );
       res.status(500).json({ error: "Setup failed. Please try again." });
     }
   });
@@ -1653,7 +1656,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 return;
               }
 
-              const response = await fetch(download.link);
+              const response = await safeFetch(download.link);
               if (response.ok) {
                 const buffer = await response.arrayBuffer();
                 // Try to detect if it's a usenet item based on title or link if downloadType not present
@@ -1913,9 +1916,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         xrel: { apiBase },
         settings: settings
           ? {
-            xrelSceneReleases: settings.xrelSceneReleases,
-            xrelP2pReleases: settings.xrelP2pReleases,
-          }
+              xrelSceneReleases: settings.xrelSceneReleases,
+              xrelP2pReleases: settings.xrelP2pReleases,
+            }
           : undefined,
       });
     } catch (error) {
@@ -1994,10 +1997,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               if (relExtRegex && relExtRegex.test(gl.normalized)) return true;
             }
             if (gl.regex && gl.regex.test(relDirNorm)) return true;
-            if (
-              gl.words.length > 0 &&
-              gl.words.every((word: string) => relDirLower.includes(word))
-            )
+            if (gl.words.length > 0 && gl.words.every((word: string) => relDirLower.includes(word)))
               return true;
             return false;
           });
@@ -2029,7 +2029,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const igdbMatches = await igdbClient.batchSearchGames(candidatesArray);
 
       if (igdbMatches.size > 0) {
-        routesLogger.debug({ count: igdbMatches.size, matches: Array.from(igdbMatches.entries()).map(([k, v]) => `${k} => ${v?.name}`) }, "IGDB Matches found");
+        routesLogger.debug(
+          {
+            count: igdbMatches.size,
+            matches: Array.from(igdbMatches.entries()).map(([k, v]) => `${k} => ${v?.name}`),
+          },
+          "IGDB Matches found"
+        );
       }
 
       // Attach IGDB match candidates to results

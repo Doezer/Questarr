@@ -18,19 +18,28 @@ describe("isSafeUrl Security Check", () => {
     vi.restoreAllMocks();
   });
 
-  it("should allow valid safe URLs", async () => {
+  it("should allow private IPs by default (self-hosted use case)", async () => {
     // Mock DNS lookup for google.com to return a safe IP
     vi.mocked(dns.lookup).mockResolvedValueOnce({ address: "142.250.185.46", family: 4 });
     expect(await isSafeUrl("http://google.com")).toBe(true);
 
-    // Direct IPs don't need DNS lookup
+    // Private IPs are allowed by default for self-hosted projects
     expect(await isSafeUrl("http://127.0.0.1")).toBe(true);
+    expect(await isSafeUrl("http://192.168.1.1")).toBe(true);
+    expect(await isSafeUrl("http://10.0.0.1")).toBe(true);
 
     // Mock DNS lookup for localhost
     vi.mocked(dns.lookup).mockResolvedValueOnce({ address: "127.0.0.1", family: 4 });
     expect(await isSafeUrl("http://localhost")).toBe(true);
 
     expect(await isSafeUrl("http://[::1]")).toBe(true); // Localhost IPv6
+  });
+
+  it("should block private IPs when allowPrivate is false", async () => {
+    expect(await isSafeUrl("http://127.0.0.1", { allowPrivate: false })).toBe(false);
+    expect(await isSafeUrl("http://192.168.1.1", { allowPrivate: false })).toBe(false);
+    expect(await isSafeUrl("http://10.0.0.1", { allowPrivate: false })).toBe(false);
+    expect(await isSafeUrl("http://[::1]", { allowPrivate: false })).toBe(false);
   });
 
   it("should block IPv4 metadata service", async () => {

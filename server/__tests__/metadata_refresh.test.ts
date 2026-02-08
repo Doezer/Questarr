@@ -74,7 +74,7 @@ vi.mock("../logger.js", () => ({
     warn: vi.fn(),
     error: vi.fn(),
     child: vi.fn().mockReturnThis(),
-  }
+  },
 }));
 
 // Mock other services initialized in routes.ts
@@ -123,17 +123,20 @@ describe("Metadata Refresh API", () => {
         id: `game-${i}`,
         title: `Game ${i}`,
         igdbId: 1000 + i,
-        userId: "user-1"
+        userId: "user-1",
       }));
 
       vi.mocked(storage.getUserGames).mockResolvedValue(mockGames as unknown as Game[]);
 
       // Mock IGDB response
       vi.mocked(igdbClient.getGamesByIds).mockImplementation(async (ids) => {
-        return ids.map(id => ({
-          id,
-          name: `Updated Game ${id}`,
-        } as unknown as IGDBGame));
+        return ids.map(
+          (id) =>
+            ({
+              id,
+              name: `Updated Game ${id}`,
+            }) as unknown as IGDBGame
+        );
       });
 
       const response = await request(app).post("/api/games/refresh-metadata");
@@ -181,7 +184,7 @@ describe("Metadata Refresh API", () => {
 
       vi.mocked(igdbClient.getGamesByIds).mockResolvedValue([
         { id: 101, name: "Valid 1 Updated" },
-        { id: 102, name: "Valid 2 Updated" }
+        { id: 102, name: "Valid 2 Updated" },
       ] as unknown as IGDBGame[]);
 
       const response = await request(app).post("/api/games/refresh-metadata");
@@ -196,34 +199,49 @@ describe("Metadata Refresh API", () => {
       expect(storage.updateGamesBatch).toHaveBeenCalledTimes(1);
       const updates = vi.mocked(storage.updateGamesBatch).mock.calls[0][0];
       expect(updates).toHaveLength(2);
-      expect(updates.map(u => u.id)).toEqual(["g1", "g3"]);
+      expect(updates.map((u) => u.id)).toEqual(["g1", "g3"]);
     });
 
     it("should continue processing chunks even if one chunk fails", async () => {
-       // This test simulates an error in one batch to ensure robustness
-       // However, the current implementation doesn't strictly fail the whole request on chunk error,
-       // but logs it. We can verify error handling if we mock storage.updateGamesBatch to throw once.
+      const TOTAL_GAMES = 150;
 
-       const mockGames = Array.from({ length: 150 }, (_, i) => ({
+      const mockGames = Array.from({ length: TOTAL_GAMES }, (_, i) => ({
         id: `game-${i}`,
+        title: `Game ${i}`,
         igdbId: 2000 + i,
-        userId: "user-1"
+        userId: "user-1",
       }));
 
       vi.mocked(storage.getUserGames).mockResolvedValue(mockGames as unknown as Game[]);
-      vi.mocked(igdbClient.getGamesByIds).mockResolvedValue([]); // Return empty to simplify
 
-      // Mock updateGamesBatch to throw on first call but succeed on second
-      vi.mocked(storage.updateGamesBatch)
-        .mockRejectedValueOnce(new Error("DB Error"))
-        .mockResolvedValueOnce(undefined);
+      // Mock IGDB response: First batch fails, second succeeds
+      vi.mocked(igdbClient.getGamesByIds)
+        .mockRejectedValueOnce(new Error("Network Error")) // First batch of 100 fails
+        .mockResolvedValueOnce(
+          // Second batch of 50 succeeds
+          mockGames.slice(100).map(
+            (g) =>
+              ({
+                id: g.igdbId,
+                name: `Updated ${g.title}`,
+              }) as unknown as IGDBGame
+          )
+        );
+
+      vi.mocked(storage.updateGamesBatch).mockResolvedValue(undefined);
 
       const response = await request(app).post("/api/games/refresh-metadata");
 
       expect(response.status).toBe(200);
-      // First 100 failed, next 50 (actually 0 because we returned empty IGDB data)
-      // Wait, if igdbClient returns empty, updateGamesBatch isn't called if updates array is empty.
-      // We need igdbClient to return data.
+      expect(response.body.success).toBe(true);
+
+      // First 100 failed due to IGDB error
+      // Next 50 succeeded
+      expect(response.body.updatedCount).toBe(50);
+      expect(response.body.errorCount).toBe(100);
+
+      expect(igdbClient.getGamesByIds).toHaveBeenCalledTimes(2);
+      expect(storage.updateGamesBatch).toHaveBeenCalledTimes(1);
     });
   });
 });

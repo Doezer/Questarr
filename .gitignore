@@ -23,7 +23,7 @@ playwright*/
 test-results/
 
 # SQLite
-
+*.db
 data/*
 
 # Project specific

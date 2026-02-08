@@ -14,7 +14,16 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import EmptyState from "@/components/EmptyState";
-import { Star, LayoutGrid, List } from "lucide-react";
+import { Star, LayoutGrid, List, Settings2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 type SortOption = "release-asc" | "release-desc" | "added-desc" | "title-asc";
@@ -30,6 +39,21 @@ export default function WishlistPage() {
   useEffect(() => {
     localStorage.setItem("wishlistViewMode", viewMode);
   }, [viewMode]);
+
+  const [listDensity, setListDensity] = useState<"comfortable" | "compact" | "ultra-compact">(
+    () => {
+      return (
+        (localStorage.getItem("wishlistListDensity") as
+          | "comfortable"
+          | "compact"
+          | "ultra-compact") || "comfortable"
+      );
+    }
+  );
+
+  useEffect(() => {
+    localStorage.setItem("wishlistListDensity", listDensity);
+  }, [listDensity]);
 
   const { data: games = [], isLoading } = useQuery<Game[]>({
     queryKey: ["/api/games"],
@@ -123,18 +147,49 @@ export default function WishlistPage() {
           <p className="text-muted-foreground">Games you want to play</p>
         </div>
         <div className="flex items-center gap-4">
-          <ToggleGroup
-            type="single"
-            value={viewMode}
-            onValueChange={(value) => value && setViewMode(value as "grid" | "list")}
-          >
-            <ToggleGroupItem value="grid" aria-label="Grid View">
-              <LayoutGrid className="h-4 w-4" />
-            </ToggleGroupItem>
-            <ToggleGroupItem value="list" aria-label="List View">
-              <List className="h-4 w-4" />
-            </ToggleGroupItem>
-          </ToggleGroup>
+          <div className="flex items-center gap-2">
+            {viewMode === "list" && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-8 gap-1">
+                    <Settings2 className="h-3.5 w-3.5" />
+                    <span className="sr-only sm:not-sr-only sm:inline-block">
+                      {listDensity === "comfortable"
+                        ? "Comfortable"
+                        : listDensity === "compact"
+                          ? "Compact"
+                          : "Ultra-compact"}
+                    </span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuLabel>Row Density</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => setListDensity("comfortable")}>
+                    Comfortable
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setListDensity("compact")}>
+                    Compact
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setListDensity("ultra-compact")}>
+                    Ultra-compact
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+            <ToggleGroup
+              type="single"
+              value={viewMode}
+              onValueChange={(value) => value && setViewMode(value as "grid" | "list")}
+            >
+              <ToggleGroupItem value="grid" aria-label="Grid View">
+                <LayoutGrid className="h-4 w-4" />
+              </ToggleGroupItem>
+              <ToggleGroupItem value="list" aria-label="List View">
+                <List className="h-4 w-4" />
+              </ToggleGroupItem>
+            </ToggleGroup>
+          </div>
           <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground hidden sm:inline">Sort by:</span>
             <Select value={sortBy} onValueChange={(value) => setSortBy(value as SortOption)}>
@@ -174,6 +229,7 @@ export default function WishlistPage() {
                 onStatusChange={(id, status) => statusMutation.mutate({ gameId: id, status })}
                 isLoading={isLoading}
                 viewMode={viewMode}
+                density={listDensity}
               />
               <Separator className="mt-8" />
             </section>
@@ -193,6 +249,7 @@ export default function WishlistPage() {
                 onStatusChange={(id, status) => statusMutation.mutate({ gameId: id, status })}
                 isLoading={isLoading}
                 viewMode={viewMode}
+                density={listDensity}
               />
               <Separator className="mt-8" />
             </section>
@@ -210,6 +267,7 @@ export default function WishlistPage() {
                 onStatusChange={(id, status) => statusMutation.mutate({ gameId: id, status })}
                 isLoading={isLoading}
                 viewMode={viewMode}
+                density={listDensity}
               />
             </section>
           )}

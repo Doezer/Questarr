@@ -10,7 +10,7 @@ import {
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { LayoutGrid, EyeOff, List } from "lucide-react";
+import { LayoutGrid, EyeOff, List, Rows, AlignJustify } from "lucide-react";
 import { Label } from "@/components/ui/label";
 
 interface DisplaySettingsModalProps {
@@ -22,6 +22,8 @@ interface DisplaySettingsModalProps {
   onShowHiddenGamesChange: (show: boolean) => void;
   viewMode?: "grid" | "list";
   onViewModeChange?: (mode: "grid" | "list") => void;
+  density?: "comfortable" | "compact" | "ultra-compact";
+  onDensityChange?: (density: "comfortable" | "compact" | "ultra-compact") => void;
 }
 
 export default function DisplaySettingsModal({
@@ -33,6 +35,8 @@ export default function DisplaySettingsModal({
   onShowHiddenGamesChange,
   viewMode = "grid",
   onViewModeChange,
+  density,
+  onDensityChange,
 }: DisplaySettingsModalProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -60,6 +64,35 @@ export default function DisplaySettingsModal({
                 <ToggleGroupItem value="list" aria-label="List View">
                   <List className="h-4 w-4 mr-2" />
                   List
+                </ToggleGroupItem>
+              </ToggleGroup>
+            </div>
+          )}
+
+          {onDensityChange && viewMode === "list" && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <Label>Row Density</Label>
+              </div>
+              <ToggleGroup
+                type="single"
+                value={density}
+                onValueChange={(value) =>
+                  value && onDensityChange(value as "comfortable" | "compact" | "ultra-compact")
+                }
+                className="justify-start"
+              >
+                <ToggleGroupItem value="comfortable" aria-label="Comfortable">
+                  <Rows className="h-4 w-4 mr-2" />
+                  Comfortable
+                </ToggleGroupItem>
+                <ToggleGroupItem value="compact" aria-label="Compact">
+                  <AlignJustify className="h-4 w-4 mr-2" />
+                  Compact
+                </ToggleGroupItem>
+                <ToggleGroupItem value="ultra-compact" aria-label="Ultra Compact">
+                  <List className="h-4 w-4 mr-2" />
+                  Ultra Compact
                 </ToggleGroupItem>
               </ToggleGroup>
             </div>

@@ -18,6 +18,7 @@ interface CompactGameCardProps {
   onViewDetails?: (gameId: string) => void;
   onToggleHidden?: (gameId: string, hidden: boolean) => void;
   isDiscovery?: boolean;
+  density?: "comfortable" | "compact" | "ultra-compact";
 }
 
 function getReleaseStatus(game: Game): {
@@ -52,6 +53,7 @@ const CompactGameCard = ({
   onViewDetails,
   onToggleHidden,
   isDiscovery = false,
+  density = "comfortable",
 }: CompactGameCardProps) => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -136,32 +138,65 @@ const CompactGameCard = ({
       <div
         onClick={handleDetailsClick}
         className={cn(
-          "group flex items-center gap-4 p-3 rounded-lg border bg-card text-card-foreground shadow-sm transition-colors hover:bg-accent/50 cursor-pointer",
-          game.hidden && "opacity-60 grayscale"
+          "group flex items-center transition-colors hover:bg-accent/50 cursor-pointer",
+          game.hidden && "opacity-60 grayscale",
+          density === "comfortable" &&
+            "gap-4 p-3 rounded-lg border bg-card text-card-foreground shadow-sm",
+          density === "compact" &&
+            "gap-3 py-1.5 px-2 border-b border-slate-700/50 bg-transparent rounded-none",
+          density === "ultra-compact" &&
+            "gap-2 py-1 px-2 border-b border-slate-700/50 bg-transparent rounded-none"
         )}
         data-testid={`card-game-compact-${game.id}`}
       >
         {/* Cover Image */}
-        <div className="flex-shrink-0 relative w-16 h-24 rounded overflow-hidden bg-muted">
-          <img
-            src={game.coverUrl || "/placeholder-game-cover.jpg"}
-            alt={`${game.title} cover`}
-            className="w-full h-full object-cover"
-            loading="lazy"
-            data-testid={`img-cover-${game.id}`}
-          />
-        </div>
+        {density !== "ultra-compact" && (
+          <div
+            className={cn(
+              "flex-shrink-0 relative overflow-hidden bg-muted",
+              density === "comfortable" ? "w-16 h-24 rounded" : "w-8 h-8 rounded-sm"
+            )}
+          >
+            <img
+              src={game.coverUrl || "/placeholder-game-cover.jpg"}
+              alt={`${game.title} cover`}
+              className="w-full h-full object-cover"
+              loading="lazy"
+              data-testid={`img-cover-${game.id}`}
+            />
+          </div>
+        )}
 
         {/* Content */}
-        <div className="flex-grow min-w-0 flex flex-col gap-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <h3 className="font-semibold text-base truncate" data-testid={`text-title-${game.id}`}>
+        <div
+          className={cn(
+            "flex-grow min-w-0 flex",
+            density === "ultra-compact" ? "flex-row items-center gap-4" : "flex-col gap-1"
+          )}
+        >
+          <div className="flex items-center gap-2 flex-wrap min-w-0">
+            <h3
+              className={cn(
+                "font-semibold truncate",
+                density === "comfortable" ? "text-base" : "text-sm"
+              )}
+              data-testid={`text-title-${game.id}`}
+            >
               {game.title}
             </h3>
-            {!isDiscovery && game.status && <StatusBadge status={game.status} />}
+            {!isDiscovery && game.status && (
+              <div className={density !== "comfortable" ? "scale-90 origin-left" : ""}>
+                <StatusBadge status={game.status} />
+              </div>
+            )}
           </div>
 
-          <div className="flex items-center gap-4 text-xs text-muted-foreground">
+          <div
+            className={cn(
+              "flex items-center text-muted-foreground",
+              density === "ultra-compact" ? "gap-3 text-xs ml-auto" : "gap-4 text-xs"
+            )}
+          >
             {/* Rating */}
             <div className="flex items-center gap-1">
               <Star className="w-3 h-3 text-accent" />
@@ -186,35 +221,68 @@ const CompactGameCard = ({
 
             {/* Hidden Badge */}
             {game.hidden && (
-              <Badge variant="secondary" className="text-[10px] h-5 px-1.5 bg-gray-500 text-white">
+              <Badge
+                variant="secondary"
+                className={cn(
+                  "text-[10px] h-5 px-1.5 bg-gray-500 text-white",
+                  density !== "comfortable" ? "h-4 px-1 text-[9px]" : ""
+                )}
+              >
                 Hidden
               </Badge>
             )}
-          </div>
 
-          {/* Genres */}
-          <div className="flex flex-wrap gap-1 mt-1">
-            {game.genres && game.genres.length > 0 ? (
-              game.genres.slice(0, 3).map((genre) => (
-                <span key={genre} className="text-[10px] bg-muted px-1.5 py-0.5 rounded-sm">
-                  {genre}
-                </span>
-              ))
-            ) : (
-              <span className="text-[10px] text-muted-foreground">No genres</span>
+            {/* Genres */}
+            {density !== "comfortable" && (
+              <div
+                className={cn(
+                  "hidden sm:flex items-center",
+                  density === "ultra-compact" ? "gap-2 ml-4 border-l pl-4" : "gap-1"
+                )}
+              >
+                {game.genres && game.genres.length > 0 ? (
+                  <span className="truncate max-w-[200px]">
+                    {game.genres.slice(0, 3).join(" • ")}
+                  </span>
+                ) : null}
+              </div>
             )}
           </div>
+
+          {/* Genres (Comfortable Mode) */}
+          {density === "comfortable" && (
+            <div className="flex flex-wrap gap-1 mt-1">
+              {game.genres && game.genres.length > 0 ? (
+                game.genres.slice(0, 3).map((genre) => (
+                  <span key={genre} className="text-[10px] bg-muted px-1.5 py-0.5 rounded-sm">
+                    {genre}
+                  </span>
+                ))
+              ) : (
+                <span className="text-[10px] text-muted-foreground">No genres</span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Actions */}
-        <div className="flex items-center gap-2 self-center" onClick={(e) => e.stopPropagation()}>
+        <div
+          className={cn(
+            "flex items-center self-center",
+            density === "ultra-compact" ? "gap-1 ml-4" : "gap-2"
+          )}
+          onClick={(e) => e.stopPropagation()}
+        >
           {isDiscovery ? (
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   size="icon"
                   variant="default"
-                  className="h-8 w-8"
+                  className={cn(
+                    "transition-all",
+                    density !== "comfortable" ? "h-6 w-6" : "h-8 w-8"
+                  )}
                   onClick={handleDownloadClick}
                   disabled={addGameMutation.isPending}
                   aria-label="Download game"
@@ -222,7 +290,7 @@ const CompactGameCard = ({
                   {addGameMutation.isPending ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
-                    <Download className="w-4 h-4" />
+                    <Download className={density !== "comfortable" ? "w-3 h-3" : "w-4 h-4"} />
                   )}
                 </Button>
               </TooltipTrigger>
@@ -232,14 +300,29 @@ const CompactGameCard = ({
             <Button
               variant="outline"
               size="sm"
-              className="h-8 text-xs hidden sm:flex"
+              className={cn(
+                "hidden sm:flex",
+                density !== "comfortable"
+                  ? "h-6 w-6 p-0 border-0 hover:bg-slate-700"
+                  : "h-8 text-xs"
+              )}
               onClick={handleStatusClick}
             >
-              {game.status === "wanted"
-                ? "Mark Owned"
-                : game.status === "owned"
-                  ? "Mark Completed"
-                  : "Mark Wanted"}
+              {density !== "comfortable" ? (
+                game.status === "wanted" ? (
+                  <span title="Mark Owned">📂</span>
+                ) : game.status === "owned" ? (
+                  <span title="Mark Completed">✔</span>
+                ) : (
+                  <span title="Mark Wanted">★</span>
+                )
+              ) : game.status === "wanted" ? (
+                "Mark Owned"
+              ) : game.status === "owned" ? (
+                "Mark Completed"
+              ) : (
+                "Mark Wanted"
+              )}
             </Button>
           )}
 
@@ -248,11 +331,11 @@ const CompactGameCard = ({
               <Button
                 size="icon"
                 variant="ghost"
-                className="h-8 w-8"
+                className={cn("transition-all", density !== "comfortable" ? "h-6 w-6" : "h-8 w-8")}
                 onClick={handleDetailsClick}
                 aria-label="View details"
               >
-                <Info className="w-4 h-4" />
+                <Info className={density !== "comfortable" ? "w-3 h-3" : "w-4 h-4"} />
               </Button>
             </TooltipTrigger>
             <TooltipContent>View Details</TooltipContent>
@@ -264,11 +347,18 @@ const CompactGameCard = ({
                 <Button
                   size="icon"
                   variant="ghost"
-                  className="h-8 w-8"
+                  className={cn(
+                    "transition-all",
+                    density !== "comfortable" ? "h-6 w-6" : "h-8 w-8"
+                  )}
                   onClick={handleToggleHidden}
                   aria-label={game.hidden ? "Unhide game" : "Hide game"}
                 >
-                  {game.hidden ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                  {game.hidden ? (
+                    <Eye className={density !== "comfortable" ? "w-3 h-3" : "w-4 h-4"} />
+                  ) : (
+                    <EyeOff className={density !== "comfortable" ? "w-3 h-3" : "w-4 h-4"} />
+                  )}
                 </Button>
               </TooltipTrigger>
               <TooltipContent>{game.hidden ? "Unhide" : "Hide"}</TooltipContent>

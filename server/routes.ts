@@ -145,6 +145,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ...helmet.contentSecurityPolicy.getDefaultDirectives(),
           "script-src": scriptSrc,
           "img-src": ["'self'", "data:", "https://images.igdb.com"],
+          "connect-src": ["'self'", "https://raw.githubusercontent.com"],
         },
       },
     })

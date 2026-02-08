@@ -133,6 +133,11 @@ export async function safeFetch(urlStr: string, options: RequestInit = {}): Prom
     throw new Error("Invalid URL");
   }
 
+  // Reuse full URL safety validation to guard against SSRF even if callers forget to validate.
+  if (!(await isSafeUrl(url.toString()))) {
+    throw new Error("Blocked unsafe URL");
+  }
+
   const hostname = url.hostname;
 
   // Resolve hostname

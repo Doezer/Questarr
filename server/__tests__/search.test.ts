@@ -434,4 +434,46 @@ describe("Search Module - searchAllIndexers", () => {
       })
     );
   });
+  it("should extract release group from title for torznab items", async () => {
+    const torznabIndexer: Indexer = {
+      id: "torznab-1",
+      name: "Torznab Indexer",
+      url: "http://torznab.example.com",
+      apiKey: "key1",
+      protocol: "torznab",
+      enabled: true,
+      priority: 1,
+      categories: ["4000"],
+      rssEnabled: true,
+      autoSearchEnabled: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    vi.mocked(storage.getEnabledIndexers).mockResolvedValue([torznabIndexer]);
+    vi.mocked(torznabClient.searchMultipleIndexers).mockResolvedValue({
+      results: {
+        items: [
+          {
+            title: "Game.Title-RELGROUP",
+            link: "http://example.com/download",
+            pubDate: "2024-01-01T00:00:00Z",
+            size: 1000000,
+            seeders: 10,
+            category: "4000",
+            guid: "guid-123",
+            indexerId: "torznab-1",
+            indexerName: "Torznab Indexer",
+          },
+        ],
+        total: 1,
+      },
+      errors: [],
+    });
+
+    const result = await searchAllIndexers({ query: "test game" });
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].group).toBe("RELGROUP");
+  });
 });

@@ -73,7 +73,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
+        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col pt-12">
           <DialogHeader className="flex-shrink-0 pb-0">
             <div className="flex items-start justify-between gap-4">
               <div className="flex-1 min-w-0">
@@ -275,12 +275,11 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
       {selectedScreenshot && (
         <Dialog open={!!selectedScreenshot} onOpenChange={() => setSelectedScreenshot(null)}>
           <DialogContent className="max-w-4xl">
-                      <DialogHeader>
-                        <DialogTitle>Screenshot</DialogTitle>
-                        <DialogDescription className="sr-only">
-                          Full size game screenshot
-                        </DialogDescription>
-                      </DialogHeader>            <div className="flex justify-center">
+            <DialogHeader>
+              <DialogTitle>Screenshot</DialogTitle>
+              <DialogDescription className="sr-only">Full size game screenshot</DialogDescription>
+            </DialogHeader>{" "}
+            <div className="flex justify-center">
               <img
                 src={selectedScreenshot}
                 alt={`${game.title} screenshot`}

@@ -2,44 +2,75 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.0] - 2026-02-08
+
+### Added
+
+- **RSS Feed Support**: Added a dedicated page for RSS feeds with capabilities to manage feeds and view items.
+- **xREL Integration**: Implemented integration with xREL.to for game release notifications and metadata.
+- **Download Modal Redesign**: Complete redesign of the download dialogs (simple and advanced) for improved usability.
+- **Compact View**: Added a density setting to toggle between comfortable and compact list views in Dashboard, Library, and Wishlist.
+- **Enhanced Notifications**: Added links to notifications, allowing direct navigation to relevant games or pages.
+- **Security hardening**: Introduced protections for SSRF, missing security headers, and improved IPv6 validation.
+
+### Changed
+
+- **Privacy**: Removed Google Fonts dependency for better privacy and offline support.
+- **Performance**: Optimized metadata refresh with chunked fetching and improved Prowlarr indexer synchronization.
+- **Settings**: Updated settings page with tabbed navigation for better organization.
+- **UX**: Enhanced password visibility toggles and accessibility throughout the app.
+- **Logging**: Improved log truncation for better performance and privacy.
+
+### Fixed
+
+- Fixed Content Security Policy (CSP) preventing version checks.
+- Resolved UI issue where the close button overlaid the cover image in GameCard.
+- Fixed timestamp calculation issues affecting notification times.
+- Reduced log verbosity for SSL verification errors.
+
 ## [1.1.0] - 2026-01-19
 
 ### Added
+
 - **SQLite Support**: Migrated database engine from PostgreSQL to SQLite for a simpler, "single-file" deployment.
 - **Migration Tooling**: Added `docker-compose.migrate.yml` and `pg-to-sqlite.ts` to automatically convert data from old PostgreSQL installations.
 - **Improved Docker Experience**: Default environment variables and automatic directory creation for a true "Pull & Run" experience.
 - **Migration UI Warning**: Added a prominent banner on the Setup page to prevent users from accidentally skipping the migration process.
 
 ### Changed
+
 - Refactored `storage.ts` and `schema.ts` for SQLite compatibility.
 - Simplified `docker-compose.yml` (removed PostgreSQL service).
 - Updated `README.md` and added `docs/MIGRATION.md` with detailed upgrade instructions.
 
 ### Fixed
+
 - Improved reliability of database initialization on fresh installs.
 
 ## [1.0.5] - 2026-01-18
 
 ### Changed
+
 - Update to docker-compose.yml file to make port a variable throughout.
 
 ### Fixed
-- Initial setup not working
 
+- Initial setup not working
 
 ## [1.0.4] - 2026-01-13
 
 - Initial release of the changelog
 
 ### Added
+
 - feat: added links to torrent on indexer if available
 - feat: add indexer filtering to download items in GameDownloadDialog
 - feat: add indexerName to DownloadItem interface
 - feat: add auto sorting functionality for downloaders and indexers based on priority and enabled status
 - Add contributors list and shorten readme
 
-
 ### Changed
+
 - refactor: added new max width for download title, aligned tooltip with changes, added underlines on hover to links
 - Dep updates
 - Update downloader and indexer pages to sort by enabled status, then priority and update disabled style
@@ -50,6 +81,7 @@ All notable changes to this project will be documented in this file.
 - Refactoring of migration runner for more reliability
 
 ### Fixed
+
 - fix: added missing seperator to download modal #312
 
 ---

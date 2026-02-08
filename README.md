@@ -40,6 +40,8 @@
 <!-- v1.2.0 only - **☁️ Steam Integration**: Sync your Steam wishlist and import your library automatically. -->
 - **⬇️ Download Management**: Integrate with indexers (Prowlarr/Torznab/Newsznab), torrent/usenet downloaders (qBittorrent, Transmission, rTorrent / sabnzbd, nzbget), and optionally enable auto-download to get them right when they're there.
 - **🔍 Search & Filter**: Find games by genre, platform, and search terms. Automatically search for added games until available on your indexers.
+- **📰 RSS Feeds**: Monitor releases from your favorite groups directly within the app.
+- **🔒 Privacy Focused**: No external dependencies (Google Fonts removed) and hardened security (CSP, SSRF protection).
 - **✨ Clean Interface**: UI optimized for browsing game covers and metadata, with light/dark mode.
 
 ## Screenshots
@@ -48,11 +50,13 @@
 <summary><b>👀 See the app in action</b></summary>
 
 ### Dashboard
+
 Your central hub for recent activity, collection overview and downloading available games.
 [![Dashboard](images/Screenshots/dashboard.png)](images/Screenshots/dashboard.png)
 [![Search and download](images/Screenshots/download_modal.png)](images/Screenshots/download_modal.png)
 
 ### Discover Games
+
 Browse and find new games to add to your collection.
 
 <p float="left">
@@ -61,6 +65,7 @@ Browse and find new games to add to your collection.
 </p>
 
 ### Library & Wishlist
+
 Manage your wanted and owned games.
 
 <p float="left">
@@ -69,15 +74,19 @@ Manage your wanted and owned games.
 </p>
 
 ### Calendar
+
 Keep track of upcoming releases.
 [![Calendar](images/Screenshots/calendar.png)](images/Screenshots/calendar.png)
 
 ### Downloads Queue (WIP)
+
 Monitor your downloaders' active downloads and history.
 [![Downloads](images/Screenshots/downloads.png)](images/Screenshots/downloads.png)
 
 ### Settings
+
 Configure indexers, downloaders, and application preferences.
+
 <p float="left">
   <a href="images/Screenshots/indexers.png"><img src="images/Screenshots/indexers.png" width="49%" /></a>
   <a href="images/Screenshots/downloaders.png"><img src="images/Screenshots/downloaders.png" width="49%" /></a> 
@@ -85,10 +94,10 @@ Configure indexers, downloaders, and application preferences.
 
 [![Settings](images/Screenshots/settings.png)](images/Screenshots/settings.png)
 
-
 </details>
 
 ## Tech Stack
+
 <div align="center">
   <p>
     <img src="https://img.shields.io/badge/React-20232A?style=flat&logo=react&logoColor=61DAFB" alt="React">
@@ -115,13 +124,15 @@ Docker is the easiest way to deploy Questarr with all dependencies included. Que
 #### Fresh Install
 
 **Option 1: One-liner (Simplest)**
+
 ```bash
 docker run -d -p 5000:5000 -v ./data:/app/data --name questarr ghcr.io/doezer/questarr:latest
 ```
 
 **Option 2: Docker Compose**
+
 1. **Create a `docker-compose.yml` file:**
-   
+
    ```yaml
    services:
      app:
@@ -136,6 +147,7 @@ docker run -d -p 5000:5000 -v ./data:/app/data --name questarr ghcr.io/doezer/qu
    ```
 
 2. **Start the application:**
+
    ```bash
    docker compose up -d
    ```
@@ -148,6 +160,7 @@ docker run -d -p 5000:5000 -v ./data:/app/data --name questarr ghcr.io/doezer/qu
 If you are upgrading from an older version that used PostgreSQL, you need to migrate your data.
 
 1.  **Stop your current application:**
+
     ```bash
     docker compose down
     ```
@@ -157,6 +170,7 @@ If you are upgrading from an older version that used PostgreSQL, you need to mig
 
 3.  **Run the migration:**
     This command spins up your old database and converts the data to the new format automatically.
+
     ```bash
     docker compose -f docker-compose.migrate.yml up --abort-on-container-exit
     ```
@@ -174,11 +188,13 @@ See [docs/MIGRATION.md](docs/MIGRATION.md) for more details.
 ## Configuration
 
 1. **First-time setup:**
+
 - Create your admin account
 - Configure the IGDB credentials
 - Connect your Steam account (Optional)
 
-Once logged-in: 
+Once logged-in:
+
 - Configure indexers
 - Add downloaders
 - Add games!
@@ -203,7 +219,6 @@ IGDB provides game metadata (covers, descriptions, ratings, release dates, etc.)
 
 </details>
 
-
 <details>
 <summary><b>Advanced usage</b></summary>
 
@@ -212,22 +227,23 @@ IGDB provides game metadata (covers, descriptions, ratings, release dates, etc.)
 This is mainly for users who want the latest commit (e.g when trying out fixes for an issue) or contributing users.
 
 1. **Clone the repository:**
+
 ```bash
 git clone https://github.com/Doezer/Questarr.git
 cd Questarr
 ```
 
 1. **Configure the application:**
-Edit `docker-compose.yml` directly if you need to setup a specific environment.
+   Edit `docker-compose.yml` directly if you need to setup a specific environment.
 
 1. **Build and start the containers:**
+
 ```bash
 docker-compose up -d
 ```
 
 1. **Access the application:**
-Open your browser to `http://localhost:5000`
-
+   Open your browser to `http://localhost:5000`
 
 ### **Update to latest version for Docker**
 
@@ -245,31 +261,35 @@ docker-compose up -d
 For development or custom deployments without Docker.
 
 1. **Clone and install dependencies:**
+
 ```bash
 git clone https://github.com/Doezer/Questarr.git
 npm install
 ```
 
 2. **Configure environment variables in `.env`:**
-See the .env.example for available variables.
+   See the .env.example for available variables.
 
 3. **Initialize the database:**
-This will run available migration files.
+   This will run available migration files.
+
 ```bash
 npm run db:migrate
 ```
 
 5. **Development mode (with hot reload):**
+
 ```bash
 npm run dev
 ```
 
 6. **Access the application:**
-Open your browser to `http://localhost:5000`
+   Open your browser to `http://localhost:5000`
 
 </details>
 
 ## Troubleshooting
+
 See [Troubleshooting on the Wiki](https://github.com/Doezer/Questarr/wiki/Troubleshooting)
 
 ### Getting Help

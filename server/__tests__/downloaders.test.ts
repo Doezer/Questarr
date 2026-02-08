@@ -12,6 +12,11 @@ vi.mock("../logger.js", () => ({
   },
 }));
 
+// Mock ssrf check to allow all URLs in tests
+vi.mock("../ssrf.js", () => ({
+  isSafeUrl: vi.fn().mockResolvedValue(true),
+}));
+
 describe("TransmissionClient", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
   let client: TransmissionClient;
@@ -36,6 +41,8 @@ describe("TransmissionClient", () => {
     label: "tv",
     addStopped: false,
     removeCompleted: false,
+    postImportCategory: null,
+    settings: null,
   };
 
   beforeEach(() => {
@@ -227,6 +234,8 @@ describe("RTorrentClient", () => {
     label: "tv",
     addStopped: false,
     removeCompleted: false,
+    postImportCategory: null,
+    settings: null,
   };
 
   beforeEach(() => {
@@ -276,6 +285,8 @@ describe("QBittorrentClient", () => {
     label: "tv",
     addStopped: false,
     removeCompleted: false,
+    postImportCategory: null,
+    settings: null,
   };
 
   beforeEach(() => {

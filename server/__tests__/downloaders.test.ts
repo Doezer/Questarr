@@ -1,4 +1,3 @@
-
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Downloader } from "../../shared/schema";
 import { TransmissionClient, RTorrentClient, QBittorrentClient } from "../downloaders.js";
@@ -52,7 +51,7 @@ describe("TransmissionClient", () => {
         ok: true,
         json: async () => ({
           result: "success",
-          arguments: { "session-id": "12345" }
+          arguments: { "session-id": "12345" },
         }),
       });
 
@@ -66,7 +65,7 @@ describe("TransmissionClient", () => {
         ok: false,
         status: 401,
         text: async () => "Unauthorized",
-        headers: { get: () => null }
+        headers: { get: () => null },
       });
 
       const result = await client.testConnection();
@@ -86,15 +85,15 @@ describe("TransmissionClient", () => {
             "torrent-added": {
               id: 1,
               name: "Test Release",
-              hashString: "hash123"
-            }
-          }
-        })
+              hashString: "hash123",
+            },
+          },
+        }),
       });
 
       const result = await client.addDownload({
         url: "magnet:?xt=urn:btih:hash123",
-        title: "Test Release"
+        title: "Test Release",
       });
 
       expect(result.success).toBe(true);
@@ -110,15 +109,15 @@ describe("TransmissionClient", () => {
             "torrent-duplicate": {
               id: 1,
               name: "Test Release",
-              hashString: "hash123"
-            }
-          }
-        })
+              hashString: "hash123",
+            },
+          },
+        }),
       });
 
       const result = await client.addDownload({
         url: "magnet:?xt=urn:btih:hash123",
-        title: "Test Release"
+        title: "Test Release",
       });
 
       expect(result.success).toBe(true);
@@ -141,15 +140,15 @@ describe("TransmissionClient", () => {
             "torrent-added": {
               id: 2,
               name: "File Release",
-              hashString: "filehash"
-            }
-          }
-        })
+              hashString: "filehash",
+            },
+          },
+        }),
       });
 
       const result = await client.addDownload({
         url: "http://indexer.com/release.torrent",
-        title: "File Release"
+        title: "File Release",
       });
 
       // Verify local download was attempted
@@ -172,23 +171,25 @@ describe("TransmissionClient", () => {
         json: async () => ({
           result: "success",
           arguments: {
-            torrents: [{
-              id: 1,
-              name: "Test Linux ISO",
-              status: 4, // downloading
-              percentDone: 0.5,
-              rateDownload: 1024,
-              rateUpload: 0,
-              eta: 60,
-              totalSize: 1000,
-              downloadedEver: 500,
-              peersSendingToUs: 5,
-              peersGettingFromUs: 0,
-              uploadRatio: 0,
-              errorString: ""
-            }]
-          }
-        })
+            torrents: [
+              {
+                id: 1,
+                name: "Test Linux ISO",
+                status: 4, // downloading
+                percentDone: 0.5,
+                rateDownload: 1024,
+                rateUpload: 0,
+                eta: 60,
+                totalSize: 1000,
+                downloadedEver: 500,
+                peersSendingToUs: 5,
+                peersGettingFromUs: 0,
+                uploadRatio: 0,
+                errorString: "",
+              },
+            ],
+          },
+        }),
       });
 
       const status = await client.getDownloadStatus("1");
@@ -240,7 +241,8 @@ describe("RTorrentClient", () => {
       // Mock XML-RPC response for system.client_version
       fetchMock.mockResolvedValueOnce({
         ok: true,
-        text: async () => `<?xml version="1.0"?><methodResponse><params><param><value><string>0.9.8</string></value></param></params></methodResponse>`
+        text: async () =>
+          `<?xml version="1.0"?><methodResponse><params><param><value><string>0.9.8</string></value></param></params></methodResponse>`,
       });
 
       const result = await client.testConnection();
@@ -292,13 +294,13 @@ describe("QBittorrentClient", () => {
         headers: {
           getSetCookie: () => ["SID=abc12345; HttpOnly; Path=/"],
           get: () => "SID=abc12345; HttpOnly; Path=/",
-        }
+        },
       });
 
       // 2. Mock subsequent request (e.g. testConnection calling app/version)
       fetchMock.mockResolvedValueOnce({
         ok: true,
-        text: async () => "v4.3.9"
+        text: async () => "v4.3.9",
       });
 
       const result = await client.testConnection();

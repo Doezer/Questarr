@@ -188,7 +188,7 @@ describe("Search Module - searchAllIndexers", () => {
     };
 
     vi.mocked(storage.getEnabledIndexers).mockResolvedValue([torznabIndexer, newznabIndexer]);
-    
+
     vi.mocked(torznabClient.searchMultipleIndexers).mockResolvedValue({
       results: {
         items: [

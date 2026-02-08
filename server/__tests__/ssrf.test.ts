@@ -25,11 +25,11 @@ describe("isSafeUrl Security Check", () => {
 
     // Direct IPs don't need DNS lookup
     expect(await isSafeUrl("http://127.0.0.1")).toBe(true);
-    
+
     // Mock DNS lookup for localhost
     vi.mocked(dns.lookup).mockResolvedValueOnce({ address: "127.0.0.1", family: 4 });
     expect(await isSafeUrl("http://localhost")).toBe(true);
-    
+
     expect(await isSafeUrl("http://[::1]")).toBe(true); // Localhost IPv6
   });
 

@@ -189,7 +189,7 @@ export function getDownloadTypeColor(type?: DownloadType): string {
  * Get badge variant for download type
  */
 export function getDownloadTypeBadgeVariant(type?: DownloadType): "default" | "secondary" {
-  // Use custom colors via className instead of variants where possible, 
+  // Use custom colors via className instead of variants where possible,
   // but keep this for backward compatibility if needed.
   return type === "usenet" ? "secondary" : "default";
 }

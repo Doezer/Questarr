@@ -134,8 +134,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // 🛡️ Sentinel: Add security headers with Helmet
   // Configured to allow Vite/React (unsafe-inline/eval) in dev, and IGDB images everywhere
   const scriptSrc = ["'self'"];
+  const connectSrc = ["'self'", "https://raw.githubusercontent.com"];
+
   if (!appConfig.server.isProduction) {
     scriptSrc.push("'unsafe-inline'", "'unsafe-eval'");
+    connectSrc.push("ws:", "wss:");
   }
 
   app.use(
@@ -145,7 +148,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           ...helmet.contentSecurityPolicy.getDefaultDirectives(),
           "script-src": scriptSrc,
           "img-src": ["'self'", "data:", "https://images.igdb.com"],
-          "connect-src": ["'self'", "https://raw.githubusercontent.com"],
+          "connect-src": connectSrc,
         },
       },
     })

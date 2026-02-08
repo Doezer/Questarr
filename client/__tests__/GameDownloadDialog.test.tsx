@@ -48,6 +48,7 @@ vi.mock("lucide-react", () => ({
   ArrowDown: () => <div data-testid="icon-sort-down" />,
   ChevronDown: () => <div data-testid="icon-chevron-down" />,
   ChevronUp: () => <div data-testid="icon-chevron-up" />,
+  ChevronsUpDown: () => <div data-testid="icon-chevrons-up-down" />,
   MoreVertical: () => <div />,
   Copy: () => <div />,
 }));
@@ -110,20 +111,21 @@ const mockDownloaders = [
 // Mock fetch
 global.fetch = vi.fn();
 
-const createTestQueryClient = () => new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: false,
-      queryFn: async ({ queryKey }) => {
-        const response = await fetch(queryKey.join(""));
-        if (!response.ok) {
-          throw new Error("Network response was not ok");
-        }
-        return response.json();
+const createTestQueryClient = () =>
+  new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+        queryFn: async ({ queryKey }) => {
+          const response = await fetch(queryKey.join(""));
+          if (!response.ok) {
+            throw new Error("Network response was not ok");
+          }
+          return response.json();
+        },
       },
     },
-  },
-});
+  });
 
 let queryClient: QueryClient;
 
@@ -132,7 +134,7 @@ const renderComponent = () => {
   return render(
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <GameDownloadDialog game={mockGame} open={true} onOpenChange={() => { }} />
+        <GameDownloadDialog game={mockGame} open={true} onOpenChange={() => {}} />
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>
@@ -195,30 +197,39 @@ describe("GameDownloadDialog", () => {
     });
 
     // Wait for results to load
-    await waitFor(() => {
-      expect(screen.getAllByText("Test Torrent 1").length).toBeGreaterThan(0);
-      expect(screen.getAllByText("Test Torrent 2").length).toBeGreaterThan(0);
-      expect(screen.getAllByText("Test Usenet NZB").length).toBeGreaterThan(0);
-    }, { timeout: 3000 });
+    await waitFor(
+      () => {
+        expect(screen.getAllByText("Test Torrent 1").length).toBeGreaterThan(0);
+        expect(screen.getAllByText("Test Torrent 2").length).toBeGreaterThan(0);
+        expect(screen.getAllByText("Test Usenet NZB").length).toBeGreaterThan(0);
+      },
+      { timeout: 3000 }
+    );
   });
 
   it("identifies Usenet vs Torrent items", async () => {
     renderComponent();
 
-    await waitFor(() => {
-      // Usenet item should show newspaper icon (mocked)
-      expect(screen.getAllByTestId("icon-newspaper").length).toBeGreaterThan(0);
-      // Torrent item should show magnet icon (mocked)
-      expect(screen.getAllByTestId("icon-magnet").length).toBeGreaterThan(0);
-    }, { timeout: 3000 });
+    await waitFor(
+      () => {
+        // Usenet item should show newspaper icon (mocked)
+        expect(screen.getAllByTestId("icon-newspaper").length).toBeGreaterThan(0);
+        // Torrent item should show magnet icon (mocked)
+        expect(screen.getAllByTestId("icon-magnet").length).toBeGreaterThan(0);
+      },
+      { timeout: 3000 }
+    );
   });
 
   it("filters search results by indexer", async () => {
     renderComponent();
 
-    await waitFor(() => {
-      expect(screen.getAllByText("Test Torrent 1").length).toBeGreaterThan(0);
-    }, { timeout: 3000 });
+    await waitFor(
+      () => {
+        expect(screen.getAllByText("Test Torrent 1").length).toBeGreaterThan(0);
+      },
+      { timeout: 3000 }
+    );
 
     // Open filters
     const showFiltersButton = screen.getByText("Show Filters");
@@ -272,7 +283,7 @@ describe("GameDownloadDialog", () => {
         expect.stringContaining("/api/downloads"),
         expect.objectContaining({
           method: "POST",
-          body: expect.stringContaining("Test Torrent 1")
+          body: expect.stringContaining("Test Torrent 1"),
         })
       );
     });

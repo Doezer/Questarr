@@ -10,8 +10,15 @@ import {
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { LayoutGrid, EyeOff, List } from "lucide-react";
+import { LayoutGrid, EyeOff, List, AlignJustify } from "lucide-react";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface DisplaySettingsModalProps {
   open: boolean;
@@ -22,6 +29,8 @@ interface DisplaySettingsModalProps {
   onShowHiddenGamesChange: (show: boolean) => void;
   viewMode?: "grid" | "list";
   onViewModeChange?: (mode: "grid" | "list") => void;
+  listDensity?: "comfortable" | "compact" | "ultra-compact";
+  onListDensityChange?: (density: "comfortable" | "compact" | "ultra-compact") => void;
 }
 
 export default function DisplaySettingsModal({
@@ -33,6 +42,8 @@ export default function DisplaySettingsModal({
   onShowHiddenGamesChange,
   viewMode = "grid",
   onViewModeChange,
+  listDensity = "comfortable",
+  onListDensityChange,
 }: DisplaySettingsModalProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -62,6 +73,32 @@ export default function DisplaySettingsModal({
                   List
                 </ToggleGroupItem>
               </ToggleGroup>
+            </div>
+          )}
+
+          {viewMode === "list" && onListDensityChange && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <AlignJustify className="w-4 h-4" />
+                  List Density
+                </div>
+              </div>
+              <Select
+                value={listDensity}
+                onValueChange={(value) =>
+                  onListDensityChange(value as "comfortable" | "compact" | "ultra-compact")
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="comfortable">Comfortable</SelectItem>
+                  <SelectItem value="compact">Compact</SelectItem>
+                  <SelectItem value="ultra-compact">Ultra-compact</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           )}
 

@@ -225,14 +225,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       routesLogger.info({ username }, "Initial setup completed");
       res.json({ token, user: { id: user.id, username: user.username } });
     } catch (error) {
-      routesLogger.error(
-        {
-          error,
-          message: error instanceof Error ? error.message : String(error),
-          stack: error instanceof Error ? error.stack : undefined,
-        },
-        "Setup failed"
-      );
+      routesLogger.error({
+        error,
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      }, "Setup failed");
       res.status(500).json({ error: "Setup failed. Please try again." });
     }
   });
@@ -573,75 +570,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // ⚡ Bolt: Optimize metadata refresh by fetching all games in batches
       // instead of sequential 1-by-1 requests.
-      // We also batch the IGDB fetching to avoid loading all game data into memory at once.
+      const igdbIds = userGames
+        .map((g) => g.igdbId)
+        .filter((id): id is number => id !== null && id !== undefined);
+
+      // Fetch all updated game data from IGDB in parallel/batches
+      const igdbGames = igdbIds.length > 0 ? await igdbClient.getGamesByIds(igdbIds) : [];
+      const igdbGameMap = new Map(igdbGames.map((g) => [g.id, g]));
 
       let updatedCount = 0;
       let errorCount = 0;
 
-      // Process updates in batches to avoid overwhelming the database and memory
-      // ⚡ Bolt: Use a batch size of 100 to match IGDB's max limit per request
-      const BATCH_SIZE = 100;
+      // Process updates in batches to avoid overwhelming the database
+      // ⚡ Bolt: Use a larger batch size since we are now using a single transaction per batch
+      const BATCH_SIZE = 50;
       for (let i = 0; i < userGames.length; i += BATCH_SIZE) {
-        try {
-          const chunk = userGames.slice(i, i + BATCH_SIZE);
+        const chunk = userGames.slice(i, i + BATCH_SIZE);
+        const updates: { id: string; data: Partial<Game> }[] = [];
 
-          // 1. Collect IDs for this chunk
-          const chunkIgdbIds = chunk
-            .map((g) => g.igdbId)
-            .filter((id): id is number => id !== null && id !== undefined);
+        for (const game of chunk) {
+          if (!game.igdbId) continue;
 
-          // 2. Fetch IGDB data only for this chunk
-          const igdbGames =
-            chunkIgdbIds.length > 0 ? await igdbClient.getGamesByIds(chunkIgdbIds) : [];
-          const igdbGameMap = new Map(igdbGames.map((g) => [g.id, g]));
-
-          const updates: { id: string; data: Partial<Game> }[] = [];
-
-          for (const game of chunk) {
-            if (!game.igdbId) continue;
-
-            try {
-              const igdbGame = igdbGameMap.get(game.igdbId);
-              if (igdbGame) {
-                const updatedData = igdbClient.formatGameData(igdbGame);
-                updates.push({
-                  id: game.id,
-                  data: {
-                    publishers: updatedData.publishers as string[],
-                    developers: updatedData.developers as string[],
-                    summary: updatedData.summary as string,
-                    rating: updatedData.rating as number,
-                    genres: updatedData.genres as string[],
-                    platforms: updatedData.platforms as string[],
-                    coverUrl: updatedData.coverUrl as string,
-                    screenshots: updatedData.screenshots as string[],
-                    releaseDate: updatedData.releaseDate as string,
-                  },
-                });
-              }
-            } catch (error) {
-              routesLogger.error(
-                { gameId: game.id, error },
-                "failed to prepare metadata update for game"
-              );
-              errorCount++;
+          try {
+            const igdbGame = igdbGameMap.get(game.igdbId);
+            if (igdbGame) {
+              const updatedData = igdbClient.formatGameData(igdbGame);
+              updates.push({
+                id: game.id,
+                data: {
+                  publishers: updatedData.publishers as string[],
+                  developers: updatedData.developers as string[],
+                  summary: updatedData.summary as string,
+                  rating: updatedData.rating as number,
+                  genres: updatedData.genres as string[],
+                  platforms: updatedData.platforms as string[],
+                  coverUrl: updatedData.coverUrl as string,
+                  screenshots: updatedData.screenshots as string[],
+                  releaseDate: updatedData.releaseDate as string,
+                },
+              });
             }
+          } catch (error) {
+            routesLogger.error(
+              { gameId: game.id, error },
+              "failed to prepare metadata update for game"
+            );
+            errorCount++;
           }
+        }
 
-          if (updates.length > 0) {
-            try {
-              await storage.updateGamesBatch(updates);
-              updatedCount += updates.length;
-            } catch (error) {
-              routesLogger.error({ error }, "failed to execute batch update");
-              errorCount += updates.length;
-            }
+        if (updates.length > 0) {
+          try {
+            await storage.updateGamesBatch(updates);
+            updatedCount += updates.length;
+          } catch (error) {
+            routesLogger.error({ error }, "failed to execute batch update");
+            errorCount += updates.length;
           }
-        } catch (error) {
-          routesLogger.error({ error, batchIndex: i }, "error processing metadata batch");
-          // Increment error count by the number of games in this batch
-          const currentBatchSize = Math.min(BATCH_SIZE, userGames.length - i);
-          errorCount += currentBatchSize;
         }
       }
 
@@ -1908,9 +1893,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         xrel: { apiBase },
         settings: settings
           ? {
-              xrelSceneReleases: settings.xrelSceneReleases,
-              xrelP2pReleases: settings.xrelP2pReleases,
-            }
+            xrelSceneReleases: settings.xrelSceneReleases,
+            xrelP2pReleases: settings.xrelP2pReleases,
+          }
           : undefined,
       });
     } catch (error) {
@@ -1989,7 +1974,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
               if (relExtRegex && relExtRegex.test(gl.normalized)) return true;
             }
             if (gl.regex && gl.regex.test(relDirNorm)) return true;
-            if (gl.words.length > 0 && gl.words.every((word: string) => relDirLower.includes(word)))
+            if (
+              gl.words.length > 0 &&
+              gl.words.every((word: string) => relDirLower.includes(word))
+            )
               return true;
             return false;
           });
@@ -2021,13 +2009,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const igdbMatches = await igdbClient.batchSearchGames(candidatesArray);
 
       if (igdbMatches.size > 0) {
-        routesLogger.debug(
-          {
-            count: igdbMatches.size,
-            matches: Array.from(igdbMatches.entries()).map(([k, v]) => `${k} => ${v?.name}`),
-          },
-          "IGDB Matches found"
-        );
+        routesLogger.debug({ count: igdbMatches.size, matches: Array.from(igdbMatches.entries()).map(([k, v]) => `${k} => ${v?.name}`) }, "IGDB Matches found");
       }
 
       // Attach IGDB match candidates to results

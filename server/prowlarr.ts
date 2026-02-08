@@ -1,6 +1,5 @@
 import { type Indexer } from "../shared/schema.js";
 import { torznabLogger } from "./logger.js";
-import { safeFetch } from "./ssrf.js";
 
 interface ProwlarrIndexer {
   id: number;
@@ -39,7 +38,7 @@ export class ProwlarrClient {
     const apiUrl = `${baseUrl}/api/v1/indexer`;
 
     try {
-      const response = await safeFetch(apiUrl, {
+      const response = await fetch(apiUrl, {
         headers: {
           "X-Api-Key": apiKey,
           "User-Agent": "Questarr/1.0",

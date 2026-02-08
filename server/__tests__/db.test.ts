@@ -108,7 +108,7 @@ describe("Database Initialization", () => {
     }
   });
 
-  it("should detect when database path is a directory", async () => {
+  it("should handle when database path is a directory by appending sqlite.db", async () => {
     const testDirPath = path.join(
       os.tmpdir(),
       `test-questarr-dir-db-${Math.random().toString(36).substring(7)}`
@@ -121,16 +121,22 @@ describe("Database Initialization", () => {
 
     process.env.SQLITE_DB_PATH = testDirPath;
 
-    // The db module checks if the path is a directory and logs an error
-    // It will still attempt to create a Database, which will fail
-    // We expect this to throw since SQLite can't open a directory as a database
-    await expect(async () => {
-      await import("../db.js");
-    }).rejects.toThrow();
+    // Import db module which should now append sqlite.db
+    const { db, pool } = await import("../db.js");
+    expect(db).toBeDefined();
+
+    // Verify database file was created inside the directory
+    expect(fs.existsSync(path.join(testDirPath, "sqlite.db"))).toBe(true);
+
+    pool.close();
 
     // Cleanup
+    if (fs.existsSync(path.join(testDirPath, "sqlite.db"))) {
+      fs.unlinkSync(path.join(testDirPath, "sqlite.db"));
+    }
     if (fs.existsSync(testDirPath)) {
-      fs.rmdirSync(testDirPath);
+      // Remove other files (WAL, shm)
+      fs.rmSync(testDirPath, { recursive: true });
     }
   });
 

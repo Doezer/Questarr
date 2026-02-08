@@ -10,6 +10,7 @@ import crypto from "crypto";
 import https from "https";
 import parseTorrent from "parse-torrent";
 import { XMLParser } from "fast-xml-parser";
+import { isSafeUrl } from "./ssrf.js";
 
 const DOWNLOAD_CLIENT_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
@@ -217,6 +218,9 @@ export class TransmissionClient implements DownloaderClient {
           );
 
           const fetchTorrent = async (url: string) => {
+            if (!(await isSafeUrl(url))) {
+              throw new Error(`Unsafe URL blocked: ${url}`);
+            }
             return fetch(url, {
               headers: {
                 "User-Agent": DOWNLOAD_CLIENT_USER_AGENT,
@@ -840,6 +844,9 @@ export class RTorrentClient implements DownloaderClient {
       // Helper to fetch with standard headers
       const fetchTorrent = async (url: string) => {
         downloadersLogger.debug({ url }, "Downloading file locally");
+        if (!(await isSafeUrl(url))) {
+          throw new Error(`Unsafe URL blocked: ${url}`);
+        }
         return fetch(url, {
           headers: {
             "User-Agent": DOWNLOAD_CLIENT_USER_AGENT,
@@ -2935,6 +2942,9 @@ export class QBittorrentClient implements DownloaderClient {
      * Use a consistent User-Agent as some indexers block unknown or bot-like User-Agents
      */
     const fetchUrl = async (targetUrl: string) => {
+      if (!(await isSafeUrl(targetUrl))) {
+        throw new Error(`Unsafe URL blocked: ${targetUrl}`);
+      }
       return fetch(targetUrl, {
         method: "GET",
         headers: {
@@ -4010,6 +4020,10 @@ export class NZBGetClient implements DownloaderClient {
     request: DownloadRequest
   ): Promise<{ success: boolean; id?: string; message: string }> {
     try {
+      if (!(await isSafeUrl(request.url))) {
+        return { success: false, message: `Unsafe URL blocked: ${request.url}` };
+      }
+
       const nzbResponse = await fetch(request.url);
       if (!nzbResponse.ok) {
         return { success: false, message: `Failed to fetch NZB: ${nzbResponse.statusText}` };

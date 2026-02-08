@@ -249,7 +249,7 @@ const GameCard = ({
               <div
                 className="flex items-center gap-1"
                 tabIndex={0}
-                role="img"
+                role="group"
                 aria-label={
                   game.rating ? `Rating: ${game.rating} out of 10` : "Rating: Not available"
                 }
@@ -269,7 +269,7 @@ const GameCard = ({
               <div
                 className="flex items-center gap-1"
                 tabIndex={0}
-                role="img"
+                role="group"
                 aria-label={
                   game.releaseDate
                     ? `Release Date: ${game.releaseDate}`

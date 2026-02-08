@@ -1062,7 +1062,7 @@ export class DatabaseStorage implements IStorage {
     const id = randomUUID();
     const [indexer] = await db
       .insert(indexers)
-      .values({ ...insertIndexer, id })
+      .values({ ...insertIndexer, id, createdAt: new Date(), updatedAt: new Date() })
       .returning();
     return indexer;
   }
@@ -1180,7 +1180,7 @@ export class DatabaseStorage implements IStorage {
     const id = randomUUID();
     const [downloader] = await db
       .insert(downloaders)
-      .values({ ...insertDownloader, id })
+      .values({ ...insertDownloader, id, createdAt: new Date(), updatedAt: new Date() })
       .returning();
     return downloader;
   }
@@ -1229,7 +1229,7 @@ export class DatabaseStorage implements IStorage {
     const id = randomUUID();
     const [gameDownload] = await db
       .insert(gameDownloads)
-      .values({ ...insertGameDownload, id })
+      .values({ ...insertGameDownload, id, addedAt: new Date() })
       .returning();
     return gameDownload;
   }
@@ -1251,7 +1251,7 @@ export class DatabaseStorage implements IStorage {
     const id = randomUUID();
     const [notification] = await db
       .insert(notifications)
-      .values({ ...insertNotification, id })
+      .values({ ...insertNotification, id, createdAt: new Date() })
       .returning();
     return notification;
   }
@@ -1287,7 +1287,7 @@ export class DatabaseStorage implements IStorage {
     const id = randomUUID();
     const [newFeed] = await db
       .insert(rssFeeds)
-      .values({ ...feed, id })
+      .values({ ...feed, id, createdAt: new Date(), updatedAt: new Date() })
       .returning();
     return newFeed;
   }
@@ -1327,7 +1327,7 @@ export class DatabaseStorage implements IStorage {
     const id = randomUUID();
     const [newItem] = await db
       .insert(rssFeedItems)
-      .values({ ...item, id })
+      .values({ ...item, id, createdAt: new Date() })
       .returning();
     return newItem;
   }
@@ -1359,7 +1359,7 @@ export class DatabaseStorage implements IStorage {
     const id = randomUUID();
     const [settings] = await db
       .insert(userSettings)
-      .values({ ...insertSettings, id })
+      .values({ ...insertSettings, id, updatedAt: new Date() })
       .returning();
     return settings;
   }
@@ -1380,7 +1380,7 @@ export class DatabaseStorage implements IStorage {
     const id = randomUUID();
     const [row] = await db
       .insert(xrelNotifiedReleases)
-      .values({ ...insert, id })
+      .values({ ...insert, id, createdAt: new Date() })
       .returning();
     return row;
   }

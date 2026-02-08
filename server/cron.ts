@@ -646,24 +646,6 @@ async function checkXrelReleases() {
       return;
     }
 
-    // ⚡ Bolt: Pre-process releases once to avoid redundant normalization in the nested loop
-    const processedReleases = latestReleases.map((rel) => {
-      const extTitleNorm = rel.ext_info?.title ? normalizeTitle(rel.ext_info.title) : null;
-      const dirCleaned = cleanReleaseName(rel.dirname);
-      const dirNorm = normalizeTitle(dirCleaned);
-      const extRegex =
-        extTitleNorm && extTitleNorm.length >= 5
-          ? new RegExp(`\\b${extTitleNorm.replace(/[.*+?^${}()|[\\]/g, "\\$&")}\\b`, "i")
-          : null;
-      return {
-        rel,
-        extTitleNorm,
-        dirNorm,
-        dirLower: rel.dirname.toLowerCase().replace(/[._-]/g, " "),
-        extRegex,
-      };
-    });
-
     const allGames = await storage.getAllGames();
     const wantedGames = allGames.filter((g) => g.userId && g.status === "wanted" && !g.hidden);
 
@@ -685,39 +667,18 @@ async function checkXrelReleases() {
         const scene = settings?.xrelSceneReleases !== false;
         const p2p = settings?.xrelP2pReleases === true;
 
-        const gameNorm = normalizeTitle(game.title);
-        const gameRegex =
-          gameNorm.length >= 5
-            ? new RegExp(`\\b${gameNorm.replace(/[.*+?^${}()|[\\]/g, "\\$&")}\\b`, "i")
-            : null;
-        const gameWords = gameNorm.split(" ").filter((w: string) => w.length > 2);
-
         // Filter releases for this game based on user preferences and title match
-        const matchingReleases = processedReleases
-          .filter((pr) => {
-            if (pr.rel.source === "scene" && !scene) return false;
-            if (pr.rel.source === "p2p" && !p2p) return false;
+        const matchingReleases = latestReleases.filter((rel) => {
+          if (rel.source === "scene" && !scene) return false;
+          if (rel.source === "p2p" && !p2p) return false;
 
-            // 1. Exact match
-            if (pr.extTitleNorm === gameNorm || pr.dirNorm === gameNorm) return true;
+          // Use shared matching logic (handles cleaning, fuzzy match, and smart word fallback)
+          if (releaseMatchesGame(rel.dirname, game.title)) return true;
+          if (rel.ext_info?.title && releaseMatchesGame(rel.ext_info.title, game.title))
+            return true;
 
-            // 2. Fuzzy match
-            if (gameRegex) {
-              if (pr.extTitleNorm && gameRegex.test(pr.extTitleNorm)) return true;
-              if (gameRegex.test(pr.dirNorm)) return true;
-            }
-            if (pr.extRegex && pr.extRegex.test(gameNorm)) return true;
-
-            // 3. Word-based fallback
-            if (
-              gameWords.length > 0 &&
-              gameWords.every((word: string) => pr.dirLower.includes(word))
-            )
-              return true;
-
-            return false;
-          })
-          .map((pr) => pr.rel);
+          return false;
+        });
 
         for (const rel of matchingReleases) {
           const already = await storage.hasXrelNotifiedRelease(game.id, rel.id);

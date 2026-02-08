@@ -114,10 +114,44 @@ export function releaseMatchesGame(releaseName: string, gameTitle: string): bool
   if (titleMatches(cleaned, gameTitle)) return true;
 
   // Fallback: Check if the normalized game title words are all present in the release name
+  // IMPROVED LOGIC:
+  // 1. Include numbers (for "Witcher 3" vs "Witcher 2")
+  // 2. Filter common stopwords
+  // 3. Require at least one "meaningful" word (> 2 chars or specific) to avoid matching "Stalker 2" against "Witcher 2" (via "2")
+
+  const stopWords = new Set([
+    "the",
+    "of",
+    "and",
+    "in",
+    "on",
+    "at",
+    "to",
+    "a",
+    "an",
+    "is",
+    "by",
+    "or",
+    "for",
+    "with",
+  ]);
+
   const gameWords = normalizeTitle(gameTitle)
     .split(" ")
-    .filter((w) => w.length > 2);
-  if (gameWords.length === 0) return false;
+    .filter((w) => {
+      // Keep if it's a number (length 1 allowed) OR length > 1
+      if (w.length < 2 && isNaN(Number(w))) return false;
+      // Filter stopwords
+      if (stopWords.has(w)) return false;
+      return true;
+    });
+
+  // Calculate meaningful words (longer than 2 chars)
+  // If we have NO meaningful words (e.g. "Stalker 2" -> ["2"] where stalker is lost due to spaces, or "It"),
+  // disable fallback to prevent false positives.
+  const meaningfulWords = gameWords.filter((w) => w.length > 2);
+
+  if (meaningfulWords.length === 0) return false;
 
   const normalizedRelease = releaseName.toLowerCase().replace(/[._-]/g, " ");
   return gameWords.every((word) => normalizedRelease.includes(word));

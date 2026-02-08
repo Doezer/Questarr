@@ -2,6 +2,7 @@ import { storage } from "./storage.js";
 import { torznabClient } from "./torznab.js";
 import { newznabClient } from "./newznab.js";
 import { searchLogger } from "./logger.js";
+import { parseReleaseMetadata } from "../shared/title-utils.js";
 
 export interface SearchItem {
   title: string;
@@ -117,6 +118,7 @@ export async function searchAllIndexers(
           downloadType: "torrent" as const,
           seeders: item.seeders,
           leechers: item.leechers,
+          group: parseReleaseMetadata(item.title).group,
           comments,
         } as SearchItem;
       });

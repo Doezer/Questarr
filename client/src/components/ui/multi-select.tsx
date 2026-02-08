@@ -57,7 +57,7 @@ export function MultiSelect({
   const selectedOptions = options.filter((option) => selected.includes(option.value));
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={setOpen} modal={true}>
       <PopoverTrigger asChild>
         <Button
           {...rest}

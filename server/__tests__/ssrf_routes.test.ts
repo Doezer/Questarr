@@ -104,31 +104,45 @@ describe("SSRF Vulnerability in Routes", () => {
 
   const UNSAFE_URL = "http://169.254.169.254/latest/meta-data/";
 
-  it("should allow unsafe URL in /api/indexers/prowlarr/sync (VULNERABILITY)", async () => {
+  it("should block unsafe URL in /api/indexers/prowlarr/sync", async () => {
     const app = await createApp();
 
-    // We mock prowlarrClient to succeed.
-    // If SSRF check is missing, this request will succeed (200).
-    // If SSRF check is present, it should fail (400) because UNSAFE_URL is blocked by isSafeUrl.
     const response = await request(app)
       .post("/api/indexers/prowlarr/sync")
       .send({ url: UNSAFE_URL, apiKey: "abc" });
 
-    // Expect 400 (Vulnerability fixed)
     expect(response.status).toBe(400);
     expect(response.body.error).toMatch(/Invalid or unsafe URL/);
+  });
+
+  it("should block loopback and private IPs", async () => {
+    const app = await createApp();
+
+    const UNSAFE_IPS = [
+      "http://127.0.0.1/api",
+      "http://localhost/api",
+      "http://192.168.1.1/api",
+      "http://10.0.0.1/api",
+    ];
+
+    for (const url of UNSAFE_IPS) {
+      const response = await request(app)
+        .post("/api/indexers/prowlarr/sync")
+        .send({ url, apiKey: "abc" });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toMatch(/Invalid or unsafe URL/);
+    }
   });
 
   it("should block unsafe URL in /api/indexers/test", async () => {
     const app = await createApp();
 
-    const response = await request(app)
-      .post("/api/indexers/test")
-      .send({
-        url: UNSAFE_URL,
-        apiKey: "abc",
-        name: "Test Indexer"
-      });
+    const response = await request(app).post("/api/indexers/test").send({
+      url: UNSAFE_URL,
+      apiKey: "abc",
+      name: "Test Indexer",
+    });
 
     // Expect 400 (Vulnerability fixed)
     expect(response.status).toBe(400);

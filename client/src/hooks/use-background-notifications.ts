@@ -30,7 +30,7 @@ export function useBackgroundNotifications() {
   // Poll for downloads every 5 seconds (same as downloads page)
   const { data: downloadsData } = useQuery<DownloadsResponse>({
     queryKey: ["/api/downloads"],
-    refetchInterval: 5000,
+    refetchInterval: 20000,
     retry: false, // Don't retry on error to avoid spam
   });
 

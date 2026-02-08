@@ -3340,7 +3340,7 @@ export class SABnzbdClient implements DownloaderClient {
           (error.cause as { code: string })?.code === "CERT_HAS_EXPIRED");
 
       if (isSslError) {
-        downloadersLogger.warn(
+        downloadersLogger.debug(
           { url },
           "SSL verification failed, retrying with insecure connection"
         );

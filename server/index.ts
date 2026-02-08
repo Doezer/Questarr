@@ -45,6 +45,44 @@ app.use((req, res, next) => {
         path === "/api/igdb/upcoming" ||
         path.match(/^\/api\/indexers\/[^/]+\/categories$/);
 
+      // Helper to truncate log data
+      const truncateLogData = (data: any, depth = 0): any => {
+        if (!data) return data;
+        if (depth > 2) return "[Object/Array]"; // Aggressive depth limit
+
+        if (Array.isArray(data)) {
+          if (data.length > 3) {
+            // Truncate array items with increased depth
+            const truncatedItems = data.slice(0, 3).map((item) => truncateLogData(item, depth + 1));
+            return [...truncatedItems, `... ${data.length - 3} more items`];
+          }
+          return data.map((item) => truncateLogData(item, depth + 1));
+        }
+
+        if (typeof data === "object") {
+          const newObj: any = {};
+          const keys = Object.keys(data);
+
+          // Limit number of keys shown per object to reduce verbosity
+          const maxKeys = 5;
+          const processingKeys = keys.slice(0, maxKeys);
+
+          for (const key of processingKeys) {
+            newObj[key] = truncateLogData(data[key], depth + 1);
+          }
+
+          if (keys.length > maxKeys) {
+            newObj["_truncated"] = `... ${keys.length - maxKeys} more keys`;
+          }
+          return newObj;
+        }
+
+        if (typeof data === "string" && data.length > 50) {
+          return data.substring(0, 50) + "...";
+        }
+        return data;
+      };
+
       // Always log metadata at info level
       expressLogger.info(
         {
@@ -52,8 +90,8 @@ app.use((req, res, next) => {
           path,
           statusCode: res.statusCode,
           duration,
-          // Only include response body for non-noisy endpoints at info level
-          response: isNoisyEndpoint ? undefined : capturedJsonResponse,
+          // Only include response body for non-noisy endpoints at info level, but truncated
+          response: isNoisyEndpoint ? undefined : truncateLogData(capturedJsonResponse),
         },
         `${req.method} ${path} ${res.statusCode} in ${duration}ms`
       );

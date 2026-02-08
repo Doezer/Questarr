@@ -144,6 +144,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         directives: {
           ...helmet.contentSecurityPolicy.getDefaultDirectives(),
           "script-src": scriptSrc,
+          "connect-src": ["'self'", "https://raw.githubusercontent.com"],
           "img-src": ["'self'", "data:", "https://images.igdb.com"],
         },
       },
@@ -225,11 +226,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       routesLogger.info({ username }, "Initial setup completed");
       res.json({ token, user: { id: user.id, username: user.username } });
     } catch (error) {
-      routesLogger.error({
-        error,
-        message: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined
-      }, "Setup failed");
+      routesLogger.error(
+        {
+          error,
+          message: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+        },
+        "Setup failed"
+      );
       res.status(500).json({ error: "Setup failed. Please try again." });
     }
   });
@@ -1885,9 +1889,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         xrel: { apiBase },
         settings: settings
           ? {
-            xrelSceneReleases: settings.xrelSceneReleases,
-            xrelP2pReleases: settings.xrelP2pReleases,
-          }
+              xrelSceneReleases: settings.xrelSceneReleases,
+              xrelP2pReleases: settings.xrelP2pReleases,
+            }
           : undefined,
       });
     } catch (error) {
@@ -1966,10 +1970,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               if (relExtRegex && relExtRegex.test(gl.normalized)) return true;
             }
             if (gl.regex && gl.regex.test(relDirNorm)) return true;
-            if (
-              gl.words.length > 0 &&
-              gl.words.every((word: string) => relDirLower.includes(word))
-            )
+            if (gl.words.length > 0 && gl.words.every((word: string) => relDirLower.includes(word)))
               return true;
             return false;
           });
@@ -2001,7 +2002,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const igdbMatches = await igdbClient.batchSearchGames(candidatesArray);
 
       if (igdbMatches.size > 0) {
-        routesLogger.debug({ count: igdbMatches.size, matches: Array.from(igdbMatches.entries()).map(([k, v]) => `${k} => ${v?.name}`) }, "IGDB Matches found");
+        routesLogger.debug(
+          {
+            count: igdbMatches.size,
+            matches: Array.from(igdbMatches.entries()).map(([k, v]) => `${k} => ${v?.name}`),
+          },
+          "IGDB Matches found"
+        );
       }
 
       // Attach IGDB match candidates to results

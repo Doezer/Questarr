@@ -12,6 +12,7 @@ import {
   User,
   Newspaper,
   Rss,
+  PieChart,
 } from "lucide-react";
 import {
   Sidebar,
@@ -75,6 +76,11 @@ const staticNavigation = [
     title: "RSS Feeds",
     url: "/rss",
     icon: Rss,
+  },
+  {
+    title: "Stats",
+    url: "/stats",
+    icon: PieChart,
   },
 ];
 

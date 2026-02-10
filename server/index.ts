@@ -11,7 +11,10 @@ import { setupSocketIO } from "./socket.js";
 import { ensureDatabase } from "./migrate.js";
 import { rssService } from "./rss.js";
 
+import cors from "cors";
+
 const app = express();
+app.use(cors({ origin: config.server.allowedOrigins }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 

@@ -151,6 +151,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           "connect-src": connectSrc,
         },
       },
+      hsts: false, // Disable HSTS to allow HTTP connections for self-hosting without SSL
     })
   );
 

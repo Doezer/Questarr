@@ -81,7 +81,7 @@ export const config = {
     isTest: env.NODE_ENV === "test",
     allowedOrigins: env.ALLOWED_ORIGINS
       ? env.ALLOWED_ORIGINS.split(",").map((origin) => origin.trim())
-      : ["http://localhost:port".replace("port", env.PORT.toString())],
+      : ["*"], // Default to allowing all origins for easier self-hosting logic
   },
 } as const;
 

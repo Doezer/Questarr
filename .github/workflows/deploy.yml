@@ -85,7 +85,6 @@ jobs:
             doezer/${{ env.REPO_NAME_LC }}
           tags: |
             type=raw,value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
-            type=raw,value=${{ steps.package_version.outputs.version }},enable=${{ env.ENVIRONMENT == 'production' }}
             type=raw,value=latest,enable=${{ env.ENVIRONMENT == 'production' }}
             type=raw,value=dev,enable=${{ env.ENVIRONMENT == 'dev' }}
             type=sha,prefix=${{ env.ENVIRONMENT }}-sha-,format=short,enable=${{ env.ENVIRONMENT != 'dev' }}

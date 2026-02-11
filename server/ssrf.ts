@@ -49,8 +49,14 @@ export async function isSafeUrl(
 
   // Resolve hostname
   try {
-    const lookup = await dns.lookup(hostname);
-    return isSafeIp(lookup.address, options.allowPrivate);
+    const addresses = await dns.lookup(hostname, { all: true });
+    // Check all resolved addresses to prevent DNS rebinding attacks
+    for (const { address } of addresses) {
+      if (!isSafeIp(address, options.allowPrivate)) {
+        return false;
+      }
+    }
+    return true;
   } catch {
     // If resolution fails, fail safe (deny)
     return false;
@@ -182,16 +188,31 @@ export async function safeFetch(
 
   if (ipVersion === 0) {
     try {
-      const lookup = await dns.lookup(hostname);
-      address = lookup.address;
-      family = lookup.family;
-    } catch {
+      const addresses = await dns.lookup(hostname, { all: true });
+
+      // Check all resolved addresses to prevent DNS rebinding attacks
+      for (const { address } of addresses) {
+        if (!isSafeIp(address, allowPrivate)) {
+          throw new Error("Invalid or unsafe URL");
+        }
+      }
+
+      // Use the first resolved address for HTTP pinning
+      if (addresses.length > 0) {
+        address = addresses[0].address;
+        family = addresses[0].family;
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message === "Invalid or unsafe URL") {
+        throw error;
+      }
       throw new Error(`Failed to resolve hostname: ${hostname}`);
     }
-  }
-
-  if (!isSafeIp(address, allowPrivate)) {
-    throw new Error("Invalid or unsafe URL");
+  } else {
+    // Hostname is already an IP, check it directly
+    if (!isSafeIp(address, allowPrivate)) {
+      throw new Error("Invalid or unsafe URL");
+    }
   }
 
   // For HTTPS, we cannot rewrite the URL to use the IP address because

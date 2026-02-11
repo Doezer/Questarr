@@ -112,7 +112,7 @@ describe("CompactGameCard", () => {
     renderWithProviders(<CompactGameCard game={mockGame} onViewDetails={onViewDetails} />);
 
     // Info button is wrapped in a tooltip, but the button content is accessible via the icon mock or aria-label
-    const infoButton = screen.getByLabelText("View details");
+    const infoButton = screen.getByLabelText("View details for Test Game");
     fireEvent.click(infoButton);
 
     expect(onViewDetails).toHaveBeenCalledWith("1");

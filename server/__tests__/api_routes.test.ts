@@ -134,6 +134,31 @@ describe("API Routes", () => {
       expect(response.body).toEqual(mockGames);
       expect(storage.searchUserGames).toHaveBeenCalledWith("user-1", "Test", false);
     });
+
+    it("should handle status filter", async () => {
+      const mockGames = [{ id: "game-1", title: "Wanted Game", status: "wanted", userId: "user-1" }];
+      vi.mocked(storage.getUserGames).mockResolvedValue(mockGames as unknown as Game[]);
+
+      const response = await request(app).get("/api/games?status=wanted");
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual(mockGames);
+      expect(storage.getUserGames).toHaveBeenCalledWith("user-1", false, ["wanted"]);
+    });
+
+    it("should handle multiple status filters", async () => {
+      const mockGames = [
+        { id: "game-1", title: "Owned Game", status: "owned", userId: "user-1" },
+        { id: "game-2", title: "Completed Game", status: "completed", userId: "user-1" }
+      ];
+      vi.mocked(storage.getUserGames).mockResolvedValue(mockGames as unknown as Game[]);
+
+      const response = await request(app).get("/api/games?status=owned,completed");
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual(mockGames);
+      expect(storage.getUserGames).toHaveBeenCalledWith("user-1", false, ["owned", "completed"]);
+    });
   });
 
   describe("POST /api/games", () => {

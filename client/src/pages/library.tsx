@@ -45,13 +45,11 @@ export default function LibraryPage() {
   }, [listDensity]);
 
   const { data: games = [], isLoading } = useQuery<Game[]>({
-    queryKey: ["/api/games"],
+    queryKey: ["/api/games", "?status=owned,completed,downloading"],
   });
 
   // Library typically contains owned, completed, or actively downloading games
-  const libraryGames = games.filter((g) =>
-    ["owned", "completed", "downloading"].includes(g.status)
-  );
+  const libraryGames = games;
 
   const statusMutation = useMutation({
     mutationFn: async ({ gameId, status }: { gameId: string; status: GameStatus }) => {

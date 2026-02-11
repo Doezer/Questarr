@@ -787,7 +787,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all games in collection
   app.get("/api/games", authenticateToken, async (req, res) => {
     try {
-      const { search, includeHidden } = req.query;
+      const { search, includeHidden, status } = req.query;
 
       const userId = req.user!.id;
       const showHidden = includeHidden === "true";
@@ -796,7 +796,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (search && typeof search === "string" && search.trim()) {
         games = await storage.searchUserGames(userId, search.trim(), showHidden);
       } else {
-        games = await storage.getUserGames(userId, showHidden);
+        // Parse status filter if present
+        let statuses: string[] | undefined;
+        if (typeof status === "string" && status.trim().length > 0) {
+          statuses = status
+            .split(",")
+            .map((s) => s.trim())
+            .filter((s) => s.length > 0);
+        }
+
+        games = await storage.getUserGames(userId, showHidden, statuses);
       }
 
       res.json(games);

@@ -56,11 +56,11 @@ export default function WishlistPage() {
   }, [listDensity]);
 
   const { data: games = [], isLoading } = useQuery<Game[]>({
-    queryKey: ["/api/games"],
+    queryKey: ["/api/games", "?status=wanted"],
   });
 
   // Wishlist contains 'wanted' games
-  const wishlistGames = games.filter((g) => g.status === "wanted");
+  const wishlistGames = games;
 
   // Separate released and unreleased games
   const { releasedGames, upcomingGames, tbaGames } = useMemo(() => {

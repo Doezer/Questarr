@@ -121,7 +121,7 @@ describe("API Routes", () => {
 
       expect(response.status).toBe(200);
       expect(response.body).toEqual(mockGames);
-      expect(storage.getUserGames).toHaveBeenCalledWith("user-1", false);
+      expect(storage.getUserGames).toHaveBeenCalledWith("user-1", false, undefined);
     });
 
     it("should handle search query", async () => {

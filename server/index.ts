@@ -21,6 +21,12 @@ app.use(express.urlencoded({ extended: false }));
 // Apply general rate limiting to all API routes
 app.use("/api", generalApiLimiter);
 
+// 🛡️ Set Origin-Agent-Cluster header to preventing mismatch errors
+app.use((_req, res, next) => {
+  res.setHeader("Origin-Agent-Cluster", "?1");
+  next();
+});
+
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;

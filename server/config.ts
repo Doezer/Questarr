@@ -28,6 +28,7 @@ const envSchema = z.object({
     .transform((val) => parseInt(val, 10)),
   HOST: z.string().default("0.0.0.0"),
   NODE_ENV: z.enum(["development", "production", "test"]).default("production"),
+  DISABLE_HSTS: z.string().transform((val) => val === "true").optional(),
 });
 
 /**
@@ -82,6 +83,7 @@ export const config = {
     allowedOrigins: env.ALLOWED_ORIGINS
       ? env.ALLOWED_ORIGINS.split(",").map((origin) => origin.trim())
       : ["http://localhost:port".replace("port", env.PORT.toString())],
+    disableHsts: env.DISABLE_HSTS || false,
   },
 } as const;
 

@@ -149,6 +149,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           "script-src": scriptSrc,
           "img-src": ["'self'", "data:", "https://images.igdb.com"],
           "connect-src": connectSrc,
+          "upgrade-insecure-requests": null, // 🛡️ Disable automatic HTTPS upgrades for HTTP-only self-hosting
         },
       },
       hsts: false, // Disable HSTS to allow HTTP connections for self-hosting without SSL

@@ -35,7 +35,7 @@ import {
 } from "../shared/schema.js";
 import { randomUUID } from "crypto";
 import { db } from "./db.js";
-import { eq, like, or, sql, desc, and, type SQL } from "drizzle-orm";
+import { eq, like, or, sql, desc, and, inArray, type SQL } from "drizzle-orm";
 
 export interface IStorage {
   // System Config methods
@@ -53,7 +53,7 @@ export interface IStorage {
   // Game methods
   getGame(id: string): Promise<Game | undefined>;
   getGameByIgdbId(igdbId: number): Promise<Game | undefined>;
-  getUserGames(userId: string, includeHidden?: boolean): Promise<Game[]>;
+  getUserGames(userId: string, includeHidden?: boolean, statuses?: string[]): Promise<Game[]>;
   getAllGames(): Promise<Game[]>; // Keep for admin/debug or global search? Or maybe deprecated.
   getGamesByStatus(status: string): Promise<Game[]>; // Should be user scoped too
   getUserGamesByStatus(userId: string, status: string, includeHidden?: boolean): Promise<Game[]>;
@@ -211,9 +211,14 @@ export class MemStorage implements IStorage {
     return Array.from(this.games.values()).find((game) => game.igdbId === igdbId);
   }
 
-  async getUserGames(userId: string, includeHidden = false): Promise<Game[]> {
+  async getUserGames(userId: string, includeHidden = false, statuses?: string[]): Promise<Game[]> {
     return Array.from(this.games.values())
-      .filter((game) => game.userId === userId && (includeHidden || !game.hidden))
+      .filter(
+        (game) =>
+          game.userId === userId &&
+          (includeHidden || !game.hidden) &&
+          (!statuses || statuses.includes(game.status))
+      )
       .sort((a, b) => new Date(b.addedAt || 0).getTime() - new Date(a.addedAt || 0).getTime());
   }
 
@@ -867,11 +872,18 @@ export class DatabaseStorage implements IStorage {
     return game || undefined;
   }
 
-  async getUserGames(userId: string, includeHidden = false): Promise<Game[]> {
+  async getUserGames(userId: string, includeHidden = false, statuses?: string[]): Promise<Game[]> {
     return db
       .select()
       .from(games)
-      .where(and(eq(games.userId, userId), includeHidden ? undefined : eq(games.hidden, false)))
+      .where(
+        and(
+          eq(games.userId, userId),
+          includeHidden ? undefined : eq(games.hidden, false),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          statuses && statuses.length > 0 ? inArray(games.status, statuses as any[]) : undefined
+        )
+      )
       .orderBy(sql`${games.addedAt} DESC`);
   }
 

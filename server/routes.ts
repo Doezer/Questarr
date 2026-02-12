@@ -152,6 +152,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         },
       },
       hsts: false, // Disable HSTS to allow HTTP connections for self-hosting without SSL
+      crossOriginOpenerPolicy: false, // Disable COOP for remote access
     })
   );
 

@@ -8,7 +8,10 @@ let io: Server | undefined;
 export function setupSocketIO(httpServer: HttpServer) {
   io = new Server(httpServer, {
     cors: {
-      origin: config.server.allowedOrigins, // Adjust this for production security
+      origin:
+        config.server.allowedOrigins.length === 1 && config.server.allowedOrigins[0] === "*"
+          ? "*"
+          : config.server.allowedOrigins,
       methods: ["GET", "POST"],
     },
   });

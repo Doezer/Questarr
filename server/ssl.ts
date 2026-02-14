@@ -7,7 +7,7 @@ const mkdir = promisify(fs.mkdir);
 const writeFile = promisify(fs.writeFile);
 const readFile = promisify(fs.readFile);
 
-const SSL_DIR = path.join(process.cwd(), "config", "ssl");
+const SSL_DIR = path.join(process.cwd(), "data", "config", "ssl");
 
 export async function ensureSslDir() {
   if (!fs.existsSync(SSL_DIR)) {

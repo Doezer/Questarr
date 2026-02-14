@@ -135,3 +135,45 @@ export async function validateCertFiles(
     return { valid: false, error: "Unknown validation error" };
   }
 }
+
+export async function getCertInfo(certPath: string): Promise<{
+  valid: boolean;
+  subject?: string;
+  issuer?: string;
+  validFrom?: Date;
+  validTo?: Date;
+  selfSigned?: boolean;
+  error?: string;
+}> {
+  try {
+    if (!fs.existsSync(certPath)) {
+      return { valid: false, error: "Certificate file not found" };
+    }
+
+    const certPem = await readFile(certPath, "utf8");
+    const cert = forge.pki.certificateFromPem(certPem);
+
+    const subject = cert.subject.attributes
+      .map((attr) => `${attr.shortName || attr.name}=${attr.value}`)
+      .join(", ");
+    const issuer = cert.issuer.attributes
+      .map((attr) => `${attr.shortName || attr.name}=${attr.value}`)
+      .join(", ");
+
+    // Check if self-signed (Issuer == Subject is a simple heuristic, though technically signature verification is better, this is sufficient for UI)
+    // Actually, let's just compare the string representations of subject and issuer attributes
+    const selfSigned = subject === issuer;
+
+    return {
+      valid: true,
+      subject,
+      issuer,
+      validFrom: cert.validity.notBefore,
+      validTo: cert.validity.notAfter,
+      selfSigned,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { valid: false, error: `Failed to parse certificate: ${message}` };
+  }
+}

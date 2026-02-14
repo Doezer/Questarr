@@ -74,6 +74,7 @@ export default function SettingsPage() {
 
   // Local state for form
   const [autoSearchEnabled, setAutoSearchEnabled] = useState(true);
+  const [autoSearchUnreleased, setAutoSearchUnreleased] = useState(false);
   const [autoDownloadEnabled, setAutoDownloadEnabled] = useState(false);
   const [notifyMultipleDownloads, setNotifyMultipleDownloads] = useState(true);
   const [notifyUpdates, setNotifyUpdates] = useState(true);
@@ -93,6 +94,7 @@ export default function SettingsPage() {
   useEffect(() => {
     if (userSettings) {
       setAutoSearchEnabled(userSettings.autoSearchEnabled);
+      setAutoSearchUnreleased(userSettings.autoSearchUnreleased ?? false);
       setAutoDownloadEnabled(userSettings.autoDownloadEnabled);
       setNotifyMultipleDownloads(userSettings.notifyMultipleDownloads);
       setNotifyUpdates(userSettings.notifyUpdates);
@@ -353,6 +355,7 @@ export default function SettingsPage() {
     updateSettingsMutation.mutate({
       updates: {
         autoSearchEnabled,
+        autoSearchUnreleased,
         autoDownloadEnabled,
         notifyMultipleDownloads,
         notifyUpdates,
@@ -520,6 +523,25 @@ export default function SettingsPage() {
                       <p className="text-xs text-muted-foreground">
                         How often to search for new releases (1-168 hours)
                       </p>
+                    </div>
+                  )}
+
+                  {/* Auto Search Unreleased Toggle */}
+                  {autoSearchEnabled && (
+                    <div className="flex items-center justify-between pl-4 border-l-2">
+                      <div className="space-y-0.5">
+                        <Label htmlFor="auto-search-unreleased" className="text-sm font-medium">
+                          Search Unreleased Games
+                        </Label>
+                        <p className="text-xs text-muted-foreground">
+                          Include unreleased (upcoming/delayed) games in search
+                        </p>
+                      </div>
+                      <Switch
+                        id="auto-search-unreleased"
+                        checked={autoSearchUnreleased}
+                        onCheckedChange={setAutoSearchUnreleased}
+                      />
                     </div>
                   )}
 

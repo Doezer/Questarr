@@ -448,6 +448,15 @@ async function checkAutoSearch() {
 
         for (const game of wantedGames) {
           try {
+            // Skip unreleased games if configured to do so
+            if (!settings.autoSearchUnreleased && game.releaseStatus !== "released") {
+              igdbLogger.debug(
+                { gameTitle: game.title, status: game.releaseStatus },
+                "Skipping auto-search for unreleased game"
+              );
+              continue;
+            }
+
             // Search for the game across all indexers
             const { items, errors } = await searchAllIndexers({
               query: game.title,

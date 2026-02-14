@@ -3,6 +3,8 @@ import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
 import https from "https";
 import fs from "fs";
+import cors from "cors";
+
 import { registerRoutes } from "./routes.js";
 import { setupVite, serveStatic, log } from "./vite.js";
 import { generalApiLimiter } from "./middleware.js";
@@ -14,11 +16,25 @@ import { ensureDatabase } from "./migrate.js";
 import { rssService } from "./rss.js";
 
 const app = express();
+app.use(
+  cors({
+    origin:
+      config.server.allowedOrigins.length === 1 && config.server.allowedOrigins[0] === "*"
+        ? "*"
+        : config.server.allowedOrigins,
+  })
+);
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
 // Apply general rate limiting to all API routes
 app.use("/api", generalApiLimiter);
+
+// 🛡️ Set Origin-Agent-Cluster header to preventing mismatch errors
+app.use((_req, res, next) => {
+  res.setHeader("Origin-Agent-Cluster", "?1");
+  next();
+});
 
 app.use((req, res, next) => {
   const start = Date.now();

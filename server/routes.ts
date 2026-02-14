@@ -157,13 +157,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     helmet({
       contentSecurityPolicy: {
         directives: {
-          ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+          ...(helmet.contentSecurityPolicy.getDefaultDirectives() as Record<
+            string,
+            Iterable<string> | null
+          >),
           "script-src": scriptSrc,
           "img-src": ["'self'", "data:", "https://images.igdb.com"],
           "connect-src": connectSrc,
+          "upgrade-insecure-requests": appConfig.server.isProduction ? undefined : null,
         },
       },
-      strictTransportSecurity: appConfig.server.disableHsts ? false : undefined,
+      hsts: appConfig.server.isProduction,
+      crossOriginOpenerPolicy: false,
     })
   );
 

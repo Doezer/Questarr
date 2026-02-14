@@ -87,7 +87,6 @@ export const config = {
     allowedOrigins: env.ALLOWED_ORIGINS
       ? env.ALLOWED_ORIGINS.split(",").map((origin) => origin.trim())
       : ["http://localhost:port".replace("port", env.PORT.toString())],
-    disableHsts: env.DISABLE_HSTS || false,
   },
   ssl: configLoader.getSslConfig(),
 } as const;

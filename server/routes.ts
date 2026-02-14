@@ -153,6 +153,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     connectSrc.push("ws:", "wss:");
   }
 
+  const isSslEnabled = appConfig.ssl.enabled && !!appConfig.ssl.certPath && !!appConfig.ssl.keyPath;
+
   app.use(
     helmet({
       contentSecurityPolicy: {
@@ -164,10 +166,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           "script-src": scriptSrc,
           "img-src": ["'self'", "data:", "https://images.igdb.com"],
           "connect-src": connectSrc,
-          "upgrade-insecure-requests": appConfig.server.isProduction ? [] : null,
+          "upgrade-insecure-requests": isSslEnabled ? [] : null,
         },
       },
-      hsts: appConfig.server.isProduction,
+      hsts: isSslEnabled,
       crossOriginOpenerPolicy: false,
     })
   );
@@ -339,6 +341,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Invalid 'enabled' value" });
       if (typeof port !== "number") return res.status(400).json({ error: "Invalid 'port' value" });
 
+      // Validate if enabling SSL
+      if (enabled) {
+        if (certPath && keyPath) {
+          const { validateCertFiles } = await import("./ssl.js"); // Dynamic import to avoid circular deps if any
+          const { valid, error } = await validateCertFiles(certPath, keyPath);
+          if (!valid) {
+            return res.status(400).json({ error: `Invalid SSL configuration: ${error}` });
+          }
+        } else {
+          // If enabling but paths not provided in body, check if they exist in current config or are being set?
+          // Actually, if they are undefined in body, we might be keeping existing ones.
+          // But simpler to just require them if they are changing.
+          // If they are missing in body, let's look up current config
+          const current = configLoader.getSslConfig();
+          const effectiveCert = certPath || current.certPath;
+          const effectiveKey = keyPath || current.keyPath;
+
+          if (!effectiveCert || !effectiveKey) {
+            return res
+              .status(400)
+              .json({ error: "Certificate and key paths are required to enable SSL" });
+          }
+
+          const { validateCertFiles } = await import("./ssl.js");
+          const { valid, error } = await validateCertFiles(effectiveCert, effectiveKey);
+          if (!valid) {
+            return res.status(400).json({ error: `Invalid SSL configuration: ${error}` });
+          }
+        }
+      }
+
       await configLoader.saveConfig({
         ssl: {
           enabled,
@@ -427,6 +460,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         await fs.promises.writeFile(certPath, certContent);
         await fs.promises.writeFile(keyPath, keyContent);
+
+        // Validate the uploaded files specifically
+        const { validateCertFiles } = await import("./ssl.js");
+        const { valid, error } = await validateCertFiles(certPath, keyPath);
+
+        if (!valid) {
+          // Cleanup invalid files
+          await fs.promises.unlink(certPath).catch(() => {});
+          await fs.promises.unlink(keyPath).catch(() => {});
+          return res.status(400).json({ error: `Uploaded certificate/key are invalid: ${error}` });
+        }
 
         // Update config to use uploaded files
         const currentSsl = configLoader.getSslConfig();

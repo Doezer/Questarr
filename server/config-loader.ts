@@ -35,17 +35,30 @@ export class ConfigLoader {
         const result = configSchema.safeParse(doc);
 
         if (result.success) {
-          return result.data;
+          const config = result.data;
+          // Allow environment variable to override config file for container environments
+          if (process.env.SSL_PORT) {
+            config.ssl.port = parseInt(process.env.SSL_PORT, 10);
+          }
+          return config;
         } else {
           console.error("Invalid config.yaml format:", result.error);
-          return configSchema.parse({}); // Return defaults
+          return configSchema.parse({
+            ssl: {
+              port: process.env.SSL_PORT ? parseInt(process.env.SSL_PORT, 10) : 9898,
+            },
+          });
         }
       }
     } catch (error) {
       console.error("Error loading config.yaml:", error);
     }
 
-    return configSchema.parse({});
+    return configSchema.parse({
+      ssl: {
+        port: process.env.SSL_PORT ? parseInt(process.env.SSL_PORT, 10) : 9898,
+      },
+    });
   }
 
   public getConfig(): AppConfig {

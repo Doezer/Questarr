@@ -974,9 +974,13 @@ export default function SettingsPage() {
                             id="ssl-port"
                             type="number"
                             value={sslPort}
-                            onChange={(e) => setSslPort(parseInt(e.target.value) || 9898)}
-                            className="w-32"
+                            disabled
+                            className="w-32 bg-muted"
                           />
+                          <p className="text-xs text-muted-foreground">
+                            Configured via SSL_PORT environment variable (e.g., in
+                            docker-compose.yml) - Default: 9898
+                          </p>
                         </div>
 
                         <div className="space-y-2">

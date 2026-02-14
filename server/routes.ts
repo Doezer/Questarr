@@ -164,7 +164,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           "script-src": scriptSrc,
           "img-src": ["'self'", "data:", "https://images.igdb.com"],
           "connect-src": connectSrc,
-          "upgrade-insecure-requests": appConfig.server.isProduction ? undefined : null,
+          "upgrade-insecure-requests": appConfig.server.isProduction ? [] : null,
         },
       },
       hsts: appConfig.server.isProduction,

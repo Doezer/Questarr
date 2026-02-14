@@ -1,6 +1,8 @@
 // Force restart trigger
 import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
+import https from "https";
+import fs from "fs";
 import { registerRoutes } from "./routes.js";
 import { setupVite, serveStatic, log } from "./vite.js";
 import { generalApiLimiter } from "./middleware.js";
@@ -152,10 +154,47 @@ app.use((req, res, next) => {
     }
 
     const { port, host } = config.server;
+    const { ssl } = config;
+
+    // Start HTTP server
     server.listen(port, host, () => {
-      log(`serving on ${host}:${port}`);
-      startCronJobs();
+      log(`HTTP server serving on ${host}:${port}`);
     });
+
+    // Start HTTPS server if enabled
+    if (ssl.enabled && ssl.certPath && ssl.keyPath) {
+      try {
+        const httpsOptions = {
+          key: await fs.promises.readFile(ssl.keyPath),
+          cert: await fs.promises.readFile(ssl.certPath),
+        };
+
+        const httpsServer = https.createServer(httpsOptions, app);
+
+        // Setup Socket.IO for HTTPS server as well
+        setupSocketIO(httpsServer);
+
+        httpsServer.listen(ssl.port, host, () => {
+          log(`HTTPS server serving on ${host}:${ssl.port}`);
+        });
+
+        // HTTP to HTTPS redirect
+        if (ssl.redirectHttp) {
+          app.use((req, res, next) => {
+            if (!req.secure) {
+              const host = req.hostname || "localhost";
+              return res.redirect(`https://${host}:${ssl.port}${req.url}`);
+            }
+            next();
+          });
+        }
+      } catch (error) {
+        log("Failed to start HTTPS server: " + String(error));
+        // Fallback or just log error, HTTP server is already running
+      }
+    }
+
+    startCronJobs();
   } catch (error) {
     log("Fatal error during startup:");
     console.error(error);

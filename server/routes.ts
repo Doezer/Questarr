@@ -41,9 +41,21 @@ import {
   sanitizeIndexerSearchQuery,
 } from "./middleware.js";
 import { config as appConfig } from "./config.js";
+import { configLoader } from "./config-loader.js";
 import { prowlarrClient } from "./prowlarr.js";
 import { isSafeUrl, safeFetch } from "./ssrf.js";
 import { hashPassword, comparePassword, generateToken, authenticateToken } from "./auth.js";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
+
+// Configure multer for memory storage
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+  },
+});
 import { searchAllIndexers } from "./search.js";
 import { xrelClient, DEFAULT_XREL_BASE, ALLOWED_XREL_DOMAINS } from "./xrel.js";
 import { normalizeTitle, cleanReleaseName } from "../shared/title-utils.js";
@@ -299,6 +311,141 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // For readiness checks (e.g., database connectivity), use the /api/ready endpoint.
     res.status(200).json({ status: "ok" });
   });
+
+  // SSL Settings - Get
+  app.get("/api/settings/ssl", authenticateToken, async (req, res) => {
+    try {
+      const sslConfig = configLoader.getSslConfig();
+      // Mask paths for security? Maybe not needed for admin.
+      res.json(sslConfig);
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to fetch SSL settings");
+      res.status(500).json({ error: "Failed to fetch SSL settings" });
+    }
+  });
+
+  // SSL Settings - Update
+  app.patch("/api/settings/ssl", authenticateToken, sensitiveEndpointLimiter, async (req, res) => {
+    try {
+      const { enabled, port, certPath, keyPath, redirectHttp } = req.body;
+
+      // Basic validation
+      if (typeof enabled !== "boolean")
+        return res.status(400).json({ error: "Invalid 'enabled' value" });
+      if (typeof port !== "number") return res.status(400).json({ error: "Invalid 'port' value" });
+
+      await configLoader.saveConfig({
+        ssl: {
+          enabled,
+          port,
+          certPath,
+          keyPath,
+          redirectHttp,
+        },
+      });
+
+      routesLogger.info("SSL settings updated");
+      res.json({ success: true, message: "SSL settings updated. Restart required." });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to update SSL settings");
+      res.status(500).json({ error: "Failed to update SSL settings" });
+    }
+  });
+
+  // Generate Self-Signed Cert
+  app.post(
+    "/api/settings/ssl/generate",
+    authenticateToken,
+    sensitiveEndpointLimiter,
+    async (req, res) => {
+      try {
+        const { generateSelfSignedCert } = await import("./ssl.js");
+        const { certPath, keyPath } = await generateSelfSignedCert();
+
+        // Automatically update config to use these
+        const currentSsl = configLoader.getSslConfig();
+        await configLoader.saveConfig({
+          ssl: {
+            ...currentSsl,
+            certPath,
+            keyPath,
+          },
+        });
+
+        routesLogger.info("Generated self-signed certificate");
+        res.json({ success: true, message: "Certificate generated", certPath, keyPath });
+      } catch (error) {
+        routesLogger.error({ error }, "Failed to generate certificate");
+        res.status(500).json({ error: "Failed to generate certificate" });
+      }
+    }
+  );
+
+  // Upload Certificate and Key
+  app.post(
+    "/api/settings/ssl/upload",
+    authenticateToken,
+    sensitiveEndpointLimiter,
+    upload.fields([
+      { name: "cert", maxCount: 1 },
+      { name: "key", maxCount: 1 },
+    ]),
+    async (req, res) => {
+      try {
+        const files = req.files as { [fieldname: string]: Express.Multer.File[] };
+        const certFile = files["cert"]?.[0];
+        const keyFile = files["key"]?.[0];
+
+        if (!certFile || !keyFile) {
+          return res
+            .status(400)
+            .json({ error: "Both certificate and private key files are required" });
+        }
+
+        const { ensureSslDir } = await import("./ssl.js");
+        await ensureSslDir();
+
+        const sslDir = path.join(process.cwd(), "config", "ssl");
+        const certPath = path.join(sslDir, "uploaded.crt");
+        const keyPath = path.join(sslDir, "uploaded.key");
+
+        // Simple validation: Check if they look like PEM files
+        const certContent = certFile.buffer.toString("utf8");
+        const keyContent = keyFile.buffer.toString("utf8");
+
+        if (!certContent.includes("BEGIN CERTIFICATE")) {
+          return res.status(400).json({ error: "Invalid certificate file format (PEM expected)" });
+        }
+        if (!keyContent.includes("PRIVATE KEY")) {
+          return res.status(400).json({ error: "Invalid private key file format (PEM expected)" });
+        }
+
+        await fs.promises.writeFile(certPath, certContent);
+        await fs.promises.writeFile(keyPath, keyContent);
+
+        // Update config to use uploaded files
+        const currentSsl = configLoader.getSslConfig();
+        await configLoader.saveConfig({
+          ssl: {
+            ...currentSsl,
+            certPath,
+            keyPath,
+          },
+        });
+
+        routesLogger.info("Uploaded SSL certificate and key");
+        res.json({
+          success: true,
+          message: "Certificate uploaded successfully",
+          certPath,
+          keyPath,
+        });
+      } catch (error) {
+        routesLogger.error({ error }, "Failed to upload certificate");
+        res.status(500).json({ error: "Failed to upload certificate" });
+      }
+    }
+  );
 
   // Configuration endpoint - read-only access to key settings
   app.get("/api/config", sensitiveEndpointLimiter, async (req, res) => {
@@ -1921,9 +2068,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         xrel: { apiBase },
         settings: settings
           ? {
-            xrelSceneReleases: settings.xrelSceneReleases,
-            xrelP2pReleases: settings.xrelP2pReleases,
-          }
+              xrelSceneReleases: settings.xrelSceneReleases,
+              xrelP2pReleases: settings.xrelP2pReleases,
+            }
           : undefined,
       });
     } catch (error) {

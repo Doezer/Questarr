@@ -375,7 +375,7 @@ async function checkDownloadStatus() {
   }
 }
 
-async function checkAutoSearch() {
+export async function checkAutoSearch() {
   igdbLogger.debug("Checking auto-search for wanted games...");
 
   try {

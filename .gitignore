@@ -33,3 +33,4 @@ infrastructure/
 vite.config.ts.*
 docker-compose.*local.yml
 notes/
+sqlite.db*

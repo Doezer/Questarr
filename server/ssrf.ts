@@ -185,7 +185,7 @@ export async function safeFetch(
       const lookup = await dns.lookup(hostname);
       address = lookup.address;
       family = lookup.family;
-    } catch (error) {
+    } catch {
       throw new Error(`Failed to resolve hostname: ${hostname}`);
     }
   }

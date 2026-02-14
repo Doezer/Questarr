@@ -1,12 +1,10 @@
 import forge from "node-forge";
+import forge from "node-forge";
 import fs from "fs";
 import path from "path";
-import { promisify } from "util";
 import { configLoader } from "./config-loader";
 
-const mkdir = promisify(fs.mkdir);
-const writeFile = promisify(fs.writeFile);
-const readFile = promisify(fs.readFile);
+const { mkdir, writeFile, readFile } = fs.promises;
 
 // Use the directory where config.yaml is located + /ssl
 const SSL_DIR = path.join(configLoader.getConfigDir(), "ssl");
@@ -17,7 +15,7 @@ export async function ensureSslDir() {
   }
 }
 
-export async function generateSelfSignedCert(expiryDays: number = 365) {
+export async function generateSelfSignedCert() {
   await ensureSslDir();
 
   console.log("Generating 2048-bit key-pair...");

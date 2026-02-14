@@ -180,29 +180,38 @@ app.use((req, res, next) => {
     // Start HTTPS server if enabled
     if (ssl.enabled && ssl.certPath && ssl.keyPath) {
       try {
-        const httpsOptions = {
-          key: await fs.promises.readFile(ssl.keyPath),
-          cert: await fs.promises.readFile(ssl.certPath),
-        };
+        // Validate certs before attempting to start
+        const { validateCertFiles } = await import("./ssl.js");
+        const { valid, error } = await validateCertFiles(ssl.certPath, ssl.keyPath);
 
-        const httpsServer = https.createServer(httpsOptions, app);
+        if (!valid) {
+          log(`⚠️ SSL Configuration Invalid: ${error}. Starting in HTTP-only mode.`);
+          // Skip HTTPS setup
+        } else {
+          const httpsOptions = {
+            key: await fs.promises.readFile(ssl.keyPath),
+            cert: await fs.promises.readFile(ssl.certPath),
+          };
 
-        // Setup Socket.IO for HTTPS server as well
-        setupSocketIO(httpsServer);
+          const httpsServer = https.createServer(httpsOptions, app);
 
-        httpsServer.listen(ssl.port, host, () => {
-          log(`HTTPS server serving on ${host}:${ssl.port}`);
-        });
+          // Setup Socket.IO for HTTPS server as well
+          setupSocketIO(httpsServer);
 
-        // HTTP to HTTPS redirect
-        if (ssl.redirectHttp) {
-          app.use((req, res, next) => {
-            if (!req.secure) {
-              const host = req.hostname || "localhost";
-              return res.redirect(`https://${host}:${ssl.port}${req.url}`);
-            }
-            next();
+          httpsServer.listen(ssl.port, host, () => {
+            log(`HTTPS server serving on ${host}:${ssl.port}`);
           });
+
+          // HTTP to HTTPS redirect
+          if (ssl.redirectHttp) {
+            app.use((req, res, next) => {
+              if (!req.secure) {
+                const host = req.hostname || "localhost";
+                return res.redirect(`https://${host}:${ssl.port}${req.url}`);
+              }
+              next();
+            });
+          }
         }
       } catch (error) {
         log("Failed to start HTTPS server: " + String(error));

@@ -74,18 +74,64 @@ export async function generateSelfSignedCert(expiryDays: number = 365) {
   };
 }
 
-export async function validateCertFiles(certPath: string, keyPath: string): Promise<boolean> {
+export async function validateCertFiles(
+  certPath: string,
+  keyPath: string
+): Promise<{ valid: boolean; error?: string; expiry?: Date }> {
   try {
-    if (!fs.existsSync(certPath) || !fs.existsSync(keyPath)) {
-      return false;
+    if (!fs.existsSync(certPath)) {
+      return { valid: false, error: "Certificate file missing" };
+    }
+    if (!fs.existsSync(keyPath)) {
+      return { valid: false, error: "Private key file missing" };
     }
 
-    // Basic check ensuring files are readable
-    await readFile(certPath);
-    await readFile(keyPath);
-    return true;
+    // Read files
+    const certPem = await readFile(certPath, "utf8");
+    const keyPem = await readFile(keyPath, "utf8");
+
+    // 1. Basic Content Check
+    if (!certPem.includes("BEGIN CERTIFICATE")) {
+      return { valid: false, error: "Invalid certificate format (PEM expected)" };
+    }
+    if (!keyPem.includes("PRIVATE KEY")) {
+      return { valid: false, error: "Invalid private key format (PEM expected)" };
+    }
+
+    // 2. Parse with node-forge to check details
+    let cert;
+    try {
+      cert = forge.pki.certificateFromPem(certPem);
+    } catch {
+      return { valid: false, error: "Failed to parse certificate content" };
+    }
+
+    // Check expiry
+    const now = new Date();
+    if (cert.validity.notAfter < now) {
+      return {
+        valid: false,
+        error: `Certificate expired on ${cert.validity.notAfter.toISOString()}`,
+        expiry: cert.validity.notAfter,
+      };
+    }
+
+    // 3. Verify Key Match using Node's crypto/tls (most reliable for runtime)
+    // tls.createSecureContext will throw if the key doesn't match the cert
+    try {
+      const { createSecureContext } = await import("tls");
+      createSecureContext({
+        cert: certPem,
+        key: keyPem,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { valid: false, error: `Certificate and key do not match or are invalid: ${message}` };
+    }
+
+    return { valid: true, expiry: cert.validity.notAfter };
   } catch (error) {
     console.error("Certificate validation failed:", error);
-    return false;
+    return { valid: false, error: "Unknown validation error" };
   }
 }

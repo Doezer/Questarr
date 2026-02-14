@@ -149,11 +149,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           "script-src": scriptSrc,
           "img-src": ["'self'", "data:", "https://images.igdb.com"],
           "connect-src": connectSrc,
-          "upgrade-insecure-requests": null, // 🛡️ Disable automatic HTTPS upgrades for HTTP-only self-hosting
+          "upgrade-insecure-requests": appConfig.server.isProduction ? undefined : null,
         },
       },
-      hsts: false, // Disable HSTS to allow HTTP connections for self-hosting without SSL
-      crossOriginOpenerPolicy: false, // Disable COOP for remote access
+      hsts: appConfig.server.isProduction,
+      crossOriginOpenerPolicy: false,
     })
   );
 

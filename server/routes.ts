@@ -323,8 +323,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/settings/ssl", authenticateToken, async (req, res) => {
     try {
       const sslConfig = configLoader.getSslConfig();
-      // Mask paths for security? Maybe not needed for admin.
-      res.json(sslConfig);
+
+      let certInfo = undefined;
+      if (sslConfig.certPath) {
+        try {
+          const { getCertInfo } = await import("./ssl.js");
+          const info = await getCertInfo(sslConfig.certPath);
+          if (info.valid) {
+            certInfo = {
+              subject: info.subject,
+              issuer: info.issuer,
+              validFrom: info.validFrom,
+              validTo: info.validTo,
+              selfSigned: info.selfSigned,
+            };
+          }
+        } catch (error) {
+          routesLogger.warn({ error }, "Failed to get certificate info");
+        }
+      }
+
+      res.json({ ...sslConfig, certInfo });
     } catch (error) {
       routesLogger.error({ error }, "Failed to fetch SSL settings");
       res.status(500).json({ error: "Failed to fetch SSL settings" });
@@ -492,6 +511,84 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } catch (error) {
         routesLogger.error({ error }, "Failed to upload certificate");
         res.status(500).json({ error: "Failed to upload certificate" });
+      }
+    }
+  );
+
+  // File System Browser
+  app.get(
+    "/api/system/filesystem",
+    authenticateToken,
+    sensitiveEndpointLimiter,
+    async (req, res) => {
+      try {
+        const queryPath = (req.query.path as string) || process.cwd();
+        // Resolve to absolute path to handle relative paths correctly
+        const currentPath = path.resolve(queryPath);
+
+        // Basic security check: ensure path exists
+        if (!fs.existsSync(currentPath)) {
+          return res.status(404).json({ error: "Path not found" });
+        }
+
+        const stats = await fs.promises.stat(currentPath);
+        if (!stats.isDirectory()) {
+          return res.status(400).json({ error: "Path is not a directory" });
+        }
+
+        const entries = await fs.promises.readdir(currentPath, { withFileTypes: true });
+
+        const files = await Promise.all(
+          entries.map(async (entry) => {
+            const fullPath = path.join(currentPath, entry.name);
+            let isDirectory = entry.isDirectory();
+            // Handle symbolic links
+            if (entry.isSymbolicLink()) {
+              try {
+                const stat = await fs.promises.stat(fullPath);
+                isDirectory = stat.isDirectory();
+              } catch {
+                isDirectory = false; // Broken link or permission denied
+              }
+            }
+
+            return {
+              name: entry.name,
+              path: fullPath,
+              isDirectory,
+              size: 0,
+            };
+          })
+        );
+
+        // Sort directories first
+        files.sort((a, b) => {
+          if (a.isDirectory === b.isDirectory) {
+            return a.name.localeCompare(b.name);
+          }
+          return a.isDirectory ? -1 : 1;
+        });
+
+        const parentPath = path.dirname(currentPath);
+        // Only return parent if it's different (not root)
+        const parent =
+          parentPath !== currentPath
+            ? {
+                name: "..",
+                path: parentPath,
+                isDirectory: true,
+                size: 0,
+              }
+            : null;
+
+        res.json({
+          path: currentPath,
+          parent,
+          files,
+        });
+      } catch (error) {
+        routesLogger.error({ error }, "Failed to list directory");
+        res.status(500).json({ error: "Failed to list directory" });
       }
     }
   );

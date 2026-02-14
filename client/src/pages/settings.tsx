@@ -13,12 +13,17 @@ import {
   HelpCircle,
   Newspaper,
   Lock,
+  Calendar,
+  ShieldCheck,
+  ShieldAlert,
+  Upload,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { PathBrowser } from "@/components/PathBrowser";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -129,6 +134,10 @@ export default function SettingsPage() {
     },
   });
 
+  const [certInfo, setCertInfo] = useState<any>(null); // State for cert info
+  const [isCertBrowserOpen, setIsCertBrowserOpen] = useState(false);
+  const [isKeyBrowserOpen, setIsKeyBrowserOpen] = useState(false);
+
   useEffect(() => {
     if (sslSettings) {
       setSslEnabled(sslSettings.enabled);
@@ -136,6 +145,7 @@ export default function SettingsPage() {
       setSslCertPath(sslSettings.certPath || "");
       setSslKeyPath(sslSettings.keyPath || "");
       setSslRedirectHttp(sslSettings.redirectHttp);
+      setCertInfo(sslSettings.certInfo);
     }
   }, [sslSettings]);
 
@@ -179,8 +189,6 @@ export default function SettingsPage() {
       const keyInput = document.getElementById("key-upload") as HTMLInputElement;
       if (certInput) certInput.value = "";
       if (keyInput) keyInput.value = "";
-
-      queryClient.invalidateQueries({ queryKey: ["/api/settings/ssl"] });
     },
     onError: (error: Error) => {
       toast({
@@ -230,7 +238,6 @@ export default function SettingsPage() {
       });
       setSslCertPath(data.certPath);
       setSslKeyPath(data.keyPath);
-      queryClient.invalidateQueries({ queryKey: ["/api/settings/ssl"] });
     },
     onError: (error: Error) => {
       toast({
@@ -974,21 +981,47 @@ export default function SettingsPage() {
 
                         <div className="space-y-2">
                           <Label htmlFor="cert-path">Certificate Path (.crt/.pem)</Label>
-                          <Input
-                            id="cert-path"
-                            value={sslCertPath}
-                            onChange={(e) => setSslCertPath(e.target.value)}
-                            placeholder="/path/to/server.crt"
+                          <div className="flex gap-2">
+                            <Input
+                              id="cert-path"
+                              value={sslCertPath}
+                              onChange={(e) => setSslCertPath(e.target.value)}
+                              placeholder="/path/to/server.crt"
+                            />
+                            <Button variant="outline" onClick={() => setIsCertBrowserOpen(true)}>
+                              Browse
+                            </Button>
+                          </div>
+                          <PathBrowser
+                            isOpen={isCertBrowserOpen}
+                            onClose={() => setIsCertBrowserOpen(false)}
+                            onSelect={(path) => setSslCertPath(path)}
+                            initialPath={sslCertPath}
+                            title="Select Certificate File"
+                            extensions={[".crt", ".pem", ".cer"]}
                           />
                         </div>
 
                         <div className="space-y-2">
                           <Label htmlFor="key-path">Private Key Path (.key)</Label>
-                          <Input
-                            id="key-path"
-                            value={sslKeyPath}
-                            onChange={(e) => setSslKeyPath(e.target.value)}
-                            placeholder="/path/to/server.key"
+                          <div className="flex gap-2">
+                            <Input
+                              id="key-path"
+                              value={sslKeyPath}
+                              onChange={(e) => setSslKeyPath(e.target.value)}
+                              placeholder="/path/to/server.key"
+                            />
+                            <Button variant="outline" onClick={() => setIsKeyBrowserOpen(true)}>
+                              Browse
+                            </Button>
+                          </div>
+                          <PathBrowser
+                            isOpen={isKeyBrowserOpen}
+                            onClose={() => setIsKeyBrowserOpen(false)}
+                            onSelect={(path) => setSslKeyPath(path)}
+                            initialPath={sslKeyPath}
+                            title="Select Private Key File"
+                            extensions={[".key", ".pem"]}
                           />
                         </div>
 
@@ -1007,22 +1040,104 @@ export default function SettingsPage() {
                         </div>
 
                         <div className="pt-4 border-t">
-                          <h4 className="text-sm font-medium mb-2">Self-Signed Certificate</h4>
-                          <p className="text-xs text-muted-foreground mb-4">
-                            Generate a self-signed certificate if you don't have one.
-                            <br />
-                            <span className="text-amber-500 font-semibold">Warning:</span> Browsers
-                            will show a security warning for self-signed certificates.
-                          </p>
-                          <Button
-                            variant="outline"
-                            onClick={() => generateCertMutation.mutate()}
-                            disabled={generateCertMutation.isPending}
-                          >
-                            {generateCertMutation.isPending
-                              ? "Generating..."
-                              : "Generate Self-Signed Certificate"}
-                          </Button>
+                          <h4 className="text-sm font-medium mb-4">Certificate Status</h4>
+
+                          {certInfo ? (
+                            <div className="rounded-md border bg-card text-card-foreground shadow-sm mb-6 p-4 space-y-3">
+                              <div className="flex items-center gap-2 mb-2">
+                                {certInfo.valid ? (
+                                  <ShieldCheck className="h-5 w-5 text-green-500" />
+                                ) : (
+                                  <ShieldAlert className="h-5 w-5 text-red-500" />
+                                )}
+                                <span className="font-semibold">
+                                  {certInfo.selfSigned
+                                    ? "Self-Signed Certificate"
+                                    : "Valid Certificate"}
+                                </span>
+                              </div>
+
+                              <div className="grid gap-1 text-sm text-muted-foreground">
+                                <div className="flex justify-between">
+                                  <span>Issued To:</span>
+                                  <span className="font-mono text-xs">
+                                    {certInfo.subject ? certInfo.subject.split(",")[0] : "Unknown"}
+                                  </span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span>Issued By:</span>
+                                  <span className="font-mono text-xs">
+                                    {certInfo.issuer ? certInfo.issuer.split(",")[0] : "Unknown"}
+                                  </span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                  <div className="flex items-center gap-1">
+                                    <Calendar className="h-3 w-3" />
+                                    <span>Valid Until:</span>
+                                  </div>
+                                  <span>
+                                    {certInfo.validTo
+                                      ? new Date(certInfo.validTo).toLocaleDateString()
+                                      : "Unknown"}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="text-sm text-muted-foreground mb-4">
+                              No valid certificate information found.
+                            </p>
+                          )}
+
+                          <div className="space-y-4">
+                            {certInfo?.selfSigned ? (
+                              <div>
+                                <p className="text-xs text-muted-foreground mb-2">
+                                  You are using a self-signed certificate. You can renew it if it's
+                                  expired or about to expire.
+                                </p>
+                                <Button
+                                  variant="outline"
+                                  onClick={() => generateCertMutation.mutate()}
+                                  disabled={generateCertMutation.isPending}
+                                >
+                                  {generateCertMutation.isPending
+                                    ? "Renewing..."
+                                    : "Renew Self-Signed Certificate"}
+                                </Button>
+                              </div>
+                            ) : (
+                              <div>
+                                <p className="text-xs text-muted-foreground mb-2">
+                                  Generate a self-signed certificate if you don't have one.
+                                  <br />
+                                  <span className="text-amber-500 font-semibold">
+                                    Warning:
+                                  </span>{" "}
+                                  Browsers will show a security warning for self-signed
+                                  certificates.
+                                </p>
+                                <Button
+                                  variant="outline"
+                                  onClick={() => generateCertMutation.mutate()}
+                                  disabled={
+                                    generateCertMutation.isPending ||
+                                    (!!certInfo && !certInfo.selfSigned)
+                                  }
+                                >
+                                  {generateCertMutation.isPending
+                                    ? "Generating..."
+                                    : "Generate Self-Signed Certificate"}
+                                </Button>
+                                {!!certInfo && !certInfo.selfSigned && (
+                                  <p className="text-[10px] text-muted-foreground mt-1">
+                                    Certificate generation disabled because a non-self-signed
+                                    certificate is detected.
+                                  </p>
+                                )}
+                              </div>
+                            )}
+                          </div>
                         </div>
 
                         <div className="pt-4 border-t space-y-4">
@@ -1030,21 +1145,41 @@ export default function SettingsPage() {
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div className="space-y-2">
                               <Label htmlFor="cert-upload">Certificate File (.crt/.pem)</Label>
-                              <Input
-                                id="cert-upload"
-                                type="file"
-                                accept=".crt,.pem,.cer"
-                                onChange={(e) => setSelectedCert(e.target.files?.[0] || null)}
-                              />
+                              <div className="flex items-center gap-2">
+                                <Input
+                                  id="cert-upload"
+                                  type="file"
+                                  accept=".crt,.pem,.cer"
+                                  className="hidden"
+                                  onChange={(e) => setSelectedCert(e.target.files?.[0] || null)}
+                                />
+                                <Label
+                                  htmlFor="cert-upload"
+                                  className={`flex h-10 w-full cursor-pointer items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium ring-offset-background transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 ${selectedCert ? "text-primary border-primary" : "text-muted-foreground"}`}
+                                >
+                                  <Upload className="mr-2 h-4 w-4" />
+                                  {selectedCert ? selectedCert.name : "Select Certificate File"}
+                                </Label>
+                              </div>
                             </div>
                             <div className="space-y-2">
                               <Label htmlFor="key-upload">Private Key File (.key/.pem)</Label>
-                              <Input
-                                id="key-upload"
-                                type="file"
-                                accept=".key,.pem"
-                                onChange={(e) => setSelectedKey(e.target.files?.[0] || null)}
-                              />
+                              <div className="flex items-center gap-2">
+                                <Input
+                                  id="key-upload"
+                                  type="file"
+                                  accept=".key,.pem"
+                                  className="hidden"
+                                  onChange={(e) => setSelectedKey(e.target.files?.[0] || null)}
+                                />
+                                <Label
+                                  htmlFor="key-upload"
+                                  className={`flex h-10 w-full cursor-pointer items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium ring-offset-background transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 ${selectedKey ? "text-primary border-primary" : "text-muted-foreground"}`}
+                                >
+                                  <Upload className="mr-2 h-4 w-4" />
+                                  {selectedKey ? selectedKey.name : "Select Private Key File"}
+                                </Label>
+                              </div>
                             </div>
                           </div>
                           <Button

@@ -23,7 +23,22 @@ export class ConfigLoader {
   private config: AppConfig;
 
   constructor(configPath?: string) {
-    this.configPath = configPath || path.join(process.cwd(), "config.yaml");
+    if (configPath) {
+      this.configPath = configPath;
+    } else {
+      // Prioritize data/config.yaml for persistence
+      const dataConfigPath = path.join(process.cwd(), "data", "config.yaml");
+      const rootConfigPath = path.join(process.cwd(), "config.yaml");
+
+      if (fs.existsSync(dataConfigPath)) {
+        this.configPath = dataConfigPath;
+      } else if (fs.existsSync(rootConfigPath)) {
+        this.configPath = rootConfigPath;
+      } else {
+        // Default to data/config.yaml for new configs
+        this.configPath = dataConfigPath;
+      }
+    }
     this.config = this.loadConfig();
   }
 
@@ -95,6 +110,10 @@ export class ConfigLoader {
   // Helper to get SSL config specifically
   public getSslConfig() {
     return this.config.ssl;
+  }
+
+  public getConfigDir() {
+    return path.dirname(this.configPath);
   }
 }
 

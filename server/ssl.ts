@@ -2,12 +2,14 @@ import forge from "node-forge";
 import fs from "fs";
 import path from "path";
 import { promisify } from "util";
+import { configLoader } from "./config-loader";
 
 const mkdir = promisify(fs.mkdir);
 const writeFile = promisify(fs.writeFile);
 const readFile = promisify(fs.readFile);
 
-const SSL_DIR = path.join(process.cwd(), "config", "ssl");
+// Use the directory where config.yaml is located + /ssl
+const SSL_DIR = path.join(configLoader.getConfigDir(), "ssl");
 
 export async function ensureSslDir() {
   if (!fs.existsSync(SSL_DIR)) {
@@ -154,10 +156,10 @@ export async function getCertInfo(certPath: string): Promise<{
     const cert = forge.pki.certificateFromPem(certPem);
 
     const subject = cert.subject.attributes
-      .map((attr) => `${attr.shortName || attr.name}=${attr.value}`)
+      .map((attr: any) => `${attr.shortName || attr.name}=${attr.value}`)
       .join(", ");
     const issuer = cert.issuer.attributes
-      .map((attr) => `${attr.shortName || attr.name}=${attr.value}`)
+      .map((attr: any) => `${attr.shortName || attr.name}=${attr.value}`)
       .join(", ");
 
     // Check if self-signed (Issuer == Subject is a simple heuristic, though technically signature verification is better, this is sufficient for UI)

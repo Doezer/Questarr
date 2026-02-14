@@ -454,7 +454,7 @@ export default function SettingsPage() {
         )}
 
         <Tabs defaultValue="general" className="w-full">
-          <TabsList className="grid w-full grid-cols-5 mb-8">
+          <TabsList className="grid w-full grid-cols-6 mb-8">
             <TabsTrigger value="general">General</TabsTrigger>
             <TabsTrigger value="rules">Rules</TabsTrigger>
             <TabsTrigger value="services">Services</TabsTrigger>
@@ -1029,18 +1029,32 @@ export default function SettingsPage() {
                           />
                         </div>
 
-                        <div className="flex items-center justify-between">
-                          <div className="space-y-0.5">
-                            <Label htmlFor="ssl-redirect">Force HTTPS</Label>
-                            <p className="text-xs text-muted-foreground">
-                              Redirect all HTTP traffic to HTTPS
-                            </p>
+                        <div className="space-y-4">
+                          <div className="flex items-center justify-between">
+                            <div className="space-y-0.5">
+                              <Label htmlFor="ssl-redirect">Force HTTPS</Label>
+                              <p className="text-xs text-muted-foreground">
+                                Redirect all HTTP traffic to HTTPS
+                              </p>
+                            </div>
+                            <Switch
+                              id="ssl-redirect"
+                              checked={sslRedirectHttp}
+                              onCheckedChange={setSslRedirectHttp}
+                            />
                           </div>
-                          <Switch
-                            id="ssl-redirect"
-                            checked={sslRedirectHttp}
-                            onCheckedChange={setSslRedirectHttp}
-                          />
+
+                          {sslRedirectHttp && (
+                            <Alert className="border-orange-500/50 bg-orange-500/10">
+                              <AlertCircle className="h-4 w-4 text-orange-500" />
+                              <AlertTitle>HTTP Port Will Be Disabled</AlertTitle>
+                              <AlertDescription>
+                                When HTTPS redirect is enabled, the HTTP port will be disabled on
+                                the next server restart. Make sure you can access the server via
+                                HTTPS before restarting to avoid losing access.
+                              </AlertDescription>
+                            </Alert>
+                          )}
                         </div>
 
                         <div className="pt-4 border-t">

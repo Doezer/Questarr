@@ -3,9 +3,10 @@ services:
     image: ghcr.io/doezer/questarr:latest
     ports:
       - "${PORT:-5000}:5000"
-      - "${SSL_PORT:-9898}:9898"
+      - "${SSL_PORT:-9898}:${SSL_PORT:-9898}"
     environment:
       - SQLITE_DB_PATH=/app/data/sqlite.db
+      - SSL_PORT=${SSL_PORT:-9898}
     volumes:
       # Persist SQLite database and other data
       - ./data:/app/data

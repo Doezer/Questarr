@@ -12,6 +12,7 @@ import {
   EyeOff,
   HelpCircle,
   Newspaper,
+  Lock,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -112,6 +113,137 @@ export default function SettingsPage() {
       setIgdbClientSecret("");
     }
   }, [userSettings, config]);
+
+  // SSL Settings State
+  const [sslEnabled, setSslEnabled] = useState(false);
+  const [sslPort, setSslPort] = useState(9898);
+  const [sslCertPath, setSslCertPath] = useState("");
+  const [sslKeyPath, setSslKeyPath] = useState("");
+  const [sslRedirectHttp, setSslRedirectHttp] = useState(false);
+
+  const { data: sslSettings } = useQuery({
+    queryKey: ["/api/settings/ssl"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/settings/ssl");
+      return res.json();
+    },
+  });
+
+  useEffect(() => {
+    if (sslSettings) {
+      setSslEnabled(sslSettings.enabled);
+      setSslPort(sslSettings.port);
+      setSslCertPath(sslSettings.certPath || "");
+      setSslKeyPath(sslSettings.keyPath || "");
+      setSslRedirectHttp(sslSettings.redirectHttp);
+    }
+  }, [sslSettings]);
+
+  const [selectedCert, setSelectedCert] = useState<File | null>(null);
+  const [selectedKey, setSelectedKey] = useState<File | null>(null);
+
+  const uploadCertMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedCert || !selectedKey) throw new Error("Please select both files");
+
+      const formData = new FormData();
+      formData.append("cert", selectedCert);
+      formData.append("key", selectedKey);
+
+      const res = await fetch("/api/settings/ssl/upload", {
+        method: "POST",
+        body: formData,
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
+        },
+      });
+
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to upload certificate");
+      }
+
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Certificate Uploaded",
+        description: data.message,
+      });
+      setSslCertPath(data.certPath);
+      setSslKeyPath(data.keyPath);
+      setSelectedCert(null);
+      setSelectedKey(null);
+      // Reset file inputs
+      const certInput = document.getElementById("cert-upload") as HTMLInputElement;
+      const keyInput = document.getElementById("key-upload") as HTMLInputElement;
+      if (certInput) certInput.value = "";
+      if (keyInput) keyInput.value = "";
+
+      queryClient.invalidateQueries({ queryKey: ["/api/settings/ssl"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Upload Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const updateSslMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("PATCH", "/api/settings/ssl", {
+        enabled: sslEnabled,
+        port: sslPort,
+        certPath: sslCertPath,
+        keyPath: sslKeyPath,
+        redirectHttp: sslRedirectHttp,
+      });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "SSL Settings Saved",
+        description: data.message,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/settings/ssl"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Save Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const generateCertMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/settings/ssl/generate");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Certificate Generated",
+        description: data.message,
+      });
+      setSslCertPath(data.certPath);
+      setSslKeyPath(data.keyPath);
+      queryClient.invalidateQueries({ queryKey: ["/api/settings/ssl"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Generation Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleSaveSsl = () => {
+    updateSslMutation.mutate();
+  };
 
   const updateSettingsMutation = useMutation({
     mutationFn: async ({
@@ -320,6 +452,7 @@ export default function SettingsPage() {
             <TabsTrigger value="rules">Rules</TabsTrigger>
             <TabsTrigger value="services">Services</TabsTrigger>
             <TabsTrigger value="account">Account</TabsTrigger>
+            <TabsTrigger value="security">Security</TabsTrigger>
             <TabsTrigger value="system">System</TabsTrigger>
           </TabsList>
 
@@ -794,6 +927,146 @@ export default function SettingsPage() {
                     </Button>
                   </div>
                 </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="security" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center space-x-3">
+                  <Lock className="h-5 w-5 text-muted-foreground" />
+                  <CardTitle className="text-lg">SSL/HTTPS Configuration</CardTitle>
+                </div>
+                <CardDescription>
+                  Configure secure access to Questarr. Requires server restart to apply changes.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {sslSettings && (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <Label htmlFor="ssl-enabled" className="text-sm font-medium">
+                          Enable SSL
+                        </Label>
+                        <p className="text-xs text-muted-foreground">Turn on HTTPS support</p>
+                      </div>
+                      <Switch
+                        id="ssl-enabled"
+                        checked={sslEnabled}
+                        onCheckedChange={setSslEnabled}
+                      />
+                    </div>
+
+                    {sslEnabled && (
+                      <>
+                        <div className="space-y-2">
+                          <Label htmlFor="ssl-port">SSL Port</Label>
+                          <Input
+                            id="ssl-port"
+                            type="number"
+                            value={sslPort}
+                            onChange={(e) => setSslPort(parseInt(e.target.value) || 9898)}
+                            className="w-32"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="cert-path">Certificate Path (.crt/.pem)</Label>
+                          <Input
+                            id="cert-path"
+                            value={sslCertPath}
+                            onChange={(e) => setSslCertPath(e.target.value)}
+                            placeholder="/path/to/server.crt"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="key-path">Private Key Path (.key)</Label>
+                          <Input
+                            id="key-path"
+                            value={sslKeyPath}
+                            onChange={(e) => setSslKeyPath(e.target.value)}
+                            placeholder="/path/to/server.key"
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                          <div className="space-y-0.5">
+                            <Label htmlFor="ssl-redirect">Force HTTPS</Label>
+                            <p className="text-xs text-muted-foreground">
+                              Redirect all HTTP traffic to HTTPS
+                            </p>
+                          </div>
+                          <Switch
+                            id="ssl-redirect"
+                            checked={sslRedirectHttp}
+                            onCheckedChange={setSslRedirectHttp}
+                          />
+                        </div>
+
+                        <div className="pt-4 border-t">
+                          <h4 className="text-sm font-medium mb-2">Self-Signed Certificate</h4>
+                          <p className="text-xs text-muted-foreground mb-4">
+                            Generate a self-signed certificate if you don't have one.
+                            <br />
+                            <span className="text-amber-500 font-semibold">Warning:</span> Browsers
+                            will show a security warning for self-signed certificates.
+                          </p>
+                          <Button
+                            variant="outline"
+                            onClick={() => generateCertMutation.mutate()}
+                            disabled={generateCertMutation.isPending}
+                          >
+                            {generateCertMutation.isPending
+                              ? "Generating..."
+                              : "Generate Self-Signed Certificate"}
+                          </Button>
+                        </div>
+
+                        <div className="pt-4 border-t space-y-4">
+                          <h4 className="text-sm font-medium">Upload Certificate</h4>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <Label htmlFor="cert-upload">Certificate File (.crt/.pem)</Label>
+                              <Input
+                                id="cert-upload"
+                                type="file"
+                                accept=".crt,.pem,.cer"
+                                onChange={(e) => setSelectedCert(e.target.files?.[0] || null)}
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="key-upload">Private Key File (.key/.pem)</Label>
+                              <Input
+                                id="key-upload"
+                                type="file"
+                                accept=".key,.pem"
+                                onChange={(e) => setSelectedKey(e.target.files?.[0] || null)}
+                              />
+                            </div>
+                          </div>
+                          <Button
+                            variant="outline"
+                            onClick={() => uploadCertMutation.mutate()}
+                            disabled={!selectedCert || !selectedKey || uploadCertMutation.isPending}
+                          >
+                            {uploadCertMutation.isPending
+                              ? "Uploading..."
+                              : "Upload Certificate & Key"}
+                          </Button>
+                        </div>
+                      </>
+                    )}
+
+                    <div className="flex justify-end pt-4 border-t">
+                      <Button onClick={handleSaveSsl} disabled={updateSslMutation.isPending}>
+                        {updateSslMutation.isPending ? "Saving..." : "Save SSL Settings"}
+                      </Button>
+                    </div>
+                  </>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

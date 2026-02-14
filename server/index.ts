@@ -1,6 +1,10 @@
 // Force restart trigger
 import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
+import https from "https";
+import fs from "fs";
+import cors from "cors";
+
 import { registerRoutes } from "./routes.js";
 import { setupVite, serveStatic, log } from "./vite.js";
 import { generalApiLimiter } from "./middleware.js";
@@ -12,11 +16,25 @@ import { ensureDatabase } from "./migrate.js";
 import { rssService } from "./rss.js";
 
 const app = express();
+app.use(
+  cors({
+    origin:
+      config.server.allowedOrigins.length === 1 && config.server.allowedOrigins[0] === "*"
+        ? "*"
+        : config.server.allowedOrigins,
+  })
+);
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
 // Apply general rate limiting to all API routes
 app.use("/api", generalApiLimiter);
+
+// 🛡️ Set Origin-Agent-Cluster header to preventing mismatch errors
+app.use((_req, res, next) => {
+  res.setHeader("Origin-Agent-Cluster", "?1");
+  next();
+});
 
 app.use((req, res, next) => {
   const start = Date.now();
@@ -152,10 +170,56 @@ app.use((req, res, next) => {
     }
 
     const { port, host } = config.server;
+    const { ssl } = config;
+
+    // Start HTTP server
     server.listen(port, host, () => {
-      log(`serving on ${host}:${port}`);
-      startCronJobs();
+      log(`HTTP server serving on ${host}:${port}`);
     });
+
+    // Start HTTPS server if enabled
+    if (ssl.enabled && ssl.certPath && ssl.keyPath) {
+      try {
+        // Validate certs before attempting to start
+        const { validateCertFiles } = await import("./ssl.js");
+        const { valid, error } = await validateCertFiles(ssl.certPath, ssl.keyPath);
+
+        if (!valid) {
+          log(`⚠️ SSL Configuration Invalid: ${error}. Starting in HTTP-only mode.`);
+          // Skip HTTPS setup
+        } else {
+          const httpsOptions = {
+            key: await fs.promises.readFile(ssl.keyPath),
+            cert: await fs.promises.readFile(ssl.certPath),
+          };
+
+          const httpsServer = https.createServer(httpsOptions, app);
+
+          // Setup Socket.IO for HTTPS server as well
+          setupSocketIO(httpsServer);
+
+          httpsServer.listen(ssl.port, host, () => {
+            log(`HTTPS server serving on ${host}:${ssl.port}`);
+          });
+
+          // HTTP to HTTPS redirect
+          if (ssl.redirectHttp) {
+            app.use((req, res, next) => {
+              if (!req.secure) {
+                const host = req.hostname || "localhost";
+                return res.redirect(`https://${host}:${ssl.port}${req.url}`);
+              }
+              next();
+            });
+          }
+        }
+      } catch (error) {
+        log("Failed to start HTTPS server: " + String(error));
+        // Fallback or just log error, HTTP server is already running
+      }
+    }
+
+    startCronJobs();
   } catch (error) {
     log("Fatal error during startup:");
     console.error(error);

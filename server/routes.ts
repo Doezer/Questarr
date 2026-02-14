@@ -41,9 +41,21 @@ import {
   sanitizeIndexerSearchQuery,
 } from "./middleware.js";
 import { config as appConfig } from "./config.js";
+import { configLoader } from "./config-loader.js";
 import { prowlarrClient } from "./prowlarr.js";
 import { isSafeUrl, safeFetch } from "./ssrf.js";
 import { hashPassword, comparePassword, generateToken, authenticateToken } from "./auth.js";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
+
+// Configure multer for memory storage
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+  },
+});
 import { searchAllIndexers } from "./search.js";
 import { xrelClient, DEFAULT_XREL_BASE, ALLOWED_XREL_DOMAINS } from "./xrel.js";
 import { normalizeTitle, cleanReleaseName } from "../shared/title-utils.js";
@@ -141,17 +153,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     connectSrc.push("ws:", "wss:");
   }
 
+  const isSslEnabled = appConfig.ssl.enabled && !!appConfig.ssl.certPath && !!appConfig.ssl.keyPath;
+
   app.use(
     helmet({
       contentSecurityPolicy: {
         directives: {
-          ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+          ...(helmet.contentSecurityPolicy.getDefaultDirectives() as Record<
+            string,
+            Iterable<string> | null
+          >),
           "script-src": scriptSrc,
           "img-src": ["'self'", "data:", "https://images.igdb.com"],
           "connect-src": connectSrc,
+          "upgrade-insecure-requests": isSslEnabled ? [] : null,
         },
       },
-      strictTransportSecurity: appConfig.server.disableHsts ? false : undefined,
+      hsts: isSslEnabled,
+      crossOriginOpenerPolicy: false,
     })
   );
 
@@ -299,6 +318,280 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // For readiness checks (e.g., database connectivity), use the /api/ready endpoint.
     res.status(200).json({ status: "ok" });
   });
+
+  // SSL Settings - Get
+  app.get("/api/settings/ssl", authenticateToken, async (req, res) => {
+    try {
+      const sslConfig = configLoader.getSslConfig();
+
+      let certInfo = undefined;
+      if (sslConfig.certPath) {
+        try {
+          const { getCertInfo } = await import("./ssl.js");
+          const info = await getCertInfo(sslConfig.certPath);
+          if (info.valid) {
+            certInfo = {
+              subject: info.subject,
+              issuer: info.issuer,
+              validFrom: info.validFrom,
+              validTo: info.validTo,
+              selfSigned: info.selfSigned,
+            };
+          }
+        } catch (error) {
+          routesLogger.warn({ error }, "Failed to get certificate info");
+        }
+      }
+
+      res.json({ ...sslConfig, certInfo });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to fetch SSL settings");
+      res.status(500).json({ error: "Failed to fetch SSL settings" });
+    }
+  });
+
+  // SSL Settings - Update
+  app.patch("/api/settings/ssl", authenticateToken, sensitiveEndpointLimiter, async (req, res) => {
+    try {
+      const { enabled, port, certPath, keyPath, redirectHttp } = req.body;
+
+      // Basic validation
+      if (typeof enabled !== "boolean")
+        return res.status(400).json({ error: "Invalid 'enabled' value" });
+      if (typeof port !== "number") return res.status(400).json({ error: "Invalid 'port' value" });
+
+      // Validate if enabling SSL
+      if (enabled) {
+        if (certPath && keyPath) {
+          const { validateCertFiles } = await import("./ssl.js"); // Dynamic import to avoid circular deps if any
+          const { valid, error } = await validateCertFiles(certPath, keyPath);
+          if (!valid) {
+            return res.status(400).json({ error: `Invalid SSL configuration: ${error}` });
+          }
+        } else {
+          // If enabling but paths not provided in body, check if they exist in current config or are being set?
+          // Actually, if they are undefined in body, we might be keeping existing ones.
+          // But simpler to just require them if they are changing.
+          // If they are missing in body, let's look up current config
+          const current = configLoader.getSslConfig();
+          const effectiveCert = certPath || current.certPath;
+          const effectiveKey = keyPath || current.keyPath;
+
+          if (!effectiveCert || !effectiveKey) {
+            return res
+              .status(400)
+              .json({ error: "Certificate and key paths are required to enable SSL" });
+          }
+
+          const { validateCertFiles } = await import("./ssl.js");
+          const { valid, error } = await validateCertFiles(effectiveCert, effectiveKey);
+          if (!valid) {
+            return res.status(400).json({ error: `Invalid SSL configuration: ${error}` });
+          }
+        }
+      }
+
+      await configLoader.saveConfig({
+        ssl: {
+          enabled,
+          port,
+          certPath,
+          keyPath,
+          redirectHttp,
+        },
+      });
+
+      routesLogger.info("SSL settings updated");
+      res.json({ success: true, message: "SSL settings updated. Restart required." });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to update SSL settings");
+      res.status(500).json({ error: "Failed to update SSL settings" });
+    }
+  });
+
+  // Generate Self-Signed Cert
+  app.post(
+    "/api/settings/ssl/generate",
+    authenticateToken,
+    sensitiveEndpointLimiter,
+    async (req, res) => {
+      try {
+        const { generateSelfSignedCert } = await import("./ssl.js");
+        const { certPath, keyPath } = await generateSelfSignedCert();
+
+        // Automatically update config to use these
+        const currentSsl = configLoader.getSslConfig();
+        await configLoader.saveConfig({
+          ssl: {
+            ...currentSsl,
+            certPath,
+            keyPath,
+          },
+        });
+
+        routesLogger.info("Generated self-signed certificate");
+        res.json({ success: true, message: "Certificate generated", certPath, keyPath });
+      } catch (error) {
+        routesLogger.error({ error }, "Failed to generate certificate");
+        res.status(500).json({ error: "Failed to generate certificate" });
+      }
+    }
+  );
+
+  // Upload Certificate and Key
+  app.post(
+    "/api/settings/ssl/upload",
+    authenticateToken,
+    sensitiveEndpointLimiter,
+    upload.fields([
+      { name: "cert", maxCount: 1 },
+      { name: "key", maxCount: 1 },
+    ]),
+    async (req, res) => {
+      try {
+        const files = req.files as { [fieldname: string]: Express.Multer.File[] };
+        const certFile = files["cert"]?.[0];
+        const keyFile = files["key"]?.[0];
+
+        if (!certFile || !keyFile) {
+          return res
+            .status(400)
+            .json({ error: "Both certificate and private key files are required" });
+        }
+
+        const { ensureSslDir } = await import("./ssl.js");
+        await ensureSslDir();
+
+        const sslDir = path.join(process.cwd(), "config", "ssl");
+        const certPath = path.join(sslDir, "uploaded.crt");
+        const keyPath = path.join(sslDir, "uploaded.key");
+
+        // Simple validation: Check if they look like PEM files
+        const certContent = certFile.buffer.toString("utf8");
+        const keyContent = keyFile.buffer.toString("utf8");
+
+        if (!certContent.includes("BEGIN CERTIFICATE")) {
+          return res.status(400).json({ error: "Invalid certificate file format (PEM expected)" });
+        }
+        if (!keyContent.includes("PRIVATE KEY")) {
+          return res.status(400).json({ error: "Invalid private key file format (PEM expected)" });
+        }
+
+        await fs.promises.writeFile(certPath, certContent);
+        await fs.promises.writeFile(keyPath, keyContent);
+
+        // Validate the uploaded files specifically
+        const { validateCertFiles } = await import("./ssl.js");
+        const { valid, error } = await validateCertFiles(certPath, keyPath);
+
+        if (!valid) {
+          // Cleanup invalid files
+          await fs.promises.unlink(certPath).catch(() => {});
+          await fs.promises.unlink(keyPath).catch(() => {});
+          return res.status(400).json({ error: `Uploaded certificate/key are invalid: ${error}` });
+        }
+
+        // Update config to use uploaded files
+        const currentSsl = configLoader.getSslConfig();
+        await configLoader.saveConfig({
+          ssl: {
+            ...currentSsl,
+            certPath,
+            keyPath,
+          },
+        });
+
+        routesLogger.info("Uploaded SSL certificate and key");
+        res.json({
+          success: true,
+          message: "Certificate uploaded successfully",
+          certPath,
+          keyPath,
+        });
+      } catch (error) {
+        routesLogger.error({ error }, "Failed to upload certificate");
+        res.status(500).json({ error: "Failed to upload certificate" });
+      }
+    }
+  );
+
+  // File System Browser
+  app.get(
+    "/api/system/filesystem",
+    authenticateToken,
+    sensitiveEndpointLimiter,
+    async (req, res) => {
+      try {
+        const queryPath = (req.query.path as string) || process.cwd();
+        // Resolve to absolute path to handle relative paths correctly
+        const currentPath = path.resolve(queryPath);
+
+        // Basic security check: ensure path exists
+        if (!fs.existsSync(currentPath)) {
+          return res.status(404).json({ error: "Path not found" });
+        }
+
+        const stats = await fs.promises.stat(currentPath);
+        if (!stats.isDirectory()) {
+          return res.status(400).json({ error: "Path is not a directory" });
+        }
+
+        const entries = await fs.promises.readdir(currentPath, { withFileTypes: true });
+
+        const files = await Promise.all(
+          entries.map(async (entry) => {
+            const fullPath = path.join(currentPath, entry.name);
+            let isDirectory = entry.isDirectory();
+            // Handle symbolic links
+            if (entry.isSymbolicLink()) {
+              try {
+                const stat = await fs.promises.stat(fullPath);
+                isDirectory = stat.isDirectory();
+              } catch {
+                isDirectory = false; // Broken link or permission denied
+              }
+            }
+
+            return {
+              name: entry.name,
+              path: fullPath,
+              isDirectory,
+              size: 0,
+            };
+          })
+        );
+
+        // Sort directories first
+        files.sort((a, b) => {
+          if (a.isDirectory === b.isDirectory) {
+            return a.name.localeCompare(b.name);
+          }
+          return a.isDirectory ? -1 : 1;
+        });
+
+        const parentPath = path.dirname(currentPath);
+        // Only return parent if it's different (not root)
+        const parent =
+          parentPath !== currentPath
+            ? {
+                name: "..",
+                path: parentPath,
+                isDirectory: true,
+                size: 0,
+              }
+            : null;
+
+        res.json({
+          path: currentPath,
+          parent,
+          files,
+        });
+      } catch (error) {
+        routesLogger.error({ error }, "Failed to list directory");
+        res.status(500).json({ error: "Failed to list directory" });
+      }
+    }
+  );
 
   // Configuration endpoint - read-only access to key settings
   app.get("/api/config", sensitiveEndpointLimiter, async (req, res) => {
@@ -1921,9 +2214,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         xrel: { apiBase },
         settings: settings
           ? {
-            xrelSceneReleases: settings.xrelSceneReleases,
-            xrelP2pReleases: settings.xrelP2pReleases,
-          }
+              xrelSceneReleases: settings.xrelSceneReleases,
+              xrelP2pReleases: settings.xrelP2pReleases,
+            }
           : undefined,
       });
     } catch (error) {

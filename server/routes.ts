@@ -49,6 +49,9 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 
+// Root directory for the file system browser; restrict browsing to this tree
+const FILE_BROWSER_ROOT = process.cwd();
+
 // Configure multer for memory storage
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -522,9 +525,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     sensitiveEndpointLimiter,
     async (req, res) => {
       try {
-        const queryPath = (req.query.path as string) || process.cwd();
-        // Resolve to absolute path to handle relative paths correctly
-        const currentPath = path.resolve(queryPath);
+        // Treat the query path as relative to the FILE_BROWSER_ROOT
+        const queryPath = (req.query.path as string) || ".";
+
+        // Resolve against the root and normalize
+        const resolvedPath = path.resolve(FILE_BROWSER_ROOT, queryPath);
+
+        // Resolve any symbolic links
+        const currentPath = await fs.promises.realpath(resolvedPath);
+
+        // Ensure the final path is within the allowed root directory
+        const normalizedRoot = FILE_BROWSER_ROOT.endsWith(path.sep)
+          ? FILE_BROWSER_ROOT
+          : FILE_BROWSER_ROOT + path.sep;
+        if (
+          currentPath !== FILE_BROWSER_ROOT &&
+          !currentPath.startsWith(normalizedRoot)
+        ) {
+          return res.status(403).json({ error: "Access to this path is not allowed" });
+        }
 
         // Basic security check: ensure path exists
         if (!fs.existsSync(currentPath)) {

@@ -3,6 +3,7 @@ services:
     image: ghcr.io/doezer/questarr:latest
     ports:
       - "${PORT:-5000}:5000"
+      - "${SSL_PORT:-9898}:9898"
     environment:
       - SQLITE_DB_PATH=/app/data/sqlite.db
     volumes:
@@ -10,7 +11,7 @@ services:
       - ./data:/app/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:5000/api/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"]
+      test: [ "CMD", "node", "-e", "require('http').get('http://localhost:5000/api/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))" ]
       interval: 30s
       timeout: 10s
       retries: 3

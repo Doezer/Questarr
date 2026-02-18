@@ -223,7 +223,7 @@ describe("IGDBClient - Fallback Mechanism", { timeout: 20000 }, () => {
         json: async () => mockGamesList,
       };
       fetchMock.mockResolvedValueOnce(authResponse).mockResolvedValueOnce(successResponse);
-    }
+    };
 
     it("getPopularGames should return list of games", async () => {
       setupMocks();
@@ -276,7 +276,9 @@ describe("IGDBClient - Fallback Mechanism", { timeout: 20000 }, () => {
       };
       const successResponse = {
         ok: true,
-        json: async () => [{ id: 4, name: "Switch Game", platforms: [{ name: "Nintendo Switch" }] }],
+        json: async () => [
+          { id: 4, name: "Switch Game", platforms: [{ name: "Nintendo Switch" }] },
+        ],
       };
       fetchMock.mockResolvedValueOnce(authResponse).mockResolvedValueOnce(successResponse);
 

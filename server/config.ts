@@ -28,7 +28,10 @@ const envSchema = z.object({
     .transform((val) => parseInt(val, 10)),
   HOST: z.string().default("0.0.0.0"),
   NODE_ENV: z.enum(["development", "production", "test"]).default("production"),
-  DISABLE_HSTS: z.string().transform((val) => val === "true").optional(),
+  DISABLE_HSTS: z
+    .string()
+    .transform((val) => val === "true")
+    .optional(),
 });
 
 /**

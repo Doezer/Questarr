@@ -3,6 +3,7 @@ import { storage } from "./storage.js";
 import { igdbClient } from "./igdb.js";
 import { logger } from "./logger.js";
 import { RssFeed, InsertRssFeedItem } from "../shared/schema.js";
+import { isSafeUrl } from "./ssrf.js";
 
 const rssLogger = logger.child({ module: "rss" });
 
@@ -61,6 +62,10 @@ export class RssService {
 
   async refreshFeed(feed: RssFeed) {
     rssLogger.debug(`Fetching feed: ${feed.name} (${feed.url})`);
+
+    if (!(await isSafeUrl(feed.url))) {
+      throw new Error(`Invalid or unsafe URL: ${feed.url}`);
+    }
 
     // Set timeout for parsing
     const feedContent = await this.parser.parseURL(feed.url);

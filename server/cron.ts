@@ -6,7 +6,11 @@ import { DownloaderManager } from "./downloaders.js";
 import { searchAllIndexers } from "./search.js";
 import { xrelClient, DEFAULT_XREL_BASE } from "./xrel.js";
 
-import { downloadRulesSchema } from "../shared/schema.js";
+import {
+  downloadRulesSchema,
+  type Game,
+  type InsertNotification
+} from "../shared/schema.js";
 import { categorizeDownload } from "../shared/download-categorizer.js";
 import { releaseMatchesGame } from "../shared/title-utils.js";
 
@@ -54,7 +58,7 @@ export function startCronJobs() {
   }, XREL_CHECK_INTERVAL_MS);
 }
 
-async function checkGameUpdates() {
+export async function checkGameUpdates() {
   igdbLogger.info("Checking for game updates...");
 
   const allGames = await storage.getAllGames();
@@ -93,7 +97,8 @@ async function checkGameUpdates() {
 
   const igdbGameMap = new Map(igdbGames.map((g) => [g.id, g]));
 
-  let updatedCount = 0;
+  const updatesMap = new Map<string, Partial<Game>>();
+  const notificationsToSend: InsertNotification[] = [];
 
   for (const game of gamesToCheck) {
     const igdbGame = igdbGameMap.get(game.igdbId!);
@@ -103,16 +108,27 @@ async function checkGameUpdates() {
     const currentReleaseDate = new Date(igdbGame.first_release_date * 1000);
     const currentReleaseDateStr = currentReleaseDate.toISOString().split("T")[0];
 
+    // Helper to queue update
+    const queueUpdate = (updates: Partial<Game>) => {
+      const existing = updatesMap.get(game.id) || {};
+      updatesMap.set(game.id, { ...existing, ...updates });
+    };
+
     // Initialize originalReleaseDate if not set
     if (!game.originalReleaseDate) {
       if (game.releaseDate) {
-        await storage.updateGame(game.id, { originalReleaseDate: game.releaseDate });
+        queueUpdate({ originalReleaseDate: game.releaseDate });
         game.originalReleaseDate = game.releaseDate;
       } else {
-        await storage.updateGame(game.id, {
+        queueUpdate({
           releaseDate: currentReleaseDateStr,
           originalReleaseDate: currentReleaseDateStr,
         });
+        // We need to update local object if we were to continue using it,
+        // but the original code did 'continue'.
+        // However, 'continue' skips the rest of the loop logic (status check).
+        // If we just initialized, do we want to skip status check?
+        // Original code: yes.
         continue;
       }
     }
@@ -136,13 +152,12 @@ async function checkGameUpdates() {
     // Check if released status changed to released
     if (newReleaseStatus === "released" && game.releaseStatus !== "released") {
       const message = `${game.title} is now available!`;
-      const notification = await storage.addNotification({
+      notificationsToSend.push({
         type: "success",
         title: "Game Released",
         message,
         link: "/library",
       });
-      notifyUser("notification", notification);
     }
 
     // If things changed, update DB
@@ -159,28 +174,42 @@ async function checkGameUpdates() {
         "Game release updated"
       );
 
-      await storage.updateGame(game.id, {
+      queueUpdate({
         releaseDate: currentReleaseDateStr,
         releaseStatus: newReleaseStatus,
       });
-      updatedCount++;
 
       // Send notification if game is delayed
       if (newReleaseStatus === "delayed" && game.releaseStatus !== "delayed") {
         const message = `${game.title} has been delayed to ${currentReleaseDateStr}`;
-        const notification = await storage.addNotification({
+        notificationsToSend.push({
           type: "delayed",
           title: "Game Delayed",
           message,
           link: "/wishlist",
         });
-        notifyUser("notification", notification);
       }
     }
   }
 
+  // Apply batch updates
+  if (updatesMap.size > 0) {
+    const batchUpdates = Array.from(updatesMap.entries()).map(([id, data]) => ({ id, data }));
+    await storage.updateGamesBatch(batchUpdates);
+  }
+
+  // Send notifications
+  for (const notificationInsert of notificationsToSend) {
+    try {
+      const notification = await storage.addNotification(notificationInsert);
+      notifyUser("notification", notification);
+    } catch (error) {
+      igdbLogger.error({ error }, "Failed to send notification in batch");
+    }
+  }
+
   igdbLogger.info(
-    { updatedCount, checkedCount: gamesToCheck.length },
+    { updatedCount: updatesMap.size, checkedCount: gamesToCheck.length },
     "Finished checking for game updates."
   );
 }

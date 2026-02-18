@@ -6,6 +6,7 @@ import { type RssFeedItem } from "../../shared/schema.js";
 
 const mocks = vi.hoisted(() => ({
   parseURL: vi.fn(),
+  isSafeUrl: vi.fn(),
 }));
 
 vi.mock("rss-parser", () => {
@@ -16,6 +17,10 @@ vi.mock("rss-parser", () => {
   };
 });
 
+vi.mock("../ssrf.js", () => ({
+  isSafeUrl: mocks.isSafeUrl,
+}));
+
 vi.mock("../storage.js");
 vi.mock("../igdb.js");
 
@@ -24,6 +29,15 @@ describe("RssService", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default to safe URL for tests
+    mocks.isSafeUrl.mockResolvedValue(true);
+    // Re-import to ensure fresh instance if needed, though constructor usage in test file handles it
+    // But since RssService is exported as a singleton instance in source,
+    // we might need to rely on that or re-instantiate if the test file supports it.
+    // The test file imports { RssService } but the source exports `export const rssService = new RssService();`
+    // Wait, the source exports the class too?
+    // Checking source: `export class RssService ...` and `export const rssService = new RssService();`
+    // The test imports `RssService` class.
     rssService = new RssService();
   });
 
@@ -77,6 +91,7 @@ describe("RssService", () => {
     await rssService.refreshFeeds();
 
     expect(storage.getAllRssFeeds).toHaveBeenCalled();
+    expect(mocks.isSafeUrl).toHaveBeenCalledWith(mockFeed.url);
     expect(mocks.parseURL).toHaveBeenCalledWith(mockFeed.url);
 
     // 1. Check immediate insertion (should have null matches)
@@ -133,6 +148,33 @@ describe("RssService", () => {
     );
   });
 
+  it("should handle SSRF/unsafe URL errors gracefully", async () => {
+    const mockFeed = {
+      id: "feed-unsafe",
+      name: "Unsafe Feed",
+      url: "http://169.254.169.254/latest/meta-data",
+      enabled: true,
+    };
+
+    vi.mocked(storage.getAllRssFeeds).mockResolvedValue([
+      mockFeed,
+    ] as unknown as import("../../shared/schema").RssFeed[]);
+
+    // Mock isSafeUrl to return false
+    mocks.isSafeUrl.mockResolvedValue(false);
+
+    await rssService.refreshFeeds();
+
+    expect(mocks.parseURL).not.toHaveBeenCalled();
+    expect(storage.updateRssFeed).toHaveBeenCalledWith(
+      mockFeed.id,
+      expect.objectContaining({
+        status: "error",
+        errorMessage: expect.stringMatching(/Invalid or unsafe URL/),
+      })
+    );
+  });
+
   it("should respect custom mappings", async () => {
     const mockFeed = {
       id: "feed-custom",
@@ -174,7 +216,6 @@ describe("RssService", () => {
     } as import("../../shared/schema").RssFeed;
     vi.mocked(storage.getAllRssFeeds).mockResolvedValue([mockFeed]);
 
-    // Return same game twice
     mocks.parseURL.mockResolvedValue({
       items: [
         { title: "Game A v1", link: "l1", guid: "g1" },
@@ -199,7 +240,7 @@ describe("RssService", () => {
     // Wait for background processing
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    // Should be called once per unique game name extraction (assuming extraction works same for both)
+    // Should be called once per unique game name extraction
     expect(igdbClient.searchGames).toHaveBeenCalledTimes(1);
     expect(storage.addRssFeedItem).toHaveBeenCalledTimes(2);
   });

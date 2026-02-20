@@ -173,7 +173,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         },
       },
       hsts: isSslEnabled,
-      crossOriginOpenerPolicy: false,
     })
   );
 
@@ -538,10 +537,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const normalizedRoot = FILE_BROWSER_ROOT.endsWith(path.sep)
           ? FILE_BROWSER_ROOT
           : FILE_BROWSER_ROOT + path.sep;
-        if (
-          currentPath !== FILE_BROWSER_ROOT &&
-          !currentPath.startsWith(normalizedRoot)
-        ) {
+        if (currentPath !== FILE_BROWSER_ROOT && !currentPath.startsWith(normalizedRoot)) {
           return res.status(403).json({ error: "Access to this path is not allowed" });
         }
 

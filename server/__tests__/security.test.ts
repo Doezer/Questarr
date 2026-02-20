@@ -21,6 +21,13 @@ const { mockConfig } = vi.hoisted(() => {
       database: {
         url: "test.db",
       },
+      ssl: {
+        enabled: false,
+        port: 5000,
+        certPath: "",
+        keyPath: "",
+        redirectHttp: false,
+      },
     },
   };
 });

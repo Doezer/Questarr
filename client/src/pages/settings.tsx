@@ -41,8 +41,16 @@ import AutoDownloadRulesSettings from "@/components/AutoDownloadRulesSettings";
 import PasswordSettings from "@/components/PasswordSettings";
 import type { Config, UserSettings, DownloadRules } from "@shared/schema";
 import { downloadRulesSchema } from "@shared/schema";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
+interface CertInfo {
+  subject: string;
+  issuer: string;
+  validFrom: string;
+  validTo: string;
+  selfSigned: boolean;
+  valid: boolean;
+}
 export default function SettingsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -134,7 +142,7 @@ export default function SettingsPage() {
     },
   });
 
-  const [certInfo, setCertInfo] = useState<any>(null); // State for cert info
+  const [certInfo, setCertInfo] = useState<CertInfo | null>(null); // State for cert info
   const [isCertBrowserOpen, setIsCertBrowserOpen] = useState(false);
   const [isKeyBrowserOpen, setIsKeyBrowserOpen] = useState(false);
 
@@ -151,6 +159,8 @@ export default function SettingsPage() {
 
   const [selectedCert, setSelectedCert] = useState<File | null>(null);
   const [selectedKey, setSelectedKey] = useState<File | null>(null);
+  const certInputRef = useRef<HTMLInputElement>(null);
+  const keyInputRef = useRef<HTMLInputElement>(null);
 
   const uploadCertMutation = useMutation({
     mutationFn: async () => {
@@ -185,10 +195,8 @@ export default function SettingsPage() {
       setSelectedCert(null);
       setSelectedKey(null);
       // Reset file inputs
-      const certInput = document.getElementById("cert-upload") as HTMLInputElement;
-      const keyInput = document.getElementById("key-upload") as HTMLInputElement;
-      if (certInput) certInput.value = "";
-      if (keyInput) keyInput.value = "";
+      if (certInputRef.current) certInputRef.current.value = "";
+      if (keyInputRef.current) keyInputRef.current.value = "";
     },
     onError: (error: Error) => {
       toast({
@@ -1169,6 +1177,7 @@ export default function SettingsPage() {
                                   type="file"
                                   accept=".crt,.pem,.cer"
                                   className="hidden"
+                                  ref={certInputRef}
                                   onChange={(e) => setSelectedCert(e.target.files?.[0] || null)}
                                 />
                                 <Label
@@ -1188,6 +1197,7 @@ export default function SettingsPage() {
                                   type="file"
                                   accept=".key,.pem"
                                   className="hidden"
+                                  ref={keyInputRef}
                                   onChange={(e) => setSelectedKey(e.target.files?.[0] || null)}
                                 />
                                 <Label

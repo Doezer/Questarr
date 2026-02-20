@@ -205,6 +205,9 @@ app.use((req, res, next) => {
           // HTTP to HTTPS redirect
           if (ssl.redirectHttp) {
             app.use((req, res, next) => {
+              if (req.path === "/api/health") {
+                return next();
+              }
               if (!req.secure) {
                 const host = req.hostname || "localhost";
                 return res.redirect(`https://${host}:${ssl.port}${req.url}`);

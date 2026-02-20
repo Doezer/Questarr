@@ -11,7 +11,19 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Folder, File, ArrowUp, Loader2, HardDrive } from "lucide-react";
+import { Folder, File, ArrowUp, Loader2, HardDrive, ShieldAlert } from "lucide-react";
+
+interface FileSystemEntry {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+}
+
+interface FileSystemResponse {
+  path: string;
+  parent: FileSystemEntry | null;
+  files: FileSystemEntry[];
+}
 
 interface PathBrowserProps {
   isOpen: boolean;
@@ -36,31 +48,31 @@ export function PathBrowser({
   // Initialize path when dialog opens
   useEffect(() => {
     if (isOpen) {
-      // If we have an initial path, try to use its directory
-      // Simple heuristic: if it looks like a file (has extension), take dirname
-      let path = initialPath || "/";
-      if (path && path.split("/").pop()?.includes(".")) {
-        const parts = path.split("/");
-        parts.pop();
-        path = parts.join("/") || "/";
-      }
-      // If windows style path...
-      if (initialPath && initialPath.includes("\\")) {
-        if (initialPath.split("\\").pop()?.includes(".")) {
-          const parts = initialPath.split("\\");
+      let pathToShow = initialPath || "/";
+      if (initialPath) {
+        const isWindows = initialPath.includes("\\");
+        const separator = isWindows ? "\\" : "/";
+        const parts = initialPath.split(separator);
+        const lastPart = parts[parts.length - 1];
+
+        // Heuristic: if last part has a dot, assume it's a file and show parent directory.
+        if (lastPart?.includes(".")) {
           parts.pop();
-          path = parts.join("\\") || "C:\\";
-        } else {
-          path = initialPath;
+          pathToShow = parts.join(separator);
+        }
+
+        // Handle root path cases
+        if (!pathToShow || (isWindows && pathToShow.endsWith(":"))) {
+          pathToShow = isWindows ? `${parts[0] || "C:"}\\` : "/";
         }
       }
 
-      setCurrentPath(path);
+      setCurrentPath(pathToShow);
       if (initialPath) setSelectedPath(initialPath);
     }
-  }, [isOpen]);
+  }, [isOpen, initialPath]);
 
-  const { data, isLoading, error, refetch } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery<FileSystemResponse>({
     queryKey: ["filesystem", currentPath],
     queryFn: async () => {
       const res = await apiRequest(
@@ -100,7 +112,7 @@ export function PathBrowser({
   };
 
   // Filter files if extensions provided
-  const filteredFiles = data?.files?.filter((file: any) => {
+  const filteredFiles = data?.files?.filter((file: FileSystemEntry) => {
     if (file.isDirectory) return true;
     if (!extensions || extensions.length === 0) return true;
     return extensions.some((ext) => file.name.endsWith(ext));
@@ -147,13 +159,13 @@ export function PathBrowser({
                 {data?.parent && (
                   <div
                     className="flex items-center gap-2 p-2 hover:bg-accent rounded-sm cursor-pointer select-none"
-                    onClick={() => handleNavigate(data.parent.path)}
+                    onClick={() => data.parent && handleNavigate(data.parent.path)}
                   >
                     <ArrowUp className="h-4 w-4 text-muted-foreground" />
                     <span className="text-sm font-medium">..</span>
                   </div>
                 )}
-                {filteredFiles?.map((file: any) => (
+                {filteredFiles?.map((file: FileSystemEntry) => (
                   <div
                     key={file.name}
                     className={`flex items-center gap-2 p-2 rounded-sm cursor-pointer select-none ${
@@ -202,26 +214,5 @@ export function PathBrowser({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function ShieldAlert(props: any) {
-  return (
-    <svg
-      {...props}
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10" />
-      <path d="M12 8v4" />
-      <path d="M12 16h.01" />
-    </svg>
   );
 }

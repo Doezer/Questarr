@@ -362,6 +362,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Invalid 'enabled' value" });
       if (typeof port !== "number") return res.status(400).json({ error: "Invalid 'port' value" });
 
+      // Security check for file paths
+      if (certPath || keyPath) {
+        const normalizedRoot = FILE_BROWSER_ROOT.endsWith(path.sep)
+          ? FILE_BROWSER_ROOT
+          : FILE_BROWSER_ROOT + path.sep;
+
+        if (certPath) {
+          const resolvedCertPath = path.resolve(FILE_BROWSER_ROOT, certPath);
+          if (!resolvedCertPath.startsWith(normalizedRoot)) {
+            return res.status(403).json({ error: "Access to cert path is not allowed" });
+          }
+        }
+        if (keyPath) {
+          const resolvedKeyPath = path.resolve(FILE_BROWSER_ROOT, keyPath);
+          if (!resolvedKeyPath.startsWith(normalizedRoot)) {
+            return res.status(403).json({ error: "Access to key path is not allowed" });
+          }
+        }
+      }
+
       // Validate if enabling SSL
       if (enabled) {
         if (certPath && keyPath) {
@@ -530,13 +550,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Resolve against the root and normalize
         const resolvedPath = path.resolve(FILE_BROWSER_ROOT, queryPath);
 
-        // Resolve any symbolic links
-        const currentPath = await fs.promises.realpath(resolvedPath);
-
-        // Ensure the final path is within the allowed root directory
         const normalizedRoot = FILE_BROWSER_ROOT.endsWith(path.sep)
           ? FILE_BROWSER_ROOT
           : FILE_BROWSER_ROOT + path.sep;
+
+        if (resolvedPath !== FILE_BROWSER_ROOT && !resolvedPath.startsWith(normalizedRoot)) {
+          return res.status(403).json({ error: "Access to this path is not allowed" });
+        }
+
+        // Resolve any symbolic links
+        let currentPath: string;
+        try {
+          currentPath = await fs.promises.realpath(resolvedPath);
+        } catch (error: any) {
+          if (error.code === "ENOENT") {
+            return res.status(404).json({ error: "Path not found" });
+          }
+          throw error;
+        }
+
         if (currentPath !== FILE_BROWSER_ROOT && !currentPath.startsWith(normalizedRoot)) {
           return res.status(403).json({ error: "Access to this path is not allowed" });
         }

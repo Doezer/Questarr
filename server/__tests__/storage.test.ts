@@ -155,6 +155,19 @@ describe("MemStorage", () => {
       expect(retrieved).toBeUndefined();
     });
 
+    it("should filter games by status", async () => {
+      await storage.addGame({ title: "G1", status: "wanted", userId: "u1", igdbId: 1, hidden: false });
+      await storage.addGame({ title: "G2", status: "owned", userId: "u1", igdbId: 2, hidden: false });
+      await storage.addGame({ title: "G3", status: "completed", userId: "u1", igdbId: 3, hidden: false });
+
+      const wanted = await storage.getUserGames("u1", false, ["wanted"]);
+      expect(wanted).toHaveLength(1);
+      expect(wanted[0].status).toBe("wanted");
+
+      const multiple = await storage.getUserGames("u1", false, ["owned", "completed"]);
+      expect(multiple).toHaveLength(2);
+    });
+
     it("should return null/false when updating/removing non-existent game", async () => {
       const updated = await storage.updateGameStatus("fake-id", { status: "downloading" });
       expect(updated).toBeUndefined(); // MemStorage returns undefined for not found

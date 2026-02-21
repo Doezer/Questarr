@@ -545,7 +545,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     async (req, res) => {
       try {
         // Treat the query path as relative to the FILE_BROWSER_ROOT
-        const queryPath = (req.query.path as string) || ".";
+        const rawPath = req.query.path;
+
+        // Normalize and validate the user-controlled path input.
+        // Ensure we are working with a single string value to avoid
+        // type confusion when multiple "path" parameters are supplied.
+        let queryPath: string;
+        if (rawPath == null) {
+          queryPath = ".";
+        } else if (typeof rawPath === "string") {
+          queryPath = rawPath;
+        } else if (Array.isArray(rawPath) && typeof rawPath[0] === "string") {
+          // Use the first provided value if multiple are supplied
+          queryPath = rawPath[0];
+        } else {
+          return res.status(400).json({ error: "Invalid path parameter" });
+        }
 
         // Basic validation of user-controlled path input before resolving.
         // Disallow NUL bytes and absolute paths; traversal outside the root

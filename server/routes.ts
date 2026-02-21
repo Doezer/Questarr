@@ -618,9 +618,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
           return a.isDirectory ? -1 : 1;
         });
+        const parentPath = path.dirname(currentPath);
         const parentRelativePath = path.relative(FILE_BROWSER_ROOT, parentPath);
 
-        const parentPath = path.dirname(currentPath);
         // Only return parent if it's different (not root)
         const parent =
           parentPath !== currentPath

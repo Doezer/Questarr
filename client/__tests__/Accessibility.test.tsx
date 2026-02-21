@@ -4,7 +4,6 @@ import { render, screen } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import CompactGameCard from "../src/components/CompactGameCard";
 import GameCard from "../src/components/GameCard";
-import AddGameModal from "../src/components/AddGameModal";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Game } from "@shared/schema";
@@ -53,7 +52,7 @@ const renderWithProviders = (ui: React.ReactElement) => {
   );
 };
 
-const mockGame: Game = {
+const mockGame = {
   id: "1",
   title: "Test Game",
   coverUrl: "http://example.com/cover.jpg",
@@ -67,7 +66,7 @@ const mockGame: Game = {
   folderName: "Test Game",
   createdAt: new Date(),
   updatedAt: new Date(),
-};
+} as unknown as Game;
 
 describe("Accessibility Improvements", () => {
   describe("CompactGameCard", () => {

@@ -58,7 +58,7 @@ describe("auth Module", () => {
       expect(typeof token).toBe("string");
 
       const decoded = jwt.verify(token, "test-secret-from-db") as import("jsonwebtoken").JwtPayload;
-      expect(decoded.id).toBe("user123");
+      expect(decoded.id).toBe(123);
       expect(decoded.username).toBe("testuser");
     });
   });

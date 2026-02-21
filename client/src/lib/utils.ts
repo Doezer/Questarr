@@ -104,11 +104,12 @@ export function compareEnabledPriorityName<T extends EnabledPriorityNamed>(a: T,
  */
 export function safeUrl(url: string, fallback = "#"): string {
   try {
-    const parsedUrl = new URL(url, window.location.origin);
+    const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost";
+    const parsedUrl = new URL(url, origin);
     if (parsedUrl.protocol === "http:" || parsedUrl.protocol === "https:") {
       return url;
     }
-  } catch (e) {
+  } catch {
     // Ignore invalid URLs
   }
   return fallback;

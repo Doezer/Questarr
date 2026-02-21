@@ -238,7 +238,7 @@ app.use((req, res, next) => {
     if (ssl.enabled && ssl.redirectHttp) {
       log("⚠️ WARNING: HTTP to HTTPS redirection is ENABLED.");
       log(
-        "⚠️ If you lose access, you can disable SSL by removing your ssl.json config file or using the CLI tool/database reset."
+        "⚠️ If you lose access, you can disable SSL by setting 'enabled: false' in your config.yaml or data/config.yaml file."
       );
     }
 

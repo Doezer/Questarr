@@ -1,7 +1,7 @@
 import forge from "node-forge";
 import fs from "fs";
 import path from "path";
-import { configLoader } from "./config-loader";
+import { configLoader } from "./config-loader.js";
 
 const { mkdir, writeFile, readFile } = fs.promises;
 

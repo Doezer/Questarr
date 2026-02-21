@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
 import { isSafeUrl, safeFetch } from "../ssrf";
 import dns from "dns/promises";
 
@@ -101,7 +101,7 @@ describe("safeFetch", () => {
     );
 
     // Verify Host header is set
-    const calledHeaders = (fetch as any).mock.calls[0][1].headers as Headers;
+    const calledHeaders = (fetch as Mock).mock.calls[0][1].headers as Headers;
     expect(calledHeaders.get("Host")).toBe("example.com");
   });
 

@@ -153,10 +153,10 @@ export async function getCertInfo(certPath: string): Promise<{
     const cert = forge.pki.certificateFromPem(certPem);
 
     const subject = cert.subject.attributes
-      .map((attr: any) => `${attr.shortName || attr.name}=${attr.value}`)
+      .map((attr: forge.pki.CertificateField) => `${attr.shortName || attr.name}=${attr.value}`)
       .join(", ");
     const issuer = cert.issuer.attributes
-      .map((attr: any) => `${attr.shortName || attr.name}=${attr.value}`)
+      .map((attr: forge.pki.CertificateField) => `${attr.shortName || attr.name}=${attr.value}`)
       .join(", ");
 
     // Check if self-signed (Issuer == Subject is a simple heuristic, though technically signature verification is better, this is sufficient for UI)

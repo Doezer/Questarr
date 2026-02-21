@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import express from "express";
-import path from "path";
 
 // Use vi.hoisted to create the mock object
 const { mockConfig } = vi.hoisted(() => {
@@ -69,8 +68,11 @@ vi.mock("../auth.js", () => ({
   hashPassword: vi.fn(),
   comparePassword: vi.fn(),
   generateToken: vi.fn(),
-  authenticateToken: (req: any, res: any, next: any) => {
-    req.user = { id: "test-user-id", username: "testuser" };
+  authenticateToken: (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    (req as express.Request & { user: { id: string; username: string } }).user = {
+      id: "test-user-id",
+      username: "testuser",
+    };
     next();
   },
 }));

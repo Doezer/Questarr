@@ -39,8 +39,7 @@ app.use((_req, res, next) => {
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
+  let capturedJsonResponse: Record<string, unknown> | undefined = undefined;
 
   const originalResJson = res.json;
   res.json = function (bodyJson, ...args) {
@@ -64,7 +63,7 @@ app.use((req, res, next) => {
         path.match(/^\/api\/indexers\/[^/]+\/categories$/);
 
       // Helper to truncate log data
-      const truncateLogData = (data: any, depth = 0): any => {
+      const truncateLogData = (data: unknown, depth = 0): unknown => {
         if (!data) return data;
         if (depth > 2) return "[Object/Array]"; // Aggressive depth limit
 
@@ -78,15 +77,16 @@ app.use((req, res, next) => {
         }
 
         if (typeof data === "object") {
-          const newObj: any = {};
-          const keys = Object.keys(data);
+          const dict = data as Record<string, unknown>;
+          const newObj: Record<string, unknown> = {};
+          const keys = Object.keys(dict);
 
           // Limit number of keys shown per object to reduce verbosity
           const maxKeys = 5;
           const processingKeys = keys.slice(0, maxKeys);
 
           for (const key of processingKeys) {
-            newObj[key] = truncateLogData(data[key], depth + 1);
+            newObj[key] = truncateLogData(dict[key], depth + 1);
           }
 
           if (keys.length > maxKeys) {

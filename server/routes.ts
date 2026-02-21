@@ -508,8 +508,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         if (!valid) {
           // Cleanup invalid files
-          await fs.promises.unlink(certPath).catch(() => { });
-          await fs.promises.unlink(keyPath).catch(() => { });
+          await fs.promises.unlink(certPath).catch(() => {});
+          await fs.promises.unlink(keyPath).catch(() => {});
           return res.status(400).json({ error: `Uploaded certificate/key are invalid: ${error}` });
         }
 
@@ -562,8 +562,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         let currentPath: string;
         try {
           currentPath = await fs.promises.realpath(resolvedPath);
-        } catch (error: any) {
-          if (error.code === "ENOENT") {
+        } catch (error) {
+          const fsError = error as NodeJS.ErrnoException;
+          if (fsError.code === "ENOENT") {
             return res.status(404).json({ error: "Path not found" });
           }
           throw error;
@@ -621,11 +622,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const parent =
           parentPath !== currentPath
             ? {
-              name: "..",
-              path: parentPath,
-              isDirectory: true,
-              size: 0,
-            }
+                name: "..",
+                path: parentPath,
+                isDirectory: true,
+                size: 0,
+              }
             : null;
 
         res.json({
@@ -2261,9 +2262,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         xrel: { apiBase },
         settings: settings
           ? {
-            xrelSceneReleases: settings.xrelSceneReleases,
-            xrelP2pReleases: settings.xrelP2pReleases,
-          }
+              xrelSceneReleases: settings.xrelSceneReleases,
+              xrelP2pReleases: settings.xrelP2pReleases,
+            }
           : undefined,
       });
     } catch (error) {

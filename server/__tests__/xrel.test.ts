@@ -1,14 +1,14 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
 import { xrelClient, XrelSceneRelease, XrelP2pRelease } from "../xrel.js";
 
 vi.mock("../ssrf.js", () => ({
-  safeFetch: vi.fn((url, options) => fetch(url, options)) as any,
+  safeFetch: vi.fn((url, options) => fetch(url, options)) as Mock,
   isSafeUrl: vi.fn().mockResolvedValue(true),
 }));
 
 // Mock fetch globally
 const fetchMock = vi.fn();
-global.fetch = fetchMock as any;
+global.fetch = fetchMock as unknown as typeof fetch;
 
 describe("xREL Client", () => {
   let currentTime = 1600000000000;

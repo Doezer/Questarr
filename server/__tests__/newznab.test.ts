@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 import type { Indexer } from "../../shared/schema";
 import { newznabClient } from "../newznab.js";
 
@@ -13,7 +13,7 @@ vi.mock("../logger.js", () => ({
 
 vi.mock("../ssrf.js", () => ({
   isSafeUrl: vi.fn().mockResolvedValue(true),
-  safeFetch: vi.fn((url, options) => fetch(url, options)) as any,
+  safeFetch: vi.fn((url, options) => fetch(url, options)) as Mock,
 }));
 
 describe("NewznabClient", () => {
@@ -22,7 +22,7 @@ describe("NewznabClient", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     fetchMock = vi.fn();
-    global.fetch = fetchMock as any;
+    global.fetch = fetchMock as unknown as typeof fetch;
   });
 
   const mockIndexer: Indexer = {

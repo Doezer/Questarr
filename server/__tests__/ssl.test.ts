@@ -68,8 +68,12 @@ describe("SSL Module", () => {
       mockCert.validity.notBefore = new Date();
       mockCert.validity.notAfter = new Date();
 
-      vi.mocked(forge.pki.rsa.generateKeyPair).mockReturnValue(mockKeys as any);
-      vi.mocked(forge.pki.createCertificate).mockReturnValue(mockCert as any);
+      vi.mocked(forge.pki.rsa.generateKeyPair).mockReturnValue(
+        mockKeys as unknown as ReturnType<typeof forge.pki.rsa.generateKeyPair>
+      );
+      vi.mocked(forge.pki.createCertificate).mockReturnValue(
+        mockCert as unknown as ReturnType<typeof forge.pki.createCertificate>
+      );
       vi.mocked(forge.pki.privateKeyToPem).mockReturnValue("PEM_KEY");
       vi.mocked(forge.pki.certificateToPem).mockReturnValue("PEM_CERT");
 
@@ -90,7 +94,7 @@ describe("SSL Module", () => {
     it("should return valid: true for valid matching files", async () => {
       mocks.existsSync.mockReturnValue(true);
 
-      mocks.readFile.mockImplementation(async (path: any) => {
+      mocks.readFile.mockImplementation(async (path: string | Buffer | URL) => {
         if (path.toString().includes("cert.pem"))
           return "-----BEGIN CERTIFICATE-----\nContent\n-----END CERTIFICATE-----";
         if (path.toString().includes("key.pem"))
@@ -99,7 +103,9 @@ describe("SSL Module", () => {
       });
 
       const mockCert = { validity: { notAfter: new Date(Date.now() + 100000) } };
-      vi.mocked(forge.pki.certificateFromPem).mockReturnValue(mockCert as any);
+      vi.mocked(forge.pki.certificateFromPem).mockReturnValue(
+        mockCert as unknown as ReturnType<typeof forge.pki.certificateFromPem>
+      );
 
       const result = await validateCertFiles("cert.pem", "key.pem");
       if (!result.valid) console.log("validateCertFiles failure debug:", result);
@@ -109,7 +115,7 @@ describe("SSL Module", () => {
     it("should return valid: false if certificate is expired", async () => {
       mocks.existsSync.mockReturnValue(true);
 
-      mocks.readFile.mockImplementation(async (path: any) => {
+      mocks.readFile.mockImplementation(async (path: string | Buffer | URL) => {
         if (path.toString().includes("cert.pem"))
           return "-----BEGIN CERTIFICATE-----\nContent\n-----END CERTIFICATE-----";
         if (path.toString().includes("key.pem"))
@@ -118,7 +124,9 @@ describe("SSL Module", () => {
       });
 
       const mockCert = { validity: { notAfter: new Date(Date.now() - 100000) } }; // Expired
-      vi.mocked(forge.pki.certificateFromPem).mockReturnValue(mockCert as any);
+      vi.mocked(forge.pki.certificateFromPem).mockReturnValue(
+        mockCert as unknown as ReturnType<typeof forge.pki.certificateFromPem>
+      );
 
       const result = await validateCertFiles("cert.pem", "key.pem");
       expect(result.valid).toBe(false);
@@ -137,7 +145,9 @@ describe("SSL Module", () => {
         issuer: { attributes: [{ name: "commonName", value: "Test Issuer" }] },
         validity: { notBefore: new Date(), notAfter: new Date() },
       };
-      vi.mocked(forge.pki.certificateFromPem).mockReturnValue(mockCert as any);
+      vi.mocked(forge.pki.certificateFromPem).mockReturnValue(
+        mockCert as unknown as ReturnType<typeof forge.pki.certificateFromPem>
+      );
 
       const result = await getCertInfo("cert.pem");
       expect(result.valid).toBe(true);
@@ -156,7 +166,9 @@ describe("SSL Module", () => {
         issuer: { attributes: [{ name: "commonName", value: "Self Signed" }] },
         validity: { notBefore: new Date(), notAfter: new Date() },
       };
-      vi.mocked(forge.pki.certificateFromPem).mockReturnValue(mockCert as any);
+      vi.mocked(forge.pki.certificateFromPem).mockReturnValue(
+        mockCert as unknown as ReturnType<typeof forge.pki.certificateFromPem>
+      );
 
       const result = await getCertInfo("cert.pem");
       expect(result.valid).toBe(true);

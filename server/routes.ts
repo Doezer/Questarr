@@ -547,7 +547,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Treat the query path as relative to the FILE_BROWSER_ROOT
         const queryPath = (req.query.path as string) || ".";
 
-        if (queryPath.includes("\0") || queryPath.includes("..")) {
+        // Basic validation of user-controlled path input before resolving.
+        // Disallow NUL bytes and absolute paths; traversal outside the root
+        // is prevented by the subsequent normalizedRoot checks.
+        if (queryPath.includes("\0")) {
+          return res.status(403).json({ error: "Access to this path is not allowed" });
+        }
+        if (path.isAbsolute(queryPath)) {
           return res.status(403).json({ error: "Access to this path is not allowed" });
         }
 

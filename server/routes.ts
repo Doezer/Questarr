@@ -796,13 +796,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (search && typeof search === "string" && search.trim()) {
         games = await storage.searchUserGames(userId, search.trim(), showHidden);
       } else {
-        // Parse status filter if present
         let statuses: string[] | undefined;
-        if (typeof status === "string" && status.trim().length > 0) {
-          statuses = status
-            .split(",")
+        if (status) {
+          const statusValues = Array.isArray(status) ? status : [status];
+          statuses = statusValues
+            .flatMap((s) => String(s).split(","))
             .map((s) => s.trim())
             .filter((s) => s.length > 0);
+          if (statuses.length === 0) {
+            statuses = undefined;
+          }
         }
 
         games = await storage.getUserGames(userId, showHidden, statuses);

@@ -78,6 +78,13 @@ export async function validateCertFiles(
   keyPath: string
 ): Promise<{ valid: boolean; error?: string; expiry?: Date }> {
   try {
+    if (certPath.includes("\0") || certPath.includes("..")) {
+      return { valid: false, error: "Invalid certificate path" };
+    }
+    if (keyPath.includes("\0") || keyPath.includes("..")) {
+      return { valid: false, error: "Invalid private key path" };
+    }
+
     if (!fs.existsSync(certPath)) {
       return { valid: false, error: "Certificate file missing" };
     }
@@ -145,6 +152,10 @@ export async function getCertInfo(certPath: string): Promise<{
   error?: string;
 }> {
   try {
+    if (certPath.includes("\0") || certPath.includes("..")) {
+      return { valid: false, error: "Invalid certificate path" };
+    }
+
     if (!fs.existsSync(certPath)) {
       return { valid: false, error: "Certificate file not found" };
     }

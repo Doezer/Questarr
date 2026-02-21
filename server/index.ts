@@ -18,10 +18,7 @@ import { rssService } from "./rss.js";
 const app = express();
 app.use(
   cors({
-    origin:
-      config.server.allowedOrigins.length === 1 && config.server.allowedOrigins[0] === "*"
-        ? "*"
-        : config.server.allowedOrigins,
+    origin: config.server.allowedOrigins,
   })
 );
 app.use(express.json());

@@ -2,9 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.2.0] - 2026-02-08
+## [1.2.1] - 2026-02-21
 
 ### Added
+
+- **SSL Support**: Added SSL support with optional HTTP to HTTPS redirection (#395).
+- **ARM64 Support**: Added ARM64 architecture to CI builds (#388).
+
+### Changed
+
+- HSTS is disabled if SSL is disabled.
+- Updated dependencies including `fast-xml-parser`, `semver`, `dotenv` (#378, #379, #380, #381).
+
+### Fixed
+
+- Fixed issue with tracked `sqlite.db` and updated `.gitignore`.
+
+## [1.2.0] - 2026-02-08
 
 - **RSS Feed Support**: Added a dedicated page for RSS feeds with capabilities to manage feeds and view items.
 - **xREL Integration**: Implemented integration with xREL.to for game release notifications and metadata.

@@ -37,11 +37,11 @@
 
 - **🎮 Game Discovery**: Browse popular games, new releases, and upcoming titles via IGDB integration and xREL.to.
 - **📚 Library Management**: Track your game collection with status indicators (Wanted, Owned, Playing, Completed).
-<!-- v1.2.0 only - **☁️ Steam Integration**: Sync your Steam wishlist and import your library automatically. -->
+<!--- **☁️ Steam Integration**: Sync your Steam wishlist and import your library automatically. -->
 - **⬇️ Download Management**: Integrate with indexers (Prowlarr/Torznab/Newsznab), torrent/usenet downloaders (qBittorrent, Transmission, rTorrent / sabnzbd, nzbget), and optionally enable auto-download to get them right when they're there.
 - **🔍 Search & Filter**: Find games by genre, platform, and search terms. Automatically search for added games until available on your indexers.
 - **📰 RSS Feeds**: Monitor releases from your favorite groups directly within the app.
-- **🔒 Privacy Focused**: No external dependencies (Google Fonts removed) and hardened security (CSP, SSRF protection).
+- **🔒 Privacy Focused**: No external dependencies (even google fonts are locally hosted) and hardened security (CSP, SSRF protection), as well as SSL support.
 - **✨ Clean Interface**: UI optimized for browsing game covers and metadata, with light/dark mode.
 
 ## Screenshots

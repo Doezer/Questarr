@@ -20,7 +20,9 @@ describe("isSafeUrl Security Check", () => {
 
   it("should allow private IPs by default (self-hosted use case)", async () => {
     // Mock DNS lookup for google.com to return a safe IP
-    vi.mocked(dns.lookup).mockResolvedValueOnce({ address: "142.250.185.46", family: 4 });
+    vi.mocked(dns.lookup as unknown as import("dns").LookupAddress[]).mockResolvedValueOnce([
+      { address: "142.250.185.46", family: 4 },
+    ]);
     expect(await isSafeUrl("http://google.com")).toBe(true);
 
     // Private IPs are allowed by default for self-hosted projects
@@ -29,7 +31,9 @@ describe("isSafeUrl Security Check", () => {
     expect(await isSafeUrl("http://10.0.0.1")).toBe(true);
 
     // Mock DNS lookup for localhost
-    vi.mocked(dns.lookup).mockResolvedValueOnce({ address: "127.0.0.1", family: 4 });
+    vi.mocked(dns.lookup as unknown as import("dns").LookupAddress[]).mockResolvedValueOnce([
+      { address: "127.0.0.1", family: 4 },
+    ]);
     expect(await isSafeUrl("http://localhost")).toBe(true);
 
     expect(await isSafeUrl("http://[::1]")).toBe(true); // Localhost IPv6
@@ -61,6 +65,29 @@ describe("isSafeUrl Security Check", () => {
     const isSafe = await isSafeUrl("http://non-existent-domain-xyz-123.com");
     expect(isSafe).toBe(false);
   });
+
+  it("should block hostnames that resolve to both safe and unsafe IPs (DNS Rebinding)", async () => {
+    // Mock DNS lookup to return both a safe public IP and an unsafe loopback IP
+    vi.mocked(dns.lookup as unknown as import("dns").LookupAddress[]).mockResolvedValueOnce([
+      { address: "142.250.185.46", family: 4 }, // safe
+      { address: "127.0.0.1", family: 4 }, // unsafe if allowPrivate: false
+    ]);
+
+    expect(await isSafeUrl("http://rebinding-attack.com", { allowPrivate: false })).toBe(false);
+  });
+
+  it("should block hostnames that resolve to metadata service regardless of allowPrivate", async () => {
+    vi.mocked(dns.lookup as unknown as import("dns").LookupAddress[]).mockResolvedValueOnce([
+      { address: "1.2.3.4", family: 4 },
+      { address: "169.254.169.254", family: 4 },
+    ]);
+    expect(await isSafeUrl("http://meta-attack.com")).toBe(false);
+  });
+
+  it("should reject hostnames that resolve to empty addresses array", async () => {
+    vi.mocked(dns.lookup as unknown as import("dns").LookupAddress[]).mockResolvedValueOnce([]);
+    expect(await isSafeUrl("http://empty-dns.com")).toBe(false);
+  });
 });
 
 describe("safeFetch", () => {
@@ -76,7 +103,9 @@ describe("safeFetch", () => {
 
   it("should use original hostname for HTTPS (SSL certificate compatibility)", async () => {
     // Mock DNS lookup to return a safe IP
-    vi.mocked(dns.lookup).mockResolvedValueOnce({ address: "142.250.185.46", family: 4 });
+    vi.mocked(dns.lookup as unknown as import("dns").LookupAddress[]).mockResolvedValueOnce([
+      { address: "142.250.185.46", family: 4 },
+    ]);
     vi.mocked(fetch).mockResolvedValueOnce(new Response("ok"));
 
     await safeFetch("https://example.com/api");
@@ -87,7 +116,9 @@ describe("safeFetch", () => {
 
   it("should rewrite HTTP URLs to use resolved IP for DNS rebinding protection", async () => {
     // Mock DNS lookup to return a safe IP
-    vi.mocked(dns.lookup).mockResolvedValueOnce({ address: "142.250.185.46", family: 4 });
+    vi.mocked(dns.lookup as unknown as import("dns").LookupAddress[]).mockResolvedValueOnce([
+      { address: "142.250.185.46", family: 4 },
+    ]);
     vi.mocked(fetch).mockResolvedValueOnce(new Response("ok"));
 
     await safeFetch("http://example.com/api");
@@ -107,14 +138,18 @@ describe("safeFetch", () => {
 
   it("should reject URLs that resolve to metadata service IPs", async () => {
     // Mock DNS lookup to return a metadata service IP
-    vi.mocked(dns.lookup).mockResolvedValueOnce({ address: "169.254.169.254", family: 4 });
+    vi.mocked(dns.lookup as unknown as import("dns").LookupAddress[]).mockResolvedValueOnce([
+      { address: "169.254.169.254", family: 4 },
+    ]);
 
     await expect(safeFetch("https://evil.example.com/")).rejects.toThrow("Invalid or unsafe URL");
   });
 
   it("should reject URLs that fail DNS resolution", async () => {
     // Mock DNS lookup to fail
-    vi.mocked(dns.lookup).mockRejectedValueOnce(new Error("ENOTFOUND"));
+    vi.mocked(dns.lookup as unknown as import("dns").LookupAddress[]).mockRejectedValueOnce(
+      new Error("ENOTFOUND")
+    );
 
     await expect(safeFetch("https://non-existent-domain.com/")).rejects.toThrow(
       "Failed to resolve hostname"
@@ -128,5 +163,18 @@ describe("safeFetch", () => {
     await safeFetch("https://192.168.1.1:8080/api");
 
     expect(fetch).toHaveBeenCalledWith("https://192.168.1.1:8080/api", expect.any(Object));
+  });
+
+  it("should reject if any resolved IP is unsafe (DNS Rebinding prevention)", async () => {
+    vi.mocked(dns.lookup as unknown as import("dns").LookupAddress[]).mockResolvedValueOnce([
+      { address: "1.2.3.4", family: 4 },
+      { address: "169.254.169.254", family: 4 },
+    ]);
+    await expect(safeFetch("http://attack.com")).rejects.toThrow("Invalid or unsafe URL");
+  });
+
+  it("should reject URLs that resolve to empty addresses array", async () => {
+    vi.mocked(dns.lookup as unknown as import("dns").LookupAddress[]).mockResolvedValueOnce([]);
+    await expect(safeFetch("http://empty-dns.com")).rejects.toThrow("Invalid or unsafe URL");
   });
 });

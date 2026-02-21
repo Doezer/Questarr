@@ -42,27 +42,13 @@ vi.mock("../storage.js", () => ({
   storage: {
     countUsers: vi.fn().mockResolvedValue(1),
     getSystemConfig: vi.fn(),
-    syncIndexers: vi.fn().mockResolvedValue({ added: 0, updated: 0 }),
     getUser: vi.fn(),
-    getIndexer: vi.fn().mockResolvedValue(null),
   },
 }));
 
 vi.mock("../igdb.js", () => ({
   igdbClient: {
     getPopularGames: vi.fn(),
-  },
-}));
-
-vi.mock("../torznab.js", () => ({
-  torznabClient: {
-    testConnection: vi.fn().mockResolvedValue({ success: true, message: "Connected" }),
-  },
-}));
-
-vi.mock("../prowlarr.js", () => ({
-  prowlarrClient: {
-    getIndexers: vi.fn().mockResolvedValue([]),
   },
 }));
 
@@ -94,7 +80,7 @@ vi.mock("../auth.js", () => ({
 // Import registerRoutes AFTER mocking
 import { registerRoutes } from "../routes.js";
 
-describe("SSRF Vulnerability in Routes", () => {
+describe("Path Traversal Vulnerability in Routes", () => {
   let app: express.Express;
 
   beforeEach(() => {
@@ -112,30 +98,40 @@ describe("SSRF Vulnerability in Routes", () => {
     return app;
   };
 
-  const UNSAFE_URL = "http://169.254.169.254/latest/meta-data/";
-
-  it("should allow unsafe URL in /api/indexers/prowlarr/sync (VULNERABILITY)", async () => {
+  it("should block path traversal in /api/system/filesystem", async () => {
     const app = await createApp();
 
-    const response = await request(app)
-      .post("/api/indexers/prowlarr/sync")
-      .send({ url: UNSAFE_URL, apiKey: "abc" });
+    const response = await request(app).get("/api/system/filesystem?path=../../../../etc/passwd");
 
-    expect(response.status).toBe(400);
-    expect(response.body.error).toMatch(/Invalid or unsafe URL/);
+    expect(response.status).toBe(403);
+    expect(response.body.error).toMatch(/Access to this path is not allowed/);
   });
 
-  it("should block unsafe URL in /api/indexers/test", async () => {
+  it("should block path traversal in /api/settings/ssl for certPath", async () => {
     const app = await createApp();
 
-    const response = await request(app).post("/api/indexers/test").send({
-      url: UNSAFE_URL,
-      apiKey: "abc",
-      name: "Test Indexer",
+    const response = await request(app).patch("/api/settings/ssl").send({
+      enabled: true,
+      port: 9898,
+      certPath: "../../../../etc/passwd",
+      keyPath: "config/ssl/server.key",
     });
 
-    // Expect 400 (Vulnerability fixed)
-    expect(response.status).toBe(400);
-    expect(response.body.error).toMatch(/Invalid or unsafe URL/);
+    expect(response.status).toBe(403);
+    expect(response.body.error).toMatch(/Access to cert path is not allowed/);
+  });
+
+  it("should block path traversal in /api/settings/ssl for keyPath", async () => {
+    const app = await createApp();
+
+    const response = await request(app).patch("/api/settings/ssl").send({
+      enabled: true,
+      port: 9898,
+      certPath: "config/ssl/server.crt",
+      keyPath: "../../../../etc/passwd",
+    });
+
+    expect(response.status).toBe(403);
+    expect(response.body.error).toMatch(/Access to key path is not allowed/);
   });
 });

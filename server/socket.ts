@@ -6,20 +6,27 @@ import { config } from "./config.js";
 let io: Server | undefined;
 
 export function setupSocketIO(httpServer: HttpServer) {
-  io = new Server(httpServer, {
-    cors: {
-      origin: config.server.allowedOrigins, // Adjust this for production security
-      methods: ["GET", "POST"],
-    },
-  });
-
-  io.on("connection", (socket) => {
-    expressLogger.info({ socketId: socket.id }, "Client connected to WebSocket");
-
-    socket.on("disconnect", () => {
-      expressLogger.info({ socketId: socket.id }, "Client disconnected from WebSocket");
+  if (!io) {
+    io = new Server({
+      cors: {
+        origin:
+          config.server.allowedOrigins.length === 1 && config.server.allowedOrigins[0] === "*"
+            ? "*"
+            : config.server.allowedOrigins,
+        methods: ["GET", "POST"],
+      },
     });
-  });
+
+    io.on("connection", (socket) => {
+      expressLogger.info({ socketId: socket.id }, "Client connected to WebSocket");
+
+      socket.on("disconnect", () => {
+        expressLogger.info({ socketId: socket.id }, "Client disconnected from WebSocket");
+      });
+    });
+  }
+
+  io.attach(httpServer);
 
   return io;
 }

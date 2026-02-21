@@ -1,6 +1,10 @@
 // Force restart trigger
 import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
+import https from "https";
+import fs from "fs";
+import cors from "cors";
+
 import { registerRoutes } from "./routes.js";
 import { setupVite, serveStatic, log } from "./vite.js";
 import { generalApiLimiter } from "./middleware.js";
@@ -12,17 +16,27 @@ import { ensureDatabase } from "./migrate.js";
 import { rssService } from "./rss.js";
 
 const app = express();
+app.use(
+  cors({
+    origin: config.server.allowedOrigins,
+  })
+);
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
 // Apply general rate limiting to all API routes
 app.use("/api", generalApiLimiter);
 
+// 🛡️ Set Origin-Agent-Cluster header to preventing mismatch errors
+app.use((_req, res, next) => {
+  res.setHeader("Origin-Agent-Cluster", "?1");
+  next();
+});
+
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
+  let capturedJsonResponse: Record<string, unknown> | undefined = undefined;
 
   const originalResJson = res.json;
   res.json = function (bodyJson, ...args) {
@@ -46,7 +60,7 @@ app.use((req, res, next) => {
         path.match(/^\/api\/indexers\/[^/]+\/categories$/);
 
       // Helper to truncate log data
-      const truncateLogData = (data: any, depth = 0): any => {
+      const truncateLogData = (data: unknown, depth = 0): unknown => {
         if (!data) return data;
         if (depth > 2) return "[Object/Array]"; // Aggressive depth limit
 
@@ -60,15 +74,16 @@ app.use((req, res, next) => {
         }
 
         if (typeof data === "object") {
-          const newObj: any = {};
-          const keys = Object.keys(data);
+          const dict = data as Record<string, unknown>;
+          const newObj: Record<string, unknown> = {};
+          const keys = Object.keys(dict);
 
           // Limit number of keys shown per object to reduce verbosity
           const maxKeys = 5;
           const processingKeys = keys.slice(0, maxKeys);
 
           for (const key of processingKeys) {
-            newObj[key] = truncateLogData(data[key], depth + 1);
+            newObj[key] = truncateLogData(dict[key], depth + 1);
           }
 
           if (keys.length > maxKeys) {
@@ -152,10 +167,82 @@ app.use((req, res, next) => {
     }
 
     const { port, host } = config.server;
+    const { ssl } = config;
+
+    // Start HTTP server
     server.listen(port, host, () => {
-      log(`serving on ${host}:${port}`);
-      startCronJobs();
+      log(`HTTP server serving on ${host}:${port}`);
     });
+
+    // Start HTTPS server if enabled
+    if (ssl.enabled && ssl.certPath && ssl.keyPath) {
+      try {
+        // Validate certs before attempting to start
+        const { validateCertFiles } = await import("./ssl.js");
+        const { valid, error } = await validateCertFiles(ssl.certPath, ssl.keyPath);
+
+        if (!valid) {
+          log(`⚠️ SSL Configuration Invalid: ${error}. Starting in HTTP-only mode.`);
+          // Skip HTTPS setup
+        } else {
+          const httpsOptions = {
+            key: await fs.promises.readFile(ssl.keyPath),
+            cert: await fs.promises.readFile(ssl.certPath),
+          };
+
+          const httpsServer = https.createServer(httpsOptions, app);
+
+          // Setup Socket.IO for HTTPS server as well
+          setupSocketIO(httpsServer);
+
+          httpsServer.listen(ssl.port, host, () => {
+            log(`HTTPS server serving on ${host}:${ssl.port}`);
+          });
+
+          // HTTP to HTTPS redirect
+          if (ssl.redirectHttp) {
+            app.use((req, res, next) => {
+              if (req.path === "/api/health") {
+                return next();
+              }
+              if (!req.secure) {
+                const host = req.hostname || "localhost";
+                return res.redirect(`https://${host}:${ssl.port}${req.url}`);
+              }
+              next();
+            });
+          }
+        }
+      } catch (error) {
+        log("Failed to start HTTPS server: " + String(error));
+        // Fallback or just log error, HTTP server is already running
+      }
+    }
+
+    // Log non-sensitive config
+    log("Server initialized with configuration:");
+    const safeConfig = { ...config };
+    // Redact sensitive info
+    if (safeConfig.auth) {
+      safeConfig.auth = { ...safeConfig.auth, jwtSecret: "***REDACTED***" };
+    }
+    if (safeConfig.igdb) {
+      safeConfig.igdb = {
+        ...safeConfig.igdb,
+        clientId: safeConfig.igdb.clientId ? "***REDACTED***" : undefined,
+        clientSecret: safeConfig.igdb.clientSecret ? "***REDACTED***" : undefined,
+      };
+    }
+    log(JSON.stringify(safeConfig, null, 2));
+
+    if (ssl.enabled && ssl.redirectHttp) {
+      log("⚠️ WARNING: HTTP to HTTPS redirection is ENABLED.");
+      log(
+        "⚠️ If you lose access, you can disable SSL by setting 'enabled: false' in your config.yaml or data/config.yaml file."
+      );
+    }
+
+    startCronJobs();
   } catch (error) {
     log("Fatal error during startup:");
     console.error(error);

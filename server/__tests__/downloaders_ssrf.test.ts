@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 import {
   TransmissionClient,
   RTorrentClient,
@@ -53,7 +53,7 @@ describe("Downloader SSRF Protection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Default to unsafe for these tests to verify blocking
-    (isSafeUrl as any).mockResolvedValue(false);
+    (isSafeUrl as Mock).mockResolvedValue(false);
   });
 
   describe("TransmissionClient", () => {

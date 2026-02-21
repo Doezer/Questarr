@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 import type { Indexer } from "../../shared/schema.js";
 
 // Mock logger
@@ -27,7 +27,7 @@ vi.mock("../logger.js", () => ({
 }));
 
 vi.mock("../ssrf.js", () => ({
-  safeFetch: vi.fn((url, options) => fetch(url, options)) as any,
+  safeFetch: vi.fn((url, options) => fetch(url, options)) as Mock,
   isSafeUrl: vi.fn().mockResolvedValue(true),
 }));
 
@@ -47,7 +47,7 @@ describe("Search Logging", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     fetchMock = vi.fn();
-    global.fetch = fetchMock as any;
+    global.fetch = fetchMock as unknown as typeof fetch;
     torznabClient = new TorznabClient();
   });
 

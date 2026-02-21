@@ -57,7 +57,7 @@ vi.mock("lucide-react", async (importOriginal) => {
 });
 
 describe("CompactGameCard", () => {
-  const mockGame: Game = {
+  const mockGame = {
     id: "1",
     title: "Test Game",
     coverUrl: "http://example.com/cover.jpg",
@@ -71,7 +71,7 @@ describe("CompactGameCard", () => {
     folderName: "Test Game",
     createdAt: new Date(),
     updatedAt: new Date(),
-  };
+  } as unknown as Game;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -112,7 +112,7 @@ describe("CompactGameCard", () => {
     renderWithProviders(<CompactGameCard game={mockGame} onViewDetails={onViewDetails} />);
 
     // Info button is wrapped in a tooltip, but the button content is accessible via the icon mock or aria-label
-    const infoButton = screen.getByLabelText("View details");
+    const infoButton = screen.getByLabelText(`View details for ${mockGame.title}`);
     fireEvent.click(infoButton);
 
     expect(onViewDetails).toHaveBeenCalledWith("1");

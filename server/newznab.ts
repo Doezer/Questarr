@@ -164,7 +164,7 @@ class NewznabClient {
           const categories: string[] = [];
           if (item.category) {
             const cats = Array.isArray(item.category) ? item.category : [item.category];
-            categories.push(...cats.filter(Boolean));
+            categories.push(...cats.filter(Boolean).map(String));
           }
 
           routesLogger.debug(

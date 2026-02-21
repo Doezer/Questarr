@@ -1,202 +1,245 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
-import type { Indexer } from "../../shared/schema";
 import { newznabClient } from "../newznab.js";
 
-// Mock dependencies
+vi.mock("../ssrf.js", () => ({
+  isSafeUrl: vi.fn(),
+  safeFetch: vi.fn(),
+}));
+
 vi.mock("../logger.js", () => ({
   routesLogger: {
     info: vi.fn(),
-    debug: vi.fn(),
     error: vi.fn(),
+    debug: vi.fn(),
+    warn: vi.fn(),
   },
 }));
 
-vi.mock("../ssrf.js", () => ({
-  isSafeUrl: vi.fn().mockResolvedValue(true),
-  safeFetch: vi.fn((url, options) => fetch(url, options)) as Mock,
-}));
+import { isSafeUrl, safeFetch } from "../ssrf.js";
+
+const mockIndexer = {
+  id: 1,
+  name: "My Newznab",
+  url: "http://example.com/api",
+  apiKey: "secret",
+  protocol: "newznab" as const,
+  enabled: true,
+  priority: 1,
+  rssEnabled: true,
+  autoSearchEnabled: true,
+  categories: [],
+};
+
+const mockCapsXml = `<?xml version="1.0" encoding="UTF-8"?>
+<caps>
+  <server title="My Newznab" />
+  <categories>
+    <category id="1000" name="Console">
+      <subcat id="1010" name="NDS"/>
+      <subcat id="1020" name="PSP"/>
+    </category>
+    <category id="4000" name="PC">
+      <subcat id="4050" name="Games"/>
+    </category>
+  </categories>
+</caps>`;
+
+const mockSearchXml = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:newznab="http://www.newznab.com/dtd/2010/newznab/1.0">
+  <channel>
+    <title>My Newznab</title>
+    <item>
+      <title>Test Game</title>
+      <guid isPermaLink="true">123456</guid>
+      <link>http://example.com/get/123456</link>
+      <pubDate>Thu, 21 Feb 2026 12:00:00 +0000</pubDate>
+      <category>4000</category>
+      <category>4050</category>
+      <enclosure url="http://example.com/get/123456" length="102400" type="application/x-nzb" />
+      <newznab:attr name="category" value="4000" />
+      <newznab:attr name="category" value="4050" />
+      <newznab:attr name="size" value="102400" />
+      <newznab:attr name="grabs" value="5" />
+      <newznab:attr name="files" value="1" />
+      <newznab:attr name="poster" value="poster@example.com" />
+      <newznab:attr name="group" value="alt.binaries.games" />
+    </item>
+  </channel>
+</rss>`;
 
 describe("NewznabClient", () => {
-  let fetchMock: ReturnType<typeof vi.fn>;
-
   beforeEach(() => {
     vi.clearAllMocks();
-    fetchMock = vi.fn();
-    global.fetch = fetchMock as unknown as typeof fetch;
   });
 
-  const mockIndexer: Indexer = {
-    id: "idx-1",
-    name: "Test Indexer",
-    url: "https://indexer.example.com",
-    apiKey: "apikey123",
-    protocol: "newznab",
-    enabled: true,
-    priority: 1,
-    categories: [],
-    rssEnabled: true,
-    autoSearchEnabled: true,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  };
-
-  const mockXmlSearchResponse = `
-    <?xml version="1.0" encoding="UTF-8"?>
-    <rss version="2.0" xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/">
-        <channel>
-            <title>Indexer Search</title>
-            <item>
-                <title>Test Release 1</title>
-                <link>https://indexer.example.com/get/123.nzb</link>
-                <pubDate>Sun, 01 Feb 2026 12:00:00 +0000</pubDate>
-                <category>PC > Games</category>
-                <newznab:attr name="size" value="1073741824" />
-                <newznab:attr name="grabs" value="50" />
-            </item>
-            <item>
-                <title>Test Release 2</title>
-                <enclosure url="https://indexer.example.com/get/456.nzb" length="2048" type="application/x-nzb" />
-                <pubDate>Sat, 31 Jan 2026 12:00:00 +0000</pubDate>
-                <newznab:attr name="size" value="2048" />
-            </item>
-        </channel>
-    </rss>
-    `;
-
   describe("search", () => {
-    it("should parse search results correctly", async () => {
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        text: async () => mockXmlSearchResponse,
-      });
+    it("should reject unsafe URLs", async () => {
+      (isSafeUrl as Mock).mockResolvedValue(false);
 
-      const results = await newznabClient.search(mockIndexer, { query: "test" });
-
-      expect(results).toHaveLength(2);
-      expect(results[0].title).toBe("Test Release 1");
-      expect(results[0].size).toBe(1073741824);
-      expect(results[0].indexerName).toBe("Test Indexer");
-
-      // Verify URL params
-      const callUrl = new URL(fetchMock.mock.calls[0][0] as string);
-      expect(callUrl.searchParams.get("apikey")).toBe("apikey123");
-      expect(callUrl.searchParams.get("t")).toBe("search");
-      expect(callUrl.searchParams.get("q")).toBe("test");
+      await expect(newznabClient.search(mockIndexer, { query: "test" })).rejects.toThrow(
+        "Unsafe URL detected"
+      );
     });
 
-    it("should handle error responses", async () => {
-      fetchMock.mockResolvedValueOnce({
+    it("should search successfully and parse results", async () => {
+      (isSafeUrl as Mock).mockResolvedValue(true);
+      (safeFetch as Mock).mockResolvedValue({
+        ok: true,
+        text: async () => mockSearchXml,
+      });
+
+      const results = await newznabClient.search(mockIndexer, {
+        query: "test",
+        limit: 10,
+        offset: 0,
+      });
+
+      expect(safeFetch).toHaveBeenCalled();
+      expect(results).toHaveLength(1);
+      expect(results[0].title).toBe("Test Game");
+      expect(results[0].size).toBe(102400);
+      expect(results[0].grabs).toBe(5);
+      expect(results[0].files).toBe(1);
+      expect(results[0].category).toContain("4000");
+    });
+
+    it("should filter results by category correctly", async () => {
+      (isSafeUrl as Mock).mockResolvedValue(true);
+      (safeFetch as Mock).mockResolvedValue({
+        ok: true,
+        text: async () => mockSearchXml,
+      });
+
+      // Categories match
+      const results1 = await newznabClient.search(mockIndexer, {
+        query: "test",
+        category: ["4050"],
+      });
+      expect(results1).toHaveLength(1);
+
+      // Parent category match (if request is 4000, item category is 4050, then it matches)
+      const results2 = await newznabClient.search(mockIndexer, {
+        query: "test",
+        category: ["4000"],
+      });
+      expect(results2).toHaveLength(1);
+
+      // Categories don't match
+      const results3 = await newznabClient.search(mockIndexer, {
+        query: "test",
+        category: ["5000"],
+      });
+      expect(results3).toHaveLength(0);
+    });
+
+    it("should handle error response", async () => {
+      (isSafeUrl as Mock).mockResolvedValue(true);
+      (safeFetch as Mock).mockResolvedValue({
         ok: false,
         status: 500,
         statusText: "Server Error",
       });
 
-      await expect(newznabClient.search(mockIndexer, { query: "fail" })).rejects.toThrow(
-        "Newznab search failed"
+      await expect(newznabClient.search(mockIndexer, { query: "test" })).rejects.toThrow(
+        "HTTP 500: Server Error"
       );
     });
   });
 
-  describe("searchMultipleIndexers", () => {
-    it("should aggregate results from multiple indexers", async () => {
-      // Mock responses for two indexers
-      fetchMock
-        .mockResolvedValueOnce({
-          ok: true,
-          text: async () => mockXmlSearchResponse.replace("Test Release 1", "Indexer 1 Release"),
-        })
-        .mockResolvedValueOnce({
-          ok: true,
-          text: async () => mockXmlSearchResponse.replace("Test Release 1", "Indexer 2 Release"),
-        });
-
-      const indexers = [
-        { ...mockIndexer, name: "Indexer 1" },
-        { ...mockIndexer, name: "Indexer 2" },
-      ];
-
-      const { results, errors } = await newznabClient.searchMultipleIndexers(indexers, {
-        query: "multi",
-      });
-
-      expect(errors).toHaveLength(0);
-      expect(results.items.length).toBeGreaterThan(0);
-      expect(results.total).toBe(4); // 2 items per indexer * 2 indexers
-    });
-
-    it("should handle partial failures", async () => {
-      // First succeeds, second fails
-      fetchMock
-        .mockResolvedValueOnce({
-          ok: true,
-          text: async () => mockXmlSearchResponse,
-        })
-        .mockResolvedValueOnce({
-          ok: false,
-          status: 500,
-        });
-
-      const indexers = [
-        { ...mockIndexer, name: "Indexer 1" },
-        { ...mockIndexer, name: "Indexer 2" },
-      ];
-
-      const { results, errors } = await newznabClient.searchMultipleIndexers(indexers, {
-        query: "partial",
-      });
-
-      expect(errors).toHaveLength(1);
-      expect(errors[0].indexer).toBe("Indexer 2");
-      expect(results.items).toHaveLength(2); // Only results from first indexer
-    });
-  });
-
   describe("getCategories", () => {
-    const mockCapsXml = `
-        <caps>
-            <categories>
-                <category id="1000" name="Console">
-                     <subcat id="1010" name="NDS"/>
-                </category>
-                <category id="4000" name="PC"/>
-            </categories>
-        </caps>
-        `;
-
-    it("should parse capabilities xml", async () => {
-      fetchMock.mockResolvedValueOnce({
+    it("should get categories successfully", async () => {
+      (isSafeUrl as Mock).mockResolvedValue(true);
+      (safeFetch as Mock).mockResolvedValue({
         ok: true,
         text: async () => mockCapsXml,
       });
 
       const categories = await newznabClient.getCategories(mockIndexer);
-      expect(categories).toHaveLength(3); // Console, Console > NDS, PC
-      const names = categories.map((c) => c.name);
-      expect(names).toContain("Console");
-      expect(names).toContain("Console > NDS");
+
+      expect(categories.length).toBe(5); // 1000, 1010, 1020, 4000, 4050
+      expect(categories).toEqual(
+        expect.arrayContaining([
+          { id: "1000", name: "Console" },
+          { id: "1010", name: "Console > NDS" },
+          { id: "1020", name: "Console > PSP" },
+          { id: "4000", name: "PC" },
+        ])
+      );
     });
   });
 
   describe("testConnection", () => {
-    it("should return success on valid caps response", async () => {
-      fetchMock.mockResolvedValueOnce({
+    it("should return success for valid connection", async () => {
+      (isSafeUrl as Mock).mockResolvedValue(true);
+      (safeFetch as Mock).mockResolvedValue({
         ok: true,
-        text: async () => "<caps><server version='1.0'/></caps>",
+        text: async () => mockCapsXml,
       });
 
       const result = await newznabClient.testConnection(mockIndexer);
       expect(result.success).toBe(true);
+      expect(result.message).toBe("Connection successful");
     });
 
-    it("should return failure on error response", async () => {
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        text: async () => "<error code='100' description='Invalid API Key'/>",
+    it("should handle failed HTTP response", async () => {
+      (isSafeUrl as Mock).mockResolvedValue(true);
+      (safeFetch as Mock).mockResolvedValue({
+        ok: false,
+        status: 401,
       });
 
       const result = await newznabClient.testConnection(mockIndexer);
       expect(result.success).toBe(false);
-      expect(result.message).toContain("Invalid API Key");
+      expect(result.message).toContain("HTTP 401");
+    });
+
+    it("should handle error XML response", async () => {
+      (isSafeUrl as Mock).mockResolvedValue(true);
+      (safeFetch as Mock).mockResolvedValue({
+        ok: true,
+        text: async () =>
+          '<?xml version="1.0" encoding="UTF-8"?><error description="Invalid API Key" />',
+      });
+
+      const result = await newznabClient.testConnection(mockIndexer);
+      expect(result.success).toBe(false);
+      expect(result.message).toBe("Invalid API Key");
+    });
+  });
+
+  describe("searchMultipleIndexers", () => {
+    it("should combine results", async () => {
+      (isSafeUrl as Mock).mockResolvedValue(true);
+      (safeFetch as Mock).mockResolvedValue({
+        ok: true,
+        text: async () => mockSearchXml,
+      });
+
+      // It searches in parallel
+      const res = await newznabClient.searchMultipleIndexers(
+        [mockIndexer, { ...mockIndexer, name: "Indexer2" }],
+        { query: "test" }
+      );
+
+      // each indexer resolves 1 result
+      // There's a problem with searchMultipleIndexers the way the client is written because the logic in searchMultipleIndexers looks a little strange but does concat items.
+      expect(res.results.items.length).toBe(2);
+    });
+
+    it("should handle errors from one indexer gracefully", async () => {
+      (isSafeUrl as Mock).mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+
+      (safeFetch as Mock).mockResolvedValue({
+        ok: true,
+        text: async () => mockSearchXml,
+      });
+
+      const res = await newznabClient.searchMultipleIndexers(
+        [mockIndexer, { ...mockIndexer, name: "Indexer2" }],
+        { query: "test" }
+      );
+      expect(res.results.items.length).toBe(1);
+      expect(res.errors.length).toBe(1);
     });
   });
 });

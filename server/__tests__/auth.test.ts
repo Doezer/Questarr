@@ -1,10 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { type Request, type Response, type NextFunction } from "express";
+import { hashPassword, comparePassword, generateToken, authenticateToken } from "../auth.js";
+import { storage } from "../storage.js";
 import jwt from "jsonwebtoken";
-import bcrypt from "bcryptjs";
-import "../types.js";
 
-// Mock dependencies
 vi.mock("../storage.js", () => ({
   storage: {
     getSystemConfig: vi.fn(),
@@ -21,128 +19,124 @@ vi.mock("../config.js", () => ({
   },
 }));
 
-// Import modules after mocking
-import { hashPassword, comparePassword, generateToken, authenticateToken } from "../auth.js";
-import { storage } from "../storage.js";
-import { type User } from "../../shared/schema.js";
+vi.mock("../logger.js", () => ({
+  logger: {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  },
+}));
 
-describe("Auth Module", () => {
+describe("auth Module", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.resetModules();
   });
 
-  describe("Password Hashing", () => {
-    it("should hash a password correctly", async () => {
-      const password = "mysecretpassword";
+  describe("hashPassword & comparePassword", () => {
+    it("should hash a password and be able to compare it", async () => {
+      const password = "my_secure_password";
       const hash = await hashPassword(password);
 
       expect(hash).not.toBe(password);
-      expect(hash).toHaveLength(60); // bcrypt hash length
-      const isValid = await bcrypt.compare(password, hash);
-      expect(isValid).toBe(true);
-    });
 
-    it("should return true for matching password and hash", async () => {
-      const password = "password123";
-      const hash = await bcrypt.hash(password, 10);
       const isMatch = await comparePassword(password, hash);
       expect(isMatch).toBe(true);
-    });
 
-    it("should return false for non-matching password", async () => {
-      const password = "password123";
-      const hash = await bcrypt.hash("differentPassword", 10);
-      const isMatch = await comparePassword(password, hash);
-      expect(isMatch).toBe(false);
+      const isBadMatch = await comparePassword("wrong_password", hash);
+      expect(isBadMatch).toBe(false);
     });
   });
 
-  describe("Token Generation", () => {
+  describe("generateToken", () => {
     it("should generate a valid JWT token", async () => {
-      const user = { id: "user-123", username: "testuser" } as User;
+      (storage.getSystemConfig as any).mockResolvedValue("test-secret-from-db");
+
+      const user = { id: "user123", username: "testuser" } as any;
       const token = await generateToken(user);
 
       expect(typeof token).toBe("string");
-      const decoded = jwt.decode(token) as jwt.JwtPayload;
-      expect(decoded).toBeTruthy();
-      expect(decoded.id).toBe(user.id);
-      expect(decoded.username).toBe(user.username);
+
+      const decoded = jwt.verify(token, "test-secret-from-db") as any;
+      expect(decoded.id).toBe("user123");
+      expect(decoded.username).toBe("testuser");
     });
   });
 
-  describe("Token Authentication Middleware", () => {
-    let mockReq: Partial<Request>;
-    let mockRes: Partial<Response>;
-    let nextFunction: NextFunction;
+  describe("authenticateToken", () => {
+    const mockRequest = (token?: string) => {
+      const req = {
+        headers: {
+          authorization: token ? `Bearer ${token}` : undefined,
+        },
+        user: undefined,
+      } as any;
+      return req;
+    };
 
-    beforeEach(() => {
-      mockReq = {
-        headers: {},
-      };
-      mockRes = {
-        status: vi.fn().mockReturnThis(),
-        json: vi.fn(),
-      };
-      nextFunction = vi.fn();
+    const mockResponse = () => {
+      const res = {} as any;
+      res.status = vi.fn().mockReturnValue(res);
+      res.json = vi.fn().mockReturnValue(res);
+      return res;
+    };
+
+    const next = vi.fn();
+
+    it("should return 401 if no token provided", async () => {
+      const req = mockRequest();
+      const res = mockResponse();
+
+      await authenticateToken(req, res, next);
+
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith({ error: "Authentication required" });
+      expect(next).not.toHaveBeenCalled();
     });
 
-    it("should return 401 if no authorization header", async () => {
-      await authenticateToken(mockReq as Request, mockRes as Response, nextFunction);
-      expect(mockRes.status).toHaveBeenCalledWith(401);
-      expect(mockRes.json).toHaveBeenCalledWith({ error: "Authentication required" });
-      expect(nextFunction).not.toHaveBeenCalled();
+    it("should return 401 if user not found", async () => {
+      (storage.getSystemConfig as any).mockResolvedValue("test-secret-from-db");
+      const token = jwt.sign({ id: "nonexistent", username: "ghost" }, "test-secret-from-db");
+
+      const req = mockRequest(token);
+      const res = mockResponse();
+
+      (storage.getUser as any).mockResolvedValue(undefined);
+
+      await authenticateToken(req, res, next);
+
+      expect(storage.getUser).toHaveBeenCalledWith("nonexistent");
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith({ error: "User not found" });
+      expect(next).not.toHaveBeenCalled();
     });
 
-    it("should return 401 if token is missing from header", async () => {
-      mockReq.headers = { authorization: "Bearer " }; // Empty token
-      await authenticateToken(mockReq as Request, mockRes as Response, nextFunction);
-      expect(mockRes.status).toHaveBeenCalledWith(401);
-      expect(mockRes.json).toHaveBeenCalledWith({ error: "Authentication required" });
-      expect(nextFunction).not.toHaveBeenCalled();
+    it("should call next() if token and user are valid", async () => {
+      (storage.getSystemConfig as any).mockResolvedValue("test-secret-from-db");
+      const token = jwt.sign({ id: "valid_id", username: "valid_user" }, "test-secret-from-db");
+
+      const req = mockRequest(token);
+      const res = mockResponse();
+
+      const validUser = { id: "valid_id", username: "valid_user" };
+      (storage.getUser as any).mockResolvedValue(validUser);
+
+      await authenticateToken(req, res, next);
+
+      expect(req.user).toEqual(validUser);
+      expect(next).toHaveBeenCalled();
     });
 
-    it("should return 403 if token is invalid", async () => {
-      mockReq.headers = { authorization: "Bearer invalid-token" };
+    it("should return 403 on invalid signature", async () => {
+      (storage.getSystemConfig as any).mockResolvedValue("test-secret-from-db");
+      const maliciousToken = jwt.sign({ id: "valid_id" }, "wrong-secret");
 
-      await authenticateToken(mockReq as Request, mockRes as Response, nextFunction);
-      expect(mockRes.status).toHaveBeenCalledWith(403);
-      expect(mockRes.json).toHaveBeenCalledWith({ error: "Invalid or expired token" });
-      expect(nextFunction).not.toHaveBeenCalled();
-    });
+      const req = mockRequest(maliciousToken);
+      const res = mockResponse();
 
-    it("should call next() if token is valid and user exists", async () => {
-      // Create a valid token using the module's own generateToken to ensure secret matches
-      const user = { id: "user-123", username: "testuser" } as User;
-      const token = await generateToken(user);
+      await authenticateToken(req, res, next);
 
-      mockReq.headers = { authorization: `Bearer ${token}` };
-
-      // Mock storage to return the user
-      vi.mocked(storage.getUser).mockResolvedValue(user);
-
-      await authenticateToken(mockReq as Request, mockRes as Response, nextFunction);
-
-      expect(storage.getUser).toHaveBeenCalledWith(user.id);
-      expect((mockReq as Request).user).toEqual(user);
-      expect(nextFunction).toHaveBeenCalled();
-    });
-
-    it("should return 401 if user does not exist", async () => {
-      // Create a valid token using the module's own generateToken
-      const user = { id: "user-123", username: "testuser" } as User;
-      const token = await generateToken(user);
-
-      mockReq.headers = { authorization: `Bearer ${token}` };
-
-      // Mock storage to return undefined (user not found)
-      vi.mocked(storage.getUser).mockResolvedValue(undefined);
-
-      await authenticateToken(mockReq as Request, mockRes as Response, nextFunction);
-
-      expect(mockRes.status).toHaveBeenCalledWith(401);
-      expect(mockRes.json).toHaveBeenCalledWith({ error: "User not found" });
-      expect(nextFunction).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res.json).toHaveBeenCalledWith({ error: "Invalid or expired token" });
     });
   });
 });

@@ -58,7 +58,7 @@ const mockGame = {
   title: "Test Game",
   igdbId: 123,
   gameDetails: {},
-};
+} as unknown as import("@shared/schema").Game;
 
 const mockTorrents = {
   items: [
@@ -185,7 +185,7 @@ describe("GameDownloadDialog", () => {
       }
 
       return Promise.resolve({ ok: false, json: async () => ({}) });
-    });
+    }) as any;
   });
 
   it("renders search results correctly", async () => {

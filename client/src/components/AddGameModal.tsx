@@ -167,7 +167,7 @@ export default function AddGameModal({ children }: AddGameModalProps) {
               </Button>
             </form>
 
-            <div className="space-y-4">
+            <div className="space-y-4" aria-live="polite">
               {isSearching && (
                 <div className="text-center py-8 text-muted-foreground">Searching games...</div>
               )}
@@ -242,6 +242,7 @@ export default function AddGameModal({ children }: AddGameModalProps) {
                               onClick={() => handleAddGame(game)}
                               disabled={addGameMutation.isPending}
                               data-testid={`button-add-${game.id}`}
+                              aria-label={`Add ${game.title} to collection`}
                             >
                               <Plus className="w-4 h-4 mr-1" />
                               Add

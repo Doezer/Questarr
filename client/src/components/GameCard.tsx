@@ -189,7 +189,7 @@ const GameCard = ({
                   variant="default"
                   onClick={handleDownloadClick}
                   disabled={addGameMutation.isPending}
-                  aria-label="Download game"
+                  aria-label={`Download ${game.title}`}
                   data-testid={`button-download-${game.id}`}
                 >
                   {addGameMutation.isPending ? (
@@ -210,7 +210,7 @@ const GameCard = ({
                 size="icon"
                 variant="secondary"
                 onClick={handleDetailsClick}
-                aria-label="View details"
+                aria-label={`View details for ${game.title}`}
                 data-testid={`button-details-${game.id}`}
               >
                 <Info className="w-4 h-4" />
@@ -227,7 +227,7 @@ const GameCard = ({
                   size="icon"
                   variant="secondary"
                   onClick={handleToggleHidden}
-                  aria-label={game.hidden ? "Unhide game" : "Hide game"}
+                  aria-label={game.hidden ? `Unhide ${game.title}` : `Hide ${game.title}`}
                   data-testid={`button-toggle-hidden-${game.id}`}
                 >
                   {game.hidden ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}

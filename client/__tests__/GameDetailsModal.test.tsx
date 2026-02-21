@@ -46,7 +46,7 @@ const mockGame = {
   genres: ["Action", "Adventure"],
   platforms: ["PC", "PS5"],
   screenshots: ["http://test.com/screen1.jpg", "http://test.com/screen2.jpg"],
-};
+} as unknown as import("@shared/schema").Game;
 
 const queryClient = new QueryClient({
   defaultOptions: {

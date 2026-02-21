@@ -219,6 +219,29 @@ app.use((req, res, next) => {
       }
     }
 
+    // Log non-sensitive config
+    log("Server initialized with configuration:");
+    const safeConfig = { ...config };
+    // Redact sensitive info
+    if (safeConfig.auth) {
+      safeConfig.auth = { ...safeConfig.auth, jwtSecret: "***REDACTED***" };
+    }
+    if (safeConfig.igdb) {
+      safeConfig.igdb = {
+        ...safeConfig.igdb,
+        clientId: safeConfig.igdb.clientId ? "***REDACTED***" : undefined,
+        clientSecret: safeConfig.igdb.clientSecret ? "***REDACTED***" : undefined,
+      };
+    }
+    log(JSON.stringify(safeConfig, null, 2));
+
+    if (ssl.enabled && ssl.redirectHttp) {
+      log("⚠️ WARNING: HTTP to HTTPS redirection is ENABLED.");
+      log(
+        "⚠️ If you lose access, you can disable SSL by removing your ssl.json config file or using the CLI tool/database reset."
+      );
+    }
+
     startCronJobs();
   } catch (error) {
     log("Fatal error during startup:");

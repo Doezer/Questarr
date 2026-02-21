@@ -8,7 +8,7 @@ import { ExternalLink, RefreshCw, AlertTriangle, LayoutGrid, List } from "lucide
 import { Button } from "@/components/ui/button";
 import { apiRequest } from "@/lib/queryClient";
 import CompactRssFeedItem from "./CompactRssFeedItem";
-import { cn } from "@/lib/utils";
+import { cn, safeUrl } from "@/lib/utils";
 
 export default function RssFeedList() {
   const [viewMode, setViewMode] = useState<"grid" | "list">(() => {
@@ -92,11 +92,13 @@ export default function RssFeedList() {
         </Button>
       </div>
 
-      <div className={cn(
-        "grid gap-4",
-        viewMode === "grid" ? "md:grid-cols-2 lg:grid-cols-3" : "grid-cols-1"
-      )}>
-        {items.map((item) => (
+      <div
+        className={cn(
+          "grid gap-4",
+          viewMode === "grid" ? "md:grid-cols-2 lg:grid-cols-3" : "grid-cols-1"
+        )}
+      >
+        {items.map((item) =>
           viewMode === "list" ? (
             <CompactRssFeedItem key={item.id} item={item} />
           ) : (
@@ -135,7 +137,7 @@ export default function RssFeedList() {
               </CardHeader>
               <CardContent className="p-4 pt-0 mt-auto">
                 <a
-                  href={item.link}
+                  href={safeUrl(item.link)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-xs text-primary hover:underline flex items-center gap-1 mt-2"
@@ -146,7 +148,7 @@ export default function RssFeedList() {
               </CardContent>
             </Card>
           )
-        ))}
+        )}
       </div>
     </div>
   );

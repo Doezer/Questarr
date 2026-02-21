@@ -547,6 +547,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Treat the query path as relative to the FILE_BROWSER_ROOT
         const queryPath = (req.query.path as string) || ".";
 
+        if (queryPath.includes("\0") || queryPath.includes("..")) {
+          return res.status(403).json({ error: "Access to this path is not allowed" });
+        }
+
         // Resolve against the root and normalize
         const resolvedPath = path.resolve(FILE_BROWSER_ROOT, queryPath);
 

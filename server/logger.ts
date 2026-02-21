@@ -24,51 +24,11 @@ const transport = pino.transport({
   ],
 });
 
-// Helper to parse stack trace (extracts caller)
-function getCallerInfo() {
-  const stack = new Error().stack;
-  if (!stack) return {};
-
-  // Parse stack lines
-  const lines = stack.split("\n");
-
-  // Find the first line that is NOT from pino or this file
-  // Typically:
-  // 0: Error
-  // 1: at getCallerInfo ...
-  // 2: at pino mixin ...
-  // We need to skip internal frames
-
-  for (let i = 2; i < lines.length; i++) {
-    const line = lines[i];
-    // normalized check for node_modules and logger.ts
-    if (!line.includes("node_modules") && !line.includes("logger.ts")) {
-      // Basic extraction - this can be refined based on stack format
-      const match = line.match(/at\s+(?:(.+?)\s+\()?(?:(.+?):(\d+):(\d+))\)?/);
-      if (match) {
-        // Clean up path - show relative to project root if possible
-        let filePath = match[2];
-        const cwd = process.cwd();
-        if (filePath.startsWith(cwd)) {
-          filePath = filePath.substring(cwd.length + 1);
-        }
-
-        return {
-          logSource: `${filePath}:${match[3]} (${match[1] || "<anonymous>"})`,
-        };
-      }
-    }
-  }
-  return {};
-}
-
 export const logger = pino(
   {
     level: process.env.LOG_LEVEL || "debug",
     timestamp: pino.stdTimeFunctions.isoTime,
-    mixin: () => {
-      return getCallerInfo();
-    },
+    base: undefined,
   },
   transport
 );

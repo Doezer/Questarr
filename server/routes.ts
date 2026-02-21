@@ -50,7 +50,7 @@ import path from "path";
 import fs from "fs";
 
 // Root directory for the file system browser; restrict browsing to this tree
-const FILE_BROWSER_ROOT = process.cwd();
+const FILE_BROWSER_ROOT = fs.realpathSync(process.cwd());
 
 // Configure multer for memory storage
 const upload = multer({
@@ -599,9 +599,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
               }
             }
 
+            const relativePath = path.relative(FILE_BROWSER_ROOT, fullPath);
+
             return {
               name: entry.name,
-              path: fullPath,
+              path: relativePath,
               isDirectory,
               size: 0,
             };
@@ -615,6 +617,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
           return a.isDirectory ? -1 : 1;
         });
+        const parentRelativePath = path.relative(FILE_BROWSER_ROOT, parentPath);
 
         const parentPath = path.dirname(currentPath);
         // Only return parent if it's different (not root)
@@ -622,14 +625,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           parentPath !== currentPath
             ? {
               name: "..",
-              path: parentPath,
+              path: parentRelativePath,
               isDirectory: true,
               size: 0,
             }
+        const currentRelativePath = path.relative(FILE_BROWSER_ROOT, currentPath);
+
             : null;
 
         res.json({
-          path: currentPath,
+          path: currentRelativePath,
           parent,
           files,
         });

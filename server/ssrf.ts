@@ -50,6 +50,9 @@ export async function isSafeUrl(
   // Resolve hostname
   try {
     const addresses = await dns.lookup(hostname, { all: true });
+    if (!addresses || addresses.length === 0) {
+      return false;
+    }
     // Check all resolved addresses to prevent DNS rebinding attacks
     for (const { address } of addresses) {
       if (!isSafeIp(address, options.allowPrivate)) {
@@ -189,6 +192,10 @@ export async function safeFetch(
   if (ipVersion === 0) {
     try {
       const addresses = await dns.lookup(hostname, { all: true });
+
+      if (!addresses || addresses.length === 0) {
+        throw new Error("Invalid or unsafe URL");
+      }
 
       // Check all resolved addresses to prevent DNS rebinding attacks
       for (const { address } of addresses) {

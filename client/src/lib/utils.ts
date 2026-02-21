@@ -97,3 +97,19 @@ export function compareEnabledPriorityName<T extends EnabledPriorityNamed>(a: T,
 
   return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
 }
+
+/**
+ * Ensures a URL is using HTTP or HTTPS protocols to prevent XSS attacks (e.g. via javascript: protocol).
+ * Returns the original URL if safe, otherwise returns "#".
+ */
+export function safeUrl(url: string, fallback = "#"): string {
+  try {
+    const parsedUrl = new URL(url, window.location.origin);
+    if (parsedUrl.protocol === "http:" || parsedUrl.protocol === "https:") {
+      return url;
+    }
+  } catch (e) {
+    // Ignore invalid URLs
+  }
+  return fallback;
+}

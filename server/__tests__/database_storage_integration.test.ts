@@ -1,11 +1,13 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
-import { users, games, type InsertGame } from "../../shared/schema";
+import { users, type InsertGame } from "../../shared/schema";
 import { randomUUID } from "crypto";
+import type { DatabaseStorage } from "../storage";
+import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 
 describe("DatabaseStorage Integration", () => {
-  let db: any;
-  let storage: any;
+  let db: BetterSQLite3Database<Record<string, unknown>>;
+  let storage: DatabaseStorage;
 
   beforeEach(async () => {
     // Set env var for in-memory DB
@@ -19,7 +21,7 @@ describe("DatabaseStorage Integration", () => {
     db = dbModule.db;
 
     const storageModule = await import("../storage.js");
-    storage = storageModule.storage;
+    storage = storageModule.storage as DatabaseStorage;
 
     // Run migrations to setup schema
     // migrations folder is relative to project root, which is where vitest runs
@@ -37,7 +39,7 @@ describe("DatabaseStorage Integration", () => {
     await db.insert(users).values({
       id: userId,
       username: "testuser_" + userId,
-      passwordHash: "hash"
+      passwordHash: "hash",
     });
 
     // 2. Insert games with different statuses
@@ -45,21 +47,21 @@ describe("DatabaseStorage Integration", () => {
       title: "Wanted Game",
       status: "wanted",
       userId: userId,
-      hidden: false
+      hidden: false,
     };
 
     const game2: InsertGame = {
       title: "Owned Game",
       status: "owned",
       userId: userId,
-      hidden: false
+      hidden: false,
     };
 
     const game3: InsertGame = {
       title: "Completed Game",
       status: "completed",
       userId: userId,
-      hidden: false
+      hidden: false,
     };
 
     // Use storage.addGame to ensure consistency, but direct insert is fine too if we are testing read
@@ -82,7 +84,7 @@ describe("DatabaseStorage Integration", () => {
     // 4. Test filtering: multiple statuses
     const activeGames = await storage.getUserGames(userId, false, ["owned", "completed"]);
     expect(activeGames).toHaveLength(2);
-    const statuses = activeGames.map((g: any) => g.status).sort();
+    const statuses = activeGames.map((g: { status: string | null }) => g.status).sort();
     expect(statuses).toEqual(["completed", "owned"]);
 
     // 5. Test filtering: no status filter (should return all)

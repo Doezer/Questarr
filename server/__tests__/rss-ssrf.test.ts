@@ -1,4 +1,3 @@
-
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import request from "supertest";
 import express from "express";
@@ -16,7 +15,11 @@ vi.mock("../downloaders.js");
 vi.mock("../prowlarr.js");
 
 vi.mock("../auth.js", () => ({
-  authenticateToken: (req: any, res: any, next: any) => {
+  authenticateToken: (
+    req: import("express").Request & { user?: unknown },
+    res: import("express").Response,
+    next: import("express").NextFunction
+  ) => {
     req.user = { id: 1, username: "testuser" };
     next();
   },
@@ -53,9 +56,21 @@ vi.mock("../logger.js", () => ({
 }));
 
 vi.mock("../middleware.js", () => ({
-  igdbRateLimiter: (req: any, res: any, next: any) => next(),
-  sensitiveEndpointLimiter: (req: any, res: any, next: any) => next(),
-  validateRequest: (req: any, res: any, next: any) => next(),
+  igdbRateLimiter: (
+    req: import("express").Request,
+    res: import("express").Response,
+    next: import("express").NextFunction
+  ) => next(),
+  sensitiveEndpointLimiter: (
+    req: import("express").Request,
+    res: import("express").Response,
+    next: import("express").NextFunction
+  ) => next(),
+  validateRequest: (
+    req: import("express").Request,
+    res: import("express").Response,
+    next: import("express").NextFunction
+  ) => next(),
   sanitizeSearchQuery: [],
   sanitizeGameId: [],
   sanitizeIgdbId: [],
@@ -90,7 +105,10 @@ describe("RSS Routes SSRF", () => {
     };
 
     // Mock storage success to ensure route handler is the one blocking
-    vi.mocked(storage.addRssFeed).mockResolvedValue({ ...unsafeFeed, id: "2" } as any);
+    vi.mocked(storage.addRssFeed).mockResolvedValue({
+      ...unsafeFeed,
+      id: "2",
+    } as unknown as import("../../shared/schema").RssFeed);
     vi.mocked(rssService.refreshFeed).mockResolvedValue(undefined);
 
     const res = await request(app).post("/api/rss/feeds").send(unsafeFeed);
@@ -107,11 +125,61 @@ describe("RSS Routes SSRF", () => {
       enabled: true,
     };
 
-    vi.mocked(storage.addRssFeed).mockResolvedValue({ ...safeFeed, id: "3" } as any);
+    vi.mocked(storage.addRssFeed).mockResolvedValue({
+      ...safeFeed,
+      id: "3",
+    } as unknown as import("../../shared/schema").RssFeed);
     vi.mocked(rssService.refreshFeed).mockResolvedValue(undefined);
 
     const res = await request(app).post("/api/rss/feeds").send(safeFeed);
 
     expect(res.status).toBe(201);
+  });
+
+  it("should prevent SSRF by blocking metadata service on feed update (PUT)", async () => {
+    const unsafeUpdate = {
+      url: "http://169.254.169.254/latest/meta-data/",
+      enabled: true,
+    };
+
+    // Note: mock for storage.updateRssFeed should be established if it's used
+    vi.mocked(storage.updateRssFeed).mockResolvedValue({
+      id: "2",
+      ...unsafeUpdate,
+    } as unknown as import("../../shared/schema").RssFeed);
+    vi.mocked(storage.getRssFeed).mockResolvedValue({
+      id: "2",
+      name: "Existing",
+      url: "http://safe.com",
+    } as unknown as import("../../shared/schema").RssFeed);
+
+    const res = await request(app).put("/api/rss/feeds/2").send(unsafeUpdate);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/unsafe/i);
+  });
+
+  it("should allow safe public URLs on feed update (PUT)", async () => {
+    const safeUpdate = {
+      url: "http://example.com/rss/new",
+      enabled: true,
+    };
+
+    vi.mocked(storage.updateRssFeed).mockResolvedValue({
+      id: "3",
+      ...safeUpdate,
+    } as unknown as import("../../shared/schema").RssFeed);
+    vi.mocked(storage.getRssFeed).mockResolvedValue({
+      id: "3",
+      name: "Existing",
+      url: "http://safe.com",
+    } as unknown as import("../../shared/schema").RssFeed);
+    vi.mocked(rssService.refreshFeed).mockResolvedValue(undefined);
+
+    const res = await request(app).put("/api/rss/feeds/3").send(safeUpdate);
+
+    // Depending on the implementation, it might return 200 or 201, typical for update is 200
+    // We just want to ensure it doesn't return 400 for unsafe URL
+    expect(res.status).not.toBe(400);
   });
 });

@@ -18,7 +18,7 @@ import { isIP } from "net";
  */
 export async function isSafeUrl(
   urlStr: string,
-  options: { allowPrivate?: boolean } = {}
+  options: { allowPrivate?: boolean } = { allowPrivate: true }
 ): Promise<boolean> {
   let url: URL;
   try {
@@ -136,9 +136,6 @@ export function isSafeIp(ip: string, allowPrivate = true): boolean {
   if (isIP(ip) === 6) {
     // fe80::/10 (Link-Local)
     if (
-      lowerIp.startsWith("fe8") ||
-      lowerIp.startsWith("fe9") ||
-      lowerIp.startsWith("fe10") || // actually fe80-febb
       lowerIp.startsWith("fe8") ||
       lowerIp.startsWith("fe9") ||
       lowerIp.startsWith("fea") ||

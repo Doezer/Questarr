@@ -3,7 +3,7 @@ import { storage } from "./storage.js";
 import { igdbClient } from "./igdb.js";
 import { logger } from "./logger.js";
 import { RssFeed, InsertRssFeedItem } from "../shared/schema.js";
-import { isSafeUrl } from "./ssrf.js";
+import { safeFetch } from "./ssrf.js";
 
 const rssLogger = logger.child({ module: "rss" });
 
@@ -63,12 +63,13 @@ export class RssService {
   async refreshFeed(feed: RssFeed) {
     rssLogger.debug(`Fetching feed: ${feed.name} (${feed.url})`);
 
-    if (!(await isSafeUrl(feed.url))) {
-      throw new Error(`Invalid or unsafe URL: ${feed.url}`);
+    // Use safeFetch instead of directly parsing the URL to prevent DNS rebinding
+    const response = await safeFetch(feed.url);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch feed: ${response.statusText}`);
     }
-
-    // Set timeout for parsing
-    const feedContent = await this.parser.parseURL(feed.url);
+    const xmlData = await response.text();
+    const feedContent = await this.parser.parseString(xmlData);
 
     rssLogger.debug(`Parsed ${feedContent.items.length} items from ${feed.name}`);
 

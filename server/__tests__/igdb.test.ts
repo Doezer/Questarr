@@ -289,3 +289,66 @@ describe("IGDBClient - Fallback Mechanism", { timeout: 20000 }, () => {
     });
   });
 });
+
+describe("IGDBClient - Batch Operations", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.resetModules();
+    fetchMock = vi.fn();
+    global.fetch = fetchMock;
+  });
+
+  it("should batch steam app ID lookups correctly", async () => {
+    // Mock auth
+    const authResponse = {
+      ok: true,
+      json: async () => ({
+        access_token: "test-token",
+        expires_in: 3600,
+        token_type: "bearer",
+      }),
+    };
+
+    const successResponse1 = {
+      ok: true,
+      json: async () => [
+        { uid: "10", game: 100 },
+        { uid: "20", game: 200 }
+      ]
+    };
+
+    const successResponse2 = {
+      ok: true,
+      json: async () => [
+        { uid: "110", game: 1100 }
+      ]
+    };
+
+    fetchMock
+      .mockResolvedValueOnce(authResponse)
+      .mockResolvedValueOnce(successResponse1)
+      .mockResolvedValueOnce(successResponse2);
+
+    const { igdbClient } = await import("../igdb.js");
+
+    // Generate 150 IDs
+    const ids = Array.from({ length: 150 }, (_, i) => i + 1);
+    // We manually map specific ones in the mock response
+    // ID 10 -> Game 100
+    // ID 20 -> Game 200
+    // ID 110 -> Game 1100 (in second batch)
+
+    const result = await igdbClient.getGameIdsBySteamAppIds(ids);
+
+    expect(result.size).toBe(3);
+    expect(result.get(10)).toBe(100);
+    expect(result.get(20)).toBe(200);
+    expect(result.get(110)).toBe(1100);
+
+    // Verify batches
+    // 1 Auth call + 2 API calls (150 / 100 = 2 chunks)
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+});

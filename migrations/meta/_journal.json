@@ -36,6 +36,13 @@
       "when": 1771060272911,
       "tag": "0004_thin_wendigo",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1771766435000,
+      "tag": "0005_steam_integration",
+      "breakpoints": true
     }
   ]
 }

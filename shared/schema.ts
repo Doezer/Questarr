@@ -7,6 +7,7 @@ export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
   username: text("username").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
+  steamId64: text("steam_id_64"),
 });
 
 export const userSettings = sqliteTable("user_settings", {
@@ -32,7 +33,8 @@ export const userSettings = sqliteTable("user_settings", {
   autoSearchUnreleased: integer("auto_search_unreleased", { mode: "boolean" })
     .notNull()
     .default(false),
-  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).default(
+  steamSyncFailures: integer("steam_sync_failures").notNull().default(0),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),
 });
@@ -49,6 +51,7 @@ export const games = sqliteTable("games", {
   id: text("id").primaryKey(),
   userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
   igdbId: integer("igdb_id"),
+  steamAppId: integer("steam_appid"),
   title: text("title").notNull(),
   summary: text("summary"),
   coverUrl: text("cover_url"),

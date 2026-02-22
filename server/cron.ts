@@ -6,11 +6,7 @@ import { DownloaderManager } from "./downloaders.js";
 import { searchAllIndexers } from "./search.js";
 import { xrelClient, DEFAULT_XREL_BASE } from "./xrel.js";
 
-import {
-  downloadRulesSchema,
-  type Game,
-  type InsertNotification
-} from "../shared/schema.js";
+import { downloadRulesSchema, type Game, type InsertNotification } from "../shared/schema.js";
 import { categorizeDownload } from "../shared/download-categorizer.js";
 import { releaseMatchesGame } from "../shared/title-utils.js";
 
@@ -198,13 +194,15 @@ export async function checkGameUpdates() {
     await storage.updateGamesBatch(batchUpdates);
   }
 
-  // Send notifications
-  for (const notificationInsert of notificationsToSend) {
+  // Send notifications in batch
+  if (notificationsToSend.length > 0) {
     try {
-      const notification = await storage.addNotification(notificationInsert);
-      notifyUser("notification", notification);
+      const addedNotifications = await storage.addNotificationsBatch(notificationsToSend);
+      for (const notification of addedNotifications) {
+        notifyUser("notification", notification);
+      }
     } catch (error) {
-      igdbLogger.error({ error }, "Failed to send notification in batch");
+      igdbLogger.error({ error }, "Failed to add notifications in batch");
     }
   }
 

@@ -185,7 +185,7 @@ describe("GameDownloadDialog", () => {
       }
 
       return Promise.resolve({ ok: false, json: async () => ({}) });
-    }) as any;
+    }) as never;
   });
 
   it("renders search results correctly", async () => {

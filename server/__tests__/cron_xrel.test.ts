@@ -3,7 +3,7 @@ import { checkXrelReleases } from "../cron.js";
 import { storage } from "../storage.js";
 import { xrelClient, type XrelReleaseListItem } from "../xrel.js";
 import { notifyUser } from "../socket.js";
-import type { Game } from "../../shared/schema.js";
+import type { Game, UserSettings } from "../../shared/schema.js";
 
 // Mock dependencies
 vi.mock("../storage.js");
@@ -84,7 +84,7 @@ describe("checkXrelReleases", () => {
     vi.mocked(storage.getUserSettings).mockResolvedValue({
       xrelSceneReleases: true,
       xrelP2pReleases: false,
-    } as any);
+    } as unknown as UserSettings);
     vi.mocked(storage.hasXrelNotifiedRelease).mockResolvedValue(false);
 
     // Execute
@@ -129,7 +129,7 @@ describe("checkXrelReleases", () => {
     vi.mocked(storage.getUserSettings).mockResolvedValue({
       xrelSceneReleases: true,
       xrelP2pReleases: false,
-    } as any);
+    } as unknown as UserSettings);
 
     await checkXrelReleases();
 
@@ -162,7 +162,7 @@ describe("checkXrelReleases", () => {
     vi.mocked(storage.getUserSettings).mockResolvedValue({
       xrelSceneReleases: true,
       xrelP2pReleases: true,
-    } as any);
+    } as unknown as UserSettings);
     vi.mocked(storage.hasXrelNotifiedRelease).mockResolvedValue(true); // Already notified
 
     await checkXrelReleases();

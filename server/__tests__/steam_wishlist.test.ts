@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { syncUserSteamWishlist } from "../cron.js";
 import { storage } from "../storage.js";
 import { steamService } from "../steam.js";
-import { igdbClient } from "../igdb.js";
-import type { Game } from "../../shared/schema.js";
+import { igdbClient, type IGDBGame } from "../igdb.js";
+import type { Game, User, UserSettings } from "../../shared/schema.js";
 
 // Mock dependencies
 vi.mock("../storage.js");
@@ -34,7 +34,10 @@ describe("syncUserSteamWishlist", () => {
   });
 
   it("should return failure if user has no Steam ID", async () => {
-    vi.mocked(storage.getUser).mockResolvedValue({ id: "user-1", steamId64: null } as any);
+    vi.mocked(storage.getUser).mockResolvedValue({
+      id: "user-1",
+      steamId64: null,
+    } as unknown as User);
 
     const result = await syncUserSteamWishlist("user-1");
     expect(result).toBeUndefined(); // It returns early with return; (void)
@@ -44,8 +47,10 @@ describe("syncUserSteamWishlist", () => {
     vi.mocked(storage.getUser).mockResolvedValue({
       id: "user-1",
       steamId64: "76561198000000000",
-    } as any);
-    vi.mocked(storage.getUserSettings).mockResolvedValue({ steamSyncFailures: 0 } as any);
+    } as unknown as User);
+    vi.mocked(storage.getUserSettings).mockResolvedValue({
+      steamSyncFailures: 0,
+    } as unknown as UserSettings);
 
     const mockWishlist = [
       { title: "Game 1", steamAppId: 101, addedAt: 0, priority: 0 },
@@ -66,22 +71,25 @@ describe("syncUserSteamWishlist", () => {
     vi.mocked(igdbClient.getGamesByIds).mockResolvedValue([
       { id: 1001, name: "Game 1" },
       { id: 1002, name: "Game 2" },
-    ] as any);
+    ] as unknown as IGDBGame[]);
 
     // Mock formatGameData
-    vi.mocked(igdbClient.formatGameData).mockImplementation((game: any) => ({
-      title: game.name,
-      igdbId: game.id,
-      coverUrl: "url",
-      summary: "summary",
-      releaseDate: "2023-01-01",
-      rating: 80,
-      platforms: ["PC"],
-      genres: ["Action"],
-      developers: ["Dev"],
-      publishers: ["Pub"],
-      screenshots: ["s1"],
-    }));
+    vi.mocked(igdbClient.formatGameData).mockImplementation((game: unknown) => {
+      const g = game as { id: number; name: string };
+      return {
+        title: g.name,
+        igdbId: g.id,
+        coverUrl: "url",
+        summary: "summary",
+        releaseDate: "2023-01-01",
+        rating: 80,
+        platforms: ["PC"],
+        genres: ["Action"],
+        developers: ["Dev"],
+        publishers: ["Pub"],
+        screenshots: ["s1"],
+      };
+    });
 
     const result = await syncUserSteamWishlist("user-1");
 
@@ -96,8 +104,10 @@ describe("syncUserSteamWishlist", () => {
     vi.mocked(storage.getUser).mockResolvedValue({
       id: "user-1",
       steamId64: "76561198000000000",
-    } as any);
-    vi.mocked(storage.getUserSettings).mockResolvedValue({ steamSyncFailures: 0 } as any);
+    } as unknown as User);
+    vi.mocked(storage.getUserSettings).mockResolvedValue({
+      steamSyncFailures: 0,
+    } as unknown as UserSettings);
 
     const mockWishlist = [{ title: "Existing Game", steamAppId: 201, addedAt: 0, priority: 0 }];
     vi.mocked(steamService.getWishlist).mockResolvedValue(mockWishlist);

@@ -1,46 +1,23 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Game, UserSettings } from "@shared/schema";
 
 // --- Mocks ---
+const createMockLogger = () => ({
+  info: vi.fn(),
+  debug: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+});
+
 // Mock logger to avoid noise and missing exports
 vi.mock("../logger.js", () => ({
   logger: { child: vi.fn().mockReturnThis() },
-  igdbLogger: {
-    info: vi.fn(),
-    debug: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  },
-  searchLogger: {
-    warn: vi.fn(),
-    info: vi.fn(),
-    debug: vi.fn(),
-    error: vi.fn(),
-  },
-  torznabLogger: {
-    info: vi.fn(),
-    debug: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  },
-  routesLogger: {
-    info: vi.fn(),
-    debug: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  },
-  expressLogger: {
-    info: vi.fn(),
-    debug: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  },
-  downloadersLogger: {
-    info: vi.fn(),
-    debug: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  },
+  igdbLogger: createMockLogger(),
+  searchLogger: createMockLogger(),
+  torznabLogger: createMockLogger(),
+  routesLogger: createMockLogger(),
+  expressLogger: createMockLogger(),
+  downloadersLogger: createMockLogger(),
 }));
 
 // Mock storage

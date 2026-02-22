@@ -50,9 +50,7 @@ describe("calculateLibraryStats", () => {
 
     expect(stats.totalGames).toBe(3);
     expect(stats.avgRating).toBe("85.0"); // (80 + 90) / 2
-    expect(stats.topGenre?.name).toBe("RPG"); // Action (2), RPG (2) - RPG comes after Action in sort if counts are equal? No, sort order of entries is based on appearance or stable sort. Wait, Action:2, RPG:2. My implementation: sorted[0][0]. RPG:2, Action:2.
-    // Let's re-verify the sort: .sort((a,b) => b[1]-a[1]). If equal, order is preserved from original entries.
-    // Action (2), RPG (2).
+    expect(stats.topGenre?.name).toBe("RPG");
 
     expect(stats.topPlatform?.name).toBe("PC");
     expect(stats.topPublisher?.name).toBe("Pub 1");
@@ -79,8 +77,8 @@ describe("calculateLibraryStats", () => {
         title: "Incomplete",
         status: "wanted",
         genres: undefined,
-        platforms: null as any,
-      },
+        platforms: null as unknown as string[],
+      } as Game,
     ];
     const stats = calculateLibraryStats(incompleteGames as Game[]);
     expect(stats.topGenre).toBeNull();
@@ -96,7 +94,7 @@ describe("calculateLibraryStats", () => {
         releaseDate: "D",
         rating: 10,
         status: "owned",
-      } as any,
+      } as Game,
       {
         title: "Missing Rating",
         summary: "S",
@@ -104,9 +102,19 @@ describe("calculateLibraryStats", () => {
         releaseDate: "D",
         rating: null,
         status: "owned",
-      } as any,
+      } as Game,
     ];
     const stats = calculateLibraryStats(games as Game[]);
     expect(stats.metadataHealth).toBe(50);
+  });
+
+  it("handles invalid release dates in avgReleaseYear", () => {
+    const games: Partial<Game>[] = [
+      { id: "1", releaseDate: "2020-01-01" },
+      { id: "2", releaseDate: "invalid-date" },
+      { id: "3", releaseDate: "2022-01-01" },
+    ];
+    const stats = calculateLibraryStats(games as Game[]);
+    expect(stats.avgReleaseYear).toBe(2021); // (2020 + 2022) / 2
   });
 });

@@ -53,7 +53,7 @@ export function calculateLibraryStats(games: Game[]): LibraryStats {
     if (items.length === 0) return null;
     const counts: Record<string, number> = {};
     items.forEach((item) => (counts[item] = (counts[item] || 0) + 1));
-    const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
     return { name: sorted[0][0], count: sorted[0][1] };
   };
 
@@ -65,15 +65,12 @@ export function calculateLibraryStats(games: Game[]): LibraryStats {
   const uniqueDevelopers = new Set(games.flatMap((g) => g.developers || [])).size;
 
   // Avg Release Year
-  const datedGames = games.filter((g) => g.releaseDate);
+  const years = games
+    .map((g) => (g.releaseDate ? new Date(g.releaseDate).getFullYear() : NaN))
+    .filter((year) => !isNaN(year));
   const avgReleaseYear =
-    datedGames.length > 0
-      ? Math.round(
-          datedGames.reduce((acc, g) => {
-            const year = new Date(g.releaseDate!).getFullYear();
-            return acc + (isNaN(year) ? 0 : year);
-          }, 0) / datedGames.length
-        )
+    years.length > 0
+      ? Math.round(years.reduce((acc, year) => acc + year, 0) / years.length)
       : "N/A";
 
   // Metadata Completeness (title, summary, cover, releaseDate, rating)
@@ -84,11 +81,18 @@ export function calculateLibraryStats(games: Game[]): LibraryStats {
 
   // Status Breakdown
   const statusBreakdown = {
-    wanted: games.filter((g) => g.status === "wanted").length,
-    owned: games.filter((g) => g.status === "owned").length,
-    completed: games.filter((g) => g.status === "completed").length,
-    downloading: games.filter((g) => g.status === "downloading").length,
+    wanted: 0,
+    owned: 0,
+    completed: 0,
+    downloading: 0,
   };
+
+  games.forEach((g) => {
+    if (g.status === "wanted") statusBreakdown.wanted++;
+    else if (g.status === "owned") statusBreakdown.owned++;
+    else if (g.status === "completed") statusBreakdown.completed++;
+    else if (g.status === "downloading") statusBreakdown.downloading++;
+  });
 
   // Completion Rate: % of owned games that are completed
   const ownedCount = statusBreakdown.owned + statusBreakdown.completed;

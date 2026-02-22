@@ -4,7 +4,7 @@ import { apiRequest } from "@/lib/queryClient";
 import SearchBar from "./SearchBar";
 import GameGrid from "./GameGrid";
 import StatsCard from "./StatsCard";
-import { Star, Gamepad2, Tags, Filter, X, Calendar, Building2, Code2 } from "lucide-react";
+import { Star, Gamepad2, Filter, X } from "lucide-react";
 import { type Game } from "@shared/schema";
 import { type GameStatus } from "./StatusBadge";
 import { useToast } from "@/hooks/use-toast";
@@ -89,14 +89,7 @@ export default function Dashboard() {
         params.set("includeHidden", "true");
       }
 
-      const token = localStorage.getItem("token");
-      const headers: Record<string, string> = {};
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
-
-      const response = await fetch(`/api/games?${params}`, { headers });
-      if (!response.ok) throw new Error("Failed to fetch games");
+      const response = await apiRequest("GET", `/api/games?${params}`);
       return response.json();
     },
   });

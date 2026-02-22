@@ -16,34 +16,15 @@ import {
   LayoutGrid,
 } from "lucide-react";
 import { calculateLibraryStats } from "@/lib/stats";
-import {
-  PieChart,
-  Pie,
-  Cell,
-  ResponsiveContainer,
-  Legend,
-  Tooltip,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-} from "recharts";
+import { apiRequest } from "@/lib/queryClient";
+import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-
-const COLORS = ["#ef4444", "#3b82f6", "#10b981", "#8b5cf6"]; // wanted, owned, completed, downloading
 
 export default function StatsPage() {
   const { data: games = [], isLoading } = useQuery<Game[]>({
     queryKey: ["/api/games", "", true], // Empty search, include hidden
     queryFn: async () => {
-      const token = localStorage.getItem("token");
-      const headers: Record<string, string> = {};
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
-      const response = await fetch("/api/games?includeHidden=true", { headers });
-      if (!response.ok) throw new Error("Failed to fetch games");
+      const response = await apiRequest("GET", "/api/games?includeHidden=true");
       return response.json();
     },
   });

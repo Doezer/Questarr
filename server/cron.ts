@@ -372,7 +372,7 @@ async function checkDownloadStatus() {
               downloadHash: download.downloadHash,
             },
             "Download not found in downloader - assuming completion and marking as owned. " +
-            "This could indicate the download was manually removed."
+              "This could indicate the download was manually removed."
           );
 
           // Mark download as completed (assumption)
@@ -662,7 +662,7 @@ export async function checkAutoSearch() {
   }
 }
 
-async function checkXrelReleases() {
+export async function checkXrelReleases() {
   igdbLogger.debug("Checking xREL.to for wanted games...");
 
   try {
@@ -795,7 +795,10 @@ export async function syncUserSteamWishlist(userId: string) {
         { userId, failures: settings.steamSyncFailures },
         "Skipping Steam sync due to too many consecutive failures"
       );
-      return { success: false, message: "Too many authentication failures. Please check privacy settings." };
+      return {
+        success: false,
+        message: "Too many authentication failures. Please check privacy settings.",
+      };
     }
 
     igdbLogger.info({ userId, steamId: user.steamId64 }, "Syncing Steam Wishlist");
@@ -806,13 +809,15 @@ export async function syncUserSteamWishlist(userId: string) {
 
     // We need to fetch current wanted games to avoid duplicates
     const currentGames = await storage.getUserGames(userId, true);
-    const ownedIgdbIds = new Set(currentGames.filter(g => g.igdbId).map(g => g.igdbId));
-    const ownedSteamAppIds = new Set(currentGames.filter(g => g.steamAppId).map(g => g.steamAppId));
+    const ownedIgdbIds = new Set(currentGames.filter((g) => g.igdbId).map((g) => g.igdbId));
+    const ownedSteamAppIds = new Set(
+      currentGames.filter((g) => g.steamAppId).map((g) => g.steamAppId)
+    );
 
     // Identify games that need processing (not already linked by Steam App ID)
     const pendingSteamAppIds = wishlistGames
-      .filter(sg => !ownedSteamAppIds.has(sg.steamAppId))
-      .map(sg => sg.steamAppId);
+      .filter((sg) => !ownedSteamAppIds.has(sg.steamAppId))
+      .map((sg) => sg.steamAppId);
 
     if (pendingSteamAppIds.length > 0) {
       // 1. Batch lookup matches from Steam App ID to IGDB ID
@@ -831,7 +836,7 @@ export async function syncUserSteamWishlist(userId: string) {
         if (ownedIgdbIds.has(igdbId)) {
           // We have the IGDB ID but not the Steam App ID on the game? Update it.
           // This updates existing local games to link them to Steam
-          const existing = currentGames.find(g => g.igdbId === igdbId);
+          const existing = currentGames.find((g) => g.igdbId === igdbId);
           if (existing && !existing.steamAppId) {
             await storage.updateGame(existing.id, { steamAppId });
           }
@@ -844,7 +849,7 @@ export async function syncUserSteamWishlist(userId: string) {
       // 3. Batch fetch details for completely new games
       if (newIgdbIdsToFetch.size > 0) {
         const gameDetailsList = await igdbClient.getGamesByIds(Array.from(newIgdbIdsToFetch));
-        const gameDetailsMap = new Map(gameDetailsList.map(g => [g.id, g]));
+        const gameDetailsMap = new Map(gameDetailsList.map((g) => [g.id, g]));
 
         // 4. Add the new games
         for (const steamAppId of pendingSteamAppIds) {
@@ -887,7 +892,7 @@ export async function syncUserSteamWishlist(userId: string) {
         userId,
         type: "success",
         title: "Steam Wishlist Synced",
-        message: `Successfully added ${addedCount} games from your Steam Wishlist.`
+        message: `Successfully added ${addedCount} games from your Steam Wishlist.`,
       });
       notifyUser("notification", notification);
     }
@@ -910,7 +915,8 @@ export async function syncUserSteamWishlist(userId: string) {
             userId,
             type: "error",
             title: "Steam Sync Disabled",
-            message: "Steam sync has been disabled after 3 consecutive failures. Please check your privacy settings."
+            message:
+              "Steam sync has been disabled after 3 consecutive failures. Please check your privacy settings.",
           });
         }
       }

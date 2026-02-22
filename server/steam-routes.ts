@@ -69,7 +69,8 @@ passport.use(
     function (
       identifier: string,
       profile: SteamProfile,
-      done: (err: unknown, user?: unknown) => void
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      done: (err: any, user?: any) => void
     ) {
       // identifier is like: https://steamcommunity.com/openid/id/76561198000000000
       // profile contains _json with steamid etc.

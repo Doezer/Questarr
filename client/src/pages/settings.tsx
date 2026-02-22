@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   ShieldAlert,
   Upload,
+  Gamepad2,
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -72,6 +73,10 @@ export default function SettingsPage() {
     retry: 3, // Retry up to 3 times as migrations might be running
   });
 
+  const { data: user } = useQuery<{ id: string; username: string; steamId64?: string }>({
+    queryKey: ["/api/auth/me"],
+  });
+
   // Local state for form
   const [autoSearchEnabled, setAutoSearchEnabled] = useState(true);
   const [autoSearchUnreleased, setAutoSearchUnreleased] = useState(false);
@@ -80,6 +85,9 @@ export default function SettingsPage() {
   const [notifyUpdates, setNotifyUpdates] = useState(true);
   const [searchIntervalHours, setSearchIntervalHours] = useState(6);
   const [igdbRateLimitPerSecond, setIgdbRateLimitPerSecond] = useState(3);
+
+  // Local state for Steam form
+  const [steamIdInput, setSteamIdInput] = useState("");
 
   // Local state for IGDB form
   const [igdbClientId, setIgdbClientId] = useState("");
@@ -127,7 +135,10 @@ export default function SettingsPage() {
     if (config?.igdb.configured) {
       setIgdbClientSecret("");
     }
-  }, [userSettings, config]);
+    if (user?.steamId64) {
+      setSteamIdInput(user.steamId64);
+    }
+  }, [userSettings, config, user]);
 
   // SSL Settings State
   const [sslEnabled, setSslEnabled] = useState(false);
@@ -416,6 +427,32 @@ export default function SettingsPage() {
     updateIgdbMutation.mutate();
   };
 
+  const updateSteamIdMutation = useMutation({
+    mutationFn: async (steamId: string) => {
+      const res = await apiRequest("PUT", "/api/user/steam-id", { steamId });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Steam ID Updated",
+        description: "Your Steam ID has been saved.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Update Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  });
+
+  const handleSaveSteamId = () => {
+    if (!steamIdInput) return;
+    updateSteamIdMutation.mutate(steamIdInput);
+  };
+
   if (isLoading) {
     return (
       <div className="p-8">
@@ -635,6 +672,60 @@ export default function SettingsPage() {
           </TabsContent>
 
           <TabsContent value="services" className="space-y-6">
+            {/* Steam Integration Card */}
+            <Card id="steam-config">
+              <CardHeader>
+                <div className="flex items-center space-x-3">
+                  <Gamepad2 className="h-5 w-5 text-muted-foreground" />
+                  <CardTitle className="text-lg">Steam Integration</CardTitle>
+                </div>
+                <CardDescription>
+                  Sync your Steam Wishlist with Questarr.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex flex-col space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="steam-id">Steam ID (64-bit)</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="steam-id"
+                        placeholder="76561198..."
+                        value={steamIdInput}
+                        onChange={(e) => setSteamIdInput(e.target.value)}
+                      />
+                      <Button onClick={handleSaveSteamId} disabled={updateSteamIdMutation.isPending}>
+                        {updateSteamIdMutation.isPending ? "Saving..." : "Save"}
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Enter your SteamID64 manually or sign in below.
+                    </p>
+                  </div>
+
+                  <div className="relative">
+                    <div className="absolute inset-0 flex items-center">
+                      <span className="w-full border-t" />
+                    </div>
+                    <div className="relative flex justify-center text-xs uppercase">
+                      <span className="bg-background px-2 text-muted-foreground">Or</span>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-center">
+                    <Button
+                      variant="outline"
+                      className="w-full sm:w-auto gap-2"
+                      onClick={() => window.location.href = "/api/auth/steam"}
+                    >
+                      <Gamepad2 className="h-4 w-4" />
+                      Sign in through Steam
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
             {/* IGDB Card */}
             <Card id="igdb-config">
               <CardHeader>

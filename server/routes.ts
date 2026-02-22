@@ -2553,6 +2553,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/rss/feeds", async (req, res) => {
     try {
       const feedData = insertRssFeedSchema.parse(req.body);
+
+      if (!(await isSafeUrl(feedData.url))) {
+        return res.status(400).json({ error: "Invalid or unsafe URL" });
+      }
+
       const feed = await storage.addRssFeed(feedData);
       // Trigger immediate refresh for new feed
       rssService.refreshFeed(feed).catch((err) => {
@@ -2582,6 +2587,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/rss/feeds/:id", async (req, res) => {
     try {
       const updates = insertRssFeedSchema.partial().parse(req.body);
+
+      if (updates.url && !(await isSafeUrl(updates.url))) {
+        return res.status(400).json({ error: "Invalid or unsafe URL" });
+      }
+
       const feed = await storage.updateRssFeed(req.params.id, updates);
       if (!feed) {
         return res.status(404).json({ error: "Feed not found" });

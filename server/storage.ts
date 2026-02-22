@@ -751,6 +751,7 @@ export class MemStorage implements IStorage {
       lastAutoSearch: insertSettings.lastAutoSearch ?? null,
       xrelSceneReleases: insertSettings.xrelSceneReleases ?? true,
       xrelP2pReleases: insertSettings.xrelP2pReleases ?? false,
+      autoSearchUnreleased: insertSettings.autoSearchUnreleased ?? false,
       updatedAt: new Date(),
     };
     this.userSettings.set(id, settings);

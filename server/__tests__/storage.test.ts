@@ -7,7 +7,13 @@ vi.mock("../db.js", () => ({
 }));
 
 // Import after mocking
-import type { InsertGame, InsertUser, InsertIndexer, InsertDownloader } from "../../shared/schema";
+import type {
+  InsertGame,
+  InsertUser,
+  InsertIndexer,
+  InsertDownloader,
+  InsertUserSettings,
+} from "../../shared/schema";
 import type { MemStorage as MemStorageType } from "../storage.js";
 
 // Mock native modules to prevent loading
@@ -236,6 +242,49 @@ describe("MemStorage", () => {
     it("should return undefined for missing config", async () => {
       const value = await storage.getSystemConfig("missing.key");
       expect(value).toBeUndefined();
+    });
+  });
+  describe("User Settings Management", () => {
+    it("should create and update user settings", async () => {
+      // First create a user
+      const user = await storage.createUser({
+        username: "settingsuser",
+        passwordHash: "hash",
+      });
+
+      const settingsData: InsertUserSettings = {
+        userId: user.id,
+        autoSearchEnabled: true,
+        autoSearchUnreleased: true, // Test new field
+      };
+
+      const settings = await storage.createUserSettings(settingsData);
+      expect(settings.userId).toBe(user.id);
+      expect(settings.autoSearchEnabled).toBe(true);
+      expect(settings.autoSearchUnreleased).toBe(true);
+
+      // Test update
+      const updated = await storage.updateUserSettings(user.id, {
+        autoSearchUnreleased: false,
+      });
+
+      expect(updated?.autoSearchUnreleased).toBe(false);
+      expect(updated?.autoSearchEnabled).toBe(true); // Should remain unchanged
+    });
+
+    it("should use default values for new settings", async () => {
+      // First create a user
+      const user = await storage.createUser({
+        username: "defaultuser",
+        passwordHash: "hash",
+      });
+
+      const settings = await storage.createUserSettings({
+        userId: user.id,
+      });
+
+      expect(settings.autoSearchUnreleased).toBe(false); // Default is false
+      expect(settings.autoSearchEnabled).toBe(true); // Default is true
     });
   });
 });

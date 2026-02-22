@@ -95,6 +95,7 @@ export interface IStorage {
   getNotifications(limit?: number): Promise<Notification[]>;
   getUnreadNotificationsCount(): Promise<number>;
   addNotification(notification: InsertNotification): Promise<Notification>;
+  addNotificationsBatch(notifications: InsertNotification[]): Promise<Notification[]>;
   markNotificationAsRead(id: string): Promise<Notification | undefined>;
   markAllNotificationsAsRead(): Promise<void>;
   // RSS Feed methods
@@ -610,6 +611,14 @@ export class MemStorage implements IStorage {
     };
     this.notifications.set(id, notification);
     return notification;
+  }
+
+  async addNotificationsBatch(insertNotifications: InsertNotification[]): Promise<Notification[]> {
+    const result: Notification[] = [];
+    for (const insert of insertNotifications) {
+      result.push(await this.addNotification(insert));
+    }
+    return result;
   }
 
   async markNotificationAsRead(id: string): Promise<Notification | undefined> {
@@ -1266,6 +1275,15 @@ export class DatabaseStorage implements IStorage {
       .values({ ...insertNotification, id })
       .returning();
     return notification;
+  }
+
+  async addNotificationsBatch(insertNotifications: InsertNotification[]): Promise<Notification[]> {
+    if (insertNotifications.length === 0) return [];
+    const values = insertNotifications.map((insertNotification) => ({
+      ...insertNotification,
+      id: randomUUID(),
+    }));
+    return db.insert(notifications).values(values).returning();
   }
 
   async markNotificationAsRead(id: string): Promise<Notification | undefined> {

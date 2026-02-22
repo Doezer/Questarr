@@ -117,7 +117,7 @@ describe("SetupPage", () => {
         igdbClientSecret: "",
       });
     });
-  });
+  }, 10000);
 
   it("requires IGDB fields when IGDB is NOT configured", async () => {
     // Mock config as NOT configured

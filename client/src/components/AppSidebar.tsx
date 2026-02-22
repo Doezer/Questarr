@@ -12,6 +12,7 @@ import {
   User,
   Newspaper,
   Rss,
+  PieChart,
 } from "lucide-react";
 import { useMemo } from "react";
 import {
@@ -76,6 +77,11 @@ const staticNavigation = [
     title: "RSS Feeds",
     url: "/rss",
     icon: Rss,
+  },
+  {
+    title: "Stats",
+    url: "/stats",
+    icon: PieChart,
   },
 ];
 

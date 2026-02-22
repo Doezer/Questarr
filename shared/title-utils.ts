@@ -99,8 +99,8 @@ export function titleMatches(a: string, b: string): boolean {
 
   // Check if one contains the other (e.g. "The Witcher 3" vs "The Witcher 3: Wild Hunt")
   // We check for word boundaries to avoid matching "Fable" with "Fabletown"
-  const regexA = new RegExp(`\\b${normA.replace(/[.*+?^${}()|[\\]/g, "\\$&")}\\b`, "i");
-  const regexB = new RegExp(`\\b${normB.replace(/[.*+?^${}()|[\\]/g, "\\$&")}\\b`, "i");
+  const regexA = new RegExp(`\\b${normA.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
+  const regexB = new RegExp(`\\b${normB.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
 
   return regexA.test(normB) || regexB.test(normA);
 }

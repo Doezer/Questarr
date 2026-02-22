@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { SidebarTrigger } from "@/components/ui/sidebar";
-import { Plus, Moon, Sun, HardDrive, AlertCircle } from "lucide-react";
+import { Plus, Moon, Sun, HardDrive, AlertCircle, Gamepad2 } from "lucide-react";
 import AddGameModal from "./AddGameModal";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { NotificationCenter } from "./NotificationCenter";
@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Link } from "wouter";
+import { useToast } from "@/hooks/use-toast";
 import type { Config } from "@shared/schema";
 
 interface HeaderProps {
@@ -33,6 +34,7 @@ function formatBytes(bytes: number): string {
 export default function Header({ title = "Dashboard" }: HeaderProps) {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
+  const { toast } = useToast();
 
   // Fetch storage info every 5 minutes
   const {
@@ -42,6 +44,11 @@ export default function Header({ title = "Dashboard" }: HeaderProps) {
   } = useQuery<StorageInfo[]>({
     queryKey: ["/api/downloaders/storage"],
     refetchInterval: 5 * 60 * 1000,
+  });
+
+  // Fetch user to check for Steam ID
+  const { data: user } = useQuery<{ id: string; username: string; steamId64?: string }>({
+    queryKey: ["/api/auth/me"],
   });
 
   // Fetch config to check for IGDB status
@@ -124,6 +131,48 @@ export default function Header({ title = "Dashboard" }: HeaderProps) {
                 Add Game
               </Button>
             </AddGameModal>
+
+            {user?.steamId64 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="gap-2 hidden sm:flex"
+                onClick={async () => {
+                  try {
+                    const response = await fetch("/api/steam/wishlist/sync", {
+                      method: "POST",
+                      headers: {
+                        "Authorization": `Bearer ${localStorage.getItem("token")}`
+                      }
+                    });
+                    const data = await response.json();
+
+                    if (response.ok && data.success) {
+                      toast({
+                        title: "Steam Sync",
+                        description: data.message || "Sync started successfully",
+                      });
+                    } else {
+                      toast({
+                        title: "Sync Failed",
+                        description: data.error || data.message || "Unknown error",
+                        variant: "destructive"
+                      });
+                    }
+                  } catch (e) {
+                    console.error(e);
+                    toast({
+                      title: "Sync Error",
+                      description: "Failed to connect to server",
+                      variant: "destructive"
+                    });
+                  }
+                }}
+              >
+                <Gamepad2 className="w-4 h-4" />
+                Sync Steam
+              </Button>
+            )}
 
             <NotificationCenter />
 

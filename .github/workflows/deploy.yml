@@ -26,6 +26,11 @@ on:
   schedule:
     - cron: "0 0 * * *"
 
+  # Trigger on release/1.3.0 branch for dev release
+  push:
+    branches:
+      - "release/1.3.0"
+
 permissions:
   contents: read
   packages: write
@@ -33,7 +38,7 @@ permissions:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-    environment: ${{ github.event_name == 'schedule' && 'dev' || inputs.environment || 'production' }}
+    environment: ${{ (github.event_name == 'schedule' || github.ref == 'refs/heads/release/1.3.0') && 'dev' || inputs.environment || 'production' }}
 
     steps:
       - name: Checkout code
@@ -42,7 +47,7 @@ jobs:
       - name: Determine Environment
         id: env
         run: |
-          if [ "${{ github.event_name }}" == "schedule" ]; then
+          if [ "${{ github.event_name }}" == "schedule" ] || [ "${{ github.ref }}" == "refs/heads/release/1.3.0" ]; then
             echo "ENVIRONMENT=dev" >> $GITHUB_ENV
             echo "environment=dev" >> $GITHUB_OUTPUT
           else

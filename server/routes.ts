@@ -64,6 +64,7 @@ import { xrelClient, DEFAULT_XREL_BASE, ALLOWED_XREL_DOMAINS } from "./xrel.js";
 import { normalizeTitle, cleanReleaseName } from "../shared/title-utils.js";
 import archiver from "archiver";
 import helmet from "helmet";
+import { steamRoutes } from "./steam-routes.js";
 
 // ⚡ Bolt: Simple in-memory cache implementation to avoid external dependencies
 // Caches storage info for 30 seconds to prevent spamming downloaders
@@ -175,6 +176,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       hsts: isSslEnabled,
     })
   );
+  // Use Steam Routes
+  app.use(steamRoutes);
 
   // Auth Routes
   app.get("/api/auth/status", async (_req, res) => {
@@ -281,7 +284,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/auth/me", authenticateToken, (req, res) => {
     const user = req.user!;
-    res.json({ id: user.id, username: user.username });
+    res.json({ id: user.id, username: user.username, steamId64: user.steamId64 });
   });
 
   app.patch("/api/auth/password", authenticateToken, sensitiveEndpointLimiter, async (req, res) => {
@@ -508,8 +511,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         if (!valid) {
           // Cleanup invalid files
-          await fs.promises.unlink(certPath).catch(() => {});
-          await fs.promises.unlink(keyPath).catch(() => {});
+          await fs.promises.unlink(certPath).catch(() => { });
+          await fs.promises.unlink(keyPath).catch(() => { });
           return res.status(400).json({ error: `Uploaded certificate/key are invalid: ${error}` });
         }
 
@@ -650,11 +653,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const parent =
           parentPath !== currentPath
             ? {
-                name: "..",
-                path: parentRelativePath,
-                isDirectory: true,
-                size: 0,
-              }
+              name: "..",
+              path: parentRelativePath,
+              isDirectory: true,
+              size: 0,
+            }
             : null;
         const currentRelativePath = path.relative(FILE_BROWSER_ROOT, currentPath);
 
@@ -2303,9 +2306,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         xrel: { apiBase },
         settings: settings
           ? {
-              xrelSceneReleases: settings.xrelSceneReleases,
-              xrelP2pReleases: settings.xrelP2pReleases,
-            }
+            xrelSceneReleases: settings.xrelSceneReleases,
+            xrelP2pReleases: settings.xrelP2pReleases,
+          }
           : undefined,
       });
     } catch (error) {
@@ -2330,14 +2333,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const result = await xrelClient.getLatestGames({
         page,
         perPage: 20,
-        baseUrl,
+        baseUrl
       });
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const userId = (req as any).user.id;
       const userGames = await storage.getUserGames(userId);
-      // Match releases exact or fuzzy against ALL user games
-      const gamesLookup = userGames.map((g) => {
+      const wantedGames = userGames.filter(g => g.status === "wanted");
+
+      // Mark releases that match a wanted game
+      // ⚡ Bolt: Optimize matching for large collections by pre-processing wanted games
+      // and using a Set for O(1) exact-match lookups.
+      const wantedGamesLookup = wantedGames.map(g => {
         const norm = normalizeTitle(g.title);
         return {
           game: g,
@@ -2351,7 +2358,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       // Map normalized title -> Game
       const gamesMap = new Map<string, Game>();
-      gamesLookup.forEach((gl) => gamesMap.set(gl.normalized, gl.game));
+      wantedGamesLookup.forEach((gl) => gamesMap.set(gl.normalized, gl.game));
 
       // Collect potential titles for batch matching
       const candidatesToMatch = new Set<string>();
@@ -2378,7 +2385,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               ? new RegExp(`\\b${relExtTitleNorm.replace(/[.*+?^${}()|[\\]/g, "\\$&")}\\b`, "i")
               : null;
 
-          const found = gamesLookup.find((gl) => {
+          const found = wantedGamesLookup.find((gl) => {
             if (relExtTitleNorm) {
               if (gl.regex && gl.regex.test(relExtTitleNorm)) return true;
               if (relExtRegex && relExtRegex.test(gl.normalized)) return true;

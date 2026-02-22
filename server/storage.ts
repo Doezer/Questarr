@@ -95,6 +95,7 @@ export interface IStorage {
   getNotifications(limit?: number): Promise<Notification[]>;
   getUnreadNotificationsCount(): Promise<number>;
   addNotification(notification: InsertNotification): Promise<Notification>;
+  addNotificationsBatch(notifications: InsertNotification[]): Promise<Notification[]>;
   markNotificationAsRead(id: string): Promise<Notification | undefined>;
   markAllNotificationsAsRead(): Promise<void>;
   // RSS Feed methods
@@ -605,6 +606,26 @@ export class MemStorage implements IStorage {
     };
     this.notifications.set(id, notification);
     return notification;
+  }
+
+  async addNotificationsBatch(insertNotifications: InsertNotification[]): Promise<Notification[]> {
+    const addedNotifications: Notification[] = [];
+    for (const insertNotification of insertNotifications) {
+      const id = randomUUID();
+      const notification: Notification = {
+        id,
+        userId: insertNotification.userId ?? null,
+        type: insertNotification.type,
+        title: insertNotification.title,
+        message: insertNotification.message,
+        link: insertNotification.link ?? null,
+        read: false,
+        createdAt: new Date(),
+      };
+      this.notifications.set(id, notification);
+      addedNotifications.push(notification);
+    }
+    return addedNotifications;
   }
 
   async markNotificationAsRead(id: string): Promise<Notification | undefined> {
@@ -1254,6 +1275,25 @@ export class DatabaseStorage implements IStorage {
       .values({ ...insertNotification, id })
       .returning();
     return notification;
+  }
+
+  async addNotificationsBatch(insertNotifications: InsertNotification[]): Promise<Notification[]> {
+    if (insertNotifications.length === 0) return [];
+
+    const values = insertNotifications.map((n) => ({
+      ...n,
+      id: randomUUID(),
+      userId: n.userId ?? null,
+    }));
+
+    return db.transaction((tx) => {
+      const results: Notification[] = [];
+      for (const val of values) {
+        const [notification] = tx.insert(notifications).values(val).returning().all();
+        results.push(notification);
+      }
+      return results;
+    });
   }
 
   async markNotificationAsRead(id: string): Promise<Notification | undefined> {

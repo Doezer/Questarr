@@ -9,6 +9,10 @@ vi.mock("../storage.js");
 vi.mock("../newznab.js");
 vi.mock("../torznab.js");
 vi.mock("../downloaders.js");
+vi.mock("../ssrf.js", () => ({
+  isSafeUrl: vi.fn().mockResolvedValue(true),
+  safeFetch: vi.fn(),
+}));
 
 describe("Usenet Integration", () => {
   beforeEach(() => {

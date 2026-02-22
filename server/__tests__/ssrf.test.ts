@@ -18,14 +18,14 @@ describe("isSafeUrl Security Check", () => {
     vi.restoreAllMocks();
   });
 
-  it("should allow private IPs by default (self-hosted use case)", async () => {
+  it("should allow private IPs by default (self-hosted posture)", async () => {
     // Mock DNS lookup for google.com to return a safe IP
     vi.mocked(dns.lookup as unknown as import("dns").LookupAddress[]).mockResolvedValueOnce([
       { address: "142.250.185.46", family: 4 },
     ]);
     expect(await isSafeUrl("http://google.com")).toBe(true);
 
-    // Private IPs are allowed by default for self-hosted projects
+    // Private IPs are allowed by default
     expect(await isSafeUrl("http://127.0.0.1")).toBe(true);
     expect(await isSafeUrl("http://192.168.1.1")).toBe(true);
     expect(await isSafeUrl("http://10.0.0.1")).toBe(true);
@@ -39,11 +39,11 @@ describe("isSafeUrl Security Check", () => {
     expect(await isSafeUrl("http://[::1]")).toBe(true); // Localhost IPv6
   });
 
-  it("should block private IPs when allowPrivate is false", async () => {
-    expect(await isSafeUrl("http://127.0.0.1", { allowPrivate: false })).toBe(false);
-    expect(await isSafeUrl("http://192.168.1.1", { allowPrivate: false })).toBe(false);
-    expect(await isSafeUrl("http://10.0.0.1", { allowPrivate: false })).toBe(false);
-    expect(await isSafeUrl("http://[::1]", { allowPrivate: false })).toBe(false);
+  it("should allow private IPs when allowPrivate is true", async () => {
+    expect(await isSafeUrl("http://127.0.0.1", { allowPrivate: true })).toBe(true);
+    expect(await isSafeUrl("http://192.168.1.1", { allowPrivate: true })).toBe(true);
+    expect(await isSafeUrl("http://10.0.0.1", { allowPrivate: true })).toBe(true);
+    expect(await isSafeUrl("http://[::1]", { allowPrivate: true })).toBe(true);
   });
 
   it("should block IPv4 metadata service", async () => {
@@ -157,10 +157,16 @@ describe("safeFetch", () => {
   });
 
   it("should allow private IPs by default for HTTPS", async () => {
+    // Direct IP URL (no DNS lookup needed)
+    vi.mocked(fetch).mockResolvedValueOnce(new Response("ok"));
+    await safeFetch("https://192.168.1.1:8080/api");
+    expect(fetch).toHaveBeenCalledWith("https://192.168.1.1:8080/api", expect.any(Object));
+  });
+
+  it("should allow private IPs for HTTPS when allowPrivate is true", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(new Response("ok"));
 
-    // Direct IP URL (no DNS lookup needed)
-    await safeFetch("https://192.168.1.1:8080/api");
+    await safeFetch("https://192.168.1.1:8080/api", { allowPrivate: true });
 
     expect(fetch).toHaveBeenCalledWith("https://192.168.1.1:8080/api", expect.any(Object));
   });

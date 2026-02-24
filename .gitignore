@@ -34,3 +34,4 @@ vite.config.ts.*
 docker-compose.*local.yml
 notes/
 sqlite.db*
+*.junit.xml

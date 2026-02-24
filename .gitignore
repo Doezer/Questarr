@@ -35,3 +35,4 @@ docker-compose.*local.yml
 notes/
 sqlite.db*
 pr_status.json
+*.junit.xml

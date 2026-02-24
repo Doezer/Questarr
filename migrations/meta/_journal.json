@@ -27,14 +27,14 @@
       "idx": 3,
       "version": "6",
       "when": 1770123406692,
-      "tag": "0003_free_centennial",
+      "tag": "0003_add_link_to_notifications",
       "breakpoints": true
     },
     {
       "idx": 4,
       "version": "6",
       "when": 1771060272911,
-      "tag": "0004_thin_wendigo",
+      "tag": "0004_add_auto_search_unreleased",
       "breakpoints": true
     },
     {
@@ -47,8 +47,8 @@
     {
       "idx": 6,
       "version": "6",
-      "when": 1771886598222,
-      "tag": "0006_cheerful_fantastic_four",
+      "when": 1771914096263,
+      "tag": "0006_add_post_processing_and_romm",
       "breakpoints": true
     }
   ]

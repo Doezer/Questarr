@@ -50,13 +50,16 @@ export const userSettings = sqliteTable("user_settings", {
     .default(false),
   steamSyncFailures: integer("steam_sync_failures").notNull().default(0),
   // Import Engine Settings
-  enablePostProcessing: integer("enable_post_processing", { mode: "boolean" }).notNull().default(true),
+  enablePostProcessing: integer("enable_post_processing", { mode: "boolean" })
+    .notNull()
+    .default(true),
   autoUnpack: integer("auto_unpack", { mode: "boolean" }).notNull().default(false),
   renamePattern: text("rename_pattern").notNull().default("{Title} ({Region})"),
   overwriteExisting: integer("overwrite_existing", { mode: "boolean" }).notNull().default(false),
   deleteSource: integer("delete_source", { mode: "boolean" }).notNull().default(true),
   ignoredExtensions: text("ignored_extensions", { mode: "json" }).$type<string[]>().default([]),
   minFileSize: integer("min_file_size").notNull().default(0), // in bytes
+  libraryRoot: text("library_root").notNull().default("/data"),
   // RomM Settings
   rommEnabled: integer("romm_enabled", { mode: "boolean" }).notNull().default(false),
   rommUrl: text("romm_url"),
@@ -92,6 +95,7 @@ export interface ImportConfig {
   deleteSource: boolean;
   ignoredExtensions: string[];
   minFileSize: number;
+  libraryRoot: string;
 }
 
 export interface RomMConfig {
@@ -104,7 +108,17 @@ export interface DownloadStatus {
   id: string;
   name: string;
   downloadType?: "torrent" | "usenet"; // Type of download
-  status: "downloading" | "seeding" | "completed" | "paused" | "error" | "repairing" | "unpacking" | "completed_pending_import" | "manual_review_required" | "imported";
+  status:
+    | "downloading"
+    | "seeding"
+    | "completed"
+    | "paused"
+    | "error"
+    | "repairing"
+    | "unpacking"
+    | "completed_pending_import"
+    | "manual_review_required"
+    | "imported";
   progress: number; // 0-100
   // ... existing fields ...
   downloadSpeed?: number; // bytes per second
@@ -124,7 +138,6 @@ export interface DownloadStatus {
   error?: string;
   category?: string;
 }
-
 
 export const systemConfig = sqliteTable("system_config", {
   key: text("key").primaryKey(),
@@ -421,8 +434,6 @@ export interface DownloadTracker {
   nextAnnounce?: string;
   error?: string;
 }
-
-
 
 export interface DownloadDetails extends DownloadStatus {
   hash?: string;

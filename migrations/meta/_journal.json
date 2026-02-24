@@ -50,6 +50,13 @@
       "when": 1771914096263,
       "tag": "0006_add_post_processing_and_romm",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1771916672705,
+      "tag": "0007_strong_genesis",
+      "breakpoints": true
     }
   ]
 }

@@ -30,7 +30,6 @@ export class PlatformMappingService {
   async initializeDefaults(): Promise<void> {
     const existing = await this.storage.getPlatformMappings();
     if (existing.length === 0) {
-      // eslint-disable-next-line no-console
       console.log("Seeding default platform mappings...");
       for (const map of DEFAULT_MAPPINGS) {
         await this.storage.addPlatformMapping(map);
@@ -51,7 +50,10 @@ export class PlatformMappingService {
     return this.storage.addPlatformMapping(mapping);
   }
 
-  async updateMapping(id: string, updates: Partial<InsertPlatformMapping>): Promise<PlatformMapping | undefined> {
+  async updateMapping(
+    id: string,
+    updates: Partial<InsertPlatformMapping>
+  ): Promise<PlatformMapping | undefined> {
     return this.storage.updatePlatformMapping(id, updates);
   }
 

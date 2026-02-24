@@ -3,6 +3,7 @@ import { igdbClient } from "./igdb.js";
 import { igdbLogger } from "./logger.js";
 import { notifyUser } from "./socket.js";
 import { DownloaderManager } from "./downloaders.js";
+import { importManager } from "./services/index.js";
 import { searchAllIndexers } from "./search.js";
 import { xrelClient, DEFAULT_XREL_BASE } from "./xrel.js";
 import { steamService } from "./steam.js";
@@ -277,26 +278,46 @@ async function checkDownloadStatus() {
                 status: remoteDownload.status,
                 progress: remoteDownload.progress,
               },
-              "Download completed"
+              "Download completed - triggering import processing"
             );
 
-            // Update DB - mark as completed
-            await storage.updateGameDownloadStatus(download.id, "completed");
-
-            // Update Game status to 'owned' (which means we have the files)
-            await storage.updateGameStatus(download.gameId, { status: "owned" });
-
-            igdbLogger.info(
-              { gameId: download.gameId, downloadId: download.id },
-              "Updated game status to 'owned' after completion"
+            // Fetch full details to get the path
+            // detailed info is needed for the path (downloadDir)
+            const details = await DownloaderManager.getDownloadDetails(
+              downloader,
+              download.downloadHash
             );
 
-            // Fetch game title for notification
-            const game = await storage.getGame(download.gameId);
-            const gameTitle = game ? game.title : download.downloadTitle;
+            if (details && details.downloadDir) {
+              // Construct path.
+              // Transmission/Qbit usually return downloadDir as the parent folder, and name as the subfolder/file.
+              // Verify if 'name' is already included in 'downloadDir' or if they need joining.
+              // Usually: downloadDir + "/" + name
+              // Use path module for safety? server/cron.ts doesn't import path.
+              // Simple string concatenation is fine for now as we just pass it to PathMappingService which handles it.
+              // For multi-file torrents, 'name' is the folder name. For single file, 'name' is filename.
+              // 'downloadDir' is the *save path* (parent).
+              const remotePath = `${details.downloadDir}/${details.name}`;
+
+              // Delegate to ImportManager
+              await importManager.processImport(download.id, remotePath);
+            } else {
+              igdbLogger.warn(
+                { downloadId: download.id, hash: download.downloadHash },
+                "Could not fetch download details or path is missing. Skipping import."
+              );
+              // If we can't get details, we can't import properly.
+              // Should we mark as completed anyway to avoid loop?
+              // If we don't, it will loop forever.
+              // Let's fallback to marking completed if import fails to start due to missing info?
+              // Or let ImportManager handle it? ImportManager needs path.
+              // Safer to fallback to old behavior: mark completed.
+              await storage.updateGameDownloadStatus(download.id, "completed");
+              await storage.updateGameStatus(download.gameId, { status: "owned" });
+            }
 
             // Send notification
-            const message = `Download finished for ${gameTitle}`;
+            const message = `Download finished for ${download.downloadTitle}`;
             const notification = await storage.addNotification({
               type: "success",
               title: "Download Completed",

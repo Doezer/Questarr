@@ -43,6 +43,7 @@ import PasswordSettings from "@/components/PasswordSettings";
 import type { Config, UserSettings, DownloadRules } from "@shared/schema";
 import { downloadRulesSchema } from "@shared/schema";
 import { useState, useEffect, useRef } from "react";
+import ImportSettings from "@/components/ImportSettings";
 
 interface CertInfo {
   subject: string;
@@ -506,6 +507,7 @@ export default function SettingsPage() {
             <TabsTrigger value="general">General</TabsTrigger>
             <TabsTrigger value="rules">Rules</TabsTrigger>
             <TabsTrigger value="services">Services</TabsTrigger>
+            <TabsTrigger value="import">Import</TabsTrigger>
             <TabsTrigger value="account">Account</TabsTrigger>
             <TabsTrigger value="security">Security</TabsTrigger>
             <TabsTrigger value="system">System</TabsTrigger>
@@ -1018,6 +1020,10 @@ export default function SettingsPage() {
 
           <TabsContent value="account" className="space-y-6">
             <PasswordSettings />
+          </TabsContent>
+
+          <TabsContent value="import" className="space-y-6">
+            <ImportSettings />
           </TabsContent>
 
           <TabsContent value="system" className="space-y-6">

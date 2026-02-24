@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import express from "express";
+import express, { Request, Response, NextFunction } from "express";
 import request from "supertest";
 import { steamRoutes } from "../steam-routes.js";
 import { storage } from "../storage.js";
@@ -12,7 +12,9 @@ vi.mock("../storage.js");
 vi.mock("../cron.js");
 vi.mock("../auth.js");
 vi.mock("passport", () => {
-  const mockAuthenticate = vi.fn(() => (req: any, res: any, next: any) => next());
+  const mockAuthenticate = vi.fn(
+    () => (_req: Request, _res: Response, next: NextFunction) => next()
+  );
   return {
     default: {
       use: vi.fn(),
@@ -37,11 +39,13 @@ describe("steamRoutes", () => {
     app.use(express.json());
 
     // Mock authenticateToken middleware
-    vi.spyOn(auth, "authenticateToken").mockImplementation((req: any, res: any, next: any) => {
-      (req as any).user = { id: 1, username: "testuser" };
-      next();
-      return Promise.resolve(undefined as any);
-    });
+    vi.spyOn(auth, "authenticateToken").mockImplementation(
+      (req: Request, _res: Response, next: NextFunction) => {
+        Object.assign(req, { user: { id: 1, username: "testuser" } });
+        next();
+        return Promise.resolve(undefined as unknown as Response);
+      }
+    );
 
     app.use(steamRoutes);
   });
@@ -49,7 +53,9 @@ describe("steamRoutes", () => {
   describe("PUT /api/user/steam-id", () => {
     it("should update Steam ID for valid input", async () => {
       const steamId = "76561198000000000";
-      vi.mocked(storage.updateUserSteamId).mockResolvedValue(true as any);
+      vi.mocked(storage.updateUserSteamId).mockResolvedValue(
+        true as unknown as Awaited<ReturnType<typeof storage.updateUserSteamId>>
+      );
 
       const res = await request(app).put("/api/user/steam-id").send({ steamId });
 
@@ -86,7 +92,7 @@ describe("steamRoutes", () => {
     });
 
     it("should handle sync failure when Steam ID is not linked", async () => {
-      vi.mocked(syncUserSteamWishlist).mockResolvedValue(undefined as any);
+      vi.mocked(syncUserSteamWishlist).mockResolvedValue(undefined);
 
       const res = await request(app).post("/api/steam/wishlist/sync");
 
@@ -112,18 +118,20 @@ describe("steamRoutes", () => {
       // Create a new app for this test to ensure middleware order
       const authApp = express();
       authApp.use(express.json());
-      authApp.use((req, res, next) => {
-        (req as any).session = {};
+      authApp.use((req, _res, next) => {
+        Object.assign(req, { session: {} });
         next();
       });
-      vi.spyOn(auth, "authenticateToken").mockImplementation((req: any, res: any, next: any) => {
-        (req as any).user = { id: 1, username: "testuser" };
-        next();
-        return Promise.resolve(undefined as any);
-      });
+      vi.spyOn(auth, "authenticateToken").mockImplementation(
+        (req: Request, _res: Response, next: NextFunction) => {
+          Object.assign(req, { user: { id: 1, username: "testuser" } });
+          next();
+          return Promise.resolve(undefined as unknown as Response);
+        }
+      );
       authApp.use(steamRoutes);
 
-      const res = await request(authApp).get("/api/auth/steam");
+      await request(authApp).get("/api/auth/steam");
 
       expect(passport.authenticate).toHaveBeenCalledWith("steam", { session: false });
     });
@@ -132,13 +140,18 @@ describe("steamRoutes", () => {
     it("should redirect to settings on auth failure", async () => {
       // Mock authenticate to call failure callback
       vi.mocked(passport.authenticate).mockImplementationOnce(
-        (strategy: any, options: any, callback?: any) => (req: any, res: any, next: any) => {
-          if (callback) {
-            callback(new Error("Auth failed"), null);
-          } else {
-            res.redirect("/settings?error=steam_auth_failed");
+        (
+          _strategy: string | passport.Strategy | string[],
+          _options: passport.AuthenticateOptions,
+          callback?: (err: Error | null, user?: Express.User | false | null) => void
+        ) =>
+          (_req: Request, res: Response, _next: NextFunction) => {
+            if (callback) {
+              callback(new Error("Auth failed"), null);
+            } else {
+              res.redirect("/settings?error=steam_auth_failed");
+            }
           }
-        }
       );
 
       const res = await request(app).get("/api/auth/steam/return");
@@ -149,9 +162,14 @@ describe("steamRoutes", () => {
     it("should handle missing session user ID", async () => {
       // Mock authenticate to succeed but profile but session is missing
       vi.mocked(passport.authenticate).mockImplementationOnce(
-        (strategy: any, options: any, callback?: any) => (req: any, res: any, next: any) => {
-          callback(null, { _json: { steamid: "123" } });
-        }
+        (
+          _strategy: string | passport.Strategy | string[],
+          _options: passport.AuthenticateOptions,
+          callback?: (err: Error | null, user?: Express.User | false | null) => void
+        ) =>
+          (_req: Request, _res: Response, _next: NextFunction) => {
+            if (callback) callback(null, { _json: { steamid: "123" } });
+          }
       );
 
       const res = await request(app).get("/api/auth/steam/return");

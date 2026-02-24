@@ -10,6 +10,21 @@ export const users = sqliteTable("users", {
   steamId64: text("steam_id_64"),
 });
 
+// ... existing code ...
+
+export const pathMappings = sqliteTable("path_mappings", {
+  id: text("id").primaryKey(),
+  remotePath: text("remote_path").notNull(),
+  localPath: text("local_path").notNull(),
+  remoteHost: text("remote_host"), // Nullable for generic mappings or specific hostnames
+});
+
+export const platformMappings = sqliteTable("platform_mappings", {
+  id: text("id").primaryKey(),
+  igdbPlatformId: integer("igdb_platform_id").notNull(),
+  rommPlatformName: text("romm_platform_name").notNull(),
+});
+
 export const userSettings = sqliteTable("user_settings", {
   id: text("id").primaryKey(),
   userId: text("user_id")
@@ -34,10 +49,95 @@ export const userSettings = sqliteTable("user_settings", {
     .notNull()
     .default(false),
   steamSyncFailures: integer("steam_sync_failures").notNull().default(0),
+  // Import Engine Settings
+  enablePostProcessing: integer("enable_post_processing", { mode: "boolean" })
+    .notNull()
+    .default(true),
+  autoUnpack: integer("auto_unpack", { mode: "boolean" }).notNull().default(false),
+  renamePattern: text("rename_pattern").notNull().default("{Title} ({Region})"),
+  overwriteExisting: integer("overwrite_existing", { mode: "boolean" }).notNull().default(false),
+  deleteSource: integer("delete_source", { mode: "boolean" }).notNull().default(true),
+  ignoredExtensions: text("ignored_extensions", { mode: "json" }).$type<string[]>().default([]),
+  minFileSize: integer("min_file_size").notNull().default(0), // in bytes
+  libraryRoot: text("library_root").notNull().default("/data"),
+  // RomM Settings
+  rommEnabled: integer("romm_enabled", { mode: "boolean" }).notNull().default(false),
+  rommUrl: text("romm_url"),
+  rommApiKey: text("romm_api_key"),
   updatedAt: integer("updated_at", { mode: "timestamp" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),
 });
+
+// ... existing code ...
+
+export const insertPathMappingSchema = createInsertSchema(pathMappings).omit({
+  id: true,
+});
+
+export const insertPlatformMappingSchema = createInsertSchema(platformMappings).omit({
+  id: true,
+});
+
+export type PathMapping = typeof pathMappings.$inferSelect;
+export type InsertPathMapping = (typeof insertPathMappingSchema)["_output"];
+
+export type PlatformMapping = typeof platformMappings.$inferSelect;
+export type InsertPlatformMapping = (typeof insertPlatformMappingSchema)["_output"];
+
+// ... existing code ...
+
+export interface ImportConfig {
+  enablePostProcessing: boolean;
+  autoUnpack: boolean;
+  renamePattern: string;
+  overwriteExisting: boolean;
+  deleteSource: boolean;
+  ignoredExtensions: string[];
+  minFileSize: number;
+  libraryRoot: string;
+}
+
+export interface RomMConfig {
+  enabled: boolean;
+  url?: string;
+  apiKey?: string;
+}
+
+export interface DownloadStatus {
+  id: string;
+  name: string;
+  downloadType?: "torrent" | "usenet"; // Type of download
+  status:
+    | "downloading"
+    | "seeding"
+    | "completed"
+    | "paused"
+    | "error"
+    | "repairing"
+    | "unpacking"
+    | "completed_pending_import"
+    | "manual_review_required"
+    | "imported";
+  progress: number; // 0-100
+  // ... existing fields ...
+  downloadSpeed?: number; // bytes per second
+  uploadSpeed?: number; // bytes per second (torrents only)
+  eta?: number; // seconds
+  size?: number; // total bytes
+  downloaded?: number; // bytes downloaded
+  // Protocol-specific fields
+  seeders?: number;
+  leechers?: number;
+  ratio?: number;
+  // Usenet-specific fields
+  repairStatus?: "good" | "repairing" | "failed"; // Par2 repair status
+  unpackStatus?: "unpacking" | "completed" | "failed"; // Extract/unpack status
+  age?: number; // Age in days
+  // Common fields
+  error?: string;
+  category?: string;
+}
 
 export const systemConfig = sqliteTable("system_config", {
   key: text("key").primaryKey(),
@@ -333,30 +433,6 @@ export interface DownloadTracker {
   lastAnnounce?: string;
   nextAnnounce?: string;
   error?: string;
-}
-
-export interface DownloadStatus {
-  id: string;
-  name: string;
-  downloadType?: "torrent" | "usenet"; // Type of download
-  status: "downloading" | "seeding" | "completed" | "paused" | "error" | "repairing" | "unpacking";
-  progress: number; // 0-100
-  downloadSpeed?: number; // bytes per second
-  uploadSpeed?: number; // bytes per second (torrents only)
-  eta?: number; // seconds
-  size?: number; // total bytes
-  downloaded?: number; // bytes downloaded
-  // Protocol-specific fields
-  seeders?: number;
-  leechers?: number;
-  ratio?: number;
-  // Usenet-specific fields
-  repairStatus?: "good" | "repairing" | "failed"; // Par2 repair status
-  unpackStatus?: "unpacking" | "completed" | "failed"; // Extract/unpack status
-  age?: number; // Age in days
-  // Common fields
-  error?: string;
-  category?: string;
 }
 
 export interface DownloadDetails extends DownloadStatus {

@@ -52,9 +52,15 @@ if (!process.env.STEAM_API_KEY) {
 // Only trust x-forwarded-proto if the value is a safe protocol to prevent
 // open redirect or URL injection via a spoofed proxy header.
 const getBaseUrl = (req: Request) => {
-  const forwardedProto = req.headers["x-forwarded-proto"];
+  const forwardedProtoHeader = req.headers["x-forwarded-proto"];
+  const forwardedProto =
+    typeof forwardedProtoHeader === "string"
+      ? forwardedProtoHeader.split(",")[0]?.trim().toLowerCase()
+      : Array.isArray(forwardedProtoHeader)
+        ? String(forwardedProtoHeader[0]).split(",")[0]?.trim().toLowerCase()
+        : undefined;
   const rawProtocol =
-    typeof forwardedProto === "string" && ["http", "https"].includes(forwardedProto)
+    forwardedProto && (forwardedProto === "http" || forwardedProto === "https")
       ? forwardedProto
       : req.protocol;
   const host = req.headers.host;

@@ -10,20 +10,12 @@ export const settingsRouter = Router();
 // Retrieve user settings
 settingsRouter.get("/", authenticateToken, async (req, res) => {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const userId = (req as any).user.id;
     const settings = await storage.getUserSettings(userId);
-    
-    // If settings don't exist, create defaults?
-    // createUserSettings should have been called on user creation.
-    // If migration happened after user creation, we might need to lazy create?
+
     if (!settings) {
-        // This case should be rare if migrations run on startup and existing users are migrated?
-        // Actually, schema updates to 'user_settings' handles new columns.
-        // But if 'user_settings' row doesn't exist for user?
-        // Let's try to create if missing.
-        const newSettings = await storage.createUserSettings({ userId });
-        return res.json(newSettings);
+      const newSettings = await storage.createUserSettings({ userId });
+      return res.json(newSettings);
     }
 
     res.json(settings);
@@ -36,21 +28,20 @@ settingsRouter.get("/", authenticateToken, async (req, res) => {
 // Update user settings
 settingsRouter.patch("/", authenticateToken, sensitiveEndpointLimiter, async (req, res) => {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const userId = (req as any).user.id;
     const settings = await storage.getUserSettings(userId);
 
     if (!settings) {
-         return res.status(404).json({ error: "Settings not found" });
+      return res.status(404).json({ error: "Settings not found" });
     }
 
     const updates = updateUserSettingsSchema.parse(req.body);
     const updated = await storage.updateUserSettings(settings.id, updates);
-    
+
     res.json({ success: true, settings: updated, successMessage: "Settings updated successfully" });
   } catch (error) {
     if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: "Invalid settings data", details: error.errors });
+      return res.status(400).json({ error: "Invalid settings data", details: error.errors });
     }
     console.error("Error updating settings:", error);
     res.status(500).json({ error: "Internal server error" });
@@ -59,44 +50,43 @@ settingsRouter.patch("/", authenticateToken, sensitiveEndpointLimiter, async (re
 
 // Update IGDB credentials (System Config)
 settingsRouter.post("/igdb", authenticateToken, sensitiveEndpointLimiter, async (req, res) => {
-    try {
-        const { clientId, clientSecret } = req.body;
-        if (!clientId || !clientSecret) {
-            return res.status(400).json({ error: "Client ID and Secret required" });
-        }
-        
-        await storage.setSystemConfig("igdb.clientId", clientId);
-        await storage.setSystemConfig("igdb.clientSecret", clientSecret);
-        
-        res.json({ success: true, message: "IGDB credentials updated" });
-    } catch (error) {
-        console.error("Error updating IGDB config:", error);
-        res.status(500).json({ error: "Internal server error" });
+  try {
+    const { clientId, clientSecret } = req.body;
+    if (!clientId || !clientSecret) {
+      return res.status(400).json({ error: "Client ID and Secret required" });
     }
+
+    await storage.setSystemConfig("igdb.clientId", clientId);
+    await storage.setSystemConfig("igdb.clientSecret", clientSecret);
+
+    res.json({ success: true, message: "IGDB credentials updated" });
+  } catch (error) {
+    console.error("Error updating IGDB config:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 // Update xREL settings (User Settings subset)
 settingsRouter.patch("/xrel", authenticateToken, sensitiveEndpointLimiter, async (req, res) => {
-    try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const userId = (req as any).user.id;
-        const { apiBase, xrelSceneReleases, xrelP2pReleases } = req.body;
-        
-        if (apiBase) {
-            await storage.setSystemConfig("xrel_api_base", apiBase);
-        }
-        
-        const settings = await storage.getUserSettings(userId);
-        if (settings) {
-            await storage.updateUserSettings(settings.id, {
-                xrelSceneReleases,
-                xrelP2pReleases
-            });
-        }
-        
-        res.json({ success: true, message: "xREL settings updated" });
-    } catch (error) {
-         console.error("Error updating xREL settings:", error);
-         res.status(500).json({ error: "Internal server error" });
+  try {
+    const userId = (req as any).user.id;
+    const { apiBase, xrelSceneReleases, xrelP2pReleases } = req.body;
+
+    if (apiBase) {
+      await storage.setSystemConfig("xrel_api_base", apiBase);
     }
+
+    const settings = await storage.getUserSettings(userId);
+    if (settings) {
+      await storage.updateUserSettings(settings.id, {
+        xrelSceneReleases,
+        xrelP2pReleases,
+      });
+    }
+
+    res.json({ success: true, message: "xREL settings updated" });
+  } catch (error) {
+    console.error("Error updating xREL settings:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });

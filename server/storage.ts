@@ -824,6 +824,7 @@ export class MemStorage implements IStorage {
       deleteSource: insertSettings.deleteSource ?? true,
       ignoredExtensions: insertSettings.ignoredExtensions ?? [],
       minFileSize: insertSettings.minFileSize ?? 0,
+      libraryRoot: insertSettings.libraryRoot ?? "/data",
 
       // RomM Defaults
       rommEnabled: insertSettings.rommEnabled ?? false,
@@ -954,6 +955,7 @@ export class MemStorage implements IStorage {
       deleteSource: firstSettings?.deleteSource ?? true,
       ignoredExtensions: firstSettings?.ignoredExtensions ?? [],
       minFileSize: firstSettings?.minFileSize ?? 0,
+      libraryRoot: firstSettings?.libraryRoot ?? "/data",
     };
   }
 
@@ -1070,6 +1072,7 @@ export class DatabaseStorage implements IStorage {
       deleteSource: settings?.deleteSource ?? true,
       ignoredExtensions: settings?.ignoredExtensions ?? [],
       minFileSize: settings?.minFileSize ?? 0,
+      libraryRoot: settings?.libraryRoot ?? "/data",
     };
   }
 

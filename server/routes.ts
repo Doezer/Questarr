@@ -2149,7 +2149,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // IGDB Configuration endpoint
-  app.get("/api/settings/igdb", authenticateToken, async (req, res) => {
+  app.get("/api/settings/igdb", async (req, res) => {
     try {
       const dbClientId = await storage.getSystemConfig("igdb.clientId");
       const dbClientSecret = await storage.getSystemConfig("igdb.clientSecret");
@@ -2176,7 +2176,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/settings/igdb", authenticateToken, async (req, res) => {
+  app.post("/api/settings/igdb", async (req, res) => {
     try {
       const { clientId, clientSecret } = req.body;
 

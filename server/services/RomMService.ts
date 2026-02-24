@@ -15,7 +15,7 @@ export class RomMService {
     };
 
     if (config.apiKey) {
-      headers["Authorization"] = `Bearer ${config.apiKey}`; // RomM usually uses Bearer token or X-Api-Key? 
+      headers["Authorization"] = `Bearer ${config.apiKey}`; // RomM usually uses Bearer token or X-Api-Key?
       // RomM docs say: Authorization: Bearer <token>
     }
 
@@ -61,27 +61,25 @@ export class RomMService {
       // It might accept a body with { platforms: ["snes"] } ?
       // Reviewing RomM docs (mental check):
       // POST /api/library/scan
-      
+
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const payload: any = {
-          // RomM specific payload structure
+        // RomM specific payload structure
       };
 
       if (platform) {
-          // If RomM supports targeted scan
-          // payload.platforms = [platform];
+        // If RomM supports targeted scan
+        // payload.platforms = [platform];
       }
 
       // RomM 3.0+ uses /api/tasks/scan I think?
       // Let's assume standard /api/library/scan for now or similar.
       // If endpoint fails, we log it.
-      
-      // eslint-disable-next-line no-console
+
       console.log(`[RomMService] Triggering scan for ${platform || "all platforms"}...`);
       const response = await client.post("/api/scan", payload); // Verify endpoint
-      
+
       if (response.status >= 200 && response.status < 300) {
-        // eslint-disable-next-line no-console
         console.log("[RomMService] Scan triggered successfully.");
         return true;
       } else {
@@ -89,8 +87,8 @@ export class RomMService {
         return false;
       }
     } catch (error) {
-        console.error("[RomMService] Scan request error:", error);
-        return false;
+      console.error("[RomMService] Scan request error:", error);
+      return false;
     }
   }
 }

@@ -15,24 +15,23 @@ export class ArchiveService {
    * @returns List of extracted file paths.
    */
   async extract(filePath: string, outputDir: string): Promise<string[]> {
-    // eslint-disable-next-line no-console
     console.log(`[ArchiveService] Extracting ${filePath} to ${outputDir}...`);
-    
+
     // Ensure output directory exists
     await fs.ensureDir(outputDir);
 
     return new Promise((resolve, reject) => {
       const extractedFiles: string[] = [];
-      
+
       const stream = extractFull(filePath, outputDir, {
         $bin: sevenZipPath,
         $progress: true,
-        recursive: true, // Extract sub-archives? Maybe not by default to avoid mess. 
-        // recursive: true is usually for looking inside archives inside archives. 
+        recursive: true, // Extract sub-archives? Maybe not by default to avoid mess.
+        // recursive: true is usually for looking inside archives inside archives.
         // Let's stick to standard extraction.
       });
 
-      stream.on("data", (data) => {
+      stream.on("data", (data: { status: string; file?: string }) => {
         // data.file is the relative path of the file being extracted
         if (data.status === "extracted" && data.file) {
           extractedFiles.push(path.join(outputDir, data.file));
@@ -40,12 +39,13 @@ export class ArchiveService {
       });
 
       stream.on("end", () => {
-        // eslint-disable-next-line no-console
-        console.log(`[ArchiveService] Extraction complete. ${extractedFiles.length} files extracted.`);
+        console.log(
+          `[ArchiveService] Extraction complete. ${extractedFiles.length} files extracted.`
+        );
         resolve(extractedFiles);
       });
 
-      stream.on("error", (err) => {
+      stream.on("error", (err: Error) => {
         console.error(`[ArchiveService] Extraction failed:`, err);
         reject(err);
       });

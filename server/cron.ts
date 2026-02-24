@@ -289,7 +289,7 @@ async function checkDownloadStatus() {
             );
 
             if (details && details.downloadDir) {
-              // Construct path. 
+              // Construct path.
               // Transmission/Qbit usually return downloadDir as the parent folder, and name as the subfolder/file.
               // Verify if 'name' is already included in 'downloadDir' or if they need joining.
               // Usually: downloadDir + "/" + name
@@ -306,7 +306,7 @@ async function checkDownloadStatus() {
                 { downloadId: download.id, hash: download.downloadHash },
                 "Could not fetch download details or path is missing. Skipping import."
               );
-              // If we can't get details, we can't import properly. 
+              // If we can't get details, we can't import properly.
               // Should we mark as completed anyway to avoid loop?
               // If we don't, it will loop forever.
               // Let's fallback to marking completed if import fails to start due to missing info?
@@ -317,7 +317,7 @@ async function checkDownloadStatus() {
             }
 
             // Send notification
-            const message = `Download finished for ${gameTitle}`;
+            const message = `Download finished for ${download.downloadTitle}`;
             const notification = await storage.addNotification({
               type: "success",
               title: "Download Completed",
@@ -393,7 +393,7 @@ async function checkDownloadStatus() {
               downloadHash: download.downloadHash,
             },
             "Download not found in downloader - assuming completion and marking as owned. " +
-            "This could indicate the download was manually removed."
+              "This could indicate the download was manually removed."
           );
 
           // Mark download as completed (assumption)

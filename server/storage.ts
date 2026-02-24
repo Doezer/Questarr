@@ -43,7 +43,7 @@ import {
 } from "../shared/schema.js";
 import { randomUUID } from "crypto";
 import { db } from "./db.js";
-import { eq, like, or, desc, and, not, inArray, type SQL, sql } from "drizzle-orm";
+import { eq, like, or, desc, and, not, inArray, sql } from "drizzle-orm";
 
 export interface IStorage {
   // System Config methods
@@ -143,15 +143,24 @@ export interface IStorage {
   getPathMappings(): Promise<PathMapping[]>;
   getPathMapping(id: string): Promise<PathMapping | undefined>;
   addPathMapping(mapping: InsertPathMapping): Promise<PathMapping>;
-  updatePathMapping(id: string, updates: Partial<InsertPathMapping>): Promise<PathMapping | undefined>;
+  updatePathMapping(
+    id: string,
+    updates: Partial<InsertPathMapping>
+  ): Promise<PathMapping | undefined>;
   removePathMapping(id: string): Promise<boolean>;
 
   // Platform Mapping methods
   getPlatformMappings(): Promise<PlatformMapping[]>;
   getPlatformMapping(igdbPlatformId: number): Promise<PlatformMapping | undefined>;
   addPlatformMapping(mapping: InsertPlatformMapping): Promise<PlatformMapping>;
-  updatePlatformMapping(id: string, updates: Partial<InsertPlatformMapping>): Promise<PlatformMapping | undefined>;
-  updatePlatformMapping(id: string, updates: Partial<InsertPlatformMapping>): Promise<PlatformMapping | undefined>;
+  updatePlatformMapping(
+    id: string,
+    updates: Partial<InsertPlatformMapping>
+  ): Promise<PlatformMapping | undefined>;
+  updatePlatformMapping(
+    id: string,
+    updates: Partial<InsertPlatformMapping>
+  ): Promise<PlatformMapping | undefined>;
   removePlatformMapping(id: string): Promise<boolean>;
 
   // Config Accessors (Helper methods)
@@ -876,7 +885,11 @@ export class MemStorage implements IStorage {
 
   async addPathMapping(insertMapping: InsertPathMapping): Promise<PathMapping> {
     const id = randomUUID();
-    const mapping: PathMapping = { ...insertMapping, id, remoteHost: insertMapping.remoteHost ?? null };
+    const mapping: PathMapping = {
+      ...insertMapping,
+      id,
+      remoteHost: insertMapping.remoteHost ?? null,
+    };
     this.pathMappings.set(id, mapping);
     return mapping;
   }
@@ -1003,9 +1016,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   async removePathMapping(id: string): Promise<boolean> {
-    const res = await db.delete(pathMappings).where(eq(pathMappings.id, id));
-    return res.rowsAffected > 0; // Using rowsAffected directly if possible, or check driver behavior (better-sqlite3 usually returns info)
-    // Let's assume standard drizzle behavior
+    await db.delete(pathMappings).where(eq(pathMappings.id, id));
+    return true;
   }
 
   // Platform Mapping methods
@@ -1043,8 +1055,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   async removePlatformMapping(id: string): Promise<boolean> {
-    const res = await db.delete(platformMappings).where(eq(platformMappings.id, id));
-    return res.rowsAffected > 0;
+    await db.delete(platformMappings).where(eq(platformMappings.id, id));
+    return true;
   }
 
   // Config Accessors
@@ -1503,17 +1515,17 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getGameDownload(id: string): Promise<GameDownload | undefined> {
-    const [download] = await db
-      .select()
-      .from(gameDownloads)
-      .where(eq(gameDownloads.id, id));
+    const [download] = await db.select().from(gameDownloads).where(eq(gameDownloads.id, id));
     return download;
   }
 
   async updateGameDownloadStatus(id: string, status: string): Promise<void> {
     await db
       .update(gameDownloads)
-      .set({ status: status as any, completedAt: status === "completed" ? new Date() : null })
+      .set({
+        status: status as InsertGameDownload["status"],
+        completedAt: status === "completed" ? new Date() : null,
+      })
       .where(eq(gameDownloads.id, id));
   }
 

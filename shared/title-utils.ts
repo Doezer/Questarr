@@ -83,7 +83,7 @@ export function cleanReleaseName(releaseName: string): string {
   });
 
   // Final cleanup of extra symbols and spaces
-  return cleaned.replace(/[[\]()]/g, " ").replace(/\s+/g, " ").trim();
+  return cleaned.replace(/[[\]]/g, " ").replace(/\s+/g, " ").trim();
 }
 
 /**

@@ -11,8 +11,6 @@ CREATE TABLE `platform_mappings` (
 	`romm_platform_name` text NOT NULL
 );
 --> statement-breakpoint
-ALTER TABLE `games` ADD `steam_appid` integer;--> statement-breakpoint
-ALTER TABLE `user_settings` ADD `steam_sync_failures` integer DEFAULT 0 NOT NULL;--> statement-breakpoint
 ALTER TABLE `user_settings` ADD `enable_post_processing` integer DEFAULT true NOT NULL;--> statement-breakpoint
 ALTER TABLE `user_settings` ADD `auto_unpack` integer DEFAULT false NOT NULL;--> statement-breakpoint
 ALTER TABLE `user_settings` ADD `rename_pattern` text DEFAULT '{Title} ({Region})' NOT NULL;--> statement-breakpoint
@@ -22,5 +20,4 @@ ALTER TABLE `user_settings` ADD `ignored_extensions` text DEFAULT '[]';--> state
 ALTER TABLE `user_settings` ADD `min_file_size` integer DEFAULT 0 NOT NULL;--> statement-breakpoint
 ALTER TABLE `user_settings` ADD `romm_enabled` integer DEFAULT false NOT NULL;--> statement-breakpoint
 ALTER TABLE `user_settings` ADD `romm_url` text;--> statement-breakpoint
-ALTER TABLE `user_settings` ADD `romm_api_key` text;--> statement-breakpoint
-ALTER TABLE `users` ADD `steam_id_64` text;
+ALTER TABLE `user_settings` ADD `romm_api_key` text;

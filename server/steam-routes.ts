@@ -49,10 +49,16 @@ if (!process.env.STEAM_API_KEY) {
 }
 
 // Helper to get base URL
+// Only trust x-forwarded-proto if the value is a safe protocol to prevent
+// open redirect or URL injection via a spoofed proxy header.
 const getBaseUrl = (req: Request) => {
-  const protocol = req.headers["x-forwarded-proto"] || req.protocol;
+  const forwardedProto = req.headers["x-forwarded-proto"];
+  const rawProtocol =
+    typeof forwardedProto === "string" && ["http", "https"].includes(forwardedProto)
+      ? forwardedProto
+      : req.protocol;
   const host = req.headers.host;
-  return `${protocol}://${host}`;
+  return `${rawProtocol}://${host}`;
 };
 
 // We will use a dynamic strategy or just assume standard environment.

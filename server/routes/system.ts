@@ -1,6 +1,7 @@
 import { Router } from "express";
 import fs from "fs-extra";
 import path from "path";
+import { storage } from "../storage.js";
 
 export const systemRouter = Router();
 
@@ -8,7 +9,8 @@ export const systemRouter = Router();
 systemRouter.get("/browse", async (req, res) => {
   try {
     const rawPath = (req.query.path as string) || "/";
-    const root = process.env.MEDIA_ROOT || "/data";
+    const config = await storage.getImportConfig();
+    const root = config.libraryRoot || "/data";
 
     // Normalize and remove leading slash to prevent absolute path override
     const userPath = path.normalize(rawPath).replace(/^[/\\]+/, "");

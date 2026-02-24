@@ -120,6 +120,7 @@ importRouter.patch("/config", async (req, res) => {
         deleteSource: newConfig.deleteSource,
         ignoredExtensions: newConfig.ignoredExtensions,
         minFileSize: newConfig.minFileSize,
+        libraryRoot: newConfig.libraryRoot,
       });
       res.json(newConfig);
     } else {

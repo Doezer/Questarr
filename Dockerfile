@@ -40,11 +40,16 @@ COPY --from=builder /app/migrations ./migrations
 COPY --from=builder /app/shared ./shared
 COPY --from=builder /app/scripts ./scripts
 
-# Copy configuration files
+# Copy configuration files......
 COPY --from=builder /app/package.json ./
 
-# Create data directory for persistence
-RUN mkdir -p /app/data
+# Create a dedicated non-root user and group for better security and auditability
+RUN addgroup questarr && adduser -G questarr -s /bin/sh -D questarr
+
+# Create data directory for persistence and set ownership
+RUN mkdir -p /app/data && chown -R questarr:questarr /app
+
+USER questarr
 
 EXPOSE 5000
 

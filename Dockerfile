@@ -40,15 +40,13 @@ COPY --from=builder /app/migrations ./migrations
 COPY --from=builder /app/shared ./shared
 COPY --from=builder /app/scripts ./scripts
 
-# Copy configuration files
+# Copy configuration files......
 COPY --from=builder /app/package.json ./
 
 # Create a dedicated non-root user and group for better security and auditability
-RUN addgroup -g 1000 questarr && adduser -u 1000 -G questarr -s /bin/sh -D questarr
+RUN addgroup questarr && adduser -G questarr -s /bin/sh -D questarr
 
 # Create data directory for persistence and set ownership
-# Note: if you mount ./data from the host, ensure the host directory is owned by UID 1000
-# e.g.: sudo chown -R 1000:1000 ./data
 RUN mkdir -p /app/data && chown -R questarr:questarr /app
 
 USER questarr

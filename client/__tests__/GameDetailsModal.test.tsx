@@ -101,11 +101,13 @@ describe("GameDetailsModal", () => {
         expect(screen.getAllByRole("img", { name: /screenshot/i })).toHaveLength(2);
     });
 
-    it("opens download dialog when download button is clicked", () => {
+    it("opens download dialog when download button is clicked", async () => {
         renderComponent();
         const downloadButton = screen.getByTestId("button-download-game");
         fireEvent.click(downloadButton);
-        expect(screen.getByTestId("game-download-dialog")).toBeInTheDocument();
+        await waitFor(() => {
+            expect(screen.getByTestId("game-download-dialog")).toBeInTheDocument();
+        });
     });
 
     it("handles remove game action", async () => {

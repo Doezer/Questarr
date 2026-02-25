@@ -6,13 +6,16 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Badge } from "@/components/ui/badge";
 import StatusBadge, { type GameStatus } from "./StatusBadge";
 import { type Game } from "@shared/schema";
-import { useState, memo, useRef, useEffect } from "react";
+import { useState, memo, useRef, useEffect, lazy, Suspense } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import GameDetailsModal from "./GameDetailsModal";
-import GameDownloadDialog from "./GameDownloadDialog";
 import { mapGameToInsertGame, isDiscoveryId } from "@/lib/utils";
 import { apiRequest, ApiError } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+
+// ⚡ Bolt: Lazy load heavy modal components to reduce initial bundle size.
+// These are only needed when the user interacts with the card.
+const GameDetailsModal = lazy(() => import("./GameDetailsModal"));
+const GameDownloadDialog = lazy(() => import("./GameDownloadDialog"));
 
 interface GameCardProps {
   game: Game;
@@ -321,15 +324,19 @@ const GameCard = ({
           with many game cards, significantly improving initial render performance
           and reducing memory usage. */}
       {detailsOpen && (
-        <GameDetailsModal game={resolvedGame} open={detailsOpen} onOpenChange={setDetailsOpen} />
+        <Suspense fallback={null}>
+          <GameDetailsModal game={resolvedGame} open={detailsOpen} onOpenChange={setDetailsOpen} />
+        </Suspense>
       )}
 
       {downloadOpen && (
-        <GameDownloadDialog
-          game={resolvedGame}
-          open={downloadOpen}
-          onOpenChange={setDownloadOpen}
-        />
+        <Suspense fallback={null}>
+          <GameDownloadDialog
+            game={resolvedGame}
+            open={downloadOpen}
+            onOpenChange={setDownloadOpen}
+          />
+        </Suspense>
       )}
     </Card>
   );

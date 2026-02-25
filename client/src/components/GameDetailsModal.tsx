@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, lazy, Suspense } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Dialog,
@@ -15,7 +15,9 @@ import { Calendar, Star, Monitor, Gamepad2, Tag, Download, X } from "lucide-reac
 import { useToast } from "@/hooks/use-toast";
 import { type Game } from "@shared/schema";
 import StatusBadge from "./StatusBadge";
-import GameDownloadDialog from "./GameDownloadDialog";
+
+// ⚡ Bolt: Lazy load the download dialog to keep the details modal lightweight.
+const GameDownloadDialog = lazy(() => import("./GameDownloadDialog"));
 
 interface GameDetailsModalProps {
   game: Game | null;
@@ -291,7 +293,12 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
         </Dialog>
       )}
 
-      <GameDownloadDialog game={game} open={downloadOpen} onOpenChange={setDownloadOpen} />
+      {/* ⚡ Bolt: Render the download dialog only when needed, wrapped in Suspense. */}
+      {downloadOpen && (
+        <Suspense fallback={null}>
+          <GameDownloadDialog game={game} open={downloadOpen} onOpenChange={setDownloadOpen} />
+        </Suspense>
+      )}
     </>
   );
 }

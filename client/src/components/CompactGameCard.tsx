@@ -133,6 +133,9 @@ const CompactGameCard = ({
     onToggleHidden?.(game.id, !game.hidden);
   };
 
+  const nextStatusLabel =
+    game.status === "wanted" ? "Owned" : game.status === "owned" ? "Completed" : "Wanted";
+
   return (
     <>
       <div
@@ -307,6 +310,7 @@ const CompactGameCard = ({
                   : "h-8 text-xs"
               )}
               onClick={handleStatusClick}
+              aria-label={`Mark ${game.title} as ${nextStatusLabel}`}
             >
               {density !== "comfortable" ? (
                 game.status === "wanted" ? (

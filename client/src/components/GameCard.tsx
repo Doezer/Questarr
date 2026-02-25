@@ -144,6 +144,9 @@ const GameCard = ({
     onToggleHidden?.(game.id, !game.hidden);
   };
 
+  const nextStatusLabel =
+    game.status === "wanted" ? "Owned" : game.status === "owned" ? "Completed" : "Wanted";
+
   return (
     <Card
       ref={cardRef}
@@ -292,6 +295,7 @@ const GameCard = ({
             onClick={() => onTrackGame?.(game)}
             disabled={addGameMutation.isPending}
             data-testid={`button-track-${game.id}`}
+            aria-label={`Track ${game.title}`}
           >
             {addGameMutation.isPending ? (
               <>
@@ -309,6 +313,7 @@ const GameCard = ({
             className="w-full"
             onClick={handleStatusClick}
             data-testid={`button-status-${game.id}`}
+            aria-label={`Mark ${game.title} as ${nextStatusLabel}`}
           >
             Mark as{" "}
             {game.status === "wanted" ? "Owned" : game.status === "owned" ? "Completed" : "Wanted"}

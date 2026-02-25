@@ -4042,7 +4042,7 @@ export class NZBGetClient implements DownloaderClient {
         return { success: false, message: `Unsafe URL blocked: ${request.url}` };
       }
 
-      const nzbResponse = await fetch(request.url);
+      const nzbResponse = await safeFetch(request.url);
       if (!nzbResponse.ok) {
         return { success: false, message: `Failed to fetch NZB: ${nzbResponse.statusText}` };
       }

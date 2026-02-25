@@ -2,6 +2,7 @@ import rateLimit from "express-rate-limit";
 import { body, param, query, validationResult } from "express-validator";
 import type { Request, Response, NextFunction } from "express";
 import { storage } from "./storage.js";
+import { expressLogger } from "./logger.js";
 
 // Dynamic rate limiter for IGDB API endpoints to prevent blacklisting
 // IGDB has a limit of 4 requests per second, we default to 3 to be conservative
@@ -437,3 +438,39 @@ export const sanitizeIndexerSearchQuery = [
     .withMessage("Offset must be a non-negative integer")
     .toInt(),
 ];
+
+// 🛡️ Sentinel: Global error handler middleware
+// Standardizes error responses and prevents leakage of sensitive details in production
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const errorHandler = (err: any, req: Request, res: Response, next: NextFunction) => {
+  const status = err.status || err.statusCode || 500;
+
+  // Log the error using our logger instead of relying on default express handler logging
+  // Use error level for 5xx, warn/info for client errors
+  if (status >= 500) {
+    expressLogger.error({ err, path: req.path, method: req.method }, "Request error");
+  } else {
+    expressLogger.warn({ err, path: req.path, method: req.method }, "Request error");
+  }
+
+  // Determine the error message to show to the client
+  // Sanitize error messages in production to prevent information leakage
+  let message = err.message || "Internal Server Error";
+  if (req.app.get("env") === "production" && status === 500) {
+    message = "Internal Server Error";
+  }
+
+  // Include details if available (e.g., validation errors)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const response: { error: string; details?: any } = { error: message };
+  if (err.details) {
+    response.details = err.details;
+  }
+
+  // If headers already sent, we can't send a JSON response
+  if (res.headersSent) {
+    return next(err);
+  }
+
+  res.status(status).json(response);
+};

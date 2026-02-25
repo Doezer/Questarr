@@ -144,6 +144,9 @@ const GameCard = ({
     onToggleHidden?.(game.id, !game.hidden);
   };
 
+  const nextStatusLabel =
+    game.status === "wanted" ? "Owned" : game.status === "owned" ? "Completed" : "Wanted";
+
   return (
     <Card
       ref={cardRef}
@@ -189,7 +192,7 @@ const GameCard = ({
                   variant="default"
                   onClick={handleDownloadClick}
                   disabled={addGameMutation.isPending}
-                  aria-label="Download game"
+                  aria-label={`Download ${game.title}`}
                   data-testid={`button-download-${game.id}`}
                 >
                   {addGameMutation.isPending ? (
@@ -210,7 +213,7 @@ const GameCard = ({
                 size="icon"
                 variant="secondary"
                 onClick={handleDetailsClick}
-                aria-label="View details"
+                aria-label={`View details for ${game.title}`}
                 data-testid={`button-details-${game.id}`}
               >
                 <Info className="w-4 h-4" />
@@ -227,7 +230,7 @@ const GameCard = ({
                   size="icon"
                   variant="secondary"
                   onClick={handleToggleHidden}
-                  aria-label={game.hidden ? "Unhide game" : "Hide game"}
+                  aria-label={game.hidden ? `Unhide ${game.title}` : `Hide ${game.title}`}
                   data-testid={`button-toggle-hidden-${game.id}`}
                 >
                   {game.hidden ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
@@ -292,6 +295,7 @@ const GameCard = ({
             onClick={() => onTrackGame?.(game)}
             disabled={addGameMutation.isPending}
             data-testid={`button-track-${game.id}`}
+            aria-label={`Track ${game.title}`}
           >
             {addGameMutation.isPending ? (
               <>
@@ -309,6 +313,7 @@ const GameCard = ({
             className="w-full"
             onClick={handleStatusClick}
             data-testid={`button-status-${game.id}`}
+            aria-label={`Mark ${game.title} as ${nextStatusLabel}`}
           >
             Mark as{" "}
             {game.status === "wanted" ? "Owned" : game.status === "owned" ? "Completed" : "Wanted"}

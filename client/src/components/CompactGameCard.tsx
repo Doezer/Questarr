@@ -1,4 +1,4 @@
-import React, { memo, useState, useEffect } from "react";
+import React, { memo, useState, useEffect, lazy, Suspense } from "react";
 import { Button } from "@/components/ui/button";
 import { Download, Info, Star, Calendar, Eye, EyeOff, Loader2 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -11,6 +11,11 @@ import GameDownloadDialog from "./GameDownloadDialog";
 import { mapGameToInsertGame, isDiscoveryId, cn, getNextStatusLabel } from "@/lib/utils";
 import { apiRequest, ApiError } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+
+// ⚡ Bolt: Lazy load heavy modal components to reduce initial bundle size.
+// These are only needed when the user interacts with the card.
+const GameDetailsModal = lazy(() => import("./GameDetailsModal"));
+const GameDownloadDialog = lazy(() => import("./GameDownloadDialog"));
 
 interface CompactGameCardProps {
   game: Game;
@@ -371,15 +376,19 @@ const CompactGameCard = ({
       </div>
 
       {detailsOpen && (
-        <GameDetailsModal game={resolvedGame} open={detailsOpen} onOpenChange={setDetailsOpen} />
+        <Suspense fallback={null}>
+          <GameDetailsModal game={resolvedGame} open={detailsOpen} onOpenChange={setDetailsOpen} />
+        </Suspense>
       )}
 
       {downloadOpen && (
-        <GameDownloadDialog
-          game={resolvedGame}
-          open={downloadOpen}
-          onOpenChange={setDownloadOpen}
-        />
+        <Suspense fallback={null}>
+          <GameDownloadDialog
+            game={resolvedGame}
+            open={downloadOpen}
+            onOpenChange={setDownloadOpen}
+          />
+        </Suspense>
       )}
     </>
   );

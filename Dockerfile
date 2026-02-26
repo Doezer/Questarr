@@ -48,11 +48,11 @@ COPY --from=builder /app/scripts ./scripts
 # Copy configuration files...
 COPY --from=builder /app/package.json ./
 
-# Create a dedicated non-root user and group for better security and auditability
-RUN addgroup questarr && adduser -G questarr -s /bin/sh -D questarr
-
-# Create data directory for persistence and set ownership
-RUN mkdir -p /app/data && chown -R questarr:questarr /app
+# Create user, group, data directory, and set ownership
+RUN addgroup questarr && \
+    adduser -G questarr -s /bin/sh -D questarr && \
+    mkdir -p /app/data && \
+    chown -R questarr:questarr /app
 
 # Copy and set up entrypoint script
 COPY entrypoint.sh /entrypoint.sh

@@ -13,19 +13,30 @@ describe("Version Service", () => {
   });
 
   describe("fetchLatestQuestarrVersion", () => {
-    it("should fetch and return the latest version from GitHub", async () => {
+    it("should fetch and return the latest version from GitHub releases", async () => {
       const mockVersion = "1.2.3";
       global.fetch = vi.fn().mockResolvedValue({
         ok: true,
-        json: async () => ({ version: mockVersion }),
+        json: async () => ({ tag_name: `v${mockVersion}` }),
       });
 
       const version = await fetchLatestQuestarrVersion();
 
       expect(version).toBe(mockVersion);
       expect(global.fetch).toHaveBeenCalledWith(
-        "https://raw.githubusercontent.com/Doezer/Questarr/main/package.json"
+        "https://api.github.com/repos/Doezer/Questarr/releases/latest"
       );
+    });
+
+    it("should handle tag_name without v prefix", async () => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ tag_name: "2.0.0" }),
+      });
+
+      const version = await fetchLatestQuestarrVersion();
+
+      expect(version).toBe("2.0.0");
     });
 
     it("should return null when fetch fails with non-ok response", async () => {
@@ -38,7 +49,7 @@ describe("Version Service", () => {
       expect(version).toBeNull();
     });
 
-    it("should return null when version is missing from response", async () => {
+    it("should return null when tag_name is missing from response", async () => {
       global.fetch = vi.fn().mockResolvedValue({
         ok: true,
         json: async () => ({}),

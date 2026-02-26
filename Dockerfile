@@ -26,6 +26,11 @@ WORKDIR /app
 ENV SQLITE_DB_PATH=/app/data/sqlite.db
 ENV NODE_ENV=production
 ENV PORT=5000
+ENV PUID=1000
+ENV PGID=1000
+
+# Install su-exec (for privilege dropping) and shadow (for usermod/groupmod)
+RUN apk add --no-cache su-exec shadow
 
 # Install production dependencies only
 COPY package*.json ./
@@ -40,7 +45,7 @@ COPY --from=builder /app/migrations ./migrations
 COPY --from=builder /app/shared ./shared
 COPY --from=builder /app/scripts ./scripts
 
-# Copy configuration files......
+# Copy configuration files...
 COPY --from=builder /app/package.json ./
 
 # Create a dedicated non-root user and group for better security and auditability
@@ -49,10 +54,13 @@ RUN addgroup questarr && adduser -G questarr -s /bin/sh -D questarr
 # Create data directory for persistence and set ownership
 RUN mkdir -p /app/data && chown -R questarr:questarr /app
 
-USER questarr
+# Copy and set up entrypoint script
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 EXPOSE 5000
 
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["npm", "run", "start"]
 
 LABEL org.opencontainers.image.title="Questarr"

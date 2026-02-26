@@ -726,7 +726,21 @@ export default function SettingsPage() {
                     <Button
                       variant="outline"
                       className="w-full sm:w-auto gap-2"
-                      onClick={() => (window.location.href = "/api/auth/steam")}
+                      onClick={async () => {
+                        try {
+                          // Step 1: Initialize Steam auth session (sends JWT via Authorization header)
+                          await apiRequest("POST", "/api/auth/steam/init");
+                          // Step 2: Redirect to Steam OpenID (session carries user identity)
+                          window.location.href = "/api/auth/steam";
+                        } catch {
+                          toast({
+                            title: "Steam Auth Failed",
+                            description:
+                              "Could not initialize Steam authentication. Please try again.",
+                            variant: "destructive",
+                          });
+                        }
+                      }}
                     >
                       <Gamepad2 className="h-4 w-4" />
                       Sign in through Steam

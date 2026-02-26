@@ -127,12 +127,11 @@ describe("steamRoutes", () => {
     });
   });
 
-  describe("GET /api/auth/steam", () => {
-    it("should initiate Steam auth flow", async () => {
-      // Create a new app for this test to ensure middleware order
-      const authApp = express();
-      authApp.use(express.json());
-      authApp.use((req, res, next) => {
+  describe("POST /api/auth/steam/init", () => {
+    it("should store user ID in session", async () => {
+      const initApp = express();
+      initApp.use(express.json());
+      initApp.use((req, res, next) => {
         (req as any).session = {};
         next();
       });
@@ -141,6 +140,40 @@ describe("steamRoutes", () => {
         next();
         return Promise.resolve(undefined as any);
       });
+      initApp.use(steamRoutes);
+
+      const res = await request(initApp).post("/api/auth/steam/init");
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ success: true });
+    });
+
+    it("should return 500 when session is not available", async () => {
+      const noSessionApp = express();
+      noSessionApp.use(express.json());
+      vi.spyOn(auth, "authenticateToken").mockImplementation((req: any, res: any, next: any) => {
+        (req as any).user = { id: 1, username: "testuser" };
+        next();
+        return Promise.resolve(undefined as any);
+      });
+      noSessionApp.use(steamRoutes);
+
+      const res = await request(noSessionApp).post("/api/auth/steam/init");
+
+      expect(res.status).toBe(500);
+      expect(res.body.error).toBe("Session configuration error");
+    });
+  });
+
+  describe("GET /api/auth/steam", () => {
+    it("should initiate Steam auth flow when session is initialized", async () => {
+      const authApp = express();
+      authApp.use(express.json());
+      authApp.use((req, res, next) => {
+        // Simulate session that was initialized by /init
+        (req as any).session = { steam_auth_user_id: 1 };
+        next();
+      });
       authApp.use(steamRoutes);
 
       const res = await request(authApp).get("/api/auth/steam");
@@ -148,29 +181,31 @@ describe("steamRoutes", () => {
       expect(passport.authenticate).toHaveBeenCalledWith("steam", { session: false });
     });
 
-    it("should return 500 when session is not available", async () => {
-      // Create app WITHOUT session middleware
+    it("should return 401 when session is not initialized", async () => {
+      const noInitApp = express();
+      noInitApp.use(express.json());
+      noInitApp.use((req, res, next) => {
+        (req as any).session = {};
+        next();
+      });
+      noInitApp.use(steamRoutes);
+
+      const res = await request(noInitApp).get("/api/auth/steam");
+
+      expect(res.status).toBe(401);
+      expect(res.body.error).toContain("not initialized");
+    });
+
+    it("should return 401 when session is missing entirely", async () => {
       const noSessionApp = express();
       noSessionApp.use(express.json());
-      // Explicitly do NOT add session middleware
-      vi.spyOn(auth, "authenticateToken").mockImplementation((req: any, res: any, next: any) => {
-        (req as any).user = { id: 1, username: "testuser" };
-        // Do NOT set req.session - it will be undefined
-        next();
-        return Promise.resolve(undefined as any);
-      });
-
-      // Mock passport.authenticate to NOT call a middleware (avoid side effects)
-      vi.mocked(passport.authenticate).mockImplementation(
-        () => (req: any, res: any, next: any) => next()
-      );
-
+      // No session middleware
       noSessionApp.use(steamRoutes);
 
       const res = await request(noSessionApp).get("/api/auth/steam");
 
-      expect(res.status).toBe(500);
-      expect(res.body.error).toBe("Session configuration error");
+      expect(res.status).toBe(401);
+      expect(res.body.error).toContain("not initialized");
     });
   });
 

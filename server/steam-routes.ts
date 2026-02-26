@@ -158,39 +158,44 @@ router.post("/api/steam/wishlist/sync", authenticateToken, async (req, res) => {
   }
 });
 
-// OpenID Auth
-// GET /api/auth/steam
-router.get(
-  "/api/auth/steam",
-  authenticateToken,
-  (req: Request, res: Response, next: NextFunction) => {
-    // We need to persist the user ID. Since passport-steam redirects, we can't easily pass state
-    // unless we use a session or cookie.
-    // Helper function to dynamically set Realm/ReturnURL based on request
-    const baseUrl = getBaseUrl(req);
+// OpenID Auth — Two-step flow to avoid exposing JWT in URLs:
+// Step 1: POST /api/auth/steam/init (authenticated via JWT header)
+//   → Stores the user ID in the session so it survives the redirect.
+// Step 2: GET /api/auth/steam (no auth needed)
+//   → Reads user ID from session and starts the OpenID redirect to Steam.
 
-    // Trick: we are authenticated via JWT (authenticateToken middleware).
-    // We can set a session variable to the userId.
-    const user = req.user as User;
-    const session = (req as any).session; // eslint-disable-line @typescript-eslint/no-explicit-any
-    if (session) {
-      session.steam_auth_user_id = user.id;
-    } else {
-      console.error("Session not available in steam auth route");
-      return res.status(500).json({ error: "Session configuration error" });
-    }
-
-    // Re-configure strategy to match current host (important for dev/prod switch)
-    // Actually typically handled by just having relative URLs or ENV, but library requires full URL.
-    const strategy = (passport as any)._strategies["steam"]; // eslint-disable-line @typescript-eslint/no-explicit-any
-    if (strategy) {
-      strategy._options.realm = baseUrl + "/";
-      strategy._options.returnURL = baseUrl + "/api/auth/steam/return";
-    }
-
-    passport.authenticate("steam", { session: false })(req, res, next);
+// Step 1: Initialize Steam auth session
+router.post("/api/auth/steam/init", authenticateToken, (req: Request, res: Response) => {
+  const user = req.user as User;
+  const session = (req as any).session; // eslint-disable-line @typescript-eslint/no-explicit-any
+  if (!session) {
+    console.error("Session not available in steam auth init route");
+    return res.status(500).json({ error: "Session configuration error" });
   }
-);
+  session.steam_auth_user_id = user.id;
+  res.json({ success: true });
+});
+
+// Step 2: Start Steam OpenID redirect (session must be initialized via /init first)
+router.get("/api/auth/steam", (req: Request, res: Response, next: NextFunction) => {
+  const session = (req as any).session; // eslint-disable-line @typescript-eslint/no-explicit-any
+  if (!session?.steam_auth_user_id) {
+    return res
+      .status(401)
+      .json({ error: "Steam auth session not initialized. Call POST /api/auth/steam/init first." });
+  }
+
+  const baseUrl = getBaseUrl(req);
+
+  // Re-configure strategy to match current host (important for dev/prod switch)
+  const strategy = (passport as any)._strategies["steam"]; // eslint-disable-line @typescript-eslint/no-explicit-any
+  if (strategy) {
+    strategy._options.realm = baseUrl + "/";
+    strategy._options.returnURL = baseUrl + "/api/auth/steam/return";
+  }
+
+  passport.authenticate("steam", { session: false })(req, res, next);
+});
 
 // GET /api/auth/steam/return
 router.get("/api/auth/steam/return", (req: Request, res: Response, next: NextFunction) => {

@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.2] - 2026-02-26
+
+### Security
+
+- **Docker**: Fixed container running as root user; adjusted user permissions for safer defaults (#424, #417).
+- **SSRF Protection**: Fixed HTTP request SSRF vulnerability (#418).
+- **fast-xml-parser**: Upgraded from 5.3.5 to 5.3.7 to address CVE (#416).
+- **CI**: Pinned 3rd-party GitHub Actions to commit SHAs (#419).
+
+### Changed
+
+- Added `repository` and `engines` fields to `package.json`.
+- Updated CI dependencies: `docker/build-push-action` 6.18.0 → 6.19.2 (#408), `docker/setup-qemu-action` 3.2.0 → 3.7.0 (#409).
+- Updated runtime dependencies: `react-hook-form` (#410), `pino` 10.3.0 → 10.3.1 (#412), `@tanstack/react-query` 5.90.20 → 5.90.21 (#413), `dotenv` 17.2.4 → 17.3.1 (#414).
+- Updated dev dependencies group (#411).
+
 ## [1.2.1] - 2026-02-21
 
 ### Added

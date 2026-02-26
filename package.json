@@ -1,6 +1,6 @@
 {
   "name": "questarr",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "A video game management application inspired by the -Arr apps. Track and organize your video game collection with automated discovery and download management.",
   "type": "module",
   "packageManager": "npm@11.7.0",

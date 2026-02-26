@@ -513,8 +513,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         if (!valid) {
           // Cleanup invalid files
-          await fs.promises.unlink(certPath).catch(() => { });
-          await fs.promises.unlink(keyPath).catch(() => { });
+          await fs.promises.unlink(certPath).catch(() => {});
+          await fs.promises.unlink(keyPath).catch(() => {});
           return res.status(400).json({ error: `Uploaded certificate/key are invalid: ${error}` });
         }
 
@@ -655,11 +655,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const parent =
           parentPath !== currentPath
             ? {
-              name: "..",
-              path: parentRelativePath,
-              isDirectory: true,
-              size: 0,
-            }
+                name: "..",
+                path: parentRelativePath,
+                isDirectory: true,
+                size: 0,
+              }
             : null;
         const currentRelativePath = path.relative(FILE_BROWSER_ROOT, currentPath);
 
@@ -2329,9 +2329,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         xrel: { apiBase },
         settings: settings
           ? {
-            xrelSceneReleases: settings.xrelSceneReleases,
-            xrelP2pReleases: settings.xrelP2pReleases,
-          }
+              xrelSceneReleases: settings.xrelSceneReleases,
+              xrelP2pReleases: settings.xrelP2pReleases,
+            }
           : undefined,
       });
     } catch (error) {
@@ -2352,7 +2352,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const result = await xrelClient.getLatestGames({
         page,
         perPage: 20,
-        baseUrl
+        baseUrl,
       });
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

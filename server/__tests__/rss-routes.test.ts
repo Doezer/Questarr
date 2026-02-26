@@ -14,6 +14,9 @@ vi.mock("../db.js");
 vi.mock("../torznab.js");
 vi.mock("../downloaders.js");
 vi.mock("../prowlarr.js");
+vi.mock("../steam-routes.js", () => ({
+  steamRoutes: (_req: unknown, _res: unknown, next: () => void) => next(),
+}));
 
 vi.mock("../auth.js", () => ({
   authenticateToken: (req: any, res: any, next: any) => {
@@ -55,6 +58,7 @@ vi.mock("../logger.js", () => ({
 vi.mock("../middleware.js", () => ({
   igdbRateLimiter: (req: any, res: any, next: any) => next(),
   sensitiveEndpointLimiter: (req: any, res: any, next: any) => next(),
+  authRateLimiter: (req: any, res: any, next: any) => next(),
   validateRequest: (req: any, res: any, next: any) => next(),
   sanitizeSearchQuery: [],
   sanitizeGameId: [],

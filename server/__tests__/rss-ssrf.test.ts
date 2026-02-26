@@ -13,6 +13,9 @@ vi.mock("../db.js");
 vi.mock("../torznab.js");
 vi.mock("../downloaders.js");
 vi.mock("../prowlarr.js");
+vi.mock("../steam-routes.js", () => ({
+  steamRoutes: (_req: unknown, _res: unknown, next: () => void) => next(),
+}));
 
 vi.mock("../auth.js", () => ({
   authenticateToken: (
@@ -62,6 +65,11 @@ vi.mock("../middleware.js", () => ({
     next: import("express").NextFunction
   ) => next(),
   sensitiveEndpointLimiter: (
+    req: import("express").Request,
+    res: import("express").Response,
+    next: import("express").NextFunction
+  ) => next(),
+  authRateLimiter: (
     req: import("express").Request,
     res: import("express").Response,
     next: import("express").NextFunction

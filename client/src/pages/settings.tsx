@@ -64,6 +64,15 @@ export default function SettingsPage() {
     queryKey: ["/api/config"],
   });
 
+  const { data: igdbSettings } = useQuery<{
+    configured: boolean;
+    source?: "env" | "database";
+    clientId?: string;
+  }>({
+    queryKey: ["/api/settings/igdb"],
+    queryFn: () => apiRequest("GET", "/api/settings/igdb").then((res) => res.json()),
+  });
+
   const {
     data: userSettings,
     isLoading: settingsLoading,
@@ -129,16 +138,16 @@ export default function SettingsPage() {
       setXrelApiBase(config.xrel.apiBase ?? "");
     }
 
-    if (config?.igdb.clientId) {
-      setIgdbClientId(config.igdb.clientId);
+    if (igdbSettings?.clientId) {
+      setIgdbClientId(igdbSettings.clientId);
     }
-    if (config?.igdb.configured) {
+    if (igdbSettings?.configured) {
       setIgdbClientSecret("");
     }
     if (user?.steamId64) {
       setSteamIdInput(user.steamId64);
     }
-  }, [userSettings, config, user]);
+  }, [userSettings, config, igdbSettings, user]);
 
   // SSL Settings State
   const [sslEnabled, setSslEnabled] = useState(false);
@@ -445,7 +454,7 @@ export default function SettingsPage() {
         description: error.message,
         variant: "destructive",
       });
-    }
+    },
   });
 
   const handleSaveSteamId = () => {
@@ -679,9 +688,7 @@ export default function SettingsPage() {
                   <Gamepad2 className="h-5 w-5 text-muted-foreground" />
                   <CardTitle className="text-lg">Steam Integration</CardTitle>
                 </div>
-                <CardDescription>
-                  Sync your Steam Wishlist with Questarr.
-                </CardDescription>
+                <CardDescription>Sync your Steam Wishlist with Questarr.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex flex-col space-y-4">
@@ -694,7 +701,10 @@ export default function SettingsPage() {
                         value={steamIdInput}
                         onChange={(e) => setSteamIdInput(e.target.value)}
                       />
-                      <Button onClick={handleSaveSteamId} disabled={updateSteamIdMutation.isPending}>
+                      <Button
+                        onClick={handleSaveSteamId}
+                        disabled={updateSteamIdMutation.isPending}
+                      >
                         {updateSteamIdMutation.isPending ? "Saving..." : "Save"}
                       </Button>
                     </div>
@@ -716,7 +726,7 @@ export default function SettingsPage() {
                     <Button
                       variant="outline"
                       className="w-full sm:w-auto gap-2"
-                      onClick={() => window.location.href = "/api/auth/steam"}
+                      onClick={() => (window.location.href = "/api/auth/steam")}
                     >
                       <Gamepad2 className="h-4 w-4" />
                       Sign in through Steam

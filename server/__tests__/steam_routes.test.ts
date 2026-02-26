@@ -69,6 +69,17 @@ describe("steamRoutes", () => {
       expect(res.status).toBe(400);
       expect(res.body.error).toContain("Invalid Steam ID format");
     });
+
+    it("should return 500 when updateUserSteamId throws", async () => {
+      vi.mocked(storage.updateUserSteamId).mockRejectedValue(new Error("DB error"));
+
+      const res = await request(app)
+        .put("/api/user/steam-id")
+        .send({ steamId: "76561198000000000" });
+
+      expect(res.status).toBe(500);
+      expect(res.body.error).toBe("Failed to set Steam ID");
+    });
   });
 
   describe("POST /api/steam/wishlist/sync", () => {
@@ -105,6 +116,15 @@ describe("steamRoutes", () => {
       expect(res.status).toBe(400);
       expect(res.body.error).toBe("Steam profile private");
     });
+
+    it("should return 500 when syncUserSteamWishlist throws", async () => {
+      vi.mocked(syncUserSteamWishlist).mockRejectedValue(new Error("Network error"));
+
+      const res = await request(app).post("/api/steam/wishlist/sync");
+
+      expect(res.status).toBe(500);
+      expect(res.body.error).toBe("Sync failed");
+    });
   });
 
   describe("GET /api/auth/steam", () => {
@@ -127,7 +147,33 @@ describe("steamRoutes", () => {
 
       expect(passport.authenticate).toHaveBeenCalledWith("steam", { session: false });
     });
+
+    it("should return 500 when session is not available", async () => {
+      // Create app WITHOUT session middleware
+      const noSessionApp = express();
+      noSessionApp.use(express.json());
+      // Explicitly do NOT add session middleware
+      vi.spyOn(auth, "authenticateToken").mockImplementation((req: any, res: any, next: any) => {
+        (req as any).user = { id: 1, username: "testuser" };
+        // Do NOT set req.session - it will be undefined
+        next();
+        return Promise.resolve(undefined as any);
+      });
+
+      // Mock passport.authenticate to NOT call a middleware (avoid side effects)
+      vi.mocked(passport.authenticate).mockImplementation(
+        () => (req: any, res: any, next: any) => next()
+      );
+
+      noSessionApp.use(steamRoutes);
+
+      const res = await request(noSessionApp).get("/api/auth/steam");
+
+      expect(res.status).toBe(500);
+      expect(res.body.error).toBe("Session configuration error");
+    });
   });
+
   describe("GET /api/auth/steam/return", () => {
     it("should redirect to settings on auth failure", async () => {
       // Mock authenticate to call failure callback
@@ -157,6 +203,50 @@ describe("steamRoutes", () => {
       const res = await request(app).get("/api/auth/steam/return");
       expect(res.status).toBe(302);
       expect(res.header.location).toContain("error=session_expired");
+    });
+
+    it("should redirect to success on successful auth return", async () => {
+      // Mock authenticate to succeed with profile and session
+      vi.mocked(passport.authenticate).mockImplementationOnce(
+        (strategy: any, options: any, callback?: any) => (req: any, res: any, next: any) => {
+          // Set session so userId is available
+          (req as any).session = { steam_auth_user_id: 1 };
+          callback(null, { _json: { steamid: "76561198000000000" } });
+        }
+      );
+      vi.mocked(storage.updateUserSteamId).mockResolvedValue(undefined as any);
+
+      const res = await request(app).get("/api/auth/steam/return");
+      expect(res.status).toBe(302);
+      expect(res.header.location).toContain("steam_linked=success");
+      expect(storage.updateUserSteamId).toHaveBeenCalledWith(1, "76561198000000000");
+    });
+
+    it("should redirect to db_error when storage update fails", async () => {
+      // Mock authenticate to succeed with profile and session
+      vi.mocked(passport.authenticate).mockImplementationOnce(
+        (strategy: any, options: any, callback?: any) => (req: any, res: any, next: any) => {
+          (req as any).session = { steam_auth_user_id: 1 };
+          callback(null, { _json: { steamid: "76561198000000000" } });
+        }
+      );
+      vi.mocked(storage.updateUserSteamId).mockRejectedValue(new Error("DB write failed"));
+
+      const res = await request(app).get("/api/auth/steam/return");
+      expect(res.status).toBe(302);
+      expect(res.header.location).toContain("error=db_error");
+    });
+
+    it("should handle null profile in auth callback", async () => {
+      vi.mocked(passport.authenticate).mockImplementationOnce(
+        (strategy: any, options: any, callback?: any) => (req: any, res: any, next: any) => {
+          callback(null, null);
+        }
+      );
+
+      const res = await request(app).get("/api/auth/steam/return");
+      expect(res.status).toBe(302);
+      expect(res.header.location).toContain("error=steam_auth_failed");
     });
   });
 });

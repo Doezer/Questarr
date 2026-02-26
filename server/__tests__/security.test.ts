@@ -45,7 +45,7 @@ vi.mock("../db.js", () => ({
 vi.mock("../storage.js", () => ({
   storage: {
     countUsers: vi.fn().mockResolvedValue(0),
-    getSystemConfig: vi.fn(),
+    getSystemConfig: vi.fn().mockResolvedValue(null),
   },
 }));
 
@@ -65,6 +65,10 @@ vi.mock("../prowlarr.js", () => ({
 
 vi.mock("../config.js", () => ({
   config: mockConfig,
+}));
+
+vi.mock("../steam-routes.js", () => ({
+  steamRoutes: (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
 
 // Import registerRoutes AFTER mocking config
@@ -129,5 +133,36 @@ describe("Security Headers", () => {
     const app = await createApp();
     const response = await request(app).get("/api/auth/status");
     expect(response.headers["x-content-type-options"]).toBe("nosniff");
+  });
+});
+
+describe("Credential Exposure Prevention", () => {
+  afterEach(() => {
+    vi.resetModules();
+  });
+
+  const createApp = async () => {
+    const app = express();
+    app.use(express.json());
+    await registerRoutes(app);
+    return app;
+  };
+
+  it("should not expose IGDB clientId in the unauthenticated /api/config response", async () => {
+    const app = await createApp();
+    const response = await request(app).get("/api/config");
+
+    expect(response.status).toBe(200);
+    expect(response.body).not.toHaveProperty("igdb.clientId");
+    // The public endpoint should only return whether IGDB is configured
+    expect(response.body.igdb).toHaveProperty("configured");
+  });
+
+  it("should not expose IGDB clientSecret in the unauthenticated /api/config response", async () => {
+    const app = await createApp();
+    const response = await request(app).get("/api/config");
+
+    expect(response.status).toBe(200);
+    expect(response.body).not.toHaveProperty("igdb.clientSecret");
   });
 });

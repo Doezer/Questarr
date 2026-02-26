@@ -5,6 +5,10 @@
   "type": "module",
   "packageManager": "npm@11.7.0",
   "license": "GPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Doezer/Questarr.git"
+  },
   "scripts": {
     "dev": "cross-env NODE_ENV=development tsx server/index.ts",
     "build": "vite build && tsc -p tsconfig.build.json",

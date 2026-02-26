@@ -27,6 +27,7 @@ import { routesLogger } from "./logger.js";
 import {
   igdbRateLimiter,
   sensitiveEndpointLimiter,
+  authRateLimiter,
   validateRequest,
   sanitizeSearchQuery,
   sanitizeGameId,
@@ -266,7 +267,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/auth/login", async (req, res) => {
+  app.post("/api/auth/login", authRateLimiter, async (req, res) => {
     const { username, password } = req.body;
     const user = await storage.getUserByUsername(username);
 
@@ -511,8 +512,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         if (!valid) {
           // Cleanup invalid files
-          await fs.promises.unlink(certPath).catch(() => { });
-          await fs.promises.unlink(keyPath).catch(() => { });
+          await fs.promises.unlink(certPath).catch(() => {});
+          await fs.promises.unlink(keyPath).catch(() => {});
           return res.status(400).json({ error: `Uploaded certificate/key are invalid: ${error}` });
         }
 
@@ -653,11 +654,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const parent =
           parentPath !== currentPath
             ? {
-              name: "..",
-              path: parentRelativePath,
-              isDirectory: true,
-              size: 0,
-            }
+                name: "..",
+                path: parentRelativePath,
+                isDirectory: true,
+                size: 0,
+              }
             : null;
         const currentRelativePath = path.relative(FILE_BROWSER_ROOT, currentPath);
 
@@ -679,6 +680,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // 🛡️ Sentinel: Harden config endpoint to prevent information disclosure.
       // Only expose boolean flags indicating if services are configured, not
       // sensitive details like database URLs or partial API keys.
+      // clientId is intentionally omitted here; use the authenticated
+      // GET /api/settings/igdb endpoint to retrieve it.
       let isConfigured = false;
       let source: "env" | "database" | undefined;
 
@@ -686,17 +689,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const dbClientId = await storage.getSystemConfig("igdb.clientId");
       const dbClientSecret = await storage.getSystemConfig("igdb.clientSecret");
 
-      let clientId: string | undefined;
-
       if (dbClientId && dbClientSecret) {
         isConfigured = true;
         source = "database";
-        clientId = dbClientId;
       } else if (appConfig.igdb.isConfigured) {
         // Fallback to environment variables
         isConfigured = true;
         source = "env";
-        clientId = appConfig.igdb.clientId;
       }
 
       const xrelApiBase =
@@ -707,7 +706,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         igdb: {
           configured: isConfigured,
           source,
-          clientId,
         },
         xrel: { apiBase: xrelApiBase },
       };
@@ -2151,7 +2149,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // IGDB Configuration endpoint
-  app.post("/api/settings/igdb", authenticateToken, async (req, res) => {
+  app.get("/api/settings/igdb", async (req, res) => {
+    try {
+      const dbClientId = await storage.getSystemConfig("igdb.clientId");
+      const dbClientSecret = await storage.getSystemConfig("igdb.clientSecret");
+
+      let clientId: string | undefined;
+      let source: "env" | "database" | undefined;
+
+      if (dbClientId && dbClientSecret) {
+        clientId = dbClientId;
+        source = "database";
+      } else if (appConfig.igdb.isConfigured) {
+        clientId = appConfig.igdb.clientId;
+        source = "env";
+      }
+
+      res.json({
+        configured: !!(dbClientId && dbClientSecret) || appConfig.igdb.isConfigured,
+        source,
+        clientId,
+      });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to fetch IGDB credentials");
+      res.status(500).json({ error: "Failed to fetch IGDB credentials" });
+    }
+  });
+
+  app.post("/api/settings/igdb", async (req, res) => {
     try {
       const { clientId, clientSecret } = req.body;
 
@@ -2306,9 +2331,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         xrel: { apiBase },
         settings: settings
           ? {
-            xrelSceneReleases: settings.xrelSceneReleases,
-            xrelP2pReleases: settings.xrelP2pReleases,
-          }
+              xrelSceneReleases: settings.xrelSceneReleases,
+              xrelP2pReleases: settings.xrelP2pReleases,
+            }
           : undefined,
       });
     } catch (error) {
@@ -2333,18 +2358,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const result = await xrelClient.getLatestGames({
         page,
         perPage: 20,
-        baseUrl
+        baseUrl,
       });
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const userId = (req as any).user.id;
       const userGames = await storage.getUserGames(userId);
-      const wantedGames = userGames.filter(g => g.status === "wanted");
+      const wantedGames = userGames.filter((g) => g.status === "wanted");
 
       // Mark releases that match a wanted game
       // ⚡ Bolt: Optimize matching for large collections by pre-processing wanted games
       // and using a Set for O(1) exact-match lookups.
-      const wantedGamesLookup = wantedGames.map(g => {
+      const wantedGamesLookup = wantedGames.map((g) => {
         const norm = normalizeTitle(g.title);
         return {
           game: g,

@@ -102,6 +102,10 @@ vi.mock("../downloaders.js", () => ({
   },
 }));
 
+vi.mock("../steam-routes.js", () => ({
+  steamRoutes: (_req: unknown, _res: unknown, next: () => void) => next(),
+}));
+
 describe("API Routes", () => {
   let app: express.Express;
 

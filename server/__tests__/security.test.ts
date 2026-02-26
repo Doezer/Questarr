@@ -67,6 +67,10 @@ vi.mock("../config.js", () => ({
   config: mockConfig,
 }));
 
+vi.mock("../steam-routes.js", () => ({
+  steamRoutes: (_req: unknown, _res: unknown, next: () => void) => next(),
+}));
+
 // Import registerRoutes AFTER mocking config
 import { registerRoutes } from "../routes.js";
 

@@ -732,9 +732,15 @@ export default function SettingsPage() {
                         setIsSteamAuthLoading(true);
                         try {
                           // Step 1: Initialize Steam auth session (sends JWT via Authorization header)
-                          await apiRequest("POST", "/api/auth/steam/init");
-                          // Step 2: Redirect to Steam OpenID (session carries user identity)
-                          window.location.href = "/api/auth/steam";
+                          const initRes = await apiRequest("POST", "/api/auth/steam/init");
+                          const initData = await initRes.json();
+
+                          if (initData.success && initData.sessionId) {
+                            // Step 2: Redirect to Steam OpenID with the short-lived session ID
+                            window.location.href = `/api/auth/steam?sessionId=${initData.sessionId}`;
+                          } else {
+                            throw new Error("Invalid response from auth init");
+                          }
                         } catch {
                           toast({
                             title: "Steam Auth Failed",

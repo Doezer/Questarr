@@ -200,13 +200,33 @@ router.post("/api/auth/steam/init", authenticateToken, (req: Request, res: Respo
     logger.error("Session not available in steam auth init route");
     return res.status(500).json({ error: "Session configuration error" });
   }
+
   req.session.steam_auth_user_id = user.id;
-  res.json({ success: true });
+
+  // Explicitly save the session to ensure it's persisted before redirect
+  req.session.save((err) => {
+    if (err) {
+      logger.error({ err }, "Failed to save session for steam auth init");
+      return res.status(500).json({ error: "Failed to initialize auth session" });
+    }
+    logger.info({ userId: user.id }, "Steam auth session initialized");
+    res.json({ success: true });
+  });
 });
 
 // Step 2: Start Steam OpenID redirect (session must be initialized via /init first)
 router.get("/api/auth/steam", (req: Request, res: Response, next: NextFunction) => {
   if (!req.session?.steam_auth_user_id) {
+    logger.warn(
+      {
+        hasSession: !!req.session,
+        sessionId: req.sessionID,
+        sessionData: req.session,
+        cookies: req.headers.cookie,
+      },
+      "Steam auth redirect attempted without initialized session"
+    );
+
     return res
       .status(401)
       .json({ error: "Steam auth session not initialized. Call POST /api/auth/steam/init first." });

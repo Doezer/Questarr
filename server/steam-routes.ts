@@ -187,61 +187,64 @@ router.post("/api/steam/wishlist/sync", authenticateToken, async (req, res) => {
   }
 });
 
+import crypto from "crypto";
+
+// In-memory store for Steam auth sessions (UUID -> userId)
+// Entries expire after 5 minutes
+const steamAuthSessions = new Map<string, { userId: string; expiresAt: number }>();
+
+// Cleanup expired sessions periodically
+setInterval(() => {
+  const now = Date.now();
+  steamAuthSessions.forEach((data, sessionId) => {
+    if (now > data.expiresAt) {
+      steamAuthSessions.delete(sessionId);
+    }
+  });
+}, 60 * 1000);
+
 // OpenID Auth — Two-step flow to avoid exposing JWT in URLs:
 // Step 1: POST /api/auth/steam/init (authenticated via JWT header)
-//   → Stores the user ID in the session so it survives the redirect.
-// Step 2: GET /api/auth/steam (no auth needed)
-//   → Reads user ID from session and starts the OpenID redirect to Steam.
+//   → Generates a short-lived sessionId mapped to the user ID.
+// Step 2: GET /api/auth/steam?sessionId=... (no auth needed)
+//   → Reads user ID from session map and starts the OpenID redirect to Steam.
 
 // Step 1: Initialize Steam auth session
 router.post("/api/auth/steam/init", authenticateToken, (req: Request, res: Response) => {
   const user = req.user as User;
-  if (!req.session) {
-    logger.error("Session not available in steam auth init route");
-    return res.status(500).json({ error: "Session configuration error" });
-  }
 
-  req.session.steam_auth_user_id = user.id;
-
-  // Explicitly save the session to ensure it's persisted before redirect
-  req.session.save((err) => {
-    if (err) {
-      logger.error({ err }, "Failed to save session for steam auth init");
-      return res.status(500).json({ error: "Failed to initialize auth session" });
-    }
-    logger.info({ userId: user.id }, "Steam auth session initialized");
-    res.json({ success: true });
+  const sessionId = crypto.randomUUID();
+  // Valid for 5 minutes
+  steamAuthSessions.set(sessionId, {
+    userId: user.id,
+    expiresAt: Date.now() + 5 * 60 * 1000,
   });
+
+  logger.info({ userId: user.id, sessionId }, "Steam auth session initialized");
+  res.json({ success: true, sessionId });
 });
 
-// Step 2: Start Steam OpenID redirect (session must be initialized via /init first)
+// Step 2: Start Steam OpenID redirect
 router.get("/api/auth/steam", (req: Request, res: Response, next: NextFunction) => {
-  if (!req.session?.steam_auth_user_id) {
-    logger.warn(
-      {
-        hasSession: !!req.session,
-        sessionId: req.sessionID,
-        sessionData: req.session,
-        cookies: req.headers.cookie,
-      },
-      "Steam auth redirect attempted without initialized session"
-    );
+  const sessionId = req.query.sessionId as string;
 
+  if (!sessionId || !steamAuthSessions.has(sessionId)) {
+    logger.warn({ sessionId }, "Steam auth redirect attempted without valid sessionId");
     return res
       .status(401)
-      .json({ error: "Steam auth session not initialized. Call POST /api/auth/steam/init first." });
+      .json({
+        error:
+          "Steam auth session not initialized or expired. Call POST /api/auth/steam/init first.",
+      });
   }
 
   const baseUrl = getBaseUrl(req);
 
-  // Pass realm and returnURL as per-request options instead of mutating the
-  // global strategy singleton. passport-openid (which passport-steam extends)
-  // supports these overrides in the authenticate options, avoiding race
-  // conditions when multiple concurrent requests hit this endpoint.
+  // Pass realm and returnURL as per-request options
+  // We append the sessionId to the return URL so we can identify the user after Steam redirects back
   passport.authenticate("steam", {
     session: false,
-
-    returnURL: baseUrl + "/api/auth/steam/return",
+    returnURL: `${baseUrl}/api/auth/steam/return?sessionId=${sessionId}`,
     realm: baseUrl + "/",
   } as any)(req, res, next);
 });
@@ -249,14 +252,14 @@ router.get("/api/auth/steam", (req: Request, res: Response, next: NextFunction) 
 // GET /api/auth/steam/return
 router.get("/api/auth/steam/return", (req: Request, res: Response, next: NextFunction) => {
   const baseUrl = getBaseUrl(req);
+  const sessionId = req.query.sessionId as string;
 
   passport.authenticate(
     "steam",
     {
       session: false,
       failureRedirect: "/settings?error=steam_auth_failed",
-
-      returnURL: baseUrl + "/api/auth/steam/return",
+      returnURL: `${baseUrl}/api/auth/steam/return?sessionId=${sessionId}`,
       realm: baseUrl + "/",
     } as any,
     async (err: unknown, profile: unknown) => {
@@ -264,22 +267,22 @@ router.get("/api/auth/steam/return", (req: Request, res: Response, next: NextFun
         return res.redirect("/settings?error=steam_auth_failed");
       }
 
-      // Get userId from session
-      const userId = req.session?.steam_auth_user_id;
+      // Get userId from session map
+      const sessionData = sessionId ? steamAuthSessions.get(sessionId) : undefined;
 
-      if (!userId) {
+      if (!sessionData) {
         return res.redirect("/settings?error=session_expired");
       }
 
+      const userId = sessionData.userId;
       const steamProfile = profile as SteamProfile;
       const steamId = steamProfile._json.steamid;
 
       try {
         await storage.updateUserSteamId(userId, steamId);
-        // Clear the session variable
-        if (req.session) {
-          delete req.session.steam_auth_user_id;
-        }
+        // Clear the session
+        steamAuthSessions.delete(sessionId);
+
         res.redirect("/settings?steam_linked=success");
       } catch (e) {
         logger.error(e, "Failed to update Steam ID after successful auth");

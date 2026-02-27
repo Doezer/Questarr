@@ -97,6 +97,7 @@ export default function SettingsPage() {
 
   // Local state for Steam form
   const [steamIdInput, setSteamIdInput] = useState("");
+  const [isSteamAuthLoading, setIsSteamAuthLoading] = useState(false);
 
   // Local state for IGDB form
   const [igdbClientId, setIgdbClientId] = useState("");
@@ -726,7 +727,9 @@ export default function SettingsPage() {
                     <Button
                       variant="outline"
                       className="w-full sm:w-auto gap-2"
+                      disabled={isSteamAuthLoading}
                       onClick={async () => {
+                        setIsSteamAuthLoading(true);
                         try {
                           // Step 1: Initialize Steam auth session (sends JWT via Authorization header)
                           await apiRequest("POST", "/api/auth/steam/init");
@@ -739,11 +742,16 @@ export default function SettingsPage() {
                               "Could not initialize Steam authentication. Please try again.",
                             variant: "destructive",
                           });
+                          setIsSteamAuthLoading(false);
                         }
                       }}
                     >
-                      <Gamepad2 className="h-4 w-4" />
-                      Sign in through Steam
+                      {isSteamAuthLoading ? (
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Gamepad2 className="h-4 w-4" />
+                      )}
+                      {isSteamAuthLoading ? "Connecting to Steam..." : "Sign in through Steam"}
                     </Button>
                   </div>
                 </div>

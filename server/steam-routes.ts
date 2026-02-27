@@ -6,6 +6,15 @@ import { steamService } from "./steam.js";
 import { syncUserSteamWishlist } from "./cron.js";
 import { authenticateToken } from "./auth.js";
 import { type User } from "@shared/schema";
+import { config } from "./config.js";
+import { logger } from "./logger.js";
+import "express-session";
+
+declare module "express-session" {
+  interface SessionData {
+    steam_auth_user_id?: string;
+  }
+}
 
 interface SteamProfile {
   id: string;
@@ -48,10 +57,17 @@ if (!process.env.STEAM_API_KEY) {
   console.warn("STEAM_API_KEY is not set. Steam Auth will fail.");
 }
 
-// Helper to get base URL
-// Only trust x-forwarded-proto if the value is a safe protocol to prevent
-// open redirect or URL injection via a spoofed proxy header.
-const getBaseUrl = (req: Request) => {
+// Helper to get base URL from a trusted source.
+// Prefers the APP_URL environment variable. Falls back to request-derived URL
+// with the host validated against the configured allowed origins to prevent
+// host-header injection attacks.
+const getBaseUrl = (req: Request): string => {
+  // 1. Trust explicit APP_URL configuration (most secure)
+  if (config.server.appUrl) {
+    return config.server.appUrl.replace(/\/+$/, "");
+  }
+
+  // 2. Derive from the request, but validate the host against allowed origins
   const forwardedProtoHeader = req.headers["x-forwarded-proto"];
   const forwardedProto =
     typeof forwardedProtoHeader === "string"
@@ -59,12 +75,25 @@ const getBaseUrl = (req: Request) => {
       : Array.isArray(forwardedProtoHeader)
         ? String(forwardedProtoHeader[0]).split(",")[0]?.trim().toLowerCase()
         : undefined;
-  const rawProtocol =
+  const protocol =
     forwardedProto && (forwardedProto === "http" || forwardedProto === "https")
       ? forwardedProto
       : req.protocol;
   const host = req.headers.host;
-  return `${rawProtocol}://${host}`;
+
+  const candidateUrl = `${protocol}://${host}`;
+
+  // Validate the derived URL against allowed origins
+  const allowedOrigins = config.server.allowedOrigins;
+  if (allowedOrigins.length > 0 && !allowedOrigins.includes(candidateUrl)) {
+    logger.warn(
+      { candidateUrl, allowedOrigins },
+      "Steam auth: request host not in allowed origins, using first allowed origin"
+    );
+    return allowedOrigins[0];
+  }
+
+  return candidateUrl;
 };
 
 // We will use a dynamic strategy or just assume standard environment.
@@ -167,19 +196,17 @@ router.post("/api/steam/wishlist/sync", authenticateToken, async (req, res) => {
 // Step 1: Initialize Steam auth session
 router.post("/api/auth/steam/init", authenticateToken, (req: Request, res: Response) => {
   const user = req.user as User;
-  const session = (req as any).session; // eslint-disable-line @typescript-eslint/no-explicit-any
-  if (!session) {
-    console.error("Session not available in steam auth init route");
+  if (!req.session) {
+    logger.error("Session not available in steam auth init route");
     return res.status(500).json({ error: "Session configuration error" });
   }
-  session.steam_auth_user_id = user.id;
+  req.session.steam_auth_user_id = user.id;
   res.json({ success: true });
 });
 
 // Step 2: Start Steam OpenID redirect (session must be initialized via /init first)
 router.get("/api/auth/steam", (req: Request, res: Response, next: NextFunction) => {
-  const session = (req as any).session; // eslint-disable-line @typescript-eslint/no-explicit-any
-  if (!session?.steam_auth_user_id) {
+  if (!req.session?.steam_auth_user_id) {
     return res
       .status(401)
       .json({ error: "Steam auth session not initialized. Call POST /api/auth/steam/init first." });
@@ -187,37 +214,38 @@ router.get("/api/auth/steam", (req: Request, res: Response, next: NextFunction) 
 
   const baseUrl = getBaseUrl(req);
 
-  // Re-configure strategy to match current host (important for dev/prod switch)
-  const strategy = (passport as any)._strategies["steam"]; // eslint-disable-line @typescript-eslint/no-explicit-any
-  if (strategy) {
-    strategy._options.realm = baseUrl + "/";
-    strategy._options.returnURL = baseUrl + "/api/auth/steam/return";
-  }
+  // Pass realm and returnURL as per-request options instead of mutating the
+  // global strategy singleton. passport-openid (which passport-steam extends)
+  // supports these overrides in the authenticate options, avoiding race
+  // conditions when multiple concurrent requests hit this endpoint.
+  passport.authenticate("steam", {
+    session: false,
 
-  passport.authenticate("steam", { session: false })(req, res, next);
+    returnURL: baseUrl + "/api/auth/steam/return",
+    realm: baseUrl + "/",
+  } as any)(req, res, next);
 });
 
 // GET /api/auth/steam/return
 router.get("/api/auth/steam/return", (req: Request, res: Response, next: NextFunction) => {
   const baseUrl = getBaseUrl(req);
-  const strategy = (passport as any)._strategies["steam"]; // eslint-disable-line @typescript-eslint/no-explicit-any
-  if (strategy) {
-    strategy._options.realm = baseUrl + "/";
-    strategy._options.returnURL = baseUrl + "/api/auth/steam/return";
-  }
 
   passport.authenticate(
     "steam",
-    { session: false, failureRedirect: "/settings?error=steam_auth_failed" },
+    {
+      session: false,
+      failureRedirect: "/settings?error=steam_auth_failed",
+
+      returnURL: baseUrl + "/api/auth/steam/return",
+      realm: baseUrl + "/",
+    } as any,
     async (err: unknown, profile: unknown) => {
       if (err || !profile) {
         return res.redirect("/settings?error=steam_auth_failed");
       }
 
-      // Success
       // Get userId from session
-      const session = (req as any).session; // eslint-disable-line @typescript-eslint/no-explicit-any
-      const userId = session?.steam_auth_user_id;
+      const userId = req.session?.steam_auth_user_id;
 
       if (!userId) {
         return res.redirect("/settings?error=session_expired");
@@ -229,12 +257,12 @@ router.get("/api/auth/steam/return", (req: Request, res: Response, next: NextFun
       try {
         await storage.updateUserSteamId(userId, steamId);
         // Clear the session variable
-        if (session) {
-          delete session.steam_auth_user_id;
+        if (req.session) {
+          delete req.session.steam_auth_user_id;
         }
         res.redirect("/settings?steam_linked=success");
       } catch (e) {
-        console.error(e);
+        logger.error(e, "Failed to update Steam ID after successful auth");
         res.redirect("/settings?error=db_error");
       }
     }

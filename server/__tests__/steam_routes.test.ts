@@ -19,14 +19,24 @@ vi.mock("passport", () => {
       authenticate: mockAuthenticate,
       serializeUser: vi.fn(),
       deserializeUser: vi.fn(),
-      _strategies: {
-        steam: {
-          _options: {},
-        },
-      },
     },
   };
 });
+vi.mock("../config.js", () => ({
+  config: {
+    server: {
+      allowedOrigins: ["http://localhost:5000"],
+    },
+  },
+}));
+vi.mock("../logger.js", () => ({
+  logger: {
+    warn: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    debug: vi.fn(),
+  },
+}));
 
 describe("steamRoutes", () => {
   let app: express.Express;
@@ -178,7 +188,10 @@ describe("steamRoutes", () => {
 
       const res = await request(authApp).get("/api/auth/steam");
 
-      expect(passport.authenticate).toHaveBeenCalledWith("steam", { session: false });
+      expect(passport.authenticate).toHaveBeenCalledWith(
+        "steam",
+        expect.objectContaining({ session: false })
+      );
     });
 
     it("should return 401 when session is not initialized", async () => {

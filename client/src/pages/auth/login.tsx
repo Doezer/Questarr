@@ -39,7 +39,8 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
+        <CardHeader className="text-center flex flex-col items-center gap-2">
+          <img src="/Questarr_Logo-nobg.png" alt="Questarr Logo" className="h-16 w-auto mb-2" />
           <CardTitle className="text-2xl font-bold">Welcome Back</CardTitle>
           <CardDescription>Login to manage your game collection</CardDescription>
         </CardHeader>

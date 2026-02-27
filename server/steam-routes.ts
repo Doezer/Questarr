@@ -79,18 +79,29 @@ const getBaseUrl = (req: Request): string => {
     forwardedProto && (forwardedProto === "http" || forwardedProto === "https")
       ? forwardedProto
       : req.protocol;
-  const host = req.headers.host;
+  const forwardedHostHeader = req.headers["x-forwarded-host"];
+  const forwardedHost =
+    typeof forwardedHostHeader === "string"
+      ? forwardedHostHeader.split(",")[0]?.trim()
+      : Array.isArray(forwardedHostHeader)
+        ? String(forwardedHostHeader[0]).split(",")[0]?.trim()
+        : undefined;
+
+  const host = forwardedHost || req.headers.host;
 
   const candidateUrl = `${protocol}://${host}`;
 
-  // Validate the derived URL against allowed origins
-  const allowedOrigins = config.server.allowedOrigins;
-  if (allowedOrigins.length > 0 && !allowedOrigins.includes(candidateUrl)) {
-    logger.warn(
-      { candidateUrl, allowedOrigins },
-      "Steam auth: request host not in allowed origins, using first allowed origin"
-    );
-    return allowedOrigins[0];
+  // Validate the derived URL against allowed origins ONLY if explicitly configured
+  // Otherwise, we implicitly trust the host header to support zero-config setups (like Docker on LAN).
+  if (process.env.ALLOWED_ORIGINS) {
+    const allowedOrigins = config.server.allowedOrigins;
+    if (allowedOrigins.length > 0 && !allowedOrigins.includes(candidateUrl)) {
+      logger.warn(
+        { candidateUrl, allowedOrigins },
+        "Steam auth: request host not in allowed origins, using first allowed origin"
+      );
+      return allowedOrigins[0];
+    }
   }
 
   return candidateUrl;
@@ -230,12 +241,9 @@ router.get("/api/auth/steam", (req: Request, res: Response, next: NextFunction) 
 
   if (!sessionId || !steamAuthSessions.has(sessionId)) {
     logger.warn({ sessionId }, "Steam auth redirect attempted without valid sessionId");
-    return res
-      .status(401)
-      .json({
-        error:
-          "Steam auth session not initialized or expired. Call POST /api/auth/steam/init first.",
-      });
+    return res.status(401).json({
+      error: "Steam auth session not initialized or expired. Call POST /api/auth/steam/init first.",
+    });
   }
 
   const baseUrl = getBaseUrl(req);

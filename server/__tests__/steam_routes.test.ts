@@ -142,7 +142,9 @@ describe("steamRoutes", () => {
       const initApp = express();
       initApp.use(express.json());
       initApp.use((req, res, next) => {
-        (req as any).session = {};
+        (req as any).session = {
+          save: vi.fn((cb) => (cb ? cb() : undefined)),
+        };
         next();
       });
       vi.spyOn(auth, "authenticateToken").mockImplementation((req: any, res: any, next: any) => {

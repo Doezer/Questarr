@@ -97,6 +97,7 @@ export default function SettingsPage() {
 
   // Local state for Steam form
   const [steamIdInput, setSteamIdInput] = useState("");
+  const [isSteamAuthLoading, setIsSteamAuthLoading] = useState(false);
 
   // Local state for IGDB form
   const [igdbClientId, setIgdbClientId] = useState("");
@@ -726,10 +727,37 @@ export default function SettingsPage() {
                     <Button
                       variant="outline"
                       className="w-full sm:w-auto gap-2"
-                      onClick={() => (window.location.href = "/api/auth/steam")}
+                      disabled={isSteamAuthLoading}
+                      onClick={async () => {
+                        setIsSteamAuthLoading(true);
+                        try {
+                          // Step 1: Initialize Steam auth session (sends JWT via Authorization header)
+                          const initRes = await apiRequest("POST", "/api/auth/steam/init");
+                          const initData = await initRes.json();
+
+                          if (initData.success && initData.sessionId) {
+                            // Step 2: Redirect to Steam OpenID with the short-lived session ID
+                            window.location.href = `/api/auth/steam?sessionId=${initData.sessionId}`;
+                          } else {
+                            throw new Error("Invalid response from auth init");
+                          }
+                        } catch {
+                          toast({
+                            title: "Steam Auth Failed",
+                            description:
+                              "Could not initialize Steam authentication. Please try again.",
+                            variant: "destructive",
+                          });
+                          setIsSteamAuthLoading(false);
+                        }
+                      }}
                     >
-                      <Gamepad2 className="h-4 w-4" />
-                      Sign in through Steam
+                      {isSteamAuthLoading ? (
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Gamepad2 className="h-4 w-4" />
+                      )}
+                      {isSteamAuthLoading ? "Connecting to Steam..." : "Sign in through Steam"}
                     </Button>
                   </div>
                 </div>

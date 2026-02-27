@@ -19,14 +19,24 @@ vi.mock("passport", () => {
       authenticate: mockAuthenticate,
       serializeUser: vi.fn(),
       deserializeUser: vi.fn(),
-      _strategies: {
-        steam: {
-          _options: {},
-        },
-      },
     },
   };
 });
+vi.mock("../config.js", () => ({
+  config: {
+    server: {
+      allowedOrigins: ["http://localhost:5000"],
+    },
+  },
+}));
+vi.mock("../logger.js", () => ({
+  logger: {
+    warn: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    debug: vi.fn(),
+  },
+}));
 
 describe("steamRoutes", () => {
   let app: express.Express;
@@ -127,15 +137,29 @@ describe("steamRoutes", () => {
     });
   });
 
+  describe("POST /api/auth/steam/init", () => {
+    it("should generate and return a sessionId", async () => {
+      const initApp = express();
+      initApp.use(express.json());
+      vi.spyOn(auth, "authenticateToken").mockImplementation((req: any, res: any, next: any) => {
+        (req as any).user = { id: 1, username: "testuser" };
+        next();
+        return Promise.resolve(undefined as any);
+      });
+      initApp.use(steamRoutes);
+
+      const res = await request(initApp).post("/api/auth/steam/init");
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.sessionId).toBeDefined();
+    });
+  });
+
   describe("GET /api/auth/steam", () => {
-    it("should initiate Steam auth flow", async () => {
-      // Create a new app for this test to ensure middleware order
+    it("should initiate Steam auth flow when valid sessionId is provided", async () => {
       const authApp = express();
       authApp.use(express.json());
-      authApp.use((req, res, next) => {
-        (req as any).session = {};
-        next();
-      });
       vi.spyOn(auth, "authenticateToken").mockImplementation((req: any, res: any, next: any) => {
         (req as any).user = { id: 1, username: "testuser" };
         next();
@@ -143,38 +167,60 @@ describe("steamRoutes", () => {
       });
       authApp.use(steamRoutes);
 
-      const res = await request(authApp).get("/api/auth/steam");
+      // First initialize
+      const initRes = await request(authApp).post("/api/auth/steam/init");
+      const sessionId = initRes.body.sessionId;
 
-      expect(passport.authenticate).toHaveBeenCalledWith("steam", { session: false });
+      const res = await request(authApp).get(`/api/auth/steam?sessionId=${sessionId}`);
+
+      expect(passport.authenticate).toHaveBeenCalledWith(
+        "steam",
+        expect.objectContaining({ session: false, returnURL: expect.stringContaining(sessionId) })
+      );
     });
 
-    it("should return 500 when session is not available", async () => {
-      // Create app WITHOUT session middleware
-      const noSessionApp = express();
-      noSessionApp.use(express.json());
-      // Explicitly do NOT add session middleware
-      vi.spyOn(auth, "authenticateToken").mockImplementation((req: any, res: any, next: any) => {
-        (req as any).user = { id: 1, username: "testuser" };
-        // Do NOT set req.session - it will be undefined
-        next();
-        return Promise.resolve(undefined as any);
-      });
+    it("should return 401 when sessionId is missing", async () => {
+      const noInitApp = express();
+      noInitApp.use(express.json());
+      noInitApp.use(steamRoutes);
 
-      // Mock passport.authenticate to NOT call a middleware (avoid side effects)
-      vi.mocked(passport.authenticate).mockImplementation(
-        () => (req: any, res: any, next: any) => next()
-      );
+      const res = await request(noInitApp).get("/api/auth/steam");
 
-      noSessionApp.use(steamRoutes);
+      expect(res.status).toBe(401);
+      expect(res.body.error).toContain("not initialized");
+    });
 
-      const res = await request(noSessionApp).get("/api/auth/steam");
+    it("should return 401 when sessionId is invalid", async () => {
+      const noInitApp = express();
+      noInitApp.use(express.json());
+      noInitApp.use(steamRoutes);
 
-      expect(res.status).toBe(500);
-      expect(res.body.error).toBe("Session configuration error");
+      const res = await request(noInitApp).get("/api/auth/steam?sessionId=invalid-uuid");
+
+      expect(res.status).toBe(401);
+      expect(res.body.error).toContain("not initialized");
     });
   });
 
   describe("GET /api/auth/steam/return", () => {
+    let mockApp: express.Express;
+    let validSessionId: string;
+
+    beforeEach(async () => {
+      mockApp = express();
+      mockApp.use(express.json());
+      vi.spyOn(auth, "authenticateToken").mockImplementation((req: any, res: any, next: any) => {
+        (req as any).user = { id: 1, username: "testuser" };
+        next();
+        return Promise.resolve(undefined as any);
+      });
+      mockApp.use(steamRoutes);
+
+      // Create a valid session to use in these tests
+      const initRes = await request(mockApp).post("/api/auth/steam/init");
+      validSessionId = initRes.body.sessionId;
+    });
+
     it("should redirect to settings on auth failure", async () => {
       // Mock authenticate to call failure callback
       vi.mocked(passport.authenticate).mockImplementationOnce(
@@ -187,12 +233,12 @@ describe("steamRoutes", () => {
         }
       );
 
-      const res = await request(app).get("/api/auth/steam/return");
+      const res = await request(mockApp).get(`/api/auth/steam/return?sessionId=${validSessionId}`);
       expect(res.status).toBe(302);
       expect(res.header.location).toContain("error=steam_auth_failed");
     });
 
-    it("should handle missing session user ID", async () => {
+    it("should handle invalid sessionId", async () => {
       // Mock authenticate to succeed but profile but session is missing
       vi.mocked(passport.authenticate).mockImplementationOnce(
         (strategy: any, options: any, callback?: any) => (req: any, res: any, next: any) => {
@@ -200,7 +246,7 @@ describe("steamRoutes", () => {
         }
       );
 
-      const res = await request(app).get("/api/auth/steam/return");
+      const res = await request(mockApp).get("/api/auth/steam/return?sessionId=invalid");
       expect(res.status).toBe(302);
       expect(res.header.location).toContain("error=session_expired");
     });
@@ -209,14 +255,12 @@ describe("steamRoutes", () => {
       // Mock authenticate to succeed with profile and session
       vi.mocked(passport.authenticate).mockImplementationOnce(
         (strategy: any, options: any, callback?: any) => (req: any, res: any, next: any) => {
-          // Set session so userId is available
-          (req as any).session = { steam_auth_user_id: 1 };
           callback(null, { _json: { steamid: "76561198000000000" } });
         }
       );
       vi.mocked(storage.updateUserSteamId).mockResolvedValue(undefined as any);
 
-      const res = await request(app).get("/api/auth/steam/return");
+      const res = await request(mockApp).get(`/api/auth/steam/return?sessionId=${validSessionId}`);
       expect(res.status).toBe(302);
       expect(res.header.location).toContain("steam_linked=success");
       expect(storage.updateUserSteamId).toHaveBeenCalledWith(1, "76561198000000000");
@@ -226,13 +270,12 @@ describe("steamRoutes", () => {
       // Mock authenticate to succeed with profile and session
       vi.mocked(passport.authenticate).mockImplementationOnce(
         (strategy: any, options: any, callback?: any) => (req: any, res: any, next: any) => {
-          (req as any).session = { steam_auth_user_id: 1 };
           callback(null, { _json: { steamid: "76561198000000000" } });
         }
       );
       vi.mocked(storage.updateUserSteamId).mockRejectedValue(new Error("DB write failed"));
 
-      const res = await request(app).get("/api/auth/steam/return");
+      const res = await request(mockApp).get(`/api/auth/steam/return?sessionId=${validSessionId}`);
       expect(res.status).toBe(302);
       expect(res.header.location).toContain("error=db_error");
     });
@@ -244,7 +287,7 @@ describe("steamRoutes", () => {
         }
       );
 
-      const res = await request(app).get("/api/auth/steam/return");
+      const res = await request(mockApp).get(`/api/auth/steam/return?sessionId=${validSessionId}`);
       expect(res.status).toBe(302);
       expect(res.header.location).toContain("error=steam_auth_failed");
     });

@@ -20,9 +20,11 @@ import passport from "passport";
 import { logger } from "./logger.js";
 
 const app = express();
+app.set("trust proxy", 1);
 app.use(
   cors({
     origin: config.server.allowedOrigins,
+    credentials: true,
   })
 );
 app.use(express.json());

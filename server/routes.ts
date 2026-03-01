@@ -727,7 +727,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Sync indexers from Prowlarr
-  app.post("/api/indexers/prowlarr/sync", sensitiveEndpointLimiter, async (req, res) => {
+  app.post("/api/indexers/prowlarr/sync", sensitiveEndpointLimiter, async (req, res, next) => {
     try {
       const { url, apiKey } = req.body;
 
@@ -750,9 +750,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         results,
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      routesLogger.error({ error }, "Failed to sync from Prowlarr");
-      res.status(500).json({ error: message });
+      next(error);
     }
   });
 
@@ -1428,7 +1426,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
               downloaderId: downloader.id,
               downloaderName: downloader.name,
               freeSpace: 0,
-              error: error instanceof Error ? error.message : "Unknown error",
+              error: appConfig.server.isProduction
+                ? "Internal Server Error"
+                : error instanceof Error
+                  ? error.message
+                  : "Unknown error",
             };
           }
         })
@@ -1938,7 +1940,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return {
             downloaderId: downloader.id,
             downloaderName: downloader.name,
-            error: errorMessage,
+            error: appConfig.server.isProduction ? "Internal Server Error" : errorMessage,
           };
         });
 
@@ -2228,7 +2230,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/settings", authenticateToken, async (req, res) => {
+  app.patch("/api/settings", authenticateToken, async (req, res, next) => {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const userId = (req as any).user.id;
@@ -2255,16 +2257,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         routesLogger.error({ error: error.errors }, "validation error in settings update");
         return res.status(400).json({ error: "Invalid settings data", details: error.errors });
       }
-      routesLogger.error({ error }, "error updating settings");
-      res.status(500).json({
-        error: "Failed to update settings",
-        message: error instanceof Error ? error.message : "Unknown error",
-      });
+      next(error);
     }
   });
 
   // xREL.to settings (API base URL in system config; scene/p2p in user settings)
-  app.patch("/api/settings/xrel", authenticateToken, async (req, res) => {
+  app.patch("/api/settings/xrel", authenticateToken, async (req, res, next) => {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const userId = (req as any).user.id;
@@ -2337,16 +2335,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           : undefined,
       });
     } catch (error) {
-      routesLogger.error({ error }, "error updating xREL settings");
-      res.status(500).json({
-        error: "Failed to update xREL settings",
-        message: error instanceof Error ? error.message : "Unknown error",
-      });
+      next(error);
     }
   });
 
   // xREL.to API proxy (rate-limited on xREL side; base URL from app settings)
-  app.get("/api/xrel/latest", authenticateToken, async (req, res) => {
+  app.get("/api/xrel/latest", authenticateToken, async (req, res, next) => {
     try {
       const page = req.query.page ? parseInt(String(req.query.page), 10) : 1;
       const baseUrl =
@@ -2476,15 +2470,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json({ ...result, list: finallist });
     } catch (error) {
-      routesLogger.error({ error }, "xREL latest failed");
-      res.status(500).json({
-        error: "Failed to fetch xREL latest releases",
-        message: error instanceof Error ? error.message : "Unknown error",
-      });
+      next(error);
     }
   });
 
-  app.get("/api/xrel/search", authenticateToken, async (req, res) => {
+  app.get("/api/xrel/search", authenticateToken, async (req, res, next) => {
     try {
       const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
       if (!q) {
@@ -2502,16 +2492,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const list = await xrelClient.searchReleases(q, { scene, p2p, limit, baseUrl });
       res.json({ results: list });
     } catch (error) {
-      routesLogger.error({ error }, "xREL search failed");
-      res.status(500).json({
-        error: "xREL search failed",
-        message: error instanceof Error ? error.message : "Unknown error",
-      });
+      next(error);
     }
   });
 
   // Match and add game from name (Quick Add)
-  app.post("/api/games/match-and-add", authenticateToken, async (req, res) => {
+  app.post("/api/games/match-and-add", authenticateToken, async (req, res, next) => {
     try {
       const { title } = req.body;
       if (!title || typeof title !== "string") {
@@ -2563,11 +2549,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
       res.status(201).json(game);
     } catch (error) {
-      routesLogger.error({ error }, "match and add failed");
-      res.status(500).json({
-        error: "Failed to add game",
-        message: error instanceof Error ? error.message : "Unknown error",
-      });
+      next(error);
     }
   });
 

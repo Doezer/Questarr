@@ -28,47 +28,68 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const { isLoading: isCheckingSetup, error: setupCheckError } = useQuery({
+  const {
+    isLoading: isCheckingSetup,
+    error: setupCheckError,
+    data: statusData,
+  } = useQuery({
     queryKey: ["/api/auth/status"],
     queryFn: async () => {
       const res = await fetch("/api/auth/status");
       if (!res.ok) {
         throw new Error("Failed to check setup status");
       }
-      const data = await res.json();
-      setNeedsSetup(!data.hasUsers);
-      return data;
+      return await res.json();
     },
     retry: 3,
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
     staleTime: 60000, // Cache for 1 minute to avoid excessive checks
+    refetchOnMount: "always",
   });
 
-  const { isLoading: isFetchingUser } = useQuery({
-    queryKey: ["/api/auth/me"],
+  // Derive needsSetup from query data
+  useEffect(() => {
+    if (statusData) {
+      setNeedsSetup(!statusData.hasUsers);
+    }
+  }, [statusData]);
+
+  const { isLoading: isFetchingUser, data: meData } = useQuery({
+    queryKey: ["/api/auth/me", token],
     queryFn: async () => {
-      if (!token) return null;
+      // Read token directly from localStorage for freshness
+      const currentToken = localStorage.getItem("token");
+      if (!currentToken) return null;
       try {
         const res = await fetch("/api/auth/me", {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: { Authorization: `Bearer ${currentToken}` },
         });
         if (res.ok) {
-          const userData = await res.json();
-          setUser(userData);
-          return userData;
+          return await res.json();
         } else {
-          setToken(null);
           localStorage.removeItem("token");
+          setToken(null);
           return null;
         }
       } catch {
-        setToken(null);
         localStorage.removeItem("token");
+        setToken(null);
         return null;
       }
     },
     enabled: !!token,
+    staleTime: 30000, // 30 seconds — re-validate session periodically
+    refetchOnMount: "always", // Always re-validate on AuthProvider mount
   });
+
+  // Derive user from query data so it stays in sync even when served from cache
+  useEffect(() => {
+    if (meData) {
+      setUser(meData);
+    } else if (meData === null) {
+      setUser(null);
+    }
+  }, [meData]);
 
   const loginMutation = useMutation({
     mutationFn: async (credentials: { username: string; password: string }) => {

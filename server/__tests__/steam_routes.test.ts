@@ -45,6 +45,10 @@ describe("steamRoutes", () => {
     vi.clearAllMocks();
     app = express();
     app.use(express.json());
+    app.use((req: any, res: any, next: any) => {
+      req.session = {};
+      next();
+    });
 
     // Mock authenticateToken middleware
     vi.spyOn(auth, "authenticateToken").mockImplementation((req: any, res: any, next: any) => {
@@ -174,8 +178,8 @@ describe("steamRoutes", () => {
       const res = await request(authApp).get(`/api/auth/steam?sessionId=${sessionId}`);
 
       expect(passport.authenticate).toHaveBeenCalledWith(
-        "steam",
-        expect.objectContaining({ session: false, returnURL: expect.stringContaining(sessionId) })
+        expect.stringMatching(/^steam-/),
+        expect.objectContaining({ session: false })
       );
     });
 

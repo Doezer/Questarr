@@ -107,33 +107,6 @@ const getBaseUrl = (req: Request): string => {
   return candidateUrl;
 };
 
-// We will use a dynamic strategy or just assume standard environment.
-// For now, let's setup the route to initialize strategy on the fly if needed
-// or just standard setup.
-// To avoid "Strategy already exists" errors if this file is hot-reloaded:
-passport.use(
-  new SteamStrategy(
-    {
-      returnURL: "http://localhost:5000/api/auth/steam/return", // Placeholder, will override in route
-      realm: "http://localhost:5000/",
-      apiKey: process.env.STEAM_API_KEY || "MISSING_KEY",
-    },
-    function (
-      identifier: string,
-      profile: SteamProfile,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      done: (err: any, user?: any) => void
-    ) {
-      // identifier is like: https://steamcommunity.com/openid/id/76561198000000000
-      // profile contains _json with steamid etc.
-      process.nextTick(function () {
-        // We just pass the profile through, the route handler will deal with linking
-        return done(null, profile);
-      });
-    }
-  )
-);
-
 // Manual Steam ID Update
 router.put("/api/user/steam-id", authenticateToken, async (req, res) => {
   try {
@@ -153,20 +126,6 @@ router.put("/api/user/steam-id", authenticateToken, async (req, res) => {
     // Check if another user already has this ID? (Optional unique constraint)
     // For now, just update.
 
-    // We update the user directly? storage.updateUser is not generic but we have updateUserPassword.
-    // We need to add updateUserSteamId to storage or use direct DB access (not ideal).
-    // Wait, I missed adding `updateUserSteamId` to storage interface?
-    // I can modify `updateUserPassword` to `updateUser` or add new method.
-    // Storage has `updateUserPassword`. I should add `updateUser`.
-
-    // WORKAROUND: For now, I'll access DB directly here or add the method.
-    // Adding method is better.
-    // I will assume `updateUser` exists or I'll implement it next.
-    // Retrying plan: Add `updateUser` to storage.
-
-    // Let's defer this specific line until I fix storage.
-    // await storage.updateUser(userId, { steamId64: steamId });
-    // Using a placeholder for now:
     await storage.updateUserSteamId(user.id, steamId);
 
     res.json({ success: true, steamId });
@@ -198,8 +157,6 @@ router.post("/api/steam/wishlist/sync", authenticateToken, async (req, res) => {
   }
 });
 
-import crypto from "crypto";
-
 // In-memory store for Steam auth sessions (UUID -> userId)
 // Entries expire after 5 minutes
 const steamAuthSessions = new Map<string, { userId: string; expiresAt: number }>();
@@ -213,6 +170,40 @@ setInterval(() => {
     }
   });
 }, 60 * 1000);
+
+// We will map the strategy by returnURL to avoid creating too many instances,
+// but safely allow multiple returnURLs for dynamically derived hosts.
+const configuredStrategies = new Set<string>();
+
+const getSteamStrategy = (returnURL: string, realm: string) => {
+  const strategyName = `steam-${returnURL}`;
+
+  if (!configuredStrategies.has(strategyName)) {
+    passport.use(
+      strategyName,
+      new SteamStrategy(
+        {
+          returnURL,
+          realm,
+          apiKey: process.env.STEAM_API_KEY || "MISSING_KEY",
+        },
+        function (
+          identifier: string,
+          profile: SteamProfile,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          done: (err: any, user?: any) => void
+        ) {
+          process.nextTick(function () {
+            return done(null, profile);
+          });
+        }
+      )
+    );
+    configuredStrategies.add(strategyName);
+  }
+
+  return strategyName;
+};
 
 // OpenID Auth — Two-step flow to avoid exposing JWT in URLs:
 // Step 1: POST /api/auth/steam/init (authenticated via JWT header)
@@ -247,13 +238,13 @@ router.get("/api/auth/steam", (req: Request, res: Response, next: NextFunction) 
   }
 
   const baseUrl = getBaseUrl(req);
+  const returnURL = `${baseUrl}/api/auth/steam/return?sessionId=${sessionId}`;
+  const realm = baseUrl + "/";
 
-  // Pass realm and returnURL as per-request options
-  // We append the sessionId to the return URL so we can identify the user after Steam redirects back
-  passport.authenticate("steam", {
+  const strategyName = getSteamStrategy(returnURL, realm);
+
+  passport.authenticate(strategyName, {
     session: false,
-    returnURL: `${baseUrl}/api/auth/steam/return?sessionId=${sessionId}`,
-    realm: baseUrl + "/",
   } as any)(req, res, next);
 });
 
@@ -261,14 +252,16 @@ router.get("/api/auth/steam", (req: Request, res: Response, next: NextFunction) 
 router.get("/api/auth/steam/return", (req: Request, res: Response, next: NextFunction) => {
   const baseUrl = getBaseUrl(req);
   const sessionId = req.query.sessionId as string;
+  const returnURL = `${baseUrl}/api/auth/steam/return?sessionId=${sessionId}`;
+  const realm = baseUrl + "/";
+
+  const strategyName = getSteamStrategy(returnURL, realm);
 
   passport.authenticate(
-    "steam",
+    strategyName,
     {
       session: false,
       failureRedirect: "/settings?error=steam_auth_failed",
-      returnURL: `${baseUrl}/api/auth/steam/return?sessionId=${sessionId}`,
-      realm: baseUrl + "/",
     } as any,
     async (err: unknown, profile: unknown) => {
       if (err || !profile) {

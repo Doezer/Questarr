@@ -935,6 +935,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                     <Button
                                       variant="ghost"
                                       size="icon"
+                                      aria-label={`Download ${download.title}`}
                                       onClick={() => handleDownload(download)}
                                       disabled={
                                         downloadingGuid === (download.guid || download.link)
@@ -950,7 +951,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
 
                                     <DropdownMenu>
                                       <DropdownMenuTrigger asChild>
-                                        <Button variant="ghost" size="icon" className="h-9 w-9">
+                                        <Button variant="ghost" size="icon" className="h-9 w-9" aria-label="More download options">
                                           <MoreVertical className="h-4 w-4" />
                                         </Button>
                                       </DropdownMenuTrigger>

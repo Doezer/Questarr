@@ -62,57 +62,77 @@ export const steamService = {
       igdbLogger.debug({ steamId, page }, "Fetching Steam wishlist page");
 
       try {
-        const response = await fetch(url);
-        
-        if (response.status === 403 || response.status === 500) {
-            // 403 usually means private profile
-             throw new Error("Steam profile is private or inaccessible");
-        }
-        
-        if (!response.ok) {
-           throw new Error(`Steam API error: ${response.status}`);
+        const response = await fetch(url, { redirect: "manual" });
+
+        if (response.status >= 300 && response.status < 400) {
+          // 3xx redirects usually mean the profile is private or invalid
+          throw new Error("Steam profile is private or inaccessible (Redirected)");
         }
 
-        const data = await response.json();
+        if (response.status === 403 || response.status === 500) {
+          // 403 usually means private profile
+          throw new Error("Steam profile is private or inaccessible");
+        }
+
+        if (!response.ok) {
+          throw new Error(`Steam API error: ${response.status}`);
+        }
+
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.includes("text/html")) {
+          throw new Error("Steam profile is private or inaccessible (Returned HTML)");
+        }
+
+        const text = await response.text();
+        if (!text) {
+          hasMore = false;
+          break;
+        }
+
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch (e) {
+          throw new Error(`Failed to parse Steam response: ${text.substring(0, 50)}`);
+        }
 
         // Steam returns an object with appids as keys if it has data, or empty array/object if empty
         // Or sometimes it returns an array? format is slightly weird:
         // Key is string (appid), value is object.
-        
+
         if (!data || (Array.isArray(data) && data.length === 0)) {
-            hasMore = false;
-            break;
-        }
-        
-        const keys = Object.keys(data);
-        if (keys.length === 0) {
-            hasMore = false;
-            break;
+          hasMore = false;
+          break;
         }
 
-        const pageGames: SteamWishlistGame[] = keys.map(key => {
-            const item = data[key] as SteamWishlistItem;
-            return {
-                steamAppId: parseInt(key, 10),
-                title: item.name,
-                addedAt: item.added,
-                priority: item.priority
-            };
+        const keys = Object.keys(data);
+        if (keys.length === 0) {
+          hasMore = false;
+          break;
+        }
+
+        const pageGames: SteamWishlistGame[] = keys.map((key) => {
+          const item = data[key] as SteamWishlistItem;
+          return {
+            steamAppId: parseInt(key, 10),
+            title: item.name,
+            addedAt: item.added,
+            priority: item.priority,
+          };
         });
 
         allGames.push(...pageGames);
-        
-        // Steam wishlistdata endpoint returns ~100 items per page? 
+
+        // Steam wishlistdata endpoint returns ~100 items per page?
         // Logic: if we got NO items, stop. If we got items, try next page.
-        // Actually, if we get a JSON object, it might be the whole list if not using ?p= ? 
+        // Actually, if we get a JSON object, it might be the whole list if not using ?p= ?
         // Documentation says it is paginated.
         // If the object returned is empty, we stop.
-        
-        page++;
-        
-        // Basic throttle
-        await new Promise(resolve => setTimeout(resolve, 500));
 
+        page++;
+
+        // Basic throttle
+        await new Promise((resolve) => setTimeout(resolve, 500));
       } catch (error) {
         igdbLogger.error({ steamId, error }, "Failed to fetch Steam wishlist page");
         throw error;
@@ -121,5 +141,5 @@ export const steamService = {
 
     igdbLogger.info({ steamId, count: allGames.length }, "Fetched Steam wishlist");
     return allGames;
-  }
+  },
 };

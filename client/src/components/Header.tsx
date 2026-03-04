@@ -142,8 +142,8 @@ export default function Header({ title = "Dashboard" }: HeaderProps) {
                     const response = await fetch("/api/steam/wishlist/sync", {
                       method: "POST",
                       headers: {
-                        "Authorization": `Bearer ${localStorage.getItem("token")}`
-                      }
+                        Authorization: `Bearer ${localStorage.getItem("token")}`,
+                      },
                     });
                     const data = await response.json();
 
@@ -152,11 +152,16 @@ export default function Header({ title = "Dashboard" }: HeaderProps) {
                         title: "Steam Sync",
                         description: data.message || "Sync started successfully",
                       });
-                    } else {
+                      let errorMessage = data.error || data.message || "Unknown error";
+                      if (errorMessage.toLowerCase().includes("private")) {
+                        errorMessage =
+                          "Your Steam profile or Game Details are private. Please make them public in your Steam privacy settings to sync your wishlist.";
+                      }
+
                       toast({
                         title: "Sync Failed",
-                        description: data.error || data.message || "Unknown error",
-                        variant: "destructive"
+                        description: errorMessage,
+                        variant: "destructive",
                       });
                     }
                   } catch (e) {
@@ -164,7 +169,7 @@ export default function Header({ title = "Dashboard" }: HeaderProps) {
                     toast({
                       title: "Sync Error",
                       description: "Failed to connect to server",
-                      variant: "destructive"
+                      variant: "destructive",
                     });
                   }
                 }}

@@ -99,7 +99,18 @@ export default function SettingsPage() {
   const [steamIdInput, setSteamIdInput] = useState("");
   const [isSteamAuthLoading, setIsSteamAuthLoading] = useState(false);
 
-  // Local state for IGDB form
+  const { data: steamSettings } = useQuery<{
+    configured: boolean;
+    source?: "env" | "database";
+    apiKey?: string;
+  }>({
+    queryKey: ["/api/settings/steam"],
+    queryFn: () => apiRequest("GET", "/api/settings/steam").then((res) => res.json()),
+  });
+
+  // Local state for forms
+  const [steamApiKey, setSteamApiKey] = useState("");
+  const [showSteamApiKey, setShowSteamApiKey] = useState(false);
   const [igdbClientId, setIgdbClientId] = useState("");
   const [igdbClientSecret, setIgdbClientSecret] = useState("");
   const [showClientSecret, setShowClientSecret] = useState(false);
@@ -148,7 +159,13 @@ export default function SettingsPage() {
     if (user?.steamId64) {
       setSteamIdInput(user.steamId64);
     }
-  }, [userSettings, config, igdbSettings, user]);
+    if (steamSettings?.apiKey) {
+      setSteamApiKey(steamSettings.apiKey);
+    }
+    if (steamSettings?.configured) {
+      setSteamApiKey("");
+    }
+  }, [userSettings, config, igdbSettings, steamSettings, user]);
 
   // SSL Settings State
   const [sslEnabled, setSslEnabled] = useState(false);
@@ -338,6 +355,31 @@ export default function SettingsPage() {
         description: "Your IGDB credentials have been saved.",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/config"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/settings/igdb"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Update Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const updateSteamApiMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/settings/steam", {
+        apiKey: steamApiKey,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Steam API Key Updated",
+        description: "Your Steam API key has been saved.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/config"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/settings/steam"] });
     },
     onError: (error: Error) => {
       toast({
@@ -435,6 +477,18 @@ export default function SettingsPage() {
       return;
     }
     updateIgdbMutation.mutate();
+  };
+
+  const handleSaveSteamApi = () => {
+    if (!steamApiKey) {
+      toast({
+        title: "Missing API Key",
+        description: "Please provide a Steam API Key.",
+        variant: "destructive",
+      });
+      return;
+    }
+    updateSteamApiMutation.mutate();
   };
 
   const updateSteamIdMutation = useMutation({
@@ -693,6 +747,83 @@ export default function SettingsPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex flex-col space-y-4">
+                  <div className="flex flex-col space-y-2 pb-4 border-b">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm font-medium">Steam API Key</span>
+                      {steamSettings?.configured ? (
+                        <Badge
+                          variant={steamSettings.source === "database" ? "default" : "secondary"}
+                        >
+                          {steamSettings.source === "database"
+                            ? "Database (Active)"
+                            : "Environment Variable"}
+                        </Badge>
+                      ) : (
+                        <Badge variant="destructive">Not Configured</Badge>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Required for Steam integration. Provide your key here or via the{" "}
+                      <code>STEAM_API_KEY</code> environment variable.{" "}
+                      <a
+                        href="https://steamcommunity.com/dev/apikey"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="underline"
+                      >
+                        Get a key
+                      </a>
+                    </p>
+                  </div>
+
+                  <div className="space-y-4 pt-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="steam-api-key">API Key</Label>
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <Input
+                            id="steam-api-key"
+                            type={showSteamApiKey ? "text" : "password"}
+                            placeholder={
+                              steamSettings?.configured ? "********" : "Enter your Steam API Key"
+                            }
+                            value={steamApiKey}
+                            onChange={(e) => setSteamApiKey(e.target.value)}
+                            className="pr-10"
+                          />
+                          {steamApiKey && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                              onClick={() => setShowSteamApiKey(!showSteamApiKey)}
+                              aria-label={showSteamApiKey ? "Hide API key" : "Show API key"}
+                            >
+                              {showSteamApiKey ? (
+                                <EyeOff className="h-4 w-4 text-muted-foreground" />
+                              ) : (
+                                <Eye className="h-4 w-4 text-muted-foreground" />
+                              )}
+                            </Button>
+                          )}
+                        </div>
+                        <Button
+                          onClick={handleSaveSteamApi}
+                          disabled={updateSteamApiMutation.isPending}
+                        >
+                          {updateSteamApiMutation.isPending ? "Saving..." : "Save Key"}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="relative py-4">
+                    <div className="absolute inset-0 flex items-center">
+                      <span className="w-full border-t" />
+                    </div>
+                  </div>
+
                   <div className="space-y-2">
                     <Label htmlFor="steam-id">Steam ID (64-bit)</Label>
                     <div className="flex gap-2">
@@ -706,7 +837,7 @@ export default function SettingsPage() {
                         onClick={handleSaveSteamId}
                         disabled={updateSteamIdMutation.isPending}
                       >
-                        {updateSteamIdMutation.isPending ? "Saving..." : "Save"}
+                        {updateSteamIdMutation.isPending ? "Saving..." : "Save ID"}
                       </Button>
                     </div>
                     <p className="text-xs text-muted-foreground">
@@ -714,7 +845,7 @@ export default function SettingsPage() {
                     </p>
                   </div>
 
-                  <div className="relative">
+                  <div className="relative pb-2">
                     <div className="absolute inset-0 flex items-center">
                       <span className="w-full border-t" />
                     </div>
@@ -723,11 +854,11 @@ export default function SettingsPage() {
                     </div>
                   </div>
 
-                  <div className="flex justify-center">
+                  <div className="flex justify-center flex-col items-center space-y-2">
                     <Button
                       variant="outline"
                       className="w-full sm:w-auto gap-2"
-                      disabled={isSteamAuthLoading}
+                      disabled={isSteamAuthLoading || !config?.steam?.configured}
                       onClick={async () => {
                         setIsSteamAuthLoading(true);
                         try {

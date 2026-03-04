@@ -175,8 +175,8 @@ setInterval(() => {
 // but safely allow multiple returnURLs for dynamically derived hosts.
 const configuredStrategies = new Set<string>();
 
-const getSteamStrategy = (returnURL: string, realm: string) => {
-  const strategyName = `steam-${returnURL}`;
+const getSteamStrategy = (returnURL: string, realm: string, apiKey: string) => {
+  const strategyName = `steam-${returnURL}-${apiKey}`;
 
   if (!configuredStrategies.has(strategyName)) {
     passport.use(
@@ -185,7 +185,7 @@ const getSteamStrategy = (returnURL: string, realm: string) => {
         {
           returnURL,
           realm,
-          apiKey: process.env.STEAM_API_KEY || "MISSING_KEY",
+          apiKey: apiKey || "MISSING_KEY",
         },
         function (
           identifier: string,
@@ -227,7 +227,7 @@ router.post("/api/auth/steam/init", authenticateToken, (req: Request, res: Respo
 });
 
 // Step 2: Start Steam OpenID redirect
-router.get("/api/auth/steam", (req: Request, res: Response, next: NextFunction) => {
+router.get("/api/auth/steam", async (req: Request, res: Response, next: NextFunction) => {
   const sessionId = req.query.sessionId as string;
 
   if (!sessionId || !steamAuthSessions.has(sessionId)) {
@@ -241,7 +241,10 @@ router.get("/api/auth/steam", (req: Request, res: Response, next: NextFunction) 
   const returnURL = `${baseUrl}/api/auth/steam/return?sessionId=${sessionId}`;
   const realm = baseUrl + "/";
 
-  const strategyName = getSteamStrategy(returnURL, realm);
+  const dbApiKey = await storage.getSystemConfig("steam.apiKey");
+  const apiKey = dbApiKey || process.env.STEAM_API_KEY || "MISSING_KEY";
+
+  const strategyName = getSteamStrategy(returnURL, realm, apiKey);
 
   passport.authenticate(strategyName, {
     session: false,
@@ -249,13 +252,16 @@ router.get("/api/auth/steam", (req: Request, res: Response, next: NextFunction) 
 });
 
 // GET /api/auth/steam/return
-router.get("/api/auth/steam/return", (req: Request, res: Response, next: NextFunction) => {
+router.get("/api/auth/steam/return", async (req: Request, res: Response, next: NextFunction) => {
   const baseUrl = getBaseUrl(req);
   const sessionId = req.query.sessionId as string;
   const returnURL = `${baseUrl}/api/auth/steam/return?sessionId=${sessionId}`;
   const realm = baseUrl + "/";
 
-  const strategyName = getSteamStrategy(returnURL, realm);
+  const dbApiKey = await storage.getSystemConfig("steam.apiKey");
+  const apiKey = dbApiKey || process.env.STEAM_API_KEY || "MISSING_KEY";
+
+  const strategyName = getSteamStrategy(returnURL, realm, apiKey);
 
   passport.authenticate(
     strategyName,
@@ -264,6 +270,9 @@ router.get("/api/auth/steam/return", (req: Request, res: Response, next: NextFun
       failureRedirect: "/settings?error=steam_auth_failed",
     } as any,
     async (err: unknown, profile: unknown) => {
+      if (err) {
+        logger.error({ err }, "Passport Steam authentication failed");
+      }
       if (err || !profile) {
         return res.redirect("/settings?error=steam_auth_failed");
       }

@@ -788,19 +788,6 @@ export async function syncUserSteamWishlist(userId: string) {
     const user = await storage.getUser(userId);
     if (!user || !user.steamId64) return;
 
-    // Check for failure count lockout
-    const settings = await storage.getUserSettings(userId);
-    if (settings && settings.steamSyncFailures >= 3) {
-      igdbLogger.warn(
-        { userId, failures: settings.steamSyncFailures },
-        "Skipping Steam sync due to too many consecutive failures"
-      );
-      return {
-        success: false,
-        message: "Too many authentication failures. Please check privacy settings.",
-      };
-    }
-
     igdbLogger.info({ userId, steamId: user.steamId64 }, "Syncing Steam Wishlist");
 
     const wishlistGames = await steamService.getWishlist(user.steamId64);
@@ -882,11 +869,6 @@ export async function syncUserSteamWishlist(userId: string) {
       }
     }
 
-    // Reset failures on success
-    if (settings && settings.steamSyncFailures > 0) {
-      await storage.updateUserSettings(userId, { steamSyncFailures: 0 });
-    }
-
     if (addedCount > 0) {
       const notification = await storage.addNotification({
         userId,
@@ -900,28 +882,7 @@ export async function syncUserSteamWishlist(userId: string) {
     return { success: true, addedCount };
   } catch (error) {
     igdbLogger.error({ userId, error }, "Steam Sync Failed");
-
-    // Increment failure count
     const errMessage = error instanceof Error ? error.message : "Unknown error";
-    // Only increment if it's a privacy/auth error
-    if (errMessage.includes("private") || errMessage.includes("403")) {
-      const settings = await storage.getUserSettings(userId);
-      if (settings) {
-        const newCount = settings.steamSyncFailures + 1;
-        await storage.updateUserSettings(userId, { steamSyncFailures: newCount });
-
-        if (newCount === 3) {
-          await storage.addNotification({
-            userId,
-            type: "error",
-            title: "Steam Sync Disabled",
-            message:
-              "Steam sync has been disabled after 3 consecutive failures. Please check your privacy settings.",
-          });
-        }
-      }
-    }
-
     return { success: false, message: errMessage };
   }
 }

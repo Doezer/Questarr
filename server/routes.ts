@@ -704,16 +704,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         process.env.XREL_API_BASE ||
         DEFAULT_XREL_BASE;
 
-      const steamApiKey = await storage.getSystemConfig("steam.apiKey");
       const config: Config = {
         igdb: {
           configured: isConfigured,
           source,
         },
         xrel: { apiBase: xrelApiBase },
-        steam: {
-          configured: !!(steamApiKey || process.env.STEAM_API_KEY),
-        },
       };
       res.json(config);
     } catch (error) {
@@ -2212,50 +2208,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       routesLogger.error({ error }, "Failed to update IGDB credentials");
       res.status(500).json({ error: "Failed to update IGDB credentials" });
-    }
-  });
-
-  // Steam Configuration endpoint
-  app.get("/api/settings/steam", async (req, res) => {
-    try {
-      const dbApiKey = await storage.getSystemConfig("steam.apiKey");
-      let apiKey: string | undefined;
-      let source: "env" | "database" | undefined;
-
-      if (dbApiKey) {
-        apiKey = dbApiKey;
-        source = "database";
-      } else if (process.env.STEAM_API_KEY) {
-        apiKey = process.env.STEAM_API_KEY;
-        source = "env";
-      }
-
-      res.json({
-        configured: !!(dbApiKey || process.env.STEAM_API_KEY),
-        source,
-        apiKey,
-      });
-    } catch (error) {
-      routesLogger.error({ error }, "Failed to fetch Steam API key");
-      res.status(500).json({ error: "Failed to fetch Steam API key" });
-    }
-  });
-
-  app.post("/api/settings/steam", async (req, res) => {
-    try {
-      const { apiKey } = req.body;
-      const isMaskedValue = apiKey === "********";
-      const hasNewKey = apiKey && !isMaskedValue;
-
-      if (hasNewKey) {
-        await storage.setSystemConfig("steam.apiKey", apiKey.trim());
-        routesLogger.info("Steam API key updated via settings");
-      }
-
-      res.json({ success: true });
-    } catch (error) {
-      routesLogger.error({ error }, "Failed to update Steam API key");
-      res.status(500).json({ error: "Failed to update Steam API key" });
     }
   });
 

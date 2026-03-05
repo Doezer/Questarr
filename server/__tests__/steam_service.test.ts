@@ -29,23 +29,20 @@ describe("steamService", () => {
       await expect(steamService.getWishlist("invalid")).rejects.toThrow("Invalid Steam ID format");
     });
 
-    it("should fetch wishlist games correctly", async () => {
-      const mockData = {
-        "101": { name: "Game 1", added: 1600000000, priority: 1, reviews_total: "100" },
-        "102": { name: "Game 2", added: 1600000001, priority: 2, reviews_total: "200" },
+    it("should fetch wishlist games correctly via IWishlistService", async () => {
+      const mockApiResponse = {
+        response: {
+          items: [
+            { appid: 101, priority: 1, date_added: 1600000000 },
+            { appid: 102, priority: 2, date_added: 1600000001 },
+          ],
+        },
       };
 
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: true,
         status: 200,
-        json: async () => mockData,
-      } as Response);
-
-      // Return empty on second page
-      vi.mocked(fetch).mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({}),
+        json: async () => mockApiResponse,
       } as Response);
 
       const games = await steamService.getWishlist(steamId);
@@ -53,33 +50,29 @@ describe("steamService", () => {
       expect(games).toHaveLength(2);
       expect(games[0]).toEqual({
         steamAppId: 101,
-        title: "Game 1",
+        title: "Steam App 101",
         addedAt: 1600000000,
         priority: 1,
       });
-      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(games[1]).toEqual({
+        steamAppId: 102,
+        title: "Steam App 102",
+        addedAt: 1600000001,
+        priority: 2,
+      });
+      // New API uses a single request (no pagination)
+      expect(fetch).toHaveBeenCalledTimes(1);
+      // Should call the official IWishlistService endpoint
+      expect(fetch).toHaveBeenCalledWith(expect.stringContaining("IWishlistService/GetWishlist"));
     });
 
-    it("should handle private profiles (403)", async () => {
+    it("should handle API errors", async () => {
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: false,
         status: 403,
       } as Response);
 
-      await expect(steamService.getWishlist(steamId)).rejects.toThrow(
-        "Steam profile is private or inaccessible"
-      );
-    });
-
-    it("should handle Steam API internal errors (500)", async () => {
-      vi.mocked(fetch).mockResolvedValueOnce({
-        ok: false,
-        status: 500,
-      } as Response);
-
-      await expect(steamService.getWishlist(steamId)).rejects.toThrow(
-        "Steam profile is private or inaccessible"
-      );
+      await expect(steamService.getWishlist(steamId)).rejects.toThrow("Steam API error: 403");
     });
 
     it("should handle other API errors", async () => {
@@ -91,11 +84,22 @@ describe("steamService", () => {
       await expect(steamService.getWishlist(steamId)).rejects.toThrow("Steam API error: 404");
     });
 
-    it("should handle empty response", async () => {
+    it("should handle empty wishlist (no items)", async () => {
       vi.mocked(fetch).mockResolvedValueOnce({
         ok: true,
         status: 200,
-        json: async () => [],
+        json: async () => ({ response: {} }),
+      } as Response);
+
+      const games = await steamService.getWishlist(steamId);
+      expect(games).toHaveLength(0);
+    });
+
+    it("should handle empty response with items array", async () => {
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ response: { items: [] } }),
       } as Response);
 
       const games = await steamService.getWishlist(steamId);

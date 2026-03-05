@@ -313,9 +313,6 @@ export interface Config {
   xrel?: {
     apiBase: string;
   };
-  steam?: {
-    configured: boolean;
-  };
 }
 
 // Download-related types shared between frontend and backend

@@ -150,17 +150,15 @@ export default function Header({ title = "Dashboard" }: HeaderProps) {
                     if (response.ok && data.success) {
                       toast({
                         title: "Steam Sync",
-                        description: data.message || "Sync started successfully",
+                        description:
+                          data.addedCount != null
+                            ? `Synced ${data.addedCount} game(s) from your Steam Wishlist.`
+                            : data.message || "Sync completed successfully",
                       });
-                      let errorMessage = data.error || data.message || "Unknown error";
-                      if (errorMessage.toLowerCase().includes("private")) {
-                        errorMessage =
-                          "Your Steam profile or Game Details are private. Please make them public in your Steam privacy settings to sync your wishlist.";
-                      }
-
+                    } else {
                       toast({
                         title: "Sync Failed",
-                        description: errorMessage,
+                        description: data.error || data.message || "Unknown error",
                         variant: "destructive",
                       });
                     }

@@ -1,3 +1,3 @@
-## 2024-05-22 - [Dynamic Button Context]
-**Learning:** Icon-only buttons in list components (like `GameCard` and `CompactGameCard`) were using generic labels ("Download game"), which is confusing for screen reader users navigating a list.
-**Action:** Always include the item's unique identifier (e.g., `game.title`) in `aria-label` for actions within a list item (e.g., `aria-label={`Download ${game.title}`}`).
+## 2025-02-21 - [Contextual Buttons in Lists]
+**Learning:** List components (like GameCard/CompactGameCard) were using generic aria-labels (e.g., "View details") or no labels for icon-only buttons. This makes screen reader navigation confusing as users hear "View details" repeatedly without knowing which item it refers to.
+**Action:** Always include the item's unique identifier (e.g., title) in the aria-label for actions within a list item (e.g., `aria-label={\`View details for ${game.title}\`}`).

@@ -114,3 +114,10 @@ export function safeUrl(url: string, fallback = "#"): string {
   }
   return fallback;
 }
+
+/**
+ * Returns the human-readable label for the next status a game can transition to.
+ */
+export function getNextStatusLabel(status: Game["status"]): string {
+  return status === "wanted" ? "Owned" : status === "owned" ? "Completed" : "Wanted";
+}

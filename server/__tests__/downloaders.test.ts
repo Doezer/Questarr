@@ -170,6 +170,42 @@ describe("TransmissionClient", () => {
       expect(result.success).toBe(true);
       expect(result.id).toBe("filehash");
     });
+
+    it("should include detailed Transmission RPC error in failure message", async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          result: "invalid or corrupt torrent file",
+          arguments: {},
+        }),
+      });
+
+      const result = await client.addDownload({
+        url: "magnet:?xt=urn:btih:hash123",
+        title: "Test Release",
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.message).toBe("Failed to add download: invalid or corrupt torrent file");
+    });
+
+    it("should not expose non-string Transmission RPC error payloads", async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          result: { error: "bad request" },
+          arguments: {},
+        }),
+      });
+
+      const result = await client.addDownload({
+        url: "magnet:?xt=urn:btih:hash123",
+        title: "Test Release",
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.message).toBe("Failed to add download");
+    });
   });
 
   describe("getDownloadStatus", () => {

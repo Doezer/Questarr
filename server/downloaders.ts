@@ -277,7 +277,10 @@ export class TransmissionClient implements DownloaderClient {
             args.filename = request.url;
           }
         } catch (error) {
-          downloadersLogger.error({ err: error }, "Error downloading file, passing URL to Transmission");
+          downloadersLogger.error(
+            { err: error },
+            "Error downloading file, passing URL to Transmission"
+          );
           args.filename = request.url;
         }
       }
@@ -345,7 +348,9 @@ export class TransmissionClient implements DownloaderClient {
         };
       } else {
         const transmissionError =
-          response.result && response.result !== "success" ? response.result : null;
+          response.result && typeof response.result === "string" && response.result !== "success"
+            ? response.result
+            : null;
         return {
           success: false,
           message: transmissionError

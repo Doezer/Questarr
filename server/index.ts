@@ -4,7 +4,6 @@ import express, { type Request, Response, NextFunction } from "express";
 import https from "https";
 import fs from "fs";
 import cors from "cors";
-import crypto from "crypto";
 
 import { registerRoutes } from "./routes.js";
 import { setupVite, serveStatic, log } from "./vite.js";
@@ -15,48 +14,19 @@ import { startCronJobs } from "./cron.js";
 import { setupSocketIO } from "./socket.js";
 import { ensureDatabase } from "./migrate.js";
 import { rssService } from "./rss.js";
-import session from "express-session";
-import passport from "passport";
-import { logger } from "./logger.js";
 
 const app = express();
+if (config.server.isProduction) {
+  app.set("trust proxy", 1);
+}
 app.use(
   cors({
     origin: config.server.allowedOrigins,
+    credentials: true,
   })
 );
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
-
-// Resolve a secure session secret. Prefer the environment variable; fall back
-// to a randomly generated value so we never ship with a predictable default.
-const SESSION_SECRET = (() => {
-  if (process.env.SESSION_SECRET) {
-    return process.env.SESSION_SECRET;
-  }
-  const generated = crypto.randomBytes(32).toString("hex");
-  logger.warn(
-    "SESSION_SECRET is not set. A random secret has been generated for this process. " +
-      "Sessions will be invalidated on restart. Set SESSION_SECRET in your .env file for persistence."
-  );
-  return generated;
-})();
-
-// Setup Session (Required for Passport)
-app.use(
-  session({
-    secret: SESSION_SECRET,
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-      secure: process.env.NODE_ENV === "production",
-      maxAge: 24 * 60 * 60 * 1000, // 24 hours
-    },
-  })
-);
-
-app.use(passport.initialize());
-app.use(passport.session());
 
 // Apply general rate limiting to all API routes
 app.use("/api", generalApiLimiter);

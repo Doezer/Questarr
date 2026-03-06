@@ -33,6 +33,7 @@ const envSchema = z.object({
     .string()
     .transform((val) => val === "true")
     .optional(),
+  APP_URL: z.string().url().optional(),
 });
 
 /**
@@ -84,6 +85,7 @@ export const config = {
     isDevelopment: env.NODE_ENV === "development",
     isProduction: env.NODE_ENV === "production",
     isTest: env.NODE_ENV === "test",
+    appUrl: env.APP_URL,
     allowedOrigins: env.ALLOWED_ORIGINS
       ? env.ALLOWED_ORIGINS.split(",").map((origin) => origin.trim())
       : ["http://localhost:port".replace("port", env.PORT.toString())],

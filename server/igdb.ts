@@ -465,13 +465,17 @@ class IGDBClient {
     // source 1 = Steam
     const igdbQuery = `
       fields game;
-      where uid = "${steamAppId}" & category = 1; 
+      where uid = "${steamAppId}" & external_game_source = 1; 
       limit 1;
     `;
 
     try {
       // Cache external game lookups for 24 hours
-      const results = await this.makeRequest<{ id: number, game: number }[]>("external_games", igdbQuery, 24 * 60 * 60 * 1000);
+      const results = await this.makeRequest<{ id: number; game: number }[]>(
+        "external_games",
+        igdbQuery,
+        24 * 60 * 60 * 1000
+      );
       return results.length > 0 ? results[0].game : null;
     } catch (error) {
       igdbLogger.warn({ steamAppId, error }, "Failed to lookup IGDB ID from Steam App ID");
@@ -492,7 +496,7 @@ class IGDBClient {
       // uid is string in IGDB external_games
       const igdbQuery = `
         fields game, uid;
-        where uid = (${chunk.join(',')}) & category = 1;
+        where uid = (${chunk.map((id) => `"${id}"`).join(",")}) & external_game_source = 1;
         limit ${chunk.length};
       `;
 
@@ -506,7 +510,10 @@ class IGDBClient {
           idMap.set(parseInt(result.uid, 10), result.game);
         }
       } catch (error) {
-        igdbLogger.warn({ steamAppIds: chunk, error }, "Failed to lookup a chunk of IGDB IDs from Steam App IDs");
+        igdbLogger.warn(
+          { steamAppIds: chunk, error },
+          "Failed to lookup a chunk of IGDB IDs from Steam App IDs"
+        );
       }
     }
     return idMap;

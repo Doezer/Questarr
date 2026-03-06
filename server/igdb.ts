@@ -465,7 +465,7 @@ class IGDBClient {
     // source 1 = Steam
     const igdbQuery = `
       fields game;
-      where uid = "${steamAppId}" & external_game_source = 1; 
+      where uid = "${steamAppId}" & external_game_source = 1;
       limit 1;
     `;
 

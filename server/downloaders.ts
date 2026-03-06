@@ -277,7 +277,10 @@ export class TransmissionClient implements DownloaderClient {
             args.filename = request.url;
           }
         } catch (error) {
-          downloadersLogger.error({ error }, "Error downloading file, passing URL to Transmission");
+          downloadersLogger.error(
+            { err: error },
+            "Error downloading file, passing URL to Transmission"
+          );
           args.filename = request.url;
         }
       }
@@ -344,9 +347,15 @@ export class TransmissionClient implements DownloaderClient {
           message: "Download already exists (Transmission)",
         };
       } else {
+        const transmissionError =
+          response.result && typeof response.result === "string" && response.result !== "success"
+            ? response.result
+            : null;
         return {
           success: false,
-          message: "Failed to add download",
+          message: transmissionError
+            ? `Failed to add download: ${transmissionError}`
+            : "Failed to add download",
         };
       }
     } catch (error) {

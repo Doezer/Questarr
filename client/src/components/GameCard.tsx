@@ -10,7 +10,7 @@ import { useState, memo, useRef, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import GameDetailsModal from "./GameDetailsModal";
 import GameDownloadDialog from "./GameDownloadDialog";
-import { mapGameToInsertGame, isDiscoveryId } from "@/lib/utils";
+import { mapGameToInsertGame, isDiscoveryId, getNextStatusLabel } from "@/lib/utils";
 import { apiRequest, ApiError } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
@@ -143,6 +143,8 @@ const GameCard = ({
   const handleToggleHidden = () => {
     onToggleHidden?.(game.id, !game.hidden);
   };
+
+  const nextStatusLabel = getNextStatusLabel(game.status);
 
   return (
     <Card
@@ -292,6 +294,7 @@ const GameCard = ({
             onClick={() => onTrackGame?.(game)}
             disabled={addGameMutation.isPending}
             data-testid={`button-track-${game.id}`}
+            aria-label={`Track ${game.title}`}
           >
             {addGameMutation.isPending ? (
               <>
@@ -309,6 +312,7 @@ const GameCard = ({
             className="w-full"
             onClick={handleStatusClick}
             data-testid={`button-status-${game.id}`}
+            aria-label={`Mark ${game.title} as ${nextStatusLabel}`}
           >
             Mark as{" "}
             {game.status === "wanted" ? "Owned" : game.status === "owned" ? "Completed" : "Wanted"}

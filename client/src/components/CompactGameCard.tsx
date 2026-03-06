@@ -8,7 +8,7 @@ import { type Game } from "@shared/schema";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import GameDetailsModal from "./GameDetailsModal";
 import GameDownloadDialog from "./GameDownloadDialog";
-import { mapGameToInsertGame, isDiscoveryId, cn } from "@/lib/utils";
+import { mapGameToInsertGame, isDiscoveryId, cn, getNextStatusLabel } from "@/lib/utils";
 import { apiRequest, ApiError } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
@@ -132,6 +132,8 @@ const CompactGameCard = ({
   const handleToggleHidden = () => {
     onToggleHidden?.(game.id, !game.hidden);
   };
+
+  const nextStatusLabel = getNextStatusLabel(game.status);
 
   return (
     <>
@@ -307,6 +309,7 @@ const CompactGameCard = ({
                   : "h-8 text-xs"
               )}
               onClick={handleStatusClick}
+              aria-label={`Mark ${game.title} as ${nextStatusLabel}`}
             >
               {density !== "comfortable" ? (
                 game.status === "wanted" ? (

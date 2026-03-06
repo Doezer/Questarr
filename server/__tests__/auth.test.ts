@@ -4,6 +4,8 @@ import { hashPassword, comparePassword, generateToken, authenticateToken } from 
 import { storage } from "../storage.js";
 import jwt from "jsonwebtoken";
 
+const MOCK_JWT_SECRET = "questarr-default-secret-change-me";
+
 vi.mock("../storage.js", () => ({
   storage: {
     getSystemConfig: vi.fn(),
@@ -50,14 +52,12 @@ describe("auth Module", () => {
 
   describe("generateToken", () => {
     it("should generate a valid JWT token", async () => {
-      (storage.getSystemConfig as import("vitest").Mock).mockResolvedValue("test-secret-from-db");
-
       const user = { id: 123, username: "testuser" } as User;
       const token = await generateToken(user);
 
       expect(typeof token).toBe("string");
 
-      const decoded = jwt.verify(token, "test-secret-from-db") as import("jsonwebtoken").JwtPayload;
+      const decoded = jwt.verify(token, MOCK_JWT_SECRET) as import("jsonwebtoken").JwtPayload;
       expect(decoded.id).toBe(123);
       expect(decoded.username).toBe("testuser");
     });
@@ -95,8 +95,7 @@ describe("auth Module", () => {
     });
 
     it("should return 401 if user not found", async () => {
-      (storage.getSystemConfig as import("vitest").Mock).mockResolvedValue("test-secret-from-db");
-      const token = jwt.sign({ id: "nonexistent", username: "ghost" }, "test-secret-from-db");
+      const token = jwt.sign({ id: "nonexistent", username: "ghost" }, MOCK_JWT_SECRET);
 
       const req = mockRequest(token);
       const res = mockResponse();
@@ -112,8 +111,7 @@ describe("auth Module", () => {
     });
 
     it("should call next() if token and user are valid", async () => {
-      (storage.getSystemConfig as import("vitest").Mock).mockResolvedValue("test-secret-from-db");
-      const token = jwt.sign({ id: "valid_id", username: "valid_user" }, "test-secret-from-db");
+      const token = jwt.sign({ id: "valid_id", username: "valid_user" }, MOCK_JWT_SECRET);
 
       const req = mockRequest(token);
       const res = mockResponse();
@@ -128,7 +126,6 @@ describe("auth Module", () => {
     });
 
     it("should return 403 on invalid signature", async () => {
-      (storage.getSystemConfig as import("vitest").Mock).mockResolvedValue("test-secret-from-db");
       const maliciousToken = jwt.sign({ id: "valid_id" }, "wrong-secret");
 
       const req = mockRequest(maliciousToken);

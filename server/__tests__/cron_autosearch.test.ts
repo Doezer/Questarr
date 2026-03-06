@@ -22,6 +22,7 @@ vi.mock("../logger.js", () => ({
 
 // Mock storage
 const mockGetWantedGamesGroupedByUser = vi.fn();
+const mockGetUserGames = vi.fn();
 const mockGetUserSettings = vi.fn();
 const mockUpdateUserSettings = vi.fn();
 const mockAddNotification = vi.fn();
@@ -29,6 +30,7 @@ const mockAddNotification = vi.fn();
 vi.mock("../storage.js", () => ({
   storage: {
     getWantedGamesGroupedByUser: mockGetWantedGamesGroupedByUser,
+    getUserGames: mockGetUserGames,
     getUserSettings: mockGetUserSettings,
     updateUserSettings: mockUpdateUserSettings,
     addNotification: mockAddNotification,
@@ -124,6 +126,7 @@ describe("Cron - checkAutoSearch", () => {
     // - 1 user with 1 wanted game (released)
     // - User has auto search enabled
     mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [baseGame]]]));
+    mockGetUserGames.mockResolvedValue([]);
     mockGetUserSettings.mockResolvedValue(baseSettings);
     mockSearchAllIndexers.mockResolvedValue({ items: [], errors: [], total: 0 });
   });
@@ -245,5 +248,64 @@ describe("Cron - checkAutoSearch", () => {
     await checkAutoSearch();
 
     expect(mockSearchAllIndexers).toHaveBeenCalled();
+  });
+
+  it("should not notify updates for wanted games", async () => {
+    const game = { ...baseGame, status: "wanted" as const, releaseStatus: "released" as const };
+    const settings = { ...baseSettings, notifyUpdates: true };
+
+    mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [game]]]));
+    mockGetUserSettings.mockResolvedValue(settings);
+    mockSearchAllIndexers.mockResolvedValue({
+      items: [
+        {
+          title: "Test Game Update v1.1",
+          link: "https://example.com/update",
+          pubDate: new Date().toISOString(),
+          seeders: 100,
+          size: 1024,
+        },
+      ],
+      errors: [],
+      total: 1,
+    });
+
+    await checkAutoSearch();
+
+    expect(mockAddNotification).not.toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Game Updates Available" })
+    );
+  });
+
+  it("should notify updates for owned games", async () => {
+    const game = { ...baseGame, status: "owned" as const, releaseStatus: "released" as const };
+    const settings = { ...baseSettings, notifyUpdates: true };
+
+    mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, []]]));
+    mockGetUserGames.mockResolvedValue([game]);
+    mockGetUserSettings.mockResolvedValue(settings);
+    mockSearchAllIndexers.mockResolvedValue({
+      items: [
+        {
+          title: "Test Game Update v1.1",
+          link: "https://example.com/update",
+          pubDate: new Date().toISOString(),
+          seeders: 100,
+          size: 1024,
+        },
+      ],
+      errors: [],
+      total: 1,
+    });
+
+    await checkAutoSearch();
+
+    expect(mockAddNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId,
+        title: "Game Updates Available",
+        message: expect.stringContaining(game.title),
+      })
+    );
   });
 });

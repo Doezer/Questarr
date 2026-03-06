@@ -15,6 +15,7 @@ const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const DOWNLOAD_CHECK_INTERVAL_MS = 60 * 1000; // 1 minute
 const AUTO_SEARCH_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const XREL_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours (xREL search rate limit: 2/5s)
+const OWNED_STATUSES = new Set(["owned", "completed"]);
 
 export function startCronJobs() {
   igdbLogger.info("Starting cron jobs...");
@@ -431,9 +432,10 @@ export async function checkAutoSearch() {
 
         // Games are already filtered for wanted and not hidden by the storage query
         const wantedGames = userGames;
+        const ownedGames = await storage.getUserGames(userId, false, Array.from(OWNED_STATUSES));
 
-        if (wantedGames.length === 0) {
-          igdbLogger.debug({ userId }, "No wanted games found");
+        if (wantedGames.length === 0 && ownedGames.length === 0) {
+          igdbLogger.debug({ userId }, "No wanted or owned games found");
           // Update last search time even if no games found, to avoid checking again too soon
           await storage.updateUserSettings(userId, { lastAutoSearch: new Date() });
           continue;
@@ -551,22 +553,6 @@ export async function checkAutoSearch() {
               .filter(({ category }) => category === "main")
               .map(({ item }) => item);
 
-            const updateItems = categorizedItems
-              .filter(({ category }) => category === "update")
-              .map(({ item }) => item);
-
-            // Notify about updates if setting enabled
-            if (updateItems.length > 0 && settings.notifyUpdates) {
-              const notification = await storage.addNotification({
-                userId,
-                type: "info",
-                title: "Game Updates Available",
-                message: `${updateItems.length} update(s) found for ${game.title}`,
-                link: `modal:game:${game.id}`,
-              });
-              notifyUser("notification", notification);
-            }
-
             // Handle main items
             if (mainItems.length === 0) {
               continue;
@@ -643,6 +629,91 @@ export async function checkAutoSearch() {
             }
           } catch (error) {
             igdbLogger.error({ gameTitle: game.title, error }, "Error searching for game");
+          }
+        }
+
+        // Search owned games for update packs only.
+        for (const game of ownedGames) {
+          try {
+            // Skip unreleased games if configured to do so
+            if (!settings.autoSearchUnreleased && game.releaseStatus !== "released") {
+              continue;
+            }
+
+            const { items, errors } = await searchAllIndexers({
+              query: game.title,
+              limit: 10,
+            });
+
+            if (errors.length > 0) {
+              igdbLogger.warn({ gameTitle: game.title, errors }, "Errors during owned game search");
+            }
+
+            if (items.length === 0) {
+              continue;
+            }
+
+            const matchedItems = items.filter((item) => releaseMatchesGame(item.title, game.title));
+            if (matchedItems.length === 0) {
+              continue;
+            }
+
+            let minSeeders = 0;
+            let sortBy: "seeders" | "date" | "size" = "seeders";
+            let visibleCategoriesSet = new Set(["main", "update", "dlc", "extra"]);
+
+            if (settings.downloadRules) {
+              try {
+                const parsed = JSON.parse(settings.downloadRules);
+                const rules = downloadRulesSchema.parse(parsed);
+                minSeeders = rules.minSeeders;
+                sortBy = rules.sortBy;
+                visibleCategoriesSet = new Set(rules.visibleCategories);
+              } catch (error) {
+                igdbLogger.warn({ gameTitle: game.title, error }, "Failed to parse download rules");
+              }
+            }
+
+            let filteredItems = matchedItems.filter((item) => {
+              const seeders = item.seeders ?? 0;
+              return seeders >= minSeeders;
+            });
+
+            filteredItems = filteredItems.sort((a, b) => {
+              if (sortBy === "seeders") {
+                return (b.seeders ?? 0) - (a.seeders ?? 0);
+              } else if (sortBy === "date") {
+                return new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime();
+              }
+              return (b.size ?? 0) - (a.size ?? 0);
+            });
+
+            const categorizedItems = filteredItems
+              .map((item) => {
+                const { category } = categorizeDownload(item.title);
+                return { item, category };
+              })
+              .filter(({ category }) => visibleCategoriesSet.has(category));
+
+            const updateItems = categorizedItems
+              .filter(({ category }) => category === "update")
+              .map(({ item }) => item);
+
+            if (updateItems.length > 0 && settings.notifyUpdates) {
+              const notification = await storage.addNotification({
+                userId,
+                type: "info",
+                title: "Game Updates Available",
+                message: `${updateItems.length} update(s) found for ${game.title}`,
+                link: `modal:game:${game.id}`,
+              });
+              notifyUser("notification", notification);
+            }
+          } catch (error) {
+            igdbLogger.error(
+              { gameTitle: game.title, error },
+              "Error searching for owned game updates"
+            );
           }
         }
 

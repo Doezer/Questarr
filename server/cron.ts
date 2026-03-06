@@ -15,7 +15,72 @@ const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const DOWNLOAD_CHECK_INTERVAL_MS = 60 * 1000; // 1 minute
 const AUTO_SEARCH_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const XREL_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours (xREL search rate limit: 2/5s)
-const OWNED_STATUSES = new Set(["owned", "completed"]);
+const OWNED_STATUSES = new Set(["owned", "completed", "downloading"]);
+
+type DownloadSortBy = "seeders" | "date" | "size";
+
+interface AutoSearchRules {
+  minSeeders: number;
+  sortBy: DownloadSortBy;
+  visibleCategoriesSet: Set<string>;
+}
+
+interface AutoSearchCategorizedItems {
+  mainItems: Awaited<ReturnType<typeof searchAllIndexers>>["items"];
+  updateItems: Awaited<ReturnType<typeof searchAllIndexers>>["items"];
+}
+
+function getAutoSearchRules(downloadRules: string | null): AutoSearchRules {
+  let minSeeders = 0;
+  let sortBy: DownloadSortBy = "seeders";
+  let visibleCategoriesSet = new Set(["main", "update", "dlc", "extra"]);
+
+  if (downloadRules) {
+    const parsed = JSON.parse(downloadRules);
+    const rules = downloadRulesSchema.parse(parsed);
+    minSeeders = rules.minSeeders;
+    sortBy = rules.sortBy;
+    visibleCategoriesSet = new Set(rules.visibleCategories);
+  }
+
+  return { minSeeders, sortBy, visibleCategoriesSet };
+}
+
+function categorizeSearchItems(
+  items: Awaited<ReturnType<typeof searchAllIndexers>>["items"],
+  rules: AutoSearchRules
+): AutoSearchCategorizedItems {
+  let filteredItems = items.filter((item) => {
+    const seeders = item.seeders ?? 0;
+    return seeders >= rules.minSeeders;
+  });
+
+  filteredItems = filteredItems.sort((a, b) => {
+    if (rules.sortBy === "seeders") {
+      return (b.seeders ?? 0) - (a.seeders ?? 0);
+    }
+    if (rules.sortBy === "date") {
+      return new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime();
+    }
+    return (b.size ?? 0) - (a.size ?? 0);
+  });
+
+  const categorizedItems = filteredItems
+    .map((item) => {
+      const { category } = categorizeDownload(item.title);
+      return { item, category };
+    })
+    .filter(({ category }) => rules.visibleCategoriesSet.has(category));
+
+  return {
+    mainItems: categorizedItems
+      .filter(({ category }) => category === "main")
+      .map(({ item }) => item),
+    updateItems: categorizedItems
+      .filter(({ category }) => category === "update")
+      .map(({ item }) => item),
+  };
+}
 
 export function startCronJobs() {
   igdbLogger.info("Starting cron jobs...");
@@ -432,7 +497,8 @@ export async function checkAutoSearch() {
 
         // Games are already filtered for wanted and not hidden by the storage query
         const wantedGames = userGames;
-        const ownedGames = await storage.getUserGames(userId, false, Array.from(OWNED_STATUSES));
+        const OWNED_STATUSES_ARRAY = Array.from(OWNED_STATUSES);
+        const ownedGames = await storage.getUserGames(userId, false, OWNED_STATUSES_ARRAY);
 
         if (wantedGames.length === 0 && ownedGames.length === 0) {
           igdbLogger.debug({ userId }, "No wanted or owned games found");
@@ -506,52 +572,15 @@ export async function checkAutoSearch() {
 
             gamesWithResults++;
 
-            // Load download rules from settings
-            let minSeeders = 0;
-            let sortBy: "seeders" | "date" | "size" = "seeders";
-            let visibleCategoriesSet = new Set(["main", "update", "dlc", "extra"]);
-
-            if (settings.downloadRules) {
-              try {
-                const parsed = JSON.parse(settings.downloadRules);
-                const rules = downloadRulesSchema.parse(parsed);
-                minSeeders = rules.minSeeders;
-                sortBy = rules.sortBy;
-                visibleCategoriesSet = new Set(rules.visibleCategories);
-              } catch (error) {
-                igdbLogger.warn({ gameTitle: game.title, error }, "Failed to parse download rules");
-              }
+            let rules: AutoSearchRules;
+            try {
+              rules = getAutoSearchRules(settings.downloadRules);
+            } catch (error) {
+              igdbLogger.warn({ gameTitle: game.title, error }, "Failed to parse download rules");
+              rules = getAutoSearchRules(null);
             }
 
-            // Filter items by seeders
-            let filteredItems = matchedItems.filter((item) => {
-              const seeders = item.seeders ?? 0;
-              return seeders >= minSeeders;
-            });
-
-            // Sort items according to rules
-            filteredItems = filteredItems.sort((a, b) => {
-              if (sortBy === "seeders") {
-                return (b.seeders ?? 0) - (a.seeders ?? 0);
-              } else if (sortBy === "date") {
-                return new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime();
-              } else {
-                // size
-                return (b.size ?? 0) - (a.size ?? 0);
-              }
-            });
-
-            // Filter and categorize items based on visible categories
-            const categorizedItems = filteredItems
-              .map((item) => {
-                const { category } = categorizeDownload(item.title);
-                return { item, category };
-              })
-              .filter(({ category }) => visibleCategoriesSet.has(category));
-
-            const mainItems = categorizedItems
-              .filter(({ category }) => category === "main")
-              .map(({ item }) => item);
+            const { mainItems } = categorizeSearchItems(matchedItems, rules);
 
             // Handle main items
             if (mainItems.length === 0) {
@@ -658,46 +687,15 @@ export async function checkAutoSearch() {
               continue;
             }
 
-            let minSeeders = 0;
-            let sortBy: "seeders" | "date" | "size" = "seeders";
-            let visibleCategoriesSet = new Set(["main", "update", "dlc", "extra"]);
-
-            if (settings.downloadRules) {
-              try {
-                const parsed = JSON.parse(settings.downloadRules);
-                const rules = downloadRulesSchema.parse(parsed);
-                minSeeders = rules.minSeeders;
-                sortBy = rules.sortBy;
-                visibleCategoriesSet = new Set(rules.visibleCategories);
-              } catch (error) {
-                igdbLogger.warn({ gameTitle: game.title, error }, "Failed to parse download rules");
-              }
+            let rules: AutoSearchRules;
+            try {
+              rules = getAutoSearchRules(settings.downloadRules);
+            } catch (error) {
+              igdbLogger.warn({ gameTitle: game.title, error }, "Failed to parse download rules");
+              rules = getAutoSearchRules(null);
             }
 
-            let filteredItems = matchedItems.filter((item) => {
-              const seeders = item.seeders ?? 0;
-              return seeders >= minSeeders;
-            });
-
-            filteredItems = filteredItems.sort((a, b) => {
-              if (sortBy === "seeders") {
-                return (b.seeders ?? 0) - (a.seeders ?? 0);
-              } else if (sortBy === "date") {
-                return new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime();
-              }
-              return (b.size ?? 0) - (a.size ?? 0);
-            });
-
-            const categorizedItems = filteredItems
-              .map((item) => {
-                const { category } = categorizeDownload(item.title);
-                return { item, category };
-              })
-              .filter(({ category }) => visibleCategoriesSet.has(category));
-
-            const updateItems = categorizedItems
-              .filter(({ category }) => category === "update")
-              .map(({ item }) => item);
+            const { updateItems } = categorizeSearchItems(matchedItems, rules);
 
             if (updateItems.length > 0 && settings.notifyUpdates) {
               const notification = await storage.addNotification({

@@ -20,6 +20,8 @@ type AuthContextType = {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
+type FetchUserError = Error & { status?: number };
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(localStorage.getItem("token"));
@@ -60,24 +62,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Read token directly from localStorage for freshness
       const currentToken = localStorage.getItem("token");
       if (!currentToken) return null;
-      try {
-        const res = await fetch("/api/auth/me", {
-          headers: { Authorization: `Bearer ${currentToken}` },
-        });
-        if (res.ok) {
-          return await res.json();
-        } else {
-          localStorage.removeItem("token");
-          setToken(null);
-          return null;
-        }
-      } catch {
+
+      const res = await fetch("/api/auth/me", {
+        headers: { Authorization: `Bearer ${currentToken}` },
+      });
+
+      if (res.ok) {
+        return await res.json();
+      }
+
+      if (res.status === 401 || res.status === 403) {
         localStorage.removeItem("token");
         setToken(null);
         return null;
       }
+
+      const error = new Error(
+        `Failed to fetch authenticated user (${res.status})`
+      ) as FetchUserError;
+      error.status = res.status;
+      throw error;
     },
     enabled: !!token,
+    retry: (failureCount, error) => {
+      const status = (error as FetchUserError).status;
+      if (typeof status === "number") {
+        if (status === 401 || status === 403) return false;
+        if (status < 500) return false;
+      }
+      return failureCount < 3;
+    },
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
     staleTime: 30000, // 30 seconds — re-validate session periodically
     refetchOnMount: "always", // Always re-validate on AuthProvider mount
   });

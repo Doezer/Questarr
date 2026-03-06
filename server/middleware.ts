@@ -456,7 +456,7 @@ export const errorHandler = (err: any, req: Request, res: Response, next: NextFu
   // Determine the error message to show to the client
   // Sanitize error messages in production to prevent information leakage
   let message = err.message || "Internal Server Error";
-  if (req.app.get("env") === "production" && status === 500) {
+  if (req.app.get("env") === "production" && status >= 500) {
     message = "Internal Server Error";
   }
 

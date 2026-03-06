@@ -308,4 +308,45 @@ describe("Cron - checkAutoSearch", () => {
       })
     );
   });
+
+  it("should still notify game availability for wanted games when main results exist", async () => {
+    const game = { ...baseGame, status: "wanted" as const, releaseStatus: "released" as const };
+    const settings = { ...baseSettings, notifyUpdates: true, autoDownloadEnabled: false };
+
+    mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [game]]]));
+    mockGetUserSettings.mockResolvedValue(settings);
+    mockSearchAllIndexers.mockResolvedValue({
+      items: [
+        {
+          title: "Test Game MULTi",
+          link: "https://example.com/main",
+          pubDate: new Date().toISOString(),
+          seeders: 120,
+          size: 10_000,
+        },
+        {
+          title: "Test Game Update v1.1",
+          link: "https://example.com/update",
+          pubDate: new Date().toISOString(),
+          seeders: 100,
+          size: 2_000,
+        },
+      ],
+      errors: [],
+      total: 2,
+    });
+
+    await checkAutoSearch();
+
+    expect(mockAddNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId,
+        title: "Game Available",
+        message: expect.stringContaining(game.title),
+      })
+    );
+    expect(mockAddNotification).not.toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Game Updates Available" })
+    );
+  });
 });

@@ -1,32 +1,33 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import express from "express";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import express, { type NextFunction, type Request, type Response } from "express";
 import request from "supertest";
 import { steamRoutes } from "../steam-routes.js";
 import { storage } from "../storage.js";
+import { steamService } from "../steam.js";
 import { syncUserSteamWishlist } from "../cron.js";
-import * as auth from "../auth.js";
-import passport from "passport";
 
-// Mock dependencies
-vi.mock("../storage.js");
-vi.mock("../cron.js");
-vi.mock("../auth.js");
-vi.mock("passport", () => {
-  const mockAuthenticate = vi.fn(() => (req: any, res: any, next: any) => next());
-  return {
-    default: {
-      use: vi.fn(),
-      authenticate: mockAuthenticate,
-      serializeUser: vi.fn(),
-      deserializeUser: vi.fn(),
-      _strategies: {
-        steam: {
-          _options: {},
-        },
-      },
-    },
-  };
-});
+vi.mock("../storage.js", () => ({
+  storage: {
+    updateUserSteamId: vi.fn(),
+  },
+}));
+
+vi.mock("../steam.js", () => ({
+  steamService: {
+    validateSteamId: vi.fn(),
+  },
+}));
+
+vi.mock("../cron.js", () => ({
+  syncUserSteamWishlist: vi.fn(),
+}));
+
+vi.mock("../auth.js", () => ({
+  authenticateToken: (req: Request, _res: Response, next: NextFunction) => {
+    req.user = { id: "user-1", username: "tester" };
+    next();
+  },
+}));
 
 describe("steamRoutes", () => {
   let app: express.Express;
@@ -35,218 +36,99 @@ describe("steamRoutes", () => {
     vi.clearAllMocks();
     app = express();
     app.use(express.json());
-
-    // Mock authenticateToken middleware
-    vi.spyOn(auth, "authenticateToken").mockImplementation((req: any, res: any, next: any) => {
-      (req as any).user = { id: 1, username: "testuser" };
-      next();
-      return Promise.resolve(undefined as any);
-    });
-
     app.use(steamRoutes);
   });
 
   describe("PUT /api/user/steam-id", () => {
-    it("should update Steam ID for valid input", async () => {
+    it("returns 400 when steamId is missing", async () => {
+      const response = await request(app).put("/api/user/steam-id").send({});
+
+      expect(response.status).toBe(400);
+      expect(response.body).toEqual({ error: "Steam ID is required" });
+    });
+
+    it("returns 400 when steamId format is invalid", async () => {
+      vi.mocked(steamService.validateSteamId).mockReturnValue(false);
+
+      const response = await request(app).put("/api/user/steam-id").send({ steamId: "123" });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toContain("Invalid Steam ID format");
+      expect(storage.updateUserSteamId).not.toHaveBeenCalled();
+    });
+
+    it("updates steamId for valid requests", async () => {
+      vi.mocked(steamService.validateSteamId).mockReturnValue(true);
+      vi.mocked(storage.updateUserSteamId).mockResolvedValue(undefined);
+
       const steamId = "76561198000000000";
-      vi.mocked(storage.updateUserSteamId).mockResolvedValue(true as any);
+      const response = await request(app).put("/api/user/steam-id").send({ steamId });
 
-      const res = await request(app).put("/api/user/steam-id").send({ steamId });
-
-      expect(res.status).toBe(200);
-      expect(res.body).toEqual({ success: true, steamId });
-      expect(storage.updateUserSteamId).toHaveBeenCalledWith(1, steamId);
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ success: true, steamId });
+      expect(storage.updateUserSteamId).toHaveBeenCalledWith("user-1", steamId);
     });
 
-    it("should return 400 for missing Steam ID", async () => {
-      const res = await request(app).put("/api/user/steam-id").send({});
-      expect(res.status).toBe(400);
-      expect(res.body.error).toBe("Steam ID is required");
-    });
+    it("returns 500 when storage update fails", async () => {
+      vi.mocked(steamService.validateSteamId).mockReturnValue(true);
+      vi.mocked(storage.updateUserSteamId).mockRejectedValue(new Error("db failure"));
 
-    it("should return 400 for invalid Steam ID format", async () => {
-      const res = await request(app).put("/api/user/steam-id").send({ steamId: "invalid" });
-      expect(res.status).toBe(400);
-      expect(res.body.error).toContain("Invalid Steam ID format");
-    });
-
-    it("should return 500 when updateUserSteamId throws", async () => {
-      vi.mocked(storage.updateUserSteamId).mockRejectedValue(new Error("DB error"));
-
-      const res = await request(app)
+      const response = await request(app)
         .put("/api/user/steam-id")
         .send({ steamId: "76561198000000000" });
 
-      expect(res.status).toBe(500);
-      expect(res.body.error).toBe("Failed to set Steam ID");
+      expect(response.status).toBe(500);
+      expect(response.body).toEqual({ error: "Failed to set Steam ID" });
     });
   });
 
   describe("POST /api/steam/wishlist/sync", () => {
-    it("should trigger wishlist sync", async () => {
-      vi.mocked(syncUserSteamWishlist).mockResolvedValue({
-        success: true,
-        addedCount: 5,
-      });
+    it("returns 400 when user has no linked steamId", async () => {
+      vi.mocked(syncUserSteamWishlist).mockResolvedValue(undefined);
 
-      const res = await request(app).post("/api/steam/wishlist/sync");
+      const response = await request(app).post("/api/steam/wishlist/sync");
 
-      expect(res.status).toBe(200);
-      expect(res.body.success).toBe(true);
-      expect(syncUserSteamWishlist).toHaveBeenCalledWith(1);
+      expect(response.status).toBe(400);
+      expect(response.body).toEqual({ error: "Steam ID not linked" });
     });
 
-    it("should handle sync failure when Steam ID is not linked", async () => {
-      vi.mocked(syncUserSteamWishlist).mockResolvedValue(undefined as any);
-
-      const res = await request(app).post("/api/steam/wishlist/sync");
-
-      expect(res.status).toBe(400);
-      expect(res.body.error).toBe("Steam ID not linked");
-    });
-
-    it("should handle other sync errors", async () => {
+    it("returns 400 when sync reports failure", async () => {
       vi.mocked(syncUserSteamWishlist).mockResolvedValue({
         success: false,
-        message: "Steam profile private",
+        message: "Steam profile is private",
       });
 
-      const res = await request(app).post("/api/steam/wishlist/sync");
+      const response = await request(app).post("/api/steam/wishlist/sync");
 
-      expect(res.status).toBe(400);
-      expect(res.body.error).toBe("Steam profile private");
+      expect(response.status).toBe(400);
+      expect(response.body).toEqual({ error: "Steam profile is private" });
     });
 
-    it("should return 500 when syncUserSteamWishlist throws", async () => {
-      vi.mocked(syncUserSteamWishlist).mockRejectedValue(new Error("Network error"));
-
-      const res = await request(app).post("/api/steam/wishlist/sync");
-
-      expect(res.status).toBe(500);
-      expect(res.body.error).toBe("Sync failed");
-    });
-  });
-
-  describe("GET /api/auth/steam", () => {
-    it("should initiate Steam auth flow", async () => {
-      // Create a new app for this test to ensure middleware order
-      const authApp = express();
-      authApp.use(express.json());
-      authApp.use((req, res, next) => {
-        (req as any).session = {};
-        next();
-      });
-      vi.spyOn(auth, "authenticateToken").mockImplementation((req: any, res: any, next: any) => {
-        (req as any).user = { id: 1, username: "testuser" };
-        next();
-        return Promise.resolve(undefined as any);
-      });
-      authApp.use(steamRoutes);
-
-      const res = await request(authApp).get("/api/auth/steam");
-
-      expect(passport.authenticate).toHaveBeenCalledWith("steam", { session: false });
-    });
-
-    it("should return 500 when session is not available", async () => {
-      // Create app WITHOUT session middleware
-      const noSessionApp = express();
-      noSessionApp.use(express.json());
-      // Explicitly do NOT add session middleware
-      vi.spyOn(auth, "authenticateToken").mockImplementation((req: any, res: any, next: any) => {
-        (req as any).user = { id: 1, username: "testuser" };
-        // Do NOT set req.session - it will be undefined
-        next();
-        return Promise.resolve(undefined as any);
+    it("returns 200 with successful sync payload", async () => {
+      vi.mocked(syncUserSteamWishlist).mockResolvedValue({
+        success: true,
+        addedCount: 2,
+        games: [
+          { title: "Game 1", igdbId: 1001, steamAppId: 101 },
+          { title: "Game 2", igdbId: 1002, steamAppId: 102 },
+        ],
       });
 
-      // Mock passport.authenticate to NOT call a middleware (avoid side effects)
-      vi.mocked(passport.authenticate).mockImplementation(
-        () => (req: any, res: any, next: any) => next()
-      );
+      const response = await request(app).post("/api/steam/wishlist/sync");
 
-      noSessionApp.use(steamRoutes);
-
-      const res = await request(noSessionApp).get("/api/auth/steam");
-
-      expect(res.status).toBe(500);
-      expect(res.body.error).toBe("Session configuration error");
-    });
-  });
-
-  describe("GET /api/auth/steam/return", () => {
-    it("should redirect to settings on auth failure", async () => {
-      // Mock authenticate to call failure callback
-      vi.mocked(passport.authenticate).mockImplementationOnce(
-        (strategy: any, options: any, callback?: any) => (req: any, res: any, next: any) => {
-          if (callback) {
-            callback(new Error("Auth failed"), null);
-          } else {
-            res.redirect("/settings?error=steam_auth_failed");
-          }
-        }
-      );
-
-      const res = await request(app).get("/api/auth/steam/return");
-      expect(res.status).toBe(302);
-      expect(res.header.location).toContain("error=steam_auth_failed");
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.addedCount).toBe(2);
+      expect(syncUserSteamWishlist).toHaveBeenCalledWith("user-1");
     });
 
-    it("should handle missing session user ID", async () => {
-      // Mock authenticate to succeed but profile but session is missing
-      vi.mocked(passport.authenticate).mockImplementationOnce(
-        (strategy: any, options: any, callback?: any) => (req: any, res: any, next: any) => {
-          callback(null, { _json: { steamid: "123" } });
-        }
-      );
+    it("returns 500 when sync throws", async () => {
+      vi.mocked(syncUserSteamWishlist).mockRejectedValue(new Error("unexpected"));
 
-      const res = await request(app).get("/api/auth/steam/return");
-      expect(res.status).toBe(302);
-      expect(res.header.location).toContain("error=session_expired");
-    });
+      const response = await request(app).post("/api/steam/wishlist/sync");
 
-    it("should redirect to success on successful auth return", async () => {
-      // Mock authenticate to succeed with profile and session
-      vi.mocked(passport.authenticate).mockImplementationOnce(
-        (strategy: any, options: any, callback?: any) => (req: any, res: any, next: any) => {
-          // Set session so userId is available
-          (req as any).session = { steam_auth_user_id: 1 };
-          callback(null, { _json: { steamid: "76561198000000000" } });
-        }
-      );
-      vi.mocked(storage.updateUserSteamId).mockResolvedValue(undefined as any);
-
-      const res = await request(app).get("/api/auth/steam/return");
-      expect(res.status).toBe(302);
-      expect(res.header.location).toContain("steam_linked=success");
-      expect(storage.updateUserSteamId).toHaveBeenCalledWith(1, "76561198000000000");
-    });
-
-    it("should redirect to db_error when storage update fails", async () => {
-      // Mock authenticate to succeed with profile and session
-      vi.mocked(passport.authenticate).mockImplementationOnce(
-        (strategy: any, options: any, callback?: any) => (req: any, res: any, next: any) => {
-          (req as any).session = { steam_auth_user_id: 1 };
-          callback(null, { _json: { steamid: "76561198000000000" } });
-        }
-      );
-      vi.mocked(storage.updateUserSteamId).mockRejectedValue(new Error("DB write failed"));
-
-      const res = await request(app).get("/api/auth/steam/return");
-      expect(res.status).toBe(302);
-      expect(res.header.location).toContain("error=db_error");
-    });
-
-    it("should handle null profile in auth callback", async () => {
-      vi.mocked(passport.authenticate).mockImplementationOnce(
-        (strategy: any, options: any, callback?: any) => (req: any, res: any, next: any) => {
-          callback(null, null);
-        }
-      );
-
-      const res = await request(app).get("/api/auth/steam/return");
-      expect(res.status).toBe(302);
-      expect(res.header.location).toContain("error=steam_auth_failed");
+      expect(response.status).toBe(500);
+      expect(response.body).toEqual({ error: "Sync failed" });
     });
   });
 });

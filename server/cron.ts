@@ -783,29 +783,36 @@ export async function checkSteamWishlist() {
   }
 }
 
+const MAX_STEAM_SYNC_FAILURES = 3;
+
 export async function syncUserSteamWishlist(userId: string) {
+  let steamSyncFailures = 0;
+
   try {
     const user = await storage.getUser(userId);
     if (!user || !user.steamId64) return;
 
-    // Check for failure count lockout
     const settings = await storage.getUserSettings(userId);
-    if (settings && settings.steamSyncFailures >= 3) {
-      igdbLogger.warn(
-        { userId, failures: settings.steamSyncFailures },
-        "Skipping Steam sync due to too many consecutive failures"
-      );
-      return {
-        success: false,
-        message: "Too many authentication failures. Please check privacy settings.",
-      };
+    steamSyncFailures = settings?.steamSyncFailures ?? 0;
+
+    if (steamSyncFailures >= MAX_STEAM_SYNC_FAILURES) {
+      const message =
+        "Steam wishlist sync is temporarily disabled after repeated failures. " +
+        "Please verify Steam profile visibility and try again later.";
+      igdbLogger.warn({ userId, steamSyncFailures }, message);
+      return { success: false, message };
     }
 
     igdbLogger.info({ userId, steamId: user.steamId64 }, "Syncing Steam Wishlist");
 
     const wishlistGames = await steamService.getWishlist(user.steamId64);
 
+    if (steamSyncFailures > 0) {
+      await storage.updateUserSettings(userId, { steamSyncFailures: 0 });
+    }
+
     let addedCount = 0;
+    const addedGames: { title: string; igdbId: number; steamAppId: number }[] = [];
 
     // We need to fetch current wanted games to avoid duplicates
     const currentGames = await storage.getUserGames(userId, true);
@@ -877,14 +884,14 @@ export async function syncUserSteamWishlist(userId: string) {
               hidden: false, // Explicitly set default
             });
             addedCount++;
+            addedGames.push({
+              title: formatted.title as string,
+              igdbId: formatted.igdbId as number,
+              steamAppId,
+            });
           }
         }
       }
-    }
-
-    // Reset failures on success
-    if (settings && settings.steamSyncFailures > 0) {
-      await storage.updateUserSettings(userId, { steamSyncFailures: 0 });
     }
 
     if (addedCount > 0) {
@@ -897,31 +904,12 @@ export async function syncUserSteamWishlist(userId: string) {
       notifyUser("notification", notification);
     }
 
-    return { success: true, addedCount };
+    return { success: true, addedCount, games: addedGames };
   } catch (error) {
+    const nextSteamSyncFailures = steamSyncFailures + 1;
+    await storage.updateUserSettings(userId, { steamSyncFailures: nextSteamSyncFailures });
     igdbLogger.error({ userId, error }, "Steam Sync Failed");
-
-    // Increment failure count
     const errMessage = error instanceof Error ? error.message : "Unknown error";
-    // Only increment if it's a privacy/auth error
-    if (errMessage.includes("private") || errMessage.includes("403")) {
-      const settings = await storage.getUserSettings(userId);
-      if (settings) {
-        const newCount = settings.steamSyncFailures + 1;
-        await storage.updateUserSettings(userId, { steamSyncFailures: newCount });
-
-        if (newCount === 3) {
-          await storage.addNotification({
-            userId,
-            type: "error",
-            title: "Steam Sync Disabled",
-            message:
-              "Steam sync has been disabled after 3 consecutive failures. Please check your privacy settings.",
-          });
-        }
-      }
-    }
-
     return { success: false, message: errMessage };
   }
 }

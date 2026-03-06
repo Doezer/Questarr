@@ -98,7 +98,7 @@ export default function SettingsPage() {
   // Local state for Steam form
   const [steamIdInput, setSteamIdInput] = useState("");
 
-  // Local state for IGDB form
+  // Local state for forms
   const [igdbClientId, setIgdbClientId] = useState("");
   const [igdbClientSecret, setIgdbClientSecret] = useState("");
   const [showClientSecret, setShowClientSecret] = useState(false);
@@ -337,6 +337,7 @@ export default function SettingsPage() {
         description: "Your IGDB credentials have been saved.",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/config"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/settings/igdb"] });
     },
     onError: (error: Error) => {
       toast({
@@ -705,32 +706,20 @@ export default function SettingsPage() {
                         onClick={handleSaveSteamId}
                         disabled={updateSteamIdMutation.isPending}
                       >
-                        {updateSteamIdMutation.isPending ? "Saving..." : "Save"}
+                        {updateSteamIdMutation.isPending ? "Saving..." : "Save ID"}
                       </Button>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Enter your SteamID64 manually or sign in below.
+                      Enter your SteamID64 to sync your wishlist. You can find it on{" "}
+                      <a
+                        href="https://steamid.io"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="underline"
+                      >
+                        steamid.io
+                      </a>
                     </p>
-                  </div>
-
-                  <div className="relative">
-                    <div className="absolute inset-0 flex items-center">
-                      <span className="w-full border-t" />
-                    </div>
-                    <div className="relative flex justify-center text-xs uppercase">
-                      <span className="bg-background px-2 text-muted-foreground">Or</span>
-                    </div>
-                  </div>
-
-                  <div className="flex justify-center">
-                    <Button
-                      variant="outline"
-                      className="w-full sm:w-auto gap-2"
-                      onClick={() => (window.location.href = "/api/auth/steam")}
-                    >
-                      <Gamepad2 className="h-4 w-4" />
-                      Sign in through Steam
-                    </Button>
                   </div>
                 </div>
               </CardContent>

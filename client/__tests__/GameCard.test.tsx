@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import React from "react";
 import { render, screen } from "@testing-library/react";
-import { vi, describe, it, expect } from "vitest";
+import { vi, describe, it, expect, beforeEach } from "vitest";
 import GameCard from "../src/components/GameCard";
 import { Game } from "@shared/schema";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -53,48 +53,27 @@ const mockGame: Game = {
 };
 
 describe("GameCard Accessibility", () => {
-  it("has accessible labels for status toggle button", () => {
+  beforeEach(() => {
     const queryClient = createTestQueryClient();
-
     render(
       <QueryClientProvider client={queryClient}>
-        <GameCard
-          game={mockGame}
-        />
+        <GameCard game={mockGame} />
       </QueryClientProvider>
     );
+  });
 
+  it("has accessible labels for status toggle button", () => {
     // The status is "wanted", so the next status is "owned"
     const statusButton = screen.getByRole("button", { name: /Mark Test Game as Owned/i });
     expect(statusButton).toBeInTheDocument();
   });
 
   it("has accessible labels for details button", () => {
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <GameCard
-          game={mockGame}
-        />
-      </QueryClientProvider>
-    );
-
     const detailsButton = screen.getByRole("button", { name: /View details for Test Game/i });
     expect(detailsButton).toBeInTheDocument();
   });
 
   it("has accessible labels for hide button", () => {
-    const queryClient = createTestQueryClient();
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <GameCard
-          game={mockGame}
-        />
-      </QueryClientProvider>
-    );
-
     const hideButton = screen.getByRole("button", { name: /Hide Test Game/i });
     expect(hideButton).toBeInTheDocument();
   });

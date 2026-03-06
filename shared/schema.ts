@@ -65,7 +65,7 @@ export const games = sqliteTable("games", {
   status: text("status").notNull().default("wanted"), // Enum validation handled by Zod
   originalReleaseDate: text("original_release_date"),
   releaseStatus: text("release_status").default("upcoming"), // Enum validation handled by Zod
-  hidden: integer("hidden", { mode: "boolean" }).default(false),
+  hidden: integer("hidden", { mode: "boolean" }).notNull().default(false),
   addedAt: integer("added_at", { mode: "timestamp_ms" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),

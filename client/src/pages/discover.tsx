@@ -5,6 +5,7 @@ import { Loader2, Settings2, AlertCircle } from "lucide-react";
 import GameCarouselSection from "@/components/GameCarouselSection";
 import { type Game, type Config } from "@shared/schema";
 import { type GameStatus } from "@/components/StatusBadge";
+import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { useToast } from "@/hooks/use-toast";
 import { mapGameToInsertGame } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
@@ -267,50 +268,33 @@ export default function DiscoverPage() {
 
   // Hide game mutation
 
-  const hideGameMutation = useMutation({
-    mutationFn: async (game: Game) => {
-      // Check if game exists locally first (use our map for consistency)
+  const parseHiddenMutationResponse = async (response: Response) => {
+    const data = (await response.json()) as { hidden: boolean };
+    return { hidden: data.hidden };
+  };
 
+  const hideGameMutation = useHiddenMutation<Game>({
+    mutationFn: async (game: Game) => {
       const localId = game.igdbId ? igdbToLocalIdMap.get(game.igdbId) : undefined;
 
       if (localId) {
-        // Update existing game
-
         const response = await apiRequest("PATCH", `/api/games/${localId}/hidden`, {
           hidden: true,
         });
-
-        return response.json();
-      } else {
-        // Add new hidden game
-
-        const gameData = mapGameToInsertGame(game);
-
-        const response = await apiRequest("POST", "/api/games", {
-          ...gameData,
-
-          status: "wanted", // Default status, but hidden
-
-          hidden: true,
-        });
-
-        return response.json();
+        return parseHiddenMutationResponse(response);
       }
-    },
 
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
-
-      toast({ description: "Game hidden from discovery" });
-    },
-
-    onError: () => {
-      toast({
-        description: "Failed to hide game",
-
-        variant: "destructive",
+      const gameData = mapGameToInsertGame(game);
+      const response = await apiRequest("POST", "/api/games", {
+        ...gameData,
+        status: "wanted",
+        hidden: true,
       });
+      return parseHiddenMutationResponse(response);
     },
+    hiddenSuccessMessage: "Game hidden from discovery",
+    unhiddenSuccessMessage: "Game unhidden",
+    errorMessage: "Failed to hide game",
   });
 
   // Add game mutation (for status changes on Discovery games)

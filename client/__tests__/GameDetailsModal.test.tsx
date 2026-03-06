@@ -32,6 +32,8 @@ vi.mock("lucide-react", () => ({
   Gamepad2: (props: Record<string, unknown>) => <div data-testid="icon-gamepad2" {...props} />,
   Tag: (props: Record<string, unknown>) => <div data-testid="icon-tag" {...props} />,
   Download: (props: Record<string, unknown>) => <div data-testid="icon-download" {...props} />,
+  Eye: (props: Record<string, unknown>) => <div data-testid="icon-eye" {...props} />,
+  EyeOff: (props: Record<string, unknown>) => <div data-testid="icon-eye-off" {...props} />,
   X: (props: Record<string, unknown>) => <div data-testid="icon-x" {...props} />,
 }));
 
@@ -123,6 +125,26 @@ describe("GameDetailsModal", () => {
       expect(global.fetch).toHaveBeenCalledWith(
         expect.stringContaining("/api/games/1"),
         expect.objectContaining({ method: "DELETE" })
+      );
+    });
+  });
+
+  it("handles hide game action", async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: vi.fn().mockResolvedValue({ hidden: true }) });
+    renderComponent();
+
+    const hideButton = screen.getByTestId(`button-toggle-hidden-quick-${mockGame.id}`);
+    fireEvent.click(hideButton);
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining(`/api/games/${mockGame.id}/hidden`),
+        expect.objectContaining({
+          method: "PATCH",
+          body: JSON.stringify({ hidden: true }),
+        })
       );
     });
   });

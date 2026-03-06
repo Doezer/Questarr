@@ -7,6 +7,7 @@ import StatsCard from "./StatsCard";
 import { Star, Gamepad2, Filter, X } from "lucide-react";
 import { type Game } from "@shared/schema";
 import { type GameStatus } from "./StatusBadge";
+import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
 import { calculateLibraryStats } from "@/lib/stats";
@@ -109,19 +110,10 @@ export default function Dashboard() {
     },
   });
 
-  // Hidden update mutation
-  const hiddenMutation = useMutation({
-    mutationFn: async ({ gameId, hidden }: { gameId: string; hidden: boolean }) => {
-      const response = await apiRequest("PATCH", `/api/games/${gameId}/hidden`, { hidden });
-      return response.json();
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
-      toast({ description: data.hidden ? "Game hidden from library" : "Game unhidden" });
-    },
-    onError: () => {
-      toast({ description: "Failed to update game visibility", variant: "destructive" });
-    },
+  const hiddenMutation = useHiddenMutation({
+    hiddenSuccessMessage: "Game hidden from library",
+    unhiddenSuccessMessage: "Game unhidden",
+    errorMessage: "Failed to update game visibility",
   });
 
   // Calculate unique genres and platforms from user's game collection

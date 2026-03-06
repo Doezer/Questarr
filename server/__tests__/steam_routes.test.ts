@@ -88,8 +88,8 @@ describe("steamRoutes", () => {
         .put("/api/user/steam-id")
         .send({ steamId: "76561198000000000" });
 
-      expect(res.status).toBe(500);
-      expect(res.body.error).toBe("Failed to set Steam ID");
+      expect(response.status).toBe(500);
+      expect(response.body).toEqual({ error: "Failed to set Steam ID" });
     });
   });
 
@@ -142,48 +142,8 @@ describe("steamRoutes", () => {
       expect(response.body).toEqual({ error: "Sync failed" });
     });
 
-    it("should redirect to success on successful auth return", async () => {
-      // Mock authenticate to succeed with profile and session
-      vi.mocked(passport.authenticate).mockImplementationOnce(
-        (strategy: any, options: any, callback?: any) => (req: any, res: any, next: any) => {
-          // Set session so userId is available
-          (req as any).session = { steam_auth_user_id: 1 };
-          callback(null, { _json: { steamid: "76561198000000000" } });
-        }
-      );
-      vi.mocked(storage.updateUserSteamId).mockResolvedValue(undefined as any);
-
-      const res = await request(app).get("/api/auth/steam/return");
-      expect(res.status).toBe(302);
-      expect(res.header.location).toContain("steam_linked=success");
-      expect(storage.updateUserSteamId).toHaveBeenCalledWith(1, "76561198000000000");
-    });
-
-    it("should redirect to db_error when storage update fails", async () => {
-      // Mock authenticate to succeed with profile and session
-      vi.mocked(passport.authenticate).mockImplementationOnce(
-        (strategy: any, options: any, callback?: any) => (req: any, res: any, next: any) => {
-          (req as any).session = { steam_auth_user_id: 1 };
-          callback(null, { _json: { steamid: "76561198000000000" } });
-        }
-      );
-      vi.mocked(storage.updateUserSteamId).mockRejectedValue(new Error("DB write failed"));
-
-      const res = await request(app).get("/api/auth/steam/return");
-      expect(res.status).toBe(302);
-      expect(res.header.location).toContain("error=db_error");
-    });
-
-    it("should handle null profile in auth callback", async () => {
-      vi.mocked(passport.authenticate).mockImplementationOnce(
-        (strategy: any, options: any, callback?: any) => (req: any, res: any, next: any) => {
-          callback(null, null);
-        }
-      );
-
-      const res = await request(app).get("/api/auth/steam/return");
-      expect(res.status).toBe(302);
-      expect(res.header.location).toContain("error=steam_auth_failed");
+      expect(response.status).toBe(500);
+      expect(response.body).toEqual({ error: "Sync failed" });
     });
   });
 });

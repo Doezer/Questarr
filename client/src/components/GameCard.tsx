@@ -8,8 +8,6 @@ import StatusBadge, { type GameStatus } from "./StatusBadge";
 import { type Game } from "@shared/schema";
 import { useState, memo, useRef, useEffect, lazy, Suspense } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import GameDetailsModal from "./GameDetailsModal";
-import GameDownloadDialog from "./GameDownloadDialog";
 import { mapGameToInsertGame, isDiscoveryId, getNextStatusLabel } from "@/lib/utils";
 import { apiRequest, ApiError } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";

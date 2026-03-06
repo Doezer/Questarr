@@ -793,6 +793,7 @@ export async function syncUserSteamWishlist(userId: string) {
     const wishlistGames = await steamService.getWishlist(user.steamId64);
 
     let addedCount = 0;
+    const addedGames: { title: string; igdbId: number; steamAppId: number }[] = [];
 
     // We need to fetch current wanted games to avoid duplicates
     const currentGames = await storage.getUserGames(userId, true);
@@ -864,6 +865,11 @@ export async function syncUserSteamWishlist(userId: string) {
               hidden: false, // Explicitly set default
             });
             addedCount++;
+            addedGames.push({
+              title: formatted.title as string,
+              igdbId: formatted.igdbId as number,
+              steamAppId,
+            });
           }
         }
       }
@@ -879,7 +885,7 @@ export async function syncUserSteamWishlist(userId: string) {
       notifyUser("notification", notification);
     }
 
-    return { success: true, addedCount };
+    return { success: true, addedCount, games: addedGames };
   } catch (error) {
     igdbLogger.error({ userId, error }, "Steam Sync Failed");
     const errMessage = error instanceof Error ? error.message : "Unknown error";

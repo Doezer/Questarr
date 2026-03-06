@@ -117,4 +117,13 @@ describe("CompactGameCard", () => {
 
     expect(onViewDetails).toHaveBeenCalledWith("1");
   });
+
+  it("shows a loading fallback when opening details", async () => {
+    renderWithProviders(<CompactGameCard game={mockGame} />);
+
+    const infoButton = screen.getByLabelText(`View details for ${mockGame.title}`);
+    fireEvent.click(infoButton);
+
+    expect(await screen.findByText("Loading game details...")).toBeInTheDocument();
+  });
 });

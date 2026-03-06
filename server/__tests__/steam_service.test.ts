@@ -1,11 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { steamService } from "../steam.js";
+import { safeFetch } from "../ssrf.js";
+
+vi.mock("../ssrf.js", () => ({
+  safeFetch: vi.fn(),
+}));
 
 describe("steamService", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Mock global fetch
-    global.fetch = vi.fn();
   });
 
   describe("validateSteamId", () => {
@@ -39,7 +42,7 @@ describe("steamService", () => {
         },
       };
 
-      vi.mocked(fetch).mockResolvedValueOnce({
+      vi.mocked(safeFetch).mockResolvedValueOnce({
         ok: true,
         status: 200,
         json: async () => mockApiResponse,
@@ -61,31 +64,48 @@ describe("steamService", () => {
         priority: 2,
       });
       // New API uses a single request (no pagination)
-      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(safeFetch).toHaveBeenCalledTimes(1);
       // Should call the official IWishlistService endpoint
-      expect(fetch).toHaveBeenCalledWith(expect.stringContaining("IWishlistService/GetWishlist"));
+      expect(safeFetch).toHaveBeenCalledWith(
+        expect.stringContaining("IWishlistService/GetWishlist")
+      );
     });
 
-    it("should handle API errors", async () => {
-      vi.mocked(fetch).mockResolvedValueOnce({
+    it("should map 403 API errors to actionable messages", async () => {
+      vi.mocked(safeFetch).mockResolvedValueOnce({
         ok: false,
         status: 403,
       } as Response);
 
-      await expect(steamService.getWishlist(steamId)).rejects.toThrow("Steam API error: 403");
+      await expect(steamService.getWishlist(steamId)).rejects.toThrow(
+        "Steam API error: 403 Forbidden - your Steam profile or wishlist is private"
+      );
     });
 
-    it("should handle other API errors", async () => {
-      vi.mocked(fetch).mockResolvedValueOnce({
+    it("should map 404 API errors to actionable messages", async () => {
+      vi.mocked(safeFetch).mockResolvedValueOnce({
         ok: false,
         status: 404,
       } as Response);
 
-      await expect(steamService.getWishlist(steamId)).rejects.toThrow("Steam API error: 404");
+      await expect(steamService.getWishlist(steamId)).rejects.toThrow(
+        "Steam API error: 404 Not Found - the specified Steam ID does not exist"
+      );
+    });
+
+    it("should map 429 API errors to actionable messages", async () => {
+      vi.mocked(safeFetch).mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+      } as Response);
+
+      await expect(steamService.getWishlist(steamId)).rejects.toThrow(
+        "Steam API error: 429 Too Many Requests"
+      );
     });
 
     it("should handle empty wishlist (no items)", async () => {
-      vi.mocked(fetch).mockResolvedValueOnce({
+      vi.mocked(safeFetch).mockResolvedValueOnce({
         ok: true,
         status: 200,
         json: async () => ({ response: {} }),
@@ -96,7 +116,7 @@ describe("steamService", () => {
     });
 
     it("should handle empty response with items array", async () => {
-      vi.mocked(fetch).mockResolvedValueOnce({
+      vi.mocked(safeFetch).mockResolvedValueOnce({
         ok: true,
         status: 200,
         json: async () => ({ response: { items: [] } }),

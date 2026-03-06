@@ -4,7 +4,6 @@ import express, { type Request, Response, NextFunction } from "express";
 import https from "https";
 import fs from "fs";
 import cors from "cors";
-import crypto from "crypto";
 
 import { registerRoutes } from "./routes.js";
 import { setupVite, serveStatic, log } from "./vite.js";
@@ -16,10 +15,10 @@ import { setupSocketIO } from "./socket.js";
 import { ensureDatabase } from "./migrate.js";
 import { rssService } from "./rss.js";
 
-import { logger } from "./logger.js";
-
 const app = express();
-app.set("trust proxy", 1);
+if (config.server.isProduction) {
+  app.set("trust proxy", 1);
+}
 app.use(
   cors({
     origin: config.server.allowedOrigins,

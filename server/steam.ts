@@ -1,4 +1,5 @@
 import { igdbLogger } from "./logger.js";
+import { safeFetch } from "./ssrf.js";
 
 /**
  * Response shape from the official IWishlistService/GetWishlist/v1 endpoint.
@@ -32,6 +33,28 @@ export interface SteamWishlistGame {
 const STEAM_WISHLIST_API_URL = (steamId: string) =>
   `https://api.steampowered.com/IWishlistService/GetWishlist/v1/?steamid=${steamId}`;
 
+function getSteamApiErrorMessage(status: number): string {
+  switch (status) {
+    case 403:
+      return (
+        "Steam API error: 403 Forbidden - your Steam profile or wishlist is private. " +
+        "Please set your Steam profile and wishlist visibility to public and try again."
+      );
+    case 404:
+      return (
+        "Steam API error: 404 Not Found - the specified Steam ID does not exist or the " +
+        "wishlist could not be found."
+      );
+    case 429:
+      return (
+        "Steam API error: 429 Too Many Requests - Steam is rate limiting requests. " +
+        "Please wait a few minutes and try again."
+      );
+    default:
+      return `Steam API error: ${status}`;
+  }
+}
+
 export const steamService = {
   validateSteamId(id: string): boolean {
     return /^7656\d{13}$/.test(id);
@@ -47,10 +70,10 @@ export const steamService = {
     igdbLogger.debug({ steamId }, "Fetching Steam wishlist via IWishlistService");
 
     try {
-      const response = await fetch(url);
+      const response = await safeFetch(url);
 
       if (!response.ok) {
-        throw new Error(`Steam API error: ${response.status}`);
+        throw new Error(getSteamApiErrorMessage(response.status));
       }
 
       const data = (await response.json()) as SteamWishlistApiResponse;

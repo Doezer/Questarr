@@ -783,14 +783,33 @@ export async function checkSteamWishlist() {
   }
 }
 
+const MAX_STEAM_SYNC_FAILURES = 3;
+
 export async function syncUserSteamWishlist(userId: string) {
+  let steamSyncFailures = 0;
+
   try {
     const user = await storage.getUser(userId);
     if (!user || !user.steamId64) return;
 
+    const settings = await storage.getUserSettings(userId);
+    steamSyncFailures = settings?.steamSyncFailures ?? 0;
+
+    if (steamSyncFailures >= MAX_STEAM_SYNC_FAILURES) {
+      const message =
+        "Steam wishlist sync is temporarily disabled after repeated failures. " +
+        "Please verify Steam profile visibility and try again later.";
+      igdbLogger.warn({ userId, steamSyncFailures }, message);
+      return { success: false, message };
+    }
+
     igdbLogger.info({ userId, steamId: user.steamId64 }, "Syncing Steam Wishlist");
 
     const wishlistGames = await steamService.getWishlist(user.steamId64);
+
+    if (steamSyncFailures > 0) {
+      await storage.updateUserSettings(userId, { steamSyncFailures: 0 });
+    }
 
     let addedCount = 0;
     const addedGames: { title: string; igdbId: number; steamAppId: number }[] = [];
@@ -887,6 +906,8 @@ export async function syncUserSteamWishlist(userId: string) {
 
     return { success: true, addedCount, games: addedGames };
   } catch (error) {
+    const nextSteamSyncFailures = steamSyncFailures + 1;
+    await storage.updateUserSettings(userId, { steamSyncFailures: nextSteamSyncFailures });
     igdbLogger.error({ userId, error }, "Steam Sync Failed");
     const errMessage = error instanceof Error ? error.message : "Unknown error";
     return { success: false, message: errMessage };

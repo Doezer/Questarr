@@ -142,21 +142,24 @@ export default function Header({ title = "Dashboard" }: HeaderProps) {
                     const response = await fetch("/api/steam/wishlist/sync", {
                       method: "POST",
                       headers: {
-                        "Authorization": `Bearer ${localStorage.getItem("token")}`
-                      }
+                        Authorization: `Bearer ${localStorage.getItem("token")}`,
+                      },
                     });
                     const data = await response.json();
 
                     if (response.ok && data.success) {
                       toast({
                         title: "Steam Sync",
-                        description: data.message || "Sync started successfully",
+                        description:
+                          data.addedCount != null
+                            ? `Synced ${data.addedCount} game(s) from your Steam Wishlist.`
+                            : data.message || "Sync completed successfully",
                       });
                     } else {
                       toast({
                         title: "Sync Failed",
                         description: data.error || data.message || "Unknown error",
-                        variant: "destructive"
+                        variant: "destructive",
                       });
                     }
                   } catch (e) {
@@ -164,7 +167,7 @@ export default function Header({ title = "Dashboard" }: HeaderProps) {
                     toast({
                       title: "Sync Error",
                       description: "Failed to connect to server",
-                      variant: "destructive"
+                      variant: "destructive",
                     });
                   }
                 }}

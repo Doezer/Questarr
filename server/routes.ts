@@ -175,6 +175,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         },
       },
       hsts: isSslEnabled,
+      crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
     })
   );
   // Use Steam Routes
@@ -702,6 +703,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         (await storage.getSystemConfig("xrel_api_base"))?.trim() ||
         process.env.XREL_API_BASE ||
         DEFAULT_XREL_BASE;
+
       const config: Config = {
         igdb: {
           configured: isConfigured,

@@ -1,6 +1,6 @@
 // Force restart trigger
 import "dotenv/config";
-import express, { type Request, Response, NextFunction } from "express";
+import express from "express";
 import https from "https";
 import fs from "fs";
 import cors from "cors";

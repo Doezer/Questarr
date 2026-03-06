@@ -917,6 +917,30 @@ describe("API Routes - Extended Coverage", () => {
       expect(response.body.errors).toHaveLength(1);
       expect(response.body.errors[0].downloaderId).toBe("dl-1");
     });
+
+    it("should sanitize downloader error details in production", async () => {
+      mockConfig.server.isProduction = true;
+      try {
+        vi.mocked(storage.getEnabledDownloaders).mockResolvedValue([
+          { id: "dl-1", name: "Failing DL" } as unknown as Downloader,
+        ]);
+        vi.mocked(DownloaderManager.getAllDownloads).mockRejectedValue(
+          new Error("Sensitive RPC failure")
+        );
+
+        const response = await request(app).get("/api/downloads");
+
+        expect(response.status).toBe(200);
+        expect(response.body.errors).toHaveLength(1);
+        expect(response.body.errors[0]).toMatchObject({
+          downloaderId: "dl-1",
+          downloaderName: "Failing DL",
+          error: "Internal Server Error",
+        });
+      } finally {
+        mockConfig.server.isProduction = false;
+      }
+    });
   });
 
   // ─── Notification routes ───

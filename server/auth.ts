@@ -16,7 +16,7 @@ let cachedJwtSecret: string | null = null;
  * Get the JWT secret.
  * Priority:
  * 1. In-memory cache
- * 2. Environment variable (if not default)
+ * 2. Environment variable
  * 3. Database system config
  * 4. Generate new secret and store in DB
  */
@@ -25,8 +25,8 @@ async function getJwtSecret(): Promise<string> {
     return cachedJwtSecret;
   }
 
-  // If env var is set and NOT the default, use it (override)
-  if (config.auth.jwtSecret && config.auth.jwtSecret !== "questarr-default-secret-change-me") {
+  // If env var is set, use it (override).
+  if (config.auth.jwtSecret) {
     logger.info("Using JWT secret from environment variable");
     cachedJwtSecret = config.auth.jwtSecret;
     return cachedJwtSecret;
@@ -56,7 +56,7 @@ async function getJwtSecret(): Promise<string> {
 
   cachedJwtSecret = newSecret;
 
-  if (!config.auth.jwtSecret || config.auth.jwtSecret === "questarr-default-secret-change-me") {
+  if (!config.auth.jwtSecret) {
     logger.warn("⚠️  Using generated JWT secret.");
     logger.warn(
       "⚠️  Set JWT_SECRET in your .env file to use a persistent secret across database resets."

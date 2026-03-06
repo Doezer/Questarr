@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { configLoader } from "./config-loader.js";
 
+const LEGACY_DEFAULT_JWT_SECRET = "questarr-default-secret-change-me";
+
 /**
  * Environment configuration schema with Zod validation.
  * Validates and provides typed access to required environment variables.
@@ -13,7 +15,13 @@ const envSchema = z.object({
   ALLOWED_ORIGINS: z.string().optional(),
 
   // JWT configuration
-  JWT_SECRET: z.string().default("questarr-default-secret-change-me"),
+  JWT_SECRET: z
+    .string()
+    .optional()
+    .refine((value) => value !== LEGACY_DEFAULT_JWT_SECRET, {
+      message:
+        "JWT_SECRET is set to an insecure legacy default. Remove it to auto-generate, or set a strong random value.",
+    }),
 
   // IGDB API configuration (optional, but required for game discovery features)
   IGDB_CLIENT_ID: z.string().optional(),

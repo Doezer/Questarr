@@ -13,6 +13,7 @@ import GameDownloadDialog from "./GameDownloadDialog";
 import { mapGameToInsertGame, isDiscoveryId, getNextStatusLabel } from "@/lib/utils";
 import { apiRequest, ApiError } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import LazyModalFallback from "./LazyModalFallback";
 
 // ⚡ Bolt: Lazy load heavy modal components to reduce initial bundle size.
 // These are only needed when the user interacts with the card.
@@ -330,13 +331,13 @@ const GameCard = ({
           with many game cards, significantly improving initial render performance
           and reducing memory usage. */}
       {detailsOpen && (
-        <Suspense fallback={null}>
+        <Suspense fallback={<LazyModalFallback message="Loading game details..." />}>
           <GameDetailsModal game={resolvedGame} open={detailsOpen} onOpenChange={setDetailsOpen} />
         </Suspense>
       )}
 
       {downloadOpen && (
-        <Suspense fallback={null}>
+        <Suspense fallback={<LazyModalFallback message="Loading download dialog..." />}>
           <GameDownloadDialog
             game={resolvedGame}
             open={downloadOpen}

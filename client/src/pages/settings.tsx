@@ -37,7 +37,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, clearSearchCache } from "@/lib/queryClient";
 import AutoDownloadRulesSettings from "@/components/AutoDownloadRulesSettings";
 import PasswordSettings from "@/components/PasswordSettings";
 import type { Config, UserSettings, DownloadRules } from "@shared/schema";
@@ -1043,12 +1043,7 @@ export default function SettingsPage() {
                       variant="outline"
                       size="sm"
                       onClick={() => {
-                        queryClient.removeQueries({
-                          predicate: (query) => {
-                            const key = query.queryKey[0];
-                            return typeof key === "string" && key.startsWith("/api/search");
-                          },
-                        });
+                        clearSearchCache();
                         toast({
                           title: "Downloads Cache Cleared",
                           description:

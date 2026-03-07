@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient } from "@/lib/queryClient";
+import { queryClient, clearSearchCache } from "@/lib/queryClient";
 import { asZodType, cn, compareEnabledPriorityName } from "@/lib/utils";
 import { Plus, Edit, Trash2, Check, X, Activity, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -55,15 +55,6 @@ export default function IndexersPage() {
   const sortedIndexers = useMemo(() => {
     return [...indexers].sort(compareEnabledPriorityName);
   }, [indexers]);
-
-  const clearSearchCache = () => {
-    queryClient.removeQueries({
-      predicate: (query) => {
-        const key = query.queryKey[0];
-        return typeof key === "string" && key.startsWith("/api/search");
-      },
-    });
-  };
 
   const syncProwlarrMutation = useMutation({
     mutationFn: async () => {

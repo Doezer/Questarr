@@ -56,6 +56,15 @@ export default function IndexersPage() {
     return [...indexers].sort(compareEnabledPriorityName);
   }, [indexers]);
 
+  const clearSearchCache = () => {
+    queryClient.removeQueries({
+      predicate: (query) => {
+        const key = query.queryKey[0];
+        return typeof key === "string" && key.startsWith("/api/search");
+      },
+    });
+  };
+
   const syncProwlarrMutation = useMutation({
     mutationFn: async () => {
       const token = localStorage.getItem("token");
@@ -76,6 +85,7 @@ export default function IndexersPage() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/indexers"] });
+      clearSearchCache();
       setIsProwlarrDialogOpen(false);
       toast({
         title: "Sync successful",
@@ -108,6 +118,7 @@ export default function IndexersPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/indexers"] });
+      clearSearchCache();
       setIsDialogOpen(false);
       setEditingIndexer(null);
       toast({ title: "Indexer added successfully" });
@@ -134,6 +145,7 @@ export default function IndexersPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/indexers"] });
+      clearSearchCache();
       setIsDialogOpen(false);
       setEditingIndexer(null);
       toast({ title: "Indexer updated successfully" });
@@ -158,6 +170,7 @@ export default function IndexersPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/indexers"] });
+      clearSearchCache();
       toast({ title: "Indexer deleted successfully" });
     },
     onError: () => {
@@ -182,6 +195,7 @@ export default function IndexersPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/indexers"] });
+      clearSearchCache();
     },
   });
 

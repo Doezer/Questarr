@@ -1033,6 +1033,38 @@ export default function SettingsPage() {
                 <div className="flex flex-col space-y-2">
                   <div className="flex justify-between items-center">
                     <div>
+                      <p className="text-sm font-medium">Clear Downloads Cache</p>
+                      <p className="text-xs text-muted-foreground">
+                        Clear cached torrent/NZB search results so the next search fetches fresh
+                        data from all configured indexers.
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        queryClient.removeQueries({
+                          predicate: (query) => {
+                            const key = query.queryKey[0];
+                            return typeof key === "string" && key.startsWith("/api/search");
+                          },
+                        });
+                        toast({
+                          title: "Downloads Cache Cleared",
+                          description:
+                            "Search results cache has been cleared. New searches will fetch fresh data.",
+                        });
+                      }}
+                      className="gap-2"
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                      Clear Cache
+                    </Button>
+                  </div>
+                </div>
+                <div className="flex flex-col space-y-2">
+                  <div className="flex justify-between items-center">
+                    <div>
                       <p className="text-sm font-medium">Refresh Metadata</p>
                       <p className="text-xs text-muted-foreground">
                         Update all games in your library with the latest information from IGDB.

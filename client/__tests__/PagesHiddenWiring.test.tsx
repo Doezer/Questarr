@@ -73,10 +73,26 @@ describe("Page hidden wiring", () => {
         json: async () => [
           {
             id: TEST_GAME_ID,
-            title: "Test Game",
+            title: "TBA Game",
             status: "wanted",
             hidden: false,
             releaseDate: null,
+            addedAt: new Date().toISOString(),
+          },
+          {
+            id: "22222222-2222-2222-2222-222222222222",
+            title: "Released Game",
+            status: "wanted",
+            hidden: false,
+            releaseDate: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+            addedAt: new Date().toISOString(),
+          },
+          {
+            id: "33333333-3333-3333-3333-333333333333",
+            title: "Upcoming Game",
+            status: "wanted",
+            hidden: false,
+            releaseDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
             addedAt: new Date().toISOString(),
           },
         ],
@@ -87,8 +103,13 @@ describe("Page hidden wiring", () => {
   it("wires onToggleHidden in WishlistPage", async () => {
     renderWithQueryClient(<WishlistPage />);
 
-    const triggerButton = await screen.findByTestId("button-trigger-toggle-hidden");
-    fireEvent.click(triggerButton);
+    await waitFor(() => {
+      // Wishlist should render one GameGrid per section: upcoming, released, and TBA.
+      expect(gameGridSpy).toHaveBeenCalledTimes(3);
+    });
+
+    const triggerButtons = await screen.findAllByTestId("button-trigger-toggle-hidden");
+    fireEvent.click(triggerButtons[0]);
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith(
@@ -97,9 +118,9 @@ describe("Page hidden wiring", () => {
       );
     });
 
-    expect(gameGridSpy.mock.calls.some(([props]) => typeof props.onToggleHidden === "function")).toBe(
-      true
-    );
+    expect(
+      gameGridSpy.mock.calls.some(([props]) => typeof props.onToggleHidden === "function")
+    ).toBe(true);
   });
 
   it("wires onToggleHidden in LibraryPage", async () => {
@@ -115,8 +136,8 @@ describe("Page hidden wiring", () => {
       );
     });
 
-    expect(gameGridSpy.mock.calls.some(([props]) => typeof props.onToggleHidden === "function")).toBe(
-      true
-    );
+    expect(
+      gameGridSpy.mock.calls.some(([props]) => typeof props.onToggleHidden === "function")
+    ).toBe(true);
   });
 });

@@ -149,6 +149,33 @@ describe("GameDetailsModal", () => {
     });
   });
 
+  it("handles unhide game action when game starts hidden", async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: vi.fn().mockResolvedValue({ hidden: false }) });
+
+    const hiddenGame = {
+      ...mockGame,
+      hidden: true,
+    };
+
+    renderComponent(hiddenGame);
+
+    const unhideButton = screen.getByTestId(`button-toggle-hidden-quick-${mockGame.id}`);
+    expect(unhideButton).toHaveTextContent("Unhide");
+    fireEvent.click(unhideButton);
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining(`/api/games/${mockGame.id}/hidden`),
+        expect.objectContaining({
+          method: "PATCH",
+          body: JSON.stringify({ hidden: false }),
+        })
+      );
+    });
+  });
+
   it("truncates long summary and expands it", () => {
     const longSummaryGame = {
       ...mockGame,

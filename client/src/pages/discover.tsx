@@ -9,7 +9,7 @@ import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { useToast } from "@/hooks/use-toast";
 import { mapGameToInsertGame } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
-import { hideDiscoveryGame } from "@/pages/discover-hidden-mutation";
+import { hideDiscoveryGame } from "@/lib/discover-hidden-mutation";
 import {
   Select,
   SelectContent,

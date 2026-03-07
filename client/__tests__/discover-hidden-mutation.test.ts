@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { hideDiscoveryGame } from "../src/pages/discover-hidden-mutation";
+import { hideDiscoveryGame } from "../src/lib/discover-hidden-mutation";
 import { apiRequest } from "@/lib/queryClient";
 import { mapGameToInsertGame } from "@/lib/utils";
 import { type Game } from "@shared/schema";
@@ -61,5 +61,33 @@ describe("hideDiscoveryGame", () => {
       hidden: true,
     });
     expect(response.json).not.toHaveBeenCalled();
+  });
+
+  it("falls back to PATCH hidden when POST returns 409 with existing game", async () => {
+    const mappedGame = {
+      title: "Mapped Game",
+      igdbId: 42,
+    };
+
+    vi.mocked(mapGameToInsertGame).mockReturnValue(mappedGame as never);
+    vi.mocked(apiRequest)
+      .mockRejectedValueOnce({
+        status: 409,
+        data: {
+          game: { id: "existing-local-id" },
+        },
+      })
+      .mockResolvedValueOnce({} as Response);
+
+    await expect(hideDiscoveryGame(mockGame)).resolves.toEqual({ hidden: true });
+
+    expect(apiRequest).toHaveBeenNthCalledWith(1, "POST", "/api/games", {
+      ...mappedGame,
+      status: "wanted",
+      hidden: true,
+    });
+    expect(apiRequest).toHaveBeenNthCalledWith(2, "PATCH", "/api/games/existing-local-id/hidden", {
+      hidden: true,
+    });
   });
 });

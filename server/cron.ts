@@ -15,6 +15,132 @@ const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const DOWNLOAD_CHECK_INTERVAL_MS = 60 * 1000; // 1 minute
 const AUTO_SEARCH_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const XREL_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours (xREL search rate limit: 2/5s)
+const OWNED_STATUSES = new Set(["owned", "completed", "downloading"]);
+
+type DownloadSortBy = "seeders" | "date" | "size";
+
+interface AutoSearchRules {
+  minSeeders: number;
+  sortBy: DownloadSortBy;
+  visibleCategoriesSet: Set<string>;
+}
+
+interface AutoSearchCategorizedItems {
+  mainItems: Awaited<ReturnType<typeof searchAllIndexers>>["items"];
+  updateItems: Awaited<ReturnType<typeof searchAllIndexers>>["items"];
+}
+
+function getAutoSearchRules(downloadRules: string | null): AutoSearchRules {
+  let minSeeders = 0;
+  let sortBy: DownloadSortBy = "seeders";
+  let visibleCategoriesSet = new Set(["main", "update", "dlc", "extra"]);
+
+  if (downloadRules) {
+    const parsed = JSON.parse(downloadRules);
+    const rules = downloadRulesSchema.parse(parsed);
+    minSeeders = rules.minSeeders;
+    sortBy = rules.sortBy;
+    visibleCategoriesSet = new Set(rules.visibleCategories);
+  }
+
+  return { minSeeders, sortBy, visibleCategoriesSet };
+}
+
+function categorizeSearchItems(
+  items: Awaited<ReturnType<typeof searchAllIndexers>>["items"],
+  rules: AutoSearchRules
+): AutoSearchCategorizedItems {
+  const sortedItems = items
+    .filter((item) => {
+      const seeders = item.seeders ?? 0;
+      return seeders >= rules.minSeeders;
+    })
+    .sort((a, b) => {
+      if (rules.sortBy === "seeders") {
+        return (b.seeders ?? 0) - (a.seeders ?? 0);
+      }
+      if (rules.sortBy === "date") {
+        return new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime();
+      }
+      return (b.size ?? 0) - (a.size ?? 0);
+    });
+
+  return sortedItems.reduce<AutoSearchCategorizedItems>(
+    (acc, item) => {
+      const { category } = categorizeDownload(item.title);
+
+      if (!rules.visibleCategoriesSet.has(category)) {
+        return acc;
+      }
+
+      if (category === "main") {
+        acc.mainItems.push(item);
+      } else if (category === "update") {
+        acc.updateItems.push(item);
+      }
+
+      return acc;
+    },
+    { mainItems: [], updateItems: [] }
+  );
+}
+
+async function searchAndCategorizeItemsForGame(
+  game: Pick<Game, "title">,
+  downloadRules: string | null
+): Promise<AutoSearchCategorizedItems | null> {
+  const { items, errors } = await searchAllIndexers({
+    query: game.title,
+    limit: 10,
+  });
+
+  if (errors.length > 0) {
+    const networkKeywords = [
+      "fetch failed",
+      "Unsafe URL detected",
+      "ENOTFOUND",
+      "EAI_AGAIN",
+      "ETIMEDOUT",
+      "network timeout",
+    ];
+
+    const areAllErrorsNetworkRelated = errors.every((err) =>
+      networkKeywords.some((keyword) => err.includes(keyword))
+    );
+
+    if (areAllErrorsNetworkRelated) {
+      igdbLogger.warn(
+        { gameTitle: game.title, errorCount: errors.length },
+        "Search failed due to network connectivity issues (DNS/Fetch/Safety check). Please check your internet connection."
+      );
+    } else {
+      igdbLogger.warn({ gameTitle: game.title, errors }, "Errors during search");
+    }
+  }
+
+  if (items.length === 0) {
+    return null;
+  }
+
+  const matchedItems = items.filter((item) => releaseMatchesGame(item.title, game.title));
+  if (matchedItems.length === 0) {
+    igdbLogger.debug(
+      { gameTitle: game.title, originalCount: items.length },
+      "No items passed strict title matching"
+    );
+    return null;
+  }
+
+  let rules: AutoSearchRules;
+  try {
+    rules = getAutoSearchRules(downloadRules);
+  } catch (error) {
+    igdbLogger.warn({ gameTitle: game.title, error }, "Failed to parse download rules");
+    rules = getAutoSearchRules(null);
+  }
+
+  return categorizeSearchItems(matchedItems, rules);
+}
 
 export function startCronJobs() {
   igdbLogger.info("Starting cron jobs...");
@@ -431,9 +557,11 @@ export async function checkAutoSearch() {
 
         // Games are already filtered for wanted and not hidden by the storage query
         const wantedGames = userGames;
+        const OWNED_STATUSES_ARRAY = Array.from(OWNED_STATUSES);
+        const ownedGames = await storage.getUserGames(userId, false, OWNED_STATUSES_ARRAY);
 
-        if (wantedGames.length === 0) {
-          igdbLogger.debug({ userId }, "No wanted games found");
+        if (wantedGames.length === 0 && ownedGames.length === 0) {
+          igdbLogger.debug({ userId }, "No wanted or owned games found");
           // Update last search time even if no games found, to avoid checking again too soon
           await storage.updateUserSettings(userId, { lastAutoSearch: new Date() });
           continue;
@@ -457,115 +585,17 @@ export async function checkAutoSearch() {
               continue;
             }
 
-            // Search for the game across all indexers
-            const { items, errors } = await searchAllIndexers({
-              query: game.title,
-              limit: 10,
-            });
-
-            if (errors.length > 0) {
-              const networkKeywords = [
-                "fetch failed",
-                "Unsafe URL detected",
-                "ENOTFOUND",
-                "EAI_AGAIN",
-                "ETIMEDOUT",
-                "network timeout",
-              ];
-
-              const areAllErrorsNetworkRelated = errors.every((err) =>
-                networkKeywords.some((keyword) => err.includes(keyword))
-              );
-
-              if (areAllErrorsNetworkRelated) {
-                igdbLogger.warn(
-                  { gameTitle: game.title, errorCount: errors.length },
-                  "Search failed due to network connectivity issues (DNS/Fetch/Safety check). Please check your internet connection."
-                );
-              } else {
-                igdbLogger.warn({ gameTitle: game.title, errors }, "Errors during search");
-              }
-            }
-
-            if (items.length === 0) {
-              continue;
-            }
-
-            // Double-check matches locally to ensure they actually match the game title
-            const matchedItems = items.filter((item) => releaseMatchesGame(item.title, game.title));
-
-            if (matchedItems.length === 0) {
-              igdbLogger.debug(
-                { gameTitle: game.title, originalCount: items.length },
-                "No items passed strict title matching"
-              );
+            const searchResult = await searchAndCategorizeItemsForGame(
+              game,
+              settings.downloadRules
+            );
+            if (!searchResult) {
               continue;
             }
 
             gamesWithResults++;
 
-            // Load download rules from settings
-            let minSeeders = 0;
-            let sortBy: "seeders" | "date" | "size" = "seeders";
-            let visibleCategoriesSet = new Set(["main", "update", "dlc", "extra"]);
-
-            if (settings.downloadRules) {
-              try {
-                const parsed = JSON.parse(settings.downloadRules);
-                const rules = downloadRulesSchema.parse(parsed);
-                minSeeders = rules.minSeeders;
-                sortBy = rules.sortBy;
-                visibleCategoriesSet = new Set(rules.visibleCategories);
-              } catch (error) {
-                igdbLogger.warn({ gameTitle: game.title, error }, "Failed to parse download rules");
-              }
-            }
-
-            // Filter items by seeders
-            let filteredItems = matchedItems.filter((item) => {
-              const seeders = item.seeders ?? 0;
-              return seeders >= minSeeders;
-            });
-
-            // Sort items according to rules
-            filteredItems = filteredItems.sort((a, b) => {
-              if (sortBy === "seeders") {
-                return (b.seeders ?? 0) - (a.seeders ?? 0);
-              } else if (sortBy === "date") {
-                return new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime();
-              } else {
-                // size
-                return (b.size ?? 0) - (a.size ?? 0);
-              }
-            });
-
-            // Filter and categorize items based on visible categories
-            const categorizedItems = filteredItems
-              .map((item) => {
-                const { category } = categorizeDownload(item.title);
-                return { item, category };
-              })
-              .filter(({ category }) => visibleCategoriesSet.has(category));
-
-            const mainItems = categorizedItems
-              .filter(({ category }) => category === "main")
-              .map(({ item }) => item);
-
-            const updateItems = categorizedItems
-              .filter(({ category }) => category === "update")
-              .map(({ item }) => item);
-
-            // Notify about updates if setting enabled
-            if (updateItems.length > 0 && settings.notifyUpdates) {
-              const notification = await storage.addNotification({
-                userId,
-                type: "info",
-                title: "Game Updates Available",
-                message: `${updateItems.length} update(s) found for ${game.title}`,
-                link: `modal:game:${game.id}`,
-              });
-              notifyUser("notification", notification);
-            }
+            const { mainItems } = searchResult;
 
             // Handle main items
             if (mainItems.length === 0) {
@@ -643,6 +673,42 @@ export async function checkAutoSearch() {
             }
           } catch (error) {
             igdbLogger.error({ gameTitle: game.title, error }, "Error searching for game");
+          }
+        }
+
+        // Search owned games for update packs only.
+        for (const game of ownedGames) {
+          try {
+            // Skip unreleased games if configured to do so
+            if (!settings.autoSearchUnreleased && game.releaseStatus !== "released") {
+              continue;
+            }
+
+            const searchResult = await searchAndCategorizeItemsForGame(
+              game,
+              settings.downloadRules
+            );
+            if (!searchResult) {
+              continue;
+            }
+
+            const { updateItems } = searchResult;
+
+            if (updateItems.length > 0 && settings.notifyUpdates) {
+              const notification = await storage.addNotification({
+                userId,
+                type: "info",
+                title: "Game Updates Available",
+                message: `${updateItems.length} update(s) found for ${game.title}`,
+                link: `modal:game:${game.id}`,
+              });
+              notifyUser("notification", notification);
+            }
+          } catch (error) {
+            igdbLogger.error(
+              { gameTitle: game.title, error },
+              "Error searching for owned game updates"
+            );
           }
         }
 

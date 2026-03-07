@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { Game, UserSettings } from "@shared/schema";
 
 // --- Mocks ---
@@ -22,6 +22,7 @@ vi.mock("../logger.js", () => ({
 
 // Mock storage
 const mockGetWantedGamesGroupedByUser = vi.fn();
+const mockGetUserGames = vi.fn();
 const mockGetUserSettings = vi.fn();
 const mockUpdateUserSettings = vi.fn();
 const mockAddNotification = vi.fn();
@@ -29,6 +30,7 @@ const mockAddNotification = vi.fn();
 vi.mock("../storage.js", () => ({
   storage: {
     getWantedGamesGroupedByUser: mockGetWantedGamesGroupedByUser,
+    getUserGames: mockGetUserGames,
     getUserSettings: mockGetUserSettings,
     updateUserSettings: mockUpdateUserSettings,
     addNotification: mockAddNotification,
@@ -76,6 +78,8 @@ const { checkAutoSearch } = await import("../cron.js");
 
 describe("Cron - checkAutoSearch", () => {
   const userId = "user-123";
+  const FIXED_NOW = new Date("2026-01-01T12:00:00.000Z");
+  const FIXED_PUB_DATE = "2026-01-01T10:00:00.000Z";
 
   const baseGame: Game = {
     id: "game-1",
@@ -85,7 +89,7 @@ describe("Cron - checkAutoSearch", () => {
     status: "wanted",
     releaseStatus: "released",
     hidden: false,
-    addedAt: new Date(),
+    addedAt: new Date(FIXED_NOW),
     completedAt: null,
     // Optional fields
     summary: null,
@@ -114,18 +118,25 @@ describe("Cron - checkAutoSearch", () => {
     xrelSceneReleases: true,
     xrelP2pReleases: false,
     autoSearchUnreleased: false, // Default: false
-    updatedAt: new Date(),
+    updatedAt: new Date(FIXED_NOW),
   };
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useFakeTimers();
+    vi.setSystemTime(FIXED_NOW);
 
     // Default mock setup:
     // - 1 user with 1 wanted game (released)
     // - User has auto search enabled
     mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [baseGame]]]));
+    mockGetUserGames.mockResolvedValue([]);
     mockGetUserSettings.mockResolvedValue(baseSettings);
     mockSearchAllIndexers.mockResolvedValue({ items: [], errors: [], total: 0 });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("should search for released games when autoSearchUnreleased is false (default)", async () => {
@@ -245,5 +256,105 @@ describe("Cron - checkAutoSearch", () => {
     await checkAutoSearch();
 
     expect(mockSearchAllIndexers).toHaveBeenCalled();
+  });
+
+  it("should not notify updates for wanted games", async () => {
+    const game = { ...baseGame, status: "wanted" as const, releaseStatus: "released" as const };
+    const settings = { ...baseSettings, notifyUpdates: true };
+
+    mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [game]]]));
+    mockGetUserSettings.mockResolvedValue(settings);
+    mockSearchAllIndexers.mockResolvedValue({
+      items: [
+        {
+          title: "Test Game Update v1.1",
+          link: "https://example.com/update",
+          pubDate: FIXED_PUB_DATE,
+          seeders: 100,
+          size: 1024,
+        },
+      ],
+      errors: [],
+      total: 1,
+    });
+
+    await checkAutoSearch();
+
+    expect(mockAddNotification).not.toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Game Updates Available" })
+    );
+  });
+
+  it("should notify updates for owned games", async () => {
+    const game = { ...baseGame, status: "owned" as const, releaseStatus: "released" as const };
+    const settings = { ...baseSettings, notifyUpdates: true };
+
+    mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, []]]));
+    mockGetUserGames.mockResolvedValue([game]);
+    mockGetUserSettings.mockResolvedValue(settings);
+    mockSearchAllIndexers.mockResolvedValue({
+      items: [
+        {
+          title: "Test Game Update v1.1",
+          link: "https://example.com/update",
+          pubDate: FIXED_PUB_DATE,
+          seeders: 100,
+          size: 1024,
+        },
+      ],
+      errors: [],
+      total: 1,
+    });
+
+    await checkAutoSearch();
+
+    expect(mockAddNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId,
+        title: "Game Updates Available",
+        message: expect.stringContaining(game.title),
+      })
+    );
+  });
+
+  it("should still notify game availability for wanted games when main results exist", async () => {
+    const game = { ...baseGame, status: "wanted" as const, releaseStatus: "released" as const };
+    const settings = { ...baseSettings, notifyUpdates: true, autoDownloadEnabled: false };
+
+    mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [game]]]));
+    mockGetUserSettings.mockResolvedValue(settings);
+    mockSearchAllIndexers.mockResolvedValue({
+      items: [
+        {
+          title: "Test Game MULTi",
+          link: "https://example.com/main",
+          pubDate: FIXED_PUB_DATE,
+          seeders: 120,
+          size: 10_000,
+        },
+        {
+          title: "Test Game Update v1.1",
+          link: "https://example.com/update",
+          pubDate: FIXED_PUB_DATE,
+          seeders: 100,
+          size: 2_000,
+        },
+      ],
+      errors: [],
+      total: 2,
+    });
+
+    await checkAutoSearch();
+
+    expect(mockAddNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId,
+        title: "Game Available",
+        message: expect.stringContaining(game.title),
+      })
+    );
+    expect(mockAddNotification).not.toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Game Updates Available" })
+    );
   });
 });

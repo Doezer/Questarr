@@ -11,8 +11,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Calendar, Star, Monitor, Gamepad2, Tag, Download, X } from "lucide-react";
+import { Calendar, Star, Monitor, Gamepad2, Tag, Download, Eye, EyeOff, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { type Game } from "@shared/schema";
 import StatusBadge from "./StatusBadge";
 
@@ -55,6 +56,12 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     },
   });
 
+  const hiddenMutation = useHiddenMutation({
+    hiddenSuccessMessage: "Game hidden from library",
+    unhiddenSuccessMessage: "Game unhidden",
+    errorMessage: "Failed to update game visibility",
+  });
+
   if (!game) return null;
 
   const handleRemoveGame = () => {
@@ -63,6 +70,10 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
 
   const handleDownloadClick = () => {
     setDownloadOpen(true);
+  };
+
+  const handleToggleHidden = () => {
+    hiddenMutation.mutate({ gameId: game.id, hidden: !game.hidden });
   };
 
   const SUMMARY_LIMIT = 280;
@@ -161,6 +172,17 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                   >
                     <Download className="w-4 h-4" />
                     Download
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={handleToggleHidden}
+                    disabled={hiddenMutation.isPending}
+                    className="gap-2"
+                    data-testid={`button-toggle-hidden-quick-${game.id}`}
+                  >
+                    {game.hidden ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                    {hiddenMutation.isPending ? "Updating..." : game.hidden ? "Unhide" : "Hide"}
                   </Button>
                   <Button
                     variant="destructive"

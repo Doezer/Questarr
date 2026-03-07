@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { Game, UserSettings } from "@shared/schema";
 
 // --- Mocks ---
@@ -78,6 +78,8 @@ const { checkAutoSearch } = await import("../cron.js");
 
 describe("Cron - checkAutoSearch", () => {
   const userId = "user-123";
+  const FIXED_NOW = new Date("2026-01-01T12:00:00.000Z");
+  const FIXED_PUB_DATE = "2026-01-01T10:00:00.000Z";
 
   const baseGame: Game = {
     id: "game-1",
@@ -87,7 +89,7 @@ describe("Cron - checkAutoSearch", () => {
     status: "wanted",
     releaseStatus: "released",
     hidden: false,
-    addedAt: new Date(),
+    addedAt: new Date(FIXED_NOW),
     completedAt: null,
     // Optional fields
     summary: null,
@@ -116,11 +118,13 @@ describe("Cron - checkAutoSearch", () => {
     xrelSceneReleases: true,
     xrelP2pReleases: false,
     autoSearchUnreleased: false, // Default: false
-    updatedAt: new Date(),
+    updatedAt: new Date(FIXED_NOW),
   };
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useFakeTimers();
+    vi.setSystemTime(FIXED_NOW);
 
     // Default mock setup:
     // - 1 user with 1 wanted game (released)
@@ -129,6 +133,10 @@ describe("Cron - checkAutoSearch", () => {
     mockGetUserGames.mockResolvedValue([]);
     mockGetUserSettings.mockResolvedValue(baseSettings);
     mockSearchAllIndexers.mockResolvedValue({ items: [], errors: [], total: 0 });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("should search for released games when autoSearchUnreleased is false (default)", async () => {
@@ -261,7 +269,7 @@ describe("Cron - checkAutoSearch", () => {
         {
           title: "Test Game Update v1.1",
           link: "https://example.com/update",
-          pubDate: new Date().toISOString(),
+          pubDate: FIXED_PUB_DATE,
           seeders: 100,
           size: 1024,
         },
@@ -289,7 +297,7 @@ describe("Cron - checkAutoSearch", () => {
         {
           title: "Test Game Update v1.1",
           link: "https://example.com/update",
-          pubDate: new Date().toISOString(),
+          pubDate: FIXED_PUB_DATE,
           seeders: 100,
           size: 1024,
         },
@@ -320,14 +328,14 @@ describe("Cron - checkAutoSearch", () => {
         {
           title: "Test Game MULTi",
           link: "https://example.com/main",
-          pubDate: new Date().toISOString(),
+          pubDate: FIXED_PUB_DATE,
           seeders: 120,
           size: 10_000,
         },
         {
           title: "Test Game Update v1.1",
           link: "https://example.com/update",
-          pubDate: new Date().toISOString(),
+          pubDate: FIXED_PUB_DATE,
           seeders: 100,
           size: 2_000,
         },

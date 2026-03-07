@@ -50,36 +50,96 @@ function categorizeSearchItems(
   items: Awaited<ReturnType<typeof searchAllIndexers>>["items"],
   rules: AutoSearchRules
 ): AutoSearchCategorizedItems {
-  let filteredItems = items.filter((item) => {
-    const seeders = item.seeders ?? 0;
-    return seeders >= rules.minSeeders;
-  });
-
-  filteredItems = filteredItems.sort((a, b) => {
-    if (rules.sortBy === "seeders") {
-      return (b.seeders ?? 0) - (a.seeders ?? 0);
-    }
-    if (rules.sortBy === "date") {
-      return new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime();
-    }
-    return (b.size ?? 0) - (a.size ?? 0);
-  });
-
-  const categorizedItems = filteredItems
-    .map((item) => {
-      const { category } = categorizeDownload(item.title);
-      return { item, category };
+  const sortedItems = items
+    .filter((item) => {
+      const seeders = item.seeders ?? 0;
+      return seeders >= rules.minSeeders;
     })
-    .filter(({ category }) => rules.visibleCategoriesSet.has(category));
+    .sort((a, b) => {
+      if (rules.sortBy === "seeders") {
+        return (b.seeders ?? 0) - (a.seeders ?? 0);
+      }
+      if (rules.sortBy === "date") {
+        return new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime();
+      }
+      return (b.size ?? 0) - (a.size ?? 0);
+    });
 
-  return {
-    mainItems: categorizedItems
-      .filter(({ category }) => category === "main")
-      .map(({ item }) => item),
-    updateItems: categorizedItems
-      .filter(({ category }) => category === "update")
-      .map(({ item }) => item),
-  };
+  return sortedItems.reduce<AutoSearchCategorizedItems>(
+    (acc, item) => {
+      const { category } = categorizeDownload(item.title);
+
+      if (!rules.visibleCategoriesSet.has(category)) {
+        return acc;
+      }
+
+      if (category === "main") {
+        acc.mainItems.push(item);
+      } else if (category === "update") {
+        acc.updateItems.push(item);
+      }
+
+      return acc;
+    },
+    { mainItems: [], updateItems: [] }
+  );
+}
+
+async function searchAndCategorizeItemsForGame(
+  game: Pick<Game, "title">,
+  downloadRules: string | null
+): Promise<AutoSearchCategorizedItems | null> {
+  const { items, errors } = await searchAllIndexers({
+    query: game.title,
+    limit: 10,
+  });
+
+  if (errors.length > 0) {
+    const networkKeywords = [
+      "fetch failed",
+      "Unsafe URL detected",
+      "ENOTFOUND",
+      "EAI_AGAIN",
+      "ETIMEDOUT",
+      "network timeout",
+    ];
+
+    const areAllErrorsNetworkRelated = errors.every((err) =>
+      networkKeywords.some((keyword) => err.includes(keyword))
+    );
+
+    if (areAllErrorsNetworkRelated) {
+      igdbLogger.warn(
+        { gameTitle: game.title, errorCount: errors.length },
+        "Search failed due to network connectivity issues (DNS/Fetch/Safety check). Please check your internet connection."
+      );
+    } else {
+      igdbLogger.warn({ gameTitle: game.title, errors }, "Errors during search");
+    }
+  }
+
+  if (items.length === 0) {
+    return null;
+  }
+
+  const matchedItems = items.filter((item) => releaseMatchesGame(item.title, game.title));
+  if (matchedItems.length === 0) {
+    igdbLogger.debug(
+      { gameTitle: game.title, originalCount: items.length },
+      "No items passed strict title matching"
+    );
+    return null;
+  }
+
+  let rules: AutoSearchRules;
+  try {
+    rules = getAutoSearchRules(downloadRules);
+  } catch (error) {
+    igdbLogger.warn({ gameTitle: game.title, error }, "Failed to parse download rules");
+    rules = getAutoSearchRules(null);
+  }
+
+  return categorizeSearchItems(matchedItems, rules);
 }
 
 export function startCronJobs() {
@@ -525,62 +585,17 @@ export async function checkAutoSearch() {
               continue;
             }
 
-            // Search for the game across all indexers
-            const { items, errors } = await searchAllIndexers({
-              query: game.title,
-              limit: 10,
-            });
-
-            if (errors.length > 0) {
-              const networkKeywords = [
-                "fetch failed",
-                "Unsafe URL detected",
-                "ENOTFOUND",
-                "EAI_AGAIN",
-                "ETIMEDOUT",
-                "network timeout",
-              ];
-
-              const areAllErrorsNetworkRelated = errors.every((err) =>
-                networkKeywords.some((keyword) => err.includes(keyword))
-              );
-
-              if (areAllErrorsNetworkRelated) {
-                igdbLogger.warn(
-                  { gameTitle: game.title, errorCount: errors.length },
-                  "Search failed due to network connectivity issues (DNS/Fetch/Safety check). Please check your internet connection."
-                );
-              } else {
-                igdbLogger.warn({ gameTitle: game.title, errors }, "Errors during search");
-              }
-            }
-
-            if (items.length === 0) {
-              continue;
-            }
-
-            // Double-check matches locally to ensure they actually match the game title
-            const matchedItems = items.filter((item) => releaseMatchesGame(item.title, game.title));
-
-            if (matchedItems.length === 0) {
-              igdbLogger.debug(
-                { gameTitle: game.title, originalCount: items.length },
-                "No items passed strict title matching"
-              );
+            const searchResult = await searchAndCategorizeItemsForGame(
+              game,
+              settings.downloadRules
+            );
+            if (!searchResult) {
               continue;
             }
 
             gamesWithResults++;
 
-            let rules: AutoSearchRules;
-            try {
-              rules = getAutoSearchRules(settings.downloadRules);
-            } catch (error) {
-              igdbLogger.warn({ gameTitle: game.title, error }, "Failed to parse download rules");
-              rules = getAutoSearchRules(null);
-            }
-
-            const { mainItems } = categorizeSearchItems(matchedItems, rules);
+            const { mainItems } = searchResult;
 
             // Handle main items
             if (mainItems.length === 0) {
@@ -669,33 +684,15 @@ export async function checkAutoSearch() {
               continue;
             }
 
-            const { items, errors } = await searchAllIndexers({
-              query: game.title,
-              limit: 10,
-            });
-
-            if (errors.length > 0) {
-              igdbLogger.warn({ gameTitle: game.title, errors }, "Errors during owned game search");
-            }
-
-            if (items.length === 0) {
+            const searchResult = await searchAndCategorizeItemsForGame(
+              game,
+              settings.downloadRules
+            );
+            if (!searchResult) {
               continue;
             }
 
-            const matchedItems = items.filter((item) => releaseMatchesGame(item.title, game.title));
-            if (matchedItems.length === 0) {
-              continue;
-            }
-
-            let rules: AutoSearchRules;
-            try {
-              rules = getAutoSearchRules(settings.downloadRules);
-            } catch (error) {
-              igdbLogger.warn({ gameTitle: game.title, error }, "Failed to parse download rules");
-              rules = getAutoSearchRules(null);
-            }
-
-            const { updateItems } = categorizeSearchItems(matchedItems, rules);
+            const { updateItems } = searchResult;
 
             if (updateItems.length > 0 && settings.notifyUpdates) {
               const notification = await storage.addNotification({

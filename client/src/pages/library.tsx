@@ -1,11 +1,14 @@
+
+import React, { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import GameGrid from "@/components/GameGrid";
 import { type Game } from "@shared/schema";
 import { type GameStatus } from "@/components/StatusBadge";
+import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { useToast } from "@/hooks/use-toast";
 import EmptyState from "@/components/EmptyState";
 import { Gamepad2, LayoutGrid, List } from "lucide-react";
-import { useState, useEffect, useMemo } from "react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Button } from "@/components/ui/button";
 import { Settings2 } from "lucide-react";
@@ -53,17 +56,7 @@ export default function LibraryPage() {
 
   const statusMutation = useMutation({
     mutationFn: async ({ gameId, status }: { gameId: string; status: GameStatus }) => {
-      const token = localStorage.getItem("token");
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
-      const response = await fetch(`/api/games/${gameId}/status`, {
-        method: "PATCH",
-        headers,
-        body: JSON.stringify({ status }),
-      });
-      if (!response.ok) throw new Error("Failed to update status");
+      const response = await apiRequest("PATCH", `/api/games/${gameId}/status`, { status });
       return response.json();
     },
     onSuccess: () => {
@@ -73,6 +66,12 @@ export default function LibraryPage() {
     onError: () => {
       toast({ description: "Failed to update game status", variant: "destructive" });
     },
+  });
+
+  const hiddenMutation = useHiddenMutation({
+    hiddenSuccessMessage: "Game hidden from library",
+    unhiddenSuccessMessage: "Game unhidden",
+    errorMessage: "Failed to update game visibility",
   });
 
   return (
@@ -139,6 +138,7 @@ export default function LibraryPage() {
         <GameGrid
           games={libraryGames}
           onStatusChange={(id, status) => statusMutation.mutate({ gameId: id, status })}
+          onToggleHidden={(id, hidden) => hiddenMutation.mutate({ gameId: id, hidden })}
           isLoading={isLoading}
           viewMode={viewMode}
           density={listDensity}

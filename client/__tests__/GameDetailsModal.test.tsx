@@ -38,7 +38,7 @@ vi.mock("lucide-react", () => ({
 }));
 
 const mockGame = {
-  id: 1,
+  id: "1",
   title: "Test Game",
   summary: "This is a test summary for the game.",
   status: "wanted",

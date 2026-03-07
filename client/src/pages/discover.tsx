@@ -9,6 +9,7 @@ import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { useToast } from "@/hooks/use-toast";
 import { mapGameToInsertGame } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
+import { hideDiscoveryGame } from "@/pages/discover-hidden-mutation";
 import {
   Select,
   SelectContent,
@@ -268,29 +269,10 @@ export default function DiscoverPage() {
 
   // Hide game mutation
 
-  const parseHiddenMutationResponse = async (response: Response) => {
-    const data = (await response.json()) as { hidden: boolean };
-    return { hidden: data.hidden };
-  };
-
   const hideGameMutation = useHiddenMutation<Game>({
     mutationFn: async (game: Game) => {
       const localId = game.igdbId ? igdbToLocalIdMap.get(game.igdbId) : undefined;
-
-      if (localId) {
-        const response = await apiRequest("PATCH", `/api/games/${localId}/hidden`, {
-          hidden: true,
-        });
-        return parseHiddenMutationResponse(response);
-      }
-
-      const gameData = mapGameToInsertGame(game);
-      const response = await apiRequest("POST", "/api/games", {
-        ...gameData,
-        status: "wanted",
-        hidden: true,
-      });
-      return parseHiddenMutationResponse(response);
+      return hideDiscoveryGame(game, localId);
     },
     hiddenSuccessMessage: "Game hidden from discovery",
     unhiddenSuccessMessage: "Game unhidden",

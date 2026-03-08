@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient } from "@/lib/queryClient";
+import { queryClient, clearSearchCache } from "@/lib/queryClient";
+import { refreshIndexerQueries } from "@/lib/indexers-cache";
 import { asZodType, cn, compareEnabledPriorityName } from "@/lib/utils";
 import { Plus, Edit, Trash2, Check, X, Activity, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -75,7 +76,8 @@ export default function IndexersPage() {
       return response.json();
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/indexers"] });
+      void refreshIndexerQueries(queryClient);
+      clearSearchCache();
       setIsProwlarrDialogOpen(false);
       toast({
         title: "Sync successful",
@@ -107,7 +109,8 @@ export default function IndexersPage() {
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/indexers"] });
+      void refreshIndexerQueries(queryClient);
+      clearSearchCache();
       setIsDialogOpen(false);
       setEditingIndexer(null);
       toast({ title: "Indexer added successfully" });
@@ -133,7 +136,8 @@ export default function IndexersPage() {
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/indexers"] });
+      void refreshIndexerQueries(queryClient);
+      clearSearchCache();
       setIsDialogOpen(false);
       setEditingIndexer(null);
       toast({ title: "Indexer updated successfully" });
@@ -157,7 +161,8 @@ export default function IndexersPage() {
       if (!response.ok) throw new Error("Failed to delete indexer");
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/indexers"] });
+      void refreshIndexerQueries(queryClient);
+      clearSearchCache();
       toast({ title: "Indexer deleted successfully" });
     },
     onError: () => {
@@ -181,7 +186,8 @@ export default function IndexersPage() {
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/indexers"] });
+      void refreshIndexerQueries(queryClient);
+      clearSearchCache();
     },
   });
 

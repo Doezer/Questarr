@@ -56,12 +56,6 @@ export function cleanReleaseName(releaseName: string): string {
   // 3. Remove version patterns explicitly
   cleaned = cleaned.replace(VERSION_REGEX, " ");
 
-  cleaned = cleaned.replace(/[._-]/g, " "); // Replace dots, underscores, dashes with space
-
-  // Remove common release group suffixes (usually -GROUP at the end)
-  cleaned = cleaned.replace(/\s-\s?\w+$/g, "");
-  cleaned = cleaned.replace(/-(\w+)$/g, " ");
-
   // 4. Replace dots, underscores, dashes with space
   cleaned = cleaned.replace(/[._-]/g, " ");
 

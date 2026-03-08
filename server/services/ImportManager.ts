@@ -11,6 +11,7 @@ import {
 } from "./ImportStrategies.js";
 import { DownloaderManager } from "../downloaders.js";
 import fs from "fs-extra";
+import path from "path";
 
 export class ImportManager {
   constructor(
@@ -21,21 +22,25 @@ export class ImportManager {
     private rommService: RomMService
   ) {}
 
+  private getPrimaryPlatformId(game: { platforms?: unknown }): number | undefined {
+    if (!Array.isArray(game.platforms)) return undefined;
+    for (const p of game.platforms) {
+      if (typeof p === "number") return p;
+      if (typeof p === "string" && /^\d+$/.test(p)) return Number(p);
+      if (p && typeof p === "object" && "id" in p) {
+        const id = (p as { id?: unknown }).id;
+        if (typeof id === "number") return id;
+        if (typeof id === "string" && /^\d+$/.test(id)) return Number(id);
+      }
+    }
+    return undefined;
+  }
+
   /**
    * Main entry point when a download triggers "Completed" or "Processing" state.
    */
   async processImport(downloadId: string, remoteDownloadPath: string): Promise<void> {
-    const config = await this.storage.getImportConfig();
-    if (!config.enablePostProcessing) {
-      console.log(
-        `[ImportManager] Post-processing disabled. Skipping import for download ${downloadId}.`
-      );
-      await this.storage.updateGameDownloadStatus(downloadId, "completed");
-      return;
-    }
-
     const download = await this.storage.getGameDownload(downloadId);
-
     if (!download) {
       console.warn(`[ImportManager] Download ${downloadId} not found.`);
       return;
@@ -45,7 +50,16 @@ export class ImportManager {
     if (!game) {
       console.error(`[ImportManager] Game not found for download ${downloadId}`);
       await this.storage.updateGameDownloadStatus(downloadId, "error");
-      return; // Error
+      return;
+    }
+
+    const config = await this.storage.getImportConfig(game.userId ?? undefined);
+    if (!config.enablePostProcessing) {
+      console.log(
+        `[ImportManager] Post-processing disabled. Skipping import for download ${downloadId}.`
+      );
+      await this.storage.updateGameDownloadStatus(downloadId, "completed");
+      return;
     }
 
     try {
@@ -80,8 +94,9 @@ export class ImportManager {
 
       // 3. Strategy Selection
       let strategy: ImportStrategy;
-      const rommPlatform = game.igdbId
-        ? await this.platformService.getRomMPlatform(game.igdbId)
+      const primaryPlatformId = this.getPrimaryPlatformId(game);
+      const rommPlatform = primaryPlatformId
+        ? await this.platformService.getRomMPlatform(primaryPlatformId)
         : null;
 
       if (rommPlatform) {
@@ -128,7 +143,7 @@ export class ImportManager {
       await this.storage.updateGameStatus(game.id, { status: "completed" }); // Mark game as completed
 
       // 7. Post-Import Actions (Scan)
-      const rommConfig = await this.storage.getRomMConfig();
+      const rommConfig = await this.storage.getRomMConfig(game.userId ?? undefined);
       if (rommConfig.enabled && plan.strategy === "romm") {
         await this.rommService.scanLibrary(rommPlatform || undefined);
       }
@@ -188,15 +203,28 @@ export class ImportManager {
       throw new Error(`Game not found for download ${downloadId}`);
     }
 
+    const config = await this.storage.getImportConfig(game.userId ?? undefined);
+
     // Execute via the proper strategy
     let strategy: ImportStrategy;
     if (overridePlan.strategy === "romm") {
-      const rommPlatform = game.igdbId
-        ? await this.platformService.getRomMPlatform(game.igdbId)
+      const primaryPlatformId = this.getPrimaryPlatformId(game);
+      const rommPlatform = primaryPlatformId
+        ? await this.platformService.getRomMPlatform(primaryPlatformId)
         : null;
       strategy = new RomMImportStrategy(rommPlatform || "unknown");
     } else {
       strategy = new PCImportStrategy();
+    }
+
+    if (overridePlan.proposedPath) {
+      const resolvedRoot = path.resolve(config.libraryRoot);
+      const resolvedTarget = path.resolve(overridePlan.proposedPath);
+      const insideRoot =
+        resolvedTarget === resolvedRoot || resolvedTarget.startsWith(resolvedRoot + path.sep);
+      if (!insideRoot) {
+        throw new Error("Proposed path is outside configured library root");
+      }
     }
 
     const planToExecute: ImportReview = {
@@ -213,10 +241,11 @@ export class ImportManager {
 
     // Post-Import Actions (Scan RomM library)
     if (overridePlan.strategy === "romm") {
-      const rommConfig = await this.storage.getRomMConfig();
+      const rommConfig = await this.storage.getRomMConfig(game.userId ?? undefined);
       if (rommConfig.enabled) {
-        const rommPlatform = game.igdbId
-          ? await this.platformService.getRomMPlatform(game.igdbId)
+        const primaryPlatformId = this.getPrimaryPlatformId(game);
+        const rommPlatform = primaryPlatformId
+          ? await this.platformService.getRomMPlatform(primaryPlatformId)
           : null;
         await this.rommService.scanLibrary(rommPlatform || undefined);
       }

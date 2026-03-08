@@ -20,6 +20,8 @@ export const importManager = new ImportManager(
 );
 
 // Initialize any defaults
-platformMappingService.initializeDefaults().catch(err => {
-  console.error("Failed to initialize platform mappings:", err);
-});
+if (typeof (storage as { getPlatformMappings?: unknown }).getPlatformMappings === "function") {
+  platformMappingService.initializeDefaults().catch((err) => {
+    console.error("Failed to initialize platform mappings:", err);
+  });
+}

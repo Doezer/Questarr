@@ -5,18 +5,28 @@ import { storage } from "../storage.js";
 
 export const systemRouter = Router();
 
+type AuthedRequest = import("express").Request & { user?: { id: string } };
+
 // GET /api/system/browse?path=/data
 systemRouter.get("/browse", async (req, res) => {
   try {
     const rawPath = (req.query.path as string) || "/";
-    const config = await storage.getImportConfig();
-    const root = config.libraryRoot || "/data";
+    const userId = (req as AuthedRequest).user?.id;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const config = await storage.getImportConfig(userId);
+    const root = path.resolve(config.libraryRoot || "/data");
 
-    // Normalize and remove leading slash to prevent absolute path override
+    if (rawPath.startsWith("\\\\") || /^[a-zA-Z]:[\\/]/.test(rawPath)) {
+      return res.status(400).json({ error: "Invalid path: absolute host paths are not allowed" });
+    }
+
     const userPath = path.normalize(rawPath).replace(/^[/\\]+/, "");
-    const validPath = path.join(root, userPath);
+    if (userPath.split(/[\\/]+/).includes("..")) {
+      return res.status(400).json({ error: "Invalid path: traversal detected" });
+    }
 
-    if (!validPath.startsWith(root)) {
+    const validPath = path.resolve(root, userPath);
+    if (validPath !== root && !validPath.startsWith(root + path.sep)) {
       return res.status(400).json({ error: "Invalid path: traversal detected" });
     }
 

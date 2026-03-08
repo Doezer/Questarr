@@ -68,7 +68,6 @@ import helmet from "helmet";
 import { steamRoutes } from "./steam-routes.js";
 import { importRouter } from "./routes/import.js";
 import { systemRouter } from "./routes/system.js";
-import { settingsRouter } from "./routes/settings.js";
 
 // ⚡ Bolt: Simple in-memory cache implementation to avoid external dependencies
 // Caches storage info for 30 seconds to prevent spamming downloaders
@@ -731,10 +730,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     authenticateToken(req, res, next);
   });
 
-  // Mount Feature Routers
-  app.use("/api/imports", importRouter);
-  app.use("/api/system", systemRouter);
-  app.use("/api/settings", settingsRouter);
+  // Mount Feature Routers (explicitly protected)
+  app.use("/api/imports", authenticateToken, importRouter);
+  app.use("/api/system", authenticateToken, systemRouter);
 
   // Sync indexers from Prowlarr
 

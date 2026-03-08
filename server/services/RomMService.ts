@@ -4,6 +4,23 @@ import axios, { AxiosInstance } from "axios";
 export class RomMService {
   constructor(private storage: IStorage) {}
 
+  private async getScanEndpointCandidates(): Promise<string[]> {
+    const configured = (await this.storage.getSystemConfig("romm_scan_endpoint"))?.trim();
+    const envConfigured = process.env.ROMM_SCAN_ENDPOINT?.trim();
+
+    const candidates = [
+      configured,
+      envConfigured,
+      "/api/scan",
+      "/api/library/scan",
+      "/api/tasks/scan",
+    ]
+      .filter((v): v is string => !!v)
+      .map((v) => (v.startsWith("/") ? v : `/${v}`));
+
+    return Array.from(new Set(candidates));
+  }
+
   private async getClient(): Promise<AxiosInstance | null> {
     const config = await this.storage.getRomMConfig();
     if (!config.enabled || !config.url) {
@@ -57,35 +74,23 @@ export class RomMService {
     if (!client) return false;
 
     try {
-      // RomM endpoint for scanning: POST /api/scan
-      // It might accept a body with { platforms: ["snes"] } ?
-      // Reviewing RomM docs (mental check):
-      // POST /api/library/scan
+      const payload = platform ? { platforms: [platform] } : {};
+      const endpoints = await this.getScanEndpointCandidates();
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const payload: any = {
-        // RomM specific payload structure
-      };
+      console.log(
+        `[RomMService] Triggering scan for ${platform || "all platforms"} using endpoints: ${endpoints.join(", ")}`
+      );
 
-      if (platform) {
-        // If RomM supports targeted scan
-        // payload.platforms = [platform];
+      for (const endpoint of endpoints) {
+        const response = await client.post(endpoint, payload);
+        if (response.status >= 200 && response.status < 300) {
+          console.log(`[RomMService] Scan triggered successfully via ${endpoint}.`);
+          return true;
+        }
       }
 
-      // RomM 3.0+ uses /api/tasks/scan I think?
-      // Let's assume standard /api/library/scan for now or similar.
-      // If endpoint fails, we log it.
-
-      console.log(`[RomMService] Triggering scan for ${platform || "all platforms"}...`);
-      const response = await client.post("/api/scan", payload); // Verify endpoint
-
-      if (response.status >= 200 && response.status < 300) {
-        console.log("[RomMService] Scan triggered successfully.");
-        return true;
-      } else {
-        console.error(`[RomMService] Scan failed with status ${response.status}:`, response.data);
-        return false;
-      }
+      console.error("[RomMService] Scan failed on all configured endpoints.");
+      return false;
     } catch (error) {
       console.error("[RomMService] Scan request error:", error);
       return false;

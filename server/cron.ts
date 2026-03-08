@@ -339,7 +339,7 @@ export async function checkGameUpdates() {
   );
 }
 
-async function checkDownloadStatus() {
+export async function checkDownloadStatus() {
   const downloadingDownloads = await storage.getDownloadingGameDownloads();
 
   igdbLogger.info({ downloadingCount: downloadingDownloads.length }, "Checking download status");

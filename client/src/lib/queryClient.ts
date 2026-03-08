@@ -89,3 +89,17 @@ export const queryClient = new QueryClient({
     },
   },
 });
+
+/**
+ * Removes all cached torrent/NZB search results from the query cache.
+ * Should be called whenever the set of configured indexers changes so that
+ * the next download search fetches fresh data from all active indexers.
+ */
+export function clearSearchCache(): void {
+  queryClient.removeQueries({
+    predicate: (query) => {
+      const key = query.queryKey[0];
+      return typeof key === "string" && key.startsWith("/api/search");
+    },
+  });
+}

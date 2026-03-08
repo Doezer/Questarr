@@ -204,7 +204,6 @@ importRouter.patch("/romm", async (req, res) => {
         rommUrl: updates.url,
         rommApiKey: updates.apiKey,
       });
-      // Return formatted config
       res.json({
         enabled: updates.enabled ?? settings.rommEnabled,
         url: updates.url ?? settings.rommUrl,
@@ -220,31 +219,13 @@ importRouter.patch("/romm", async (req, res) => {
 });
 
 // --- Operations ---
-// Returns list of downloads that require manual review (status: manual_review_required)
-// We might want to compute the plan on the fly if not persisted?
-// Implementation decision: Just return the downloads. Frontend can request "plan" or we compute it here.
-// Better: Return a simplified object.
 importRouter.get("/pending", async (req, res) => {
   try {
     const downloads = await storage.getDownloadingGameDownloads();
     const pending = downloads.filter((d) => d.status === "manual_review_required");
 
-    // We should probably include the "Plan" or at least the reason.
-    // Since we didn't persist the plan in a separate table, we might have to re-generate it?
-    // Or we rely on the frontend to suggest the plan?
-    // Let's re-generate the plan for the UI to display, so the user sees what WOULD happen.
-
     const results = await Promise.all(
       pending.map(async (d) => {
-        // We need the original remote path to re-plan.
-        // Problem: We don't distinctly store `remotePath` on the GameDownload unless it's the `downloadDir` from downloader?
-        // `ImportManager` gets it from `cron` which gets it from `DownloaderManager`.
-        // We can't easily get it here without querying the downloader again.
-        //
-        // Workaround: We can't re-plan easily without the path.
-        // BUT, maybe the user verifies the "Path" in the UI.
-        // Let's return the Game info and the Download info.
-
         const game = await storage.getGame(d.gameId);
         return {
           id: d.id,
@@ -264,8 +245,6 @@ importRouter.get("/pending", async (req, res) => {
   }
 });
 
-// POST /api/imports/:id/confirm
-// Body: { method: "copy" | "move" | "link", targetPath: string, strategy: "pc" | "romm" }
 importRouter.post("/:id/confirm", async (req, res) => {
   const { id } = req.params;
   try {

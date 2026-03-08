@@ -29,13 +29,22 @@ export interface ImportStrategy {
 
 export class PCImportStrategy implements ImportStrategy {
   canHandle(game: Game): boolean {
-    // Basic logic: if platforms include PC (id 6) or if it's not a known console platform?
-    // For now, let's assume if it has "PC (Microsoft Windows)" (IGDB ID 6) it's a PC game.
-    // Or we can rely on download category.
-    // Let's check platforms JSON.
-    return (
-      !!game.platforms?.includes("PC (Microsoft Windows)") || !!game.platforms?.includes("Win")
-    );
+    if (!Array.isArray(game.platforms)) return false;
+
+    // IGDB platform id 6 is PC (Microsoft Windows).
+    for (const platform of game.platforms) {
+      if (typeof platform === "number" && platform === 6) return true;
+      if (typeof platform === "string") {
+        if (/^6$/.test(platform)) return true;
+        if (/pc|windows|win/i.test(platform)) return true;
+      }
+      if (platform && typeof platform === "object" && "id" in platform) {
+        const id = (platform as { id?: unknown }).id;
+        if (id === 6 || id === "6") return true;
+      }
+    }
+
+    return false;
   }
 
   async planImport(
@@ -162,18 +171,25 @@ export class RomMImportStrategy implements ImportStrategy {
   }
 
   async executeImport(review: ImportReview, _deleteSource: boolean): Promise<void> {
-    console.log(`[RomMImportStrategy] Moving ${review.originalPath} to ${review.proposedPath}`);
+    let targetPath = review.proposedPath;
+
+    // Manual review UI can provide a directory path. In that case, preserve original filename.
+    if (!path.extname(targetPath)) {
+      targetPath = path.join(targetPath, path.basename(review.originalPath));
+    }
+
+    console.log(`[RomMImportStrategy] Moving ${review.originalPath} to ${targetPath}`);
 
     // Ensure parent dir
-    await fs.ensureDir(path.dirname(review.proposedPath));
+    await fs.ensureDir(path.dirname(targetPath));
 
     // Atomic Move Logic:
     // 1. Move to .tmp file
-    const tempDest = review.proposedPath + ".tmp";
+    const tempDest = targetPath + ".tmp";
     await fs.move(review.originalPath, tempDest, { overwrite: true });
 
     // 2. Rename to final
-    await fs.move(tempDest, review.proposedPath, { overwrite: true });
+    await fs.move(tempDest, targetPath, { overwrite: true });
 
     // 3. Delete Source folder if we imported a file from a folder and deleteSource is true
     // If originalPath was a file inside a folder, and we want to clean up the folder...

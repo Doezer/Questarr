@@ -140,7 +140,9 @@ export class ImportManager {
       }
 
       await this.storage.updateGameDownloadStatus(downloadId, "imported");
-      await this.storage.updateGameStatus(game.id, { status: "completed" }); // Mark game as completed
+      if (game.status !== "completed") {
+        await this.storage.updateGameStatus(game.id, { status: "owned" });
+      }
 
       // 7. Post-Import Actions (Scan)
       const rommConfig = await this.storage.getRomMConfig(game.userId ?? undefined);
@@ -237,7 +239,9 @@ export class ImportManager {
     const downloadStatus = "imported";
     await this.storage.updateGameDownloadStatus(downloadId, downloadStatus);
 
-    await this.storage.updateGameStatus(game.id, { status: "completed" });
+    if (game.status !== "completed") {
+      await this.storage.updateGameStatus(game.id, { status: "owned" });
+    }
 
     // Post-Import Actions (Scan RomM library)
     if (overridePlan.strategy === "romm") {

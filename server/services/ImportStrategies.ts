@@ -42,7 +42,7 @@ export class PCImportStrategy implements ImportStrategy {
     sourcePath: string,
     game: Game,
     targetRoot: string,
-    _config: ImportConfig
+    config: ImportConfig
   ): Promise<ImportReview> {
     // For PC games, we usually move the whole folder or authorized installer files.
     // Assumption: sourcePath is a directory containing the game.
@@ -52,8 +52,12 @@ export class PCImportStrategy implements ImportStrategy {
     const cleanTitle = game.title.replace(/[\\/:*?"<>|]/g, "");
     const destination = path.join(targetRoot, "PC", cleanTitle);
 
+    const destinationExists = await fs.pathExists(destination);
+    const needsReview = destinationExists && !config.overwriteExisting;
+
     return {
-      needsReview: false, // PC imports usually straightforward if we trust the folder
+      needsReview,
+      reviewReason: needsReview ? "Destination already exists" : undefined,
       originalPath: sourcePath,
       proposedPath: destination,
       strategy: "pc",

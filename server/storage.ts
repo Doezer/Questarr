@@ -157,15 +157,11 @@ export interface IStorage {
     id: string,
     updates: Partial<InsertPlatformMapping>
   ): Promise<PlatformMapping | undefined>;
-  updatePlatformMapping(
-    id: string,
-    updates: Partial<InsertPlatformMapping>
-  ): Promise<PlatformMapping | undefined>;
   removePlatformMapping(id: string): Promise<boolean>;
 
   // Config Accessors (Helper methods)
-  getImportConfig(): Promise<ImportConfig>;
-  getRomMConfig(): Promise<RomMConfig>;
+  getImportConfig(userId?: string): Promise<ImportConfig>;
+  getRomMConfig(userId?: string): Promise<RomMConfig>;
 }
 
 export class MemStorage implements IStorage {
@@ -944,27 +940,30 @@ export class MemStorage implements IStorage {
   }
 
   // Config Accessors
-  async getImportConfig(): Promise<ImportConfig> {
-    // Return first available settings or default
-    const firstSettings = this.userSettings.values().next().value;
+  async getImportConfig(userId?: string): Promise<ImportConfig> {
+    const scopedSettings = userId
+      ? Array.from(this.userSettings.values()).find((s) => s.userId === userId)
+      : this.userSettings.values().next().value;
     return {
-      enablePostProcessing: firstSettings?.enablePostProcessing ?? true,
-      autoUnpack: firstSettings?.autoUnpack ?? false,
-      renamePattern: firstSettings?.renamePattern ?? "{Title} ({Region})",
-      overwriteExisting: firstSettings?.overwriteExisting ?? false,
-      deleteSource: firstSettings?.deleteSource ?? true,
-      ignoredExtensions: firstSettings?.ignoredExtensions ?? [],
-      minFileSize: firstSettings?.minFileSize ?? 0,
-      libraryRoot: firstSettings?.libraryRoot ?? "/data",
+      enablePostProcessing: scopedSettings?.enablePostProcessing ?? true,
+      autoUnpack: scopedSettings?.autoUnpack ?? false,
+      renamePattern: scopedSettings?.renamePattern ?? "{Title} ({Region})",
+      overwriteExisting: scopedSettings?.overwriteExisting ?? false,
+      deleteSource: scopedSettings?.deleteSource ?? true,
+      ignoredExtensions: scopedSettings?.ignoredExtensions ?? [],
+      minFileSize: scopedSettings?.minFileSize ?? 0,
+      libraryRoot: scopedSettings?.libraryRoot ?? "/data",
     };
   }
 
-  async getRomMConfig(): Promise<RomMConfig> {
-    const firstSettings = this.userSettings.values().next().value;
+  async getRomMConfig(userId?: string): Promise<RomMConfig> {
+    const scopedSettings = userId
+      ? Array.from(this.userSettings.values()).find((s) => s.userId === userId)
+      : this.userSettings.values().next().value;
     return {
-      enabled: firstSettings?.rommEnabled ?? false,
-      url: firstSettings?.rommUrl ?? undefined,
-      apiKey: firstSettings?.rommApiKey ?? undefined,
+      enabled: scopedSettings?.rommEnabled ?? false,
+      url: scopedSettings?.rommUrl ?? undefined,
+      apiKey: scopedSettings?.rommApiKey ?? undefined,
     };
   }
 }
@@ -1062,8 +1061,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Config Accessors
-  async getImportConfig(): Promise<ImportConfig> {
-    const [settings] = await db.select().from(userSettings).limit(1);
+  async getImportConfig(userId?: string): Promise<ImportConfig> {
+    const [settings] = userId
+      ? await db.select().from(userSettings).where(eq(userSettings.userId, userId)).limit(1)
+      : await db.select().from(userSettings).limit(1);
     return {
       enablePostProcessing: settings?.enablePostProcessing ?? true,
       autoUnpack: settings?.autoUnpack ?? false,
@@ -1076,8 +1077,10 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
-  async getRomMConfig(): Promise<RomMConfig> {
-    const [settings] = await db.select().from(userSettings).limit(1);
+  async getRomMConfig(userId?: string): Promise<RomMConfig> {
+    const [settings] = userId
+      ? await db.select().from(userSettings).where(eq(userSettings.userId, userId)).limit(1)
+      : await db.select().from(userSettings).limit(1);
     return {
       enabled: settings?.rommEnabled ?? false,
       url: settings?.rommUrl ?? undefined,

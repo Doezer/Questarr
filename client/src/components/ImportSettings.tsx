@@ -20,10 +20,10 @@ export default function ImportSettings() {
 
   // Queries
   const { data: config, isLoading: configLoading } = useQuery<ImportConfig>({
-    queryKey: ["/api/settings/import/config"],
+    queryKey: ["/api/imports/config"],
   });
   const { data: rommConfig, isLoading: rommLoading } = useQuery<RomMConfig>({
-    queryKey: ["/api/settings/import/romm"],
+    queryKey: ["/api/imports/romm"],
   });
 
   // Local State
@@ -41,21 +41,21 @@ export default function ImportSettings() {
   // Mutations
   const updateConfigMutation = useMutation({
     mutationFn: async (data: ImportConfig) => {
-      await apiRequest("PATCH", "/api/settings/import/config", data);
+      await apiRequest("PATCH", "/api/imports/config", data);
     },
     onSuccess: () => {
       toast({ title: "Settings Saved", description: "Import configuration updated." });
-      queryClient.invalidateQueries({ queryKey: ["/api/settings/import/config"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/imports/config"] });
     },
   });
 
   const updateRommMutation = useMutation({
     mutationFn: async (data: RomMConfig) => {
-      await apiRequest("PATCH", "/api/settings/import/romm", data);
+      await apiRequest("PATCH", "/api/imports/romm", data);
     },
     onSuccess: () => {
       toast({ title: "Settings Saved", description: "RomM configuration updated." });
-      queryClient.invalidateQueries({ queryKey: ["/api/settings/import/romm"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/imports/romm"] });
     },
   });
 

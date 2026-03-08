@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Request, Router } from "express";
 import { storage } from "../storage.js";
 import { updateUserSettingsSchema } from "../../shared/schema.js";
 import { z } from "zod";
@@ -7,10 +7,13 @@ import { sensitiveEndpointLimiter } from "../middleware.js";
 
 export const settingsRouter = Router();
 
+type AuthedRequest = Request & { user?: { id: string } };
+
 // Retrieve user settings
 settingsRouter.get("/", authenticateToken, async (req, res) => {
   try {
-    const userId = (req as any).user.id;
+    const userId = (req as AuthedRequest).user?.id;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
     const settings = await storage.getUserSettings(userId);
 
     if (!settings) {
@@ -28,7 +31,8 @@ settingsRouter.get("/", authenticateToken, async (req, res) => {
 // Update user settings
 settingsRouter.patch("/", authenticateToken, sensitiveEndpointLimiter, async (req, res) => {
   try {
-    const userId = (req as any).user.id;
+    const userId = (req as AuthedRequest).user?.id;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
     const settings = await storage.getUserSettings(userId);
 
     if (!settings) {
@@ -44,49 +48,6 @@ settingsRouter.patch("/", authenticateToken, sensitiveEndpointLimiter, async (re
       return res.status(400).json({ error: "Invalid settings data", details: error.errors });
     }
     console.error("Error updating settings:", error);
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-// Update IGDB credentials (System Config)
-settingsRouter.post("/igdb", authenticateToken, sensitiveEndpointLimiter, async (req, res) => {
-  try {
-    const { clientId, clientSecret } = req.body;
-    if (!clientId || !clientSecret) {
-      return res.status(400).json({ error: "Client ID and Secret required" });
-    }
-
-    await storage.setSystemConfig("igdb.clientId", clientId);
-    await storage.setSystemConfig("igdb.clientSecret", clientSecret);
-
-    res.json({ success: true, message: "IGDB credentials updated" });
-  } catch (error) {
-    console.error("Error updating IGDB config:", error);
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-// Update xREL settings (User Settings subset)
-settingsRouter.patch("/xrel", authenticateToken, sensitiveEndpointLimiter, async (req, res) => {
-  try {
-    const userId = (req as any).user.id;
-    const { apiBase, xrelSceneReleases, xrelP2pReleases } = req.body;
-
-    if (apiBase) {
-      await storage.setSystemConfig("xrel_api_base", apiBase);
-    }
-
-    const settings = await storage.getUserSettings(userId);
-    if (settings) {
-      await storage.updateUserSettings(settings.id, {
-        xrelSceneReleases,
-        xrelP2pReleases,
-      });
-    }
-
-    res.json({ success: true, message: "xREL settings updated" });
-  } catch (error) {
-    console.error("Error updating xREL settings:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 });

@@ -22,7 +22,6 @@ describe("ImportManager", () => {
     getDownloader: vi.fn(),
     updateGameDownloadStatus: vi.fn(),
     updateGameStatus: vi.fn(),
-    getRomMConfig: vi.fn(),
   };
 
   const pathService = {
@@ -36,11 +35,6 @@ describe("ImportManager", () => {
   const archiveService = {
     isArchive: vi.fn(),
     extract: vi.fn(),
-  };
-
-  const rommService = {
-    isAvailable: vi.fn(),
-    scanLibrary: vi.fn(),
   };
 
   const baseConfig = {
@@ -59,10 +53,7 @@ describe("ImportManager", () => {
     pathService.translatePath.mockResolvedValue("/data/downloads/file.iso");
     archiveService.isArchive.mockReturnValue(false);
     platformService.getRomMPlatform.mockResolvedValue(null);
-    rommService.isAvailable.mockResolvedValue(true);
-    rommService.scanLibrary.mockResolvedValue(true);
     storage.getImportConfig.mockResolvedValue(baseConfig);
-    storage.getRomMConfig.mockResolvedValue({ enabled: false });
   });
 
   it("returns early when download cannot be found", async () => {
@@ -71,8 +62,7 @@ describe("ImportManager", () => {
       storage as never,
       pathService as never,
       platformService as never,
-      archiveService as never,
-      rommService as never
+      archiveService as never
     );
 
     await manager.processImport("dl-1", "/remote/path");
@@ -91,8 +81,7 @@ describe("ImportManager", () => {
       storage as never,
       pathService as never,
       platformService as never,
-      archiveService as never,
-      rommService as never
+      archiveService as never
     );
 
     await manager.processImport("dl-1", "/remote/path");
@@ -119,8 +108,7 @@ describe("ImportManager", () => {
       storage as never,
       pathService as never,
       platformService as never,
-      archiveService as never,
-      rommService as never
+      archiveService as never
     );
 
     await manager.processImport("dl-1", "/remote/path");
@@ -147,8 +135,7 @@ describe("ImportManager", () => {
       storage as never,
       pathService as never,
       platformService as never,
-      archiveService as never,
-      rommService as never
+      archiveService as never
     );
 
     await manager.processImport("dl-1", "/remote/path");
@@ -163,8 +150,7 @@ describe("ImportManager", () => {
       storage as never,
       pathService as never,
       platformService as never,
-      archiveService as never,
-      rommService as never
+      archiveService as never
     );
 
     await expect(manager.confirmImport("dl-1", { strategy: "pc" } as never)).rejects.toThrow(
@@ -178,8 +164,7 @@ describe("ImportManager", () => {
       storage as never,
       pathService as never,
       platformService as never,
-      archiveService as never,
-      rommService as never
+      archiveService as never
     );
 
     await expect(manager.confirmImport("dl-1")).rejects.toThrow("Confirmation requires a plan");
@@ -200,8 +185,7 @@ describe("ImportManager", () => {
       storage as never,
       pathService as never,
       platformService as never,
-      archiveService as never,
-      rommService as never
+      archiveService as never
     );
 
     await expect(
@@ -229,8 +213,7 @@ describe("ImportManager", () => {
       storage as never,
       pathService as never,
       platformService as never,
-      archiveService as never,
-      rommService as never
+      archiveService as never
     );
 
     await manager.confirmImport("dl-1", {

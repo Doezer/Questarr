@@ -100,4 +100,17 @@ describe("systemRouter /browse", () => {
       "z.bin",
     ]);
   });
+
+  it("returns root-relative virtual paths for navigation", async () => {
+    fsMock.pathExists.mockResolvedValue(true);
+    fsMock.stat.mockResolvedValue({ isDirectory: () => true });
+    fsMock.readdir.mockResolvedValue([{ name: "roms", isDirectory: () => true }]);
+    const app = createApp();
+
+    const response = await request(app).get("/api/system/browse?path=/");
+    expect(response.status).toBe(200);
+    expect(response.body.path).toBe("/");
+    expect(response.body.parent).toBeNull();
+    expect(response.body.items[0].path).toBe("/roms");
+  });
 });

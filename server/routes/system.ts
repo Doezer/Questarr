@@ -20,7 +20,11 @@ systemRouter.get("/browse", async (req, res) => {
       return res.status(400).json({ error: "Invalid path: absolute host paths are not allowed" });
     }
 
-    const userPath = path.normalize(rawPath).replace(/^[/\\]+/, "");
+    const normalizedPath = path.normalize(rawPath);
+    const userPath =
+      normalizedPath === path.sep || normalizedPath === "."
+        ? ""
+        : normalizedPath.replace(/^[/\\]+/, "");
     if (userPath.split(/[\\/]+/).includes("..")) {
       return res.status(400).json({ error: "Invalid path: traversal detected" });
     }
@@ -42,10 +46,17 @@ systemRouter.get("/browse", async (req, res) => {
 
     const files = await fs.readdir(validPath, { withFileTypes: true });
 
-    // Format output
+    const toVirtualPath = (absolutePath: string) => {
+      const relative = path.relative(root, absolutePath);
+      if (!relative || relative === ".") return "/";
+      return `/${relative.split(path.sep).join("/")}`;
+    };
+
+    // Format output using root-relative virtual paths so subsequent requests
+    // are consistent across platforms and do not expose host absolute paths.
     const items = files.map((f: import("fs").Dirent) => ({
       name: f.name,
-      path: path.join(validPath, f.name),
+      path: toVirtualPath(path.join(validPath, f.name)),
       isDirectory: f.isDirectory(),
       size: f.isDirectory() ? 0 : 0, // Getting size for all files might be slow
     }));
@@ -61,8 +72,8 @@ systemRouter.get("/browse", async (req, res) => {
     );
 
     res.json({
-      path: validPath,
-      parent: path.dirname(validPath),
+      path: toVirtualPath(validPath),
+      parent: validPath === root ? null : toVirtualPath(path.dirname(validPath)),
       items,
     });
   } catch (error) {

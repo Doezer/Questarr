@@ -154,7 +154,7 @@ importRouter.patch("/config", async (req, res) => {
 
     const settings = await storage.getUserSettings(userId);
     if (settings) {
-      await storage.updateUserSettings(settings.id, {
+      const updated = await storage.updateUserSettings(userId, {
         enablePostProcessing: newConfig.enablePostProcessing,
         autoUnpack: newConfig.autoUnpack,
         renamePattern: newConfig.renamePattern,
@@ -164,6 +164,7 @@ importRouter.patch("/config", async (req, res) => {
         minFileSize: newConfig.minFileSize,
         libraryRoot: newConfig.libraryRoot,
       });
+      if (!updated) return res.status(404).json({ error: "User settings not found" });
       res.json(newConfig);
     } else {
       res.status(404).json({ error: "User settings not found" });
@@ -199,11 +200,12 @@ importRouter.patch("/romm", async (req, res) => {
 
     const settings = await storage.getUserSettings(userId);
     if (settings) {
-      await storage.updateUserSettings(settings.id, {
+      const updated = await storage.updateUserSettings(userId, {
         rommEnabled: updates.enabled,
         rommUrl: updates.url,
         rommApiKey: updates.apiKey,
       });
+      if (!updated) return res.status(404).json({ error: "Settings not found" });
       res.json({
         enabled: updates.enabled ?? settings.rommEnabled,
         url: updates.url ?? settings.rommUrl,

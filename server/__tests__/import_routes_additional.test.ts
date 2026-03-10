@@ -145,4 +145,55 @@ describe("importRouter additional coverage", () => {
 
     expect(response.status).toBe(400);
   });
+
+  it("updates import config using authenticated userId", async () => {
+    mockStorage.getUserSettings.mockResolvedValue({
+      id: "settings-1",
+      userId: "user-1",
+      rommEnabled: false,
+      rommUrl: null,
+      rommApiKey: null,
+    });
+    mockStorage.updateUserSettings.mockResolvedValue({ id: "settings-1", userId: "user-1" });
+
+    const app = createApp();
+    const response = await request(app).patch("/api/imports/config").send({
+      renamePattern: "{Title} - {Platform}",
+    });
+
+    expect(response.status).toBe(200);
+    expect(mockStorage.updateUserSettings).toHaveBeenCalledWith(
+      "user-1",
+      expect.objectContaining({ renamePattern: "{Title} - {Platform}" })
+    );
+  });
+
+  it("updates romm config using authenticated userId", async () => {
+    mockStorage.getUserSettings.mockResolvedValue({
+      id: "settings-1",
+      userId: "user-1",
+      rommEnabled: false,
+      rommUrl: null,
+      rommApiKey: null,
+    });
+    mockStorage.updateUserSettings.mockResolvedValue({ id: "settings-1", userId: "user-1" });
+    isSafeUrlMock.mockResolvedValue(true);
+
+    const app = createApp();
+    const response = await request(app).patch("/api/imports/romm").send({
+      enabled: true,
+      url: "http://localhost:8080",
+      apiKey: "test-key",
+    });
+
+    expect(response.status).toBe(200);
+    expect(mockStorage.updateUserSettings).toHaveBeenCalledWith(
+      "user-1",
+      expect.objectContaining({
+        rommEnabled: true,
+        rommUrl: "http://localhost:8080",
+        rommApiKey: "test-key",
+      })
+    );
+  });
 });

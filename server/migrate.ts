@@ -65,12 +65,18 @@ export async function runMigrations(): Promise<void> {
               // but for SQLite it's often cleaner to just let it fail if schema drift is huge.
               // The request specifically asked to "adapt the current file", which had error suppression.
 
+              // Drizzle may wrap SQLite errors, so inspect both top-level and nested cause.
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const msg = (e as any).message || "";
+              const err = e as any;
+              const msg = String(err?.message || "");
+              const causeMsg = String(err?.cause?.message || "");
+              const fullMsg = `${msg} ${causeMsg}`.toLowerCase();
               // SQLite idempotency cases for schema drift in long-lived installs.
               // Example: migration wants to add a column that already exists.
-              if (msg.includes("already exists") || msg.includes("duplicate column name")) {
-                logger.warn(`Skipping statement in ${tag} due to existing object: ${msg}`);
+              if (fullMsg.includes("already exists") || fullMsg.includes("duplicate column name")) {
+                logger.warn(
+                  `Skipping statement in ${tag} due to existing object: ${msg || causeMsg}`
+                );
               } else {
                 throw e;
               }

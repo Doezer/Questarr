@@ -40,7 +40,11 @@ settingsRouter.patch("/", authenticateToken, sensitiveEndpointLimiter, async (re
     }
 
     const updates = updateUserSettingsSchema.parse(req.body);
-    const updated = await storage.updateUserSettings(settings.id, updates);
+    const updated = await storage.updateUserSettings(userId, updates);
+
+    if (!updated) {
+      return res.status(404).json({ error: "Settings not found" });
+    }
 
     res.json({ success: true, settings: updated, successMessage: "Settings updated successfully" });
   } catch (error) {

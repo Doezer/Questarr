@@ -67,8 +67,9 @@ export async function runMigrations(): Promise<void> {
 
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const msg = (e as any).message || "";
-              // SQLite error for existing object usually contains "already exists"
-              if (msg.includes("already exists")) {
+              // SQLite idempotency cases for schema drift in long-lived installs.
+              // Example: migration wants to add a column that already exists.
+              if (msg.includes("already exists") || msg.includes("duplicate column name")) {
                 logger.warn(`Skipping statement in ${tag} due to existing object: ${msg}`);
               } else {
                 throw e;

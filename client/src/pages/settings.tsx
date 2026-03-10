@@ -498,7 +498,7 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      <div className="max-w-4xl space-y-6">
+      <div className="w-full space-y-6">
         {/* Database Migration Alert */}
         {settingsError && (
           <Alert variant="destructive">
@@ -513,7 +513,7 @@ export default function SettingsPage() {
         )}
 
         <Tabs defaultValue="general" className="w-full">
-          <TabsList className="grid w-full grid-cols-6 mb-8">
+          <TabsList className="mb-8 flex w-full flex-nowrap overflow-x-auto [&>*]:shrink-0">
             <TabsTrigger value="general">General</TabsTrigger>
             <TabsTrigger value="rules">Rules</TabsTrigger>
             <TabsTrigger value="services">Services</TabsTrigger>

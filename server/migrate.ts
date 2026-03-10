@@ -4,15 +4,23 @@ import { sql } from "drizzle-orm";
 import fs from "fs";
 import path from "path";
 
-/**
- * Run database migrations from the migrations folder
- */
+function getErrorText(error: unknown): string {
+  const err = error as { message?: string; cause?: { message?: string } };
+  const msg = String(err?.message ?? "");
+  const causeMsg = String(err?.cause?.message ?? "");
+
+  return `${msg} ${causeMsg}`.trim();
+}
+
+function isSkippableMigrationError(error: unknown): boolean {
+  const text = getErrorText(error).toLowerCase();
+  return text.includes("already exists") || text.includes("duplicate column name");
+}
+
 export async function runMigrations(): Promise<void> {
   try {
     logger.info("Running database migrations...");
 
-    // Create migrations table if it doesn't exist
-    // SQLite syntax for table creation
     db.run(sql`
       CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -44,14 +52,6 @@ export async function runMigrations(): Promise<void> {
 
       const sqlPath = path.join(migrationsFolder, `${tag}.sql`);
       const sqlContent = fs.readFileSync(sqlPath, "utf-8");
-
-      // SQLite doesn't strictly need statement splitting like pg if using exec() on the driver directly,
-      // but drizzle's .run() might be single-statement.
-      // Better-sqlite3's exec() handles multiple statements.
-      // However, we want transaction safety.
-
-      // We will assume the file content is a valid SQL script.
-      // Drizzle-kit generated files often use `--> statement-breakpoint` separator.
       const statements = sqlContent.split("--> statement-breakpoint");
 
       try {
@@ -61,21 +61,9 @@ export async function runMigrations(): Promise<void> {
             try {
               tx.run(sql.raw(statement));
             } catch (e) {
-              // Ignore "table already exists" etc if we want idempotency similar to the old script,
-              // but for SQLite it's often cleaner to just let it fail if schema drift is huge.
-              // The request specifically asked to "adapt the current file", which had error suppression.
-
-              // Drizzle may wrap SQLite errors, so inspect both top-level and nested cause.
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const err = e as any;
-              const msg = String(err?.message || "");
-              const causeMsg = String(err?.cause?.message || "");
-              const fullMsg = `${msg} ${causeMsg}`.toLowerCase();
-              // SQLite idempotency cases for schema drift in long-lived installs.
-              // Example: migration wants to add a column that already exists.
-              if (fullMsg.includes("already exists") || fullMsg.includes("duplicate column name")) {
+              if (isSkippableMigrationError(e)) {
                 logger.warn(
-                  `Skipping statement in ${tag} due to existing object: ${msg || causeMsg}`
+                  `Skipping statement in ${tag} due to existing object: ${getErrorText(e)}`
                 );
               } else {
                 throw e;
@@ -103,21 +91,16 @@ export async function runMigrations(): Promise<void> {
   }
 }
 
-/**
- * Verify database connection and tables exist
- */
 export async function ensureDatabase(): Promise<void> {
   try {
     logger.info(`Checking database connection...`);
 
-    // Test connection
     const result = db.get(sql`SELECT 1`);
     if (!result) {
       throw new Error("Database connection test failed");
     }
     logger.info("Database connection successful");
 
-    // Run migrations to ensure schema is up-to-date
     await runMigrations();
   } catch (error) {
     logger.error({ err: error }, "Database check failed");
@@ -125,9 +108,6 @@ export async function ensureDatabase(): Promise<void> {
   }
 }
 
-/**
- * Gracefully close database connection
- */
 export async function closeDatabase(): Promise<void> {
   logger.info("Database connection closed (noop for sqlite)");
 }

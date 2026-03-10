@@ -62,7 +62,14 @@
       "idx": 8,
       "version": "6",
       "when": 1771916672705,
-      "tag": "0008_strong_genesis",
+      "tag": "0008_add_library_root",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1773049967556,
+      "tag": "0009_rebuild_games_table_hidden_default",
       "breakpoints": true
     }
   ]

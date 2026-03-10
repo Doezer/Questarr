@@ -74,7 +74,6 @@ export default function ImportSettings() {
           <TabsTrigger value="config">General Config</TabsTrigger>
           <TabsTrigger value="romm">RomM Integration</TabsTrigger>
           <TabsTrigger value="paths">Path Mappings</TabsTrigger>
-          <TabsTrigger value="platforms">Platform Mappings</TabsTrigger>
         </TabsList>
 
         <TabsContent value="config" className="space-y-4">
@@ -231,6 +230,10 @@ export default function ImportSettings() {
                       Save RomM Config
                     </Button>
                   </div>
+
+                  <div className="pt-2">
+                    <PlatformMappingSettings />
+                  </div>
                 </>
               )}
             </CardContent>
@@ -239,10 +242,6 @@ export default function ImportSettings() {
 
         <TabsContent value="paths" className="space-y-4">
           <PathMappingSettings />
-        </TabsContent>
-
-        <TabsContent value="platforms" className="space-y-4">
-          <PlatformMappingSettings />
         </TabsContent>
       </Tabs>
     </div>

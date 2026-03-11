@@ -59,8 +59,12 @@ export default function WishlistPage() {
     queryKey: ["/api/games"],
   });
 
+  // ⚡ Bolt: Memoized the initial wishlist filtering to stabilize the 'wishlistGames' referential equality.
+  // Impact: Prevents the subsequent heavy O(n) categorization useMemo (released vs upcoming vs tba) from running on every single component render when state updates (e.g. view toggle).
   // Wishlist contains 'wanted' games
-  const wishlistGames = games.filter((g) => g.status === "wanted");
+  const wishlistGames = useMemo(() => {
+    return games.filter((g) => g.status === "wanted");
+  }, [games]);
 
   // Separate released and unreleased games
   const { releasedGames, upcomingGames, tbaGames } = useMemo(() => {

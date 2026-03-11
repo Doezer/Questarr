@@ -404,7 +404,7 @@ export default function DownloadersPage() {
               </CardHeader>
               <CardContent>
                 <div className="flex flex-wrap gap-2">
-                  {downloader.downloadPath && (
+                  {!isUsenetDownloader(downloader.type) && downloader.downloadPath && (
                     <Badge variant="outline">Path: {downloader.downloadPath}</Badge>
                   )}
                   {downloader.category && (
@@ -654,24 +654,26 @@ export default function DownloadersPage() {
                     </FormItem>
                   )}
                 />
-                <FormField
-                  control={form.control}
-                  name="downloadPath"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Download Path (Optional)</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder="/home/downloads/games"
-                          {...field}
-                          value={field.value || ""}
-                          data-testid="input-downloader-path"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                {!isUsenetDownloader(form.watch("type")) && (
+                  <FormField
+                    control={form.control}
+                    name="downloadPath"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Download Path (Optional)</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder="/home/downloads/games"
+                            {...field}
+                            value={field.value || ""}
+                            data-testid="input-downloader-path"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
                 <FormField
                   control={form.control}
                   name="category"
@@ -692,7 +694,7 @@ export default function DownloadersPage() {
                           : form.watch("type") === "transmission"
                             ? "Creates a subdirectory in the output directory. Label for downloads in downloader"
                             : form.watch("type") === "sabnzbd" || form.watch("type") === "nzbget"
-                              ? "Category for NZBs in downloader"
+                              ? "Category for NZBs in downloader (path is managed by category settings)"
                               : "Label for downloads in downloader"}
                       </FormDescription>
                       <FormMessage />

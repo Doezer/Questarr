@@ -69,8 +69,6 @@ interface TransmissionTorrent {
   [key: string]: unknown;
 }
 
-// RTorrentTorrent is not directly used, but serves as documentation for the rTorrent API response structure
-
 interface QBittorrentTorrent {
   hash: string;
   name: string;
@@ -997,6 +995,27 @@ export class RTorrentClient implements DownloaderClient {
             downloadersLogger.warn(
               { error, hash: infoHash, category },
               "Failed to set category on download"
+            );
+          }
+        }
+
+        // Set download directory if specified
+        let downloadPath = request.downloadPath || this.downloader.downloadPath;
+        if (downloadPath && infoHash !== "unknown") {
+          try {
+            // Optionally append category as a subdirectory (like Transmission)
+            if (category) {
+              downloadPath = `${downloadPath}/${category}`;
+            }
+            await this.makeXMLRPCRequest("d.directory.set", [infoHash, downloadPath]);
+            downloadersLogger.debug(
+              { hash: infoHash, path: downloadPath },
+              "Set download directory"
+            );
+          } catch (error) {
+            downloadersLogger.warn(
+              { error, hash: infoHash, path: downloadPath },
+              "Failed to set download directory"
             );
           }
         }

@@ -49,9 +49,14 @@ describe("importRouter additional coverage", () => {
       autoUnpack: false,
       renamePattern: "{Title}",
       overwriteExisting: true,
-      deleteSource: false,
+      transferMode: "move",
+      importPlatformIds: [],
       ignoredExtensions: [],
       minFileSize: 0,
+      integrationProvider: "romm",
+      integrationLibraryRoot: "/data/romm",
+      integrationTransferMode: "hardlink",
+      integrationPlatformIds: [],
     });
   });
 

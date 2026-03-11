@@ -45,6 +45,13 @@ import { randomUUID } from "crypto";
 import { db } from "./db.js";
 import { eq, like, or, desc, and, not, inArray, sql } from "drizzle-orm";
 
+function normalizeSlugArray(value: unknown): string[] | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (!Array.isArray(value)) return undefined;
+  return value.map((entry) => String(entry ?? "").trim()).filter((entry) => entry.length > 0);
+}
+
 export interface IStorage {
   // System Config methods
   getSystemConfig(key: string): Promise<string | undefined>;
@@ -796,6 +803,7 @@ export class MemStorage implements IStorage {
 
   async createUserSettings(insertSettings: InsertUserSettings): Promise<UserSettings> {
     const id = randomUUID();
+    const normalizedAllowedSlugs = normalizeSlugArray(insertSettings.rommAllowedSlugs);
     const settings: UserSettings = {
       id,
       userId: insertSettings.userId,
@@ -818,14 +826,33 @@ export class MemStorage implements IStorage {
       renamePattern: insertSettings.renamePattern ?? "{Title} ({Region})",
       overwriteExisting: insertSettings.overwriteExisting ?? false,
       deleteSource: insertSettings.deleteSource ?? true,
+      transferMode: insertSettings.transferMode ?? "move",
+      importPlatformIds: insertSettings.importPlatformIds ?? [],
       ignoredExtensions: insertSettings.ignoredExtensions ?? [],
       minFileSize: insertSettings.minFileSize ?? 0,
       libraryRoot: insertSettings.libraryRoot ?? "/data",
+      integrationProvider: insertSettings.integrationProvider ?? "romm",
+      integrationLibraryRoot: insertSettings.integrationLibraryRoot ?? "/data",
+      integrationTransferMode: insertSettings.integrationTransferMode ?? "move",
+      integrationPlatformIds: insertSettings.integrationPlatformIds ?? [],
 
       // RomM Defaults
       rommEnabled: insertSettings.rommEnabled ?? false,
       rommUrl: insertSettings.rommUrl ?? null,
       rommApiKey: insertSettings.rommApiKey ?? null,
+      rommLibraryRoot: insertSettings.rommLibraryRoot ?? "/data",
+      rommPlatformRoutingMode: insertSettings.rommPlatformRoutingMode ?? "slug-subfolder",
+      rommPlatformBindings: insertSettings.rommPlatformBindings ?? {},
+      rommPlatformAliases: insertSettings.rommPlatformAliases ?? {},
+      rommMoveMode: insertSettings.rommMoveMode ?? "hardlink",
+      rommConflictPolicy: insertSettings.rommConflictPolicy ?? "rename",
+      rommFolderNamingTemplate: insertSettings.rommFolderNamingTemplate ?? "{title}",
+      rommSingleFilePlacement: insertSettings.rommSingleFilePlacement ?? "root",
+      rommMultiFilePlacement: insertSettings.rommMultiFilePlacement ?? "subfolder",
+      rommIncludeRegionLanguageTags: insertSettings.rommIncludeRegionLanguageTags ?? false,
+      rommAllowedSlugs: normalizedAllowedSlugs ?? null,
+      rommAllowAbsoluteBindings: insertSettings.rommAllowAbsoluteBindings ?? false,
+      rommBindingMissingBehavior: insertSettings.rommBindingMissingBehavior ?? "fallback",
 
       updatedAt: new Date(),
     };
@@ -840,9 +867,12 @@ export class MemStorage implements IStorage {
     const existing = await this.getUserSettings(userId);
     if (!existing) return undefined;
 
+    const { rommAllowedSlugs: _rawAllowedSlugs, ...restUpdates } = updates;
+    const normalizedAllowedSlugs = normalizeSlugArray(updates.rommAllowedSlugs);
     const updated: UserSettings = {
       ...existing,
-      ...updates,
+      ...restUpdates,
+      ...(normalizedAllowedSlugs !== undefined ? { rommAllowedSlugs: normalizedAllowedSlugs } : {}),
       updatedAt: new Date(),
     };
     this.userSettings.set(existing.id, updated);
@@ -949,10 +979,16 @@ export class MemStorage implements IStorage {
       autoUnpack: scopedSettings?.autoUnpack ?? false,
       renamePattern: scopedSettings?.renamePattern ?? "{Title} ({Region})",
       overwriteExisting: scopedSettings?.overwriteExisting ?? false,
-      deleteSource: scopedSettings?.deleteSource ?? true,
+      transferMode: (scopedSettings?.transferMode as "move" | "copy" | "hardlink") ?? "move",
+      importPlatformIds: scopedSettings?.importPlatformIds ?? [],
       ignoredExtensions: scopedSettings?.ignoredExtensions ?? [],
       minFileSize: scopedSettings?.minFileSize ?? 0,
       libraryRoot: scopedSettings?.libraryRoot ?? "/data",
+      integrationProvider: scopedSettings?.integrationProvider ?? "romm",
+      integrationLibraryRoot: scopedSettings?.integrationLibraryRoot ?? "/data",
+      integrationTransferMode:
+        (scopedSettings?.integrationTransferMode as "move" | "copy" | "hardlink") ?? "move",
+      integrationPlatformIds: scopedSettings?.integrationPlatformIds ?? [],
     };
   }
 
@@ -964,6 +1000,26 @@ export class MemStorage implements IStorage {
       enabled: scopedSettings?.rommEnabled ?? false,
       url: scopedSettings?.rommUrl ?? undefined,
       apiKey: scopedSettings?.rommApiKey ?? undefined,
+      libraryRoot: scopedSettings?.rommLibraryRoot ?? "/data",
+      platformRoutingMode:
+        (scopedSettings?.rommPlatformRoutingMode as RomMConfig["platformRoutingMode"]) ??
+        "slug-subfolder",
+      platformBindings: scopedSettings?.rommPlatformBindings ?? {},
+      platformAliases: scopedSettings?.rommPlatformAliases ?? {},
+      moveMode: (scopedSettings?.rommMoveMode as RomMConfig["moveMode"]) ?? "hardlink",
+      conflictPolicy:
+        (scopedSettings?.rommConflictPolicy as RomMConfig["conflictPolicy"]) ?? "rename",
+      folderNamingTemplate: scopedSettings?.rommFolderNamingTemplate ?? "{title}",
+      singleFilePlacement:
+        (scopedSettings?.rommSingleFilePlacement as RomMConfig["singleFilePlacement"]) ?? "root",
+      multiFilePlacement:
+        (scopedSettings?.rommMultiFilePlacement as RomMConfig["multiFilePlacement"]) ?? "subfolder",
+      includeRegionLanguageTags: scopedSettings?.rommIncludeRegionLanguageTags ?? false,
+      allowedSlugs: scopedSettings?.rommAllowedSlugs ?? undefined,
+      allowAbsoluteBindings: scopedSettings?.rommAllowAbsoluteBindings ?? false,
+      bindingMissingBehavior:
+        (scopedSettings?.rommBindingMissingBehavior as RomMConfig["bindingMissingBehavior"]) ??
+        "fallback",
     };
   }
 }
@@ -1070,10 +1126,16 @@ export class DatabaseStorage implements IStorage {
       autoUnpack: settings?.autoUnpack ?? false,
       renamePattern: settings?.renamePattern ?? "{Title} ({Region})",
       overwriteExisting: settings?.overwriteExisting ?? false,
-      deleteSource: settings?.deleteSource ?? true,
+      transferMode: (settings?.transferMode as "move" | "copy" | "hardlink") ?? "move",
+      importPlatformIds: settings?.importPlatformIds ?? [],
       ignoredExtensions: settings?.ignoredExtensions ?? [],
       minFileSize: settings?.minFileSize ?? 0,
       libraryRoot: settings?.libraryRoot ?? "/data",
+      integrationProvider: settings?.integrationProvider ?? "romm",
+      integrationLibraryRoot: settings?.integrationLibraryRoot ?? "/data",
+      integrationTransferMode:
+        (settings?.integrationTransferMode as "move" | "copy" | "hardlink") ?? "move",
+      integrationPlatformIds: settings?.integrationPlatformIds ?? [],
     };
   }
 
@@ -1085,6 +1147,25 @@ export class DatabaseStorage implements IStorage {
       enabled: settings?.rommEnabled ?? false,
       url: settings?.rommUrl ?? undefined,
       apiKey: settings?.rommApiKey ?? undefined,
+      libraryRoot: settings?.rommLibraryRoot ?? "/data",
+      platformRoutingMode:
+        (settings?.rommPlatformRoutingMode as RomMConfig["platformRoutingMode"]) ??
+        "slug-subfolder",
+      platformBindings: settings?.rommPlatformBindings ?? {},
+      platformAliases: settings?.rommPlatformAliases ?? {},
+      moveMode: (settings?.rommMoveMode as RomMConfig["moveMode"]) ?? "hardlink",
+      conflictPolicy: (settings?.rommConflictPolicy as RomMConfig["conflictPolicy"]) ?? "rename",
+      folderNamingTemplate: settings?.rommFolderNamingTemplate ?? "{title}",
+      singleFilePlacement:
+        (settings?.rommSingleFilePlacement as RomMConfig["singleFilePlacement"]) ?? "root",
+      multiFilePlacement:
+        (settings?.rommMultiFilePlacement as RomMConfig["multiFilePlacement"]) ?? "subfolder",
+      includeRegionLanguageTags: settings?.rommIncludeRegionLanguageTags ?? false,
+      allowedSlugs: settings?.rommAllowedSlugs ?? undefined,
+      allowAbsoluteBindings: settings?.rommAllowAbsoluteBindings ?? false,
+      bindingMissingBehavior:
+        (settings?.rommBindingMissingBehavior as RomMConfig["bindingMissingBehavior"]) ??
+        "fallback",
     };
   }
 
@@ -1676,9 +1757,17 @@ export class DatabaseStorage implements IStorage {
 
   async createUserSettings(insertSettings: InsertUserSettings): Promise<UserSettings> {
     const id = randomUUID();
+    const { rommAllowedSlugs: _rawAllowedSlugs, ...restInsertSettings } = insertSettings;
+    const normalizedAllowedSlugs = normalizeSlugArray(insertSettings.rommAllowedSlugs);
     const [settings] = await db
       .insert(userSettings)
-      .values({ ...insertSettings, id })
+      .values({
+        ...restInsertSettings,
+        ...(normalizedAllowedSlugs !== undefined
+          ? { rommAllowedSlugs: normalizedAllowedSlugs }
+          : {}),
+        id,
+      })
       .returning();
     return settings;
   }
@@ -1687,9 +1776,17 @@ export class DatabaseStorage implements IStorage {
     userId: string,
     updates: UpdateUserSettings
   ): Promise<UserSettings | undefined> {
+    const { rommAllowedSlugs: _rawAllowedSlugs, ...restUpdates } = updates;
+    const normalizedAllowedSlugs = normalizeSlugArray(updates.rommAllowedSlugs);
     const [updated] = await db
       .update(userSettings)
-      .set({ ...updates, updatedAt: new Date() })
+      .set({
+        ...restUpdates,
+        ...(normalizedAllowedSlugs !== undefined
+          ? { rommAllowedSlugs: normalizedAllowedSlugs }
+          : {}),
+        updatedAt: new Date(),
+      })
       .where(eq(userSettings.userId, userId))
       .returning();
     return updated || undefined;

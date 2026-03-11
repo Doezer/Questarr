@@ -33,9 +33,14 @@ describe("importRouter confirmImport security", () => {
       autoUnpack: false,
       renamePattern: "{Title} ({Region})",
       overwriteExisting: false,
-      deleteSource: true,
+      transferMode: "move",
+      importPlatformIds: [],
       ignoredExtensions: [],
       minFileSize: 0,
+      integrationProvider: "romm",
+      integrationLibraryRoot: "/data/romm",
+      integrationTransferMode: "hardlink",
+      integrationPlatformIds: [],
     });
   });
 
@@ -68,8 +73,8 @@ describe("importRouter confirmImport security", () => {
 
     const response = await request(app).post("/api/imports/dl-2/confirm").send({
       strategy: "romm",
-      proposedPath: "/data/roms/game.rom",
-      deleteSource: false,
+      proposedPath: "/data/romm/roms/game.rom",
+      transferMode: "hardlink",
     });
 
     expect(response.status).toBe(200);

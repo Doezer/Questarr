@@ -129,7 +129,8 @@ export default function ImportSettings() {
             <CardHeader>
               <CardTitle>Import & Post-Processing</CardTitle>
               <CardDescription>
-                Configure how downloads are processed after completion.
+                Configure how Questarr imports completed downloads: source is the downloader output
+                path, destination is a Questarr library root.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -185,7 +186,8 @@ export default function ImportSettings() {
                       }
                     />
                     <p className="text-xs text-muted-foreground">
-                      Primary target root for non-integration imports.
+                      Destination root used by Questarr for non-integration imports. This is not the
+                      downloader completed path.
                     </p>
                   </div>
                   <div className="space-y-2">
@@ -273,7 +275,7 @@ export default function ImportSettings() {
             <CardHeader>
               <CardTitle>Library Integration Target</CardTitle>
               <CardDescription>
-                Configure a secondary import target for external library managers.
+                Configure a secondary Questarr destination root for integration imports.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -316,6 +318,9 @@ export default function ImportSettings() {
                         setLocalConfig({ ...localConfig, integrationLibraryRoot: e.target.value })
                       }
                     />
+                    <p className="text-xs text-muted-foreground">
+                      Destination root used by Questarr when integration target routing is active.
+                    </p>
                   </div>
                   <div className="space-y-2">
                     <Label>Integration Transfer Mode</Label>
@@ -375,6 +380,10 @@ export default function ImportSettings() {
                       value={localRomm.libraryRoot}
                       onChange={(e) => setLocalRomm({ ...localRomm, libraryRoot: e.target.value })}
                     />
+                    <p className="text-xs text-muted-foreground">
+                      Base destination for RomM platform routing (for example, platform subfolders
+                      or binding-map paths).
+                    </p>
                   </div>
                   <div className="space-y-2">
                     <Label>Platform Routing Mode</Label>
@@ -582,6 +591,15 @@ export default function ImportSettings() {
                       )}
                       Save RomM Config
                     </Button>
+                  </div>
+                  <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground space-y-1">
+                    <p>Path model:</p>
+                    <p>1. Source: downloader completed/download path.</p>
+                    <p>2. Destination: Questarr library root (Primary or Integration/RomM).</p>
+                    <p>
+                      3. Questarr transfers files from source to destination using the selected
+                      transfer mode.
+                    </p>
                   </div>
                   <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground space-y-1">
                     <p>RomM scan guidance:</p>

@@ -5,6 +5,7 @@ const { fsMock } = vi.hoisted(() => ({
     ensureDir: vi.fn().mockResolvedValue(undefined),
     move: vi.fn().mockResolvedValue(undefined),
     remove: vi.fn().mockResolvedValue(undefined),
+    pathExists: vi.fn().mockResolvedValue(false),
   },
 }));
 
@@ -19,6 +20,7 @@ describe("ImportManager", () => {
     getGameDownload: vi.fn(),
     getGame: vi.fn(),
     getImportConfig: vi.fn(),
+    getRomMConfig: vi.fn(),
     getDownloader: vi.fn(),
     updateGameDownloadStatus: vi.fn(),
     updateGameStatus: vi.fn(),
@@ -42,10 +44,15 @@ describe("ImportManager", () => {
     autoUnpack: false,
     renamePattern: "{Title}",
     overwriteExisting: true,
-    deleteSource: false,
+    transferMode: "move" as const,
+    importPlatformIds: [],
     ignoredExtensions: [],
     minFileSize: 0,
     libraryRoot: "/data",
+    integrationProvider: "romm",
+    integrationLibraryRoot: "/data/romm",
+    integrationTransferMode: "hardlink" as const,
+    integrationPlatformIds: [],
   };
 
   beforeEach(() => {
@@ -54,6 +61,21 @@ describe("ImportManager", () => {
     archiveService.isArchive.mockReturnValue(false);
     platformService.getRomMPlatform.mockResolvedValue(null);
     storage.getImportConfig.mockResolvedValue(baseConfig);
+    storage.getRomMConfig.mockResolvedValue({
+      enabled: false,
+      libraryRoot: "/data/romm",
+      platformRoutingMode: "slug-subfolder",
+      platformBindings: {},
+      platformAliases: {},
+      moveMode: "hardlink",
+      conflictPolicy: "rename",
+      folderNamingTemplate: "{title}",
+      singleFilePlacement: "root",
+      multiFilePlacement: "subfolder",
+      includeRegionLanguageTags: false,
+      allowAbsoluteBindings: false,
+      bindingMissingBehavior: "fallback",
+    });
   });
 
   it("returns early when download cannot be found", async () => {
@@ -221,7 +243,7 @@ describe("ImportManager", () => {
       originalPath: "/downloads/source-folder",
       proposedPath: "/safe/root/PC/My Game",
       needsReview: false,
-      deleteSource: false,
+      transferMode: "move",
     });
 
     expect(fsMock.ensureDir).toHaveBeenCalled();
@@ -230,5 +252,32 @@ describe("ImportManager", () => {
     });
     expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith("dl-1", "imported");
     expect(storage.updateGameStatus).toHaveBeenCalledWith("g1", { status: "owned" });
+  });
+
+  it("detects platform from download title before game platform fallback", async () => {
+    storage.getGameDownload.mockResolvedValue({
+      id: "dl-1",
+      gameId: "g1",
+      downloaderId: "d1",
+      downloadTitle: "Mega.Game.PS2-GROUP",
+    });
+    storage.getGame.mockResolvedValue({
+      id: "g1",
+      title: "Mega Game",
+      userId: "u1",
+      status: "wanted",
+      platforms: [6],
+    });
+
+    const manager = new ImportManager(
+      storage as never,
+      pathService as never,
+      platformService as never,
+      archiveService as never
+    );
+
+    await manager.processImport("dl-1", "/remote/path");
+
+    expect(platformService.getRomMPlatform).toHaveBeenCalledWith(8);
   });
 });

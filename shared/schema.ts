@@ -57,13 +57,42 @@ export const userSettings = sqliteTable("user_settings", {
   renamePattern: text("rename_pattern").notNull().default("{Title} ({Region})"),
   overwriteExisting: integer("overwrite_existing", { mode: "boolean" }).notNull().default(false),
   deleteSource: integer("delete_source", { mode: "boolean" }).notNull().default(true),
+  transferMode: text("transfer_mode").notNull().default("move"),
+  importPlatformIds: text("import_platform_ids", { mode: "json" }).$type<number[]>().default([]),
   ignoredExtensions: text("ignored_extensions", { mode: "json" }).$type<string[]>().default([]),
   minFileSize: integer("min_file_size").notNull().default(0), // in bytes
   libraryRoot: text("library_root").notNull().default("/data"),
+  integrationProvider: text("integration_provider").notNull().default("romm"),
+  integrationLibraryRoot: text("integration_library_root").notNull().default("/data"),
+  integrationTransferMode: text("integration_transfer_mode").notNull().default("move"),
+  integrationPlatformIds: text("integration_platform_ids", { mode: "json" })
+    .$type<number[]>()
+    .default([]),
   // RomM Settings
   rommEnabled: integer("romm_enabled", { mode: "boolean" }).notNull().default(false),
   rommUrl: text("romm_url"),
   rommApiKey: text("romm_api_key"),
+  rommLibraryRoot: text("romm_library_root").notNull().default("/data"),
+  rommPlatformRoutingMode: text("romm_platform_routing_mode").notNull().default("slug-subfolder"),
+  rommPlatformBindings: text("romm_platform_bindings", { mode: "json" })
+    .$type<Record<string, string>>()
+    .default({}),
+  rommPlatformAliases: text("romm_platform_aliases", { mode: "json" })
+    .$type<Record<string, string>>()
+    .default({}),
+  rommMoveMode: text("romm_move_mode").notNull().default("hardlink"),
+  rommConflictPolicy: text("romm_conflict_policy").notNull().default("rename"),
+  rommFolderNamingTemplate: text("romm_folder_naming_template").notNull().default("{title}"),
+  rommSingleFilePlacement: text("romm_single_file_placement").notNull().default("root"),
+  rommMultiFilePlacement: text("romm_multi_file_placement").notNull().default("subfolder"),
+  rommIncludeRegionLanguageTags: integer("romm_include_region_language_tags", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  rommAllowedSlugs: text("romm_allowed_slugs", { mode: "json" }).$type<string[] | null>(),
+  rommAllowAbsoluteBindings: integer("romm_allow_absolute_bindings", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  rommBindingMissingBehavior: text("romm_binding_missing_behavior").notNull().default("fallback"),
   updatedAt: integer("updated_at", { mode: "timestamp" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),
@@ -92,16 +121,41 @@ export interface ImportConfig {
   autoUnpack: boolean;
   renamePattern: string;
   overwriteExisting: boolean;
-  deleteSource: boolean;
+  transferMode: "move" | "copy" | "hardlink";
+  importPlatformIds: number[];
   ignoredExtensions: string[];
   minFileSize: number;
   libraryRoot: string;
+  integrationProvider: string;
+  integrationLibraryRoot: string;
+  integrationTransferMode: "move" | "copy" | "hardlink";
+  integrationPlatformIds: number[];
 }
+
+export type RomMPlatformRoutingMode = "slug-subfolder" | "binding-map";
+export type RomMMoveMode = "copy" | "move" | "hardlink" | "symlink";
+export type RomMConflictPolicy = "skip" | "overwrite" | "rename" | "fail";
+export type RomMSingleFilePlacement = "root" | "subfolder";
+export type RomMMultiFilePlacement = "subfolder";
+export type RomMBindingMissingBehavior = "fallback" | "error";
 
 export interface RomMConfig {
   enabled: boolean;
   url?: string;
   apiKey?: string;
+  libraryRoot: string;
+  platformRoutingMode: RomMPlatformRoutingMode;
+  platformBindings: Record<string, string>;
+  platformAliases: Record<string, string>;
+  moveMode: RomMMoveMode;
+  conflictPolicy: RomMConflictPolicy;
+  folderNamingTemplate: string;
+  singleFilePlacement: RomMSingleFilePlacement;
+  multiFilePlacement: RomMMultiFilePlacement;
+  includeRegionLanguageTags: boolean;
+  allowedSlugs?: string[];
+  allowAbsoluteBindings: boolean;
+  bindingMissingBehavior: RomMBindingMissingBehavior;
 }
 
 export interface DownloadStatus {

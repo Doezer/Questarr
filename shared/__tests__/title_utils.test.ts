@@ -110,6 +110,8 @@ describe("title-utils", () => {
     it("should detect various platforms", () => {
       expect(parseReleaseMetadata("Game.PS5-GROUP").platform).toBe("PS5");
       expect(parseReleaseMetadata("Game.Win64-GROUP").platform).toBe("PC");
+      expect(parseReleaseMetadata("Game.PS2-GROUP").platform).toBe("PS2");
+      expect(parseReleaseMetadata("Game.SNES-USA-GROUP").platform).toBe("SNES");
     });
     it("should parse Mac platform and DRM-Free tags", () => {
       const release = "Shadow.of.the.Tomb.Raider.MacOS.DRM-Free";

@@ -1,37 +1,140 @@
-import { Game, ImportConfig } from "../../shared/schema.js";
+import { Game, ImportConfig, RomMConfig } from "../../shared/schema.js";
 import fs from "fs-extra";
 import path from "path";
+import { randomUUID } from "crypto";
+import { resolveRommPlatformDir, sanitizeFsName } from "./RommRouting.js";
+
+export interface ImportResult {
+  platformSlug?: string;
+  platformDir?: string;
+  destDir: string;
+  filesPlaced: string[];
+  modeUsed: "copy" | "move" | "hardlink" | "symlink";
+  conflictsResolved: string[];
+}
 
 export interface ImportReview {
   needsReview: boolean;
   reviewReason?: string;
   originalPath: string;
-  proposedPath: string; // The final destination including filename
+  proposedPath: string;
   strategy: "pc" | "romm";
+  importResult?: ImportResult;
 }
 
 export interface ImportStrategy {
   canHandle(game: Game): boolean;
-  /**
-   * Generates a plan for the import. Does NOT move files yet.
-   */
   planImport(
     sourcePath: string,
     game: Game,
     targetRoot: string,
-    config: ImportConfig
+    config: ImportConfig,
+    rommConfig?: RomMConfig
   ): Promise<ImportReview>;
-  /**
-   * Executes the import based on the review.
-   */
-  executeImport(review: ImportReview, deleteSource: boolean): Promise<void>;
+  executeImport(
+    review: ImportReview,
+    transferMode: "move" | "copy" | "hardlink" | "symlink",
+    rommConfig?: RomMConfig
+  ): Promise<ImportResult>;
+}
+
+async function ensureParentDir(filePath: string): Promise<void> {
+  await fs.ensureDir(path.dirname(filePath));
+}
+
+async function transferFile(
+  source: string,
+  destination: string,
+  mode: "move" | "copy" | "hardlink" | "symlink"
+): Promise<"move" | "copy" | "hardlink" | "symlink"> {
+  await ensureParentDir(destination);
+
+  if (mode === "move") {
+    await fs.move(source, destination, { overwrite: true });
+    return "move";
+  }
+
+  if (mode === "copy") {
+    await fs.copy(source, destination, { overwrite: true });
+    return "copy";
+  }
+
+  if (mode === "symlink") {
+    if (await fs.pathExists(destination)) await fs.remove(destination);
+    await fs.symlink(source, destination);
+    return "symlink";
+  }
+
+  if (await fs.pathExists(destination)) {
+    await fs.remove(destination);
+  }
+
+  try {
+    await fs.link(source, destination);
+    return "hardlink";
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "EXDEV") {
+      await fs.copy(source, destination, { overwrite: true });
+      return "copy";
+    }
+    throw error;
+  }
+}
+
+async function gatherFiles(rootPath: string): Promise<string[]> {
+  const stats = await fs.stat(rootPath);
+  if (!stats.isDirectory()) return [rootPath];
+
+  const collected: string[] = [];
+  const stack: string[] = [rootPath];
+
+  while (stack.length > 0) {
+    const current = stack.pop() as string;
+    const entries = await fs.readdir(current);
+    for (const entry of entries) {
+      const fullPath = path.join(current, entry);
+      const entryStats = await fs.stat(fullPath);
+      if (entryStats.isDirectory()) {
+        stack.push(fullPath);
+      } else {
+        collected.push(fullPath);
+      }
+    }
+  }
+
+  return collected;
+}
+
+async function findAvailablePath(basePath: string): Promise<string> {
+  if (!(await fs.pathExists(basePath))) return basePath;
+
+  for (let i = 1; i <= 5000; i += 1) {
+    const candidate = `${basePath} (${i})`;
+    if (!(await fs.pathExists(candidate))) return candidate;
+  }
+
+  return `${basePath}-${randomUUID().slice(0, 8)}`;
+}
+
+function applyTemplate(template: string, game: Game, platformSlug: string): string {
+  const filled = template
+    .replaceAll("{title}", game.title ?? "")
+    .replaceAll("{Title}", game.title ?? "")
+    .replaceAll("{platformSlug}", platformSlug)
+    .replaceAll("{releaseId}", String(game.igdbId ?? game.id ?? ""));
+  return sanitizeFsName(filled) || sanitizeFsName(game.title) || `game-${game.id}`;
+}
+
+function isIgnored(filePath: string, ignoredExtensions: string[]): boolean {
+  const ext = path.extname(filePath).toLowerCase();
+  return ignoredExtensions.includes(ext);
 }
 
 export class PCImportStrategy implements ImportStrategy {
   canHandle(game: Game): boolean {
     if (!Array.isArray(game.platforms)) return false;
 
-    // IGDB platform id 6 is PC (Microsoft Windows).
     for (const platform of game.platforms) {
       if (typeof platform === "number" && platform === 6) return true;
       if (typeof platform === "string") {
@@ -53,12 +156,7 @@ export class PCImportStrategy implements ImportStrategy {
     targetRoot: string,
     config: ImportConfig
   ): Promise<ImportReview> {
-    // For PC games, we usually move the whole folder or authorized installer files.
-    // Assumption: sourcePath is a directory containing the game.
-    // Destination: targetRoot/PC/{Game Title}
-
-    // Clean title for folder name
-    const cleanTitle = game.title.replace(/[\\/:*?"<>|]/g, "");
+    const cleanTitle = sanitizeFsName(game.title);
     const destination = path.join(targetRoot, "PC", cleanTitle);
 
     const destinationExists = await fs.pathExists(destination);
@@ -73,128 +171,204 @@ export class PCImportStrategy implements ImportStrategy {
     };
   }
 
-  async executeImport(review: ImportReview, _deleteSource: boolean): Promise<void> {
-    console.log(`[PCImportStrategy] Moving ${review.originalPath} to ${review.proposedPath}`);
+  async executeImport(
+    review: ImportReview,
+    transferMode: "move" | "copy" | "hardlink" | "symlink"
+  ): Promise<ImportResult> {
     await fs.ensureDir(path.dirname(review.proposedPath));
-
-    // Use fs-extra move which handles cross-device
-    await fs.move(review.originalPath, review.proposedPath, { overwrite: true });
-
-    // Ensure permissions?
+    const modeUsed = await transferFile(review.originalPath, review.proposedPath, transferMode);
+    return {
+      destDir: review.proposedPath,
+      filesPlaced: [review.proposedPath],
+      modeUsed,
+      conflictsResolved: [],
+    };
   }
 }
 
 export class RomMImportStrategy implements ImportStrategy {
-  // Mapping of RomM folder names (slugs) provided by PlatformMappingService
-  constructor(private platformSlug: string) {}
+  constructor(
+    private platformSlug: string,
+    private onImportComplete?: (result: ImportResult) => void
+  ) {}
 
   canHandle(_game: Game): boolean {
-    return true; // Use as fallback or explicitly selected by Manager
+    return true;
   }
 
   async planImport(
     sourcePath: string,
     game: Game,
     targetRoot: string,
-    config: ImportConfig
+    config: ImportConfig,
+    rommConfig?: RomMConfig
   ): Promise<ImportReview> {
-    // 1. Identify valid ROM file in sourcePath (if it's a folder)
-    // If sourcePath is a file, use it.
-    let fileToImport = sourcePath;
-
-    if ((await fs.stat(sourcePath)).isDirectory()) {
-      // Find largest file with valid extension
-      const files = await fs.readdir(sourcePath);
-      // Filter by ignored extensions
-      const candidates = files.filter(
-        (f: string) => !config.ignoredExtensions.includes(path.extname(f).toLowerCase())
-      );
-      // TODO: Recursive search or shallow? Shallow for now.
-      // Sort by size
-      let largestFile = "";
-      let maxSize = 0;
-
-      for (const f of candidates) {
-        const fullPath = path.join(sourcePath, f);
-        const stats = await fs.stat(fullPath);
-        if (stats.size > maxSize) {
-          maxSize = stats.size;
-          largestFile = fullPath;
-        }
-      }
-
-      if (!largestFile) {
-        return {
-          needsReview: true,
-          reviewReason: "No valid ROM file found in directory",
-          originalPath: sourcePath,
-          proposedPath: "",
-          strategy: "romm",
-        };
-      }
-      fileToImport = largestFile;
+    if (!rommConfig) {
+      return {
+        needsReview: true,
+        reviewReason: "RomM config is required for RomM imports",
+        originalPath: sourcePath,
+        proposedPath: "",
+        strategy: "romm",
+      };
     }
 
-    // 2. Generate Clean Name
-    // Pattern: {Title} ({Region})
-    let filename = config.renamePattern.replace("{Title}", game.title).replace("{Region}", "World"); // Placeholder for region, hard to extract from metadata without Indexer info.
-    // TODO: Pass explicit Region if available from Download/Indexer info.
+    const files = (await gatherFiles(sourcePath)).filter(
+      (f) => !isIgnored(f, config.ignoredExtensions ?? [])
+    );
 
-    // Sanitize filename
-    filename = filename.replace(/[\\/:*?"<>|]/g, "");
+    if (files.length === 0) {
+      return {
+        needsReview: true,
+        reviewReason: "No valid ROM files found",
+        originalPath: sourcePath,
+        proposedPath: "",
+        strategy: "romm",
+      };
+    }
 
-    // Add extension
-    const ext = path.extname(fileToImport);
-    filename += ext;
+    const platformDir = resolveRommPlatformDir({
+      libraryRoot: rommConfig.libraryRoot || targetRoot,
+      fsSlug: this.platformSlug,
+      routingMode: rommConfig.platformRoutingMode,
+      bindings: rommConfig.platformBindings,
+      allowAbsoluteBindings: rommConfig.allowAbsoluteBindings,
+      bindingMissingBehavior: rommConfig.bindingMissingBehavior,
+    });
 
-    // 3. Construct Path
-    // targetRoot/{platformSlug}/{filename}
-    const destination = path.join(targetRoot, "roms", this.platformSlug, filename);
+    const folderName = applyTemplate(
+      rommConfig.folderNamingTemplate || "{title}",
+      game,
+      this.platformSlug
+    );
 
-    // 4. Check collisions
-    let reviewRequired = false;
-    let reason = undefined;
-    if (await fs.pathExists(destination)) {
-      if (!config.overwriteExisting) {
-        reviewRequired = true;
-        reason = "File already exists at destination";
-      }
+    const isMultiFileGame = files.length > 1;
+    let destDir = platformDir;
+
+    if (isMultiFileGame) {
+      destDir = path.join(platformDir, folderName);
+    } else if (rommConfig.singleFilePlacement === "subfolder") {
+      destDir = path.join(platformDir, folderName);
     }
 
     return {
-      needsReview: reviewRequired,
-      reviewReason: reason,
-      originalPath: fileToImport,
-      proposedPath: destination,
+      needsReview: false,
+      originalPath: sourcePath,
+      proposedPath: destDir,
       strategy: "romm",
+      importResult: {
+        platformSlug: this.platformSlug,
+        platformDir,
+        destDir,
+        filesPlaced: [],
+        modeUsed: rommConfig.moveMode,
+        conflictsResolved: [],
+      },
     };
   }
 
-  async executeImport(review: ImportReview, _deleteSource: boolean): Promise<void> {
-    let targetPath = review.proposedPath;
+  async executeImport(
+    review: ImportReview,
+    transferMode: "move" | "copy" | "hardlink" | "symlink",
+    rommConfig?: RomMConfig
+  ): Promise<ImportResult> {
+    if (!rommConfig) throw new Error("RomM config is required for RomM imports");
 
-    // Manual review UI can provide a directory path. In that case, preserve original filename.
-    if (!path.extname(targetPath)) {
-      targetPath = path.join(targetPath, path.basename(review.originalPath));
+    const sourceStats = await fs.stat(review.originalPath);
+    const sourceRoot = sourceStats.isDirectory()
+      ? review.originalPath
+      : path.dirname(review.originalPath);
+    const sourceFiles = (await gatherFiles(review.originalPath)).filter((f) => !isIgnored(f, []));
+
+    const conflictsResolved: string[] = [];
+    let destinationPath = review.proposedPath;
+
+    if (await fs.pathExists(destinationPath)) {
+      if (rommConfig.conflictPolicy === "skip") {
+        return {
+          ...(review.importResult ?? {
+            platformSlug: this.platformSlug,
+            platformDir: path.dirname(destinationPath),
+            destDir: destinationPath,
+            filesPlaced: [],
+            modeUsed: transferMode,
+            conflictsResolved: [],
+          }),
+          filesPlaced: [],
+          modeUsed: transferMode,
+          conflictsResolved: ["skip"],
+        };
+      }
+
+      if (rommConfig.conflictPolicy === "fail") {
+        throw new Error(`Destination already exists: ${destinationPath}`);
+      }
+
+      if (rommConfig.conflictPolicy === "rename") {
+        const renamed = await findAvailablePath(destinationPath);
+        conflictsResolved.push(
+          `rename:${path.basename(destinationPath)}=>${path.basename(renamed)}`
+        );
+        destinationPath = renamed;
+      }
+
+      if (rommConfig.conflictPolicy === "overwrite") {
+        await fs.remove(destinationPath);
+        conflictsResolved.push("overwrite");
+      }
     }
 
-    console.log(`[RomMImportStrategy] Moving ${review.originalPath} to ${targetPath}`);
+    await fs.ensureDir(path.dirname(destinationPath));
+    const stagingPath = path.join(
+      path.dirname(destinationPath),
+      `.questarr-staging-${randomUUID().slice(0, 8)}`
+    );
+    await fs.ensureDir(stagingPath);
 
-    // Ensure parent dir
-    await fs.ensureDir(path.dirname(targetPath));
+    const filesPlaced: string[] = [];
+    let modeUsed: "copy" | "move" | "hardlink" | "symlink" = transferMode;
 
-    // Atomic Move Logic:
-    // 1. Move to .tmp file
-    const tempDest = targetPath + ".tmp";
-    await fs.move(review.originalPath, tempDest, { overwrite: true });
+    try {
+      for (const file of sourceFiles) {
+        const relative = path.relative(sourceRoot, file);
+        const stageFile = path.join(stagingPath, relative);
+        const used = await transferFile(file, stageFile, transferMode);
+        modeUsed = used;
+      }
 
-    // 2. Rename to final
-    await fs.move(tempDest, targetPath, { overwrite: true });
+      if (sourceStats.isDirectory() || sourceFiles.length > 1) {
+        await fs.move(stagingPath, destinationPath, { overwrite: false });
+        const placed = await gatherFiles(destinationPath);
+        filesPlaced.push(...placed);
+      } else {
+        const onlyFile = sourceFiles[0];
+        const stageFile = path.join(stagingPath, path.basename(onlyFile));
+        const singleTarget =
+          path.extname(destinationPath) === ""
+            ? path.join(destinationPath, path.basename(onlyFile))
+            : destinationPath;
+        await ensureParentDir(singleTarget);
+        await fs.move(stageFile, singleTarget, {
+          overwrite: rommConfig.conflictPolicy === "overwrite",
+        });
+        filesPlaced.push(singleTarget);
+        await fs.remove(stagingPath);
+      }
+    } catch (error) {
+      await fs.remove(stagingPath).catch(() => undefined);
+      throw error;
+    }
 
-    // 3. Delete Source folder if we imported a file from a folder and deleteSource is true
-    // If originalPath was a file inside a folder, and we want to clean up the folder...
-    // The ImportManager usually handles cleaning the ROOT download folder.
-    // This executeImport handles moving the FILE.
-    // The Manager should handle deleting the residual folder if it was a folder download.
+    const result: ImportResult = {
+      platformSlug: review.importResult?.platformSlug ?? this.platformSlug,
+      platformDir: review.importResult?.platformDir,
+      destDir: destinationPath,
+      filesPlaced,
+      modeUsed,
+      conflictsResolved,
+    };
+
+    this.onImportComplete?.(result);
+    return result;
   }
 }

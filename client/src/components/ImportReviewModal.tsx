@@ -13,7 +13,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Loader2, FolderOpen } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { FileBrowser } from "./FileBrowser";
@@ -37,7 +43,7 @@ export default function ImportReviewModal({
   // State
   const [strategy, setStrategy] = useState<"pc" | "romm">("pc");
   const [destinationPath, setDestinationPath] = useState("");
-  const [deleteSource, setDeleteSource] = useState(true);
+  const [transferMode, setTransferMode] = useState<"move" | "copy" | "hardlink">("move");
   const [isFileBrowserOpen, setIsFileBrowserOpen] = useState(false);
 
   // Reset state on open
@@ -45,7 +51,7 @@ export default function ImportReviewModal({
     if (open) {
       setStrategy("pc");
       setDestinationPath("");
-      setDeleteSource(true);
+      setTransferMode("move");
     }
   }, [open, downloadId]);
 
@@ -55,7 +61,7 @@ export default function ImportReviewModal({
         strategy,
         proposedPath: destinationPath,
         originalPath: "", // Backend will resolve it
-        deleteSource,
+        transferMode,
       });
     },
     onSuccess: () => {
@@ -100,7 +106,7 @@ export default function ImportReviewModal({
             <RadioGroup value={strategy} onValueChange={(v) => setStrategy(v as "pc" | "romm")}>
               <div className="flex items-center space-x-2">
                 <RadioGroupItem value="pc" id="pc" />
-                <Label htmlFor="pc">Generic / PC (Move to Folder)</Label>
+                <Label htmlFor="pc">Generic / PC</Label>
               </div>
               <div className="flex items-center space-x-2">
                 <RadioGroupItem value="romm" id="romm" />
@@ -124,10 +130,21 @@ export default function ImportReviewModal({
             </div>
           </div>
 
-          {/* Delete Source */}
-          <div className="flex items-center justify-between">
-            <Label htmlFor="delete-source">Delete Source Files after Import</Label>
-            <Switch id="delete-source" checked={deleteSource} onCheckedChange={setDeleteSource} />
+          <div className="space-y-2">
+            <Label>Transfer Mode</Label>
+            <Select
+              value={transferMode}
+              onValueChange={(value) => setTransferMode(value as "move" | "copy" | "hardlink")}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="move">Move</SelectItem>
+                <SelectItem value="copy">Copy</SelectItem>
+                <SelectItem value="hardlink">Hardlink</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
 

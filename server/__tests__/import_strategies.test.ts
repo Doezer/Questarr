@@ -1,19 +1,26 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
-
-const { fsMock } = vi.hoisted(() => ({
-  fsMock: {
-    ensureDir: vi.fn().mockResolvedValue(undefined),
-    move: vi.fn().mockResolvedValue(undefined),
-    pathExists: vi.fn().mockResolvedValue(false),
-  },
-}));
-
-vi.mock("fs-extra", () => ({
-  default: fsMock,
-}));
-
+import { afterEach, describe, expect, it } from "vitest";
+import fs from "fs-extra";
+import os from "os";
+import path from "path";
 import { PCImportStrategy, RomMImportStrategy } from "../services/ImportStrategies.js";
-import type { Game } from "../../shared/schema.js";
+import type { Game, ImportConfig, RomMConfig } from "../../shared/schema.js";
+
+const cleanup: string[] = [];
+
+function tempDir(): string {
+  const dir = path.join(
+    os.tmpdir(),
+    `questarr-import-${Date.now()}-${Math.random().toString(16).slice(2)}`
+  );
+  cleanup.push(dir);
+  return dir;
+}
+
+afterEach(async () => {
+  for (const dir of cleanup.splice(0, cleanup.length)) {
+    await fs.remove(dir);
+  }
+});
 
 function makeGame(platforms: unknown): Game {
   return {
@@ -40,11 +47,39 @@ function makeGame(platforms: unknown): Game {
   };
 }
 
-describe("ImportStrategies", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
+const importConfig: ImportConfig = {
+  enablePostProcessing: true,
+  autoUnpack: false,
+  renamePattern: "{Title}",
+  overwriteExisting: false,
+  transferMode: "move",
+  importPlatformIds: [],
+  ignoredExtensions: [],
+  minFileSize: 0,
+  libraryRoot: "/data",
+  integrationProvider: "romm",
+  integrationLibraryRoot: "/data/romm",
+  integrationTransferMode: "hardlink",
+  integrationPlatformIds: [],
+};
 
+const rommConfig: RomMConfig = {
+  enabled: true,
+  libraryRoot: "/data/romm",
+  platformRoutingMode: "slug-subfolder",
+  platformBindings: {},
+  platformAliases: {},
+  moveMode: "copy",
+  conflictPolicy: "rename",
+  folderNamingTemplate: "{title}",
+  singleFilePlacement: "root",
+  multiFilePlacement: "subfolder",
+  includeRegionLanguageTags: false,
+  allowAbsoluteBindings: false,
+  bindingMissingBehavior: "fallback",
+};
+
+describe("ImportStrategies", () => {
   it("PCImportStrategy.canHandle detects IGDB platform id 6 across shapes", () => {
     const strategy = new PCImportStrategy();
 
@@ -54,31 +89,25 @@ describe("ImportStrategies", () => {
     expect(strategy.canHandle(makeGame(["Nintendo Switch"]))).toBe(false);
   });
 
-  it("RomMImportStrategy.executeImport accepts directory-style proposedPath", async () => {
+  it("RomMImportStrategy can place a single file under routed platform directory", async () => {
+    const root = tempDir();
+    const source = path.join(root, "downloads", "My.Game.rom");
+    await fs.ensureDir(path.dirname(source));
+    await fs.writeFile(source, "rom-bytes");
+
     const strategy = new RomMImportStrategy("snes");
+    const localRomm: RomMConfig = { ...rommConfig, libraryRoot: path.join(root, "library") };
 
-    await strategy.executeImport(
-      {
-        needsReview: false,
-        strategy: "romm",
-        originalPath: "/downloads/My.Game.rom",
-        proposedPath: "/library/roms/snes",
-      },
-      false
+    const plan = await strategy.planImport(
+      source,
+      makeGame([19]),
+      localRomm.libraryRoot,
+      importConfig,
+      localRomm
     );
+    const result = await strategy.executeImport(plan, "copy", localRomm);
 
-    expect(fsMock.ensureDir).toHaveBeenCalledWith(expect.stringMatching(/roms[\\/]snes$/));
-    expect(fsMock.move).toHaveBeenNthCalledWith(
-      1,
-      "/downloads/My.Game.rom",
-      expect.stringMatching(/roms[\\/]snes[\\/]My\.Game\.rom\.tmp$/),
-      { overwrite: true }
-    );
-    expect(fsMock.move).toHaveBeenNthCalledWith(
-      2,
-      expect.stringMatching(/roms[\\/]snes[\\/]My\.Game\.rom\.tmp$/),
-      expect.stringMatching(/roms[\\/]snes[\\/]My\.Game\.rom$/),
-      { overwrite: true }
-    );
+    expect(result.destDir).toContain(path.join("library", "snes"));
+    expect(result.filesPlaced.some((p) => p.endsWith(path.join("My.Game.rom")))).toBe(true);
   });
 });

@@ -2,24 +2,72 @@ import { type IStorage } from "../storage.js";
 import { PathMappingService } from "./PathMappingService.js";
 import { PlatformMappingService } from "./PlatformMappingService.js";
 import { ArchiveService } from "./ArchiveService.js";
-import { RomMService } from "./RomMService.js";
 import {
   ImportStrategy,
   ImportReview,
+  ImportResult,
   PCImportStrategy,
   RomMImportStrategy,
 } from "./ImportStrategies.js";
 import { DownloaderManager } from "../downloaders.js";
 import fs from "fs-extra";
 import path from "path";
+import { parseReleaseMetadata } from "../../shared/title-utils.js";
+
+const RELEASE_PLATFORM_TO_IGDB_ID: Record<string, number> = {
+  nes: 18,
+  snes: 19,
+  n64: 4,
+  gamecube: 21,
+  wii: 5,
+  gb: 33,
+  gbc: 22,
+  gba: 24,
+  nds: 20,
+  "3ds": 37,
+  switch: 130,
+  ps1: 7,
+  ps2: 8,
+  ps3: 9,
+  psp: 38,
+  "master system": 35,
+  "mega drive": 29,
+  dreamcast: 23,
+  "atari 2600": 59,
+  "neo geo": 80,
+  pc: 6,
+};
+
+const RELEASE_PLATFORM_TO_FALLBACK_SLUG: Record<string, string> = {
+  nes: "nes",
+  snes: "snes",
+  n64: "n64",
+  gamecube: "gc",
+  wii: "wii",
+  gb: "gb",
+  gbc: "gbc",
+  gba: "gba",
+  nds: "nds",
+  "3ds": "3ds",
+  switch: "switch",
+  ps1: "psx",
+  ps2: "ps2",
+  ps3: "ps3",
+  psp: "psp",
+  "master system": "sms",
+  "mega drive": "megadrive",
+  dreamcast: "dc",
+  "atari 2600": "a2600",
+  "neo geo": "neogeo",
+  pc: "pc",
+};
 
 export class ImportManager {
   constructor(
     private storage: IStorage,
     private pathService: PathMappingService,
     private platformService: PlatformMappingService,
-    private archiveService: ArchiveService,
-    private rommService: RomMService
+    private archiveService: ArchiveService
   ) {}
 
   private getPrimaryPlatformId(game: { platforms?: unknown }): number | undefined {
@@ -34,6 +82,34 @@ export class ImportManager {
       }
     }
     return undefined;
+  }
+
+  private isPlatformEnabled(platformId: number | undefined, allowed: number[]): boolean {
+    if (!platformId) return allowed.length === 0;
+    return allowed.length === 0 || allowed.includes(platformId);
+  }
+
+  private getReleasePlatformKey(downloadTitle: string): string | null {
+    const parsed = parseReleaseMetadata(downloadTitle);
+    if (!parsed.platform) return null;
+    return parsed.platform.trim().toLowerCase();
+  }
+
+  private getReleasePlatformIgdbId(releasePlatformKey: string | null): number | undefined {
+    if (!releasePlatformKey) return undefined;
+    return RELEASE_PLATFORM_TO_IGDB_ID[releasePlatformKey];
+  }
+
+  private getReleasePlatformFallbackSlug(releasePlatformKey: string | null): string | null {
+    if (!releasePlatformKey) return null;
+    return RELEASE_PLATFORM_TO_FALLBACK_SLUG[releasePlatformKey] ?? null;
+  }
+
+  private resolveRommSlug(baseSlug: string | null, aliases: Record<string, string>): string | null {
+    if (!baseSlug) return null;
+    const key = baseSlug.trim().toLowerCase();
+    const alias = aliases[key] ?? aliases[baseSlug] ?? null;
+    return (alias ?? baseSlug).trim().toLowerCase();
   }
 
   /**
@@ -94,21 +170,77 @@ export class ImportManager {
 
       // 3. Strategy Selection
       let strategy: ImportStrategy;
-      const primaryPlatformId = this.getPrimaryPlatformId(game);
-      const rommPlatform = primaryPlatformId
-        ? await this.platformService.getRomMPlatform(primaryPlatformId)
+      const rommConfig = await this.storage.getRomMConfig(game.userId ?? undefined);
+      const gamePrimaryPlatformId = this.getPrimaryPlatformId(game);
+      const releasePlatformKey = this.getReleasePlatformKey(download.downloadTitle || "");
+      const releasePlatformId = this.getReleasePlatformIgdbId(releasePlatformKey);
+      const effectivePlatformId = releasePlatformId ?? gamePrimaryPlatformId;
+      const rommPlatform = effectivePlatformId
+        ? await this.platformService.getRomMPlatform(effectivePlatformId)
         : null;
 
-      if (rommPlatform) {
-        strategy = new RomMImportStrategy(rommPlatform);
+      const fallbackSlugFromRelease = this.getReleasePlatformFallbackSlug(releasePlatformKey);
+      const baseRommSlug = rommPlatform ?? fallbackSlugFromRelease;
+      const resolvedRommSlug = this.resolveRommSlug(baseRommSlug, rommConfig.platformAliases);
+      const slugAllowed =
+        !rommConfig.allowedSlugs || rommConfig.allowedSlugs.length === 0
+          ? true
+          : !!resolvedRommSlug && rommConfig.allowedSlugs.includes(resolvedRommSlug);
+      const integrationEnabledForPlatform =
+        rommConfig.enabled &&
+        config.integrationProvider === "romm" &&
+        this.isPlatformEnabled(effectivePlatformId, config.integrationPlatformIds);
+
+      if (integrationEnabledForPlatform && !resolvedRommSlug) {
+        console.log(
+          `[ImportManager] Manual review required for ${game.title}: missing RomM fs_slug mapping for platform ${effectivePlatformId ?? "unknown"}.`
+        );
+        await this.storage.updateGameDownloadStatus(downloadId, "manual_review_required");
+        return;
+      }
+
+      if (integrationEnabledForPlatform && !slugAllowed) {
+        console.log(
+          `[ImportManager] Manual review required for ${game.title}: slug ${resolvedRommSlug} is not in allowedSlugs.`
+        );
+        await this.storage.updateGameDownloadStatus(downloadId, "manual_review_required");
+        return;
+      }
+
+      const shouldUseIntegration =
+        integrationEnabledForPlatform && !!resolvedRommSlug && slugAllowed;
+
+      if (shouldUseIntegration) {
+        strategy = new RomMImportStrategy(resolvedRommSlug as string, (result: ImportResult) => {
+          console.log(
+            `[ImportManager] onRommImportComplete slug=${result.platformSlug} dest=${result.destDir} files=${result.filesPlaced.length}`
+          );
+        });
       } else {
         // Fallback for PC or Unknown
         strategy = new PCImportStrategy();
       }
 
-      const libraryRoot = config.libraryRoot || "/data";
+      const libraryRoot =
+        strategy instanceof RomMImportStrategy
+          ? rommConfig.libraryRoot || config.integrationLibraryRoot || "/data"
+          : config.libraryRoot || "/data";
 
-      const plan = await strategy.planImport(processingPath, game, libraryRoot, config);
+      if (strategy instanceof PCImportStrategy) {
+        const platformAllowed = this.isPlatformEnabled(
+          effectivePlatformId,
+          config.importPlatformIds
+        );
+        if (!platformAllowed) {
+          console.log(
+            `[ImportManager] Skipping import for ${game.title} because platform ${effectivePlatformId ?? "unknown"} is not enabled in general import platform filter.`
+          );
+          await this.storage.updateGameDownloadStatus(downloadId, "completed");
+          return;
+        }
+      }
+
+      const plan = await strategy.planImport(processingPath, game, libraryRoot, config, rommConfig);
 
       if (plan.needsReview) {
         console.log(
@@ -121,33 +253,19 @@ export class ImportManager {
       // 5. Execute Import
       await this.storage.updateGameDownloadStatus(downloadId, "completed_pending_import");
 
-      // Check RomM Availability if using RomM strategy
-      if (plan.strategy === "romm") {
-        const isRommAvailable = await this.rommService.isAvailable();
-        if (!isRommAvailable) {
-          console.warn(
-            "[ImportManager] RomM API not available. Proceeding with import, but scan will fail."
-          );
-        }
-      }
-
       // Execute
-      await strategy.executeImport(plan, config.deleteSource);
+      const transferMode =
+        strategy instanceof RomMImportStrategy ? rommConfig.moveMode : config.transferMode;
+      await strategy.executeImport(plan, transferMode, rommConfig);
 
       // 6. Cleanup & Finalize
-      if (config.deleteSource && processingPath !== localPath) {
+      if (transferMode === "move" && processingPath !== localPath) {
         await fs.remove(processingPath);
       }
 
       await this.storage.updateGameDownloadStatus(downloadId, "imported");
       if (game.status !== "completed") {
         await this.storage.updateGameStatus(game.id, { status: "owned" });
-      }
-
-      // 7. Post-Import Actions (Scan)
-      const rommConfig = await this.storage.getRomMConfig(game.userId ?? undefined);
-      if (rommConfig.enabled && plan.strategy === "romm") {
-        await this.rommService.scanLibrary(rommPlatform || undefined);
       }
     } catch (err) {
       console.error(`[ImportManager] Import failed for ${downloadId}`, err);
@@ -160,7 +278,7 @@ export class ImportManager {
    */
   async confirmImport(
     downloadId: string,
-    overridePlan?: ImportReview & { deleteSource?: boolean }
+    overridePlan?: ImportReview & { transferMode?: "move" | "copy" | "hardlink" | "symlink" }
   ): Promise<void> {
     const download = await this.storage.getGameDownload(downloadId);
 
@@ -206,21 +324,30 @@ export class ImportManager {
     }
 
     const config = await this.storage.getImportConfig(game.userId ?? undefined);
+    const rommConfig = await this.storage.getRomMConfig(game.userId ?? undefined);
 
     // Execute via the proper strategy
     let strategy: ImportStrategy;
     if (overridePlan.strategy === "romm") {
-      const primaryPlatformId = this.getPrimaryPlatformId(game);
-      const rommPlatform = primaryPlatformId
-        ? await this.platformService.getRomMPlatform(primaryPlatformId)
+      const releasePlatformKey = this.getReleasePlatformKey(download.downloadTitle || "");
+      const releasePlatformId = this.getReleasePlatformIgdbId(releasePlatformKey);
+      const gamePrimaryPlatformId = this.getPrimaryPlatformId(game);
+      const effectivePlatformId = releasePlatformId ?? gamePrimaryPlatformId;
+      const rommPlatform = effectivePlatformId
+        ? await this.platformService.getRomMPlatform(effectivePlatformId)
         : null;
-      strategy = new RomMImportStrategy(rommPlatform || "unknown");
+      const fallbackSlugFromRelease = this.getReleasePlatformFallbackSlug(releasePlatformKey);
+      strategy = new RomMImportStrategy(rommPlatform || fallbackSlugFromRelease || "unknown");
     } else {
       strategy = new PCImportStrategy();
     }
 
     if (overridePlan.proposedPath) {
-      const resolvedRoot = path.resolve(config.libraryRoot);
+      const root =
+        overridePlan.strategy === "romm"
+          ? rommConfig.libraryRoot || config.integrationLibraryRoot
+          : config.libraryRoot;
+      const resolvedRoot = path.resolve(root);
       const resolvedTarget = path.resolve(overridePlan.proposedPath);
       const insideRoot =
         resolvedTarget === resolvedRoot || resolvedTarget.startsWith(resolvedRoot + path.sep);
@@ -234,25 +361,16 @@ export class ImportManager {
       originalPath: resolvedOriginalPath,
     };
 
-    await strategy.executeImport(planToExecute, !!overridePlan.deleteSource);
+    const transferMode =
+      overridePlan.transferMode ??
+      (overridePlan.strategy === "romm" ? rommConfig.moveMode : config.transferMode);
+    await strategy.executeImport(planToExecute, transferMode, rommConfig);
 
     const downloadStatus = "imported";
     await this.storage.updateGameDownloadStatus(downloadId, downloadStatus);
 
     if (game.status !== "completed") {
       await this.storage.updateGameStatus(game.id, { status: "owned" });
-    }
-
-    // Post-Import Actions (Scan RomM library)
-    if (overridePlan.strategy === "romm") {
-      const rommConfig = await this.storage.getRomMConfig(game.userId ?? undefined);
-      if (rommConfig.enabled) {
-        const primaryPlatformId = this.getPrimaryPlatformId(game);
-        const rommPlatform = primaryPlatformId
-          ? await this.platformService.getRomMPlatform(primaryPlatformId)
-          : null;
-        await this.rommService.scanLibrary(rommPlatform || undefined);
-      }
     }
   }
 }

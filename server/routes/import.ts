@@ -16,10 +16,15 @@ const importConfigPatchSchema = z
     autoUnpack: z.boolean().optional(),
     renamePattern: z.string().min(1).max(200).optional(),
     overwriteExisting: z.boolean().optional(),
-    deleteSource: z.boolean().optional(),
+    transferMode: z.enum(["move", "copy", "hardlink"]).optional(),
+    importPlatformIds: z.array(z.number().int().min(1)).optional(),
     ignoredExtensions: z.array(z.string().min(1)).optional(),
     minFileSize: z.number().int().min(0).optional(),
     libraryRoot: z.string().min(1).max(1024).optional(),
+    integrationProvider: z.string().min(1).max(64).optional(),
+    integrationLibraryRoot: z.string().min(1).max(1024).optional(),
+    integrationTransferMode: z.enum(["move", "copy", "hardlink"]).optional(),
+    integrationPlatformIds: z.array(z.number().int().min(1)).optional(),
   })
   .strict();
 
@@ -28,6 +33,19 @@ const rommConfigPatchSchema = z
     enabled: z.boolean().optional(),
     url: z.string().trim().optional(),
     apiKey: z.string().trim().optional(),
+    libraryRoot: z.string().min(1).max(1024).optional(),
+    platformRoutingMode: z.enum(["slug-subfolder", "binding-map"]).optional(),
+    platformBindings: z.record(z.string(), z.string()).optional(),
+    platformAliases: z.record(z.string(), z.string()).optional(),
+    moveMode: z.enum(["copy", "move", "hardlink", "symlink"]).optional(),
+    conflictPolicy: z.enum(["skip", "overwrite", "rename", "fail"]).optional(),
+    folderNamingTemplate: z.string().min(1).max(200).optional(),
+    singleFilePlacement: z.enum(["root", "subfolder"]).optional(),
+    multiFilePlacement: z.enum(["subfolder"]).optional(),
+    includeRegionLanguageTags: z.boolean().optional(),
+    allowedSlugs: z.array(z.string().trim().min(1)).optional(),
+    allowAbsoluteBindings: z.boolean().optional(),
+    bindingMissingBehavior: z.enum(["fallback", "error"]).optional(),
   })
   .strict();
 
@@ -159,10 +177,15 @@ importRouter.patch("/config", async (req, res) => {
         autoUnpack: newConfig.autoUnpack,
         renamePattern: newConfig.renamePattern,
         overwriteExisting: newConfig.overwriteExisting,
-        deleteSource: newConfig.deleteSource,
+        transferMode: newConfig.transferMode,
+        importPlatformIds: newConfig.importPlatformIds,
         ignoredExtensions: newConfig.ignoredExtensions,
         minFileSize: newConfig.minFileSize,
         libraryRoot: newConfig.libraryRoot,
+        integrationProvider: newConfig.integrationProvider,
+        integrationLibraryRoot: newConfig.integrationLibraryRoot,
+        integrationTransferMode: newConfig.integrationTransferMode,
+        integrationPlatformIds: newConfig.integrationPlatformIds,
       });
       if (!updated) return res.status(404).json({ error: "User settings not found" });
       res.json(newConfig);
@@ -204,12 +227,45 @@ importRouter.patch("/romm", async (req, res) => {
         rommEnabled: updates.enabled,
         rommUrl: updates.url,
         rommApiKey: updates.apiKey,
+        rommLibraryRoot: updates.libraryRoot,
+        rommPlatformRoutingMode: updates.platformRoutingMode,
+        rommPlatformBindings: updates.platformBindings,
+        rommPlatformAliases: updates.platformAliases,
+        rommMoveMode: updates.moveMode,
+        rommConflictPolicy: updates.conflictPolicy,
+        rommFolderNamingTemplate: updates.folderNamingTemplate,
+        rommSingleFilePlacement: updates.singleFilePlacement,
+        rommMultiFilePlacement: updates.multiFilePlacement,
+        rommIncludeRegionLanguageTags: updates.includeRegionLanguageTags,
+        rommAllowedSlugs: updates.allowedSlugs,
+        rommAllowAbsoluteBindings: updates.allowAbsoluteBindings,
+        rommBindingMissingBehavior: updates.bindingMissingBehavior,
       });
       if (!updated) return res.status(404).json({ error: "Settings not found" });
       res.json({
         enabled: updates.enabled ?? settings.rommEnabled,
         url: updates.url ?? settings.rommUrl,
         apiKey: updates.apiKey ?? settings.rommApiKey,
+        libraryRoot: updates.libraryRoot ?? settings.rommLibraryRoot ?? "/data",
+        platformRoutingMode:
+          updates.platformRoutingMode ?? settings.rommPlatformRoutingMode ?? "slug-subfolder",
+        platformBindings: updates.platformBindings ?? settings.rommPlatformBindings ?? {},
+        platformAliases: updates.platformAliases ?? settings.rommPlatformAliases ?? {},
+        moveMode: updates.moveMode ?? settings.rommMoveMode ?? "hardlink",
+        conflictPolicy: updates.conflictPolicy ?? settings.rommConflictPolicy ?? "rename",
+        folderNamingTemplate:
+          updates.folderNamingTemplate ?? settings.rommFolderNamingTemplate ?? "{title}",
+        singleFilePlacement:
+          updates.singleFilePlacement ?? settings.rommSingleFilePlacement ?? "root",
+        multiFilePlacement:
+          updates.multiFilePlacement ?? settings.rommMultiFilePlacement ?? "subfolder",
+        includeRegionLanguageTags:
+          updates.includeRegionLanguageTags ?? settings.rommIncludeRegionLanguageTags ?? false,
+        allowedSlugs: updates.allowedSlugs ?? settings.rommAllowedSlugs ?? undefined,
+        allowAbsoluteBindings:
+          updates.allowAbsoluteBindings ?? settings.rommAllowAbsoluteBindings ?? false,
+        bindingMissingBehavior:
+          updates.bindingMissingBehavior ?? settings.rommBindingMissingBehavior ?? "fallback",
       });
     } else {
       res.status(404).json({ error: "Settings not found" });
@@ -256,12 +312,14 @@ importRouter.post("/:id/confirm", async (req, res) => {
     const schema = z.object({
       strategy: z.enum(["pc", "romm"]),
       proposedPath: z.string(),
-      deleteSource: z.boolean().optional(),
+      transferMode: z.enum(["move", "copy", "hardlink", "symlink"]).optional(),
     });
 
     const body = schema.parse(req.body);
     const config = await storage.getImportConfig(userId);
-    const safeProposedPath = resolveProposedPathWithinRoot(config.libraryRoot, body.proposedPath);
+    const targetRoot =
+      body.strategy === "romm" ? config.integrationLibraryRoot : config.libraryRoot;
+    const safeProposedPath = resolveProposedPathWithinRoot(targetRoot, body.proposedPath);
 
     await importManager.confirmImport(id, {
       strategy: body.strategy,
@@ -269,7 +327,7 @@ importRouter.post("/:id/confirm", async (req, res) => {
       proposedPath: safeProposedPath,
       needsReview: false,
       reviewReason: "Manual Confirmation",
-      deleteSource: body.deleteSource,
+      transferMode: body.transferMode,
     });
 
     res.json({ success: true });

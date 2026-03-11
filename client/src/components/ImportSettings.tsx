@@ -560,23 +560,6 @@ export default function ImportSettings() {
                       }
                     />
                   </div>
-                  <div className="space-y-2">
-                    <Label>RomM URL</Label>
-                    <Input
-                      placeholder="http://localhost:8080"
-                      value={localRomm.url || ""}
-                      onChange={(e) => setLocalRomm({ ...localRomm, url: e.target.value })}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>API Key</Label>
-                    <Input
-                      type="password"
-                      placeholder="API Key"
-                      value={localRomm.apiKey || ""}
-                      onChange={(e) => setLocalRomm({ ...localRomm, apiKey: e.target.value })}
-                    />
-                  </div>
                   <div className="flex justify-end pt-4">
                     <Button
                       variant="outline"

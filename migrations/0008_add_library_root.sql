@@ -1,1 +1,0 @@
-ALTER TABLE `user_settings` ADD `library_root` text DEFAULT '/data' NOT NULL;

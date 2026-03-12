@@ -821,20 +821,16 @@ export class MemStorage implements IStorage {
       steamSyncFailures: 0,
 
       // Import Engine Defaults
-      enablePostProcessing: insertSettings.enablePostProcessing ?? true,
+      enablePostProcessing: insertSettings.enablePostProcessing ?? false,
       autoUnpack: insertSettings.autoUnpack ?? false,
       renamePattern: insertSettings.renamePattern ?? "{Title} ({Region})",
       overwriteExisting: insertSettings.overwriteExisting ?? false,
       deleteSource: insertSettings.deleteSource ?? true,
-      transferMode: insertSettings.transferMode ?? "move",
+      transferMode: insertSettings.transferMode ?? "hardlink",
       importPlatformIds: insertSettings.importPlatformIds ?? [],
       ignoredExtensions: insertSettings.ignoredExtensions ?? [],
       minFileSize: insertSettings.minFileSize ?? 0,
       libraryRoot: insertSettings.libraryRoot ?? "/data",
-      integrationProvider: insertSettings.integrationProvider ?? "romm",
-      integrationLibraryRoot: insertSettings.integrationLibraryRoot ?? "/data",
-      integrationTransferMode: insertSettings.integrationTransferMode ?? "move",
-      integrationPlatformIds: insertSettings.integrationPlatformIds ?? [],
 
       // RomM Defaults
       rommEnabled: insertSettings.rommEnabled ?? false,
@@ -975,20 +971,15 @@ export class MemStorage implements IStorage {
       ? Array.from(this.userSettings.values()).find((s) => s.userId === userId)
       : this.userSettings.values().next().value;
     return {
-      enablePostProcessing: scopedSettings?.enablePostProcessing ?? true,
+      enablePostProcessing: scopedSettings?.enablePostProcessing ?? false,
       autoUnpack: scopedSettings?.autoUnpack ?? false,
       renamePattern: scopedSettings?.renamePattern ?? "{Title} ({Region})",
       overwriteExisting: scopedSettings?.overwriteExisting ?? false,
-      transferMode: (scopedSettings?.transferMode as "move" | "copy" | "hardlink") ?? "move",
+      transferMode: (scopedSettings?.transferMode as "move" | "copy" | "hardlink") ?? "hardlink",
       importPlatformIds: scopedSettings?.importPlatformIds ?? [],
       ignoredExtensions: scopedSettings?.ignoredExtensions ?? [],
       minFileSize: scopedSettings?.minFileSize ?? 0,
       libraryRoot: scopedSettings?.libraryRoot ?? "/data",
-      integrationProvider: scopedSettings?.integrationProvider ?? "romm",
-      integrationLibraryRoot: scopedSettings?.integrationLibraryRoot ?? "/data",
-      integrationTransferMode:
-        (scopedSettings?.integrationTransferMode as "move" | "copy" | "hardlink") ?? "move",
-      integrationPlatformIds: scopedSettings?.integrationPlatformIds ?? [],
     };
   }
 
@@ -1122,20 +1113,15 @@ export class DatabaseStorage implements IStorage {
       ? await db.select().from(userSettings).where(eq(userSettings.userId, userId)).limit(1)
       : await db.select().from(userSettings).limit(1);
     return {
-      enablePostProcessing: settings?.enablePostProcessing ?? true,
+      enablePostProcessing: settings?.enablePostProcessing ?? false,
       autoUnpack: settings?.autoUnpack ?? false,
       renamePattern: settings?.renamePattern ?? "{Title} ({Region})",
       overwriteExisting: settings?.overwriteExisting ?? false,
-      transferMode: (settings?.transferMode as "move" | "copy" | "hardlink") ?? "move",
+      transferMode: (settings?.transferMode as "move" | "copy" | "hardlink") ?? "hardlink",
       importPlatformIds: settings?.importPlatformIds ?? [],
       ignoredExtensions: settings?.ignoredExtensions ?? [],
       minFileSize: settings?.minFileSize ?? 0,
       libraryRoot: settings?.libraryRoot ?? "/data",
-      integrationProvider: settings?.integrationProvider ?? "romm",
-      integrationLibraryRoot: settings?.integrationLibraryRoot ?? "/data",
-      integrationTransferMode:
-        (settings?.integrationTransferMode as "move" | "copy" | "hardlink") ?? "move",
-      integrationPlatformIds: settings?.integrationPlatformIds ?? [],
     };
   }
 
@@ -1763,6 +1749,7 @@ export class DatabaseStorage implements IStorage {
       .insert(userSettings)
       .values({
         ...restInsertSettings,
+        enablePostProcessing: insertSettings.enablePostProcessing ?? false,
         ...(normalizedAllowedSlugs !== undefined
           ? { rommAllowedSlugs: normalizedAllowedSlugs }
           : {}),

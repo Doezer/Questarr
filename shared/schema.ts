@@ -52,22 +52,16 @@ export const userSettings = sqliteTable("user_settings", {
   // Import Engine Settings
   enablePostProcessing: integer("enable_post_processing", { mode: "boolean" })
     .notNull()
-    .default(true),
+    .default(false),
   autoUnpack: integer("auto_unpack", { mode: "boolean" }).notNull().default(false),
   renamePattern: text("rename_pattern").notNull().default("{Title} ({Region})"),
   overwriteExisting: integer("overwrite_existing", { mode: "boolean" }).notNull().default(false),
   deleteSource: integer("delete_source", { mode: "boolean" }).notNull().default(true),
-  transferMode: text("transfer_mode").notNull().default("move"),
+  transferMode: text("transfer_mode").notNull().default("hardlink"),
   importPlatformIds: text("import_platform_ids", { mode: "json" }).$type<number[]>().default([]),
   ignoredExtensions: text("ignored_extensions", { mode: "json" }).$type<string[]>().default([]),
   minFileSize: integer("min_file_size").notNull().default(0), // in bytes
   libraryRoot: text("library_root").notNull().default("/data"),
-  integrationProvider: text("integration_provider").notNull().default("romm"),
-  integrationLibraryRoot: text("integration_library_root").notNull().default("/data"),
-  integrationTransferMode: text("integration_transfer_mode").notNull().default("move"),
-  integrationPlatformIds: text("integration_platform_ids", { mode: "json" })
-    .$type<number[]>()
-    .default([]),
   // RomM Settings
   rommEnabled: integer("romm_enabled", { mode: "boolean" }).notNull().default(false),
   rommUrl: text("romm_url"),
@@ -126,10 +120,6 @@ export interface ImportConfig {
   ignoredExtensions: string[];
   minFileSize: number;
   libraryRoot: string;
-  integrationProvider: string;
-  integrationLibraryRoot: string;
-  integrationTransferMode: "move" | "copy" | "hardlink";
-  integrationPlatformIds: number[];
 }
 
 export type RomMPlatformRoutingMode = "slug-subfolder" | "binding-map";

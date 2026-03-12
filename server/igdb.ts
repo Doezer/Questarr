@@ -84,6 +84,19 @@ const HIGH_RATING_COUNT = 5;
 const MAX_LIMIT = 100;
 const MAX_OFFSET = 10000;
 
+const FALLBACK_PLATFORMS: Array<{ id: number; name: string }> = [
+  { id: 6, name: "PC (Microsoft Windows)" },
+  { id: 48, name: "PlayStation 4" },
+  { id: 167, name: "PlayStation 5" },
+  { id: 49, name: "Xbox One" },
+  { id: 169, name: "Xbox Series X|S" },
+  { id: 130, name: "Nintendo Switch" },
+  { id: 41, name: "Wii U" },
+  { id: 19, name: "Super Nintendo Entertainment System" },
+  { id: 24, name: "Game Boy Advance" },
+  { id: 29, name: "Sega Mega Drive/Genesis" },
+];
+
 // ⚡ Bolt: Define a cache entry interface for in-memory caching.
 interface CacheEntry<T> {
   data: T;
@@ -883,24 +896,59 @@ class IGDBClient {
   async getPlatforms(): Promise<Array<{ id: number; name: string }>> {
     if (!(await this.ensureConfigured())) return [];
 
-    // Only get major gaming platforms
-    const igdbQuery = `
-      fields id, name;
-      where category = (1, 5, 6);
-      sort name asc;
-      limit 50;
-    `;
+    const fetchAllPlatforms = async (
+      whereClause: string
+    ): Promise<Array<{ id: number; name: string }>> => {
+      const pageSize = 100;
+      const all: Array<{ id: number; name: string }> = [];
+
+      for (let offset = 0; offset <= MAX_OFFSET; offset += pageSize) {
+        const pagedQuery = `
+          fields id, name;
+          where ${whereClause};
+          sort name asc;
+          limit ${pageSize};
+          offset ${offset};
+        `;
+
+        const batch = await this.makeRequest<{ id: number; name: string }[]>(
+          "platforms",
+          pagedQuery,
+          24 * 60 * 60 * 1000
+        );
+
+        if (batch.length === 0) break;
+
+        all.push(...batch);
+
+        if (batch.length < pageSize) break;
+      }
+
+      return all;
+    };
 
     try {
-      // ⚡ Bolt: Cache platforms for 24 hours as they are static.
-      return await this.makeRequest<{ id: number; name: string }[]>(
-        "platforms",
-        igdbQuery,
-        24 * 60 * 60 * 1000
-      );
+      // Only get major gaming platforms, but fetch all pages.
+      const primary = await fetchAllPlatforms("category = (1, 5, 6)");
+      if (primary.length > 0) {
+        return Array.from(new Map(primary.map((p) => [p.id, p])).values()).sort((a, b) =>
+          a.name.localeCompare(b.name)
+        );
+      }
+
+      // Fallback query without category filter in case upstream schema/filter behavior changed.
+      const broadFallback = await fetchAllPlatforms("name != null");
+
+      if (broadFallback.length > 0) {
+        return Array.from(new Map(broadFallback.map((p) => [p.id, p])).values()).sort((a, b) =>
+          a.name.localeCompare(b.name)
+        );
+      }
+
+      return FALLBACK_PLATFORMS;
     } catch (error) {
-      console.warn("IGDB platforms fetch failed:", error);
-      return [];
+      console.warn("IGDB platforms fetch failed, using fallback list:", error);
+      return FALLBACK_PLATFORMS;
     }
   }
 

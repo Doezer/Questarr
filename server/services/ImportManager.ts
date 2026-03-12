@@ -112,6 +112,77 @@ export class ImportManager {
     return (alias ?? baseSlug).trim().toLowerCase();
   }
 
+  private getProviderLibraryRoot(
+    provider: "pc" | "romm",
+    configRoot: string,
+    rommRoot: string
+  ): string {
+    return provider === "romm" ? rommRoot || "/data" : configRoot || "/data";
+  }
+
+  private async selectProviderForImport(args: {
+    game: Awaited<ReturnType<IStorage["getGame"]>>;
+    downloadTitle: string;
+    config: Awaited<ReturnType<IStorage["getImportConfig"]>>;
+    rommConfig: Awaited<ReturnType<IStorage["getRomMConfig"]>>;
+  }): Promise<
+    | { strategy: PCImportStrategy; provider: "pc" }
+    | { strategy: RomMImportStrategy; provider: "romm" }
+    | { requiresReview: true; reason: string }
+  > {
+    const { game, downloadTitle, config, rommConfig } = args;
+
+    if (!game) {
+      return { requiresReview: true, reason: "Game not found for import" };
+    }
+
+    const gamePrimaryPlatformId = this.getPrimaryPlatformId(game);
+    const releasePlatformKey = this.getReleasePlatformKey(downloadTitle || "");
+    const releasePlatformId = this.getReleasePlatformIgdbId(releasePlatformKey);
+    const effectivePlatformId = releasePlatformId ?? gamePrimaryPlatformId;
+    const rommPlatform = effectivePlatformId
+      ? await this.platformService.getRomMPlatform(effectivePlatformId)
+      : null;
+    const fallbackSlugFromRelease = this.getReleasePlatformFallbackSlug(releasePlatformKey);
+    const baseRommSlug = rommPlatform ?? fallbackSlugFromRelease;
+    const resolvedRommSlug = this.resolveRommSlug(baseRommSlug, rommConfig.platformAliases);
+
+    const slugAllowed =
+      !rommConfig.allowedSlugs || rommConfig.allowedSlugs.length === 0
+        ? true
+        : !!resolvedRommSlug && rommConfig.allowedSlugs.includes(resolvedRommSlug);
+
+    const rommEnabledForPlatform =
+      rommConfig.enabled && this.isPlatformEnabled(effectivePlatformId, config.importPlatformIds);
+
+    if (rommEnabledForPlatform && !resolvedRommSlug) {
+      return {
+        requiresReview: true,
+        reason: `missing RomM fs_slug mapping for platform ${effectivePlatformId ?? "unknown"}`,
+      };
+    }
+
+    if (rommEnabledForPlatform && !slugAllowed) {
+      return {
+        requiresReview: true,
+        reason: `slug ${resolvedRommSlug} is not in allowedSlugs`,
+      };
+    }
+
+    if (rommEnabledForPlatform && resolvedRommSlug && slugAllowed) {
+      return {
+        provider: "romm",
+        strategy: new RomMImportStrategy(resolvedRommSlug, (result: ImportResult) => {
+          console.log(
+            `[ImportManager] onRommImportComplete slug=${result.platformSlug} dest=${result.destDir} files=${result.filesPlaced.length}`
+          );
+        }),
+      };
+    }
+
+    return { provider: "pc", strategy: new PCImportStrategy() };
+  }
+
   /**
    * Main entry point when a download triggers "Completed" or "Processing" state.
    */
@@ -169,62 +240,33 @@ export class ImportManager {
       }
 
       // 3. Strategy Selection
-      let strategy: ImportStrategy;
       const rommConfig = await this.storage.getRomMConfig(game.userId ?? undefined);
+      const providerSelection = await this.selectProviderForImport({
+        game,
+        downloadTitle: download.downloadTitle || "",
+        config,
+        rommConfig,
+      });
+
+      if ("requiresReview" in providerSelection) {
+        console.log(
+          `[ImportManager] Manual review required for ${game.title}: ${providerSelection.reason}.`
+        );
+        await this.storage.updateGameDownloadStatus(downloadId, "manual_review_required");
+        return;
+      }
+
+      const strategy = providerSelection.strategy;
+      const libraryRoot = this.getProviderLibraryRoot(
+        providerSelection.provider,
+        config.libraryRoot,
+        rommConfig.libraryRoot
+      );
+
       const gamePrimaryPlatformId = this.getPrimaryPlatformId(game);
       const releasePlatformKey = this.getReleasePlatformKey(download.downloadTitle || "");
       const releasePlatformId = this.getReleasePlatformIgdbId(releasePlatformKey);
       const effectivePlatformId = releasePlatformId ?? gamePrimaryPlatformId;
-      const rommPlatform = effectivePlatformId
-        ? await this.platformService.getRomMPlatform(effectivePlatformId)
-        : null;
-
-      const fallbackSlugFromRelease = this.getReleasePlatformFallbackSlug(releasePlatformKey);
-      const baseRommSlug = rommPlatform ?? fallbackSlugFromRelease;
-      const resolvedRommSlug = this.resolveRommSlug(baseRommSlug, rommConfig.platformAliases);
-      const slugAllowed =
-        !rommConfig.allowedSlugs || rommConfig.allowedSlugs.length === 0
-          ? true
-          : !!resolvedRommSlug && rommConfig.allowedSlugs.includes(resolvedRommSlug);
-      const integrationEnabledForPlatform =
-        rommConfig.enabled &&
-        config.integrationProvider === "romm" &&
-        this.isPlatformEnabled(effectivePlatformId, config.integrationPlatformIds);
-
-      if (integrationEnabledForPlatform && !resolvedRommSlug) {
-        console.log(
-          `[ImportManager] Manual review required for ${game.title}: missing RomM fs_slug mapping for platform ${effectivePlatformId ?? "unknown"}.`
-        );
-        await this.storage.updateGameDownloadStatus(downloadId, "manual_review_required");
-        return;
-      }
-
-      if (integrationEnabledForPlatform && !slugAllowed) {
-        console.log(
-          `[ImportManager] Manual review required for ${game.title}: slug ${resolvedRommSlug} is not in allowedSlugs.`
-        );
-        await this.storage.updateGameDownloadStatus(downloadId, "manual_review_required");
-        return;
-      }
-
-      const shouldUseIntegration =
-        integrationEnabledForPlatform && !!resolvedRommSlug && slugAllowed;
-
-      if (shouldUseIntegration) {
-        strategy = new RomMImportStrategy(resolvedRommSlug as string, (result: ImportResult) => {
-          console.log(
-            `[ImportManager] onRommImportComplete slug=${result.platformSlug} dest=${result.destDir} files=${result.filesPlaced.length}`
-          );
-        });
-      } else {
-        // Fallback for PC or Unknown
-        strategy = new PCImportStrategy();
-      }
-
-      const libraryRoot =
-        strategy instanceof RomMImportStrategy
-          ? rommConfig.libraryRoot || config.integrationLibraryRoot || "/data"
-          : config.libraryRoot || "/data";
 
       if (strategy instanceof PCImportStrategy) {
         const platformAllowed = this.isPlatformEnabled(
@@ -239,6 +281,8 @@ export class ImportManager {
           return;
         }
       }
+
+      await fs.ensureDir(libraryRoot);
 
       const plan = await strategy.planImport(processingPath, game, libraryRoot, config, rommConfig);
 
@@ -343,10 +387,7 @@ export class ImportManager {
     }
 
     if (overridePlan.proposedPath) {
-      const root =
-        overridePlan.strategy === "romm"
-          ? rommConfig.libraryRoot || config.integrationLibraryRoot
-          : config.libraryRoot;
+      const root = overridePlan.strategy === "romm" ? rommConfig.libraryRoot : config.libraryRoot;
       const resolvedRoot = path.resolve(root);
       const resolvedTarget = path.resolve(overridePlan.proposedPath);
       const insideRoot =

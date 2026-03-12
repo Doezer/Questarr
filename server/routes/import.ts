@@ -5,6 +5,8 @@ import { isSafeUrl } from "../ssrf.js";
 import z from "zod";
 import { insertPathMappingSchema, insertPlatformMappingSchema } from "../../shared/schema.js";
 import path from "path";
+import fs from "fs-extra";
+import { randomUUID } from "crypto";
 
 export const importRouter = Router();
 
@@ -21,10 +23,6 @@ const importConfigPatchSchema = z
     ignoredExtensions: z.array(z.string().min(1)).optional(),
     minFileSize: z.number().int().min(0).optional(),
     libraryRoot: z.string().min(1).max(1024).optional(),
-    integrationProvider: z.string().min(1).max(64).optional(),
-    integrationLibraryRoot: z.string().min(1).max(1024).optional(),
-    integrationTransferMode: z.enum(["move", "copy", "hardlink"]).optional(),
-    integrationPlatformIds: z.array(z.number().int().min(1)).optional(),
   })
   .strict();
 
@@ -72,6 +70,125 @@ function resolveProposedPathWithinRoot(libraryRoot: string, rawPath: string): st
   }
 
   return resolvedTarget;
+}
+
+function parseHostFromUrl(url?: string | null): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return null;
+  }
+}
+
+function translatePathWithMappings(
+  remotePath: string,
+  mappings: Array<{ remotePath: string; localPath: string; remoteHost?: string | null }>,
+  remoteHost?: string | null
+): string {
+  let bestMatch: { remotePath: string; localPath: string; remoteHost?: string | null } | null =
+    null;
+
+  const candidates = mappings.filter((mapping) => {
+    if (!mapping.remoteHost) return true;
+    return !!remoteHost && mapping.remoteHost === remoteHost;
+  });
+
+  for (const mapping of candidates) {
+    if (remotePath.startsWith(mapping.remotePath)) {
+      if (!bestMatch || mapping.remotePath.length > bestMatch.remotePath.length) {
+        bestMatch = mapping;
+      }
+    }
+  }
+
+  if (!bestMatch) return remotePath;
+
+  const relative = remotePath.substring(bestMatch.remotePath.length).replace(/^[/\\]+/, "");
+  return path.join(bestMatch.localPath, relative);
+}
+
+async function checkHardlinkPair(
+  sourcePath: string,
+  targetPath: string
+): Promise<{
+  sourcePath: string;
+  targetPath: string;
+  supported: boolean;
+  sameDevice: boolean;
+  reason?: string;
+}> {
+  const resolvedSource = path.resolve(sourcePath);
+  const resolvedTarget = path.resolve(targetPath);
+
+  let sourceStats: Awaited<ReturnType<typeof fs.stat>>;
+  let targetStats: Awaited<ReturnType<typeof fs.stat>>;
+
+  try {
+    sourceStats = await fs.stat(resolvedSource);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code ?? "UNKNOWN";
+    return {
+      sourcePath: resolvedSource,
+      targetPath: resolvedTarget,
+      supported: false,
+      sameDevice: false,
+      reason: `Source path is not accessible (${code})`,
+    };
+  }
+
+  try {
+    targetStats = await fs.stat(resolvedTarget);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code ?? "UNKNOWN";
+    return {
+      sourcePath: resolvedSource,
+      targetPath: resolvedTarget,
+      supported: false,
+      sameDevice: false,
+      reason: `Target path is not accessible (${code})`,
+    };
+  }
+
+  const sourceDir = sourceStats.isDirectory() ? resolvedSource : path.dirname(resolvedSource);
+  const targetDir = targetStats.isDirectory() ? resolvedTarget : path.dirname(resolvedTarget);
+
+  const sameDevice = sourceStats.dev === targetStats.dev;
+  if (!sameDevice) {
+    return {
+      sourcePath: sourceDir,
+      targetPath: targetDir,
+      supported: false,
+      sameDevice,
+      reason: "Source and target are on different filesystems/devices",
+    };
+  }
+
+  const probeSource = path.join(targetDir, `.questarr-hardlink-check-src-${randomUUID()}`);
+  const probeLink = path.join(targetDir, `.questarr-hardlink-check-link-${randomUUID()}`);
+
+  try {
+    await fs.writeFile(probeSource, "questarr-hardlink-check");
+    await fs.link(probeSource, probeLink);
+    return {
+      sourcePath: sourceDir,
+      targetPath: targetDir,
+      supported: true,
+      sameDevice,
+    };
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code ?? "UNKNOWN";
+    return {
+      sourcePath: sourceDir,
+      targetPath: targetDir,
+      supported: false,
+      sameDevice,
+      reason: `Hardlink probe failed (${code})`,
+    };
+  } finally {
+    await fs.remove(probeLink).catch(() => undefined);
+    await fs.remove(probeSource).catch(() => undefined);
+  }
 }
 
 // --- Mappings Management ---
@@ -182,10 +299,6 @@ importRouter.patch("/config", async (req, res) => {
         ignoredExtensions: newConfig.ignoredExtensions,
         minFileSize: newConfig.minFileSize,
         libraryRoot: newConfig.libraryRoot,
-        integrationProvider: newConfig.integrationProvider,
-        integrationLibraryRoot: newConfig.integrationLibraryRoot,
-        integrationTransferMode: newConfig.integrationTransferMode,
-        integrationPlatformIds: newConfig.integrationPlatformIds,
       });
       if (!updated) return res.status(404).json({ error: "User settings not found" });
       res.json(newConfig);
@@ -276,6 +389,93 @@ importRouter.patch("/romm", async (req, res) => {
   }
 });
 
+importRouter.get("/hardlink/check", async (req, res) => {
+  try {
+    const userId = (req as AuthedRequest).user?.id;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const [config, rommConfig, downloaders, mappings] = await Promise.all([
+      storage.getImportConfig(userId),
+      storage.getRomMConfig(userId),
+      storage.getEnabledDownloaders(),
+      storage.getPathMappings(),
+    ]);
+
+    const sourceRoots = Array.from(
+      new Set(
+        downloaders
+          .map((downloader) => {
+            if (!downloader.downloadPath) return null;
+            const remoteHost = parseHostFromUrl(downloader.url);
+            return translatePathWithMappings(downloader.downloadPath, mappings, remoteHost);
+          })
+          .filter((value): value is string => !!value)
+          .map((value) => path.resolve(value))
+      )
+    );
+
+    if (sourceRoots.length === 0) {
+      return res.json({
+        generic: {
+          targetRoot: config.libraryRoot,
+          supportedForAll: null,
+          checkedSources: [],
+          reason: "No downloader download paths are configured.",
+        },
+        romm: {
+          targetRoot: rommConfig.libraryRoot,
+          supportedForAll: null,
+          checkedSources: [],
+          reason: "No downloader download paths are configured.",
+        },
+      });
+    }
+
+    const [genericChecks, rommChecks] = await Promise.all([
+      Promise.all(
+        sourceRoots.map((sourcePath) => checkHardlinkPair(sourcePath, config.libraryRoot))
+      ),
+      Promise.all(
+        sourceRoots.map((sourcePath) => checkHardlinkPair(sourcePath, rommConfig.libraryRoot))
+      ),
+    ]);
+
+    const summarize = (
+      checks: Array<{
+        sourcePath: string;
+        targetPath: string;
+        supported: boolean;
+        sameDevice: boolean;
+        reason?: string;
+      }>
+    ) => {
+      const unsupported = checks.filter((check) => !check.supported);
+      return {
+        supportedForAll: unsupported.length === 0,
+        checkedSources: checks,
+        reason:
+          unsupported.length === 0
+            ? undefined
+            : unsupported.map((check) => `${check.sourcePath}: ${check.reason}`).join("; "),
+      };
+    };
+
+    res.json({
+      generic: {
+        targetRoot: config.libraryRoot,
+        ...summarize(genericChecks),
+      },
+      romm: {
+        targetRoot: rommConfig.libraryRoot,
+        ...summarize(rommChecks),
+      },
+    });
+  } catch (error) {
+    console.error("Error checking hardlink capability:", error);
+    res.status(500).json({ error: "Failed to check hardlink capability" });
+  }
+});
+
 // --- Operations ---
 importRouter.get("/pending", async (req, res) => {
   try {
@@ -317,8 +517,8 @@ importRouter.post("/:id/confirm", async (req, res) => {
 
     const body = schema.parse(req.body);
     const config = await storage.getImportConfig(userId);
-    const targetRoot =
-      body.strategy === "romm" ? config.integrationLibraryRoot : config.libraryRoot;
+    const rommConfig = await storage.getRomMConfig(userId);
+    const targetRoot = body.strategy === "romm" ? rommConfig.libraryRoot : config.libraryRoot;
     const safeProposedPath = resolveProposedPathWithinRoot(targetRoot, body.proposedPath);
 
     await importManager.confirmImport(id, {

@@ -57,34 +57,6 @@
       "when": 1771914096263,
       "tag": "0007_add_post_processing_and_romm",
       "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "6",
-      "when": 1771916672705,
-      "tag": "0008_add_library_root",
-      "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "6",
-      "when": 1773049967556,
-      "tag": "0009_rebuild_games_table_hidden_default",
-      "breakpoints": true
-    },
-    {
-      "idx": 10,
-      "version": "6",
-      "when": 1773159600000,
-      "tag": "0010_add_import_modes_and_platform_filters",
-      "breakpoints": true
-    },
-    {
-      "idx": 11,
-      "version": "6",
-      "when": 1773163200000,
-      "tag": "0011_add_romm_routing_settings",
-      "breakpoints": true
     }
   ]
 }

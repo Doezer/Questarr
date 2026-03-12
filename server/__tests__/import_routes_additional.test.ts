@@ -6,6 +6,7 @@ const { mockStorage, mockImportManager, mockPlatformMappingService, isSafeUrlMoc
   () => ({
     mockStorage: {
       getImportConfig: vi.fn(),
+      getEnabledDownloaders: vi.fn(),
       getDownloadingGameDownloads: vi.fn(),
       getGame: vi.fn(),
       getPlatformMappings: vi.fn(),
@@ -43,6 +44,7 @@ import { importRouter } from "../routes/import.js";
 describe("importRouter additional coverage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockStorage.getEnabledDownloaders.mockResolvedValue([]);
     mockStorage.getImportConfig.mockResolvedValue({
       libraryRoot: "/data",
       enablePostProcessing: true,
@@ -53,11 +55,23 @@ describe("importRouter additional coverage", () => {
       importPlatformIds: [],
       ignoredExtensions: [],
       minFileSize: 0,
-      integrationProvider: "romm",
-      integrationLibraryRoot: "/data/romm",
-      integrationTransferMode: "hardlink",
-      integrationPlatformIds: [],
     });
+    mockStorage.getRomMConfig.mockResolvedValue({
+      enabled: false,
+      libraryRoot: "/data/romm",
+      platformRoutingMode: "slug-subfolder",
+      platformBindings: {},
+      platformAliases: {},
+      moveMode: "hardlink",
+      conflictPolicy: "rename",
+      folderNamingTemplate: "{title}",
+      singleFilePlacement: "root",
+      multiFilePlacement: "subfolder",
+      includeRegionLanguageTags: false,
+      allowAbsoluteBindings: false,
+      bindingMissingBehavior: "fallback",
+    });
+    mockStorage.getPathMappings.mockResolvedValue([]);
   });
 
   function createApp(withUser = true) {
@@ -149,6 +163,16 @@ describe("importRouter additional coverage", () => {
     });
 
     expect(response.status).toBe(400);
+  });
+
+  it("returns neutral hardlink check when no downloader paths are configured", async () => {
+    const app = createApp();
+
+    const response = await request(app).get("/api/imports/hardlink/check");
+
+    expect(response.status).toBe(200);
+    expect(response.body.generic.supportedForAll).toBeNull();
+    expect(response.body.romm.supportedForAll).toBeNull();
   });
 
   it("updates import config using authenticated userId", async () => {

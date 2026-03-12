@@ -5,6 +5,7 @@ import request from "supertest";
 const { mockStorage, mockImportManager } = vi.hoisted(() => ({
   mockStorage: {
     getImportConfig: vi.fn(),
+    getRomMConfig: vi.fn(),
   },
   mockImportManager: {
     confirmImport: vi.fn(),
@@ -37,10 +38,21 @@ describe("importRouter confirmImport security", () => {
       importPlatformIds: [],
       ignoredExtensions: [],
       minFileSize: 0,
-      integrationProvider: "romm",
-      integrationLibraryRoot: "/data/romm",
-      integrationTransferMode: "hardlink",
-      integrationPlatformIds: [],
+    });
+    mockStorage.getRomMConfig.mockResolvedValue({
+      enabled: true,
+      libraryRoot: "/data/romm",
+      platformRoutingMode: "slug-subfolder",
+      platformBindings: {},
+      platformAliases: {},
+      moveMode: "hardlink",
+      conflictPolicy: "rename",
+      folderNamingTemplate: "{title}",
+      singleFilePlacement: "root",
+      multiFilePlacement: "subfolder",
+      includeRegionLanguageTags: false,
+      allowAbsoluteBindings: false,
+      bindingMissingBehavior: "fallback",
     });
   });
 

@@ -321,10 +321,6 @@ describe("MemStorage", () => {
         ignoredExtensions: [".nfo"],
         minFileSize: 12,
         libraryRoot: "/library/a",
-        integrationProvider: "romm",
-        integrationLibraryRoot: "/library/a/romm",
-        integrationTransferMode: "hardlink",
-        integrationPlatformIds: [19],
         rommEnabled: true,
         rommUrl: "https://romm.local",
         rommApiKey: "secret",
@@ -361,10 +357,6 @@ describe("MemStorage", () => {
           ignoredExtensions: [".nfo"],
           minFileSize: 12,
           libraryRoot: "/library/a",
-          integrationProvider: "romm",
-          integrationLibraryRoot: "/library/a/romm",
-          integrationTransferMode: "hardlink",
-          integrationPlatformIds: [19],
         })
       );
 
@@ -401,19 +393,15 @@ describe("MemStorage", () => {
     it("should apply defaults when no matching scoped settings exist", async () => {
       const importConfig = await storage.getImportConfig("missing-user");
       expect(importConfig).toEqual({
-        enablePostProcessing: true,
+        enablePostProcessing: false,
         autoUnpack: false,
         renamePattern: "{Title} ({Region})",
         overwriteExisting: false,
-        transferMode: "move",
+        transferMode: "hardlink",
         importPlatformIds: [],
         ignoredExtensions: [],
         minFileSize: 0,
         libraryRoot: "/data",
-        integrationProvider: "romm",
-        integrationLibraryRoot: "/data",
-        integrationTransferMode: "move",
-        integrationPlatformIds: [],
       });
 
       const rommConfig = await storage.getRomMConfig("missing-user");

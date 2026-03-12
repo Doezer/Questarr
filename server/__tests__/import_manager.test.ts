@@ -49,10 +49,6 @@ describe("ImportManager", () => {
     ignoredExtensions: [],
     minFileSize: 0,
     libraryRoot: "/data",
-    integrationProvider: "romm",
-    integrationLibraryRoot: "/data/romm",
-    integrationTransferMode: "hardlink" as const,
-    integrationPlatformIds: [],
   };
 
   beforeEach(() => {

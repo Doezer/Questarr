@@ -58,10 +58,6 @@ const importConfig: ImportConfig = {
   ignoredExtensions: [".nfo"],
   minFileSize: 0,
   libraryRoot: "/data",
-  integrationProvider: "romm",
-  integrationLibraryRoot: "/data/romm",
-  integrationTransferMode: "hardlink",
-  integrationPlatformIds: [],
 };
 
 function makeRommConfig(root: string): RomMConfig {

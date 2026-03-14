@@ -155,6 +155,34 @@ describe("importRouter additional coverage", () => {
     expect(response.body.error).toMatch(/unsafe/i);
   });
 
+  it("rejects empty RomM URL in PATCH /romm", async () => {
+    const app = createApp();
+
+    const response = await request(app).patch("/api/imports/romm").send({
+      url: "   ",
+    });
+
+    expect(response.status).toBe(400);
+  });
+
+  it("rejects enabling RomM without an effective URL", async () => {
+    mockStorage.getUserSettings.mockResolvedValue({
+      id: "settings-1",
+      userId: "user-1",
+      rommEnabled: false,
+      rommUrl: null,
+      rommApiKey: null,
+    });
+
+    const app = createApp();
+    const response = await request(app).patch("/api/imports/romm").send({
+      enabled: true,
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toMatch(/URL is required/i);
+  });
+
   it("returns 400 for invalid /config patch payload", async () => {
     const app = createApp();
 

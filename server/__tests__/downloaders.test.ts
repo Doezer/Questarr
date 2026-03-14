@@ -2,6 +2,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Downloader } from "../../shared/schema";
 import { TransmissionClient, RTorrentClient, QBittorrentClient } from "../downloaders.js";
 
+const { parseTorrentMock } = vi.hoisted(() => ({
+  parseTorrentMock: vi.fn().mockResolvedValue({ infoHash: "abc123def456" }),
+}));
+
+vi.mock("parse-torrent", () => ({
+  default: parseTorrentMock,
+}));
+
 // Mock dependencies
 vi.mock("../logger.js", () => ({
   downloadersLogger: {

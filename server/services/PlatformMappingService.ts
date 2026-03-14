@@ -28,9 +28,16 @@ export class PlatformMappingService {
   constructor(private storage: IStorage) {}
 
   async initializeDefaults(): Promise<void> {
+    if (typeof this.storage.seedPlatformMappingsIfEmpty === "function") {
+      const result = await this.storage.seedPlatformMappingsIfEmpty(DEFAULT_MAPPINGS);
+      if (result?.seeded) {
+        console.log(`Seeding default platform mappings complete (${result.count} rows).`);
+      }
+      return;
+    }
+
     const existing = await this.storage.getPlatformMappings();
     if (existing.length === 0) {
-      console.log("Seeding default platform mappings...");
       for (const map of DEFAULT_MAPPINGS) {
         await this.storage.addPlatformMapping(map);
       }

@@ -184,7 +184,8 @@ export class ImportManager {
   }
 
   /**
-   * Main entry point when a download triggers "Completed" or "Processing" state.
+   * Main entry point for post-download import processing.
+   * Called when a download reaches a state that requires file placement.
    */
   async processImport(downloadId: string, remoteDownloadPath: string): Promise<void> {
     const download = await this.storage.getGameDownload(downloadId);
@@ -210,10 +211,10 @@ export class ImportManager {
     }
 
     try {
-      await this.storage.updateGameDownloadStatus(downloadId, "unpacking"); // Transitional status
+      // Mark as "unpacking" while archive extraction and file placement are in progress.
+      await this.storage.updateGameDownloadStatus(downloadId, "unpacking");
 
       // 1. Path Translation
-      // We need the downloader host to properly map paths
       const downloader = await this.storage.getDownloader(download.downloaderId);
       let remoteHost: string | undefined;
 
@@ -232,8 +233,7 @@ export class ImportManager {
       // 2. Archive Extraction (if enabled and applicable)
       let processingPath = localPath;
       if (config.autoUnpack && this.archiveService.isArchive(localPath)) {
-        // Extract to same dir or subdir?
-        // Usually extract to a subdir to avoid clutter
+        // Extract to a sibling directory with "_extracted" suffix to avoid mixing with the original file.
         const extractDir = localPath + "_extracted";
         await this.archiveService.extract(localPath, extractDir);
         processingPath = extractDir;
@@ -294,15 +294,13 @@ export class ImportManager {
         return;
       }
 
-      // 5. Execute Import
+      // 4. Execute Import
       await this.storage.updateGameDownloadStatus(downloadId, "completed_pending_import");
-
-      // Execute
       const transferMode =
         strategy instanceof RomMImportStrategy ? rommConfig.moveMode : config.transferMode;
       await strategy.executeImport(plan, transferMode, rommConfig);
 
-      // 6. Cleanup & Finalize
+      // 5. Cleanup & Finalize
       if (transferMode === "move" && processingPath !== localPath) {
         await fs.remove(processingPath);
       }
@@ -313,12 +311,17 @@ export class ImportManager {
       }
     } catch (err) {
       console.error(`[ImportManager] Import failed for ${downloadId}`, err);
-      await this.storage.updateGameDownloadStatus(downloadId, "error");
+      try {
+        await this.storage.updateGameDownloadStatus(downloadId, "error");
+      } catch (statusErr) {
+        console.error(`[ImportManager] Failed to set error status for ${downloadId}`, statusErr);
+      }
     }
   }
 
-  /*
-   * Method to handle manual confirmation
+  /**
+   * Handles manual confirmation of an import that was flagged for review.
+   * The user provides an override plan specifying strategy, target path, and transfer mode.
    */
   async confirmImport(
     downloadId: string,
@@ -351,7 +354,7 @@ export class ImportManager {
             const url = new URL(downloader.url);
             remoteHost = url.hostname;
           } catch {
-            // ignore
+            console.warn(`[ImportManager] Invalid downloader URL: ${downloader.url}`);
           }
           resolvedOriginalPath = await this.pathService.translatePath(remotePath, remoteHost);
         }
@@ -381,7 +384,9 @@ export class ImportManager {
         ? await this.platformService.getRomMPlatform(effectivePlatformId)
         : null;
       const fallbackSlugFromRelease = this.getReleasePlatformFallbackSlug(releasePlatformKey);
-      strategy = new RomMImportStrategy(rommPlatform || fallbackSlugFromRelease || "unknown");
+      const baseSlug = rommPlatform || fallbackSlugFromRelease || "unknown";
+      const resolvedSlug = this.resolveRommSlug(baseSlug, rommConfig.platformAliases) || baseSlug;
+      strategy = new RomMImportStrategy(resolvedSlug);
     } else {
       strategy = new PCImportStrategy();
     }
@@ -405,13 +410,23 @@ export class ImportManager {
     const transferMode =
       overridePlan.transferMode ??
       (overridePlan.strategy === "romm" ? rommConfig.moveMode : config.transferMode);
-    await strategy.executeImport(planToExecute, transferMode, rommConfig);
 
-    const downloadStatus = "imported";
-    await this.storage.updateGameDownloadStatus(downloadId, downloadStatus);
+    try {
+      await strategy.executeImport(planToExecute, transferMode, rommConfig);
 
-    if (game.status !== "completed") {
-      await this.storage.updateGameStatus(game.id, { status: "owned" });
+      await this.storage.updateGameDownloadStatus(downloadId, "imported");
+
+      if (game.status !== "completed") {
+        await this.storage.updateGameStatus(game.id, { status: "owned" });
+      }
+    } catch (err) {
+      console.error(`[ImportManager] confirmImport failed for ${downloadId}`, err);
+      try {
+        await this.storage.updateGameDownloadStatus(downloadId, "error");
+      } catch (statusErr) {
+        console.error(`[ImportManager] Failed to set error status for ${downloadId}`, statusErr);
+      }
+      throw err;
     }
   }
 }

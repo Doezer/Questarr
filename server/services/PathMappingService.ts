@@ -13,7 +13,10 @@ export class PathMappingService {
     return this.storage.addPathMapping(mapping);
   }
 
-  async updateMapping(id: string, updates: Partial<InsertPathMapping>): Promise<PathMapping | undefined> {
+  async updateMapping(
+    id: string,
+    updates: Partial<InsertPathMapping>
+  ): Promise<PathMapping | undefined> {
     return this.storage.updatePathMapping(id, updates);
   }
 
@@ -23,14 +26,10 @@ export class PathMappingService {
 
   async translatePath(remotePath: string, remoteHost?: string | null): Promise<string> {
     const mappings = await this.storage.getPathMappings();
-    // Best match logic: longest matching remotePath
+    // Find the mapping with the longest matching remotePath prefix (most specific match wins).
+    // No path normalization is applied; mappings must use the exact path format reported by the downloader.
     let bestMatch: PathMapping | null = null;
 
-    // Normalize paths for comparison (remove trailing slashes, consistent separators?)
-    // Basic normalization: generic replacement of backslashes to forward slashes for matching?
-    // Or assume users input correctly. Let's do simple string start match for now.
-    
-    // Filter by host if provided (and if mapping has a host defined)
     const candidates = mappings.filter((m) => {
       if (!m.remoteHost) return true; // Generic mapping applies to all
       if (remoteHost && m.remoteHost === remoteHost) return true; // Host matches
@@ -46,20 +45,16 @@ export class PathMappingService {
     }
 
     if (bestMatch) {
-      // Replace prefix
-      // Use path.join to ensure correct separators for the OS?
-      // But we are translating TO local path, so we should use local OS separators?
-      // Questarr runs in Docker (Linux usually) or Windows.
-      // If running in Docker, separators are /.
-      // `path` module uses OS specific separators.
-      
+      // Replace the matched remote prefix with the local path, using OS-native path separators.
       const relative = remotePath.substring(bestMatch.remotePath.length);
-      // Clean leading slash/backslash from relative part
       const cleanRelative = relative.replace(/^[/\\]/, "");
-      
+
       return path.join(bestMatch.localPath, cleanRelative);
     }
 
-    return remotePath; // No mapping found, return original
+    console.warn(
+      `[PathMappingService] No path mapping matched for "${remotePath}" (host: ${remoteHost ?? "none"}). Using original path.`
+    );
+    return remotePath;
   }
 }

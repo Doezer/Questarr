@@ -5,14 +5,20 @@ import { storage } from "../storage.js";
 
 export const systemRouter = Router();
 
-type AuthedRequest = import("express").Request & { user?: { id: string } };
+systemRouter.use((req, res, next) => {
+  if (!req.user?.id) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  res.locals.userId = req.user.id;
+  next();
+});
 
 // GET /api/system/browse?path=/data
 systemRouter.get("/browse", async (req, res) => {
   try {
     const rawPath = (req.query.path as string) || "/";
-    const userId = (req as AuthedRequest).user?.id;
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const userId = res.locals.userId as string;
     const config = await storage.getImportConfig(userId);
     const root = path.resolve(config.libraryRoot || "/data");
 

@@ -4,7 +4,6 @@ import pathTo7zip from "7zip-bin";
 import fs from "fs-extra";
 import path from "path";
 
-// Ensure 7zip path is correctly resolved
 const sevenZipPath = pathTo7zip.path7za;
 
 export class ArchiveService {
@@ -12,12 +11,11 @@ export class ArchiveService {
    * Extracts an archive to a specified output directory.
    * @param filePath Full path to the archive file.
    * @param outputDir Directory where contents should be extracted.
-   * @returns List of extracted file paths.
+   * @returns Paths of files reported as extracted by 7zip (constructed from event data).
    */
   async extract(filePath: string, outputDir: string): Promise<string[]> {
     console.log(`[ArchiveService] Extracting ${filePath} to ${outputDir}...`);
 
-    // Ensure output directory exists
     await fs.ensureDir(outputDir);
 
     return new Promise((resolve, reject) => {
@@ -26,9 +24,7 @@ export class ArchiveService {
       const stream = extractFull(filePath, outputDir, {
         $bin: sevenZipPath,
         $progress: true,
-        recursive: true, // Extract sub-archives? Maybe not by default to avoid mess.
-        // recursive: true is usually for looking inside archives inside archives.
-        // Let's stick to standard extraction.
+        recursive: true,
       });
 
       stream.on("data", (data: { status: string; file?: string }) => {

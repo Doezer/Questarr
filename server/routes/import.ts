@@ -1,16 +1,35 @@
-import { Request, Router } from "express";
+import { Router } from "express";
 import { storage } from "../storage.js";
 import { importManager, platformMappingService } from "../services/index.js";
 import { isSafeUrl } from "../ssrf.js";
 import z from "zod";
-import { insertPathMappingSchema, insertPlatformMappingSchema } from "../../shared/schema.js";
+import {
+  insertPathMappingSchema,
+  insertPlatformMappingSchema,
+  importTransferModeSchema,
+  rommPlatformRoutingModeSchema,
+  rommMoveModeSchema,
+  rommConflictPolicySchema,
+  rommSingleFilePlacementSchema,
+  rommBindingMissingBehaviorSchema,
+  ROMM_MULTI_FILE_PLACEMENT,
+  ROMM_MOVE_MODES,
+} from "../../shared/schema.js";
 import path from "path";
 import fs from "fs-extra";
 import { randomUUID } from "crypto";
+import type { Stats } from "fs";
 
 export const importRouter = Router();
 
-type AuthedRequest = Request & { user?: { id: string } };
+importRouter.use((req, res, next) => {
+  if (!req.user?.id) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  res.locals.userId = req.user.id;
+  next();
+});
 
 const importConfigPatchSchema = z
   .object({
@@ -18,7 +37,7 @@ const importConfigPatchSchema = z
     autoUnpack: z.boolean().optional(),
     renamePattern: z.string().min(1).max(200).optional(),
     overwriteExisting: z.boolean().optional(),
-    transferMode: z.enum(["move", "copy", "hardlink"]).optional(),
+    transferMode: importTransferModeSchema.optional(),
     importPlatformIds: z.array(z.number().int().min(1)).optional(),
     ignoredExtensions: z.array(z.string().min(1)).optional(),
     minFileSize: z.number().int().min(0).optional(),
@@ -29,21 +48,20 @@ const importConfigPatchSchema = z
 const rommConfigPatchSchema = z
   .object({
     enabled: z.boolean().optional(),
-    url: z.string().trim().optional(),
+    url: z.string().trim().min(1).optional(),
     apiKey: z.string().trim().optional(),
     libraryRoot: z.string().min(1).max(1024).optional(),
-    platformRoutingMode: z.enum(["slug-subfolder", "binding-map"]).optional(),
+    platformRoutingMode: rommPlatformRoutingModeSchema.optional(),
     platformBindings: z.record(z.string(), z.string()).optional(),
     platformAliases: z.record(z.string(), z.string()).optional(),
-    moveMode: z.enum(["copy", "move", "hardlink", "symlink"]).optional(),
-    conflictPolicy: z.enum(["skip", "overwrite", "rename", "fail"]).optional(),
+    moveMode: rommMoveModeSchema.optional(),
+    conflictPolicy: rommConflictPolicySchema.optional(),
     folderNamingTemplate: z.string().min(1).max(200).optional(),
-    singleFilePlacement: z.enum(["root", "subfolder"]).optional(),
-    multiFilePlacement: z.enum(["subfolder"]).optional(),
+    singleFilePlacement: rommSingleFilePlacementSchema.optional(),
     includeRegionLanguageTags: z.boolean().optional(),
     allowedSlugs: z.array(z.string().trim().min(1)).optional(),
     allowAbsoluteBindings: z.boolean().optional(),
-    bindingMissingBehavior: z.enum(["fallback", "error"]).optional(),
+    bindingMissingBehavior: rommBindingMissingBehaviorSchema.optional(),
   })
   .strict();
 
@@ -121,8 +139,8 @@ async function checkHardlinkPair(
   const resolvedSource = path.resolve(sourcePath);
   const resolvedTarget = path.resolve(targetPath);
 
-  let sourceStats: Awaited<ReturnType<typeof fs.stat>>;
-  let targetStats: Awaited<ReturnType<typeof fs.stat>>;
+  let sourceStats: Stats;
+  let targetStats: Stats;
 
   try {
     sourceStats = await fs.stat(resolvedSource);
@@ -198,7 +216,8 @@ importRouter.get("/mappings/platforms", async (req, res) => {
   try {
     const mappings = await storage.getPlatformMappings();
     res.json(mappings);
-  } catch {
+  } catch (error) {
+    console.error("Error fetching platform mappings:", error);
     res.status(500).json({ error: "Failed to fetch platform mappings" });
   }
 });
@@ -219,7 +238,8 @@ importRouter.delete("/mappings/platforms/:id", async (req, res) => {
     const success = await storage.removePlatformMapping(req.params.id);
     if (success) res.json({ success: true });
     else res.status(404).json({ error: "Mapping not found" });
-  } catch {
+  } catch (error) {
+    console.error("Error deleting platform mapping:", error);
     res.status(500).json({ error: "Failed to delete platform mapping" });
   }
 });
@@ -229,7 +249,8 @@ importRouter.post("/mappings/platforms/init", async (req, res) => {
     await platformMappingService.initializeDefaults();
     const mappings = await storage.getPlatformMappings();
     res.json({ success: true, count: mappings.length, mappings });
-  } catch {
+  } catch (error) {
+    console.error("Error initializing platform mapping defaults:", error);
     res.status(500).json({ error: "Failed to initialize defaults" });
   }
 });
@@ -239,7 +260,8 @@ importRouter.get("/mappings/paths", async (req, res) => {
   try {
     const mappings = await storage.getPathMappings();
     res.json(mappings);
-  } catch {
+  } catch (error) {
+    console.error("Error fetching path mappings:", error);
     res.status(500).json({ error: "Failed to fetch path mappings" });
   }
 });
@@ -260,7 +282,8 @@ importRouter.delete("/mappings/paths/:id", async (req, res) => {
     const success = await storage.removePathMapping(req.params.id);
     if (success) res.json({ success: true });
     else res.status(404).json({ error: "Mapping not found" });
-  } catch {
+  } catch (error) {
+    console.error("Error deleting path mapping:", error);
     res.status(500).json({ error: "Failed to delete path mapping" });
   }
 });
@@ -269,19 +292,18 @@ importRouter.delete("/mappings/paths/:id", async (req, res) => {
 
 importRouter.get("/config", async (req, res) => {
   try {
-    const userId = (req as AuthedRequest).user?.id;
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const userId = res.locals.userId as string;
     const config = await storage.getImportConfig(userId);
     res.json(config);
-  } catch {
+  } catch (error) {
+    console.error("Error fetching import config:", error);
     res.status(500).json({ error: "Failed to fetch import config" });
   }
 });
 
 importRouter.patch("/config", async (req, res) => {
   try {
-    const userId = (req as AuthedRequest).user?.id;
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const userId = res.locals.userId as string;
 
     const updates = importConfigPatchSchema.parse(req.body);
     const current = await storage.getImportConfig(userId);
@@ -313,11 +335,11 @@ importRouter.patch("/config", async (req, res) => {
 
 importRouter.get("/romm", async (req, res) => {
   try {
-    const userId = (req as AuthedRequest).user?.id;
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const userId = res.locals.userId as string;
     const config = await storage.getRomMConfig(userId);
     res.json(config);
-  } catch {
+  } catch (error) {
+    console.error("Error fetching RomM config:", error);
     res.status(500).json({ error: "Failed to fetch RomM config" });
   }
 });
@@ -325,10 +347,9 @@ importRouter.get("/romm", async (req, res) => {
 importRouter.patch("/romm", async (req, res) => {
   try {
     const updates = rommConfigPatchSchema.parse(req.body);
-    const userId = (req as AuthedRequest).user?.id;
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const userId = res.locals.userId as string;
 
-    if (updates.url) {
+    if (updates.url !== undefined) {
       if (!(await isSafeUrl(updates.url))) {
         return res.status(400).json({ error: "Invalid or unsafe URL" });
       }
@@ -336,6 +357,12 @@ importRouter.patch("/romm", async (req, res) => {
 
     const settings = await storage.getUserSettings(userId);
     if (settings) {
+      const effectiveEnabled = updates.enabled ?? settings.rommEnabled ?? false;
+      const effectiveUrl = updates.url ?? settings.rommUrl ?? undefined;
+      if (effectiveEnabled && !effectiveUrl) {
+        return res.status(400).json({ error: "RomM URL is required when RomM is enabled" });
+      }
+
       const updated = await storage.updateUserSettings(userId, {
         rommEnabled: updates.enabled,
         rommUrl: updates.url,
@@ -348,7 +375,6 @@ importRouter.patch("/romm", async (req, res) => {
         rommConflictPolicy: updates.conflictPolicy,
         rommFolderNamingTemplate: updates.folderNamingTemplate,
         rommSingleFilePlacement: updates.singleFilePlacement,
-        rommMultiFilePlacement: updates.multiFilePlacement,
         rommIncludeRegionLanguageTags: updates.includeRegionLanguageTags,
         rommAllowedSlugs: updates.allowedSlugs,
         rommAllowAbsoluteBindings: updates.allowAbsoluteBindings,
@@ -370,8 +396,7 @@ importRouter.patch("/romm", async (req, res) => {
           updates.folderNamingTemplate ?? settings.rommFolderNamingTemplate ?? "{title}",
         singleFilePlacement:
           updates.singleFilePlacement ?? settings.rommSingleFilePlacement ?? "root",
-        multiFilePlacement:
-          updates.multiFilePlacement ?? settings.rommMultiFilePlacement ?? "subfolder",
+        multiFilePlacement: ROMM_MULTI_FILE_PLACEMENT,
         includeRegionLanguageTags:
           updates.includeRegionLanguageTags ?? settings.rommIncludeRegionLanguageTags ?? false,
         allowedSlugs: updates.allowedSlugs ?? settings.rommAllowedSlugs ?? undefined,
@@ -391,8 +416,7 @@ importRouter.patch("/romm", async (req, res) => {
 
 importRouter.get("/hardlink/check", async (req, res) => {
   try {
-    const userId = (req as AuthedRequest).user?.id;
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const userId = res.locals.userId as string;
 
     const [config, rommConfig, downloaders, mappings] = await Promise.all([
       storage.getImportConfig(userId),
@@ -506,13 +530,12 @@ importRouter.get("/pending", async (req, res) => {
 importRouter.post("/:id/confirm", async (req, res) => {
   const { id } = req.params;
   try {
-    const userId = (req as AuthedRequest).user?.id;
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const userId = res.locals.userId as string;
 
     const schema = z.object({
       strategy: z.enum(["pc", "romm"]),
       proposedPath: z.string(),
-      transferMode: z.enum(["move", "copy", "hardlink", "symlink"]).optional(),
+      transferMode: z.enum(ROMM_MOVE_MODES).optional(),
     });
 
     const body = schema.parse(req.body);

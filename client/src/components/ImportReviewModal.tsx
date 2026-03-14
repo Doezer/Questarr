@@ -43,7 +43,9 @@ export default function ImportReviewModal({
   // State
   const [strategy, setStrategy] = useState<"pc" | "romm">("pc");
   const [destinationPath, setDestinationPath] = useState("");
-  const [transferMode, setTransferMode] = useState<"move" | "copy" | "hardlink">("move");
+  const [transferMode, setTransferMode] = useState<"move" | "copy" | "hardlink" | "symlink">(
+    "move"
+  );
   const [isFileBrowserOpen, setIsFileBrowserOpen] = useState(false);
 
   // Reset state on open
@@ -134,7 +136,9 @@ export default function ImportReviewModal({
             <Label>Transfer Mode</Label>
             <Select
               value={transferMode}
-              onValueChange={(value) => setTransferMode(value as "move" | "copy" | "hardlink")}
+              onValueChange={(value) =>
+                setTransferMode(value as "move" | "copy" | "hardlink" | "symlink")
+              }
             >
               <SelectTrigger>
                 <SelectValue />
@@ -143,6 +147,7 @@ export default function ImportReviewModal({
                 <SelectItem value="move">Move</SelectItem>
                 <SelectItem value="copy">Copy</SelectItem>
                 <SelectItem value="hardlink">Hardlink</SelectItem>
+                <SelectItem value="symlink">Symlink</SelectItem>
               </SelectContent>
             </Select>
           </div>

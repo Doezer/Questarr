@@ -19,11 +19,11 @@ export interface ImportReview {
   originalPath: string;
   proposedPath: string;
   strategy: "pc" | "romm";
+  ignoredExtensions?: string[];
   importResult?: ImportResult;
 }
 
 export interface ImportStrategy {
-  canHandle(game: Game): boolean;
   planImport(
     sourcePath: string,
     game: Game,
@@ -75,6 +75,9 @@ async function transferFile(
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === "EXDEV") {
+      console.warn(
+        `[transferFile] Hardlink failed across devices (EXDEV), falling back to copy: ${source} -> ${destination}`
+      );
       await fs.copy(source, destination, { overwrite: true });
       return "copy";
     }
@@ -132,24 +135,6 @@ function isIgnored(filePath: string, ignoredExtensions: string[]): boolean {
 }
 
 export class PCImportStrategy implements ImportStrategy {
-  canHandle(game: Game): boolean {
-    if (!Array.isArray(game.platforms)) return false;
-
-    for (const platform of game.platforms) {
-      if (typeof platform === "number" && platform === 6) return true;
-      if (typeof platform === "string") {
-        if (/^6$/.test(platform)) return true;
-        if (/pc|windows|win/i.test(platform)) return true;
-      }
-      if (platform && typeof platform === "object" && "id" in platform) {
-        const id = (platform as { id?: unknown }).id;
-        if (id === 6 || id === "6") return true;
-      }
-    }
-
-    return false;
-  }
-
   async planImport(
     sourcePath: string,
     game: Game,
@@ -191,10 +176,6 @@ export class RomMImportStrategy implements ImportStrategy {
     private platformSlug: string,
     private onImportComplete?: (result: ImportResult) => void
   ) {}
-
-  canHandle(_game: Game): boolean {
-    return true;
-  }
 
   async planImport(
     sourcePath: string,
@@ -256,6 +237,7 @@ export class RomMImportStrategy implements ImportStrategy {
       originalPath: sourcePath,
       proposedPath: destDir,
       strategy: "romm",
+      ignoredExtensions: config.ignoredExtensions ?? [],
       importResult: {
         platformSlug: this.platformSlug,
         platformDir,
@@ -278,7 +260,9 @@ export class RomMImportStrategy implements ImportStrategy {
     const sourceRoot = sourceStats.isDirectory()
       ? review.originalPath
       : path.dirname(review.originalPath);
-    const sourceFiles = (await gatherFiles(review.originalPath)).filter((f) => !isIgnored(f, []));
+    const sourceFiles = (await gatherFiles(review.originalPath)).filter(
+      (f) => !isIgnored(f, review.ignoredExtensions ?? [])
+    );
 
     const conflictsResolved: string[] = [];
     let destinationPath = review.proposedPath;

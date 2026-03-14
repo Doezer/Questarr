@@ -5,7 +5,7 @@ import { type GameStatus } from "@/components/StatusBadge";
 import { useToast } from "@/hooks/use-toast";
 import EmptyState from "@/components/EmptyState";
 import { Gamepad2, LayoutGrid, List } from "lucide-react";
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useMemo } from "react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Button } from "@/components/ui/button";
 import { Settings2 } from "lucide-react";
@@ -20,31 +20,12 @@ import {
 
 const LIBRARY_STATUSES: GameStatus[] = ["owned", "completed", "downloading"];
 
+import { useViewPreferences } from "@/hooks/use-view-preferences";
+
 export default function LibraryPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [viewMode, setViewMode] = useState<"grid" | "list">(() => {
-    return (localStorage.getItem("libraryViewMode") as "grid" | "list") || "grid";
-  });
-
-  useEffect(() => {
-    localStorage.setItem("libraryViewMode", viewMode);
-  }, [viewMode]);
-
-  const [listDensity, setListDensity] = useState<"comfortable" | "compact" | "ultra-compact">(
-    () => {
-      return (
-        (localStorage.getItem("libraryListDensity") as
-          | "comfortable"
-          | "compact"
-          | "ultra-compact") || "comfortable"
-      );
-    }
-  );
-
-  useEffect(() => {
-    localStorage.setItem("libraryListDensity", listDensity);
-  }, [listDensity]);
+  const { viewMode, setViewMode, listDensity, setListDensity } = useViewPreferences("library");
 
   const { data: games = [], isLoading } = useQuery<Game[]>({
     queryKey: ["/api/games"],

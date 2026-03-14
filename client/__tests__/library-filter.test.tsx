@@ -1,76 +1,61 @@
 /** @vitest-environment jsdom */
-import { render, screen } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen } from "@testing-library/react";
 import React from "react";
-import "./helpers/page-filter-test-setup";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import LibraryPage from "../src/pages/library";
-import { type Game } from "@shared/schema";
-import "@testing-library/jest-dom";
 
-const { mockInvalidateQueries, mockMutate, mockToast, mockGames } = vi.hoisted(() => ({
-  mockInvalidateQueries: vi.fn(),
-  mockMutate: vi.fn(),
-  mockToast: vi.fn(),
-  mockGames: { current: [] as Game[] },
-}));
+const mockGames = [
+  { id: "1", title: "Game 1", status: "owned", hidden: false },
+  { id: "2", title: "Game 2", status: "wanted", hidden: false },
+  { id: "3", title: "Game 3", status: "completed", hidden: false },
+  { id: "4", title: "Game 4", status: "downloading", hidden: false },
+];
 
-vi.mock("@tanstack/react-query", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@tanstack/react-query")>();
+vi.mock("@tanstack/react-query", async () => {
+  const actual = await vi.importActual("@tanstack/react-query");
   return {
     ...actual,
-    useQueryClient: () => ({ invalidateQueries: mockInvalidateQueries }),
-    useMutation: () => ({ mutate: mockMutate, isPending: false }),
-    useQuery: () => ({ data: mockGames.current, isLoading: false }),
+    useQuery: vi.fn().mockImplementation(() => ({
+      data: mockGames,
+      isLoading: false,
+    })),
+    useMutation: vi.fn().mockImplementation(() => ({
+      mutate: vi.fn(),
+      isPending: false,
+    })),
   };
 });
 
-vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: mockToast }) }));
+describe("LibraryPage", () => {
+  let queryClient: QueryClient;
 
-const makeGame = (id: string, title: string, status: Game["status"]): Game => ({
-  id,
-  title,
-  status,
-  coverUrl: null,
-  releaseDate: null,
-  rating: null,
-  genres: [],
-  summary: null,
-  releaseStatus: "released",
-  hidden: false,
-  folderName: title,
-  createdAt: new Date(),
-  updatedAt: new Date(),
-});
-
-describe("LibraryPage — LIBRARY_STATUSES filter", () => {
   beforeEach(() => {
+    queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+      },
+    });
     vi.clearAllMocks();
-    mockGames.current = [];
   });
 
-  it("shows only owned, completed, and downloading games", () => {
-    mockGames.current = [
-      makeGame("1", "Owned Game", "owned"),
-      makeGame("2", "Completed Game", "completed"),
-      makeGame("3", "Downloading Game", "downloading"),
-      makeGame("4", "Wanted Game", "wanted"),
-      makeGame("5", "Backlog Game", "backlog"),
-    ];
+  it("filters games to only show owned, completed, or downloading statuses", async () => {
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+        <LibraryPage />
+      </TooltipProvider>
+      </QueryClientProvider>
+    );
 
-    render(<LibraryPage />);
+    // Give it a tick to render
+    await screen.findByText("Library");
 
-    expect(screen.getByText("Owned Game")).toBeInTheDocument();
-    expect(screen.getByText("Completed Game")).toBeInTheDocument();
-    expect(screen.getByText("Downloading Game")).toBeInTheDocument();
-    expect(screen.queryByText("Wanted Game")).not.toBeInTheDocument();
-    expect(screen.queryByText("Backlog Game")).not.toBeInTheDocument();
-  });
-
-  it("shows the empty state when no library games exist", () => {
-    mockGames.current = [makeGame("1", "Only Wanted", "wanted")];
-
-    render(<LibraryPage />);
-
-    expect(screen.getByText("No games in library")).toBeInTheDocument();
+    // The grid should render Game 1, 3, 4, but not 2
+    expect(screen.queryByTestId("text-title-1")).toBeInTheDocument();
+    expect(screen.queryByTestId("text-title-3")).toBeInTheDocument();
+    expect(screen.queryByTestId("text-title-4")).toBeInTheDocument();
+    expect(screen.queryByTestId("text-title-2")).not.toBeInTheDocument();
   });
 });

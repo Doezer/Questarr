@@ -28,32 +28,13 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 type SortOption = "release-asc" | "release-desc" | "added-desc" | "title-asc";
 
+import { useViewPreferences } from "@/hooks/use-view-preferences";
+
 export default function WishlistPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [sortBy, setSortBy] = useState<SortOption>("release-desc");
-  const [viewMode, setViewMode] = useState<"grid" | "list">(() => {
-    return (localStorage.getItem("wishlistViewMode") as "grid" | "list") || "grid";
-  });
-
-  useEffect(() => {
-    localStorage.setItem("wishlistViewMode", viewMode);
-  }, [viewMode]);
-
-  const [listDensity, setListDensity] = useState<"comfortable" | "compact" | "ultra-compact">(
-    () => {
-      return (
-        (localStorage.getItem("wishlistListDensity") as
-          | "comfortable"
-          | "compact"
-          | "ultra-compact") || "comfortable"
-      );
-    }
-  );
-
-  useEffect(() => {
-    localStorage.setItem("wishlistListDensity", listDensity);
-  }, [listDensity]);
+  const { viewMode, setViewMode, listDensity, setListDensity } = useViewPreferences("wishlist");
 
   const { data: games = [], isLoading } = useQuery<Game[]>({
     queryKey: ["/api/games"],

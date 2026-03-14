@@ -169,7 +169,13 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: AppSidebarP
                     <button
                       onClick={() => handleNavigation(item.url)}
                       className="flex items-center justify-between w-full"
-                      aria-label={item.badge ? `${item.title}, ${item.badge} notifications` : undefined}
+                      aria-label={
+                        item.badge
+                          ? `${item.title}, ${item.badge} ${
+                              item.title === "Downloads" ? "active downloads" : "items"
+                            }`
+                          : undefined
+                      }
                     >
                       <div className="flex items-center gap-2">
                         <item.icon className="w-4 h-4" />

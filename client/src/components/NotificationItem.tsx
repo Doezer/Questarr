@@ -45,8 +45,10 @@ export function NotificationItem({ notification, onRead, onClick }: Notification
         !notification.read && "bg-muted/30 border-l-2 border-primary"
       )}
       onClick={handleClick}
-      aria-label={`${notification.read ? "Read" : "Unread"} notification: ${notification.title}`}
     >
+      <span className="sr-only">
+        {notification.read ? "Read" : "Unread"} notification:
+      </span>
       <div className="mt-0.5">{getIcon()}</div>
       <div className="flex-1 space-y-1">
         <div className="flex justify-between items-start">

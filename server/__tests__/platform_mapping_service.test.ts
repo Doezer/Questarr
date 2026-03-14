@@ -3,6 +3,7 @@ import { PlatformMappingService } from "../services/PlatformMappingService.js";
 
 describe("PlatformMappingService", () => {
   const storage = {
+    seedPlatformMappingsIfEmpty: vi.fn(),
     getPlatformMappings: vi.fn(),
     getPlatformMapping: vi.fn(),
     addPlatformMapping: vi.fn(),
@@ -15,25 +16,21 @@ describe("PlatformMappingService", () => {
   });
 
   it("seeds defaults when there are no mappings", async () => {
-    storage.getPlatformMappings
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ id: "seeded-1", igdbPlatformId: 18, rommPlatformName: "nes" }]);
-    storage.addPlatformMapping.mockImplementation(async (mapping) => ({ id: "x", ...mapping }));
+    storage.seedPlatformMappingsIfEmpty.mockResolvedValue({ seeded: true, count: 20 });
 
     const service = new PlatformMappingService(storage as never);
     await service.initializeDefaults();
 
-    expect(storage.addPlatformMapping).toHaveBeenCalled();
-    expect(storage.addPlatformMapping.mock.calls.length).toBeGreaterThan(10);
+    expect(storage.seedPlatformMappingsIfEmpty).toHaveBeenCalledTimes(1);
   });
 
   it("does not seed defaults when mappings already exist", async () => {
-    storage.getPlatformMappings.mockResolvedValue([{ id: "m1" }]);
+    storage.seedPlatformMappingsIfEmpty.mockResolvedValue({ seeded: false, count: 1 });
 
     const service = new PlatformMappingService(storage as never);
     await service.initializeDefaults();
 
-    expect(storage.addPlatformMapping).not.toHaveBeenCalled();
+    expect(storage.seedPlatformMappingsIfEmpty).toHaveBeenCalledTimes(1);
   });
 
   it("returns mapping values and supports CRUD pass-through", async () => {

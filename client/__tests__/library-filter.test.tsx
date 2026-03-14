@@ -1,6 +1,7 @@
 /** @vitest-environment jsdom */
 import { render, screen } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import React from "react";
 import "./helpers/page-filter-test-setup";
 import LibraryPage from "../src/pages/library";
 import { type Game } from "@shared/schema";
@@ -25,7 +26,6 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
 
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: mockToast }) }));
 
-// --- Helpers ---
 const makeGame = (id: string, title: string, status: Game["status"]): Game => ({
   id,
   title,

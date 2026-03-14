@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import GameGrid from "@/components/GameGrid";
 import { type Game } from "@shared/schema";
@@ -32,13 +32,6 @@ export default function WishlistPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [sortBy, setSortBy] = useState<SortOption>("release-desc");
-
-  // Refreshes at midnight so released/upcoming categorization stays accurate
-  const [todayKey, setTodayKey] = useState(() => new Date().toDateString());
-  useEffect(() => {
-    const timer = setInterval(() => setTodayKey(new Date().toDateString()), 60_000);
-    return () => clearInterval(timer);
-  }, []);
   const [viewMode, setViewMode] = useState<"grid" | "list">(() => {
     return (localStorage.getItem("wishlistViewMode") as "grid" | "list") || "grid";
   });
@@ -73,9 +66,16 @@ export default function WishlistPage() {
     return games.filter((g) => g.status === "wanted");
   }, [games]);
 
-  // Separate released and unreleased games.
-  // todayKey is a daily-refreshing string (see above) used as `now` so that the
-  // released/upcoming split stays accurate across midnight without stale values.
+  // Separate released and unreleased games
+  const [todayKey, setTodayKey] = useState(() => new Date().toDateString());
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTodayKey(new Date().toDateString());
+    }, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
   const { releasedGames, upcomingGames, tbaGames } = useMemo(() => {
     const now = new Date(todayKey);
     const released: Game[] = [];

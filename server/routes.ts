@@ -27,7 +27,6 @@ import { routesLogger } from "./logger.js";
 import {
   igdbRateLimiter,
   sensitiveEndpointLimiter,
-  authRateLimiter,
   validateRequest,
   sanitizeSearchQuery,
   sanitizeGameId,
@@ -264,7 +263,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/auth/login", authRateLimiter, async (req, res) => {
+  app.post("/api/auth/login", async (req, res) => {
     const { username, password } = req.body;
     const user = await storage.getUserByUsername(username);
 

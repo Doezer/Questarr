@@ -1,6 +1,7 @@
 /** @vitest-environment jsdom */
 import { render, screen } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import React from "react";
 import "./helpers/page-filter-test-setup";
 import WishlistPage from "../src/pages/wishlist";
 import { type Game } from "@shared/schema";
@@ -25,7 +26,6 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
 
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: mockToast }) }));
 
-// --- Helpers ---
 const makeWanted = (id: string, title: string, releaseDate: string | null): Game => ({
   id,
   title,
@@ -46,33 +46,12 @@ describe("WishlistPage — release date categorization", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
-    // Pin time to 2026-06-15 noon UTC
     vi.setSystemTime(new Date("2026-06-15T12:00:00Z"));
     mockGames.current = [];
   });
 
   afterEach(() => {
     vi.useRealTimers();
-  });
-
-  it("puts past-release games in Released and future games in Upcoming", () => {
-    mockGames.current = [
-      makeWanted("1", "Old Game", "2026-01-01"), // past → released
-      makeWanted("2", "New Game", "2027-01-01"), // future → upcoming
-    ];
-
-    render(<WishlistPage />);
-
-    const releasedHeading = screen.getByRole("heading", { name: "Released" });
-    const upcomingHeading = screen.getByRole("heading", { name: "Upcoming" });
-
-    // Both sections visible
-    expect(releasedHeading).toBeInTheDocument();
-    expect(upcomingHeading).toBeInTheDocument();
-
-    // Each game appears in exactly the right section
-    expect(screen.getByText("Old Game")).toBeInTheDocument();
-    expect(screen.getByText("New Game")).toBeInTheDocument();
   });
 
   it("puts games without a release date in To Be Announced", () => {
@@ -102,5 +81,19 @@ describe("WishlistPage — release date categorization", () => {
     render(<WishlistPage />);
 
     expect(screen.getByText("Your wishlist is empty")).toBeInTheDocument();
+  });
+
+  it("puts past-release games in Released and future games in Upcoming", () => {
+    mockGames.current = [
+      makeWanted("1", "Old Game", "2026-01-01"),
+      makeWanted("2", "New Game", "2027-01-01"),
+    ];
+
+    render(<WishlistPage />);
+
+    expect(screen.getByRole("heading", { name: "Released" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Upcoming" })).toBeInTheDocument();
+    expect(screen.getByText("Old Game")).toBeInTheDocument();
+    expect(screen.getByText("New Game")).toBeInTheDocument();
   });
 });

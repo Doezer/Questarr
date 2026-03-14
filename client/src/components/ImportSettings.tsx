@@ -17,7 +17,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import type { ImportConfig, RomMConfig } from "@shared/schema";
+import type { ImportConfig, RomMConfig, RomMConfigInput } from "@shared/schema";
 import { PathMappingSettings } from "./PathMappingSettings";
 import { PlatformMappingSettings } from "./PlatformMappingSettings";
 
@@ -72,7 +72,7 @@ export default function ImportSettings() {
 
   // Local State
   const [localConfig, setLocalConfig] = useState<ImportConfig | null>(null);
-  const [localRomm, setLocalRomm] = useState<RomMConfig | null>(null);
+  const [localRomm, setLocalRomm] = useState<RomMConfigInput | null>(null);
   const [platformSearch, setPlatformSearch] = useState("");
 
   useEffect(() => {
@@ -120,7 +120,7 @@ export default function ImportSettings() {
   });
 
   const updateRommMutation = useMutation({
-    mutationFn: async (data: RomMConfig) => {
+    mutationFn: async (data: RomMConfigInput) => {
       await apiRequest("PATCH", "/api/imports/romm", data);
     },
     onSuccess: () => {

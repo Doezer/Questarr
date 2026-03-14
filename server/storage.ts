@@ -40,6 +40,10 @@ import {
   type InsertPlatformMapping,
   type ImportConfig,
   type RomMConfig,
+  type RomMConfigInput,
+  importConfigSchema,
+  rommConfigSchema,
+  ROMM_MULTI_FILE_PLACEMENT,
 } from "../shared/schema.js";
 import { randomUUID } from "crypto";
 import { db } from "./db.js";
@@ -50,6 +54,116 @@ function normalizeSlugArray(value: unknown): string[] | null | undefined {
   if (value === null) return null;
   if (!Array.isArray(value)) return undefined;
   return value.map((entry) => String(entry ?? "").trim()).filter((entry) => entry.length > 0);
+}
+
+function buildImportConfigFromSettings(
+  settings?: Pick<
+    UserSettings,
+    | "enablePostProcessing"
+    | "autoUnpack"
+    | "renamePattern"
+    | "overwriteExisting"
+    | "transferMode"
+    | "importPlatformIds"
+    | "ignoredExtensions"
+    | "minFileSize"
+    | "libraryRoot"
+  >
+): ImportConfig {
+  const parsed = importConfigSchema.safeParse({
+    enablePostProcessing: settings?.enablePostProcessing ?? false,
+    autoUnpack: settings?.autoUnpack ?? false,
+    renamePattern: settings?.renamePattern ?? "{Title} ({Region})",
+    overwriteExisting: settings?.overwriteExisting ?? false,
+    transferMode: settings?.transferMode ?? "hardlink",
+    importPlatformIds: settings?.importPlatformIds ?? [],
+    ignoredExtensions: settings?.ignoredExtensions ?? [],
+    minFileSize: settings?.minFileSize ?? 0,
+    libraryRoot: settings?.libraryRoot ?? "/data",
+  });
+
+  if (parsed.success) return parsed.data;
+
+  return {
+    enablePostProcessing: settings?.enablePostProcessing ?? false,
+    autoUnpack: settings?.autoUnpack ?? false,
+    renamePattern: settings?.renamePattern ?? "{Title} ({Region})",
+    overwriteExisting: settings?.overwriteExisting ?? false,
+    transferMode: "hardlink",
+    importPlatformIds: settings?.importPlatformIds ?? [],
+    ignoredExtensions: settings?.ignoredExtensions ?? [],
+    minFileSize: settings?.minFileSize ?? 0,
+    libraryRoot: settings?.libraryRoot ?? "/data",
+  };
+}
+
+function buildRomMConfigFromSettings(
+  settings?: Pick<
+    UserSettings,
+    | "rommEnabled"
+    | "rommUrl"
+    | "rommApiKey"
+    | "rommLibraryRoot"
+    | "rommPlatformRoutingMode"
+    | "rommPlatformBindings"
+    | "rommPlatformAliases"
+    | "rommMoveMode"
+    | "rommConflictPolicy"
+    | "rommFolderNamingTemplate"
+    | "rommSingleFilePlacement"
+    | "rommIncludeRegionLanguageTags"
+    | "rommAllowedSlugs"
+    | "rommAllowAbsoluteBindings"
+    | "rommBindingMissingBehavior"
+  >
+): RomMConfig {
+  const trimmedUrl = settings?.rommUrl?.trim();
+
+  const candidate: RomMConfigInput = {
+    enabled: Boolean(settings?.rommEnabled && trimmedUrl),
+    url: trimmedUrl || undefined,
+    apiKey: settings?.rommApiKey ?? undefined,
+    libraryRoot: settings?.rommLibraryRoot ?? "/data",
+    platformRoutingMode:
+      (settings?.rommPlatformRoutingMode as RomMConfigInput["platformRoutingMode"]) ??
+      "slug-subfolder",
+    platformBindings: settings?.rommPlatformBindings ?? {},
+    platformAliases: settings?.rommPlatformAliases ?? {},
+    moveMode: (settings?.rommMoveMode as RomMConfigInput["moveMode"]) ?? "hardlink",
+    conflictPolicy: (settings?.rommConflictPolicy as RomMConfigInput["conflictPolicy"]) ?? "rename",
+    folderNamingTemplate: settings?.rommFolderNamingTemplate ?? "{title}",
+    singleFilePlacement:
+      (settings?.rommSingleFilePlacement as RomMConfigInput["singleFilePlacement"]) ?? "root",
+    multiFilePlacement: ROMM_MULTI_FILE_PLACEMENT,
+    includeRegionLanguageTags: settings?.rommIncludeRegionLanguageTags ?? false,
+    allowedSlugs: settings?.rommAllowedSlugs ?? undefined,
+    allowAbsoluteBindings: settings?.rommAllowAbsoluteBindings ?? false,
+    bindingMissingBehavior:
+      (settings?.rommBindingMissingBehavior as RomMConfigInput["bindingMissingBehavior"]) ??
+      "fallback",
+  };
+
+  const parsed = rommConfigSchema.safeParse(candidate);
+  if (parsed.success) return parsed.data;
+
+  return {
+    enabled: false,
+    url: trimmedUrl || undefined,
+    apiKey: settings?.rommApiKey ?? undefined,
+    libraryRoot: settings?.rommLibraryRoot ?? "/data",
+    platformRoutingMode: "slug-subfolder",
+    platformBindings: settings?.rommPlatformBindings ?? {},
+    platformAliases: settings?.rommPlatformAliases ?? {},
+    moveMode: "hardlink",
+    conflictPolicy: "rename",
+    folderNamingTemplate: settings?.rommFolderNamingTemplate ?? "{title}",
+    singleFilePlacement: "root",
+    multiFilePlacement: ROMM_MULTI_FILE_PLACEMENT,
+    includeRegionLanguageTags: settings?.rommIncludeRegionLanguageTags ?? false,
+    allowedSlugs: settings?.rommAllowedSlugs ?? undefined,
+    allowAbsoluteBindings: settings?.rommAllowAbsoluteBindings ?? false,
+    bindingMissingBehavior: "fallback",
+  };
 }
 
 export interface IStorage {
@@ -160,6 +274,9 @@ export interface IStorage {
   getPlatformMappings(): Promise<PlatformMapping[]>;
   getPlatformMapping(igdbPlatformId: number): Promise<PlatformMapping | undefined>;
   addPlatformMapping(mapping: InsertPlatformMapping): Promise<PlatformMapping>;
+  seedPlatformMappingsIfEmpty(
+    mappings: InsertPlatformMapping[]
+  ): Promise<{ seeded: boolean; count: number }>;
   updatePlatformMapping(
     id: string,
     updates: Partial<InsertPlatformMapping>
@@ -621,7 +738,7 @@ export class MemStorage implements IStorage {
   // GameDownload methods
   async getDownloadingGameDownloads(): Promise<GameDownload[]> {
     return Array.from(this.gameDownloads.values()).filter(
-      (d) => !["completed", "error"].includes(d.status)
+      (d) => !["completed", "error", "imported", "manual_review_required"].includes(d.status)
     );
   }
 
@@ -825,7 +942,6 @@ export class MemStorage implements IStorage {
       autoUnpack: insertSettings.autoUnpack ?? false,
       renamePattern: insertSettings.renamePattern ?? "{Title} ({Region})",
       overwriteExisting: insertSettings.overwriteExisting ?? false,
-      deleteSource: insertSettings.deleteSource ?? true,
       transferMode: insertSettings.transferMode ?? "hardlink",
       importPlatformIds: insertSettings.importPlatformIds ?? [],
       ignoredExtensions: insertSettings.ignoredExtensions ?? [],
@@ -950,6 +1066,20 @@ export class MemStorage implements IStorage {
     return mapping;
   }
 
+  async seedPlatformMappingsIfEmpty(
+    mappings: InsertPlatformMapping[]
+  ): Promise<{ seeded: boolean; count: number }> {
+    if (this.platformMappings.size > 0) {
+      return { seeded: false, count: this.platformMappings.size };
+    }
+
+    for (const mapping of mappings) {
+      await this.addPlatformMapping(mapping);
+    }
+
+    return { seeded: true, count: this.platformMappings.size };
+  }
+
   async updatePlatformMapping(
     id: string,
     updates: Partial<InsertPlatformMapping>
@@ -970,48 +1100,14 @@ export class MemStorage implements IStorage {
     const scopedSettings = userId
       ? Array.from(this.userSettings.values()).find((s) => s.userId === userId)
       : this.userSettings.values().next().value;
-    return {
-      enablePostProcessing: scopedSettings?.enablePostProcessing ?? false,
-      autoUnpack: scopedSettings?.autoUnpack ?? false,
-      renamePattern: scopedSettings?.renamePattern ?? "{Title} ({Region})",
-      overwriteExisting: scopedSettings?.overwriteExisting ?? false,
-      transferMode: (scopedSettings?.transferMode as "move" | "copy" | "hardlink") ?? "hardlink",
-      importPlatformIds: scopedSettings?.importPlatformIds ?? [],
-      ignoredExtensions: scopedSettings?.ignoredExtensions ?? [],
-      minFileSize: scopedSettings?.minFileSize ?? 0,
-      libraryRoot: scopedSettings?.libraryRoot ?? "/data",
-    };
+    return buildImportConfigFromSettings(scopedSettings);
   }
 
   async getRomMConfig(userId?: string): Promise<RomMConfig> {
     const scopedSettings = userId
       ? Array.from(this.userSettings.values()).find((s) => s.userId === userId)
       : this.userSettings.values().next().value;
-    return {
-      enabled: scopedSettings?.rommEnabled ?? false,
-      url: scopedSettings?.rommUrl ?? undefined,
-      apiKey: scopedSettings?.rommApiKey ?? undefined,
-      libraryRoot: scopedSettings?.rommLibraryRoot ?? "/data",
-      platformRoutingMode:
-        (scopedSettings?.rommPlatformRoutingMode as RomMConfig["platformRoutingMode"]) ??
-        "slug-subfolder",
-      platformBindings: scopedSettings?.rommPlatformBindings ?? {},
-      platformAliases: scopedSettings?.rommPlatformAliases ?? {},
-      moveMode: (scopedSettings?.rommMoveMode as RomMConfig["moveMode"]) ?? "hardlink",
-      conflictPolicy:
-        (scopedSettings?.rommConflictPolicy as RomMConfig["conflictPolicy"]) ?? "rename",
-      folderNamingTemplate: scopedSettings?.rommFolderNamingTemplate ?? "{title}",
-      singleFilePlacement:
-        (scopedSettings?.rommSingleFilePlacement as RomMConfig["singleFilePlacement"]) ?? "root",
-      multiFilePlacement:
-        (scopedSettings?.rommMultiFilePlacement as RomMConfig["multiFilePlacement"]) ?? "subfolder",
-      includeRegionLanguageTags: scopedSettings?.rommIncludeRegionLanguageTags ?? false,
-      allowedSlugs: scopedSettings?.rommAllowedSlugs ?? undefined,
-      allowAbsoluteBindings: scopedSettings?.rommAllowAbsoluteBindings ?? false,
-      bindingMissingBehavior:
-        (scopedSettings?.rommBindingMissingBehavior as RomMConfig["bindingMissingBehavior"]) ??
-        "fallback",
-    };
+    return buildRomMConfigFromSettings(scopedSettings);
   }
 }
 
@@ -1064,8 +1160,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   async removePathMapping(id: string): Promise<boolean> {
-    await db.delete(pathMappings).where(eq(pathMappings.id, id));
-    return true;
+    const deleted = await db.delete(pathMappings).where(eq(pathMappings.id, id)).returning();
+    return deleted.length > 0;
   }
 
   // Platform Mapping methods
@@ -1090,6 +1186,32 @@ export class DatabaseStorage implements IStorage {
     return mapping;
   }
 
+  async seedPlatformMappingsIfEmpty(
+    mappings: InsertPlatformMapping[]
+  ): Promise<{ seeded: boolean; count: number }> {
+    return db.transaction((tx) => {
+      const [existing] = tx
+        .select({ count: sql<number>`count(*)` })
+        .from(platformMappings)
+        .all();
+      if (existing.count > 0) {
+        return { seeded: false, count: existing.count };
+      }
+
+      for (const mapping of mappings) {
+        tx.insert(platformMappings)
+          .values({ ...mapping, id: randomUUID() })
+          .run();
+      }
+
+      const [seeded] = tx
+        .select({ count: sql<number>`count(*)` })
+        .from(platformMappings)
+        .all();
+      return { seeded: true, count: seeded.count };
+    });
+  }
+
   async updatePlatformMapping(
     id: string,
     updates: Partial<InsertPlatformMapping>
@@ -1103,8 +1225,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async removePlatformMapping(id: string): Promise<boolean> {
-    await db.delete(platformMappings).where(eq(platformMappings.id, id));
-    return true;
+    const deleted = await db
+      .delete(platformMappings)
+      .where(eq(platformMappings.id, id))
+      .returning();
+    return deleted.length > 0;
   }
 
   // Config Accessors
@@ -1112,47 +1237,14 @@ export class DatabaseStorage implements IStorage {
     const [settings] = userId
       ? await db.select().from(userSettings).where(eq(userSettings.userId, userId)).limit(1)
       : await db.select().from(userSettings).limit(1);
-    return {
-      enablePostProcessing: settings?.enablePostProcessing ?? false,
-      autoUnpack: settings?.autoUnpack ?? false,
-      renamePattern: settings?.renamePattern ?? "{Title} ({Region})",
-      overwriteExisting: settings?.overwriteExisting ?? false,
-      transferMode: (settings?.transferMode as "move" | "copy" | "hardlink") ?? "hardlink",
-      importPlatformIds: settings?.importPlatformIds ?? [],
-      ignoredExtensions: settings?.ignoredExtensions ?? [],
-      minFileSize: settings?.minFileSize ?? 0,
-      libraryRoot: settings?.libraryRoot ?? "/data",
-    };
+    return buildImportConfigFromSettings(settings);
   }
 
   async getRomMConfig(userId?: string): Promise<RomMConfig> {
     const [settings] = userId
       ? await db.select().from(userSettings).where(eq(userSettings.userId, userId)).limit(1)
       : await db.select().from(userSettings).limit(1);
-    return {
-      enabled: settings?.rommEnabled ?? false,
-      url: settings?.rommUrl ?? undefined,
-      apiKey: settings?.rommApiKey ?? undefined,
-      libraryRoot: settings?.rommLibraryRoot ?? "/data",
-      platformRoutingMode:
-        (settings?.rommPlatformRoutingMode as RomMConfig["platformRoutingMode"]) ??
-        "slug-subfolder",
-      platformBindings: settings?.rommPlatformBindings ?? {},
-      platformAliases: settings?.rommPlatformAliases ?? {},
-      moveMode: (settings?.rommMoveMode as RomMConfig["moveMode"]) ?? "hardlink",
-      conflictPolicy: (settings?.rommConflictPolicy as RomMConfig["conflictPolicy"]) ?? "rename",
-      folderNamingTemplate: settings?.rommFolderNamingTemplate ?? "{title}",
-      singleFilePlacement:
-        (settings?.rommSingleFilePlacement as RomMConfig["singleFilePlacement"]) ?? "root",
-      multiFilePlacement:
-        (settings?.rommMultiFilePlacement as RomMConfig["multiFilePlacement"]) ?? "subfolder",
-      includeRegionLanguageTags: settings?.rommIncludeRegionLanguageTags ?? false,
-      allowedSlugs: settings?.rommAllowedSlugs ?? undefined,
-      allowAbsoluteBindings: settings?.rommAllowAbsoluteBindings ?? false,
-      bindingMissingBehavior:
-        (settings?.rommBindingMissingBehavior as RomMConfig["bindingMissingBehavior"]) ??
-        "fallback",
-    };
+    return buildRomMConfigFromSettings(settings);
   }
 
   // User methods
@@ -1584,7 +1676,16 @@ export class DatabaseStorage implements IStorage {
     return db
       .select()
       .from(gameDownloads)
-      .where(not(inArray(gameDownloads.status, ["completed", "error"])));
+      .where(
+        not(
+          inArray(gameDownloads.status, [
+            "completed",
+            "error",
+            "imported",
+            "manual_review_required",
+          ])
+        )
+      );
   }
 
   async getGameDownload(id: string): Promise<GameDownload | undefined> {

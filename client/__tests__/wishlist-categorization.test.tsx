@@ -1,12 +1,11 @@
 /** @vitest-environment jsdom */
-import { render, screen, act } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import React from "react";
+import "./helpers/page-filter-test-setup";
 import WishlistPage from "../src/pages/wishlist";
 import { type Game } from "@shared/schema";
 import "@testing-library/jest-dom";
 
-// --- Hoisted mocks ---
 const { mockInvalidateQueries, mockMutate, mockToast, mockGames } = vi.hoisted(() => ({
   mockInvalidateQueries: vi.fn(),
   mockMutate: vi.fn(),
@@ -25,64 +24,6 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
 });
 
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: mockToast }) }));
-
-vi.mock("lucide-react", async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return {
-    ...actual,
-    Star: () => <div />,
-    LayoutGrid: () => <div />,
-    List: () => <div />,
-    Settings2: () => <div />,
-  };
-});
-
-vi.mock("../src/components/GameGrid", () => ({
-  default: ({ games }: { games: Game[] }) => (
-    <ul>
-      {games.map((g) => (
-        <li key={g.id}>{g.title}</li>
-      ))}
-    </ul>
-  ),
-}));
-vi.mock("../src/components/EmptyState", () => ({
-  default: ({ title }: { title: string }) => <div>{title}</div>,
-}));
-
-// UI stubs
-vi.mock("@/components/ui/toggle-group", () => ({
-  ToggleGroup: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  ToggleGroupItem: ({ children }: { children: React.ReactNode }) => <button>{children}</button>,
-}));
-vi.mock("@/components/ui/dropdown-menu", () => ({
-  DropdownMenu: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  DropdownMenuTrigger: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  DropdownMenuContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  DropdownMenuItem: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  DropdownMenuLabel: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  DropdownMenuSeparator: () => <hr />,
-}));
-vi.mock("@/components/ui/button", () => ({
-  Button: ({ children }: { children: React.ReactNode }) => <button>{children}</button>,
-}));
-vi.mock("@/components/ui/select", () => ({
-  Select: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  SelectTrigger: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  SelectContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  SelectItem: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  SelectValue: () => <div />,
-}));
-vi.mock("@/components/ui/badge", () => ({
-  Badge: ({ children }: { children: React.ReactNode }) => <span>{children}</span>,
-}));
-vi.mock("@/components/ui/separator", () => ({
-  Separator: () => <hr />,
-}));
-
-Object.defineProperty(window, "localStorage", {
-  value: { getItem: vi.fn(() => null), setItem: vi.fn() },
-});
 
 // --- Helpers ---
 const makeWanted = (id: string, title: string, releaseDate: string | null): Game => ({
@@ -156,8 +97,6 @@ describe("WishlistPage — release date categorization", () => {
   });
 
   it("shows empty state when no wanted games exist", () => {
-    mockGames.current = [makeWanted("5", "Owned Game", null)];
-    // status is "wanted" from makeWanted helper but let's test with a non-wanted status
     mockGames.current = [{ ...makeWanted("5", "Owned Game", null), status: "owned" }];
 
     render(<WishlistPage />);

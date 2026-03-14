@@ -1,15 +1,14 @@
 /** @vitest-environment jsdom */
 import { render, screen } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import React from "react";
+import "./helpers/page-filter-test-setup";
 import LibraryPage from "../src/pages/library";
 import { type Game } from "@shared/schema";
 import "@testing-library/jest-dom";
 
-// --- Hoisted mocks ---
-const { mockInvalidateQueries, mockMutateAsync, mockToast, mockGames } = vi.hoisted(() => ({
+const { mockInvalidateQueries, mockMutate, mockToast, mockGames } = vi.hoisted(() => ({
   mockInvalidateQueries: vi.fn(),
-  mockMutateAsync: vi.fn(),
+  mockMutate: vi.fn(),
   mockToast: vi.fn(),
   mockGames: { current: [] as Game[] },
 }));
@@ -19,60 +18,12 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
   return {
     ...actual,
     useQueryClient: () => ({ invalidateQueries: mockInvalidateQueries }),
-    useMutation: () => ({ mutate: mockMutateAsync, isPending: false }),
+    useMutation: () => ({ mutate: mockMutate, isPending: false }),
     useQuery: () => ({ data: mockGames.current, isLoading: false }),
   };
 });
 
 vi.mock("@/hooks/use-toast", () => ({ useToast: () => ({ toast: mockToast }) }));
-
-vi.mock("lucide-react", async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return {
-    ...actual,
-    Gamepad2: () => <div />,
-    LayoutGrid: () => <div />,
-    List: () => <div />,
-    Settings2: () => <div />,
-  };
-});
-
-// Render games as simple list of titles for easy assertion
-vi.mock("../src/components/GameGrid", () => ({
-  default: ({ games }: { games: Game[] }) => (
-    <ul>
-      {games.map((g) => (
-        <li key={g.id}>{g.title}</li>
-      ))}
-    </ul>
-  ),
-}));
-
-vi.mock("../src/components/EmptyState", () => ({
-  default: ({ title }: { title: string }) => <div>{title}</div>,
-}));
-
-// UI stubs
-vi.mock("@/components/ui/toggle-group", () => ({
-  ToggleGroup: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  ToggleGroupItem: ({ children }: { children: React.ReactNode }) => <button>{children}</button>,
-}));
-vi.mock("@/components/ui/dropdown-menu", () => ({
-  DropdownMenu: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  DropdownMenuTrigger: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  DropdownMenuContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  DropdownMenuItem: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  DropdownMenuLabel: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  DropdownMenuSeparator: () => <hr />,
-}));
-vi.mock("@/components/ui/button", () => ({
-  Button: ({ children }: { children: React.ReactNode }) => <button>{children}</button>,
-}));
-
-// Stub localStorage
-Object.defineProperty(window, "localStorage", {
-  value: { getItem: vi.fn(() => null), setItem: vi.fn() },
-});
 
 // --- Helpers ---
 const makeGame = (id: string, title: string, status: Game["status"]): Game => ({

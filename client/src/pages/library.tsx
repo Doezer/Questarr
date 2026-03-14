@@ -5,7 +5,7 @@ import { type GameStatus } from "@/components/StatusBadge";
 import { useToast } from "@/hooks/use-toast";
 import EmptyState from "@/components/EmptyState";
 import { Gamepad2, LayoutGrid, List } from "lucide-react";
-import { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Button } from "@/components/ui/button";
 import { Settings2 } from "lucide-react";
@@ -17,8 +17,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-
-const LIBRARY_STATUSES: GameStatus[] = ["owned", "completed", "downloading"];
 
 export default function LibraryPage() {
   const { toast } = useToast();
@@ -53,6 +51,7 @@ export default function LibraryPage() {
   // ⚡ Bolt: Using useMemo to prevent O(n) filtering on every render (e.g., when toggling view modes or hovering over UI elements).
   // Impact: Reduces CPU cycles during render by avoiding recalculation of the library games array unless the underlying games data changes.
   // Library typically contains owned, completed, or actively downloading games
+  const LIBRARY_STATUSES: GameStatus[] = ["owned", "completed", "downloading"];
   const libraryGames = useMemo(() => {
     return games.filter((g) => LIBRARY_STATUSES.includes(g.status));
   }, [games]);

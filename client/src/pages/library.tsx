@@ -18,6 +18,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
+const LIBRARY_STATUSES: GameStatus[] = ["owned", "completed", "downloading"];
+
 export default function LibraryPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -52,9 +54,7 @@ export default function LibraryPage() {
   // Impact: Reduces CPU cycles during render by avoiding recalculation of the library games array unless the underlying games data changes.
   // Library typically contains owned, completed, or actively downloading games
   const libraryGames = useMemo(() => {
-    return games.filter((g) =>
-      ["owned", "completed", "downloading"].includes(g.status)
-    );
+    return games.filter((g) => LIBRARY_STATUSES.includes(g.status));
   }, [games]);
 
   const statusMutation = useMutation({

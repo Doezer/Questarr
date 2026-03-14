@@ -32,6 +32,13 @@ export default function WishlistPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [sortBy, setSortBy] = useState<SortOption>("release-desc");
+
+  // Refreshes at midnight so released/upcoming categorization stays accurate
+  const [todayKey, setTodayKey] = useState(() => new Date().toDateString());
+  useEffect(() => {
+    const timer = setInterval(() => setTodayKey(new Date().toDateString()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
   const [viewMode, setViewMode] = useState<"grid" | "list">(() => {
     return (localStorage.getItem("wishlistViewMode") as "grid" | "list") || "grid";
   });
@@ -66,9 +73,11 @@ export default function WishlistPage() {
     return games.filter((g) => g.status === "wanted");
   }, [games]);
 
-  // Separate released and unreleased games
+  // Separate released and unreleased games.
+  // todayKey is a daily-refreshing string (see above) used as `now` so that the
+  // released/upcoming split stays accurate across midnight without stale values.
   const { releasedGames, upcomingGames, tbaGames } = useMemo(() => {
-    const now = new Date();
+    const now = new Date(todayKey);
     const released: Game[] = [];
     const upcoming: Game[] = [];
     const tba: Game[] = [];
@@ -87,7 +96,7 @@ export default function WishlistPage() {
     });
 
     return { releasedGames: released, upcomingGames: upcoming, tbaGames: tba };
-  }, [wishlistGames]);
+  }, [wishlistGames, todayKey]);
 
   // Sort games based on selected option
   const sortGames = (gameList: Game[]): Game[] => {

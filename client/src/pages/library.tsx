@@ -1,5 +1,4 @@
-
-import React, { useState, useEffect } from "react";
+import React from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import GameGrid from "@/components/GameGrid";
@@ -7,6 +6,7 @@ import { type Game } from "@shared/schema";
 import { type GameStatus } from "@/components/StatusBadge";
 import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { useToast } from "@/hooks/use-toast";
+import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 import EmptyState from "@/components/EmptyState";
 import { Gamepad2, LayoutGrid, List } from "lucide-react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -24,28 +24,14 @@ import {
 export default function LibraryPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [viewMode, setViewMode] = useState<"grid" | "list">(() => {
-    return (localStorage.getItem("libraryViewMode") as "grid" | "list") || "grid";
-  });
-
-  useEffect(() => {
-    localStorage.setItem("libraryViewMode", viewMode);
-  }, [viewMode]);
-
-  const [listDensity, setListDensity] = useState<"comfortable" | "compact" | "ultra-compact">(
-    () => {
-      return (
-        (localStorage.getItem("libraryListDensity") as
-          | "comfortable"
-          | "compact"
-          | "ultra-compact") || "comfortable"
-      );
-    }
+  const [viewMode, setViewMode] = useLocalStorageState(
+    "libraryViewMode",
+    "grid" as "grid" | "list"
   );
-
-  useEffect(() => {
-    localStorage.setItem("libraryListDensity", listDensity);
-  }, [listDensity]);
+  const [listDensity, setListDensity] = useLocalStorageState(
+    "libraryListDensity",
+    "comfortable" as "comfortable" | "compact" | "ultra-compact"
+  );
 
   const { data: games = [], isLoading } = useQuery<Game[]>({
     queryKey: ["/api/games", "?status=owned,completed,downloading"],

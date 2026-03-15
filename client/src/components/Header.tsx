@@ -1,15 +1,16 @@
 import { Button } from "@/components/ui/button";
 import { SidebarTrigger } from "@/components/ui/sidebar";
-import { Plus, Moon, Sun, HardDrive, AlertCircle, Gamepad2 } from "lucide-react";
+import { Plus, Moon, Sun, HardDrive, AlertCircle, Gamepad2, Loader2 } from "lucide-react";
 import AddGameModal from "./AddGameModal";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { NotificationCenter } from "./NotificationCenter";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
 import type { Config } from "@shared/schema";
 
 interface HeaderProps {
@@ -49,6 +50,29 @@ export default function Header({ title = "Dashboard" }: HeaderProps) {
   // Fetch user to check for Steam ID
   const { data: user } = useQuery<{ id: string; username: string; steamId64?: string }>({
     queryKey: ["/api/auth/me"],
+  });
+
+  const steamSyncMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/steam/wishlist/sync");
+      return (await res.json()) as { success: boolean; addedCount?: number; message?: string };
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Steam Sync",
+        description:
+          data.addedCount != null
+            ? `Synced ${data.addedCount} game(s) from your Steam Wishlist.`
+            : data.message || "Sync completed successfully",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Sync Failed",
+        description: error.message || "Failed to connect to server",
+        variant: "destructive",
+      });
+    },
   });
 
   // Fetch config to check for IGDB status
@@ -137,42 +161,14 @@ export default function Header({ title = "Dashboard" }: HeaderProps) {
                 variant="ghost"
                 size="sm"
                 className="gap-2 hidden sm:flex"
-                onClick={async () => {
-                  try {
-                    const response = await fetch("/api/steam/wishlist/sync", {
-                      method: "POST",
-                      headers: {
-                        Authorization: `Bearer ${localStorage.getItem("token")}`,
-                      },
-                    });
-                    const data = await response.json();
-
-                    if (response.ok && data.success) {
-                      toast({
-                        title: "Steam Sync",
-                        description:
-                          data.addedCount != null
-                            ? `Synced ${data.addedCount} game(s) from your Steam Wishlist.`
-                            : data.message || "Sync completed successfully",
-                      });
-                    } else {
-                      toast({
-                        title: "Sync Failed",
-                        description: data.error || data.message || "Unknown error",
-                        variant: "destructive",
-                      });
-                    }
-                  } catch (e) {
-                    console.error(e);
-                    toast({
-                      title: "Sync Error",
-                      description: "Failed to connect to server",
-                      variant: "destructive",
-                    });
-                  }
-                }}
+                disabled={steamSyncMutation.isPending}
+                onClick={() => steamSyncMutation.mutate()}
               >
-                <Gamepad2 className="w-4 h-4" />
+                {steamSyncMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Gamepad2 className="w-4 h-4" />
+                )}
                 Sync Steam
               </Button>
             )}

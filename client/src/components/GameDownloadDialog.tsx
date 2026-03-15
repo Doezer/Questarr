@@ -299,9 +299,9 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         toast({ title: "Failed to start download", variant: "destructive" });
         return;
       }
-      const downloaderNames = [
-        ...new Set(successfulResults.map((r) => r.downloaderName).filter(Boolean)),
-      ];
+      const downloaderNames = Array.from(
+        new Set(successfulResults.map((r) => r.downloaderName).filter(Boolean))
+      );
       const titleSuffix = downloaderNames.length === 1 ? ` to ${downloaderNames[0]}` : "";
       toast({
         title: `${successCount} download(s) sent${titleSuffix}`,

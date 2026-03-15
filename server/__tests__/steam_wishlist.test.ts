@@ -100,6 +100,29 @@ describe("syncUserSteamWishlist", () => {
     expect(storage.addGame).toHaveBeenCalledTimes(2);
   });
 
+  it("should skip Steam App IDs with no matching IGDB ID", async () => {
+    vi.mocked(storage.getUser).mockResolvedValue({
+      id: "user-1",
+      steamId64: "76561198000000000",
+    } as unknown as User);
+    vi.mocked(storage.getUserSettings).mockResolvedValue({
+      steamSyncFailures: 0,
+    } as unknown as UserSettings);
+
+    // steamAppId 301 has no IGDB match
+    const mockWishlist = [{ title: "Unknown Game", steamAppId: 301, addedAt: 0, priority: 0 }];
+    vi.mocked(steamService.getWishlist).mockResolvedValue(mockWishlist);
+
+    // Empty map — no IGDB ID for steamAppId 301
+    vi.mocked(igdbClient.getGameIdsBySteamAppIds).mockResolvedValue(new Map());
+    vi.mocked(storage.getUserGames).mockResolvedValue([]);
+
+    const result = await syncUserSteamWishlist("user-1");
+
+    expect(result?.addedCount).toBe(0);
+    expect(storage.addGame).not.toHaveBeenCalled();
+  });
+
   it("should avoid adding games already in collection", async () => {
     vi.mocked(storage.getUser).mockResolvedValue({
       id: "user-1",

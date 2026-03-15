@@ -851,6 +851,88 @@ export async function checkSteamWishlist() {
 
 const MAX_STEAM_SYNC_FAILURES = 3;
 
+interface SteamSyncGameSet {
+  currentGames: Game[];
+  ownedIgdbIds: Set<number | null>;
+  ownedSteamAppIds: Set<number | null>;
+}
+
+/** Link existing games that match by IGDB ID but are missing their Steam App ID. */
+async function linkExistingGamesToSteam(
+  pendingSteamAppIds: number[],
+  steamToIgdbMap: Map<number, number>,
+  { currentGames, ownedIgdbIds }: SteamSyncGameSet
+): Promise<Set<number>> {
+  const newIgdbIdsToFetch = new Set<number>();
+
+  for (const steamAppId of pendingSteamAppIds) {
+    const igdbId = steamToIgdbMap.get(steamAppId);
+    if (!igdbId) {
+      igdbLogger.debug({ steamAppId }, "No IGDB ID found for Steam App ID");
+      continue;
+    }
+
+    if (ownedIgdbIds.has(igdbId)) {
+      const existing = currentGames.find((g) => g.igdbId === igdbId);
+      if (existing && !existing.steamAppId) {
+        await storage.updateGame(existing.id, { steamAppId });
+      }
+    } else {
+      newIgdbIdsToFetch.add(igdbId);
+    }
+  }
+
+  return newIgdbIdsToFetch;
+}
+
+/** Fetch details from IGDB and add new games to the user's library. */
+async function addNewSteamWishlistGames(
+  userId: string,
+  pendingSteamAppIds: number[],
+  steamToIgdbMap: Map<number, number>,
+  newIgdbIds: Set<number>,
+  ownedIgdbIds: Set<number | null>
+) {
+  const addedGames: { title: string; igdbId: number; steamAppId: number }[] = [];
+
+  const gameDetailsList = await igdbClient.getGamesByIds(Array.from(newIgdbIds));
+  const gameDetailsMap = new Map(gameDetailsList.map((g) => [g.id, g]));
+
+  for (const steamAppId of pendingSteamAppIds) {
+    const igdbId = steamToIgdbMap.get(steamAppId);
+    if (!igdbId || ownedIgdbIds.has(igdbId)) continue;
+
+    const gameDetails = gameDetailsMap.get(igdbId);
+    if (!gameDetails) continue;
+
+    const formatted = igdbClient.formatGameData(gameDetails);
+    await storage.addGame({
+      userId,
+      title: formatted.title as string,
+      igdbId: formatted.igdbId as number,
+      steamAppId: steamAppId,
+      status: "wanted",
+      coverUrl: formatted.coverUrl as string,
+      summary: formatted.summary as string,
+      releaseDate: formatted.releaseDate as string,
+      rating: formatted.rating as number,
+      platforms: formatted.platforms as string[],
+      genres: formatted.genres as string[],
+      developers: formatted.developers as string[],
+      publishers: formatted.publishers as string[],
+      screenshots: formatted.screenshots as string[],
+      hidden: false,
+    });
+    addedGames.push({
+      title: formatted.title as string,
+      igdbId: formatted.igdbId as number,
+      steamAppId,
+    });
+  }
+
+  return addedGames;
+}
+
 export async function syncUserSteamWishlist(userId: string) {
   let steamSyncFailures = 0;
 
@@ -877,100 +959,49 @@ export async function syncUserSteamWishlist(userId: string) {
       await storage.updateUserSettings(userId, { steamSyncFailures: 0 });
     }
 
-    let addedCount = 0;
-    const addedGames: { title: string; igdbId: number; steamAppId: number }[] = [];
-
-    // We need to fetch current wanted games to avoid duplicates
     const currentGames = await storage.getUserGames(userId, true);
-    const ownedIgdbIds = new Set(currentGames.filter((g) => g.igdbId).map((g) => g.igdbId));
-    const ownedSteamAppIds = new Set(
-      currentGames.filter((g) => g.steamAppId).map((g) => g.steamAppId)
-    );
+    const gameSet: SteamSyncGameSet = {
+      currentGames,
+      ownedIgdbIds: new Set(currentGames.filter((g) => g.igdbId).map((g) => g.igdbId)),
+      ownedSteamAppIds: new Set(currentGames.filter((g) => g.steamAppId).map((g) => g.steamAppId)),
+    };
 
-    // Identify games that need processing (not already linked by Steam App ID)
     const pendingSteamAppIds = wishlistGames
-      .filter((sg) => !ownedSteamAppIds.has(sg.steamAppId))
+      .filter((sg) => !gameSet.ownedSteamAppIds.has(sg.steamAppId))
       .map((sg) => sg.steamAppId);
 
+    let addedGames: { title: string; igdbId: number; steamAppId: number }[] = [];
+
     if (pendingSteamAppIds.length > 0) {
-      // 1. Batch lookup matches from Steam App ID to IGDB ID
       const steamToIgdbMap = await igdbClient.getGameIdsBySteamAppIds(pendingSteamAppIds);
+      const newIgdbIds = await linkExistingGamesToSteam(
+        pendingSteamAppIds,
+        steamToIgdbMap,
+        gameSet
+      );
 
-      // 2. Identify which matched games are new vs existing
-      const newIgdbIdsToFetch = new Set<number>();
-
-      for (const steamAppId of pendingSteamAppIds) {
-        const igdbId = steamToIgdbMap.get(steamAppId);
-        if (!igdbId) {
-          igdbLogger.debug({ steamAppId }, "No IGDB ID found for Steam App ID");
-          continue;
-        }
-
-        if (ownedIgdbIds.has(igdbId)) {
-          // We have the IGDB ID but not the Steam App ID on the game? Update it.
-          // This updates existing local games to link them to Steam
-          const existing = currentGames.find((g) => g.igdbId === igdbId);
-          if (existing && !existing.steamAppId) {
-            await storage.updateGame(existing.id, { steamAppId });
-          }
-        } else {
-          // New game to add
-          newIgdbIdsToFetch.add(igdbId);
-        }
-      }
-
-      // 3. Batch fetch details for completely new games
-      if (newIgdbIdsToFetch.size > 0) {
-        const gameDetailsList = await igdbClient.getGamesByIds(Array.from(newIgdbIdsToFetch));
-        const gameDetailsMap = new Map(gameDetailsList.map((g) => [g.id, g]));
-
-        // 4. Add the new games
-        for (const steamAppId of pendingSteamAppIds) {
-          const igdbId = steamToIgdbMap.get(steamAppId);
-          if (!igdbId || ownedIgdbIds.has(igdbId)) continue;
-
-          const gameDetails = gameDetailsMap.get(igdbId);
-          if (gameDetails) {
-            const formatted = igdbClient.formatGameData(gameDetails);
-            await storage.addGame({
-              userId,
-              title: formatted.title as string,
-              igdbId: formatted.igdbId as number,
-              steamAppId: steamAppId,
-              status: "wanted",
-              coverUrl: formatted.coverUrl as string,
-              summary: formatted.summary as string,
-              releaseDate: formatted.releaseDate as string,
-              rating: formatted.rating as number,
-              platforms: formatted.platforms as string[],
-              genres: formatted.genres as string[],
-              developers: formatted.developers as string[],
-              publishers: formatted.publishers as string[],
-              screenshots: formatted.screenshots as string[],
-              hidden: false, // Explicitly set default
-            });
-            addedCount++;
-            addedGames.push({
-              title: formatted.title as string,
-              igdbId: formatted.igdbId as number,
-              steamAppId,
-            });
-          }
-        }
+      if (newIgdbIds.size > 0) {
+        addedGames = await addNewSteamWishlistGames(
+          userId,
+          pendingSteamAppIds,
+          steamToIgdbMap,
+          newIgdbIds,
+          gameSet.ownedIgdbIds
+        );
       }
     }
 
-    if (addedCount > 0) {
+    if (addedGames.length > 0) {
       const notification = await storage.addNotification({
         userId,
         type: "success",
         title: "Steam Wishlist Synced",
-        message: `Successfully added ${addedCount} games from your Steam Wishlist.`,
+        message: `Successfully added ${addedGames.length} games from your Steam Wishlist.`,
       });
       notifyUser("notification", notification);
     }
 
-    return { success: true, addedCount, games: addedGames };
+    return { success: true, addedCount: addedGames.length, games: addedGames };
   } catch (error) {
     const nextSteamSyncFailures = steamSyncFailures + 1;
     await storage.updateUserSettings(userId, { steamSyncFailures: nextSteamSyncFailures });

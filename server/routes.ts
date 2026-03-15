@@ -786,7 +786,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Game collection routes
 
   // Get all games in collection
-  app.get("/api/games", authenticateToken, async (req, res) => {
+  app.get("/api/games", async (req, res) => {
     try {
       const { search, includeHidden, status } = req.query;
 
@@ -820,7 +820,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get games by status
-  app.get("/api/games/status/:status", authenticateToken, async (req, res) => {
+  app.get("/api/games/status/:status", async (req, res) => {
     try {
       const { status } = req.params;
       const { includeHidden } = req.query;
@@ -839,7 +839,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Search user's collection
   app.get(
     "/api/games/search",
-    authenticateToken,
     sanitizeSearchQuery,
     validateRequest,
     async (req: Request, res: Response) => {
@@ -864,7 +863,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Add game to collection
   app.post(
     "/api/games",
-    authenticateToken,
     sensitiveEndpointLimiter,
     sanitizeGameData,
     validateRequest,
@@ -952,7 +950,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   );
 
   // Refresh metadata for all games
-  app.post("/api/games/refresh-metadata", authenticateToken, async (req, res) => {
+  app.post("/api/games/refresh-metadata", async (req, res) => {
     try {
       const userId = req.user!.id;
       const userGames = await storage.getUserGames(userId, true);
@@ -2214,7 +2212,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // User Settings routes
-  app.get("/api/settings", authenticateToken, async (req, res) => {
+  app.get("/api/settings", async (req, res) => {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const userId = (req as any).user.id;
@@ -2232,7 +2230,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/settings", authenticateToken, async (req, res, next) => {
+  app.patch("/api/settings", async (req, res, next) => {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const userId = (req as any).user.id;
@@ -2264,7 +2262,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // xREL.to settings (API base URL in system config; scene/p2p in user settings)
-  app.patch("/api/settings/xrel", authenticateToken, async (req, res, next) => {
+  app.patch("/api/settings/xrel", async (req, res, next) => {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const userId = (req as any).user.id;
@@ -2342,7 +2340,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // xREL.to API proxy (rate-limited on xREL side; base URL from app settings)
-  app.get("/api/xrel/latest", authenticateToken, async (req, res, next) => {
+  app.get("/api/xrel/latest", async (req, res, next) => {
     try {
       const page = req.query.page ? parseInt(String(req.query.page), 10) : 1;
       const baseUrl =
@@ -2476,7 +2474,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/xrel/search", authenticateToken, async (req, res, next) => {
+  app.get("/api/xrel/search", async (req, res, next) => {
     try {
       const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
       if (!q) {
@@ -2499,7 +2497,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Match and add game from name (Quick Add)
-  app.post("/api/games/match-and-add", authenticateToken, async (req, res, next) => {
+  app.post("/api/games/match-and-add", async (req, res, next) => {
     try {
       const { title } = req.body;
       if (!title || typeof title !== "string") {

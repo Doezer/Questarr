@@ -293,9 +293,18 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       return results;
     },
     onSuccess: (results) => {
-      const successCount = results.filter((r) => r.success).length;
+      const successfulResults = results.filter((r) => r.success);
+      const successCount = successfulResults.length;
+      if (successCount === 0) {
+        toast({ title: "Failed to start download", variant: "destructive" });
+        return;
+      }
+      const downloaderNames = [
+        ...new Set(successfulResults.map((r) => r.downloaderName).filter(Boolean)),
+      ];
+      const titleSuffix = downloaderNames.length === 1 ? ` to ${downloaderNames[0]}` : "";
       toast({
-        title: `${successCount} download(s) started successfully`,
+        title: `${successCount} download(s) sent${titleSuffix}`,
         description:
           results.length > 1 ? `Added ${successCount} of ${results.length} downloads` : undefined,
       });
@@ -323,6 +332,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     }: {
       download: DownloadItem;
       downloaderId: string;
+      downloaderName: string;
     }) => {
       const response = await apiRequest("POST", `/api/downloaders/${downloaderId}/downloads`, {
         url: download.link,
@@ -332,9 +342,9 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       });
       return response.json();
     },
-    onSuccess: (result) => {
+    onSuccess: (result, variables) => {
       if (result.success) {
-        toast({ title: "Download started successfully" });
+        toast({ title: `Download sent to ${variables.downloaderName}` });
         queryClient.invalidateQueries({ queryKey: ["/api/downloads"] });
         onOpenChange(false);
       } else {
@@ -1001,6 +1011,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                                         sendToDownloaderMutation.mutate({
                                                           download,
                                                           downloaderId: d.id,
+                                                          downloaderName: d.name,
                                                         })
                                                       }
                                                     >

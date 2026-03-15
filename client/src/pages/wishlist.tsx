@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import GameGrid from "@/components/GameGrid";
@@ -6,6 +6,7 @@ import { type Game } from "@shared/schema";
 import { type GameStatus } from "@/components/StatusBadge";
 import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { useToast } from "@/hooks/use-toast";
+import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 import {
   Select,
   SelectContent,
@@ -34,36 +35,15 @@ export default function WishlistPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [sortBy, setSortBy] = useState<SortOption>("release-desc");
-  const [viewMode, setViewMode] = useState<"grid" | "list">(() => {
-    return (localStorage.getItem("wishlistViewMode") as "grid" | "list") || "grid";
-  });
-
-  useEffect(() => {
-    localStorage.setItem("wishlistViewMode", viewMode);
-  }, [viewMode]);
-
-  const [listDensity, setListDensity] = useState<"comfortable" | "compact" | "ultra-compact">(
-    () => {
-      return (
-        (localStorage.getItem("wishlistListDensity") as
-          | "comfortable"
-          | "compact"
-          | "ultra-compact") || "comfortable"
-      );
-    }
+  const [viewMode, setViewMode] = useLocalStorageState(
+    "wishlistViewMode",
+    "grid" as "grid" | "list"
   );
-
-  useEffect(() => {
-    localStorage.setItem("wishlistListDensity", listDensity);
-  }, [listDensity]);
-
-  const [showUnreleased, setShowUnreleased] = useState<boolean>(() => {
-    return localStorage.getItem("wishlistShowUnreleased") !== "false";
-  });
-
-  useEffect(() => {
-    localStorage.setItem("wishlistShowUnreleased", String(showUnreleased));
-  }, [showUnreleased]);
+  const [listDensity, setListDensity] = useLocalStorageState(
+    "wishlistListDensity",
+    "comfortable" as "comfortable" | "compact" | "ultra-compact"
+  );
+  const [showUnreleased, setShowUnreleased] = useLocalStorageState("wishlistShowUnreleased", true);
 
   const { data: games = [], isLoading } = useQuery<Game[]>({
     queryKey: ["/api/games", "?status=wanted"],

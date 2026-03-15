@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { RssFeedItem } from "@shared/schema";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,15 +9,13 @@ import { Button } from "@/components/ui/button";
 import { apiRequest } from "@/lib/queryClient";
 import CompactRssFeedItem from "./CompactRssFeedItem";
 import { cn, safeUrl } from "@/lib/utils";
+import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 
 export default function RssFeedList() {
-  const [viewMode, setViewMode] = useState<"grid" | "list">(() => {
-    return (localStorage.getItem("rssFeedViewMode") as "grid" | "list") || "grid";
-  });
-
-  useEffect(() => {
-    localStorage.setItem("rssFeedViewMode", viewMode);
-  }, [viewMode]);
+  const [viewMode, setViewMode] = useLocalStorageState(
+    "rssFeedViewMode",
+    "grid" as "grid" | "list"
+  );
 
   const {
     data: items,

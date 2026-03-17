@@ -315,15 +315,13 @@ describe("IGDBClient - Batch Operations", () => {
       ok: true,
       json: async () => [
         { uid: "10", game: 100 },
-        { uid: "20", game: 200 }
-      ]
+        { uid: "20", game: 200 },
+      ],
     };
 
     const successResponse2 = {
       ok: true,
-      json: async () => [
-        { uid: "110", game: 1100 }
-      ]
+      json: async () => [{ uid: "110", game: 1100 }],
     };
 
     fetchMock

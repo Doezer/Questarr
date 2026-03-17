@@ -114,7 +114,7 @@ export default function SearchPage() {
   // inside the comparator.
   const sortedItems = useMemo(() => {
     return (searchResults?.items || [])
-      .map(item => ({ item, time: new Date(item.pubDate).getTime() }))
+      .map((item) => ({ item, time: new Date(item.pubDate).getTime() }))
       .sort((a, b) => b.time - a.time)
       .map(({ item }) => item);
   }, [searchResults?.items]);

@@ -162,9 +162,27 @@ describe("MemStorage", () => {
     });
 
     it("should filter games by status", async () => {
-      await storage.addGame({ title: "G1", status: "wanted", userId: "u1", igdbId: 1, hidden: false });
-      await storage.addGame({ title: "G2", status: "owned", userId: "u1", igdbId: 2, hidden: false });
-      await storage.addGame({ title: "G3", status: "completed", userId: "u1", igdbId: 3, hidden: false });
+      await storage.addGame({
+        title: "G1",
+        status: "wanted",
+        userId: "u1",
+        igdbId: 1,
+        hidden: false,
+      });
+      await storage.addGame({
+        title: "G2",
+        status: "owned",
+        userId: "u1",
+        igdbId: 2,
+        hidden: false,
+      });
+      await storage.addGame({
+        title: "G3",
+        status: "completed",
+        userId: "u1",
+        igdbId: 3,
+        hidden: false,
+      });
 
       const wanted = await storage.getUserGames("u1", false, ["wanted"]);
       expect(wanted).toHaveLength(1);

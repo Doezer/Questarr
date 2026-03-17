@@ -32,9 +32,9 @@ interface DefaultHiddenMutationOptions extends BaseHiddenMutationOptions {
  *    for example Discovery page where the payload is a full `Game` and the mutation decides whether to
  *    PATCH an existing local game or POST a new hidden one.
  */
-export function useHiddenMutation(options?: DefaultHiddenMutationOptions): ReturnType<
-  typeof useMutation<HiddenMutationResponse, Error, HiddenMutationPayload>
->;
+export function useHiddenMutation(
+  options?: DefaultHiddenMutationOptions
+): ReturnType<typeof useMutation<HiddenMutationResponse, Error, HiddenMutationPayload>>;
 export function useHiddenMutation<TPayload>(
   options: CustomHiddenMutationOptions<TPayload>
 ): ReturnType<typeof useMutation<HiddenMutationResponse, Error, TPayload>>;

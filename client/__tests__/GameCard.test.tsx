@@ -21,9 +21,15 @@ vi.mock("@/hooks/use-toast", () => ({
 // Mock Card components
 vi.mock("@/components/ui/card", () => ({
   Card: React.forwardRef(({ children, className, onClick }: any, ref: any) => (
-    <div ref={ref} className={className} onClick={onClick}>{children}</div>
+    <div ref={ref} className={className} onClick={onClick}>
+      {children}
+    </div>
   )),
-  CardContent: ({ children, className, onClick }: any) => <div className={className} onClick={onClick}>{children}</div>,
+  CardContent: ({ children, className, onClick }: any) => (
+    <div className={className} onClick={onClick}>
+      {children}
+    </div>
+  ),
 }));
 
 const createTestQueryClient = () =>

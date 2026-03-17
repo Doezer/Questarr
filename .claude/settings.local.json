@@ -13,5 +13,22 @@
       "Bash(node -e \"const chunks=[]; process.stdin.on\\(''''data'''',c=>chunks.push\\(c\\)\\); process.stdin.on\\(''''end'''',\\(\\)=>{const d=JSON.parse\\(chunks.join\\(''''''''\\)\\); d.forEach\\(f=>console.log\\(f.name\\)\\);}\\)\")",
       "Bash(npx tsc:*)"
     ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "npx prettier --write \"$CLAUDE_TOOL_INPUT_FILE_PATH\""
+          },
+          {
+            "type": "command",
+            "command": "bash -c 'if [[ \"$CLAUDE_TOOL_INPUT_FILE_PATH\" == *\".env\"* && \"$CLAUDE_TOOL_INPUT_FILE_PATH\" != *\".env.example\"* ]]; then echo \"Blocked: direct .env edits are not allowed\"; exit 2; fi'"
+          }
+        ]
+      }
+    ]
   }
 }

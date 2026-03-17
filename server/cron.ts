@@ -185,8 +185,8 @@ export async function checkGameUpdates() {
 
   const allGames = await storage.getAllGames();
 
-  // Filter games that are tracked (have IGDB ID)
-  const gamesToCheck = allGames.filter((g) => g.igdbId !== null);
+  // Filter games that are tracked (have IGDB ID) and not hidden
+  const gamesToCheck = allGames.filter((g) => g.igdbId !== null && !g.hidden);
 
   if (gamesToCheck.length === 0) {
     igdbLogger.info("No games to check for updates.");

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -246,23 +246,17 @@ export default function ImportSettings() {
         </TabsList>
 
         <TabsContent value="config" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Import & Post-Processing</CardTitle>
-              <CardDescription>
-                Configure post-processing, auto-unpack, overwrite behavior, library root, transfer
-                mode, platform filter, and rename pattern for imported downloads.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {localConfig && (
-                <>
-                  <div className="flex items-center justify-between">
+          {localConfig && (
+            <>
+              <Card>
+                <CardContent className="pt-6 space-y-0">
+                  {/* Master switch — always interactive */}
+                  <div className="flex items-center justify-between pb-6">
                     <div className="space-y-0.5">
-                      <Label>Enable Post-Processing</Label>
-                      <div className="text-xs text-muted-foreground">
+                      <Label className="text-sm font-medium">Enable Post-Processing</Label>
+                      <p className="text-xs text-muted-foreground">
                         Master switch for the import engine.
-                      </div>
+                      </p>
                     </div>
                     <Switch
                       checked={localConfig.enablePostProcessing}
@@ -271,174 +265,216 @@ export default function ImportSettings() {
                       }
                     />
                   </div>
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label>Auto-Unpack Archives</Label>
-                      <div className="text-xs text-muted-foreground">
-                        Automatically extract .zip, .rar, .7z files.
-                      </div>
-                    </div>
-                    <Switch
-                      checked={localConfig.autoUnpack}
-                      onCheckedChange={(c) => setLocalConfig({ ...localConfig, autoUnpack: c })}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label>Overwrite Existing Files</Label>
-                      <div className="text-xs text-muted-foreground">
-                        Replace files if they already exist in destination.
-                      </div>
-                    </div>
-                    <Switch
-                      checked={localConfig.overwriteExisting}
-                      onCheckedChange={(c) =>
-                        setLocalConfig({ ...localConfig, overwriteExisting: c })
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Questarr Library Root</Label>
-                    <Input
-                      placeholder="/data/library"
-                      value={localConfig.libraryRoot}
-                      onChange={(e) =>
-                        setLocalConfig({ ...localConfig, libraryRoot: e.target.value })
-                      }
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Destination root used by Questarr. This is where files will be
-                      moved/copied/linked to by default.
+
+                  <div
+                    className={
+                      localConfig.enablePostProcessing
+                        ? undefined
+                        : "opacity-50 pointer-events-none select-none"
+                    }
+                  >
+                    <Separator className="mb-6" />
+
+                    {/* ── Processing ── */}
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+                      Processing
                     </p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Transfer Mode</Label>
-                    <Select
-                      value={localConfig.transferMode}
-                      onValueChange={(value) =>
-                        setLocalConfig({
-                          ...localConfig,
-                          transferMode: value as "move" | "copy" | "hardlink",
-                        })
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="move">Move</SelectItem>
-                        <SelectItem value="copy">Copy</SelectItem>
-                        <SelectItem value="hardlink">Hardlink</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">
-                      Use hardlink to keep seeding torrents while importing.
-                    </p>
-                    {hardlinkCapability?.generic.supportedForAll === false &&
-                      localConfig.transferMode === "hardlink" && (
-                        <p className="text-xs text-amber-600">
-                          Hardlink is not available for all configured download paths. Questarr will
-                          fall back to copy for incompatible sources.
-                        </p>
-                      )}
-                    {hardlinkCapability?.generic.supportedForAll === null && (
-                      <p className="text-xs text-muted-foreground">
-                        Hardlink check unavailable: configure at least one downloader download path.
-                      </p>
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Platform Filter</Label>
-                    <p className="text-xs text-muted-foreground">
-                      Empty selection means all platforms are eligible.
-                    </p>
-                    <Input
-                      placeholder="Search platforms..."
-                      value={platformSearch}
-                      onChange={(e) => setPlatformSearch(e.target.value)}
-                    />
-                    <div className="max-h-48 overflow-y-auto space-y-2 rounded-md border p-3">
-                      {platformsLoading && (
-                        <p className="text-xs text-muted-foreground">Loading platforms...</p>
-                      )}
-                      {platformsError && (
-                        <div className="space-y-2">
-                          <p className="text-xs text-amber-600">
-                            Could not load platform list from IGDB.
-                          </p>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => refetchPlatforms()}
-                          >
-                            Retry
-                          </Button>
-                        </div>
-                      )}
-                      {!platformsLoading && !platformsError && igdbPlatforms.length === 0 && (
-                        <p className="text-xs text-muted-foreground">
-                          {appConfig?.igdb?.configured
-                            ? "IGDB returned no platforms. Try again in a few seconds."
-                            : "IGDB is not configured yet, so platform filters are unavailable."}
-                        </p>
-                      )}
-                      {!platformsLoading &&
-                        !platformsError &&
-                        igdbPlatforms.length > 0 &&
-                        filteredPlatforms.length === 0 && (
+                    <div className="space-y-4 mb-6">
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-0.5">
+                          <Label>Auto-Unpack Archives</Label>
                           <p className="text-xs text-muted-foreground">
-                            No platforms match your search.
+                            Extract .zip, .rar, .7z after download.
+                          </p>
+                        </div>
+                        <Switch
+                          checked={localConfig.autoUnpack}
+                          onCheckedChange={(c) => setLocalConfig({ ...localConfig, autoUnpack: c })}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-0.5">
+                          <Label>Overwrite Existing Files</Label>
+                          <p className="text-xs text-muted-foreground">
+                            Replace files already present at the destination.
+                          </p>
+                        </div>
+                        <Switch
+                          checked={localConfig.overwriteExisting}
+                          onCheckedChange={(c) =>
+                            setLocalConfig({ ...localConfig, overwriteExisting: c })
+                          }
+                        />
+                      </div>
+                    </div>
+
+                    <Separator className="mb-6" />
+
+                    {/* ── Library ── */}
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+                      Library
+                    </p>
+                    <div className="space-y-4 mb-6">
+                      <div className="space-y-1.5">
+                        <Label>Library Root</Label>
+                        <Input
+                          placeholder="/data/library"
+                          value={localConfig.libraryRoot}
+                          onChange={(e) =>
+                            setLocalConfig({ ...localConfig, libraryRoot: e.target.value })
+                          }
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Default destination root for imported files.
+                        </p>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label>Transfer Mode</Label>
+                        <Select
+                          value={localConfig.transferMode}
+                          onValueChange={(value) =>
+                            setLocalConfig({
+                              ...localConfig,
+                              transferMode: value as "move" | "copy" | "hardlink",
+                            })
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="hardlink">Hardlink</SelectItem>
+                            <SelectItem value="copy">Copy</SelectItem>
+                            <SelectItem value="move">Move</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">
+                          Hardlink keeps torrents seeding while importing.
+                        </p>
+                        {hardlinkCapability?.generic.supportedForAll === false &&
+                          localConfig.transferMode === "hardlink" && (
+                            <p className="text-xs text-amber-500">
+                              Hardlink unavailable for some download paths — will fall back to copy.
+                            </p>
+                          )}
+                        {hardlinkCapability?.generic.supportedForAll === null && (
+                          <p className="text-xs text-muted-foreground">
+                            Hardlink check unavailable: configure at least one downloader path
+                            first.
                           </p>
                         )}
-                      {filteredPlatforms.map((platform) => (
-                        <div key={platform.id} className="flex items-start gap-3">
-                          <Checkbox
-                            id={`primary-platform-${platform.id}`}
-                            checked={localConfig.importPlatformIds.includes(platform.id)}
-                            onCheckedChange={() =>
-                              togglePlatformId(localConfig.importPlatformIds, platform.id, (next) =>
-                                setLocalConfig({ ...localConfig, importPlatformIds: next })
-                              )
-                            }
-                          />
-                          <label
-                            htmlFor={`primary-platform-${platform.id}`}
-                            className="cursor-pointer text-sm"
-                          >
-                            {platform.name}
-                          </label>
-                        </div>
-                      ))}
+                      </div>
+                    </div>
+
+                    <Separator className="mb-6" />
+
+                    {/* ── Platform Filter ── */}
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+                      Platform Filter
+                    </p>
+                    <div className="space-y-2 mb-6">
+                      <p className="text-xs text-muted-foreground">
+                        Restrict imports to selected platforms. Empty = all platforms eligible.
+                      </p>
+                      <Input
+                        placeholder="Search platforms..."
+                        value={platformSearch}
+                        onChange={(e) => setPlatformSearch(e.target.value)}
+                      />
+                      <div className="max-h-48 overflow-y-auto space-y-2 rounded-md border p-3">
+                        {platformsLoading && (
+                          <p className="text-xs text-muted-foreground">Loading platforms...</p>
+                        )}
+                        {platformsError && (
+                          <div className="space-y-2">
+                            <p className="text-xs text-amber-500">
+                              Could not load platform list from IGDB.
+                            </p>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => refetchPlatforms()}
+                            >
+                              Retry
+                            </Button>
+                          </div>
+                        )}
+                        {!platformsLoading && !platformsError && igdbPlatforms.length === 0 && (
+                          <p className="text-xs text-muted-foreground">
+                            {appConfig?.igdb?.configured
+                              ? "IGDB returned no platforms. Try again in a few seconds."
+                              : "IGDB is not configured yet — platform filters unavailable."}
+                          </p>
+                        )}
+                        {!platformsLoading &&
+                          !platformsError &&
+                          igdbPlatforms.length > 0 &&
+                          filteredPlatforms.length === 0 && (
+                            <p className="text-xs text-muted-foreground">
+                              No platforms match your search.
+                            </p>
+                          )}
+                        {filteredPlatforms.map((platform) => (
+                          <div key={platform.id} className="flex items-center gap-2.5">
+                            <Checkbox
+                              id={`primary-platform-${platform.id}`}
+                              checked={localConfig.importPlatformIds.includes(platform.id)}
+                              onCheckedChange={() =>
+                                togglePlatformId(
+                                  localConfig.importPlatformIds,
+                                  platform.id,
+                                  (next) =>
+                                    setLocalConfig({ ...localConfig, importPlatformIds: next })
+                                )
+                              }
+                            />
+                            <label
+                              htmlFor={`primary-platform-${platform.id}`}
+                              className="cursor-pointer text-sm"
+                            >
+                              {platform.name}
+                            </label>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <Separator className="mb-6" />
+
+                    {/* ── Naming ── */}
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+                      Naming
+                    </p>
+                    <div className="space-y-1.5">
+                      <Label>Rename Pattern</Label>
+                      <Input
+                        value={localConfig.renamePattern}
+                        onChange={(e) =>
+                          setLocalConfig({ ...localConfig, renamePattern: e.target.value })
+                        }
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Available tokens: {"{Title}"}, {"{Region}"}, {"{Platform}"}, {"{Year}"}
+                      </p>
                     </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label>Rename Pattern</Label>
-                    <Input
-                      value={localConfig.renamePattern}
-                      onChange={(e) =>
-                        setLocalConfig({ ...localConfig, renamePattern: e.target.value })
-                      }
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Available tags: {"{Title}"}, {"{Region}"}, {"{Platform}"}, {"{Year}"}
-                    </p>
-                  </div>
-                  <div className="flex justify-end pt-4">
-                    <Button
-                      onClick={() => localConfig && updateConfigMutation.mutate(localConfig)}
-                      disabled={updateConfigMutation.isPending}
-                    >
-                      {updateConfigMutation.isPending && (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      )}
-                      Save Changes
-                    </Button>
-                  </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
+                </CardContent>
+              </Card>
+
+              <div className="flex justify-end">
+                <Button
+                  onClick={() => localConfig && updateConfigMutation.mutate(localConfig)}
+                  disabled={updateConfigMutation.isPending}
+                >
+                  {updateConfigMutation.isPending && (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  )}
+                  Save Changes
+                </Button>
+              </div>
+            </>
+          )}
         </TabsContent>
 
         <TabsContent value="romm" className="space-y-4">

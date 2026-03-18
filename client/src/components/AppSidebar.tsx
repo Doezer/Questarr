@@ -13,6 +13,7 @@ import {
   Newspaper,
   Rss,
 } from "lucide-react";
+import { useMemo } from "react";
 import {
   Sidebar,
   SidebarContent,
@@ -120,10 +121,15 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: AppSidebarP
     refetchInterval: 5000,
   });
 
-  const libraryCount = games.filter((g) =>
-    ["owned", "completed", "downloading"].includes(g.status)
-  ).length;
-  const wishlistCount = games.filter((g) => g.status === "wanted").length;
+  const libraryCount = useMemo(() => {
+    return games.filter((g) =>
+      ["owned", "completed", "downloading"].includes(g.status)
+    ).length;
+  }, [games]);
+
+  const wishlistCount = useMemo(() => {
+    return games.filter((g) => g.status === "wanted").length;
+  }, [games]);
   const activeDownloadsCount = downloadsData?.downloads?.length || 0;
 
   const navigation = staticNavigation.map((item) => {

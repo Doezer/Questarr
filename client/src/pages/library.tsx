@@ -5,7 +5,7 @@ import { type GameStatus } from "@/components/StatusBadge";
 import { useToast } from "@/hooks/use-toast";
 import EmptyState from "@/components/EmptyState";
 import { Gamepad2, LayoutGrid, List } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Button } from "@/components/ui/button";
 import { Settings2 } from "lucide-react";
@@ -49,9 +49,11 @@ export default function LibraryPage() {
   });
 
   // Library typically contains owned, completed, or actively downloading games
-  const libraryGames = games.filter((g) =>
-    ["owned", "completed", "downloading"].includes(g.status)
-  );
+  const libraryGames = useMemo(() => {
+    return games.filter((g) =>
+      ["owned", "completed", "downloading"].includes(g.status)
+    );
+  }, [games]);
 
   const statusMutation = useMutation({
     mutationFn: async ({ gameId, status }: { gameId: string; status: GameStatus }) => {

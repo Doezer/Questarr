@@ -37,3 +37,4 @@ sqlite.db*
 pr_status.json
 .omc/
 *.junit.xml
+.omc/

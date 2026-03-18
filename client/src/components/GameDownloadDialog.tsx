@@ -940,6 +940,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                         downloadingGuid === (download.guid || download.link)
                                       }
                                       className="h-9 w-9 hover:bg-primary hover:text-primary-foreground transition-all"
+                                      aria-label={`Download ${download.title}`}
                                     >
                                       {downloadingGuid === (download.guid || download.link) ? (
                                         <Loader2 className="h-4 w-4 animate-spin" />
@@ -950,7 +951,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
 
                                     <DropdownMenu>
                                       <DropdownMenuTrigger asChild>
-                                        <Button variant="ghost" size="icon" className="h-9 w-9">
+                                        <Button variant="ghost" size="icon" className="h-9 w-9" aria-label="More options">
                                           <MoreVertical className="h-4 w-4" />
                                         </Button>
                                       </DropdownMenuTrigger>

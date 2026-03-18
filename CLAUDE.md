@@ -2,6 +2,19 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Session Memory Protocol
+
+**At the start of every session**, read the files in `/memory/` to restore context:
+
+- `memory/user.md` — who the user is, their background and working style
+- `memory/preferences.md` — coding and workflow preferences for this project
+- `memory/decisions.md` — past architectural and technical decisions
+- `memory/people.md` — collaborators and stakeholders
+
+**At the end of every session** (when the user says goodbye, wraps up, or asks to end), update the relevant memory files with anything learned during the session: new decisions made, preferences expressed, feedback given, or new information about people involved.
+
+---
+
 ## Project Overview
 
 Questarr is a video game management app inspired by the \*Arr ecosystem (Sonarr, Radarr). Users discover, track, and download games via automated indexer search and download client integration. Dark-themed UI built around visual game covers.

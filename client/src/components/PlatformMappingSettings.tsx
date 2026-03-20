@@ -82,6 +82,7 @@ export function PlatformMappingSettings() {
         title: "Validation Error",
         description: "All fields are required.",
         variant: "destructive",
+        duration: 4000,
       });
       return;
     }

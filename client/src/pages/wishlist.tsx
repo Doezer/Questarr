@@ -60,7 +60,9 @@ export default function WishlistPage() {
   });
 
   // Wishlist contains 'wanted' games
-  const wishlistGames = games.filter((g) => g.status === "wanted");
+  const wishlistGames = useMemo(() => {
+    return games.filter((g) => g.status === "wanted");
+  }, [games]);
 
   // Separate released and unreleased games
   const { releasedGames, upcomingGames, tbaGames } = useMemo(() => {

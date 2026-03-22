@@ -927,22 +927,23 @@ class IGDBClient {
       return all;
     };
 
+    const processPlatforms = (platforms: Array<{ id: number; name: string }>) =>
+      Array.from(new Map(platforms.map((p) => [p.id, p])).values()).sort((a, b) =>
+        a.name.localeCompare(b.name)
+      );
+
     try {
       // Only get major gaming platforms, but fetch all pages.
       const primary = await fetchAllPlatforms("category = (1, 5, 6)");
       if (primary.length > 0) {
-        return Array.from(new Map(primary.map((p) => [p.id, p])).values()).sort((a, b) =>
-          a.name.localeCompare(b.name)
-        );
+        return processPlatforms(primary);
       }
 
       // Fallback query without category filter in case upstream schema/filter behavior changed.
       const broadFallback = await fetchAllPlatforms("name != null");
 
       if (broadFallback.length > 0) {
-        return Array.from(new Map(broadFallback.map((p) => [p.id, p])).values()).sort((a, b) =>
-          a.name.localeCompare(b.name)
-        );
+        return processPlatforms(broadFallback);
       }
 
       return FALLBACK_PLATFORMS;

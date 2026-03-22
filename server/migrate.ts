@@ -5,11 +5,14 @@ import fs from "fs";
 import path from "path";
 
 function getErrorText(error: unknown): string {
-  const err = error as { message?: string; cause?: { message?: string } };
-  const msg = String(err?.message ?? "");
-  const causeMsg = String(err?.cause?.message ?? "");
-
-  return `${msg} ${causeMsg}`.trim();
+  if (typeof error === "object" && error !== null) {
+    const err = error as { message?: string; cause?: { message?: string } };
+    const msg = String(err?.message ?? "");
+    const causeMsg = String(err?.cause?.message ?? "");
+    const result = `${msg} ${causeMsg}`.trim();
+    if (result) return result;
+  }
+  return String(error ?? "");
 }
 
 function isSkippableMigrationError(error: unknown): boolean {

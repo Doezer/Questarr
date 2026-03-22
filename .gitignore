@@ -37,3 +37,4 @@ sqlite.db*
 .omc/
 .sonarlint/connectedMode.json
 pr_status.json
+.omc/

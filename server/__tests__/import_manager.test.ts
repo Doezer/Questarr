@@ -63,14 +63,13 @@ describe("ImportManager", () => {
       libraryRoot: "/data/romm",
       platformRoutingMode: "slug-subfolder",
       platformBindings: {},
-      platformAliases: {},
       moveMode: "hardlink",
       conflictPolicy: "rename",
       folderNamingTemplate: "{title}",
       singleFilePlacement: "root",
       multiFilePlacement: "subfolder",
       includeRegionLanguageTags: false,
-      allowAbsoluteBindings: false,
+
       bindingMissingBehavior: "fallback",
     });
   });
@@ -298,14 +297,13 @@ describe("ImportManager", () => {
       libraryRoot: "/data/romm",
       platformRoutingMode: "slug-subfolder",
       platformBindings: {},
-      platformAliases: {},
       moveMode: "hardlink",
       conflictPolicy: "rename",
       folderNamingTemplate: "{title}",
       singleFilePlacement: "root",
       multiFilePlacement: "subfolder",
       includeRegionLanguageTags: false,
-      allowAbsoluteBindings: false,
+
       bindingMissingBehavior: "fallback",
     });
     platformService.getRomMPlatform.mockResolvedValue(null);
@@ -342,14 +340,13 @@ describe("ImportManager", () => {
       libraryRoot: "/data/romm",
       platformRoutingMode: "slug-subfolder",
       platformBindings: {},
-      platformAliases: {},
       moveMode: "hardlink",
       conflictPolicy: "rename",
       folderNamingTemplate: "{title}",
       singleFilePlacement: "root",
       multiFilePlacement: "subfolder",
       includeRegionLanguageTags: false,
-      allowAbsoluteBindings: false,
+
       bindingMissingBehavior: "fallback",
       allowedSlugs: ["gba"],
     });
@@ -421,14 +418,13 @@ describe("ImportManager", () => {
       libraryRoot: "/data/romm",
       platformRoutingMode: "slug-subfolder",
       platformBindings: {},
-      platformAliases: {},
       moveMode: "hardlink",
       conflictPolicy: "rename",
       folderNamingTemplate: "{title}",
       singleFilePlacement: "root",
       multiFilePlacement: "subfolder",
       includeRegionLanguageTags: false,
-      allowAbsoluteBindings: false,
+
       bindingMissingBehavior: "fallback",
     });
     platformService.getRomMPlatform.mockResolvedValue("snes");

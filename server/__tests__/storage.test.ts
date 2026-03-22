@@ -335,7 +335,6 @@ describe("MemStorage", () => {
         rommMultiFilePlacement: "subfolder",
         rommIncludeRegionLanguageTags: true,
         rommAllowedSlugs: ["ps2"],
-        rommAllowAbsoluteBindings: false,
         rommBindingMissingBehavior: "error",
       });
 
@@ -377,7 +376,6 @@ describe("MemStorage", () => {
         libraryRoot: "/library/a/romm",
         platformRoutingMode: "binding-map",
         platformBindings: { ps2: "Sony PlayStation 2" },
-        platformAliases: { playstation2: "ps2" },
         moveMode: "copy",
         conflictPolicy: "overwrite",
         folderNamingTemplate: "{title}",
@@ -385,7 +383,6 @@ describe("MemStorage", () => {
         multiFilePlacement: "subfolder",
         includeRegionLanguageTags: true,
         allowedSlugs: ["ps2"],
-        allowAbsoluteBindings: false,
         bindingMissingBehavior: "error",
       });
     });
@@ -412,7 +409,6 @@ describe("MemStorage", () => {
         libraryRoot: "/data",
         platformRoutingMode: "slug-subfolder",
         platformBindings: {},
-        platformAliases: {},
         moveMode: "hardlink",
         conflictPolicy: "rename",
         folderNamingTemplate: "{title}",
@@ -420,7 +416,6 @@ describe("MemStorage", () => {
         multiFilePlacement: "subfolder",
         includeRegionLanguageTags: false,
         allowedSlugs: undefined,
-        allowAbsoluteBindings: false,
         bindingMissingBehavior: "fallback",
       });
     });

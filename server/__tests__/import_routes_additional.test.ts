@@ -61,14 +61,13 @@ describe("importRouter additional coverage", () => {
       libraryRoot: "/data/romm",
       platformRoutingMode: "slug-subfolder",
       platformBindings: {},
-      platformAliases: {},
       moveMode: "hardlink",
       conflictPolicy: "rename",
       folderNamingTemplate: "{title}",
       singleFilePlacement: "root",
       multiFilePlacement: "subfolder",
       includeRegionLanguageTags: false,
-      allowAbsoluteBindings: false,
+
       bindingMissingBehavior: "fallback",
     });
     mockStorage.getPathMappings.mockResolvedValue([]);

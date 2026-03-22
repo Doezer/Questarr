@@ -66,14 +66,12 @@ function makeRommConfig(root: string): RomMConfig {
     libraryRoot: root,
     platformRoutingMode: "slug-subfolder",
     platformBindings: {},
-    platformAliases: {},
     moveMode: "copy",
     conflictPolicy: "rename",
     folderNamingTemplate: "{title}",
     singleFilePlacement: "root",
     multiFilePlacement: "subfolder",
     includeRegionLanguageTags: false,
-    allowAbsoluteBindings: false,
     bindingMissingBehavior: "fallback",
   };
 }
@@ -104,14 +102,14 @@ describe("RomM routing", () => {
     });
     expect(boundRelative).toBe(path.resolve(root, "Nintendo/SNES"));
 
-    const absolute = resolveRommPlatformDir({
-      libraryRoot: root,
-      fsSlug: "ps2",
-      routingMode: "binding-map",
-      bindings: { ps2: "/custom/ps2" },
-      allowAbsoluteBindings: true,
-    });
-    expect(absolute).toBe(path.resolve("/custom/ps2"));
+    expect(() =>
+      resolveRommPlatformDir({
+        libraryRoot: root,
+        fsSlug: "ps2",
+        routingMode: "binding-map",
+        bindings: { ps2: "/custom/ps2" },
+      })
+    ).toThrow(/escapes library root/i);
   });
 
   it("imports multi-file sets together and resolves rename conflicts", async () => {

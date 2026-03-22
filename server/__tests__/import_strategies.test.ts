@@ -65,14 +65,13 @@ const rommConfig: RomMConfig = {
   libraryRoot: "/data/romm",
   platformRoutingMode: "slug-subfolder",
   platformBindings: {},
-  platformAliases: {},
   moveMode: "copy",
   conflictPolicy: "rename",
   folderNamingTemplate: "{title}",
   singleFilePlacement: "root",
   multiFilePlacement: "subfolder",
   includeRegionLanguageTags: false,
-  allowAbsoluteBindings: false,
+
   bindingMissingBehavior: "fallback",
 };
 

@@ -18,6 +18,11 @@ vi.mock("../ssrf.js", () => ({
   safeFetch: vi.fn((url, options) => fetch(url, options)),
 }));
 
+// Mock parse-torrent so rTorrent tests get a deterministic infoHash
+vi.mock("parse-torrent", () => ({
+  default: vi.fn().mockResolvedValue({ infoHash: "abc123def456abc123def456abc123def456abc1" }),
+}));
+
 describe("TransmissionClient", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
   let client: TransmissionClient;

@@ -5,7 +5,7 @@ const DEFAULT_MAPPINGS: { igdbPlatformId: number; rommPlatformName: string }[] =
   { igdbPlatformId: 18, rommPlatformName: "nes" },
   { igdbPlatformId: 19, rommPlatformName: "snes" },
   { igdbPlatformId: 4, rommPlatformName: "n64" },
-  { igdbPlatformId: 21, rommPlatformName: "gc" },
+  { igdbPlatformId: 21, rommPlatformName: "ngc" },
   { igdbPlatformId: 5, rommPlatformName: "wii" },
   { igdbPlatformId: 33, rommPlatformName: "gb" },
   { igdbPlatformId: 22, rommPlatformName: "gbc" },
@@ -17,11 +17,12 @@ const DEFAULT_MAPPINGS: { igdbPlatformId: number; rommPlatformName: string }[] =
   { igdbPlatformId: 8, rommPlatformName: "ps2" },
   { igdbPlatformId: 9, rommPlatformName: "ps3" },
   { igdbPlatformId: 38, rommPlatformName: "psp" },
-  { igdbPlatformId: 35, rommPlatformName: "sms" },
-  { igdbPlatformId: 29, rommPlatformName: "megadrive" },
+  { igdbPlatformId: 35, rommPlatformName: "gamegear" },
+  { igdbPlatformId: 64, rommPlatformName: "sms" },
+  { igdbPlatformId: 29, rommPlatformName: "genesis" },
   { igdbPlatformId: 23, rommPlatformName: "dc" },
-  { igdbPlatformId: 59, rommPlatformName: "a2600" },
-  { igdbPlatformId: 80, rommPlatformName: "neogeo" },
+  { igdbPlatformId: 59, rommPlatformName: "atari2600" },
+  { igdbPlatformId: 80, rommPlatformName: "neogeoaes" },
 ];
 
 export class PlatformMappingService {

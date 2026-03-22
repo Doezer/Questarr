@@ -213,7 +213,6 @@ export class RomMImportStrategy implements ImportStrategy {
       fsSlug: this.platformSlug,
       routingMode: rommConfig.platformRoutingMode,
       bindings: rommConfig.platformBindings,
-      allowAbsoluteBindings: rommConfig.allowAbsoluteBindings,
       bindingMissingBehavior: rommConfig.bindingMissingBehavior,
     });
 

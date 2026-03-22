@@ -6,7 +6,6 @@ export interface ResolveRommPlatformDirOptions {
   fsSlug: string;
   routingMode: RomMPlatformRoutingMode;
   bindings?: Record<string, string>;
-  allowAbsoluteBindings?: boolean;
   bindingMissingBehavior?: RomMBindingMissingBehavior;
 }
 
@@ -38,13 +37,7 @@ export function validateRommSlug(fsSlug: string): string {
 }
 
 export function resolveRommPlatformDir(options: ResolveRommPlatformDirOptions): string {
-  const {
-    libraryRoot,
-    routingMode,
-    bindings = {},
-    allowAbsoluteBindings = false,
-    bindingMissingBehavior = "fallback",
-  } = options;
+  const { libraryRoot, routingMode, bindings = {}, bindingMissingBehavior = "fallback" } = options;
 
   const safeSlug = validateRommSlug(options.fsSlug);
   const resolvedRoot = path.resolve(libraryRoot);
@@ -52,15 +45,7 @@ export function resolveRommPlatformDir(options: ResolveRommPlatformDirOptions): 
   if (routingMode === "binding-map") {
     const rawBinding = bindings[safeSlug];
     if (rawBinding && rawBinding.trim()) {
-      const trimmed = rawBinding.trim();
-      if (path.isAbsolute(trimmed)) {
-        if (!allowAbsoluteBindings) {
-          throw new Error("Absolute binding paths are disabled");
-        }
-        return path.resolve(trimmed);
-      }
-
-      const bindingPath = path.resolve(resolvedRoot, trimmed);
+      const bindingPath = path.resolve(resolvedRoot, rawBinding.trim());
       ensureInsideRoot(resolvedRoot, bindingPath);
       return bindingPath;
     }

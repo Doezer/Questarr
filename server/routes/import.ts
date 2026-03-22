@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { storage } from "../storage.js";
 import { importManager, platformMappingService } from "../services/index.js";
-import { isSafeUrl } from "../ssrf.js";
+
 import z from "zod";
 import {
   insertPathMappingSchema,
@@ -48,21 +48,21 @@ const importConfigPatchSchema = z
 const rommConfigPatchSchema = z
   .object({
     enabled: z.boolean().optional(),
-    url: z.string().trim().min(1).optional(),
-    apiKey: z.string().trim().optional(),
     libraryRoot: z.string().min(1).max(1024).optional(),
     platformRoutingMode: rommPlatformRoutingModeSchema.optional(),
     platformBindings: z.record(z.string(), z.string()).optional(),
-    platformAliases: z.record(z.string(), z.string()).optional(),
     moveMode: rommMoveModeSchema.optional(),
     conflictPolicy: rommConflictPolicySchema.optional(),
     folderNamingTemplate: z.string().min(1).max(200).optional(),
     singleFilePlacement: rommSingleFilePlacementSchema.optional(),
     includeRegionLanguageTags: z.boolean().optional(),
     allowedSlugs: z.array(z.string().trim().min(1)).optional(),
-    allowAbsoluteBindings: z.boolean().optional(),
     bindingMissingBehavior: rommBindingMissingBehaviorSchema.optional(),
   })
+  .strict();
+
+const platformMappingPatchSchema = z
+  .object({ rommPlatformName: z.string().min(1).max(100) })
   .strict();
 
 function isPathInside(root: string, candidate: string): boolean {
@@ -233,6 +233,18 @@ importRouter.post("/mappings/platforms", async (req, res) => {
   }
 });
 
+importRouter.patch("/mappings/platforms/:id", async (req, res) => {
+  try {
+    const updates = platformMappingPatchSchema.parse(req.body);
+    const updated = await platformMappingService.updateMapping(req.params.id, updates);
+    if (updated) res.json(updated);
+    else res.status(404).json({ error: "Mapping not found" });
+  } catch (error) {
+    if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
+    res.status(500).json({ error: "Failed to update platform mapping" });
+  }
+});
+
 importRouter.delete("/mappings/platforms/:id", async (req, res) => {
   try {
     const success = await storage.removePlatformMapping(req.params.id);
@@ -349,48 +361,29 @@ importRouter.patch("/romm", async (req, res) => {
     const updates = rommConfigPatchSchema.parse(req.body);
     const userId = res.locals.userId as string;
 
-    if (updates.url !== undefined) {
-      if (!(await isSafeUrl(updates.url))) {
-        return res.status(400).json({ error: "Invalid or unsafe URL" });
-      }
-    }
-
     const settings = await storage.getUserSettings(userId);
     if (settings) {
-      const effectiveEnabled = updates.enabled ?? settings.rommEnabled ?? false;
-      const effectiveUrl = updates.url ?? settings.rommUrl ?? undefined;
-      if (effectiveEnabled && !effectiveUrl) {
-        return res.status(400).json({ error: "RomM URL is required when RomM is enabled" });
-      }
-
       const updated = await storage.updateUserSettings(userId, {
         rommEnabled: updates.enabled,
-        rommUrl: updates.url,
-        rommApiKey: updates.apiKey,
         rommLibraryRoot: updates.libraryRoot,
         rommPlatformRoutingMode: updates.platformRoutingMode,
         rommPlatformBindings: updates.platformBindings,
-        rommPlatformAliases: updates.platformAliases,
         rommMoveMode: updates.moveMode,
         rommConflictPolicy: updates.conflictPolicy,
         rommFolderNamingTemplate: updates.folderNamingTemplate,
         rommSingleFilePlacement: updates.singleFilePlacement,
         rommIncludeRegionLanguageTags: updates.includeRegionLanguageTags,
         rommAllowedSlugs: updates.allowedSlugs,
-        rommAllowAbsoluteBindings: updates.allowAbsoluteBindings,
         rommBindingMissingBehavior: updates.bindingMissingBehavior,
       });
       if (!updated) return res.status(404).json({ error: "Settings not found" });
       res.json({
         enabled: updates.enabled ?? settings.rommEnabled,
-        url: updates.url ?? settings.rommUrl,
-        apiKey: updates.apiKey ?? settings.rommApiKey,
         libraryRoot: updates.libraryRoot ?? settings.rommLibraryRoot ?? "/data",
         platformRoutingMode:
           updates.platformRoutingMode ?? settings.rommPlatformRoutingMode ?? "slug-subfolder",
         platformBindings: updates.platformBindings ?? settings.rommPlatformBindings ?? {},
-        platformAliases: updates.platformAliases ?? settings.rommPlatformAliases ?? {},
-        moveMode: updates.moveMode ?? settings.rommMoveMode ?? "hardlink",
+        moveMode: updates.moveMode ?? settings.rommMoveMode ?? "move",
         conflictPolicy: updates.conflictPolicy ?? settings.rommConflictPolicy ?? "rename",
         folderNamingTemplate:
           updates.folderNamingTemplate ?? settings.rommFolderNamingTemplate ?? "{title}",
@@ -400,8 +393,6 @@ importRouter.patch("/romm", async (req, res) => {
         includeRegionLanguageTags:
           updates.includeRegionLanguageTags ?? settings.rommIncludeRegionLanguageTags ?? false,
         allowedSlugs: updates.allowedSlugs ?? settings.rommAllowedSlugs ?? undefined,
-        allowAbsoluteBindings:
-          updates.allowAbsoluteBindings ?? settings.rommAllowAbsoluteBindings ?? false,
         bindingMissingBehavior:
           updates.bindingMissingBehavior ?? settings.rommBindingMissingBehavior ?? "fallback",
       });
@@ -503,8 +494,7 @@ importRouter.get("/hardlink/check", async (req, res) => {
 // --- Operations ---
 importRouter.get("/pending", async (req, res) => {
   try {
-    const downloads = await storage.getDownloadingGameDownloads();
-    const pending = downloads.filter((d) => d.status === "manual_review_required");
+    const pending = await storage.getPendingImportReviews();
 
     const results = await Promise.all(
       pending.map(async (d) => {
@@ -536,6 +526,7 @@ importRouter.post("/:id/confirm", async (req, res) => {
       strategy: z.enum(["pc", "romm"]),
       proposedPath: z.string(),
       transferMode: z.enum(ROMM_MOVE_MODES).optional(),
+      unpack: z.boolean().optional(),
     });
 
     const body = schema.parse(req.body);
@@ -544,14 +535,19 @@ importRouter.post("/:id/confirm", async (req, res) => {
     const targetRoot = body.strategy === "romm" ? rommConfig.libraryRoot : config.libraryRoot;
     const safeProposedPath = resolveProposedPathWithinRoot(targetRoot, body.proposedPath);
 
-    await importManager.confirmImport(id, {
-      strategy: body.strategy,
-      originalPath: "",
-      proposedPath: safeProposedPath,
-      needsReview: false,
-      reviewReason: "Manual Confirmation",
-      transferMode: body.transferMode,
-    });
+    await importManager.confirmImport(
+      id,
+      {
+        strategy: body.strategy,
+        originalPath: "",
+        proposedPath: safeProposedPath,
+        needsReview: false,
+        reviewReason: "Manual Confirmation",
+        transferMode: body.transferMode,
+        unpack: body.unpack,
+      },
+      userId
+    );
 
     res.json({ success: true });
   } catch (error) {

@@ -73,7 +73,7 @@ export const userSettings = sqliteTable("user_settings", {
   rommPlatformAliases: text("romm_platform_aliases", { mode: "json" })
     .$type<Record<string, string>>()
     .default({}),
-  rommMoveMode: text("romm_move_mode").notNull().default("hardlink"),
+  rommMoveMode: text("romm_move_mode").notNull().default("move"),
   rommConflictPolicy: text("romm_conflict_policy").notNull().default("rename"),
   rommFolderNamingTemplate: text("romm_folder_naming_template").notNull().default("{title}"),
   rommSingleFilePlacement: text("romm_single_file_placement").notNull().default("root"),
@@ -86,7 +86,7 @@ export const userSettings = sqliteTable("user_settings", {
     .notNull()
     .default(false),
   rommBindingMissingBehavior: text("romm_binding_missing_behavior").notNull().default("fallback"),
-  updatedAt: integer("updated_at", { mode: "timestamp" }).default(
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),
 });
@@ -145,11 +145,11 @@ export const rommSingleFilePlacementSchema = z.enum(ROMM_SINGLE_FILE_PLACEMENTS)
 export const rommBindingMissingBehaviorSchema = z.enum(ROMM_BINDING_MISSING_BEHAVIORS);
 
 const rommConfigBaseSchema = z.object({
-  apiKey: z.string().trim().optional(),
+  url: z.string().optional(),
+  apiKey: z.string().optional(),
   libraryRoot: z.string().min(1),
   platformRoutingMode: rommPlatformRoutingModeSchema,
   platformBindings: z.record(z.string(), z.string()),
-  platformAliases: z.record(z.string(), z.string()),
   moveMode: rommMoveModeSchema,
   conflictPolicy: rommConflictPolicySchema,
   folderNamingTemplate: z.string().min(1),
@@ -157,7 +157,6 @@ const rommConfigBaseSchema = z.object({
   multiFilePlacement: z.literal(ROMM_MULTI_FILE_PLACEMENT),
   includeRegionLanguageTags: z.boolean(),
   allowedSlugs: z.array(z.string().trim().min(1)).optional(),
-  allowAbsoluteBindings: z.boolean(),
   bindingMissingBehavior: rommBindingMissingBehaviorSchema,
 });
 
@@ -173,16 +172,9 @@ export const importConfigSchema = z.object({
   libraryRoot: z.string().min(1),
 });
 
-export const rommConfigSchema = z.discriminatedUnion("enabled", [
-  rommConfigBaseSchema.extend({
-    enabled: z.literal(true),
-    url: z.string().trim().min(1),
-  }),
-  rommConfigBaseSchema.extend({
-    enabled: z.literal(false),
-    url: z.string().trim().min(1).optional(),
-  }),
-]);
+export const rommConfigSchema = rommConfigBaseSchema.extend({
+  enabled: z.boolean(),
+});
 
 export type RomMConfig = z.infer<typeof rommConfigSchema>;
 
@@ -193,7 +185,6 @@ export interface RomMConfigInput {
   libraryRoot: string;
   platformRoutingMode: RomMPlatformRoutingMode;
   platformBindings: Record<string, string>;
-  platformAliases: Record<string, string>;
   moveMode: RomMMoveMode;
   conflictPolicy: RomMConflictPolicy;
   folderNamingTemplate: string;
@@ -201,7 +192,6 @@ export interface RomMConfigInput {
   multiFilePlacement: RomMMultiFilePlacement;
   includeRegionLanguageTags: boolean;
   allowedSlugs?: string[];
-  allowAbsoluteBindings: boolean;
   bindingMissingBehavior: RomMBindingMissingBehavior;
 }
 

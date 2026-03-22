@@ -113,7 +113,6 @@ function buildRomMConfigFromSettings(
     | "rommSingleFilePlacement"
     | "rommIncludeRegionLanguageTags"
     | "rommAllowedSlugs"
-    | "rommAllowAbsoluteBindings"
     | "rommBindingMissingBehavior"
   >
 ): RomMConfig {
@@ -128,8 +127,7 @@ function buildRomMConfigFromSettings(
       (settings?.rommPlatformRoutingMode as RomMConfigInput["platformRoutingMode"]) ??
       "slug-subfolder",
     platformBindings: settings?.rommPlatformBindings ?? {},
-    platformAliases: settings?.rommPlatformAliases ?? {},
-    moveMode: (settings?.rommMoveMode as RomMConfigInput["moveMode"]) ?? "hardlink",
+    moveMode: (settings?.rommMoveMode as RomMConfigInput["moveMode"]) ?? "move",
     conflictPolicy: (settings?.rommConflictPolicy as RomMConfigInput["conflictPolicy"]) ?? "rename",
     folderNamingTemplate: settings?.rommFolderNamingTemplate ?? "{title}",
     singleFilePlacement:
@@ -137,7 +135,6 @@ function buildRomMConfigFromSettings(
     multiFilePlacement: ROMM_MULTI_FILE_PLACEMENT,
     includeRegionLanguageTags: settings?.rommIncludeRegionLanguageTags ?? false,
     allowedSlugs: settings?.rommAllowedSlugs ?? undefined,
-    allowAbsoluteBindings: settings?.rommAllowAbsoluteBindings ?? false,
     bindingMissingBehavior:
       (settings?.rommBindingMissingBehavior as RomMConfigInput["bindingMissingBehavior"]) ??
       "fallback",
@@ -153,15 +150,13 @@ function buildRomMConfigFromSettings(
     libraryRoot: settings?.rommLibraryRoot ?? "/data",
     platformRoutingMode: "slug-subfolder",
     platformBindings: settings?.rommPlatformBindings ?? {},
-    platformAliases: settings?.rommPlatformAliases ?? {},
-    moveMode: "hardlink",
+    moveMode: "move",
     conflictPolicy: "rename",
     folderNamingTemplate: settings?.rommFolderNamingTemplate ?? "{title}",
     singleFilePlacement: "root",
     multiFilePlacement: ROMM_MULTI_FILE_PLACEMENT,
     includeRegionLanguageTags: settings?.rommIncludeRegionLanguageTags ?? false,
     allowedSlugs: settings?.rommAllowedSlugs ?? undefined,
-    allowAbsoluteBindings: settings?.rommAllowAbsoluteBindings ?? false,
     bindingMissingBehavior: "fallback",
   };
 }
@@ -219,7 +214,8 @@ export interface IStorage {
 
   // GameDownload methods
   getDownloadingGameDownloads(): Promise<GameDownload[]>;
-  getGameDownload(id: string): Promise<GameDownload | undefined>;
+  getPendingImportReviews(): Promise<GameDownload[]>;
+  getGameDownload(id: string, userId?: string): Promise<GameDownload | undefined>;
   updateGameDownloadStatus(id: string, status: string): Promise<void>;
   addGameDownload(gameDownload: InsertGameDownload): Promise<GameDownload>;
 
@@ -742,8 +738,19 @@ export class MemStorage implements IStorage {
     );
   }
 
-  async getGameDownload(id: string): Promise<GameDownload | undefined> {
-    return this.gameDownloads.get(id);
+  async getPendingImportReviews(): Promise<GameDownload[]> {
+    return Array.from(this.gameDownloads.values()).filter(
+      (d) => d.status === "manual_review_required"
+    );
+  }
+
+  async getGameDownload(id: string, userId?: string): Promise<GameDownload | undefined> {
+    const download = this.gameDownloads.get(id);
+    if (download && userId !== undefined) {
+      const game = this.games.get(download.gameId);
+      if (!game || game.userId !== userId) return undefined;
+    }
+    return download;
   }
 
   async updateGameDownloadStatus(id: string, status: string): Promise<void> {
@@ -956,14 +963,13 @@ export class MemStorage implements IStorage {
       rommPlatformRoutingMode: insertSettings.rommPlatformRoutingMode ?? "slug-subfolder",
       rommPlatformBindings: insertSettings.rommPlatformBindings ?? {},
       rommPlatformAliases: insertSettings.rommPlatformAliases ?? {},
-      rommMoveMode: insertSettings.rommMoveMode ?? "hardlink",
+      rommMoveMode: insertSettings.rommMoveMode ?? "move",
       rommConflictPolicy: insertSettings.rommConflictPolicy ?? "rename",
       rommFolderNamingTemplate: insertSettings.rommFolderNamingTemplate ?? "{title}",
       rommSingleFilePlacement: insertSettings.rommSingleFilePlacement ?? "root",
       rommMultiFilePlacement: insertSettings.rommMultiFilePlacement ?? "subfolder",
       rommIncludeRegionLanguageTags: insertSettings.rommIncludeRegionLanguageTags ?? false,
       rommAllowedSlugs: normalizedAllowedSlugs ?? null,
-      rommAllowAbsoluteBindings: insertSettings.rommAllowAbsoluteBindings ?? false,
       rommBindingMissingBehavior: insertSettings.rommBindingMissingBehavior ?? "fallback",
 
       updatedAt: new Date(),
@@ -1688,7 +1694,22 @@ export class DatabaseStorage implements IStorage {
       );
   }
 
-  async getGameDownload(id: string): Promise<GameDownload | undefined> {
+  async getPendingImportReviews(): Promise<GameDownload[]> {
+    return db
+      .select()
+      .from(gameDownloads)
+      .where(eq(gameDownloads.status, "manual_review_required"));
+  }
+
+  async getGameDownload(id: string, userId?: string): Promise<GameDownload | undefined> {
+    if (userId !== undefined) {
+      const [download] = await db
+        .select({ gameDownloads })
+        .from(gameDownloads)
+        .innerJoin(games, eq(gameDownloads.gameId, games.id))
+        .where(and(eq(gameDownloads.id, id), eq(games.userId, userId)));
+      return download?.gameDownloads;
+    }
     const [download] = await db.select().from(gameDownloads).where(eq(gameDownloads.id, id));
     return download;
   }

@@ -30,7 +30,8 @@ const RELEASE_PLATFORM_TO_IGDB_ID: Record<string, number> = {
   ps2: 8,
   ps3: 9,
   psp: 38,
-  "master system": 35,
+  "game gear": 35,
+  "master system": 64,
   "mega drive": 29,
   dreamcast: 23,
   "atari 2600": 59,
@@ -42,7 +43,7 @@ const RELEASE_PLATFORM_TO_FALLBACK_SLUG: Record<string, string> = {
   nes: "nes",
   snes: "snes",
   n64: "n64",
-  gamecube: "gc",
+  gamecube: "ngc",
   wii: "wii",
   gb: "gb",
   gbc: "gbc",
@@ -54,11 +55,12 @@ const RELEASE_PLATFORM_TO_FALLBACK_SLUG: Record<string, string> = {
   ps2: "ps2",
   ps3: "ps3",
   psp: "psp",
+  "game gear": "gamegear",
   "master system": "sms",
-  "mega drive": "megadrive",
+  "mega drive": "genesis",
   dreamcast: "dc",
-  "atari 2600": "a2600",
-  "neo geo": "neogeo",
+  "atari 2600": "atari2600",
+  "neo geo": "neogeoaes",
   pc: "pc",
 };
 
@@ -105,11 +107,17 @@ export class ImportManager {
     return RELEASE_PLATFORM_TO_FALLBACK_SLUG[releasePlatformKey] ?? null;
   }
 
-  private resolveRommSlug(baseSlug: string | null, aliases: Record<string, string>): string | null {
+  private resolveRommSlug(baseSlug: string | null): string | null {
     if (!baseSlug) return null;
-    const key = baseSlug.trim().toLowerCase();
-    const alias = aliases[key] ?? aliases[baseSlug] ?? null;
-    return (alias ?? baseSlug).trim().toLowerCase();
+    return baseSlug.trim().toLowerCase();
+  }
+
+  private async extractIfArchive(sourcePath: string): Promise<string> {
+    if (!this.archiveService.isArchive(sourcePath)) return sourcePath;
+    // Extract to a sibling directory with "_extracted" suffix to avoid mixing with the original file.
+    const extractDir = sourcePath + "_extracted";
+    await this.archiveService.extract(sourcePath, extractDir);
+    return extractDir;
   }
 
   private getProviderLibraryRoot(
@@ -145,15 +153,14 @@ export class ImportManager {
       : null;
     const fallbackSlugFromRelease = this.getReleasePlatformFallbackSlug(releasePlatformKey);
     const baseRommSlug = rommPlatform ?? fallbackSlugFromRelease;
-    const resolvedRommSlug = this.resolveRommSlug(baseRommSlug, rommConfig.platformAliases);
+    const resolvedRommSlug = this.resolveRommSlug(baseRommSlug);
 
     const slugAllowed =
       !rommConfig.allowedSlugs || rommConfig.allowedSlugs.length === 0
         ? true
         : !!resolvedRommSlug && rommConfig.allowedSlugs.includes(resolvedRommSlug);
 
-    const rommEnabledForPlatform =
-      rommConfig.enabled && this.isPlatformEnabled(effectivePlatformId, config.importPlatformIds);
+    const rommEnabledForPlatform = rommConfig.enabled;
 
     if (rommEnabledForPlatform && !resolvedRommSlug) {
       return {
@@ -231,13 +238,7 @@ export class ImportManager {
       const localPath = await this.pathService.translatePath(remoteDownloadPath, remoteHost);
 
       // 2. Archive Extraction (if enabled and applicable)
-      let processingPath = localPath;
-      if (config.autoUnpack && this.archiveService.isArchive(localPath)) {
-        // Extract to a sibling directory with "_extracted" suffix to avoid mixing with the original file.
-        const extractDir = localPath + "_extracted";
-        await this.archiveService.extract(localPath, extractDir);
-        processingPath = extractDir;
-      }
+      const processingPath = config.autoUnpack ? await this.extractIfArchive(localPath) : localPath;
 
       // 3. Strategy Selection
       const rommConfig = await this.storage.getRomMConfig(game.userId ?? undefined);
@@ -301,7 +302,7 @@ export class ImportManager {
       await strategy.executeImport(plan, transferMode, rommConfig);
 
       // 5. Cleanup & Finalize
-      if (transferMode === "move" && processingPath !== localPath) {
+      if (processingPath !== localPath) {
         await fs.remove(processingPath);
       }
 
@@ -325,9 +326,13 @@ export class ImportManager {
    */
   async confirmImport(
     downloadId: string,
-    overridePlan?: ImportReview & { transferMode?: "move" | "copy" | "hardlink" | "symlink" }
+    overridePlan?: ImportReview & {
+      transferMode?: "move" | "copy" | "hardlink" | "symlink";
+      unpack?: boolean;
+    },
+    callerUserId?: string
   ): Promise<void> {
-    const download = await this.storage.getGameDownload(downloadId);
+    const download = await this.storage.getGameDownload(downloadId, callerUserId);
 
     if (!download) {
       throw new Error(`Download ${downloadId} not found`);
@@ -385,7 +390,7 @@ export class ImportManager {
         : null;
       const fallbackSlugFromRelease = this.getReleasePlatformFallbackSlug(releasePlatformKey);
       const baseSlug = rommPlatform || fallbackSlugFromRelease || "unknown";
-      const resolvedSlug = this.resolveRommSlug(baseSlug, rommConfig.platformAliases) || baseSlug;
+      const resolvedSlug = this.resolveRommSlug(baseSlug) || baseSlug;
       strategy = new RomMImportStrategy(resolvedSlug);
     } else {
       strategy = new PCImportStrategy();
@@ -402,9 +407,13 @@ export class ImportManager {
       }
     }
 
+    const processPath = overridePlan.unpack
+      ? await this.extractIfArchive(resolvedOriginalPath)
+      : resolvedOriginalPath;
+
     const planToExecute: ImportReview = {
       ...overridePlan,
-      originalPath: resolvedOriginalPath,
+      originalPath: processPath,
     };
 
     const transferMode =
@@ -427,6 +436,10 @@ export class ImportManager {
         console.error(`[ImportManager] Failed to set error status for ${downloadId}`, statusErr);
       }
       throw err;
+    } finally {
+      if (processPath !== resolvedOriginalPath) {
+        await fs.remove(processPath);
+      }
     }
   }
 }

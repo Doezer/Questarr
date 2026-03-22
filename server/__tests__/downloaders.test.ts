@@ -18,6 +18,11 @@ vi.mock("../ssrf.js", () => ({
   safeFetch: vi.fn((url, options) => fetch(url, options)),
 }));
 
+// Mock parse-torrent so rTorrent tests get a deterministic infoHash
+vi.mock("parse-torrent", () => ({
+  default: vi.fn().mockResolvedValue({ infoHash: "abc123def456abc123def456abc123def456abc1" }),
+}));
+
 describe("TransmissionClient", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
   let client: TransmissionClient;
@@ -294,6 +299,124 @@ describe("RTorrentClient", () => {
       const result = await client.testConnection();
       expect(result.success).toBe(true);
       expect(result.message).toContain("Connected to rTorrent v0.9.8");
+    });
+  });
+
+  describe("addDownload", () => {
+    it("should add download with downloadPath and category", async () => {
+      // Mock for torrent download
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        arrayBuffer: async () => new ArrayBuffer(10),
+      });
+
+      // Mock for load.raw_start (add torrent)
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        text: async () =>
+          `<?xml version="1.0"?><methodResponse><params><param><value><int>0</int></value></param></params></methodResponse>`,
+      });
+
+      // Mock for d.custom1.set (set category)
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        text: async () =>
+          `<?xml version="1.0"?><methodResponse><params><param><value><int>0</int></value></param></params></methodResponse>`,
+      });
+
+      // Mock for d.directory.set (set download path)
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        text: async () =>
+          `<?xml version="1.0"?><methodResponse><params><param><value><int>0</int></value></param></params></methodResponse>`,
+      });
+
+      const clientWithCategory = new RTorrentClient({
+        ...mockDownloader,
+        category: "games",
+      });
+
+      const result = await clientWithCategory.addDownload({
+        url: "http://indexer.com/release.torrent",
+        title: "Test Release",
+        category: "games",
+        downloadPath: "/downloads",
+      });
+
+      expect(result.success).toBe(true);
+      expect(fetchMock.mock.calls.length).toBe(4); // download + add + set category + set path
+
+      // Verify d.directory.set was called with /downloads/games (category append)
+      const directorySetCall = fetchMock.mock.calls[3][1].body;
+      expect(directorySetCall).toContain("d.directory.set");
+      expect(directorySetCall).toContain("/downloads/games");
+    });
+
+    it("should add download with downloadPath only (no category)", async () => {
+      // Mock for torrent download
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        arrayBuffer: async () => new ArrayBuffer(10),
+      });
+
+      // Mock for load.raw_start (add torrent)
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        text: async () =>
+          `<?xml version="1.0"?><methodResponse><params><param><value><int>0</int></value></param></params></methodResponse>`,
+      });
+
+      // Mock for d.directory.set (set download path)
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        text: async () =>
+          `<?xml version="1.0"?><methodResponse><params><param><value><int>0</int></value></param></params></methodResponse>`,
+      });
+
+      const result = await client.addDownload({
+        url: "http://indexer.com/release.torrent",
+        title: "Test Release",
+        downloadPath: "/downloads",
+      });
+
+      expect(result.success).toBe(true);
+      expect(fetchMock.mock.calls.length).toBe(3); // download + add + set path
+
+      // Verify d.directory.set was called with /downloads (no category append)
+      const directorySetCall = fetchMock.mock.calls[2][1].body;
+      expect(directorySetCall).toContain("d.directory.set");
+      expect(directorySetCall).toContain("/downloads</string>");
+    });
+
+    it("should handle directory.set failure gracefully", async () => {
+      // Mock for torrent download
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        arrayBuffer: async () => new ArrayBuffer(10),
+      });
+
+      // Mock for load.raw_start (add torrent)
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        text: async () =>
+          `<?xml version="1.0"?><methodResponse><params><param><value><int>0</int></value></param></params></methodResponse>`,
+      });
+
+      // Mock for d.directory.set (fail)
+      fetchMock.mockResolvedValueOnce({
+        ok: false,
+        text: async () => "Error",
+      });
+
+      const result = await client.addDownload({
+        url: "http://indexer.com/release.torrent",
+        title: "Test Release",
+        downloadPath: "/invalid/path",
+      });
+
+      // Should still succeed even if directory.set fails
+      expect(result.success).toBe(true);
+      expect(result.message).toContain("Download added successfully");
     });
   });
 });

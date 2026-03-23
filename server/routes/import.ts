@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { storage } from "../storage.js";
 import { importManager, platformMappingService } from "../services/index.js";
+import { isSafeUrl } from "../ssrf.js";
 
 import z from "zod";
 import {
@@ -48,6 +49,8 @@ const importConfigPatchSchema = z
 const rommConfigPatchSchema = z
   .object({
     enabled: z.boolean().optional(),
+    url: z.string().optional(),
+    apiKey: z.string().optional(),
     libraryRoot: z.string().min(1).max(1024).optional(),
     platformRoutingMode: rommPlatformRoutingModeSchema.optional(),
     platformBindings: z.record(z.string(), z.string()).optional(),
@@ -361,10 +364,32 @@ importRouter.patch("/romm", async (req, res) => {
     const updates = rommConfigPatchSchema.parse(req.body);
     const userId = res.locals.userId as string;
 
+    // Validate URL if provided
+    if (updates.url !== undefined) {
+      const trimmedUrl = updates.url.trim();
+      if (!trimmedUrl) {
+        return res.status(400).json({ error: "URL cannot be empty" });
+      }
+      if (!(await isSafeUrl(trimmedUrl))) {
+        return res.status(400).json({ error: "Unsafe URL" });
+      }
+      updates.url = trimmedUrl;
+    }
+
     const settings = await storage.getUserSettings(userId);
     if (settings) {
+      // If enabling RomM, an effective URL must exist
+      if (updates.enabled) {
+        const effectiveUrl = updates.url || settings.rommUrl?.trim();
+        if (!effectiveUrl) {
+          return res.status(400).json({ error: "URL is required to enable RomM" });
+        }
+      }
+
       const updated = await storage.updateUserSettings(userId, {
         rommEnabled: updates.enabled,
+        rommUrl: updates.url,
+        rommApiKey: updates.apiKey,
         rommLibraryRoot: updates.libraryRoot,
         rommPlatformRoutingMode: updates.platformRoutingMode,
         rommPlatformBindings: updates.platformBindings,

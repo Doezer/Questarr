@@ -409,7 +409,7 @@ describe("MemStorage", () => {
         libraryRoot: "/data",
         platformRoutingMode: "slug-subfolder",
         platformBindings: {},
-        moveMode: "hardlink",
+        moveMode: "move",
         conflictPolicy: "rename",
         folderNamingTemplate: "{title}",
         singleFilePlacement: "root",

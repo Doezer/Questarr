@@ -94,7 +94,8 @@ describe("importRouter confirmImport security", () => {
       expect.objectContaining({
         strategy: "romm",
         proposedPath: expect.stringMatching(/roms[\\/]game\.rom$/),
-      })
+      }),
+      "user-1"
     );
   });
 });

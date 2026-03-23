@@ -84,7 +84,7 @@ describe("steamRoutes", () => {
     it("should return 500 when updateUserSteamId throws", async () => {
       vi.mocked(storage.updateUserSteamId).mockRejectedValue(new Error("DB error"));
 
-      const res = await request(app)
+      const response = await request(app)
         .put("/api/user/steam-id")
         .send({ steamId: "76561198000000000" });
 
@@ -137,10 +137,6 @@ describe("steamRoutes", () => {
       vi.mocked(syncUserSteamWishlist).mockRejectedValue(new Error("unexpected"));
 
       const response = await request(app).post("/api/steam/wishlist/sync");
-
-      expect(response.status).toBe(500);
-      expect(response.body).toEqual({ error: "Sync failed" });
-    });
 
       expect(response.status).toBe(500);
       expect(response.body).toEqual({ error: "Sync failed" });

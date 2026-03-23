@@ -7,7 +7,7 @@ const { mockStorage, mockImportManager, mockPlatformMappingService, isSafeUrlMoc
     mockStorage: {
       getImportConfig: vi.fn(),
       getEnabledDownloaders: vi.fn(),
-      getDownloadingGameDownloads: vi.fn(),
+      getPendingImportReviews: vi.fn(),
       getGame: vi.fn(),
       getPlatformMappings: vi.fn(),
       getPathMappings: vi.fn(),
@@ -94,7 +94,7 @@ describe("importRouter additional coverage", () => {
   });
 
   it("returns pending manual-review imports with game title fallback", async () => {
-    mockStorage.getDownloadingGameDownloads.mockResolvedValue([
+    mockStorage.getPendingImportReviews.mockResolvedValue([
       {
         id: "d1",
         gameId: "g1",
@@ -102,14 +102,6 @@ describe("importRouter additional coverage", () => {
         status: "manual_review_required",
         downloaderId: "down-1",
         addedAt: "2026-01-01",
-      },
-      {
-        id: "d2",
-        gameId: "g2",
-        downloadTitle: "Download 2",
-        status: "downloading",
-        downloaderId: "down-1",
-        addedAt: "2026-01-02",
       },
     ]);
     mockStorage.getGame.mockResolvedValueOnce({ title: "Known Game" });

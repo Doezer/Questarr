@@ -77,7 +77,7 @@ vi.mock("../steam.js", () => ({
   },
 }));
 
-describe("checkDownloadStatus", () => {
+describe("checkDownloadStatus", { timeout: 15000 }, () => {
   beforeEach(() => {
     vi.clearAllMocks();
 

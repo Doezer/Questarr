@@ -144,7 +144,7 @@ export class ImportManager {
     | { strategy: RomMImportStrategy; provider: "romm" }
     | { requiresReview: true; reason: string }
   > {
-    const { game, downloadTitle, config, rommConfig } = args;
+    const { game, downloadTitle, config: _config, rommConfig } = args;
 
     if (!game) {
       return { requiresReview: true, reason: "Game not found for import" };

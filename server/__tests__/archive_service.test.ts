@@ -51,7 +51,7 @@ describe("ArchiveService", () => {
       expect.stringMatching(/tmp[\\/]out[\\/]sub[\\/]fanart\.png$/),
     ]);
 
-    expect(ensureDirMock).toHaveBeenCalledWith("/tmp/out");
+    expect(ensureDirMock).toHaveBeenCalledWith("/tmp/out"); // NOSONAR - mocked fs, no real dir access
     expect(extractFullMock).toHaveBeenCalledWith(
       "/downloads/game.zip",
       "/tmp/out", // NOSONAR - mocked fs, no real dir access

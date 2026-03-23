@@ -971,6 +971,7 @@ export class MemStorage implements IStorage {
       rommIncludeRegionLanguageTags: insertSettings.rommIncludeRegionLanguageTags ?? false,
       rommAllowedSlugs: normalizedAllowedSlugs ?? null,
       rommBindingMissingBehavior: insertSettings.rommBindingMissingBehavior ?? "fallback",
+      rommAllowAbsoluteBindings: insertSettings.rommAllowAbsoluteBindings ?? false,
 
       updatedAt: new Date(),
     };

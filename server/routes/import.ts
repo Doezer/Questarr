@@ -231,7 +231,8 @@ importRouter.post("/mappings/platforms", async (req, res) => {
     const created = await storage.addPlatformMapping(mapping);
     res.json(created);
   } catch (error) {
-    if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
+    if (error instanceof z.ZodError)
+      return res.status(400).json({ error: error.errors.map((e) => e.message).join(", ") });
     res.status(500).json({ error: "Failed to create platform mapping" });
   }
 });
@@ -243,7 +244,8 @@ importRouter.patch("/mappings/platforms/:id", async (req, res) => {
     if (updated) res.json(updated);
     else res.status(404).json({ error: "Mapping not found" });
   } catch (error) {
-    if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
+    if (error instanceof z.ZodError)
+      return res.status(400).json({ error: error.errors.map((e) => e.message).join(", ") });
     res.status(500).json({ error: "Failed to update platform mapping" });
   }
 });
@@ -287,7 +289,8 @@ importRouter.post("/mappings/paths", async (req, res) => {
     const created = await storage.addPathMapping(mapping);
     res.json(created);
   } catch (error) {
-    if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
+    if (error instanceof z.ZodError)
+      return res.status(400).json({ error: error.errors.map((e) => e.message).join(", ") });
     res.status(500).json({ error: "Failed to create path mapping" });
   }
 });
@@ -343,7 +346,8 @@ importRouter.patch("/config", async (req, res) => {
       res.status(404).json({ error: "User settings not found" });
     }
   } catch (error) {
-    if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
+    if (error instanceof z.ZodError)
+      return res.status(400).json({ error: error.errors.map((e) => e.message).join(", ") });
     res.status(500).json({ error: "Failed to update import config" });
   }
 });
@@ -436,7 +440,8 @@ importRouter.patch("/romm", async (req, res) => {
     if (!updated) return res.status(404).json({ error: "Settings not found" });
     res.json(buildRommPatchResponse(updates, settings));
   } catch (error) {
-    if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
+    if (error instanceof z.ZodError)
+      return res.status(400).json({ error: error.errors.map((e) => e.message).join(", ") });
     res.status(500).json({ error: "Failed to update RomM config" });
   }
 });

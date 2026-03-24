@@ -16,9 +16,21 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Plus, X, Info, ArrowRight, Folder, Link, Copy, MoveRight } from "lucide-react";
+import {
+  Loader2,
+  Plus,
+  X,
+  Info,
+  ArrowRight,
+  Folder,
+  Link,
+  Copy,
+  MoveRight,
+  ChevronDown,
+  ChevronRight,
+} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import type { ImportConfig, RomMConfig, RomMConfigInput } from "@shared/schema";
+import type { ImportConfig, PlatformMapping, RomMConfig, RomMConfigInput } from "@shared/schema";
 import { PathMappingSettings } from "./PathMappingSettings";
 
 type IgdbPlatform = { id: number; name: string };
@@ -148,6 +160,9 @@ export default function ImportSettings() {
   const { data: hardlinkCapability } = useQuery<HardlinkCapabilityResponse>({
     queryKey: ["/api/imports/hardlink/check"],
   });
+  const { data: platformMappings = [] } = useQuery<PlatformMapping[]>({
+    queryKey: ["/api/imports/mappings/platforms"],
+  });
 
   // Local State
   const [localConfig, setLocalConfig] = useState<ImportConfig | null>(null);
@@ -157,6 +172,7 @@ export default function ImportSettings() {
   const [simpleMode, setSimpleMode] = useState(
     () => localStorage.getItem("questarr.rommSimpleMode") !== "false"
   );
+  const [showMappingsTable, setShowMappingsTable] = useState(false);
 
   useEffect(() => {
     if (config) setLocalConfig(config);
@@ -774,6 +790,83 @@ export default function ImportSettings() {
                         </div>
                       </>
                     )}
+
+                    <Separator className="mb-6" />
+
+                    {/* ── Platform Slug Mappings ── */}
+                    <div className="mb-6">
+                      <button
+                        type="button"
+                        className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
+                        onClick={() => setShowMappingsTable((v) => !v)}
+                      >
+                        {showMappingsTable ? (
+                          <ChevronDown className="h-3.5 w-3.5" />
+                        ) : (
+                          <ChevronRight className="h-3.5 w-3.5" />
+                        )}
+                        Platform Slug Mappings
+                        <span className="ml-1 font-normal normal-case tracking-normal text-muted-foreground/70">
+                          ({platformMappings.length})
+                        </span>
+                      </button>
+
+                      {showMappingsTable && (
+                        <div className="mt-3 rounded-md border overflow-hidden">
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr className="border-b bg-muted/40">
+                                <th className="px-3 py-2 text-left font-medium text-muted-foreground">
+                                  Questarr (IGDB)
+                                </th>
+                                <th className="px-3 py-2 text-left font-medium text-muted-foreground">
+                                  RomM Slug
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {platformMappings.length === 0 ? (
+                                <tr>
+                                  <td
+                                    colSpan={2}
+                                    className="px-3 py-3 text-center text-muted-foreground"
+                                  >
+                                    No mappings configured.
+                                  </td>
+                                </tr>
+                              ) : (
+                                platformMappings.map((m) => {
+                                  const platform = igdbPlatforms.find(
+                                    (p) => p.id === m.igdbPlatformId
+                                  );
+                                  return (
+                                    <tr key={m.id} className="border-b last:border-0">
+                                      <td className="px-3 py-2 font-mono">
+                                        {platform ? (
+                                          <span>
+                                            <span className="text-foreground">{platform.name}</span>
+                                            <span className="ml-1.5 text-muted-foreground/60">
+                                              #{m.igdbPlatformId}
+                                            </span>
+                                          </span>
+                                        ) : (
+                                          <span className="text-muted-foreground">
+                                            #{m.igdbPlatformId}
+                                          </span>
+                                        )}
+                                      </td>
+                                      <td className="px-3 py-2 font-mono text-foreground">
+                                        {m.rommPlatformName}
+                                      </td>
+                                    </tr>
+                                  );
+                                })
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
 
                     <Separator className="mb-6" />
 

@@ -58,6 +58,7 @@ const rommConfigPatchSchema = z
     conflictPolicy: rommConflictPolicySchema.optional(),
     folderNamingTemplate: z.string().min(1).max(200).optional(),
     singleFilePlacement: rommSingleFilePlacementSchema.optional(),
+    multiFilePlacement: z.string().optional(),
     includeRegionLanguageTags: z.boolean().optional(),
     allowedSlugs: z.array(z.string().trim().min(1)).optional(),
     bindingMissingBehavior: rommBindingMissingBehaviorSchema.optional(),

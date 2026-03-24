@@ -14,6 +14,10 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Lock, User } from "lucide-react";
+import { FaGithub, FaArrowUp } from "react-icons/fa";
+import pkg from "../../../../package.json";
+import semver from "semver";
+import { useLatestQuestarrVersion } from "@/hooks/use-latest-questarr-version";
 
 const loginSchema = z.object({
   username: z.string().min(1, "Username is required"),
@@ -24,6 +28,9 @@ type LoginForm = z.infer<typeof loginSchema>;
 
 export default function LoginPage() {
   const { login, isLoading } = useAuth();
+  const latestVersion = useLatestQuestarrVersion();
+  const hasNewerVersion =
+    latestVersion && semver.valid(latestVersion) && semver.gt(latestVersion, pkg.version);
   const form = useForm<LoginForm>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
@@ -37,7 +44,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center flex flex-col items-center gap-2">
           <img src="/Questarr_Logo-nobg.png" alt="Questarr Logo" className="h-16 w-auto mb-2" />
@@ -92,6 +99,23 @@ export default function LoginPage() {
           </Form>
         </CardContent>
       </Card>
+      <div className="mt-4 flex items-center justify-center">
+        <a
+          href="https://github.com/Doezer/Questarr"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="View on GitHub"
+          className="flex items-center gap-1.5 text-xs text-gray-400 hover:opacity-80 transition-colors"
+        >
+          <FaGithub size={14} />
+          <span>Questarr v.{pkg.version}</span>
+          {hasNewerVersion && (
+            <span className="text-emerald-500/70">
+              v{latestVersion} <FaArrowUp className="inline" size={10} />
+            </span>
+          )}
+        </a>
+      </div>
     </div>
   );
 }

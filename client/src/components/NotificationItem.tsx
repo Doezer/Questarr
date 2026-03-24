@@ -47,11 +47,11 @@ export function NotificationItem({ notification, onRead, onClick }: Notification
       onClick={handleClick}
     >
       <span className="sr-only">
-        {notification.read ? "Read" : "Unread"} notification:
+        {notification.read ? "Read" : "Unread"} notification: {notification.title}
       </span>
-      <div className="mt-0.5">{getIcon()}</div>
+      <div className="mt-0.5" aria-hidden="true">{getIcon()}</div>
       <div className="flex-1 space-y-1">
-        <div className="flex justify-between items-start">
+        <div className="flex justify-between items-start" aria-hidden="true">
           <p className="font-medium leading-none">{notification.title}</p>
           {!notification.read && <span className="h-2 w-2 rounded-full bg-primary flex-shrink-0" />}
         </div>

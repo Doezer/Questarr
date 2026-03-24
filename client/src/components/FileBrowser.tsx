@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Folder, File, ChevronRight, CornerLeftUp, Loader2, HardDrive } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -24,6 +24,8 @@ interface FileBrowserProps {
   onSelect: (path: string) => void;
   initialPath?: string;
   title?: string;
+  /** Override the server-side browse root (e.g. "/" to browse the full filesystem). Defaults to library root. */
+  root?: string;
 }
 
 export function FileBrowser({
@@ -32,33 +34,41 @@ export function FileBrowser({
   onSelect,
   initialPath = "/",
   title = "Select Directory",
+  root,
 }: FileBrowserProps) {
   const [currentPath, setCurrentPath] = useState(initialPath);
   const [data, setData] = useState<BrowseResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const loadPath = useCallback(
+    async (p: string) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const rootParam = root === undefined ? "" : `&root=${encodeURIComponent(root)}`;
+        const res = await apiRequest(
+          "GET",
+          `/api/system/browse?path=${encodeURIComponent(p)}${rootParam}`
+        );
+        if (!res.ok) throw new Error("Failed to load directory");
+        const json = await res.json();
+        setData(json);
+      } catch (err) {
+        console.error("FileBrowser error:", err);
+        setError("Failed to load directory");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [root]
+  );
+
   useEffect(() => {
     if (open) {
       loadPath(currentPath);
     }
-  }, [open, currentPath]);
-
-  const loadPath = async (path: string) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await apiRequest("GET", `/api/system/browse?path=${encodeURIComponent(path)}`);
-      if (!res.ok) throw new Error("Failed to load directory");
-      const json = await res.json();
-      setData(json);
-    } catch (err) {
-      console.error("FileBrowser error:", err);
-      setError("Failed to load directory");
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [open, currentPath, loadPath]);
 
   const handleNavigate = (path: string) => {
     setCurrentPath(path);

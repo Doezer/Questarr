@@ -179,6 +179,7 @@ export function PathMappingSettings() {
           open={isFileBrowserOpen}
           onOpenChange={setIsFileBrowserOpen}
           onSelect={(path) => setNewMapping({ ...newMapping, localPath: path })}
+          root="/"
         />
         <Table>
           <TableHeader>

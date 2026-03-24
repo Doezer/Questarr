@@ -14,13 +14,25 @@ systemRouter.use((req, res, next) => {
   next();
 });
 
-// GET /api/system/browse?path=/data
+// GET /api/system/browse?path=/data[&root=/]
+// Optional `root` param overrides the library root, allowing browsing from an arbitrary base
+// (e.g. "/" for path mapping configuration). Defaults to the user's configured library root.
 systemRouter.get("/browse", async (req, res) => {
   try {
     const rawPath = (req.query.path as string) || "/";
+    const rawRoot = req.query.root as string | undefined;
     const userId = res.locals.userId as string;
-    const config = await storage.getImportConfig(userId);
-    const root = path.resolve(config.libraryRoot || "/data");
+
+    let root: string;
+    if (rawRoot === undefined) {
+      const config = await storage.getImportConfig(userId);
+      root = path.resolve(config.libraryRoot || "/data");
+    } else {
+      if (rawRoot.startsWith("\\\\") || /^[a-zA-Z]:[\\/]/.test(rawRoot)) {
+        return res.status(400).json({ error: "Invalid root: absolute host paths are not allowed" });
+      }
+      root = path.resolve(rawRoot || "/");
+    }
 
     if (rawPath.startsWith("\\\\") || /^[a-zA-Z]:[\\/]/.test(rawPath)) {
       return res.status(400).json({ error: "Invalid path: absolute host paths are not allowed" });

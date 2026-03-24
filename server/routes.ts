@@ -211,25 +211,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Username and password must be strings" });
       }
 
-      if (username.length < 3) {
+      const trimmedUsername = username.trim();
+      const trimmedPassword = password.trim();
+
+      if (trimmedUsername.length < 3) {
         return res.status(400).json({ error: "Username must be at least 3 characters" });
       }
 
-      if (password.length < 6) {
+      if (trimmedPassword.length < 6) {
         return res.status(400).json({ error: "Password must be at least 6 characters" });
       }
 
-      if (username.length > 50) {
+      if (trimmedUsername.length > 50) {
         return res.status(400).json({ error: "Username must be at most 50 characters" });
       }
 
       // Create first user
       // Create first user atomically
-      const passwordHash = await hashPassword(password);
+      const passwordHash = await hashPassword(trimmedPassword);
 
       let user;
       try {
-        user = await storage.registerSetupUser({ username, passwordHash });
+        user = await storage.registerSetupUser({ username: trimmedUsername, passwordHash });
       } catch (error) {
         if (error instanceof Error && error.message === "Setup already completed") {
           return res.status(403).json({ error: "Setup already completed" });
@@ -270,9 +273,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/auth/login", authRateLimiter, async (req, res) => {
     const { username, password } = req.body;
-    const user = await storage.getUserByUsername(username);
+    const trimmedUsername = typeof username === "string" ? username.trim() : username;
+    const trimmedPassword = typeof password === "string" ? password.trim() : password;
+    const user = await storage.getUserByUsername(trimmedUsername);
 
-    if (!user || !(await comparePassword(password, user.passwordHash))) {
+    if (!user || !(await comparePassword(trimmedPassword, user.passwordHash))) {
       return res.status(401).json({ error: "Invalid username or password" });
     }
 

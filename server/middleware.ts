@@ -287,6 +287,11 @@ export const sanitizeDownloaderData = [
     .trim()
     .isLength({ max: 100 })
     .withMessage("Label must be at most 100 characters"),
+  body("urlPath")
+    .optional()
+    .trim()
+    .isLength({ max: 200 })
+    .withMessage("URL path must be at most 200 characters"),
 ];
 
 // Sanitization rules for partial downloader updates (PATCH)
@@ -360,6 +365,11 @@ export const sanitizeDownloaderUpdateData = [
     .trim()
     .isLength({ max: 100 })
     .withMessage("Label must be at most 100 characters"),
+  body("urlPath")
+    .optional()
+    .trim()
+    .isLength({ max: 200 })
+    .withMessage("URL path must be at most 200 characters"),
 ];
 
 // Sanitization rules for download add requests

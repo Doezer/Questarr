@@ -104,7 +104,7 @@ export default function LoginPage() {
           href="https://github.com/Doezer/Questarr"
           target="_blank"
           rel="noopener noreferrer"
-          className="flex items-center gap-1.5 text-xs text-gray-400 hover:opacity-80 transition-colors"
+          className="flex items-center gap-1.5 text-xs text-gray-400 hover:opacity-80 transition-opacity"
         >
           <FaGithub size={14} />
           <span>Questarr v.{pkg.version}</span>

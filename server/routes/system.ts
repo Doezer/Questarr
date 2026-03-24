@@ -3,6 +3,10 @@ import fs from "fs-extra";
 import path from "node:path";
 import { storage } from "../storage.js";
 
+// Allow browsing the entire container filesystem
+// Security is maintained by container isolation and explicit volume mounts
+const FILE_BROWSER_ROOT = "/";
+
 export const systemRouter = Router();
 
 systemRouter.use((req, res, next) => {
@@ -31,7 +35,8 @@ systemRouter.get("/browse", async (req, res) => {
       if (rawRoot.startsWith("\\\\") || /^[a-zA-Z]:[\\/]/.test(rawRoot)) {
         return res.status(400).json({ error: "Invalid root: absolute host paths are not allowed" });
       }
-      root = path.resolve(rawRoot || "/");
+      // Resolve against FILE_BROWSER_ROOT to constrain browsing
+      root = path.resolve(FILE_BROWSER_ROOT, rawRoot === "/" ? "." : rawRoot.replace(/^\/+/, ""));
     }
 
     if (rawPath.startsWith("\\\\") || /^[a-zA-Z]:[\\/]/.test(rawPath)) {
@@ -50,6 +55,11 @@ systemRouter.get("/browse", async (req, res) => {
     const validPath = path.resolve(root, userPath);
     if (validPath !== root && !validPath.startsWith(root + path.sep)) {
       return res.status(400).json({ error: "Invalid path: traversal detected" });
+    }
+
+    // Ensure the chosen root is within FILE_BROWSER_ROOT for security
+    if (root !== FILE_BROWSER_ROOT && !root.startsWith(FILE_BROWSER_ROOT + path.sep)) {
+      return res.status(400).json({ error: "Invalid root: outside file browser scope" });
     }
 
     // Check if exists

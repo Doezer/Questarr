@@ -273,8 +273,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/auth/login", authRateLimiter, async (req, res) => {
     const { username, password } = req.body;
-    const trimmedUsername = typeof username === "string" ? username.trim() : username;
-    const trimmedPassword = typeof password === "string" ? password.trim() : password;
+
+    if (typeof username !== "string" || typeof password !== "string") {
+      return res.status(400).json({ error: "Username and password are required" });
+    }
+
+    const trimmedUsername = username.trim();
+    const trimmedPassword = password.trim();
     const user = await storage.getUserByUsername(trimmedUsername);
 
     if (!user || !(await comparePassword(trimmedPassword, user.passwordHash))) {

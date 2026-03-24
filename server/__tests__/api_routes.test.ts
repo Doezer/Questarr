@@ -8,6 +8,7 @@ import { type Game, type User, type Indexer, type Downloader } from "../../share
 import { DownloaderManager } from "../downloaders.js";
 import { torznabClient } from "../torznab.js";
 import { rssService } from "../rss.js";
+import { comparePassword } from "../auth.js";
 import { prowlarrClient } from "../prowlarr.js";
 
 // Use vi.hoisted to create the mock object
@@ -387,6 +388,59 @@ describe("API Routes - Extended Coverage", () => {
           .post("/api/auth/setup")
           .send({ username: "admin", password: "password123" });
         expect(res.status).toBe(403);
+      });
+    });
+
+    describe("POST /api/auth/login", () => {
+      it("should return 401 for invalid credentials", async () => {
+        vi.mocked(storage.getUserByUsername).mockResolvedValue({
+          id: "user-1",
+          username: "testuser",
+          passwordHash: "hashed",
+        } as unknown as User);
+        vi.mocked(comparePassword).mockResolvedValue(false);
+
+        const res = await request(app)
+          .post("/api/auth/login")
+          .send({ username: "testuser", password: "wrongpassword" });
+        expect(res.status).toBe(401);
+      });
+
+      it("should return 400 when username is missing", async () => {
+        const res = await request(app).post("/api/auth/login").send({ password: "password123" });
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBe("Username and password are required");
+      });
+
+      it("should return 400 when password is missing", async () => {
+        const res = await request(app).post("/api/auth/login").send({ username: "testuser" });
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBe("Username and password are required");
+      });
+
+      it("should return 400 for non-string username", async () => {
+        const res = await request(app)
+          .post("/api/auth/login")
+          .send({ username: 123, password: "password123" });
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBe("Username and password are required");
+      });
+
+      it("should trim username and password before authentication", async () => {
+        vi.mocked(storage.getUserByUsername).mockResolvedValue({
+          id: "user-1",
+          username: "testuser",
+          passwordHash: "hashed",
+        } as unknown as User);
+        vi.mocked(storage.assignOrphanGamesToUser).mockResolvedValue(undefined);
+        vi.mocked(comparePassword).mockResolvedValue(true);
+
+        const res = await request(app)
+          .post("/api/auth/login")
+          .send({ username: "  testuser  ", password: "  password123  " });
+        expect(res.status).toBe(200);
+        expect(storage.getUserByUsername).toHaveBeenCalledWith("testuser");
+        expect(comparePassword).toHaveBeenCalledWith("password123", "hashed");
       });
     });
 

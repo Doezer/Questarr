@@ -9,6 +9,7 @@ import { DownloaderManager } from "../downloaders.js";
 import { torznabClient } from "../torznab.js";
 import { rssService } from "../rss.js";
 import { comparePassword } from "../auth.js";
+import { db } from "../db.js";
 import { prowlarrClient } from "../prowlarr.js";
 
 // Use vi.hoisted to create the mock object
@@ -452,6 +453,100 @@ describe("API Routes - Extended Coverage", () => {
         expect(res.body.username).toBe("testuser");
       });
     });
+
+    describe("PATCH /api/auth/password", () => {
+      it("should update password successfully", async () => {
+        vi.mocked(storage.getUser).mockResolvedValue({
+          id: "user-1",
+          username: "testuser",
+          passwordHash: "old-hash",
+        } as unknown as User);
+        vi.mocked(comparePassword).mockResolvedValue(true);
+        vi.mocked(storage.updateUserPassword).mockResolvedValue(undefined);
+
+        const res = await request(app).patch("/api/auth/password").send({
+          currentPassword: "oldpass1",
+          newPassword: "newpass1",
+          confirmPassword: "newpass1",
+        });
+        expect(res.status).toBe(200);
+        expect(res.body.success).toBe(true);
+      });
+
+      it("should return 404 when user not found", async () => {
+        vi.mocked(storage.getUser).mockResolvedValue(null as unknown as User);
+
+        const res = await request(app).patch("/api/auth/password").send({
+          currentPassword: "oldpass1",
+          newPassword: "newpass1",
+          confirmPassword: "newpass1",
+        });
+        expect(res.status).toBe(404);
+      });
+
+      it("should return 401 for incorrect current password", async () => {
+        vi.mocked(storage.getUser).mockResolvedValue({
+          id: "user-1",
+          username: "testuser",
+          passwordHash: "old-hash",
+        } as unknown as User);
+        vi.mocked(comparePassword).mockResolvedValue(false);
+
+        const res = await request(app).patch("/api/auth/password").send({
+          currentPassword: "wrongpass",
+          newPassword: "newpass1",
+          confirmPassword: "newpass1",
+        });
+        expect(res.status).toBe(401);
+      });
+
+      it("should return 400 for new password too short", async () => {
+        const res = await request(app).patch("/api/auth/password").send({
+          currentPassword: "oldpass1",
+          newPassword: "abc",
+          confirmPassword: "abc",
+        });
+        expect(res.status).toBe(400);
+      });
+
+      it("should return 400 when passwords do not match", async () => {
+        const res = await request(app).patch("/api/auth/password").send({
+          currentPassword: "oldpass1",
+          newPassword: "newpass1",
+          confirmPassword: "differentpass",
+        });
+        expect(res.status).toBe(400);
+      });
+
+      it("should trim whitespace from passwords before validation", async () => {
+        vi.mocked(storage.getUser).mockResolvedValue({
+          id: "user-1",
+          username: "testuser",
+          passwordHash: "old-hash",
+        } as unknown as User);
+        vi.mocked(comparePassword).mockResolvedValue(true);
+        vi.mocked(storage.updateUserPassword).mockResolvedValue(undefined);
+
+        const res = await request(app).patch("/api/auth/password").send({
+          currentPassword: "  oldpass1  ",
+          newPassword: "  newpass1  ",
+          confirmPassword: "  newpass1  ",
+        });
+        expect(res.status).toBe(200);
+        expect(comparePassword).toHaveBeenCalledWith("oldpass1", "old-hash");
+      });
+
+      it("should return 500 on unexpected error", async () => {
+        vi.mocked(storage.getUser).mockRejectedValue(new Error("DB error"));
+
+        const res = await request(app).patch("/api/auth/password").send({
+          currentPassword: "oldpass1",
+          newPassword: "newpass1",
+          confirmPassword: "newpass1",
+        });
+        expect(res.status).toBe(500);
+      });
+    });
   });
 
   // ─── Health check ───
@@ -460,6 +555,36 @@ describe("API Routes - Extended Coverage", () => {
       const res = await request(app).get("/api/health");
       expect(res.status).toBe(200);
       expect(res.body.status).toBe("ok");
+    });
+  });
+
+  // ─── Ready check ───
+  describe("GET /api/ready", () => {
+    it("should return 200 when db and igdb are healthy", async () => {
+      vi.mocked(db.get).mockResolvedValue({ result: 1 });
+      vi.mocked(igdbClient.getPopularGames).mockResolvedValue([]);
+
+      const res = await request(app).get("/api/ready");
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("ok");
+    });
+
+    it("should return 503 when db check fails", async () => {
+      vi.mocked(db.get).mockRejectedValue(new Error("DB connection failed"));
+      vi.mocked(igdbClient.getPopularGames).mockResolvedValue([]);
+
+      const res = await request(app).get("/api/ready");
+      expect(res.status).toBe(503);
+      expect(res.body.status).toBe("error");
+    });
+
+    it("should return 503 when igdb check fails", async () => {
+      vi.mocked(db.get).mockResolvedValue({ result: 1 });
+      vi.mocked(igdbClient.getPopularGames).mockRejectedValue(new Error("IGDB error"));
+
+      const res = await request(app).get("/api/ready");
+      expect(res.status).toBe(503);
+      expect(res.body.status).toBe("error");
     });
   });
 

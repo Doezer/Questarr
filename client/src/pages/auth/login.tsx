@@ -104,7 +104,6 @@ export default function LoginPage() {
           href="https://github.com/Doezer/Questarr"
           target="_blank"
           rel="noopener noreferrer"
-          aria-label="View on GitHub"
           className="flex items-center gap-1.5 text-xs text-gray-400 hover:opacity-80 transition-colors"
         >
           <FaGithub size={14} />

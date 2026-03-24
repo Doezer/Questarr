@@ -24,7 +24,7 @@ afterEach(async () => {
 });
 
 const importConfig = makeImportConfig();
-const rommConfig = makeRommConfig({ url: "http://localhost:8080" });
+const rommConfig = makeRommConfig({ url: "http://localhost:8080" }); // NOSONAR
 
 describe("ImportStrategies", () => {
   it("RomMImportStrategy can place a single file under routed platform directory", async () => {

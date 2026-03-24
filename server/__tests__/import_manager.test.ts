@@ -303,7 +303,7 @@ describe("ImportManager", () => {
       platforms: [9999],
     });
     storage.getRomMConfig.mockResolvedValue(
-      makeRommConfig({ url: "http://localhost:8080", moveMode: "hardlink" })
+      makeRommConfig({ url: "http://localhost:8080", moveMode: "hardlink" }) // NOSONAR
     );
     platformService.getRomMPlatform.mockResolvedValue(null);
 
@@ -334,7 +334,7 @@ describe("ImportManager", () => {
       platforms: [19],
     });
     storage.getRomMConfig.mockResolvedValue(
-      makeRommConfig({ url: "http://localhost:8080", moveMode: "hardlink", allowedSlugs: ["gba"] })
+      makeRommConfig({ url: "http://localhost:8080", moveMode: "hardlink", allowedSlugs: ["gba"] }) // NOSONAR
     );
     platformService.getRomMPlatform.mockResolvedValue("snes");
 
@@ -399,7 +399,7 @@ describe("ImportManager", () => {
       platforms: [19],
     });
     storage.getRomMConfig.mockResolvedValue(
-      makeRommConfig({ url: "http://localhost:8080", moveMode: "hardlink" })
+      makeRommConfig({ url: "http://localhost:8080", moveMode: "hardlink" }) // NOSONAR
     );
     platformService.getRomMPlatform.mockResolvedValue("snes");
 

@@ -16,7 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Plus, X, Info } from "lucide-react";
+import { Loader2, Plus, X, Info, ArrowRight, Folder, Link, Copy, MoveRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { ImportConfig, RomMConfig, RomMConfigInput } from "@shared/schema";
 import { PathMappingSettings } from "./PathMappingSettings";
@@ -243,6 +243,7 @@ export default function ImportSettings() {
           <TabsTrigger value="config">General Config</TabsTrigger>
           <TabsTrigger value="romm">RomM</TabsTrigger>
           <TabsTrigger value="paths">Path Mappings</TabsTrigger>
+          <TabsTrigger value="help">Help</TabsTrigger>
         </TabsList>
 
         <TabsContent value="config" className="space-y-4">
@@ -257,6 +258,14 @@ export default function ImportSettings() {
                       <p className="text-xs text-muted-foreground">
                         Master switch for the import engine.
                       </p>
+                      {localConfig.enablePostProcessing && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          If your download client runs on a different machine or volume than
+                          Questarr, configure{" "}
+                          <span className="font-medium text-foreground">Path Mappings</span> so
+                          Questarr can resolve the remote paths correctly.
+                        </p>
+                      )}
                     </div>
                     <Switch
                       checked={localConfig.enablePostProcessing}
@@ -802,6 +811,292 @@ export default function ImportSettings() {
 
         <TabsContent value="paths" className="space-y-4">
           <PathMappingSettings />
+        </TabsContent>
+
+        <TabsContent value="help" className="space-y-4">
+          <Card>
+            <CardContent className="pt-6 space-y-6 text-sm">
+              {/* ── How it works ── */}
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+                  How the import pipeline works
+                </p>
+                <p className="text-muted-foreground mb-3">
+                  When a download finishes, Questarr automatically runs through the following steps
+                  — no manual action needed unless a step requires your input.
+                </p>
+                <ol className="space-y-2 text-muted-foreground">
+                  {[
+                    [
+                      "Path translation",
+                      "The path reported by your download client (e.g. /downloads/Game.zip) is translated to the path that Questarr can actually read on its host. Configure this in Path Mappings if Questarr and your download client run in separate containers or machines.",
+                    ],
+                    [
+                      "Strategy selection",
+                      "Questarr inspects the game's platform. If RomM is enabled and the platform maps to a known RomM slug, the file goes to your RomM library. Otherwise it goes to the General Config library root.",
+                    ],
+                    [
+                      "File transfer",
+                      "The file is hardlinked, copied, moved, or symlinked to its destination using the Transfer Mode you configured.",
+                    ],
+                    [
+                      "Game status update",
+                      'The download is marked "imported" and the game is marked "owned" in your library.',
+                    ],
+                    [
+                      "Manual review",
+                      'If Questarr cannot determine the correct destination — for example, because the platform slug is unknown — the download is flagged as "manual review required". You can resolve it from the Downloads page.',
+                    ],
+                  ].map(([title, desc], i) => (
+                    <li key={i} className="flex gap-3">
+                      <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                        {i + 1}
+                      </span>
+                      <span>
+                        <span className="font-medium text-foreground">{title} — </span>
+                        {desc}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+
+              <Separator />
+
+              {/* ── Transfer modes ── */}
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+                  Transfer modes
+                </p>
+                <div className="space-y-3">
+                  {[
+                    {
+                      icon: <Link className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />,
+                      name: "Hardlink",
+                      desc: "Creates a second directory entry pointing to the same file on disk. Zero extra space used, and your torrent client continues seeding normally. Requires the source and destination to be on the same physical volume (same drive or mount point).",
+                      when: "Best choice when your download folder and library are on the same disk. Preferred for seedbox-style setups.",
+                    },
+                    {
+                      icon: <Copy className="h-4 w-4 text-blue-500 shrink-0 mt-0.5" />,
+                      name: "Copy",
+                      desc: "Duplicates the file to the destination. The original is kept intact so the torrent can continue seeding, but you use double the disk space.",
+                      when: "Use when your library is on a different drive or network share than your download folder, and you still want to keep seeding.",
+                    },
+                    {
+                      icon: <MoveRight className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />,
+                      name: "Move",
+                      desc: "Moves the file to the destination and removes it from the download folder. No extra space used, but the torrent will stop seeding.",
+                      when: "Use when you do not care about seeding after import, or when disk space is tight.",
+                    },
+                    {
+                      icon: <ArrowRight className="h-4 w-4 text-purple-500 shrink-0 mt-0.5" />,
+                      name: "Symlink (RomM only)",
+                      desc: "Creates a symbolic link in your RomM library pointing back to the original file in your download folder. The file is not duplicated or moved.",
+                      when: "Use with RomM when you want your library to reflect downloads in real time without copying files. The torrent keeps seeding. Note: RomM must be able to follow the symlink from its container.",
+                    },
+                  ].map(({ icon, name, desc, when }) => (
+                    <div key={name} className="rounded-md border p-3 space-y-1">
+                      <div className="flex items-start gap-2">
+                        {icon}
+                        <span className="font-medium text-foreground">{name}</span>
+                      </div>
+                      <p className="text-muted-foreground pl-6">{desc}</p>
+                      <p className="text-xs text-muted-foreground pl-6">
+                        <span className="font-medium text-foreground">When to use: </span>
+                        {when}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* ── General Config settings ── */}
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+                  General Config settings
+                </p>
+                <div className="space-y-3">
+                  {[
+                    {
+                      name: "Enable Post-Processing",
+                      desc: "Master switch. When off, downloads are marked completed without any file being moved or organised. Turn this off if you manage your own file organisation externally.",
+                    },
+                    {
+                      name: "Library Root",
+                      desc: "Destination folder for PC games and any game that is not handled by the RomM provider (e.g. because RomM is disabled or the platform is not recognised). Example: /data/library or D:\\Games.",
+                    },
+                    {
+                      name: "Transfer Mode",
+                      desc: "How files are transferred to the library root. See Transfer Modes above. Hardlink is recommended when possible.",
+                    },
+                    {
+                      name: "Platform Filter",
+                      desc: "Limits PC imports to only the selected platforms. If no platforms are checked, all platforms are imported. This filter only applies to the PC (non-RomM) path — RomM imports use the Allowed Slugs filter instead.",
+                    },
+                    {
+                      name: "Rename Pattern",
+                      desc: "Controls the file name after import. Tokens: {Title} = game title, {Region} = region tag from the release name, {Platform} = platform name, {Year} = release year. Example: {Title} ({Year}) ({Platform}).",
+                    },
+                  ].map(({ name, desc }) => (
+                    <div key={name}>
+                      <p className="font-medium text-foreground">{name}</p>
+                      <p className="text-muted-foreground">{desc}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* ── RomM settings ── */}
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+                  RomM settings
+                </p>
+                <div className="space-y-3">
+                  {[
+                    {
+                      name: "Enable RomM Provider",
+                      desc: "When enabled, games whose platform maps to a recognised RomM slug are imported into your RomM library instead of the general library. PC games always go to the general library regardless of this switch.",
+                    },
+                    {
+                      name: "Library Root",
+                      desc: "The library/roms/ folder that RomM manages. Platform subfolders (e.g. ps2/, ngc/) are created automatically under this path. This must be the same path that RomM itself sees — if RomM is in Docker, use the path inside that container.",
+                    },
+                    {
+                      name: "Routing Mode — Slug subfolder",
+                      desc: "Default. Files are placed in <Library Root>/<slug>/ where <slug> is the RomM platform identifier (e.g. ps2, ngc). This matches RomM's default layout and is correct for most setups.",
+                    },
+                    {
+                      name: "Routing Mode — Binding map",
+                      desc: "Lets you override the destination path per slug. Useful if you have organised your RomM library into custom folders that do not match the default slugs. Any slug not in the map falls back to slug subfolder behaviour (or errors, depending on Missing Binding setting).",
+                    },
+                    {
+                      name: "Allowed Slugs",
+                      desc: "Comma-separated list of slugs that are eligible for RomM import. Leave empty to allow all recognised platforms. Use this to prevent, for example, PC releases from being accidentally routed to RomM.",
+                    },
+                    {
+                      name: "On Conflict",
+                      desc: "What happens when a file with the same name already exists at the destination. Rename keeps both (adds a numeric suffix). Skip leaves the existing file untouched. Overwrite replaces it. Fail aborts the import and flags it for manual review.",
+                    },
+                    {
+                      name: "Folder Naming Template",
+                      desc: "For multi-file games, a subfolder is created inside the platform folder. This template controls its name. Token: {title} = normalised game title.",
+                    },
+                    {
+                      name: "Single-File Placement",
+                      desc: "Controls where a single-file game (e.g. a single .iso) lands. Root places it directly in the platform folder. Subfolder wraps it in a named subfolder the same way multi-file games are handled — useful for consistency.",
+                    },
+                    {
+                      name: "Include Region / Language Tags",
+                      desc: "When enabled, region and language codes extracted from the release name (e.g. (USA), (En,Fr)) are appended to the imported file name.",
+                    },
+                  ].map(({ name, desc }) => (
+                    <div key={name}>
+                      <p className="font-medium text-foreground">{name}</p>
+                      <p className="text-muted-foreground">{desc}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* ── Path Mappings ── */}
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+                  Path Mappings
+                </p>
+                <p className="text-muted-foreground mb-2">
+                  Path mappings translate paths between what your download client reports and what
+                  Questarr can access on its own filesystem.
+                </p>
+                <div className="space-y-2">
+                  <div>
+                    <p className="font-medium text-foreground">When you need this</p>
+                    <p className="text-muted-foreground">
+                      If Questarr and your download client are in different Docker containers (or on
+                      different machines), the same physical folder appears under different paths in
+                      each. For example, the download client might report{" "}
+                      <code className="text-xs bg-muted rounded px-1">/downloads/Game.iso</code>{" "}
+                      while Questarr mounts that folder at{" "}
+                      <code className="text-xs bg-muted rounded px-1">/data/torrents/Game.iso</code>
+                      . Add a mapping with Remote path{" "}
+                      <code className="text-xs bg-muted rounded px-1">/downloads</code> → Local path{" "}
+                      <code className="text-xs bg-muted rounded px-1">/data/torrents</code>.
+                    </p>
+                  </div>
+                  <div>
+                    <p className="font-medium text-foreground">When you do not need this</p>
+                    <p className="text-muted-foreground">
+                      If everything runs on the same host (or in a single container with shared
+                      mounts), paths are already consistent and no mapping is required.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* ── Common setups ── */}
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+                  Common setup examples
+                </p>
+                <div className="space-y-4">
+                  {[
+                    {
+                      title: "All-in-one (single host, no RomM)",
+                      steps: [
+                        "Enable Post-Processing.",
+                        "Set Library Root to where you want games stored (e.g. /data/library).",
+                        "Set Transfer Mode to Hardlink if the download folder is on the same volume, otherwise Copy.",
+                        "Leave Path Mappings empty.",
+                      ],
+                    },
+                    {
+                      title: "Questarr + RomM in separate Docker containers",
+                      steps: [
+                        "Enable Post-Processing and Enable RomM Provider.",
+                        "Set RomM Library Root to the path Questarr uses to reach RomM's library/roms/ folder (the Questarr-side mount, e.g. /mnt/romm/library/roms).",
+                        "Add a Path Mapping so the download client's path is translated to a path Questarr can read.",
+                        "Set Transfer Mode to Hardlink (if all volumes are on the same device) or Copy.",
+                        "After import, trigger a library scan in the RomM UI — Questarr does not do this automatically.",
+                      ],
+                    },
+                    {
+                      title: "Mixed library (RomM for retro, general folder for PC)",
+                      steps: [
+                        "Enable both Post-Processing and RomM Provider.",
+                        "Set Allowed Slugs to the retro platform slugs you use (e.g. ps2, snes, n64). Leave PC out of this list.",
+                        "Set the General Config Library Root for PC games.",
+                        "PC downloads will route to the general library; everything in Allowed Slugs goes to RomM.",
+                      ],
+                    },
+                  ].map(({ title, steps }) => (
+                    <div key={title} className="rounded-md border p-3 space-y-2">
+                      <p className="font-medium text-foreground flex items-center gap-1.5">
+                        <Folder className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        {title}
+                      </p>
+                      <ol className="space-y-1 pl-1">
+                        {steps.map((step, i) => (
+                          <li key={i} className="flex gap-2 text-muted-foreground">
+                            <span className="text-xs font-semibold text-primary mt-0.5 shrink-0">
+                              {i + 1}.
+                            </span>
+                            {step}
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>

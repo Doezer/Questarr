@@ -20,7 +20,8 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Plus, Trash2, FolderOpen, Loader2 } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Plus, Trash2, FolderOpen, Loader2, Info } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { PathMapping } from "@shared/schema";
 import { FileBrowser } from "./FileBrowser";
@@ -86,9 +87,9 @@ export function PathMappingSettings() {
           <div>
             <CardTitle>Path Mappings</CardTitle>
             <CardDescription>
-              Used to indicate where the downloads from your downloaders are stored, from the point
-              of view of Questarr. e.g if your downloader saves files into <code>/downloads</code>{" "}
-              but Questarr sees that folder as <code>/mnt/nas/downloads</code>. identical paths.
+              Translate download client paths to paths accessible by Questarr. Required when
+              Questarr and your download client run on separate machines or containers with
+              different volume mounts.
             </CardDescription>
           </div>
           <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
@@ -147,7 +148,33 @@ export function PathMappingSettings() {
           </Dialog>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
+        <Alert>
+          <Info className="h-4 w-4" />
+          <AlertDescription className="space-y-3 text-sm">
+            <p>
+              <strong>When do I need this?</strong> When your download client and Questarr are on
+              different machines or Docker containers with different volume mounts. For example, if
+              qBittorrent reports a completed file as{" "}
+              <code className="rounded bg-muted px-1">/downloads/game.zip</code> but Questarr
+              accesses that share at{" "}
+              <code className="rounded bg-muted px-1">/mnt/nas/downloads/game.zip</code>, add a
+              mapping from <code className="rounded bg-muted px-1">/downloads</code> →{" "}
+              <code className="rounded bg-muted px-1">/mnt/nas/downloads</code>.
+            </p>
+            <p>
+              <strong>When can I skip it?</strong> If Questarr and your download client run on the
+              same machine and use identical paths, no mapping is needed — paths pass through
+              unchanged.
+            </p>
+            <p>
+              <strong>How it works:</strong> The remote path prefix is replaced with the local path.
+              If multiple mappings match, the most specific (longest) prefix wins. Use the{" "}
+              <em>Remote Host</em> field to scope a mapping to one specific downloader — useful when
+              you have multiple clients on different machines.
+            </p>
+          </AlertDescription>
+        </Alert>
         <FileBrowser
           open={isFileBrowserOpen}
           onOpenChange={setIsFileBrowserOpen}

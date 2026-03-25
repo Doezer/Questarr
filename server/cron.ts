@@ -853,8 +853,8 @@ const MAX_STEAM_SYNC_FAILURES = 3;
 
 interface SteamSyncGameSet {
   currentGames: Game[];
-  ownedIgdbIds: Set<number | null>;
-  ownedSteamAppIds: Set<number | null>;
+  ownedIgdbIds: Set<number>;
+  ownedSteamAppIds: Set<number>;
 }
 
 /** Link existing games that match by IGDB ID but are missing their Steam App ID. */
@@ -864,16 +864,19 @@ async function linkExistingGamesToSteam(
   { currentGames, ownedIgdbIds }: SteamSyncGameSet
 ): Promise<Set<number>> {
   const newIgdbIdsToFetch = new Set<number>();
+  const currentGamesByIgdbId = new Map(
+    currentGames.filter((g) => g.igdbId != null).map((g) => [g.igdbId as number, g])
+  );
 
   for (const steamAppId of pendingSteamAppIds) {
     const igdbId = steamToIgdbMap.get(steamAppId);
-    if (!igdbId) {
+    if (igdbId == null) {
       igdbLogger.debug({ steamAppId }, "No IGDB ID found for Steam App ID");
       continue;
     }
 
     if (ownedIgdbIds.has(igdbId)) {
-      const existing = currentGames.find((g) => g.igdbId === igdbId);
+      const existing = currentGamesByIgdbId.get(igdbId);
       if (existing && !existing.steamAppId) {
         await storage.updateGame(existing.id, { steamAppId });
       }
@@ -891,7 +894,7 @@ async function addNewSteamWishlistGames(
   pendingSteamAppIds: number[],
   steamToIgdbMap: Map<number, number>,
   newIgdbIds: Set<number>,
-  ownedIgdbIds: Set<number | null>
+  ownedIgdbIds: Set<number>
 ) {
   const addedGames: { title: string; igdbId: number; steamAppId: number }[] = [];
 
@@ -900,7 +903,7 @@ async function addNewSteamWishlistGames(
 
   for (const steamAppId of pendingSteamAppIds) {
     const igdbId = steamToIgdbMap.get(steamAppId);
-    if (!igdbId || ownedIgdbIds.has(igdbId)) continue;
+    if (igdbId == null || ownedIgdbIds.has(igdbId)) continue;
 
     const gameDetails = gameDetailsMap.get(igdbId);
     if (!gameDetails) continue;
@@ -962,8 +965,12 @@ export async function syncUserSteamWishlist(userId: string) {
     const currentGames = await storage.getUserGames(userId, true);
     const gameSet: SteamSyncGameSet = {
       currentGames,
-      ownedIgdbIds: new Set(currentGames.filter((g) => g.igdbId).map((g) => g.igdbId)),
-      ownedSteamAppIds: new Set(currentGames.filter((g) => g.steamAppId).map((g) => g.steamAppId)),
+      ownedIgdbIds: new Set(
+        currentGames.filter((g) => g.igdbId != null).map((g) => g.igdbId as number)
+      ),
+      ownedSteamAppIds: new Set(
+        currentGames.filter((g) => g.steamAppId != null).map((g) => g.steamAppId as number)
+      ),
     };
 
     const pendingSteamAppIds = wishlistGames

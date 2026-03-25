@@ -370,6 +370,8 @@ function buildRommPatchResponse(
 ) {
   return {
     enabled: updates.enabled ?? settings.rommEnabled,
+    url: (updates.url ?? settings.rommUrl)?.trim() || undefined,
+    apiKey: updates.apiKey ?? settings.rommApiKey ?? undefined,
     libraryRoot: updates.libraryRoot ?? settings.rommLibraryRoot ?? "/data",
     platformRoutingMode:
       updates.platformRoutingMode ?? settings.rommPlatformRoutingMode ?? "slug-subfolder",

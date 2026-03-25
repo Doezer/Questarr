@@ -285,7 +285,7 @@ const CompactGameCard = ({
                   )}
                   onClick={handleDownloadClick}
                   disabled={addGameMutation.isPending}
-                  aria-label="Download game"
+                  aria-label={`Download ${game.title}`}
                 >
                   {addGameMutation.isPending ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -307,6 +307,9 @@ const CompactGameCard = ({
                   : "h-8 text-xs"
               )}
               onClick={handleStatusClick}
+              aria-label={`Mark ${game.title} as ${
+                game.status === "wanted" ? "Owned" : game.status === "owned" ? "Completed" : "Wanted"
+              }`}
             >
               {density !== "comfortable" ? (
                 game.status === "wanted" ? (
@@ -333,7 +336,7 @@ const CompactGameCard = ({
                 variant="ghost"
                 className={cn("transition-all", density !== "comfortable" ? "h-6 w-6" : "h-8 w-8")}
                 onClick={handleDetailsClick}
-                aria-label="View details"
+                aria-label={`View details for ${game.title}`}
               >
                 <Info className={density !== "comfortable" ? "w-3 h-3" : "w-4 h-4"} />
               </Button>
@@ -352,7 +355,7 @@ const CompactGameCard = ({
                     density !== "comfortable" ? "h-6 w-6" : "h-8 w-8"
                   )}
                   onClick={handleToggleHidden}
-                  aria-label={game.hidden ? "Unhide game" : "Hide game"}
+                  aria-label={game.hidden ? `Unhide ${game.title}` : `Hide ${game.title}`}
                 >
                   {game.hidden ? (
                     <Eye className={density !== "comfortable" ? "w-3 h-3" : "w-4 h-4"} />

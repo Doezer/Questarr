@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import GameGrid from "@/components/GameGrid";
@@ -6,6 +6,7 @@ import { type Game } from "@shared/schema";
 import { type GameStatus } from "@/components/StatusBadge";
 import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { useToast } from "@/hooks/use-toast";
+import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 import {
   Select,
   SelectContent,
@@ -16,7 +17,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import EmptyState from "@/components/EmptyState";
-import { Star, LayoutGrid, List, Settings2 } from "lucide-react";
+import { Star, LayoutGrid, List, Settings2, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -34,28 +35,15 @@ export default function WishlistPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [sortBy, setSortBy] = useState<SortOption>("release-desc");
-  const [viewMode, setViewMode] = useState<"grid" | "list">(() => {
-    return (localStorage.getItem("wishlistViewMode") as "grid" | "list") || "grid";
-  });
-
-  useEffect(() => {
-    localStorage.setItem("wishlistViewMode", viewMode);
-  }, [viewMode]);
-
-  const [listDensity, setListDensity] = useState<"comfortable" | "compact" | "ultra-compact">(
-    () => {
-      return (
-        (localStorage.getItem("wishlistListDensity") as
-          | "comfortable"
-          | "compact"
-          | "ultra-compact") || "comfortable"
-      );
-    }
+  const [viewMode, setViewMode] = useLocalStorageState(
+    "wishlistViewMode",
+    "grid" as "grid" | "list"
   );
-
-  useEffect(() => {
-    localStorage.setItem("wishlistListDensity", listDensity);
-  }, [listDensity]);
+  const [listDensity, setListDensity] = useLocalStorageState(
+    "wishlistListDensity",
+    "comfortable" as "comfortable" | "compact" | "ultra-compact"
+  );
+  const [showUnreleased, setShowUnreleased] = useLocalStorageState("wishlistShowUnreleased", true);
 
   const { data: games = [], isLoading } = useQuery<Game[]>({
     queryKey: ["/api/games", "?status=wanted"],
@@ -145,6 +133,15 @@ export default function WishlistPage() {
           <p className="text-muted-foreground">Games you want to play</p>
         </div>
         <div className="flex items-center gap-4">
+          <Button
+            variant={showUnreleased ? "outline" : "secondary"}
+            size="sm"
+            className="h-8 gap-1.5"
+            onClick={() => setShowUnreleased(!showUnreleased)}
+          >
+            {showUnreleased ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+            <span className="hidden sm:inline">Unreleased</span>
+          </Button>
           <div className="flex items-center gap-2">
             {viewMode === "list" && (
               <DropdownMenu>
@@ -215,25 +212,6 @@ export default function WishlistPage() {
         />
       ) : (
         <div className="space-y-8">
-          {/* Upcoming Section */}
-          {upcomingGames.length > 0 && (
-            <section>
-              <div className="flex items-center gap-3 mb-4">
-                <h2 className="text-2xl font-semibold">Upcoming</h2>
-                <Badge variant="default">{upcomingGames.length}</Badge>
-              </div>
-              <GameGrid
-                games={sortGames(upcomingGames)}
-                onStatusChange={(id, status) => statusMutation.mutate({ gameId: id, status })}
-                onToggleHidden={(id, hidden) => hiddenMutation.mutate({ gameId: id, hidden })}
-                isLoading={isLoading}
-                viewMode={viewMode}
-                density={listDensity}
-              />
-              <Separator className="mt-8" />
-            </section>
-          )}
-
           {/* Released Section */}
           {releasedGames.length > 0 && (
             <section>
@@ -251,12 +229,33 @@ export default function WishlistPage() {
                 viewMode={viewMode}
                 density={listDensity}
               />
-              <Separator className="mt-8" />
+              {showUnreleased && (upcomingGames.length > 0 || tbaGames.length > 0) && (
+                <Separator className="mt-8" />
+              )}
+            </section>
+          )}
+
+          {/* Upcoming Section */}
+          {showUnreleased && upcomingGames.length > 0 && (
+            <section>
+              <div className="flex items-center gap-3 mb-4">
+                <h2 className="text-2xl font-semibold">Upcoming</h2>
+                <Badge variant="default">{upcomingGames.length}</Badge>
+              </div>
+              <GameGrid
+                games={sortGames(upcomingGames)}
+                onStatusChange={(id, status) => statusMutation.mutate({ gameId: id, status })}
+                onToggleHidden={(id, hidden) => hiddenMutation.mutate({ gameId: id, hidden })}
+                isLoading={isLoading}
+                viewMode={viewMode}
+                density={listDensity}
+              />
+              {tbaGames.length > 0 && <Separator className="mt-8" />}
             </section>
           )}
 
           {/* TBA Section */}
-          {tbaGames.length > 0 && (
+          {showUnreleased && tbaGames.length > 0 && (
             <section>
               <div className="flex items-center gap-3 mb-4">
                 <h2 className="text-2xl font-semibold">To Be Announced</h2>

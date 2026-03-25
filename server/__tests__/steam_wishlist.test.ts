@@ -123,6 +123,128 @@ describe("syncUserSteamWishlist", () => {
     expect(storage.addGame).not.toHaveBeenCalled();
   });
 
+  it("should NOT skip a Steam App ID whose IGDB mapping is 0 (falsy but valid)", async () => {
+    vi.mocked(storage.getUser).mockResolvedValue({
+      id: "user-1",
+      steamId64: "76561198000000000",
+    } as unknown as User);
+    vi.mocked(storage.getUserSettings).mockResolvedValue({
+      steamSyncFailures: 0,
+    } as unknown as UserSettings);
+
+    const mockWishlist = [{ title: "Zero Game", steamAppId: 301, addedAt: 0, priority: 0 }];
+    vi.mocked(steamService.getWishlist).mockResolvedValue(mockWishlist);
+    vi.mocked(storage.getUserGames).mockResolvedValue([]);
+
+    // IGDB ID 0 is falsy — old `!igdbId` check would incorrectly skip this
+    const mockMap = new Map<number, number>();
+    mockMap.set(301, 0);
+    vi.mocked(igdbClient.getGameIdsBySteamAppIds).mockResolvedValue(mockMap);
+    vi.mocked(igdbClient.getGamesByIds).mockResolvedValue([
+      { id: 0, name: "Zero Game" },
+    ] as unknown as IGDBGame[]);
+    vi.mocked(igdbClient.formatGameData).mockReturnValue({
+      title: "Zero Game",
+      igdbId: 0,
+      coverUrl: "",
+      summary: "",
+      releaseDate: "",
+      rating: 0,
+      platforms: [],
+      genres: [],
+      developers: [],
+      publishers: [],
+      screenshots: [],
+    });
+
+    const result = await syncUserSteamWishlist("user-1");
+
+    expect(result?.addedCount).toBe(1);
+    expect(storage.addGame).toHaveBeenCalledOnce();
+  });
+
+  it("should link an existing game that has igdbId but no steamAppId", async () => {
+    vi.mocked(storage.getUser).mockResolvedValue({
+      id: "user-1",
+      steamId64: "76561198000000000",
+    } as unknown as User);
+    vi.mocked(storage.getUserSettings).mockResolvedValue({
+      steamSyncFailures: 0,
+    } as unknown as UserSettings);
+
+    const mockWishlist = [{ title: "Linked Game", steamAppId: 201, addedAt: 0, priority: 0 }];
+    vi.mocked(steamService.getWishlist).mockResolvedValue(mockWishlist);
+
+    // Game exists with matching igdbId but steamAppId not yet set
+    vi.mocked(storage.getUserGames).mockResolvedValue([
+      { id: "game-1", igdbId: 2001, steamAppId: null } as unknown as Game,
+    ]);
+
+    const mockMap = new Map<number, number>();
+    mockMap.set(201, 2001);
+    vi.mocked(igdbClient.getGameIdsBySteamAppIds).mockResolvedValue(mockMap);
+
+    const result = await syncUserSteamWishlist("user-1");
+
+    expect(result?.addedCount).toBe(0);
+    expect(storage.addGame).not.toHaveBeenCalled();
+    expect(storage.updateGame).toHaveBeenCalledWith("game-1", { steamAppId: 201 });
+  });
+
+  it("should link multiple existing games via precomputed map and add truly new ones", async () => {
+    vi.mocked(storage.getUser).mockResolvedValue({
+      id: "user-1",
+      steamId64: "76561198000000000",
+    } as unknown as User);
+    vi.mocked(storage.getUserSettings).mockResolvedValue({
+      steamSyncFailures: 0,
+    } as unknown as UserSettings);
+
+    const mockWishlist = [
+      { title: "Link Me 1", steamAppId: 201, addedAt: 0, priority: 0 },
+      { title: "Link Me 2", steamAppId: 202, addedAt: 0, priority: 0 },
+      { title: "New Game", steamAppId: 203, addedAt: 0, priority: 0 },
+    ];
+    vi.mocked(steamService.getWishlist).mockResolvedValue(mockWishlist);
+
+    // Two existing games with igdbId but no steamAppId; one is truly new
+    vi.mocked(storage.getUserGames).mockResolvedValue([
+      { id: "g1", igdbId: 2001, steamAppId: null } as unknown as Game,
+      { id: "g2", igdbId: 2002, steamAppId: null } as unknown as Game,
+    ]);
+
+    const mockMap = new Map<number, number>([
+      [201, 2001],
+      [202, 2002],
+      [203, 2003],
+    ]);
+    vi.mocked(igdbClient.getGameIdsBySteamAppIds).mockResolvedValue(mockMap);
+    vi.mocked(igdbClient.getGamesByIds).mockResolvedValue([
+      { id: 2003, name: "New Game" },
+    ] as unknown as IGDBGame[]);
+    vi.mocked(igdbClient.formatGameData).mockReturnValue({
+      title: "New Game",
+      igdbId: 2003,
+      coverUrl: "",
+      summary: "",
+      releaseDate: "",
+      rating: 0,
+      platforms: [],
+      genres: [],
+      developers: [],
+      publishers: [],
+      screenshots: [],
+    });
+
+    const result = await syncUserSteamWishlist("user-1");
+
+    expect(storage.updateGame).toHaveBeenCalledTimes(2);
+    expect(storage.updateGame).toHaveBeenCalledWith("g1", { steamAppId: 201 });
+    expect(storage.updateGame).toHaveBeenCalledWith("g2", { steamAppId: 202 });
+    expect(storage.addGame).toHaveBeenCalledOnce();
+    expect(result?.addedCount).toBe(1);
+  });
+
   it("should avoid adding games already in collection", async () => {
     vi.mocked(storage.getUser).mockResolvedValue({
       id: "user-1",

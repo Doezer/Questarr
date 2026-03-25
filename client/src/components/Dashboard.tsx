@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useEffect } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import SearchBar from "./SearchBar";
@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import DisplaySettingsModal from "./DisplaySettingsModal";
+import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 
 export default function Dashboard() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -33,46 +34,19 @@ export default function Dashboard() {
   const [platformFilter, setPlatformFilter] = useState<string>("all");
 
   // View Settings
-  const [gridColumns, setGridColumns] = useState<number>(() => {
-    const saved = localStorage.getItem("dashboardGridColumns");
-    return saved ? parseInt(saved, 10) : 5;
-  });
-  const [showHiddenGames, setShowHiddenGames] = useState<boolean>(() => {
-    return localStorage.getItem("showHiddenGames") === "true";
-  });
-  const [viewMode, setViewMode] = useState<"grid" | "list">(() => {
-    return (localStorage.getItem("dashboardViewMode") as "grid" | "list") || "grid";
-  });
-
-  const [listDensity, setListDensity] = useState<"comfortable" | "compact" | "ultra-compact">(
-    () => {
-      return (
-        (localStorage.getItem("dashboardListDensity") as
-          | "comfortable"
-          | "compact"
-          | "ultra-compact") || "comfortable"
-      );
-    }
+  const [gridColumns, setGridColumns] = useLocalStorageState("dashboardGridColumns", 5);
+  const [showHiddenGames, setShowHiddenGames] = useLocalStorageState("showHiddenGames", false);
+  const [viewMode, setViewMode] = useLocalStorageState(
+    "dashboardViewMode",
+    "grid" as "grid" | "list"
+  );
+  const [listDensity, setListDensity] = useLocalStorageState(
+    "dashboardListDensity",
+    "comfortable" as "comfortable" | "compact" | "ultra-compact"
   );
 
   const { toast } = useToast();
   const queryClient = useQueryClient();
-
-  useEffect(() => {
-    localStorage.setItem("dashboardGridColumns", gridColumns.toString());
-  }, [gridColumns]);
-
-  useEffect(() => {
-    localStorage.setItem("showHiddenGames", showHiddenGames.toString());
-  }, [showHiddenGames]);
-
-  useEffect(() => {
-    localStorage.setItem("dashboardViewMode", viewMode);
-  }, [viewMode]);
-
-  useEffect(() => {
-    localStorage.setItem("dashboardListDensity", listDensity);
-  }, [listDensity]);
 
   // Query user's collection
   const {

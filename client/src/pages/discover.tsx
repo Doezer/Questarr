@@ -24,6 +24,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import RssFeedList from "@/components/RssFeedList";
 import RssSettings from "@/components/RssSettings";
 import { Rss } from "lucide-react";
+import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 
 interface Genre {
   id: number;
@@ -80,12 +81,8 @@ export default function DiscoverPage() {
   const [selectedGenre, setSelectedGenre] = useState<string>("Adventure");
   const [selectedPlatform, setSelectedPlatform] = useState<string>("PC");
   const [showSettings, setShowSettings] = useState(false);
-  const [hideOwned, setHideOwned] = useState<boolean>(() => {
-    return localStorage.getItem("discoverHideOwned") === "true";
-  });
-  const [hideWanted, setHideWanted] = useState<boolean>(() => {
-    return localStorage.getItem("discoverHideWanted") === "true";
-  });
+  const [hideOwned, setHideOwned] = useLocalStorageState("discoverHideOwned", false);
+  const [hideWanted, setHideWanted] = useLocalStorageState("discoverHideWanted", false);
 
   // ⚡ Bolt: Using the useDebounce hook to limit the frequency of API calls
   const debouncedGenre = useDebounce(selectedGenre, 300);
@@ -96,14 +93,6 @@ export default function DiscoverPage() {
   const { data: config } = useQuery<Config>({
     queryKey: ["/api/config"],
   });
-
-  useEffect(() => {
-    localStorage.setItem("discoverHideOwned", hideOwned.toString());
-  }, [hideOwned]);
-
-  useEffect(() => {
-    localStorage.setItem("discoverHideWanted", hideWanted.toString());
-  }, [hideWanted]);
 
   // Fetch local games to filter hidden ones
   const { data: localGames = [] } = useQuery<Game[]>({

@@ -58,7 +58,10 @@ systemRouter.get("/browse", async (req, res) => {
     }
 
     // Ensure the chosen root is within FILE_BROWSER_ROOT for security
-    if (root !== FILE_BROWSER_ROOT && !root.startsWith(FILE_BROWSER_ROOT + path.sep)) {
+    const fileBrowserPrefix = FILE_BROWSER_ROOT.endsWith(path.sep)
+      ? FILE_BROWSER_ROOT
+      : FILE_BROWSER_ROOT + path.sep;
+    if (root !== FILE_BROWSER_ROOT && !root.startsWith(fileBrowserPrefix)) {
       return res.status(400).json({ error: "Invalid root: outside file browser scope" });
     }
 

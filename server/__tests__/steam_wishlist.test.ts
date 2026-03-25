@@ -33,6 +33,104 @@ describe("syncUserSteamWishlist", () => {
     vi.clearAllMocks();
   });
 
+  it("should return failure and skip sync when steamSyncFailures >= MAX_STEAM_SYNC_FAILURES", async () => {
+    vi.mocked(storage.getUser).mockResolvedValue({
+      id: "user-1",
+      steamId64: "76561198000000000",
+    } as unknown as User);
+    vi.mocked(storage.getUserSettings).mockResolvedValue({
+      steamSyncFailures: 3,
+    } as unknown as UserSettings);
+
+    const result = await syncUserSteamWishlist("user-1");
+
+    expect(result?.success).toBe(false);
+    expect(result?.message).toContain("temporarily disabled");
+    expect(steamService.getWishlist).not.toHaveBeenCalled();
+  });
+
+  it("should increment steamSyncFailures and return failure when wishlist fetch throws", async () => {
+    vi.mocked(storage.getUser).mockResolvedValue({
+      id: "user-1",
+      steamId64: "76561198000000000",
+    } as unknown as User);
+    vi.mocked(storage.getUserSettings).mockResolvedValue({
+      steamSyncFailures: 1,
+    } as unknown as UserSettings);
+    vi.mocked(steamService.getWishlist).mockRejectedValue(new Error("Steam API down"));
+
+    const result = await syncUserSteamWishlist("user-1");
+
+    expect(result?.success).toBe(false);
+    expect(result?.message).toBe("Steam API down");
+    expect(storage.updateUserSettings).toHaveBeenCalledWith("user-1", { steamSyncFailures: 2 });
+  });
+
+  it("should reset steamSyncFailures to 0 on a successful sync after prior failures", async () => {
+    vi.mocked(storage.getUser).mockResolvedValue({
+      id: "user-1",
+      steamId64: "76561198000000000",
+    } as unknown as User);
+    vi.mocked(storage.getUserSettings).mockResolvedValue({
+      steamSyncFailures: 2,
+    } as unknown as UserSettings);
+    vi.mocked(steamService.getWishlist).mockResolvedValue([]);
+    vi.mocked(storage.getUserGames).mockResolvedValue([]);
+
+    const result = await syncUserSteamWishlist("user-1");
+
+    expect(result?.success).toBe(true);
+    expect(storage.updateUserSettings).toHaveBeenCalledWith("user-1", { steamSyncFailures: 0 });
+  });
+
+  it("should skip IGDB lookup when all wishlist games are already owned by steamAppId", async () => {
+    vi.mocked(storage.getUser).mockResolvedValue({
+      id: "user-1",
+      steamId64: "76561198000000000",
+    } as unknown as User);
+    vi.mocked(storage.getUserSettings).mockResolvedValue({
+      steamSyncFailures: 0,
+    } as unknown as UserSettings);
+    vi.mocked(steamService.getWishlist).mockResolvedValue([
+      { title: "Already Owned", steamAppId: 101, addedAt: 0, priority: 0 },
+    ]);
+    vi.mocked(storage.getUserGames).mockResolvedValue([
+      { id: "g1", igdbId: 1001, steamAppId: 101 } as unknown as Game,
+    ]);
+
+    const result = await syncUserSteamWishlist("user-1");
+
+    expect(result?.success).toBe(true);
+    expect(result?.addedCount).toBe(0);
+    expect(igdbClient.getGameIdsBySteamAppIds).not.toHaveBeenCalled();
+  });
+
+  it("should not overwrite steamAppId when existing game already has one set for that igdbId", async () => {
+    vi.mocked(storage.getUser).mockResolvedValue({
+      id: "user-1",
+      steamId64: "76561198000000000",
+    } as unknown as User);
+    vi.mocked(storage.getUserSettings).mockResolvedValue({
+      steamSyncFailures: 0,
+    } as unknown as UserSettings);
+
+    // Wishlist has steamAppId 201; collection has same igdbId but different steamAppId (999)
+    vi.mocked(steamService.getWishlist).mockResolvedValue([
+      { title: "Game", steamAppId: 201, addedAt: 0, priority: 0 },
+    ]);
+    vi.mocked(storage.getUserGames).mockResolvedValue([
+      { id: "g1", igdbId: 2001, steamAppId: 999 } as unknown as Game,
+    ]);
+
+    const mockMap = new Map<number, number>([[201, 2001]]);
+    vi.mocked(igdbClient.getGameIdsBySteamAppIds).mockResolvedValue(mockMap);
+
+    await syncUserSteamWishlist("user-1");
+
+    expect(storage.updateGame).not.toHaveBeenCalled();
+    expect(storage.addGame).not.toHaveBeenCalled();
+  });
+
   it("should return failure if user has no Steam ID", async () => {
     vi.mocked(storage.getUser).mockResolvedValue({
       id: "user-1",

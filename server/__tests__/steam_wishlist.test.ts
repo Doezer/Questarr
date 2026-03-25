@@ -367,4 +367,89 @@ describe("syncUserSteamWishlist", () => {
     expect(result?.addedCount).toBe(0);
     expect(storage.addGame).not.toHaveBeenCalled();
   });
+
+  it("should return success with addedCount 0 when wishlist is empty", async () => {
+    vi.mocked(storage.getUser).mockResolvedValue({
+      id: "user-1",
+      steamId64: "76561198000000000",
+    } as unknown as User);
+    vi.mocked(storage.getUserSettings).mockResolvedValue({
+      steamSyncFailures: 0,
+    } as unknown as UserSettings);
+    vi.mocked(steamService.getWishlist).mockResolvedValue([]);
+    vi.mocked(storage.getUserGames).mockResolvedValue([]);
+
+    const result = await syncUserSteamWishlist("user-1");
+
+    expect(result?.success).toBe(true);
+    expect(result?.addedCount).toBe(0);
+    expect(igdbClient.getGameIdsBySteamAppIds).not.toHaveBeenCalled();
+  });
+
+  it("should skip a new game when IGDB returns no details for its igdbId", async () => {
+    vi.mocked(storage.getUser).mockResolvedValue({
+      id: "user-1",
+      steamId64: "76561198000000000",
+    } as unknown as User);
+    vi.mocked(storage.getUserSettings).mockResolvedValue({
+      steamSyncFailures: 0,
+    } as unknown as UserSettings);
+    vi.mocked(steamService.getWishlist).mockResolvedValue([
+      { title: "Mystery Game", steamAppId: 101, addedAt: 0, priority: 0 },
+    ]);
+    vi.mocked(storage.getUserGames).mockResolvedValue([]);
+
+    const mockMap = new Map<number, number>([[101, 1001]]);
+    vi.mocked(igdbClient.getGameIdsBySteamAppIds).mockResolvedValue(mockMap);
+    // IGDB returns empty — no details for igdbId 1001
+    vi.mocked(igdbClient.getGamesByIds).mockResolvedValue([]);
+
+    const result = await syncUserSteamWishlist("user-1");
+
+    expect(result?.addedCount).toBe(0);
+    expect(storage.addGame).not.toHaveBeenCalled();
+  });
+
+  it("should add only games for which IGDB returns details when response is partial", async () => {
+    vi.mocked(storage.getUser).mockResolvedValue({
+      id: "user-1",
+      steamId64: "76561198000000000",
+    } as unknown as User);
+    vi.mocked(storage.getUserSettings).mockResolvedValue({
+      steamSyncFailures: 0,
+    } as unknown as UserSettings);
+    vi.mocked(steamService.getWishlist).mockResolvedValue([
+      { title: "Game A", steamAppId: 101, addedAt: 0, priority: 0 },
+      { title: "Game B", steamAppId: 102, addedAt: 0, priority: 0 },
+    ]);
+    vi.mocked(storage.getUserGames).mockResolvedValue([]);
+
+    const mockMap = new Map<number, number>([
+      [101, 1001],
+      [102, 1002],
+    ]);
+    vi.mocked(igdbClient.getGameIdsBySteamAppIds).mockResolvedValue(mockMap);
+    // Only igdbId 1001 has details; 1002 is missing from IGDB response
+    vi.mocked(igdbClient.getGamesByIds).mockResolvedValue([
+      { id: 1001, name: "Game A" },
+    ] as unknown as IGDBGame[]);
+    vi.mocked(igdbClient.formatGameData).mockReturnValue({
+      title: "Game A",
+      igdbId: 1001,
+      coverUrl: "",
+      summary: "",
+      releaseDate: "",
+      rating: 0,
+      platforms: [],
+      genres: [],
+      developers: [],
+      publishers: [],
+      screenshots: [],
+    });
+
+    const result = await syncUserSteamWishlist("user-1");
+
+    expect(result?.addedCount).toBe(1);
+    expect(storage.addGame).toHaveBeenCalledOnce();
+  });
 });

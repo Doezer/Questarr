@@ -103,7 +103,7 @@ interface AppSidebarProps {
   onNavigate?: (url: string) => void;
 }
 
-export default function AppSidebar({ activeItem = "/", onNavigate }: AppSidebarProps) {
+export default function AppSidebar({ activeItem = "/", onNavigate }: Readonly<AppSidebarProps>) {
   const { logout, user } = useAuth();
 
   const handleNavigation = (url: string) => {

@@ -7,7 +7,7 @@ interface GitHubVersionLinkProps {
   className?: string;
 }
 
-export function GitHubVersionLink({ className }: GitHubVersionLinkProps) {
+export function GitHubVersionLink({ className }: Readonly<GitHubVersionLinkProps>) {
   const latestVersion = useLatestQuestarrVersion();
   const hasNewerVersion =
     latestVersion && semver.valid(latestVersion) && semver.gt(latestVersion, pkg.version);

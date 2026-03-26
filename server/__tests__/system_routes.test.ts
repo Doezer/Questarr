@@ -113,4 +113,113 @@ describe("systemRouter /browse", () => {
     expect(response.body.parent).toBeNull();
     expect(response.body.items[0].path).toBe("/roms");
   });
+
+  it("accepts ?root=/ and browses from file browser root", async () => {
+    fsMock.pathExists.mockResolvedValue(true);
+    fsMock.stat.mockResolvedValue({ isDirectory: () => true });
+    fsMock.readdir.mockResolvedValue([{ name: "data", isDirectory: () => true }]);
+    const app = createApp();
+
+    const response = await request(app).get("/api/system/browse?path=/&root=/");
+    expect(response.status).toBe(200);
+    expect(response.body.items).toBeDefined();
+  });
+
+  it("rejects traversal in ?root parameter via path segment", async () => {
+    // The path param itself contains traversal, which is always rejected
+    const app = createApp();
+
+    const response = await request(app).get("/api/system/browse?path=../../etc&root=/");
+    expect(response.status).toBe(400);
+    expect(response.body.error).toMatch(/traversal/i);
+  });
+
+  it("rejects absolute Windows path in ?root parameter", async () => {
+    const app = createApp();
+
+    const response = await request(app).get("/api/system/browse?path=/&root=C:/Windows");
+    expect(response.status).toBe(400);
+  });
+
+  it("returns 500 when readdir throws EACCES", async () => {
+    fsMock.pathExists.mockResolvedValue(true);
+    fsMock.stat.mockResolvedValue({ isDirectory: () => true });
+    const eaccesError = Object.assign(new Error("Permission denied"), { code: "EACCES" });
+    fsMock.readdir.mockRejectedValue(eaccesError);
+    const app = createApp();
+
+    const response = await request(app).get("/api/system/browse?path=roms");
+    expect(response.status).toBe(500);
+  });
+
+  it("returns 200 with empty items for an empty directory", async () => {
+    fsMock.pathExists.mockResolvedValue(true);
+    fsMock.stat.mockResolvedValue({ isDirectory: () => true });
+    fsMock.readdir.mockResolvedValue([]);
+    const app = createApp();
+
+    const response = await request(app).get("/api/system/browse?path=roms");
+    expect(response.status).toBe(200);
+    expect(response.body.items).toEqual([]);
+  });
+
+  it("sets parent to the parent virtual path when browsing a subdirectory", async () => {
+    fsMock.pathExists.mockResolvedValue(true);
+    fsMock.stat.mockResolvedValue({ isDirectory: () => true });
+    fsMock.readdir.mockResolvedValue([{ name: "Crash Bandicoot", isDirectory: () => true }]);
+    const app = createApp();
+
+    // libraryRoot is /data (set in beforeEach), so /data/roms/psx → parent = /roms
+    const response = await request(app).get("/api/system/browse?path=roms/psx");
+    expect(response.status).toBe(200);
+    expect(response.body.path).toBe("/roms/psx");
+    expect(response.body.parent).toBe("/roms");
+  });
+
+  it("returns 500 when path contains a null byte", async () => {
+    // Node rejects paths with embedded null bytes with ERR_INVALID_ARG_VALUE,
+    // which the route catch block translates to 500.
+    fsMock.pathExists.mockRejectedValue(
+      Object.assign(new Error("Invalid argument"), { code: "ERR_INVALID_ARG_VALUE" })
+    );
+    const app = createApp();
+
+    const response = await request(app).get("/api/system/browse?path=roms%00evil");
+    expect(response.status).toBe(500);
+  });
+
+  it("strips leading slashes from path param and browses normally", async () => {
+    fsMock.pathExists.mockResolvedValue(true);
+    fsMock.stat.mockResolvedValue({ isDirectory: () => true });
+    fsMock.readdir.mockResolvedValue([{ name: "psx", isDirectory: () => true }]);
+    const app = createApp();
+
+    // //roms should be treated identically to roms
+    const response = await request(app).get("/api/system/browse?path=//roms");
+    expect(response.status).toBe(200);
+    expect(response.body.path).toBe("/roms");
+  });
+
+  it("sorts directories before files, then alphabetically within each group", async () => {
+    fsMock.pathExists.mockResolvedValue(true);
+    fsMock.stat.mockResolvedValue({ isDirectory: () => true });
+    fsMock.readdir.mockResolvedValue([
+      { name: "saves", isDirectory: () => false },
+      { name: "readme.txt", isDirectory: () => false },
+      { name: "psx", isDirectory: () => true },
+      { name: "n64", isDirectory: () => true },
+    ]);
+    const app = createApp();
+
+    const response = await request(app).get("/api/system/browse?path=roms");
+    expect(response.status).toBe(200);
+    const names = response.body.items.map((i: { name: string }) => i.name);
+    // Directories must come before files
+    expect(names.indexOf("n64")).toBeLessThan(names.indexOf("saves"));
+    expect(names.indexOf("psx")).toBeLessThan(names.indexOf("readme.txt"));
+    // Within directories: n64 < psx alphabetically
+    expect(names.indexOf("n64")).toBeLessThan(names.indexOf("psx"));
+    // Within files: readme.txt < saves alphabetically
+    expect(names.indexOf("readme.txt")).toBeLessThan(names.indexOf("saves"));
+  });
 });

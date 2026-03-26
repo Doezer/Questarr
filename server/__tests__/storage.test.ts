@@ -413,6 +413,65 @@ describe("MemStorage", () => {
       });
     });
 
+    it("getRomMConfig() defaults — fresh user with no romm settings", async () => {
+      const user = await storage.createUser({ username: "freshuser", passwordHash: "hash" });
+      await storage.createUserSettings({ userId: user.id });
+
+      const config = await storage.getRomMConfig(user.id);
+      expect(config.enabled).toBe(false);
+      expect(config.libraryRoot).toBe("/data");
+      expect(config.platformRoutingMode).toBe("slug-subfolder");
+      expect(config.platformBindings).toEqual({});
+    });
+
+    it("updateUserSettings() rommEnabled persists to getRomMConfig()", async () => {
+      const user = await storage.createUser({ username: "rommuser1", passwordHash: "hash" });
+      await storage.createUserSettings({ userId: user.id });
+
+      await storage.updateUserSettings(user.id, { rommEnabled: true });
+      const config = await storage.getRomMConfig(user.id);
+      expect(config.enabled).toBe(true);
+    });
+
+    it("updateUserSettings() rommLibraryRoot persists to getRomMConfig()", async () => {
+      const user = await storage.createUser({ username: "rommuser2", passwordHash: "hash" });
+      await storage.createUserSettings({ userId: user.id });
+
+      await storage.updateUserSettings(user.id, { rommLibraryRoot: "/media/romm" });
+      const config = await storage.getRomMConfig(user.id);
+      expect(config.libraryRoot).toBe("/media/romm");
+    });
+
+    it("updateUserSettings() rommPlatformRoutingMode persists to getRomMConfig()", async () => {
+      const user = await storage.createUser({ username: "rommuser3", passwordHash: "hash" });
+      await storage.createUserSettings({ userId: user.id });
+
+      await storage.updateUserSettings(user.id, { rommPlatformRoutingMode: "binding-map" });
+      const config = await storage.getRomMConfig(user.id);
+      expect(config.platformRoutingMode).toBe("binding-map");
+    });
+
+    it("updateUserSettings() rommMoveMode persists to getRomMConfig()", async () => {
+      const user = await storage.createUser({ username: "rommuser4", passwordHash: "hash" });
+      await storage.createUserSettings({ userId: user.id });
+
+      await storage.updateUserSettings(user.id, { rommMoveMode: "move" });
+      const config = await storage.getRomMConfig(user.id);
+      expect(config.moveMode).toBe("move");
+    });
+
+    it("getRomMConfig() missing user returns default config without throwing", async () => {
+      const config = await storage.getRomMConfig("nonexistent-user-id");
+      expect(config).toEqual(
+        expect.objectContaining({
+          enabled: false,
+          libraryRoot: "/data",
+          platformRoutingMode: "slug-subfolder",
+          platformBindings: {},
+        })
+      );
+    });
+
     it("should CRUD path and platform mappings", async () => {
       const pathMapping = await storage.addPathMapping({
         localPath: "/local",
@@ -451,6 +510,60 @@ describe("MemStorage", () => {
       expect(await storage.getPlatformMapping(6)).toBeUndefined();
     });
 
+    it("seedPlatformMappingsIfEmpty() is idempotent — calling twice does not create duplicates", async () => {
+      const seed = [
+        { igdbPlatformId: 100, rommPlatformSlug: "snes" },
+        { igdbPlatformId: 101, rommPlatformSlug: "nes" },
+      ];
+
+      const first = await storage.seedPlatformMappingsIfEmpty(seed);
+      expect(first.seeded).toBe(true);
+      expect(first.count).toBe(2);
+
+      const second = await storage.seedPlatformMappingsIfEmpty(seed);
+      expect(second.seeded).toBe(false);
+
+      const all = await storage.getPlatformMappings();
+      expect(all).toHaveLength(2);
+    });
+
+    it("getRomMConfig() with rommEnabled=true but no libraryRoot set returns default libraryRoot '/data'", async () => {
+      const user = await storage.createUser({ username: "rommdefault", passwordHash: "hash" });
+      await storage.createUserSettings({
+        userId: user.id,
+        rommEnabled: true,
+        // rommLibraryRoot deliberately omitted
+      });
+
+      const config = await storage.getRomMConfig(user.id);
+      expect(config.enabled).toBe(true);
+      expect(config.libraryRoot).toBe("/data");
+    });
+
+    it("updateUserSettings() with rommAllowedSlugs array persists and is reflected in getUserSettings", async () => {
+      const user = await storage.createUser({ username: "sluguser", passwordHash: "hash" });
+      await storage.createUserSettings({ userId: user.id });
+
+      await storage.updateUserSettings(user.id, { rommAllowedSlugs: ["ps2", "n64", "gba"] });
+
+      const settings = await storage.getUserSettings(user.id);
+      expect(settings?.rommAllowedSlugs).toEqual(["ps2", "n64", "gba"]);
+    });
+
+    it("updateUserSettings() partial update of rommEnabled does not reset rommLibraryRoot", async () => {
+      const user = await storage.createUser({ username: "partialupdate", passwordHash: "hash" });
+      await storage.createUserSettings({
+        userId: user.id,
+        rommLibraryRoot: "/media/games/romm",
+      });
+
+      await storage.updateUserSettings(user.id, { rommEnabled: true });
+
+      const settings = await storage.getUserSettings(user.id);
+      expect(settings?.rommEnabled).toBe(true);
+      expect(settings?.rommLibraryRoot).toBe("/media/games/romm");
+    });
+
     it("should expose getGameDownload and filter active downloads", async () => {
       const downloading = await storage.addGameDownload({
         gameId: "game-1",
@@ -482,6 +595,84 @@ describe("MemStorage", () => {
 
       expect(await storage.getGameDownload(downloading.id)).toEqual(downloading);
       expect(await storage.getGameDownload("missing-download")).toBeUndefined();
+    });
+  });
+});
+
+describe("DatabaseStorage (in-memory SQLite)", () => {
+  let storage: InstanceType<typeof import("../storage.js").DatabaseStorage>;
+
+  beforeEach(async () => {
+    process.env.SQLITE_DB_PATH = ":memory:";
+    vi.unmock("better-sqlite3");
+    vi.unmock("../db.js");
+    vi.unmock("../db");
+    vi.resetModules();
+
+    const { db } = await import("../db.js");
+    const { migrate } = await import("drizzle-orm/better-sqlite3/migrator");
+    await migrate(db, { migrationsFolder: "migrations" });
+
+    const storageModule = await import("../storage.js");
+    storage = storageModule.storage as InstanceType<typeof storageModule.DatabaseStorage>;
+  });
+
+  describe("getRomMConfig() — fresh user has all defaults", () => {
+    it("returns enabled:false, libraryRoot:/data, platformRoutingMode:slug-subfolder, platformBindings:{}, moveMode:copy", async () => {
+      const user = await storage.createUser({ username: "fresh_db_user", passwordHash: "hash" });
+      await storage.createUserSettings({ userId: user.id });
+
+      const config = await storage.getRomMConfig(user.id);
+
+      expect(config.enabled).toBe(false);
+      expect(config.libraryRoot).toBe("/data");
+      expect(config.platformRoutingMode).toBe("slug-subfolder");
+      expect(config.platformBindings).toEqual({});
+      expect(config.moveMode).toBe("move");
+    });
+  });
+
+  describe("getRomMConfig() — reflects updateUserSettings changes", () => {
+    it("reflects rommEnabled, rommLibraryRoot, rommMoveMode after update", async () => {
+      const user = await storage.createUser({ username: "update_db_user", passwordHash: "hash" });
+      await storage.createUserSettings({ userId: user.id });
+
+      await storage.updateUserSettings(user.id, {
+        rommEnabled: true,
+        rommLibraryRoot: "/media/romm",
+        rommMoveMode: "move",
+      });
+
+      const config = await storage.getRomMConfig(user.id);
+
+      expect(config.enabled).toBe(true);
+      expect(config.libraryRoot).toBe("/media/romm");
+      expect(config.moveMode).toBe("move");
+    });
+  });
+
+  describe("updateUserSettings() — rommAllowedSlugs JSON array persists", () => {
+    it("persists rommAllowedSlugs and reflects via getUserSettings", async () => {
+      const user = await storage.createUser({ username: "slugs_db_user", passwordHash: "hash" });
+      await storage.createUserSettings({ userId: user.id });
+
+      await storage.updateUserSettings(user.id, { rommAllowedSlugs: ["psx", "ps2"] });
+
+      const settings = await storage.getUserSettings(user.id);
+      expect(settings?.rommAllowedSlugs).toEqual(["psx", "ps2"]);
+    });
+  });
+
+  describe("updateUserSettings() — partial update leaves other romm fields intact", () => {
+    it("does not reset rommLibraryRoot when only rommEnabled is updated", async () => {
+      const user = await storage.createUser({ username: "partial_db_user", passwordHash: "hash" });
+      await storage.createUserSettings({ userId: user.id, rommLibraryRoot: "/first" });
+
+      await storage.updateUserSettings(user.id, { rommEnabled: true });
+
+      const settings = await storage.getUserSettings(user.id);
+      expect(settings?.rommLibraryRoot).toBe("/first");
+      expect(settings?.rommEnabled).toBe(true);
     });
   });
 });

@@ -47,6 +47,12 @@ function getReleaseStatus(game: Game): {
   };
 }
 
+const getNextStatusInfo = (status: GameStatus): { id: GameStatus; label: string } => {
+  if (status === "wanted") return { id: "owned", label: "Owned" };
+  if (status === "owned") return { id: "completed", label: "Completed" };
+  return { id: "wanted", label: "Wanted" };
+};
+
 const CompactGameCard = ({
   game,
   onStatusChange,
@@ -100,9 +106,7 @@ const CompactGameCard = ({
   });
 
   const handleStatusClick = () => {
-    const nextStatus: GameStatus =
-      game.status === "wanted" ? "owned" : game.status === "owned" ? "completed" : "wanted";
-    onStatusChange?.(game.id, nextStatus);
+    onStatusChange?.(game.id, getNextStatusInfo(game.status).id);
   };
 
   const handleDetailsClick = () => {
@@ -307,9 +311,7 @@ const CompactGameCard = ({
                   : "h-8 text-xs"
               )}
               onClick={handleStatusClick}
-              aria-label={`Mark ${game.title} as ${
-                game.status === "wanted" ? "Owned" : game.status === "owned" ? "Completed" : "Wanted"
-              }`}
+              aria-label={`Mark ${game.title} as ${getNextStatusInfo(game.status).label}`}
             >
               {density !== "comfortable" ? (
                 game.status === "wanted" ? (
@@ -319,12 +321,8 @@ const CompactGameCard = ({
                 ) : (
                   <span title="Mark Wanted">★</span>
                 )
-              ) : game.status === "wanted" ? (
-                "Mark Owned"
-              ) : game.status === "owned" ? (
-                "Mark Completed"
               ) : (
-                "Mark Wanted"
+                `Mark ${getNextStatusInfo(game.status).label}`
               )}
             </Button>
           )}

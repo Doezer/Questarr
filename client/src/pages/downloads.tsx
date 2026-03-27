@@ -182,6 +182,7 @@ export default function Downloads() {
       if (result.success) {
         toast({ title: "Download paused" });
         queryClient.invalidateQueries({ queryKey: ["/api/downloads"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/downloads/summary"] });
       } else {
         toast({ title: result.message || "Failed to pause download", variant: "destructive" });
       }
@@ -218,6 +219,7 @@ export default function Downloads() {
       if (result.success) {
         toast({ title: "Download resumed" });
         queryClient.invalidateQueries({ queryKey: ["/api/downloads"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/downloads/summary"] });
       } else {
         toast({ title: result.message || "Failed to resume download", variant: "destructive" });
       }
@@ -256,6 +258,7 @@ export default function Downloads() {
       if (result.success) {
         toast({ title: "Download removed" });
         queryClient.invalidateQueries({ queryKey: ["/api/downloads"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/downloads/summary"] });
       } else {
         toast({ title: result.message || "Failed to remove download", variant: "destructive" });
       }

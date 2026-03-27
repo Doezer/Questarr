@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import WishlistPage from "../src/pages/wishlist";
 import LibraryPage from "../src/pages/library";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 const TEST_GAME_ID = "11111111-1111-1111-1111-111111111111";
 
@@ -49,7 +50,11 @@ const createTestQueryClient = () =>
 
 const renderWithQueryClient = (ui: React.ReactElement) => {
   const queryClient = createTestQueryClient();
-  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>{ui}</TooltipProvider>
+    </QueryClientProvider>
+  );
 };
 
 describe("Page hidden wiring", () => {

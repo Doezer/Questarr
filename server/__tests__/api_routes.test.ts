@@ -85,6 +85,7 @@ vi.mock("../storage.js", () => ({
     clearAllNotifications: vi.fn(),
     syncIndexers: vi.fn().mockResolvedValue({ added: 0, updated: 0 }),
     addGameDownload: vi.fn(),
+    getDownloadSummaryByGame: vi.fn().mockResolvedValue({}),
     getAllRssFeeds: vi.fn().mockResolvedValue([]),
     addRssFeed: vi.fn(),
     updateRssFeed: vi.fn(),

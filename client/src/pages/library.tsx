@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import GameGrid from "@/components/GameGrid";
@@ -6,32 +6,20 @@ import { type Game } from "@shared/schema";
 import { type GameStatus } from "@/components/StatusBadge";
 import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { useToast } from "@/hooks/use-toast";
-import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 import EmptyState from "@/components/EmptyState";
-import { Gamepad2, LayoutGrid, List } from "lucide-react";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Gamepad2, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Settings2 } from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useViewControls } from "@/hooks/use-view-controls";
+import ViewControlsToolbar from "@/components/ViewControlsToolbar";
+import { useDownloadSummary } from "@/hooks/use-download-summary";
 
 export default function LibraryPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [viewMode, setViewMode] = useLocalStorageState(
-    "libraryViewMode",
-    "grid" as "grid" | "list"
-  );
-  const [listDensity, setListDensity] = useLocalStorageState(
-    "libraryListDensity",
-    "comfortable" as "comfortable" | "compact" | "ultra-compact"
-  );
+  const { viewMode, setViewMode, listDensity, setListDensity } = useViewControls("library");
+  const [showDownloadsOnly, setShowDownloadsOnly] = useState(false);
+  const downloadSummaries = useDownloadSummary();
 
   const { data: games = [], isLoading } = useQuery<Game[]>({
     queryKey: ["/api/games", "?status=owned,completed,downloading"],
@@ -39,6 +27,11 @@ export default function LibraryPage() {
 
   // Library typically contains owned, completed, or actively downloading games
   const libraryGames = games;
+
+  const displayedGames = useMemo(
+    () => (showDownloadsOnly ? libraryGames.filter((g) => downloadSummaries[g.id]) : libraryGames),
+    [libraryGames, showDownloadsOnly, downloadSummaries]
+  );
 
   const statusMutation = useMutation({
     mutationFn: async ({ gameId, status }: { gameId: string; status: GameStatus }) => {
@@ -68,47 +61,25 @@ export default function LibraryPage() {
           <p className="text-muted-foreground">Your collection of games</p>
         </div>
         <div className="flex items-center gap-2">
-          {viewMode === "list" && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="h-8 gap-1">
-                  <Settings2 className="h-3.5 w-3.5" />
-                  <span className="sr-only sm:not-sr-only sm:inline-block">
-                    {listDensity === "comfortable"
-                      ? "Comfortable"
-                      : listDensity === "compact"
-                        ? "Compact"
-                        : "Ultra-compact"}
-                  </span>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuLabel>Row Density</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => setListDensity("comfortable")}>
-                  Comfortable
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setListDensity("compact")}>
-                  Compact
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setListDensity("ultra-compact")}>
-                  Ultra-compact
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-          <ToggleGroup
-            type="single"
-            value={viewMode}
-            onValueChange={(value) => value && setViewMode(value as "grid" | "list")}
-          >
-            <ToggleGroupItem value="grid" aria-label="Grid View">
-              <LayoutGrid className="h-4 w-4" />
-            </ToggleGroupItem>
-            <ToggleGroupItem value="list" aria-label="List View">
-              <List className="h-4 w-4" />
-            </ToggleGroupItem>
-          </ToggleGroup>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={showDownloadsOnly ? "default" : "outline"}
+                size="icon"
+                onClick={() => setShowDownloadsOnly((v) => !v)}
+                aria-label={showDownloadsOnly ? "Show all games" : "Show games with downloads only"}
+              >
+                <Download className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{showDownloadsOnly ? "Show all" : "Has downloads"}</TooltipContent>
+          </Tooltip>
+          <ViewControlsToolbar
+            viewMode={viewMode}
+            onViewModeChange={setViewMode}
+            listDensity={listDensity}
+            onListDensityChange={setListDensity}
+          />
         </div>
       </div>
 
@@ -122,12 +93,13 @@ export default function LibraryPage() {
         />
       ) : (
         <GameGrid
-          games={libraryGames}
+          games={displayedGames}
           onStatusChange={(id, status) => statusMutation.mutate({ gameId: id, status })}
           onToggleHidden={(id, hidden) => hiddenMutation.mutate({ gameId: id, hidden })}
           isLoading={isLoading}
           viewMode={viewMode}
           density={listDensity}
+          downloadSummaries={downloadSummaries}
         />
       )}
     </div>

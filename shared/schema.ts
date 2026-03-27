@@ -317,6 +317,12 @@ export type UserSettings = typeof userSettings.$inferSelect;
 export type InsertUserSettings = (typeof insertUserSettingsSchema)["_output"];
 export type UpdateUserSettings = (typeof updateUserSettingsSchema)["_output"];
 
+export interface DownloadSummary {
+  topStatus: "downloading" | "paused" | "failed" | "completed";
+  count: number;
+  downloadTypes: ("torrent" | "usenet")[];
+}
+
 // Application configuration type
 export interface Config {
   igdb: {

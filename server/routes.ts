@@ -1976,6 +1976,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/downloads/summary", authenticateToken, async (_req, res) => {
+    try {
+      const summary = await storage.getDownloadSummaryByGame();
+      res.json(summary);
+    } catch (error) {
+      routesLogger.error({ module: "routes", error }, "Failed to get download summary");
+      res.status(500).json({ error: "Failed to get download summary" });
+    }
+  });
+
   // Add download to best available downloader
   app.post(
     "/api/downloads",

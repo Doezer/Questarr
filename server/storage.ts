@@ -10,6 +10,7 @@ import {
   type InsertDownloader,
   type GameDownload,
   type InsertGameDownload,
+  type DownloadSummary,
   type Notification,
   type InsertNotification,
   type UserSettings,
@@ -36,6 +37,20 @@ import {
 import { randomUUID } from "crypto";
 import { db } from "./db.js";
 import { eq, like, or, sql, desc, and, inArray, type SQL } from "drizzle-orm";
+
+const STATUS_PRIORITY: Record<string, number> = {
+  failed: 4,
+  downloading: 3,
+  paused: 2,
+  completed: 1,
+};
+
+function resolveTopStatus(
+  a: DownloadSummary["topStatus"],
+  b: DownloadSummary["topStatus"]
+): DownloadSummary["topStatus"] {
+  return (STATUS_PRIORITY[a] ?? 0) >= (STATUS_PRIORITY[b] ?? 0) ? a : b;
+}
 
 export interface IStorage {
   // System Config methods
@@ -92,6 +107,7 @@ export interface IStorage {
   getDownloadingGameDownloads(): Promise<GameDownload[]>;
   updateGameDownloadStatus(id: string, status: string): Promise<void>;
   addGameDownload(gameDownload: InsertGameDownload): Promise<GameDownload>;
+  getDownloadSummaryByGame(): Promise<Record<string, DownloadSummary>>;
 
   // Notification methods
   getNotifications(limit?: number): Promise<Notification[]>;
@@ -599,6 +615,29 @@ export class MemStorage implements IStorage {
     };
     this.gameDownloads.set(id, gameDownload);
     return gameDownload;
+  }
+
+  async getDownloadSummaryByGame(): Promise<Record<string, DownloadSummary>> {
+    const result: Record<string, DownloadSummary> = {};
+    for (const gd of Array.from(this.gameDownloads.values())) {
+      const gameId = gd.gameId;
+      const status = gd.status as DownloadSummary["topStatus"];
+      const downloadType = (gd.downloadType ?? "torrent") as "torrent" | "usenet";
+      if (!result[gameId]) {
+        result[gameId] = {
+          topStatus: status,
+          count: 1,
+          downloadTypes: [downloadType],
+        };
+      } else {
+        result[gameId].topStatus = resolveTopStatus(result[gameId].topStatus, status);
+        result[gameId].count += 1;
+        if (!result[gameId].downloadTypes.includes(downloadType)) {
+          result[gameId].downloadTypes.push(downloadType);
+        }
+      }
+    }
+    return result;
   }
 
   // Notification methods
@@ -1283,6 +1322,31 @@ export class DatabaseStorage implements IStorage {
       .values({ ...insertGameDownload, id })
       .returning();
     return gameDownload;
+  }
+
+  async getDownloadSummaryByGame(): Promise<Record<string, DownloadSummary>> {
+    const rows = await db.select().from(gameDownloads);
+    const result: Record<string, DownloadSummary> = {};
+    for (const row of rows) {
+      const gameId = row.gameId;
+      if (!result[gameId]) {
+        result[gameId] = {
+          topStatus: row.status as DownloadSummary["topStatus"],
+          count: 1,
+          downloadTypes: [row.downloadType as "torrent" | "usenet"],
+        };
+      } else {
+        result[gameId].topStatus = resolveTopStatus(
+          result[gameId].topStatus,
+          row.status as DownloadSummary["topStatus"]
+        );
+        result[gameId].count += 1;
+        if (!result[gameId].downloadTypes.includes(row.downloadType as "torrent" | "usenet")) {
+          result[gameId].downloadTypes.push(row.downloadType as "torrent" | "usenet");
+        }
+      }
+    }
+    return result;
   }
 
   // Notification methods

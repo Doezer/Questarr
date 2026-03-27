@@ -185,6 +185,7 @@ export default function SearchPage() {
         setSelectedDownload(null);
         // Refresh downloads
         queryClient.invalidateQueries({ queryKey: ["/api/downloads"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/downloads/summary"] });
       } else {
         toast({ title: result.message || "Failed to start download", variant: "destructive" });
       }

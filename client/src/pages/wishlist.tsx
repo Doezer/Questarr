@@ -17,17 +17,12 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import EmptyState from "@/components/EmptyState";
-import { Star, LayoutGrid, List, Settings2, Eye, EyeOff } from "lucide-react";
+import { Star, Eye, EyeOff, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useViewControls } from "@/hooks/use-view-controls";
+import ViewControlsToolbar from "@/components/ViewControlsToolbar";
+import { useDownloadSummary } from "@/hooks/use-download-summary";
 
 type SortOption = "release-asc" | "release-desc" | "added-desc" | "title-asc";
 
@@ -35,15 +30,10 @@ export default function WishlistPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [sortBy, setSortBy] = useState<SortOption>("release-desc");
-  const [viewMode, setViewMode] = useLocalStorageState(
-    "wishlistViewMode",
-    "grid" as "grid" | "list"
-  );
-  const [listDensity, setListDensity] = useLocalStorageState(
-    "wishlistListDensity",
-    "comfortable" as "comfortable" | "compact" | "ultra-compact"
-  );
+  const { viewMode, setViewMode, listDensity, setListDensity } = useViewControls("wishlist");
   const [showUnreleased, setShowUnreleased] = useLocalStorageState("wishlistShowUnreleased", true);
+  const [showDownloadsOnly, setShowDownloadsOnly] = useState(false);
+  const downloadSummaries = useDownloadSummary();
 
   const { data: games = [], isLoading } = useQuery<Game[]>({
     queryKey: ["/api/games", "?status=wanted"],
@@ -52,6 +42,12 @@ export default function WishlistPage() {
   // Wishlist contains 'wanted' games
   const wishlistGames = games;
 
+  const filteredGames = useMemo(
+    () =>
+      showDownloadsOnly ? wishlistGames.filter((g) => downloadSummaries[g.id]) : wishlistGames,
+    [wishlistGames, showDownloadsOnly, downloadSummaries]
+  );
+
   // Separate released and unreleased games
   const { releasedGames, upcomingGames, tbaGames } = useMemo(() => {
     const now = new Date();
@@ -59,7 +55,7 @@ export default function WishlistPage() {
     const upcoming: Game[] = [];
     const tba: Game[] = [];
 
-    wishlistGames.forEach((game) => {
+    filteredGames.forEach((game) => {
       if (!game.releaseDate) {
         tba.push(game);
       } else {
@@ -73,7 +69,7 @@ export default function WishlistPage() {
     });
 
     return { releasedGames: released, upcomingGames: upcoming, tbaGames: tba };
-  }, [wishlistGames]);
+  }, [filteredGames]);
 
   // Sort games based on selected option
   const sortGames = (gameList: Game[]): Game[] => {
@@ -143,47 +139,27 @@ export default function WishlistPage() {
             <span className="hidden sm:inline">Unreleased</span>
           </Button>
           <div className="flex items-center gap-2">
-            {viewMode === "list" && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm" className="h-8 gap-1">
-                    <Settings2 className="h-3.5 w-3.5" />
-                    <span className="sr-only sm:not-sr-only sm:inline-block">
-                      {listDensity === "comfortable"
-                        ? "Comfortable"
-                        : listDensity === "compact"
-                          ? "Compact"
-                          : "Ultra-compact"}
-                    </span>
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuLabel>Row Density</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => setListDensity("comfortable")}>
-                    Comfortable
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setListDensity("compact")}>
-                    Compact
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setListDensity("ultra-compact")}>
-                    Ultra-compact
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-            <ToggleGroup
-              type="single"
-              value={viewMode}
-              onValueChange={(value) => value && setViewMode(value as "grid" | "list")}
-            >
-              <ToggleGroupItem value="grid" aria-label="Grid View">
-                <LayoutGrid className="h-4 w-4" />
-              </ToggleGroupItem>
-              <ToggleGroupItem value="list" aria-label="List View">
-                <List className="h-4 w-4" />
-              </ToggleGroupItem>
-            </ToggleGroup>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={showDownloadsOnly ? "default" : "outline"}
+                  size="icon"
+                  onClick={() => setShowDownloadsOnly((v) => !v)}
+                  aria-label={
+                    showDownloadsOnly ? "Show all games" : "Show games with downloads only"
+                  }
+                >
+                  <Download className="w-4 h-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{showDownloadsOnly ? "Show all" : "Has downloads"}</TooltipContent>
+            </Tooltip>
+            <ViewControlsToolbar
+              viewMode={viewMode}
+              onViewModeChange={setViewMode}
+              listDensity={listDensity}
+              onListDensityChange={setListDensity}
+            />
           </div>
           <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground hidden sm:inline">Sort by:</span>
@@ -228,6 +204,7 @@ export default function WishlistPage() {
                 isLoading={isLoading}
                 viewMode={viewMode}
                 density={listDensity}
+                downloadSummaries={downloadSummaries}
               />
               {showUnreleased && (upcomingGames.length > 0 || tbaGames.length > 0) && (
                 <Separator className="mt-8" />
@@ -249,6 +226,7 @@ export default function WishlistPage() {
                 isLoading={isLoading}
                 viewMode={viewMode}
                 density={listDensity}
+                downloadSummaries={downloadSummaries}
               />
               {tbaGames.length > 0 && <Separator className="mt-8" />}
             </section>
@@ -268,6 +246,7 @@ export default function WishlistPage() {
                 isLoading={isLoading}
                 viewMode={viewMode}
                 density={listDensity}
+                downloadSummaries={downloadSummaries}
               />
             </section>
           )}

@@ -62,6 +62,7 @@ vi.mock("../storage.js", () => ({
     updateUserSettings: vi.fn().mockResolvedValue({}),
     updateGameStatus: vi.fn(),
     updateGameHidden: vi.fn(),
+    updateGameSearchResultsAvailable: vi.fn().mockResolvedValue(undefined),
     updateUserPassword: vi.fn(),
     updateGamesBatch: vi.fn(),
     getAllGames: vi.fn().mockResolvedValue([]),

@@ -79,6 +79,7 @@ export interface IStorage {
   addGame(game: InsertGame): Promise<Game>;
   updateGameStatus(id: string, statusUpdate: UpdateGameStatus): Promise<Game | undefined>;
   updateGameHidden(id: string, hidden: boolean): Promise<Game | undefined>;
+  updateGameSearchResultsAvailable(gameId: string, available: boolean): Promise<void>;
   updateGame(id: string, updates: Partial<Game>): Promise<Game | undefined>;
   updateGamesBatch(updates: { id: string; data: Partial<Game> }[]): Promise<void>;
   removeGame(id: string): Promise<boolean>;
@@ -325,6 +326,7 @@ export class MemStorage implements IStorage {
       steamAppId: insertGame.steamAppId || null,
       originalReleaseDate: insertGame.originalReleaseDate || null,
       releaseStatus: insertGame.releaseStatus || "upcoming",
+      searchResultsAvailable: false,
       addedAt: new Date(),
       completedAt: null,
     };
@@ -357,6 +359,14 @@ export class MemStorage implements IStorage {
 
     this.games.set(id, updatedGame);
     return updatedGame;
+  }
+
+  async updateGameSearchResultsAvailable(gameId: string, available: boolean): Promise<void> {
+    const game = this.games.get(gameId);
+    if (game) {
+      game.searchResultsAvailable = available;
+      this.games.set(gameId, game);
+    }
   }
 
   async updateGame(id: string, updates: Partial<Game>): Promise<Game | undefined> {
@@ -1084,6 +1094,10 @@ export class DatabaseStorage implements IStorage {
       .where(eq(games.id, id))
       .returning();
     return updatedGame || undefined;
+  }
+
+  async updateGameSearchResultsAvailable(gameId: string, available: boolean): Promise<void> {
+    await db.update(games).set({ searchResultsAvailable: available }).where(eq(games.id, gameId));
   }
 
   async updateGame(id: string, updates: Partial<Game>): Promise<Game | undefined> {

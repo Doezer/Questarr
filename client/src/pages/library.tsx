@@ -7,7 +7,7 @@ import { type GameStatus } from "@/components/StatusBadge";
 import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { useToast } from "@/hooks/use-toast";
 import EmptyState from "@/components/EmptyState";
-import { Gamepad2, Download } from "lucide-react";
+import { Gamepad2, Download, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useViewControls } from "@/hooks/use-view-controls";
@@ -21,12 +21,18 @@ export default function LibraryPage() {
   const [showDownloadsOnly, setShowDownloadsOnly] = useState(false);
   const downloadSummaries = useDownloadSummary();
 
+  const [showSearchResultsOnly, setShowSearchResultsOnly] = useState(false);
+
   const { data: games = [], isLoading } = useQuery<Game[]>({
     queryKey: ["/api/games", "?status=owned,completed,downloading"],
   });
 
   // Library typically contains owned, completed, or actively downloading games
-  const libraryGames = games;
+  const libraryGames = useMemo(() => {
+    let result = games;
+    if (showSearchResultsOnly) result = result.filter((g) => g.searchResultsAvailable);
+    return result;
+  }, [games, showSearchResultsOnly]);
 
   const displayedGames = useMemo(
     () => (showDownloadsOnly ? libraryGames.filter((g) => downloadSummaries[g.id]) : libraryGames),
@@ -61,6 +67,16 @@ export default function LibraryPage() {
           <p className="text-muted-foreground">Your collection of games</p>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant={showSearchResultsOnly ? "default" : "outline"}
+            size="sm"
+            className={`h-8 gap-1.5 ${showSearchResultsOnly ? "text-violet-300 bg-violet-700 hover:bg-violet-600 border-violet-600" : ""}`}
+            onClick={() => setShowSearchResultsOnly(!showSearchResultsOnly)}
+            aria-label="Show games with search results only"
+          >
+            <Search className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Search Results</span>
+          </Button>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button

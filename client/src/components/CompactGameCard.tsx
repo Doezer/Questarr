@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import StatusBadge, { type GameStatus } from "./StatusBadge";
 import { type Game, type DownloadSummary } from "@shared/schema";
 import DownloadIndicator from "./DownloadIndicator";
+import SearchResultsBadge from "./SearchResultsBadge";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { mapGameToInsertGame, isDiscoveryId, cn, getNextStatusLabel } from "@/lib/utils";
 import { apiRequest, ApiError } from "@/lib/queryClient";
@@ -174,6 +175,7 @@ const CompactGameCard = ({
                 <StatusBadge status={game.status} />
               </div>
             )}
+            <SearchResultsBadge visible={game.searchResultsAvailable ?? false} variant="inline" />
           </div>
 
           <div

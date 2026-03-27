@@ -2033,6 +2033,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             });
 
             await storage.updateGameStatus(gameId, { status: "downloading" });
+            await storage.updateGameSearchResultsAvailable(gameId, false);
           } catch (error) {
             routesLogger.error({ error, gameId }, "Failed to link download to game");
             // We don't fail the whole request since the download was added successfully

@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import StatusBadge, { type GameStatus } from "./StatusBadge";
 import { type Game, type DownloadSummary } from "@shared/schema";
 import DownloadIndicator from "./DownloadIndicator";
+import SearchResultsBadge from "./SearchResultsBadge";
 import { useState, memo, useRef, useEffect, lazy, Suspense } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { mapGameToInsertGame, isDiscoveryId, getNextStatusLabel } from "@/lib/utils";
@@ -162,6 +163,7 @@ const GameCard = ({
             </Badge>
           )}
         </div>
+        <SearchResultsBadge visible={game.searchResultsAvailable ?? false} />
         <div
           onClick={(e) => e.stopPropagation()}
           className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-200 rounded-t-md flex items-center justify-center gap-2"

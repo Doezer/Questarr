@@ -207,13 +207,16 @@ export const insertIndexerSchema = createInsertSchema(indexers, {
   updatedAt: true,
 });
 
+// Trim helper for nullable/optional string fields in Zod schemas.
+const trimIfString = <T>(v: T): T => (typeof v === "string" ? (v.trim() as T) : v);
+
 export const insertDownloaderSchema = createInsertSchema(downloaders, {
   name: (schema) => schema.trim(),
   url: (schema) => schema.trim(),
-  username: (schema) => schema.transform((v) => (typeof v === "string" ? v.trim() : v)),
-  password: (schema) => schema.transform((v) => (typeof v === "string" ? v.trim() : v)),
-  urlPath: (schema) => schema.transform((v) => (typeof v === "string" ? v.trim() : v)),
-  downloadPath: (schema) => schema.transform((v) => (typeof v === "string" ? v.trim() : v)),
+  username: (schema) => schema.transform(trimIfString),
+  password: (schema) => schema.transform(trimIfString),
+  urlPath: (schema) => schema.transform(trimIfString),
+  downloadPath: (schema) => schema.transform(trimIfString),
 }).omit({
   id: true,
   createdAt: true,

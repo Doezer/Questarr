@@ -256,7 +256,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      routesLogger.info({ username }, "Initial setup completed");
+      routesLogger.info({ username: trimmedUsername }, "Initial setup completed");
       res.json({ token, user: { id: user.id, username: user.username } });
     } catch (error) {
       routesLogger.error(
@@ -275,14 +275,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const { username, password } = req.body;
 
     if (typeof username !== "string" || typeof password !== "string") {
-      return res.status(400).json({ error: "Username and password are required" });
+      return res
+        .status(400)
+        .json({ error: "Username and password are required and must be strings" });
     }
 
     const trimmedUsername = username.trim();
     const trimmedPassword = password.trim();
     const user = await storage.getUserByUsername(trimmedUsername);
 
-    if (!user || !(await comparePassword(trimmedPassword, user.passwordHash))) {
+    // Backward-compatible check: try the raw password first (for accounts created before
+    // trimming was introduced), then fall back to the trimmed value.
+    let passwordMatches = false;
+    if (user) {
+      passwordMatches = await comparePassword(password, user.passwordHash);
+      if (!passwordMatches && trimmedPassword !== password) {
+        passwordMatches = await comparePassword(trimmedPassword, user.passwordHash);
+      }
+    }
+
+    if (!user || !passwordMatches) {
       return res.status(401).json({ error: "Invalid username or password" });
     }
 

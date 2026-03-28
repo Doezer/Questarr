@@ -410,13 +410,13 @@ describe("API Routes - Extended Coverage", () => {
       it("should return 400 when username is missing", async () => {
         const res = await request(app).post("/api/auth/login").send({ password: "password123" });
         expect(res.status).toBe(400);
-        expect(res.body.error).toBe("Username and password are required");
+        expect(res.body.error).toBe("Username and password are required and must be strings");
       });
 
       it("should return 400 when password is missing", async () => {
         const res = await request(app).post("/api/auth/login").send({ username: "testuser" });
         expect(res.status).toBe(400);
-        expect(res.body.error).toBe("Username and password are required");
+        expect(res.body.error).toBe("Username and password are required and must be strings");
       });
 
       it("should return 400 for non-string username", async () => {
@@ -424,7 +424,7 @@ describe("API Routes - Extended Coverage", () => {
           .post("/api/auth/login")
           .send({ username: 123, password: "password123" });
         expect(res.status).toBe(400);
-        expect(res.body.error).toBe("Username and password are required");
+        expect(res.body.error).toBe("Username and password are required and must be strings");
       });
 
       it("should trim username and password before authentication", async () => {
@@ -434,13 +434,17 @@ describe("API Routes - Extended Coverage", () => {
           passwordHash: "hashed",
         } as unknown as User);
         vi.mocked(storage.assignOrphanGamesToUser).mockResolvedValue(undefined);
-        vi.mocked(comparePassword).mockResolvedValue(true);
+        // Raw password fails (no stored hash with whitespace); trimmed password succeeds.
+        vi.mocked(comparePassword)
+          .mockResolvedValueOnce(false) // raw "  password123  "
+          .mockResolvedValueOnce(true); // trimmed "password123"
 
         const res = await request(app)
           .post("/api/auth/login")
           .send({ username: "  testuser  ", password: "  password123  " });
         expect(res.status).toBe(200);
         expect(storage.getUserByUsername).toHaveBeenCalledWith("testuser");
+        expect(comparePassword).toHaveBeenCalledWith("  password123  ", "hashed");
         expect(comparePassword).toHaveBeenCalledWith("password123", "hashed");
       });
     });

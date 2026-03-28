@@ -155,6 +155,11 @@ export default function Downloads() {
     setDetailsModalOpen(true);
   };
 
+  const invalidateDownloadCaches = () => {
+    queryClient.invalidateQueries({ queryKey: ["/api/downloads"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/downloads/summary"] });
+  };
+
   const pauseMutation = useMutation({
     mutationFn: async ({
       downloaderId,
@@ -181,7 +186,7 @@ export default function Downloads() {
     onSuccess: (result) => {
       if (result.success) {
         toast({ title: "Download paused" });
-        queryClient.invalidateQueries({ queryKey: ["/api/downloads"] });
+        invalidateDownloadCaches();
       } else {
         toast({ title: result.message || "Failed to pause download", variant: "destructive" });
       }
@@ -217,7 +222,7 @@ export default function Downloads() {
     onSuccess: (result) => {
       if (result.success) {
         toast({ title: "Download resumed" });
-        queryClient.invalidateQueries({ queryKey: ["/api/downloads"] });
+        invalidateDownloadCaches();
       } else {
         toast({ title: result.message || "Failed to resume download", variant: "destructive" });
       }
@@ -255,7 +260,7 @@ export default function Downloads() {
     onSuccess: (result) => {
       if (result.success) {
         toast({ title: "Download removed" });
-        queryClient.invalidateQueries({ queryKey: ["/api/downloads"] });
+        invalidateDownloadCaches();
       } else {
         toast({ title: result.message || "Failed to remove download", variant: "destructive" });
       }

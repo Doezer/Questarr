@@ -4,12 +4,15 @@ import { Download, Info, Star, Calendar, Eye, EyeOff, Loader2 } from "lucide-rea
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import StatusBadge, { type GameStatus } from "./StatusBadge";
-import { type Game } from "@shared/schema";
+import { type Game, type DownloadSummary } from "@shared/schema";
+import DownloadIndicator from "./DownloadIndicator";
+import SearchResultsBadge from "./SearchResultsBadge";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { mapGameToInsertGame, isDiscoveryId, cn, getNextStatusLabel } from "@/lib/utils";
 import { apiRequest, ApiError } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import LazyModalFallback from "./LazyModalFallback";
+import { getReleaseStatus } from "@/lib/game-utils";
 
 // ⚡ Bolt: Lazy load heavy modal components to reduce initial bundle size.
 // These are only needed when the user interacts with the card.
@@ -23,32 +26,7 @@ interface CompactGameCardProps {
   onToggleHidden?: (gameId: string, hidden: boolean) => void;
   isDiscovery?: boolean;
   density?: "comfortable" | "compact" | "ultra-compact";
-}
-
-function getReleaseStatus(game: Game): {
-  label: string;
-  variant: "default" | "secondary" | "outline" | "destructive";
-  isReleased: boolean;
-  className?: string;
-} {
-  if (game.releaseStatus === "delayed") {
-    return { label: "Delayed", variant: "destructive", isReleased: false };
-  }
-
-  if (!game.releaseDate) return { label: "TBA", variant: "secondary", isReleased: false };
-
-  const now = new Date();
-  const release = new Date(game.releaseDate);
-
-  if (release > now) {
-    return { label: "Upcoming", variant: "default", isReleased: false };
-  }
-  return {
-    label: "Released",
-    variant: "outline",
-    isReleased: true,
-    className: "bg-green-500 border-green-600 text-white",
-  };
+  downloadSummary?: DownloadSummary;
 }
 
 const getNextStatusInfo = (status: GameStatus): { id: GameStatus; label: string } => {
@@ -64,6 +42,7 @@ const CompactGameCard = ({
   onToggleHidden,
   isDiscovery = false,
   density = "comfortable",
+  downloadSummary,
 }: CompactGameCardProps) => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -194,11 +173,13 @@ const CompactGameCard = ({
             >
               {game.title}
             </h3>
+            <DownloadIndicator summary={downloadSummary} variant="inline" />
             {!isDiscovery && game.status && (
               <div className={density !== "comfortable" ? "scale-90 origin-left" : ""}>
                 <StatusBadge status={game.status} />
               </div>
             )}
+            <SearchResultsBadge visible={game.searchResultsAvailable ?? false} variant="inline" />
           </div>
 
           <div

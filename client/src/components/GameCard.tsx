@@ -5,13 +5,16 @@ import { Download, Info, Star, Calendar, Eye, EyeOff, Loader2 } from "lucide-rea
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import StatusBadge, { type GameStatus } from "./StatusBadge";
-import { type Game } from "@shared/schema";
+import { type Game, type DownloadSummary } from "@shared/schema";
+import DownloadIndicator from "./DownloadIndicator";
+import SearchResultsBadge from "./SearchResultsBadge";
 import { useState, memo, useRef, useEffect, lazy, Suspense } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { mapGameToInsertGame, isDiscoveryId, getNextStatusLabel } from "@/lib/utils";
 import { apiRequest, ApiError } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import LazyModalFallback from "./LazyModalFallback";
+import { getReleaseStatus } from "@/lib/game-utils";
 
 // ⚡ Bolt: Lazy load heavy modal components to reduce initial bundle size.
 // These are only needed when the user interacts with the card.
@@ -25,32 +28,7 @@ interface GameCardProps {
   onTrackGame?: (game: Game) => void;
   onToggleHidden?: (gameId: string, hidden: boolean) => void;
   isDiscovery?: boolean;
-}
-
-function getReleaseStatus(game: Game): {
-  label: string;
-  variant: "default" | "secondary" | "outline" | "destructive";
-  isReleased: boolean;
-  className?: string;
-} {
-  if (game.releaseStatus === "delayed") {
-    return { label: "Delayed", variant: "destructive", isReleased: false };
-  }
-
-  if (!game.releaseDate) return { label: "TBA", variant: "secondary", isReleased: false };
-
-  const now = new Date();
-  const release = new Date(game.releaseDate);
-
-  if (release > now) {
-    return { label: "Upcoming", variant: "default", isReleased: false };
-  }
-  return {
-    label: "Released",
-    variant: "outline",
-    isReleased: true,
-    className: "bg-green-500 border-green-600 text-white",
-  };
+  downloadSummary?: DownloadSummary;
 }
 
 // ⚡ Bolt: Using React.memo to prevent unnecessary re-renders of the GameCard
@@ -63,6 +41,7 @@ const GameCard = ({
   onTrackGame,
   onToggleHidden,
   isDiscovery = false,
+  downloadSummary,
 }: GameCardProps) => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -167,6 +146,7 @@ const GameCard = ({
           loading="lazy"
           data-testid={`img-cover-${game.id}`}
         />
+        <DownloadIndicator summary={downloadSummary} />
         <div className="absolute top-2 right-2 flex flex-col gap-1">
           {!isDiscovery && game.status && <StatusBadge status={game.status} />}
           {game.status === "wanted" && (
@@ -183,6 +163,7 @@ const GameCard = ({
             </Badge>
           )}
         </div>
+        <SearchResultsBadge visible={game.searchResultsAvailable ?? false} />
         <div
           onClick={(e) => e.stopPropagation()}
           className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-200 rounded-t-md flex items-center justify-center gap-2"

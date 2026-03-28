@@ -309,6 +309,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
           results.length > 1 ? `Added ${successCount} of ${results.length} downloads` : undefined,
       });
       queryClient.invalidateQueries({ queryKey: ["/api/downloads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/downloads/summary"] });
       onOpenChange(false);
     },
     onError: (error: Error) => {
@@ -346,6 +347,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       if (result.success) {
         toast({ title: `Download sent to ${variables.downloaderName}` });
         queryClient.invalidateQueries({ queryKey: ["/api/downloads"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/downloads/summary"] });
         onOpenChange(false);
       } else {
         toast({ title: result.message || "Failed to start download", variant: "destructive" });

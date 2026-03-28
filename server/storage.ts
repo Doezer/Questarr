@@ -10,6 +10,7 @@ import {
   type InsertDownloader,
   type GameDownload,
   type InsertGameDownload,
+  type DownloadSummary,
   type Notification,
   type InsertNotification,
   type UserSettings,
@@ -36,6 +37,20 @@ import {
 import { randomUUID } from "crypto";
 import { db } from "./db.js";
 import { eq, like, or, sql, desc, and, inArray, type SQL } from "drizzle-orm";
+
+const STATUS_PRIORITY: Record<string, number> = {
+  failed: 4,
+  downloading: 3,
+  paused: 2,
+  completed: 1,
+};
+
+function resolveTopStatus(
+  a: DownloadSummary["topStatus"],
+  b: DownloadSummary["topStatus"]
+): DownloadSummary["topStatus"] {
+  return (STATUS_PRIORITY[a] ?? 0) >= (STATUS_PRIORITY[b] ?? 0) ? a : b;
+}
 
 export interface IStorage {
   // System Config methods
@@ -64,6 +79,7 @@ export interface IStorage {
   addGame(game: InsertGame): Promise<Game>;
   updateGameStatus(id: string, statusUpdate: UpdateGameStatus): Promise<Game | undefined>;
   updateGameHidden(id: string, hidden: boolean): Promise<Game | undefined>;
+  updateGameSearchResultsAvailable(gameId: string, available: boolean): Promise<void>;
   updateGame(id: string, updates: Partial<Game>): Promise<Game | undefined>;
   updateGamesBatch(updates: { id: string; data: Partial<Game> }[]): Promise<void>;
   removeGame(id: string): Promise<boolean>;
@@ -92,6 +108,7 @@ export interface IStorage {
   getDownloadingGameDownloads(): Promise<GameDownload[]>;
   updateGameDownloadStatus(id: string, status: string): Promise<void>;
   addGameDownload(gameDownload: InsertGameDownload): Promise<GameDownload>;
+  getDownloadSummaryByGame(): Promise<Record<string, DownloadSummary>>;
 
   // Notification methods
   getNotifications(limit?: number): Promise<Notification[]>;
@@ -309,6 +326,7 @@ export class MemStorage implements IStorage {
       steamAppId: insertGame.steamAppId || null,
       originalReleaseDate: insertGame.originalReleaseDate || null,
       releaseStatus: insertGame.releaseStatus || "upcoming",
+      searchResultsAvailable: false,
       addedAt: new Date(),
       completedAt: null,
     };
@@ -341,6 +359,14 @@ export class MemStorage implements IStorage {
 
     this.games.set(id, updatedGame);
     return updatedGame;
+  }
+
+  async updateGameSearchResultsAvailable(gameId: string, available: boolean): Promise<void> {
+    const game = this.games.get(gameId);
+    if (game) {
+      game.searchResultsAvailable = available;
+      this.games.set(gameId, game);
+    }
   }
 
   async updateGame(id: string, updates: Partial<Game>): Promise<Game | undefined> {
@@ -599,6 +625,29 @@ export class MemStorage implements IStorage {
     };
     this.gameDownloads.set(id, gameDownload);
     return gameDownload;
+  }
+
+  async getDownloadSummaryByGame(): Promise<Record<string, DownloadSummary>> {
+    const result: Record<string, DownloadSummary> = {};
+    for (const gd of Array.from(this.gameDownloads.values())) {
+      const gameId = gd.gameId;
+      const status = gd.status as DownloadSummary["topStatus"];
+      const downloadType = (gd.downloadType ?? "torrent") as "torrent" | "usenet";
+      if (!result[gameId]) {
+        result[gameId] = {
+          topStatus: status,
+          count: 1,
+          downloadTypes: [downloadType],
+        };
+      } else {
+        result[gameId].topStatus = resolveTopStatus(result[gameId].topStatus, status);
+        result[gameId].count += 1;
+        if (!result[gameId].downloadTypes.includes(downloadType)) {
+          result[gameId].downloadTypes.push(downloadType);
+        }
+      }
+    }
+    return result;
   }
 
   // Notification methods
@@ -1047,6 +1096,10 @@ export class DatabaseStorage implements IStorage {
     return updatedGame || undefined;
   }
 
+  async updateGameSearchResultsAvailable(gameId: string, available: boolean): Promise<void> {
+    await db.update(games).set({ searchResultsAvailable: available }).where(eq(games.id, gameId));
+  }
+
   async updateGame(id: string, updates: Partial<Game>): Promise<Game | undefined> {
     const [updatedGame] = await db.update(games).set(updates).where(eq(games.id, id)).returning();
 
@@ -1283,6 +1336,39 @@ export class DatabaseStorage implements IStorage {
       .values({ ...insertGameDownload, id })
       .returning();
     return gameDownload;
+  }
+
+  async getDownloadSummaryByGame(): Promise<Record<string, DownloadSummary>> {
+    const rows = await db
+      .select({
+        gameId: gameDownloads.gameId,
+        count: sql<number>`count(*)`,
+        topStatus: sql<string>`
+          CASE
+            WHEN sum(CASE WHEN ${gameDownloads.status} = 'failed' THEN 1 ELSE 0 END) > 0 THEN 'failed'
+            WHEN sum(CASE WHEN ${gameDownloads.status} = 'downloading' THEN 1 ELSE 0 END) > 0 THEN 'downloading'
+            WHEN sum(CASE WHEN ${gameDownloads.status} = 'paused' THEN 1 ELSE 0 END) > 0 THEN 'paused'
+            ELSE 'completed'
+          END
+        `,
+        downloadTypes: sql<string>`group_concat(DISTINCT ${gameDownloads.downloadType})`,
+      })
+      .from(gameDownloads)
+      .groupBy(gameDownloads.gameId);
+
+    return Object.fromEntries(
+      rows.map((row) => [
+        row.gameId,
+        {
+          topStatus: row.topStatus as DownloadSummary["topStatus"],
+          count: row.count,
+          downloadTypes: (row.downloadTypes ?? "torrent").split(",").filter(Boolean) as (
+            | "torrent"
+            | "usenet"
+          )[],
+        },
+      ])
+    );
   }
 
   // Notification methods

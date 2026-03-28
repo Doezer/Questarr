@@ -659,6 +659,7 @@ export async function checkAutoSearch() {
                   link: `modal:game:${game.id}`,
                 });
                 notifyUser("notification", notification);
+                await storage.updateGameSearchResultsAvailable(game.id, true);
               }
             } else if (mainItems.length > 1 && settings.notifyMultipleDownloads) {
               // Multiple results found, notify user to choose
@@ -670,6 +671,7 @@ export async function checkAutoSearch() {
                 link: `modal:game:${game.id}`,
               });
               notifyUser("notification", notification);
+              await storage.updateGameSearchResultsAvailable(game.id, true);
             }
           } catch (error) {
             igdbLogger.error({ gameTitle: game.title, error }, "Error searching for game");

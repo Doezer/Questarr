@@ -1,11 +1,15 @@
 import React from "react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
-import { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+type IconComponent = React.ComponentType<{
+  className?: string;
+  "aria-hidden"?: boolean | "true" | "false";
+}>;
+
 interface EmptyStateProps {
-  icon: LucideIcon;
+  icon: IconComponent;
   title: string;
   description: string;
   actionLabel?: string;

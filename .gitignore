@@ -21,7 +21,6 @@ gha-creds-*.json
 coverage/
 playwright*/
 test-results/
-*.junit.xml
 
 # SQLite
 
@@ -37,4 +36,3 @@ notes/
 sqlite.db*
 pr_status.json
 .omc/
-.sonarlint/connectedMode.json

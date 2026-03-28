@@ -39,6 +39,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, clearSearchCache } from "@/lib/queryClient";
 import AutoDownloadRulesSettings from "@/components/AutoDownloadRulesSettings";
+import PreferredReleaseGroupsSettings from "@/components/PreferredReleaseGroupsSettings";
 import PasswordSettings from "@/components/PasswordSettings";
 import type { Config, UserSettings, DownloadRules } from "@shared/schema";
 import { downloadRulesSchema } from "@shared/schema";
@@ -103,6 +104,8 @@ export default function SettingsPage() {
   const [igdbClientSecret, setIgdbClientSecret] = useState("");
   const [showClientSecret, setShowClientSecret] = useState(false);
   const [downloadRules, setDownloadRules] = useState<DownloadRules | null>(null);
+  const [preferredReleaseGroups, setPreferredReleaseGroups] = useState<string[]>([]);
+  const [filterByPreferredGroups, setFilterByPreferredGroups] = useState(false);
   const [xrelSceneReleases, setXrelSceneReleases] = useState(true);
   const [xrelP2pReleases, setXrelP2pReleases] = useState(false);
   const [xrelApiBase, setXrelApiBase] = useState("");
@@ -131,6 +134,16 @@ export default function SettingsPage() {
       } else {
         setDownloadRules(null);
       }
+      if (userSettings.preferredReleaseGroups) {
+        try {
+          setPreferredReleaseGroups(JSON.parse(userSettings.preferredReleaseGroups) as string[]);
+        } catch {
+          setPreferredReleaseGroups([]);
+        }
+      } else {
+        setPreferredReleaseGroups([]);
+      }
+      setFilterByPreferredGroups(userSettings.filterByPreferredGroups ?? false);
       setXrelSceneReleases(userSettings.xrelSceneReleases ?? true);
       setXrelP2pReleases(userSettings.xrelP2pReleases ?? false);
     }
@@ -678,6 +691,12 @@ export default function SettingsPage() {
               rules={downloadRules}
               onChange={setDownloadRules}
               onReset={() => setDownloadRules(null)}
+            />
+            <PreferredReleaseGroupsSettings
+              preferredGroups={preferredReleaseGroups}
+              filterByPreferredGroups={filterByPreferredGroups}
+              onGroupsChange={setPreferredReleaseGroups}
+              onFilterChange={setFilterByPreferredGroups}
             />
           </TabsContent>
 

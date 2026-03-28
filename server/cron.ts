@@ -595,7 +595,22 @@ export async function checkAutoSearch() {
 
             gamesWithResults++;
 
-            const { mainItems } = searchResult;
+            let { mainItems } = searchResult;
+
+            // Filter by preferred release groups if configured
+            const preferredGroups: string[] = settings.preferredReleaseGroups
+              ? (JSON.parse(settings.preferredReleaseGroups) as string[])
+              : [];
+            if (preferredGroups.length > 0) {
+              const preferredItems = mainItems.filter(
+                (item) =>
+                  item.group &&
+                  preferredGroups.some((g) => g.toLowerCase() === item.group!.toLowerCase())
+              );
+              if (preferredItems.length > 0) {
+                mainItems = preferredItems;
+              }
+            }
 
             // Handle main items
             if (mainItems.length === 0) {
@@ -631,11 +646,12 @@ export async function checkAutoSearch() {
                       await storage.updateGameStatus(game.id, { status: "downloading" });
 
                       // Notify success
+                      const groupSuffix = item.group ? ` [${item.group}]` : "";
                       const notification = await storage.addNotification({
                         userId,
                         type: "success",
                         title: "Download Started",
-                        message: `Started downloading ${game.title} via ${item.downloadType === "usenet" ? "Usenet" : "Torrent"}`,
+                        message: `Started downloading ${game.title}${groupSuffix} via ${item.downloadType === "usenet" ? "Usenet" : "Torrent"}`,
                         link: "/library",
                       });
                       notifyUser("notification", notification);

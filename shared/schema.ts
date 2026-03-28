@@ -34,6 +34,10 @@ export const userSettings = sqliteTable("user_settings", {
     .notNull()
     .default(false),
   steamSyncFailures: integer("steam_sync_failures").notNull().default(0),
+  preferredReleaseGroups: text("preferred_release_groups"),
+  filterByPreferredGroups: integer("filter_by_preferred_groups", { mode: "boolean" })
+    .notNull()
+    .default(false),
   updatedAt: integer("updated_at", { mode: "timestamp" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),

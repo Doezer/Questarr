@@ -170,7 +170,21 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         console.warn("Failed to apply download rules from settings", error);
       }
     }
-  }, [userSettings?.downloadRules]);
+    if (userSettings?.filterByPreferredGroups && userSettings.preferredReleaseGroups) {
+      try {
+        const groups = JSON.parse(userSettings.preferredReleaseGroups) as string[];
+        if (groups.length > 0) {
+          setSelectedGroups(groups);
+        }
+      } catch {
+        // ignore malformed JSON
+      }
+    }
+  }, [
+    userSettings?.downloadRules,
+    userSettings?.filterByPreferredGroups,
+    userSettings?.preferredReleaseGroups,
+  ]);
 
   // Auto-populate search when dialog opens with game title
   useEffect(() => {

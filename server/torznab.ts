@@ -323,15 +323,32 @@ export class TorznabClient {
         if (linkUrl.protocol === "http:" || linkUrl.protocol === "https:") {
           const indexerUrlObj = new URL(indexerUrl);
 
-          // If the link uses a different port or host than the configured indexer,
-          // but shares the same path structure (heuristic), we force the configured URL.
-          // We assume that the path part returned by the indexer is correct relative to the base.
-
-          linkUrl.protocol = indexerUrlObj.protocol;
-          linkUrl.host = indexerUrlObj.host; // overrides port too
-
-          // Use the modified URL
-          torznabItem.link = linkUrl.toString();
+          if (linkUrl.host !== indexerUrlObj.host) {
+            // Check if this is a Prowlarr indexer URL (pattern: /{numericId}/api).
+            // When Prowlarr returns a raw external download URL (e.g. from a Cloudflare-protected
+            // indexer), a naive host swap would produce an invalid path on Prowlarr. Instead,
+            // construct a proper Prowlarr download proxy URL so the request goes through
+            // Prowlarr — which has FlareSolverr configured to bypass Cloudflare.
+            const prowlarrMatch = indexerUrlObj.pathname.match(/^\/(\d+)\/api\/?$/i);
+            if (prowlarrMatch && indexer?.apiKey) {
+              const prowlarrIndexerId = prowlarrMatch[1];
+              const prowlarrBase = `${indexerUrlObj.protocol}//${indexerUrlObj.host}`;
+              const encodedLink = encodeURIComponent(
+                Buffer.from(torznabItem.link).toString("base64")
+              );
+              const fileName = encodeURIComponent(torznabItem.title || "download");
+              const apiKey = encodeURIComponent(indexer.apiKey);
+              torznabItem.link = `${prowlarrBase}/${prowlarrIndexerId}/download?file=${fileName}&link=${encodedLink}&apikey=${apiKey}`;
+            } else {
+              // Standard host rewrite for reverse-proxy / seedbox setups where the indexer
+              // returns its internal address but should be reached via the configured URL.
+              linkUrl.protocol = indexerUrlObj.protocol;
+              linkUrl.host = indexerUrlObj.host;
+              torznabItem.link = linkUrl.toString();
+            }
+          }
+          // If hosts already match the configured indexer (e.g. Prowlarr already returned its
+          // own proxy URL), leave the link unchanged.
         }
       } catch {
         // Ignore invalid URLs or parsing errors

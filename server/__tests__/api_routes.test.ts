@@ -271,6 +271,17 @@ describe("API Routes - Extended Coverage", () => {
   });
 
   // ─── Auth routes ───
+  const mockUserHashed = {
+    id: "user-1",
+    username: "testuser",
+    passwordHash: "hashed",
+  } as unknown as User;
+  const mockUserOldHash = {
+    id: "user-1",
+    username: "testuser",
+    passwordHash: "old-hash",
+  } as unknown as User;
+
   describe("Auth routes", () => {
     describe("GET /api/auth/status", () => {
       it("should return hasUsers true when users exist", async () => {
@@ -394,11 +405,7 @@ describe("API Routes - Extended Coverage", () => {
 
     describe("POST /api/auth/login", () => {
       it("should return 401 for invalid credentials", async () => {
-        vi.mocked(storage.getUserByUsername).mockResolvedValue({
-          id: "user-1",
-          username: "testuser",
-          passwordHash: "hashed",
-        } as unknown as User);
+        vi.mocked(storage.getUserByUsername).mockResolvedValue(mockUserHashed);
         vi.mocked(comparePassword).mockResolvedValue(false);
 
         const res = await request(app)
@@ -428,11 +435,7 @@ describe("API Routes - Extended Coverage", () => {
       });
 
       it("should trim username and password before authentication", async () => {
-        vi.mocked(storage.getUserByUsername).mockResolvedValue({
-          id: "user-1",
-          username: "testuser",
-          passwordHash: "hashed",
-        } as unknown as User);
+        vi.mocked(storage.getUserByUsername).mockResolvedValue(mockUserHashed);
         vi.mocked(storage.assignOrphanGamesToUser).mockResolvedValue(undefined);
         // Raw password fails (no stored hash with whitespace); trimmed password succeeds.
         vi.mocked(comparePassword)
@@ -460,11 +463,7 @@ describe("API Routes - Extended Coverage", () => {
 
     describe("PATCH /api/auth/password", () => {
       it("should update password successfully", async () => {
-        vi.mocked(storage.getUser).mockResolvedValue({
-          id: "user-1",
-          username: "testuser",
-          passwordHash: "old-hash",
-        } as unknown as User);
+        vi.mocked(storage.getUser).mockResolvedValue(mockUserOldHash);
         vi.mocked(comparePassword).mockResolvedValue(true);
         vi.mocked(storage.updateUserPassword).mockResolvedValue(undefined);
 
@@ -489,11 +488,7 @@ describe("API Routes - Extended Coverage", () => {
       });
 
       it("should return 401 for incorrect current password", async () => {
-        vi.mocked(storage.getUser).mockResolvedValue({
-          id: "user-1",
-          username: "testuser",
-          passwordHash: "old-hash",
-        } as unknown as User);
+        vi.mocked(storage.getUser).mockResolvedValue(mockUserOldHash);
         vi.mocked(comparePassword).mockResolvedValue(false);
 
         const res = await request(app).patch("/api/auth/password").send({
@@ -523,11 +518,7 @@ describe("API Routes - Extended Coverage", () => {
       });
 
       it("should trim whitespace from passwords before validation", async () => {
-        vi.mocked(storage.getUser).mockResolvedValue({
-          id: "user-1",
-          username: "testuser",
-          passwordHash: "old-hash",
-        } as unknown as User);
+        vi.mocked(storage.getUser).mockResolvedValue(mockUserOldHash);
         vi.mocked(comparePassword).mockResolvedValue(true);
         vi.mocked(storage.updateUserPassword).mockResolvedValue(undefined);
 

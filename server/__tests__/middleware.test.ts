@@ -417,7 +417,7 @@ describe("Middleware - Input Sanitization", () => {
       }
 
       expect(req.body.name).toBe("My Downloader");
-      expect(req.body.url).toBe("192.168.1.1");
+      expect(req.body.url).toBe("192.168.1.1"); // NOSONAR — private IP is intentional test data
       expect(req.body.username).toBe("admin");
       expect(req.body.password).toBe("secret");
       expect(req.body.urlPath).toBe("/api");

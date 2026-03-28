@@ -26,6 +26,7 @@ const mockGetUserGames = vi.fn();
 const mockGetUserSettings = vi.fn();
 const mockUpdateUserSettings = vi.fn();
 const mockAddNotification = vi.fn();
+const mockUpdateGameSearchResultsAvailable = vi.fn();
 
 vi.mock("../storage.js", () => ({
   storage: {
@@ -34,6 +35,7 @@ vi.mock("../storage.js", () => ({
     getUserSettings: mockGetUserSettings,
     updateUserSettings: mockUpdateUserSettings,
     addNotification: mockAddNotification,
+    updateGameSearchResultsAvailable: mockUpdateGameSearchResultsAvailable,
     // Other methods that might be called (though ideally we isolate the test enough)
     getEnabledDownloaders: vi.fn().mockResolvedValue([]),
   },
@@ -356,5 +358,66 @@ describe("Cron - checkAutoSearch", () => {
     expect(mockAddNotification).not.toHaveBeenCalledWith(
       expect.objectContaining({ title: "Game Updates Available" })
     );
+  });
+
+  it("should mark search results available when single main result found and auto-download disabled", async () => {
+    const game = { ...baseGame, status: "wanted" as const, releaseStatus: "released" as const };
+    const settings = { ...baseSettings, autoDownloadEnabled: false };
+
+    mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [game]]]));
+    mockGetUserSettings.mockResolvedValue(settings);
+    mockSearchAllIndexers.mockResolvedValue({
+      items: [
+        {
+          title: "Test Game",
+          link: "https://example.com/download",
+          pubDate: FIXED_PUB_DATE,
+          seeders: 50,
+          size: 10_000,
+        },
+      ],
+      errors: [],
+      total: 1,
+    });
+
+    await checkAutoSearch();
+
+    expect(mockUpdateGameSearchResultsAvailable).toHaveBeenCalledWith(game.id, true);
+  });
+
+  it("should mark search results available when multiple main results found with notifyMultipleDownloads", async () => {
+    const game = { ...baseGame, status: "wanted" as const, releaseStatus: "released" as const };
+    const settings = {
+      ...baseSettings,
+      autoDownloadEnabled: false,
+      notifyMultipleDownloads: true,
+    };
+
+    mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [game]]]));
+    mockGetUserSettings.mockResolvedValue(settings);
+    mockSearchAllIndexers.mockResolvedValue({
+      items: [
+        {
+          title: "Test Game",
+          link: "https://example.com/1",
+          pubDate: FIXED_PUB_DATE,
+          seeders: 50,
+          size: 10_000,
+        },
+        {
+          title: "Test Game v2",
+          link: "https://example.com/2",
+          pubDate: FIXED_PUB_DATE,
+          seeders: 30,
+          size: 8_000,
+        },
+      ],
+      errors: [],
+      total: 2,
+    });
+
+    await checkAutoSearch();
+
+    expect(mockUpdateGameSearchResultsAvailable).toHaveBeenCalledWith(game.id, true);
   });
 });

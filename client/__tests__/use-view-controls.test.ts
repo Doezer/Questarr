@@ -39,4 +39,16 @@ describe("useViewControls", () => {
 
     expect(localStorage.getItem("wishlistViewMode")).toBe("list");
   });
+
+  it("falls back to grid when stored viewMode is invalid", () => {
+    localStorage.setItem("libraryViewMode", "invalid-mode");
+    const { result } = renderHook(() => useViewControls("library"));
+    expect(result.current.viewMode).toBe("grid");
+  });
+
+  it("falls back to comfortable when stored listDensity is invalid", () => {
+    localStorage.setItem("libraryListDensity", "super-dense");
+    const { result } = renderHook(() => useViewControls("library"));
+    expect(result.current.listDensity).toBe("comfortable");
+  });
 });

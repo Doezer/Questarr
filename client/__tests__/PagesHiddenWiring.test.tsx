@@ -146,3 +146,84 @@ describe("Page hidden wiring", () => {
     ).toBe(true);
   });
 });
+
+describe("LibraryPage filter buttons", () => {
+  const gameWithDownload = {
+    id: TEST_GAME_ID,
+    title: "Downloaded Game",
+    status: "owned",
+    hidden: false,
+    releaseDate: null,
+    addedAt: new Date().toISOString(),
+    searchResultsAvailable: false,
+  };
+
+  const gameWithSearchResult = {
+    id: "22222222-2222-2222-2222-222222222222",
+    title: "Search Result Game",
+    status: "owned",
+    hidden: false,
+    releaseDate: null,
+    addedAt: new Date().toISOString(),
+    searchResultsAvailable: true,
+  };
+
+  beforeEach(() => {
+    localStorage.clear();
+    gameGridSpy.mockClear();
+
+    global.fetch = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/downloads/summary")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            [TEST_GAME_ID]: { topStatus: "downloading", count: 1, downloadTypes: ["torrent"] },
+          }),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => [gameWithDownload, gameWithSearchResult],
+      } as Response);
+    });
+  });
+
+  it("filters to games with downloads when hasDownloads button toggled", async () => {
+    renderWithQueryClient(<LibraryPage />);
+
+    // Wait for both games to appear in initial render
+    await waitFor(() => {
+      const calls = gameGridSpy.mock.calls;
+      const lastGames = calls[calls.length - 1]?.[0]?.games;
+      expect(lastGames).toHaveLength(2);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Show games with downloads only" }));
+
+    await waitFor(() => {
+      const calls = gameGridSpy.mock.calls;
+      const lastGames = calls[calls.length - 1]?.[0]?.games;
+      expect(lastGames).toHaveLength(1);
+      expect(lastGames[0].id).toBe(TEST_GAME_ID);
+    });
+  });
+
+  it("filters to games with search results when search results button toggled", async () => {
+    renderWithQueryClient(<LibraryPage />);
+
+    await waitFor(() => {
+      const calls = gameGridSpy.mock.calls;
+      expect(calls[calls.length - 1]?.[0]?.games).toHaveLength(2);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Show games with search results only" }));
+
+    await waitFor(() => {
+      const calls = gameGridSpy.mock.calls;
+      const lastGames = calls[calls.length - 1]?.[0]?.games;
+      expect(lastGames).toHaveLength(1);
+      expect(lastGames[0].id).toBe("22222222-2222-2222-2222-222222222222");
+    });
+  });
+});

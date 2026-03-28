@@ -16,6 +16,24 @@ vi.mock("lucide-react", async (importOriginal) => {
   };
 });
 
+// Mock Radix UI DropdownMenu — renders content inline so items are always accessible
+vi.mock("@/components/ui/dropdown-menu", () => ({
+  DropdownMenu: ({ children }: React.PropsWithChildren) => <>{children}</>,
+  DropdownMenuTrigger: ({ children }: React.PropsWithChildren<{ asChild?: boolean }>) => (
+    <>{children}</>
+  ),
+  DropdownMenuContent: ({ children }: React.PropsWithChildren) => (
+    <div data-testid="dropdown-content">{children}</div>
+  ),
+  DropdownMenuItem: ({ children, onClick }: React.PropsWithChildren<{ onClick?: () => void }>) => (
+    <button role="menuitem" onClick={onClick}>
+      {children}
+    </button>
+  ),
+  DropdownMenuLabel: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
+  DropdownMenuSeparator: () => null,
+}));
+
 describe("ViewControlsToolbar", () => {
   const defaultProps = {
     viewMode: "grid" as const,
@@ -32,13 +50,13 @@ describe("ViewControlsToolbar", () => {
 
   it("does not show density dropdown in grid mode", () => {
     render(<ViewControlsToolbar {...defaultProps} viewMode="grid" />);
-    expect(screen.queryByText("Comfortable")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("dropdown-content")).not.toBeInTheDocument();
   });
 
-  it("shows density dropdown in list mode", async () => {
+  it("shows density options in list mode", () => {
     render(<ViewControlsToolbar {...defaultProps} viewMode="list" />);
-    // The trigger button shows the current density label
-    expect(screen.getByText("Comfortable")).toBeInTheDocument();
+    expect(screen.getByTestId("dropdown-content")).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Comfortable" })).toBeInTheDocument();
   });
 
   it("calls onViewModeChange when list toggle clicked", () => {
@@ -48,8 +66,49 @@ describe("ViewControlsToolbar", () => {
     expect(onViewModeChange).toHaveBeenCalledWith("list");
   });
 
-  it("shows density label in list mode trigger button", () => {
+  it("shows current density label in list mode trigger button", () => {
     render(<ViewControlsToolbar {...defaultProps} viewMode="list" listDensity="compact" />);
-    expect(screen.getByText("Compact")).toBeInTheDocument();
+    // The trigger button span shows the current density
+    expect(screen.getAllByText("Compact").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("calls onListDensityChange with compact when Compact item clicked", () => {
+    const onListDensityChange = vi.fn();
+    render(
+      <ViewControlsToolbar
+        {...defaultProps}
+        viewMode="list"
+        onListDensityChange={onListDensityChange}
+      />
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: "Compact" }));
+    expect(onListDensityChange).toHaveBeenCalledWith("compact");
+  });
+
+  it("calls onListDensityChange with ultra-compact when Ultra-compact item clicked", () => {
+    const onListDensityChange = vi.fn();
+    render(
+      <ViewControlsToolbar
+        {...defaultProps}
+        viewMode="list"
+        onListDensityChange={onListDensityChange}
+      />
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: "Ultra-compact" }));
+    expect(onListDensityChange).toHaveBeenCalledWith("ultra-compact");
+  });
+
+  it("calls onListDensityChange with comfortable when Comfortable item clicked", () => {
+    const onListDensityChange = vi.fn();
+    render(
+      <ViewControlsToolbar
+        {...defaultProps}
+        viewMode="list"
+        listDensity="compact"
+        onListDensityChange={onListDensityChange}
+      />
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: "Comfortable" }));
+    expect(onListDensityChange).toHaveBeenCalledWith("comfortable");
   });
 });

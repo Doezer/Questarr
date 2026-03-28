@@ -103,7 +103,7 @@ function applyPreferredGroupsFilter(
 }
 
 async function searchAndCategorizeItemsForGame(
-  game: Pick<Game, "title">,
+  game: Pick<Game, "id" | "title">,
   downloadRules: string | null
 ): Promise<AutoSearchCategorizedItems | null> {
   const { items, errors } = await searchAllIndexers({
@@ -148,6 +148,21 @@ async function searchAndCategorizeItemsForGame(
     return null;
   }
 
+  // Filter out blacklisted releases
+  const blacklisted = await storage.getReleaseBlacklistSet(game.id);
+  const nonBlacklisted =
+    blacklisted.size > 0
+      ? matchedItems.filter((item) => !blacklisted.has(item.title))
+      : matchedItems;
+
+  if (nonBlacklisted.length === 0) {
+    igdbLogger.debug(
+      { gameTitle: game.title, matchedCount: matchedItems.length },
+      "All matched items were blacklisted"
+    );
+    return null;
+  }
+
   let rules: AutoSearchRules;
   try {
     rules = getAutoSearchRules(downloadRules);
@@ -156,7 +171,7 @@ async function searchAndCategorizeItemsForGame(
     rules = getAutoSearchRules(null);
   }
 
-  return categorizeSearchItems(matchedItems, rules);
+  return categorizeSearchItems(nonBlacklisted, rules);
 }
 
 export function startCronJobs() {

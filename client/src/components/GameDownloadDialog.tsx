@@ -55,6 +55,7 @@ import {
   ArrowUp,
   ArrowDown,
   Activity,
+  Ban,
 } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
@@ -194,8 +195,12 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     }
   }, [open, game, applyDownloadRules, setDefaults]);
 
+  const searchQueryKey = game?.id
+    ? `/api/search?query=${encodeURIComponent(debouncedSearchQuery)}&gameId=${game.id}`
+    : `/api/search?query=${encodeURIComponent(debouncedSearchQuery)}`;
+
   const { data: searchResults, isLoading: isSearching } = useQuery<SearchResult>({
-    queryKey: [`/api/search?query=${encodeURIComponent(debouncedSearchQuery)}`],
+    queryKey: [searchQueryKey],
     enabled: open && debouncedSearchQuery.trim().length > 0,
   });
 
@@ -371,6 +376,26 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         description: error.message,
         variant: "destructive",
       });
+    },
+  });
+
+  const blacklistMutation = useMutation({
+    mutationFn: async (item: DownloadItem) => {
+      if (!game) throw new Error("No game context");
+      await apiRequest("POST", `/api/games/${game.id}/blacklist`, {
+        releaseTitle: item.title,
+        indexerName: item.indexerName ?? null,
+      });
+    },
+    onSuccess: (_data, item) => {
+      queryClient.setQueryData<SearchResult>([searchQueryKey], (old) => {
+        if (!old) return old;
+        return { ...old, items: old.items.filter((i) => i.title !== item.title) };
+      });
+      toast({ description: "Release blacklisted" });
+    },
+    onError: () => {
+      toast({ variant: "destructive", description: "Failed to blacklist release" });
     },
   });
 
@@ -1031,6 +1056,13 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                             </DropdownMenuSub>
                                           );
                                         })()}
+                                        <DropdownMenuItem
+                                          onClick={() => blacklistMutation.mutate(download)}
+                                          className="text-destructive focus:text-destructive"
+                                        >
+                                          <Ban className="h-4 w-4 mr-2" />
+                                          Blacklist release
+                                        </DropdownMenuItem>
                                       </DropdownMenuContent>
                                     </DropdownMenu>
                                   </div>

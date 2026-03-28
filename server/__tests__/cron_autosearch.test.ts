@@ -42,6 +42,7 @@ vi.mock("../storage.js", () => ({
     updateGameStatus: mockUpdateGameStatus,
     addGameDownload: mockAddGameDownload,
     getEnabledDownloaders: mockGetEnabledDownloaders,
+    getReleaseBlacklistSet: vi.fn().mockResolvedValue(new Set()),
   },
 }));
 

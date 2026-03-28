@@ -22,6 +22,8 @@ import {
   type InsertRssFeed,
   type RssFeedItem,
   type InsertRssFeedItem,
+  type ReleaseBlacklist,
+  type InsertReleaseBlacklist,
   users,
   games,
   indexers,
@@ -33,6 +35,7 @@ import {
   xrelNotifiedReleases,
   rssFeeds,
   rssFeedItems,
+  releaseBlacklist,
 } from "../shared/schema.js";
 import { randomUUID } from "crypto";
 import { db } from "./db.js";
@@ -146,6 +149,13 @@ export interface IStorage {
   hasXrelNotifiedRelease(gameId: string, xrelReleaseId: string): Promise<boolean>;
   getGameIdsWithXrelReleases(): Promise<string[]>;
   getWantedGamesGroupedByUser(): Promise<Map<string, Game[]>>;
+
+  // Release blacklist methods
+  addReleaseBlacklist(entry: InsertReleaseBlacklist): Promise<ReleaseBlacklist>;
+  getReleaseBlacklist(gameId: string): Promise<ReleaseBlacklist[]>;
+  getAllReleaseBlacklists(userId: string): Promise<(ReleaseBlacklist & { gameTitle: string })[]>;
+  removeReleaseBlacklist(id: string): Promise<void>;
+  getReleaseBlacklistSet(gameId: string): Promise<Set<string>>;
 }
 
 export class MemStorage implements IStorage {
@@ -160,6 +170,7 @@ export class MemStorage implements IStorage {
   private xrelNotified: Map<string, XrelNotifiedRelease>;
   private rssFeeds: Map<string, RssFeed>;
   private rssFeedItems: Map<string, RssFeedItem>;
+  private releaseBlacklists: Map<string, ReleaseBlacklist>;
 
   constructor() {
     this.users = new Map();
@@ -173,6 +184,7 @@ export class MemStorage implements IStorage {
     this.xrelNotified = new Map();
     this.rssFeeds = new Map();
     this.rssFeedItems = new Map();
+    this.releaseBlacklists = new Map();
   }
 
   // System Config methods
@@ -861,6 +873,56 @@ export class MemStorage implements IStorage {
     const ids = new Set<string>();
     Array.from(this.xrelNotified.values()).forEach((r) => ids.add(r.gameId));
     return Array.from(ids);
+  }
+
+  async addReleaseBlacklist(entry: InsertReleaseBlacklist): Promise<ReleaseBlacklist> {
+    const existing = Array.from(this.releaseBlacklists.values()).find(
+      (r) => r.gameId === entry.gameId && r.releaseTitle === entry.releaseTitle
+    );
+    if (existing) return existing;
+    const id = randomUUID();
+    const record: ReleaseBlacklist = {
+      id,
+      gameId: entry.gameId,
+      releaseTitle: entry.releaseTitle,
+      indexerName: entry.indexerName ?? null,
+      createdAt: new Date(),
+    };
+    this.releaseBlacklists.set(id, record);
+    return record;
+  }
+
+  async getReleaseBlacklist(gameId: string): Promise<ReleaseBlacklist[]> {
+    return Array.from(this.releaseBlacklists.values())
+      .filter((r) => r.gameId === gameId)
+      .sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0));
+  }
+
+  async getAllReleaseBlacklists(
+    userId: string
+  ): Promise<(ReleaseBlacklist & { gameTitle: string })[]> {
+    const userGames = Array.from(this.games.values()).filter((g) => g.userId === userId);
+    const gameMap = new Map(userGames.map((g) => [g.id, g.title]));
+    return Array.from(this.releaseBlacklists.values())
+      .filter((r) => gameMap.has(r.gameId))
+      .map((r) => ({ ...r, gameTitle: gameMap.get(r.gameId)! }))
+      .sort((a, b) => {
+        const titleCmp = a.gameTitle.localeCompare(b.gameTitle);
+        return titleCmp !== 0
+          ? titleCmp
+          : (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0);
+      });
+  }
+
+  async removeReleaseBlacklist(id: string): Promise<void> {
+    this.releaseBlacklists.delete(id);
+  }
+
+  async getReleaseBlacklistSet(gameId: string): Promise<Set<string>> {
+    const titles = Array.from(this.releaseBlacklists.values())
+      .filter((r) => r.gameId === gameId)
+      .map((r) => r.releaseTitle);
+    return new Set(titles);
   }
 }
 
@@ -1551,6 +1613,72 @@ export class DatabaseStorage implements IStorage {
       .selectDistinct({ gameId: xrelNotifiedReleases.gameId })
       .from(xrelNotifiedReleases);
     return rows.map((r) => r.gameId);
+  }
+
+  async addReleaseBlacklist(entry: InsertReleaseBlacklist): Promise<ReleaseBlacklist> {
+    const id = randomUUID();
+    const [row] = await db
+      .insert(releaseBlacklist)
+      .values({
+        id,
+        gameId: entry.gameId,
+        releaseTitle: entry.releaseTitle,
+        indexerName: entry.indexerName ?? null,
+        createdAt: new Date(),
+      })
+      .onConflictDoNothing()
+      .returning();
+    if (!row) {
+      const [existing] = await db
+        .select()
+        .from(releaseBlacklist)
+        .where(
+          and(
+            eq(releaseBlacklist.gameId, entry.gameId),
+            eq(releaseBlacklist.releaseTitle, entry.releaseTitle)
+          )
+        );
+      return existing;
+    }
+    return row;
+  }
+
+  async getReleaseBlacklist(gameId: string): Promise<ReleaseBlacklist[]> {
+    return db
+      .select()
+      .from(releaseBlacklist)
+      .where(eq(releaseBlacklist.gameId, gameId))
+      .orderBy(desc(releaseBlacklist.createdAt));
+  }
+
+  async getAllReleaseBlacklists(
+    userId: string
+  ): Promise<(ReleaseBlacklist & { gameTitle: string })[]> {
+    return db
+      .select({
+        id: releaseBlacklist.id,
+        gameId: releaseBlacklist.gameId,
+        releaseTitle: releaseBlacklist.releaseTitle,
+        indexerName: releaseBlacklist.indexerName,
+        createdAt: releaseBlacklist.createdAt,
+        gameTitle: games.title,
+      })
+      .from(releaseBlacklist)
+      .innerJoin(games, eq(releaseBlacklist.gameId, games.id))
+      .where(eq(games.userId, userId))
+      .orderBy(games.title, desc(releaseBlacklist.createdAt));
+  }
+
+  async removeReleaseBlacklist(id: string): Promise<void> {
+    await db.delete(releaseBlacklist).where(eq(releaseBlacklist.id, id));
+  }
+
+  async getReleaseBlacklistSet(gameId: string): Promise<Set<string>> {
+    const rows = await db
+      .select({ releaseTitle: releaseBlacklist.releaseTitle })
+      .from(releaseBlacklist)
+      .where(eq(releaseBlacklist.gameId, gameId));
+    return new Set(rows.map((r) => r.releaseTitle));
   }
 }
 

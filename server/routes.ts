@@ -14,6 +14,7 @@ import {
   updateUserSettingsSchema,
   updatePasswordSchema,
   insertRssFeedSchema,
+  insertReleaseBlacklistSchema,
   type Config,
   type Game,
   type Indexer,
@@ -121,8 +122,18 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
       offset,
     });
 
+    // Filter out blacklisted releases when a gameId context is provided
+    const gameId = req.query.gameId as string | undefined;
+    let filteredItems = items;
+    if (gameId) {
+      const blacklisted = await storage.getReleaseBlacklistSet(gameId);
+      if (blacklisted.size > 0) {
+        filteredItems = items.filter((item) => !blacklisted.has(item.title));
+      }
+    }
+
     res.json({
-      items,
+      items: filteredItems,
       total,
       offset,
       errors: errors.length > 0 ? errors : undefined,
@@ -1077,6 +1088,95 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     }
   );
+
+  // ── Release Blacklist routes ──
+
+  // Add release to blacklist for a specific game
+  app.post(
+    "/api/games/:gameId/blacklist",
+    authenticateToken,
+    async (req: Request, res: Response) => {
+      try {
+        const { gameId } = req.params;
+        const userId = req.user!.id;
+
+        const game = await storage.getGame(gameId);
+        if (!game) return res.status(404).json({ error: "Game not found" });
+        if (game.userId !== userId) return res.status(403).json({ error: "Forbidden" });
+
+        const parsed = insertReleaseBlacklistSchema.safeParse({ ...req.body, gameId });
+        if (!parsed.success) {
+          return res.status(400).json({ error: "Invalid data", details: parsed.error.issues });
+        }
+        const { releaseTitle } = parsed.data;
+        if (!releaseTitle || releaseTitle.length > 500) {
+          return res.status(400).json({ error: "releaseTitle required (max 500 chars)" });
+        }
+
+        const entry = await storage.addReleaseBlacklist(parsed.data);
+        res.status(201).json(entry);
+      } catch (error) {
+        routesLogger.error({ error }, "error adding to blacklist");
+        res.status(500).json({ error: "Failed to add to blacklist" });
+      }
+    }
+  );
+
+  // List blacklisted releases for a game
+  app.get(
+    "/api/games/:gameId/blacklist",
+    authenticateToken,
+    async (req: Request, res: Response) => {
+      try {
+        const { gameId } = req.params;
+        const userId = req.user!.id;
+
+        const game = await storage.getGame(gameId);
+        if (!game) return res.status(404).json({ error: "Game not found" });
+        if (game.userId !== userId) return res.status(403).json({ error: "Forbidden" });
+
+        const entries = await storage.getReleaseBlacklist(gameId);
+        res.json(entries);
+      } catch (error) {
+        routesLogger.error({ error }, "error listing blacklist");
+        res.status(500).json({ error: "Failed to list blacklist" });
+      }
+    }
+  );
+
+  // Remove a blacklist entry
+  app.delete(
+    "/api/games/:gameId/blacklist/:id",
+    authenticateToken,
+    async (req: Request, res: Response) => {
+      try {
+        const { gameId, id } = req.params;
+        const userId = req.user!.id;
+
+        const game = await storage.getGame(gameId);
+        if (!game) return res.status(404).json({ error: "Game not found" });
+        if (game.userId !== userId) return res.status(403).json({ error: "Forbidden" });
+
+        await storage.removeReleaseBlacklist(id);
+        res.status(204).send();
+      } catch (error) {
+        routesLogger.error({ error }, "error removing from blacklist");
+        res.status(500).json({ error: "Failed to remove from blacklist" });
+      }
+    }
+  );
+
+  // List all blacklisted releases across all user's games (for Settings page)
+  app.get("/api/blacklist", authenticateToken, async (req: Request, res: Response) => {
+    try {
+      const userId = req.user!.id;
+      const entries = await storage.getAllReleaseBlacklists(userId);
+      res.json(entries);
+    } catch (error) {
+      routesLogger.error({ error }, "error listing all blacklists");
+      res.status(500).json({ error: "Failed to list blacklists" });
+    }
+  });
 
   // IGDB discovery routes
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
-import { users, downloaders, type InsertGame, type InsertGameDownload } from "../../shared/schema";
+import { users, downloaders, type InsertGame } from "../../shared/schema";
 import { randomUUID } from "crypto";
 import type { DatabaseStorage } from "../storage";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
@@ -123,23 +123,32 @@ describe("DatabaseStorage Integration", () => {
       .insert(downloaders)
       .values({ id: downloaderId, name: "Test Client", type: "torrent", url: "http://localhost" });
 
-    const makeDownload = (overrides: Partial<InsertGameDownload> = {}): InsertGameDownload => ({
+    // Two downloads for game-a (different statuses and types)
+    await storage.addGameDownload({
       gameId: gameA.id,
       downloaderId,
       downloadType: "torrent",
       downloadHash: randomUUID(),
-      downloadTitle: "Test.Game-GROUP",
+      downloadTitle: "Game.A-GROUP",
       status: "downloading",
-      ...overrides,
     });
-
-    // Two downloads for game-a (different statuses and types)
-    await storage.addGameDownload(makeDownload({ status: "downloading", downloadType: "torrent" }));
-    await storage.addGameDownload(makeDownload({ status: "completed", downloadType: "usenet" }));
+    await storage.addGameDownload({
+      gameId: gameA.id,
+      downloaderId,
+      downloadType: "usenet",
+      downloadHash: randomUUID(),
+      downloadTitle: "Game.A-GROUP",
+      status: "completed",
+    });
     // One download for game-b
-    await storage.addGameDownload(
-      makeDownload({ gameId: gameB.id, status: "failed", downloadType: "torrent" })
-    );
+    await storage.addGameDownload({
+      gameId: gameB.id,
+      downloaderId,
+      downloadType: "torrent",
+      downloadHash: randomUUID(),
+      downloadTitle: "Game.B-GROUP",
+      status: "failed",
+    });
 
     const summary = await storage.getDownloadSummaryByGame();
 

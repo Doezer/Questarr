@@ -232,7 +232,7 @@ vi.mock("../config-loader.js", () => ({
       redirectHttp: false,
     }),
     saveConfig: vi.fn(),
-    getConfigDir: vi.fn().mockReturnValue("/tmp/config"),
+    getConfigDir: vi.fn().mockReturnValue("/tmp/config"), // NOSONAR - test-only
   },
 }));
 

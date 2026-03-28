@@ -574,6 +574,10 @@ export async function checkAutoSearch() {
 
         let gamesWithResults = 0;
 
+        const preferredGroups: string[] = settings.preferredReleaseGroups
+          ? (JSON.parse(settings.preferredReleaseGroups) as string[])
+          : [];
+
         for (const game of wantedGames) {
           try {
             // Skip unreleased games if configured to do so
@@ -598,9 +602,6 @@ export async function checkAutoSearch() {
             let { mainItems } = searchResult;
 
             // Filter by preferred release groups if configured
-            const preferredGroups: string[] = settings.preferredReleaseGroups
-              ? (JSON.parse(settings.preferredReleaseGroups) as string[])
-              : [];
             if (preferredGroups.length > 0) {
               const preferredItems = mainItems.filter(
                 (item) =>

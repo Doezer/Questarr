@@ -24,8 +24,8 @@ function makeIndexer(overrides: Partial<Indexer> = {}): Indexer {
     categories: [],
     rssEnabled: true,
     autoSearchEnabled: true,
-    createdAt: new Date(),
-    updatedAt: new Date(),
+    createdAt: new Date("2024-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2024-01-01T00:00:00.000Z"),
     ...overrides,
   };
 }
@@ -77,7 +77,7 @@ describe("TorznabClient — download link rewriting", () => {
   it("applies standard host rewrite for non-Prowlarr indexers returning an internal URL", async () => {
     const indexer = makeIndexer({ url: "https://my-indexer.com/api" });
     // Indexer returns its internal hostname in the download URL
-    mockFetchResponse(makeTorznabXml("http://internal-host:8080/download/file.torrent"));
+    mockFetchResponse(makeTorznabXml("https://internal-host:8080/download/file.torrent"));
 
     const result = await client.searchGames(indexer, { query: "game" });
 
@@ -87,7 +87,7 @@ describe("TorznabClient — download link rewriting", () => {
 
   it("builds a Prowlarr proxy URL when a Prowlarr indexer returns a raw external download URL", async () => {
     const prowlarrIndexer = makeIndexer({
-      url: "http://prowlarr:9696/5/api",
+      url: "https://prowlarr:9696/5/api",
       apiKey: "prowlarr-api-key",
     });
     const rawExternalUrl = "https://limetorrents.info/download/8/some-game.torrent";
@@ -115,7 +115,7 @@ describe("TorznabClient — download link rewriting", () => {
 
   it("uses Prowlarr proxy URL format when Prowlarr indexer has numeric ID in URL path", async () => {
     const prowlarrIndexer = makeIndexer({
-      url: "http://192.168.1.100:9696/12/api",
+      url: "https://192.168.1.100:9696/12/api",
       apiKey: "secret",
     });
     const rawUrl = "https://external-indexer.org/torrents/download/99999.torrent";
@@ -124,7 +124,7 @@ describe("TorznabClient — download link rewriting", () => {
     const result = await client.searchGames(prowlarrIndexer, { query: "game" });
 
     const link = result.items[0].link;
-    expect(link).toMatch(/^http:\/\/192\.168\.1\.100:9696\/12\/download\?/);
+    expect(link).toMatch(/^https:\/\/192\.168\.1\.100:9696\/12\/download\?/);
 
     const parsed = new URL(link);
     expect(parsed.searchParams.get("apikey")).toBe("secret");
@@ -134,12 +134,12 @@ describe("TorznabClient — download link rewriting", () => {
 
   it("leaves Prowlarr proxy URLs unchanged when Prowlarr already returned its own proxy URL", async () => {
     const prowlarrIndexer = makeIndexer({
-      url: "http://prowlarr:9696/5/api",
+      url: "https://prowlarr:9696/5/api",
       apiKey: "prowlarr-api-key",
     });
     // Prowlarr already generated its own proxy URL — must not be double-encoded
     const prowlarrProxyUrl =
-      "http://prowlarr:9696/5/download?file=Some+Game&link=aHR0cHM6Ly9leGFtcGxlLmNvbQ%3D%3D&apikey=prowlarr-api-key";
+      "https://prowlarr:9696/5/download?file=Some+Game&link=aHR0cHM6Ly9leGFtcGxlLmNvbQ%3D%3D&apikey=prowlarr-api-key";
     mockFetchResponse(makeTorznabXml(prowlarrProxyUrl));
 
     const result = await client.searchGames(prowlarrIndexer, { query: "game" });
@@ -149,7 +149,7 @@ describe("TorznabClient — download link rewriting", () => {
 
   it("falls back to standard host rewrite for Prowlarr-style URL path but missing apiKey", async () => {
     const indexer = makeIndexer({
-      url: "http://prowlarr:9696/5/api",
+      url: "https://prowlarr:9696/5/api",
       apiKey: "",
     });
     mockFetchResponse(makeTorznabXml("https://external.com/download/game.torrent"));

@@ -331,14 +331,15 @@ export class TorznabClient {
             // Prowlarr — which has FlareSolverr configured to bypass Cloudflare.
             const prowlarrMatch = indexerUrlObj.pathname.match(/^\/(\d+)\/api\/?$/i);
             if (prowlarrMatch && indexer?.apiKey) {
-              const prowlarrIndexerId = prowlarrMatch[1];
-              const prowlarrBase = `${indexerUrlObj.protocol}//${indexerUrlObj.host}`;
-              const encodedLink = encodeURIComponent(
+              const prowlarrUrl = new URL(`${indexerUrlObj.protocol}//${indexerUrlObj.host}`);
+              prowlarrUrl.pathname = `/${prowlarrMatch[1]}/download`;
+              prowlarrUrl.searchParams.set("file", torznabItem.title || "download");
+              prowlarrUrl.searchParams.set(
+                "link",
                 Buffer.from(torznabItem.link).toString("base64")
               );
-              const fileName = encodeURIComponent(torznabItem.title || "download");
-              const apiKey = encodeURIComponent(indexer.apiKey);
-              torznabItem.link = `${prowlarrBase}/${prowlarrIndexerId}/download?file=${fileName}&link=${encodedLink}&apikey=${apiKey}`;
+              prowlarrUrl.searchParams.set("apikey", indexer.apiKey);
+              torznabItem.link = prowlarrUrl.toString();
             } else {
               // Standard host rewrite for reverse-proxy / seedbox setups where the indexer
               // returns its internal address but should be reached via the configured URL.

@@ -49,10 +49,6 @@ export const userSettings = sqliteTable("user_settings", {
     .notNull()
     .default(false),
   steamSyncFailures: integer("steam_sync_failures").notNull().default(0),
-  preferredReleaseGroups: text("preferred_release_groups"),
-  filterByPreferredGroups: integer("filter_by_preferred_groups", { mode: "boolean" })
-    .notNull()
-    .default(false),
   // Import Engine Settings
   enablePostProcessing: integer("enable_post_processing", { mode: "boolean" })
     .notNull()

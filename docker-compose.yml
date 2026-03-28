@@ -12,9 +12,6 @@ services:
     volumes:
       # Persist SQLite database and other data
       - ./data:/app/data
-      # Mount your root media/downloads folder here to allow atomic moves.
-      # Example (uncomment and adjust):
-      # - /mnt/user/data:/data
     restart: unless-stopped
     healthcheck:
       test:

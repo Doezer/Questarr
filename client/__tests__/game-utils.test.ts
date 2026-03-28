@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { getReleaseStatus } from "../src/lib/game-utils";
 import type { Game } from "@shared/schema";
 
@@ -20,6 +20,15 @@ const baseGame = {
 } as unknown as Game;
 
 describe("getReleaseStatus", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-06-15T12:00:00Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("returns Delayed when releaseStatus is delayed", () => {
     const game = { ...baseGame, releaseStatus: "delayed" } as unknown as Game;
     const result = getReleaseStatus(game);
@@ -33,11 +42,9 @@ describe("getReleaseStatus", () => {
   });
 
   it("returns Upcoming for a future release date", () => {
-    const futureDate = new Date();
-    futureDate.setFullYear(futureDate.getFullYear() + 1);
     const game = {
       ...baseGame,
-      releaseDate: futureDate.toISOString().split("T")[0],
+      releaseDate: "2025-06-15",
       releaseStatus: null,
     } as unknown as Game;
     const result = getReleaseStatus(game);
@@ -45,11 +52,9 @@ describe("getReleaseStatus", () => {
   });
 
   it("returns Released with green styling for a past release date", () => {
-    const pastDate = new Date();
-    pastDate.setFullYear(pastDate.getFullYear() - 1);
     const game = {
       ...baseGame,
-      releaseDate: pastDate.toISOString().split("T")[0],
+      releaseDate: "2023-06-15",
       releaseStatus: null,
     } as unknown as Game;
     const result = getReleaseStatus(game);

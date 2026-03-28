@@ -1339,28 +1339,36 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getDownloadSummaryByGame(): Promise<Record<string, DownloadSummary>> {
-    const rows = await db.select().from(gameDownloads);
-    const result: Record<string, DownloadSummary> = {};
-    for (const row of rows) {
-      const gameId = row.gameId;
-      if (!result[gameId]) {
-        result[gameId] = {
-          topStatus: row.status as DownloadSummary["topStatus"],
-          count: 1,
-          downloadTypes: [row.downloadType as "torrent" | "usenet"],
-        };
-      } else {
-        result[gameId].topStatus = resolveTopStatus(
-          result[gameId].topStatus,
-          row.status as DownloadSummary["topStatus"]
-        );
-        result[gameId].count += 1;
-        if (!result[gameId].downloadTypes.includes(row.downloadType as "torrent" | "usenet")) {
-          result[gameId].downloadTypes.push(row.downloadType as "torrent" | "usenet");
-        }
-      }
-    }
-    return result;
+    const rows = await db
+      .select({
+        gameId: gameDownloads.gameId,
+        count: sql<number>`count(*)`,
+        topStatus: sql<string>`
+          CASE
+            WHEN sum(CASE WHEN ${gameDownloads.status} = 'failed' THEN 1 ELSE 0 END) > 0 THEN 'failed'
+            WHEN sum(CASE WHEN ${gameDownloads.status} = 'downloading' THEN 1 ELSE 0 END) > 0 THEN 'downloading'
+            WHEN sum(CASE WHEN ${gameDownloads.status} = 'paused' THEN 1 ELSE 0 END) > 0 THEN 'paused'
+            ELSE 'completed'
+          END
+        `,
+        downloadTypes: sql<string>`group_concat(DISTINCT ${gameDownloads.downloadType})`,
+      })
+      .from(gameDownloads)
+      .groupBy(gameDownloads.gameId);
+
+    return Object.fromEntries(
+      rows.map((row) => [
+        row.gameId,
+        {
+          topStatus: row.topStatus as DownloadSummary["topStatus"],
+          count: row.count,
+          downloadTypes: (row.downloadTypes ?? "torrent").split(",").filter(Boolean) as (
+            | "torrent"
+            | "usenet"
+          )[],
+        },
+      ])
+    );
   }
 
   // Notification methods

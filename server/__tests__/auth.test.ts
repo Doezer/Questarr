@@ -4,7 +4,7 @@ import { hashPassword, comparePassword, generateToken, authenticateToken } from 
 import { storage } from "../storage.js";
 import jwt from "jsonwebtoken";
 
-const MOCK_JWT_SECRET = "questarr-default-secret-change-me";
+const MOCK_JWT_SECRET = "questarr-default-secret-change-me"; // NOSONAR - test-only value
 
 vi.mock("../storage.js", () => ({
   storage: {

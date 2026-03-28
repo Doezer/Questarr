@@ -46,17 +46,22 @@ jobs:
 
       - name: Determine Environment
         id: env
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          GH_REF: ${{ github.ref }}
+          INPUT_ENVIRONMENT: ${{ inputs.environment }}
+          REPOSITORY: ${{ github.repository }}
         run: |
-          if [ "${{ github.event_name }}" == "schedule" ] || [ "${{ github.ref }}" == "refs/heads/release/1.3.0" ]; then
+          if [ "$EVENT_NAME" == "schedule" ] || [ "$GH_REF" == "refs/heads/release/1.3.0" ]; then
             echo "ENVIRONMENT=dev" >> $GITHUB_ENV
             echo "environment=dev" >> $GITHUB_OUTPUT
           else
-            echo "ENVIRONMENT=${{ inputs.environment }}" >> $GITHUB_ENV
-            echo "environment=${{ inputs.environment }}" >> $GITHUB_OUTPUT
+            echo "ENVIRONMENT=$INPUT_ENVIRONMENT" >> $GITHUB_ENV
+            echo "environment=$INPUT_ENVIRONMENT" >> $GITHUB_OUTPUT
           fi
 
           # Normalize repository name to lowercase and strip owner for Docker Hub
-          REPO_NAME="${{ github.repository }}"
+          REPO_NAME="$REPOSITORY"
           # Get the part after the slash (repo name only)
           REPO_SHOULD_BE_NAME="${REPO_NAME##*/}"
           # Lowercase

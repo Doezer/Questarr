@@ -197,13 +197,27 @@ export const updateGameHiddenSchema = z.object({
   hidden: z.boolean(),
 });
 
-export const insertIndexerSchema = createInsertSchema(indexers).omit({
+export const insertIndexerSchema = createInsertSchema(indexers, {
+  name: (schema) => schema.trim(),
+  url: (schema) => schema.trim(),
+  apiKey: (schema) => schema.trim(),
+}).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
 });
 
-export const insertDownloaderSchema = createInsertSchema(downloaders).omit({
+// Trim helper for nullable/optional string fields in Zod schemas.
+const trimIfString = <T>(v: T): T => (typeof v === "string" ? (v.trim() as T) : v);
+
+export const insertDownloaderSchema = createInsertSchema(downloaders, {
+  name: (schema) => schema.trim(),
+  url: (schema) => schema.trim(),
+  username: (schema) => schema.transform(trimIfString),
+  password: (schema) => schema.transform(trimIfString),
+  urlPath: (schema) => schema.transform(trimIfString),
+  downloadPath: (schema) => schema.transform(trimIfString),
+}).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
@@ -255,9 +269,9 @@ export const updateUserSettingsSchema = createInsertSchema(userSettings)
 
 export const updatePasswordSchema = z
   .object({
-    currentPassword: z.string().min(1, "Current password is required"),
-    newPassword: z.string().min(6, "New password must be at least 6 characters"),
-    confirmPassword: z.string().min(1, "Confirm password is required"),
+    currentPassword: z.string().trim().min(1, "Current password is required"),
+    newPassword: z.string().trim().min(6, "New password must be at least 6 characters"),
+    confirmPassword: z.string().trim().min(1, "Confirm password is required"),
   })
   .refine((data) => data.newPassword === data.confirmPassword, {
     message: "Passwords do not match",

@@ -211,25 +211,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Username and password must be strings" });
       }
 
-      if (username.length < 3) {
+      const trimmedUsername = username.trim();
+      const trimmedPassword = password.trim();
+
+      if (trimmedUsername.length < 3) {
         return res.status(400).json({ error: "Username must be at least 3 characters" });
       }
 
-      if (password.length < 6) {
+      if (trimmedPassword.length < 6) {
         return res.status(400).json({ error: "Password must be at least 6 characters" });
       }
 
-      if (username.length > 50) {
+      if (trimmedUsername.length > 50) {
         return res.status(400).json({ error: "Username must be at most 50 characters" });
       }
 
       // Create first user
       // Create first user atomically
-      const passwordHash = await hashPassword(password);
+      const passwordHash = await hashPassword(trimmedPassword);
 
       let user;
       try {
-        user = await storage.registerSetupUser({ username, passwordHash });
+        user = await storage.registerSetupUser({ username: trimmedUsername, passwordHash });
       } catch (error) {
         if (error instanceof Error && error.message === "Setup already completed") {
           return res.status(403).json({ error: "Setup already completed" });
@@ -253,7 +256,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      routesLogger.info({ username }, "Initial setup completed");
+      routesLogger.info({ username: trimmedUsername }, "Initial setup completed");
       res.json({ token, user: { id: user.id, username: user.username } });
     } catch (error) {
       routesLogger.error(
@@ -270,9 +273,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/auth/login", authRateLimiter, async (req, res) => {
     const { username, password } = req.body;
-    const user = await storage.getUserByUsername(username);
 
-    if (!user || !(await comparePassword(password, user.passwordHash))) {
+    if (typeof username !== "string" || typeof password !== "string") {
+      return res
+        .status(400)
+        .json({ error: "Username and password are required and must be strings" });
+    }
+
+    const trimmedUsername = username.trim();
+    const trimmedPassword = password.trim();
+    const user = await storage.getUserByUsername(trimmedUsername);
+
+    // Backward-compatible check: try the raw password first (for accounts created before
+    // trimming was introduced), then fall back to the trimmed value.
+    let passwordMatches = false;
+    if (user) {
+      passwordMatches = await comparePassword(password, user.passwordHash);
+      if (!passwordMatches && trimmedPassword !== password) {
+        passwordMatches = await comparePassword(trimmedPassword, user.passwordHash);
+      }
+    }
+
+    if (!user || !passwordMatches) {
       return res.status(401).json({ error: "Invalid username or password" });
     }
 

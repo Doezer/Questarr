@@ -8,6 +8,8 @@ import { type Game, type User, type Indexer, type Downloader } from "../../share
 import { DownloaderManager } from "../downloaders.js";
 import { torznabClient } from "../torznab.js";
 import { rssService } from "../rss.js";
+import { comparePassword } from "../auth.js";
+import { db } from "../db.js";
 import { prowlarrClient } from "../prowlarr.js";
 
 // Use vi.hoisted to create the mock object
@@ -269,6 +271,17 @@ describe("API Routes - Extended Coverage", () => {
   });
 
   // ─── Auth routes ───
+  const mockUserHashed = {
+    id: "user-1",
+    username: "testuser",
+    passwordHash: "hashed",
+  } as unknown as User;
+  const mockUserOldHash = {
+    id: "user-1",
+    username: "testuser",
+    passwordHash: "old-hash",
+  } as unknown as User;
+
   describe("Auth routes", () => {
     describe("GET /api/auth/status", () => {
       it("should return hasUsers true when users exist", async () => {
@@ -390,12 +403,143 @@ describe("API Routes - Extended Coverage", () => {
       });
     });
 
+    describe("POST /api/auth/login", () => {
+      it("should return 401 for invalid credentials", async () => {
+        vi.mocked(storage.getUserByUsername).mockResolvedValue(mockUserHashed);
+        vi.mocked(comparePassword).mockResolvedValue(false);
+
+        const res = await request(app)
+          .post("/api/auth/login")
+          .send({ username: "testuser", password: "wrongpassword" });
+        expect(res.status).toBe(401);
+      });
+
+      it("should return 400 when username is missing", async () => {
+        const res = await request(app).post("/api/auth/login").send({ password: "password123" });
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBe("Username and password are required and must be strings");
+      });
+
+      it("should return 400 when password is missing", async () => {
+        const res = await request(app).post("/api/auth/login").send({ username: "testuser" });
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBe("Username and password are required and must be strings");
+      });
+
+      it("should return 400 for non-string username", async () => {
+        const res = await request(app)
+          .post("/api/auth/login")
+          .send({ username: 123, password: "password123" });
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBe("Username and password are required and must be strings");
+      });
+
+      it("should trim username and password before authentication", async () => {
+        vi.mocked(storage.getUserByUsername).mockResolvedValue(mockUserHashed);
+        vi.mocked(storage.assignOrphanGamesToUser).mockResolvedValue(undefined);
+        // Raw password fails (no stored hash with whitespace); trimmed password succeeds.
+        vi.mocked(comparePassword)
+          .mockResolvedValueOnce(false) // raw "  password123  "
+          .mockResolvedValueOnce(true); // trimmed "password123"
+
+        const res = await request(app)
+          .post("/api/auth/login")
+          .send({ username: "  testuser  ", password: "  password123  " });
+        expect(res.status).toBe(200);
+        expect(storage.getUserByUsername).toHaveBeenCalledWith("testuser");
+        expect(comparePassword).toHaveBeenCalledWith("  password123  ", "hashed");
+        expect(comparePassword).toHaveBeenCalledWith("password123", "hashed");
+      });
+    });
+
     describe("GET /api/auth/me", () => {
       it("should return current user info", async () => {
         const res = await request(app).get("/api/auth/me");
         expect(res.status).toBe(200);
         expect(res.body.id).toBe("user-1");
         expect(res.body.username).toBe("testuser");
+      });
+    });
+
+    describe("PATCH /api/auth/password", () => {
+      it("should update password successfully", async () => {
+        vi.mocked(storage.getUser).mockResolvedValue(mockUserOldHash);
+        vi.mocked(comparePassword).mockResolvedValue(true);
+        vi.mocked(storage.updateUserPassword).mockResolvedValue(undefined);
+
+        const res = await request(app).patch("/api/auth/password").send({
+          currentPassword: "oldpass1",
+          newPassword: "newpass1",
+          confirmPassword: "newpass1",
+        });
+        expect(res.status).toBe(200);
+        expect(res.body.success).toBe(true);
+      });
+
+      it("should return 404 when user not found", async () => {
+        vi.mocked(storage.getUser).mockResolvedValue(null as unknown as User);
+
+        const res = await request(app).patch("/api/auth/password").send({
+          currentPassword: "oldpass1",
+          newPassword: "newpass1",
+          confirmPassword: "newpass1",
+        });
+        expect(res.status).toBe(404);
+      });
+
+      it("should return 401 for incorrect current password", async () => {
+        vi.mocked(storage.getUser).mockResolvedValue(mockUserOldHash);
+        vi.mocked(comparePassword).mockResolvedValue(false);
+
+        const res = await request(app).patch("/api/auth/password").send({
+          currentPassword: "wrongpass",
+          newPassword: "newpass1",
+          confirmPassword: "newpass1",
+        });
+        expect(res.status).toBe(401);
+      });
+
+      it("should return 400 for new password too short", async () => {
+        const res = await request(app).patch("/api/auth/password").send({
+          currentPassword: "oldpass1",
+          newPassword: "abc",
+          confirmPassword: "abc",
+        });
+        expect(res.status).toBe(400);
+      });
+
+      it("should return 400 when passwords do not match", async () => {
+        const res = await request(app).patch("/api/auth/password").send({
+          currentPassword: "oldpass1",
+          newPassword: "newpass1",
+          confirmPassword: "differentpass",
+        });
+        expect(res.status).toBe(400);
+      });
+
+      it("should trim whitespace from passwords before validation", async () => {
+        vi.mocked(storage.getUser).mockResolvedValue(mockUserOldHash);
+        vi.mocked(comparePassword).mockResolvedValue(true);
+        vi.mocked(storage.updateUserPassword).mockResolvedValue(undefined);
+
+        const res = await request(app).patch("/api/auth/password").send({
+          currentPassword: "  oldpass1  ",
+          newPassword: "  newpass1  ",
+          confirmPassword: "  newpass1  ",
+        });
+        expect(res.status).toBe(200);
+        expect(comparePassword).toHaveBeenCalledWith("oldpass1", "old-hash");
+      });
+
+      it("should return 500 on unexpected error", async () => {
+        vi.mocked(storage.getUser).mockRejectedValue(new Error("DB error"));
+
+        const res = await request(app).patch("/api/auth/password").send({
+          currentPassword: "oldpass1",
+          newPassword: "newpass1",
+          confirmPassword: "newpass1",
+        });
+        expect(res.status).toBe(500);
       });
     });
   });
@@ -406,6 +550,36 @@ describe("API Routes - Extended Coverage", () => {
       const res = await request(app).get("/api/health");
       expect(res.status).toBe(200);
       expect(res.body.status).toBe("ok");
+    });
+  });
+
+  // ─── Ready check ───
+  describe("GET /api/ready", () => {
+    it("should return 200 when db and igdb are healthy", async () => {
+      vi.mocked(db.get).mockResolvedValue({ result: 1 });
+      vi.mocked(igdbClient.getPopularGames).mockResolvedValue([]);
+
+      const res = await request(app).get("/api/ready");
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("ok");
+    });
+
+    it("should return 503 when db check fails", async () => {
+      vi.mocked(db.get).mockRejectedValue(new Error("DB connection failed"));
+      vi.mocked(igdbClient.getPopularGames).mockResolvedValue([]);
+
+      const res = await request(app).get("/api/ready");
+      expect(res.status).toBe(503);
+      expect(res.body.status).toBe("error");
+    });
+
+    it("should return 503 when igdb check fails", async () => {
+      vi.mocked(db.get).mockResolvedValue({ result: 1 });
+      vi.mocked(igdbClient.getPopularGames).mockRejectedValue(new Error("IGDB error"));
+
+      const res = await request(app).get("/api/ready");
+      expect(res.status).toBe(503);
+      expect(res.body.status).toBe("error");
     });
   });
 

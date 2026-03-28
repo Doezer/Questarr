@@ -2244,6 +2244,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/settings/discord", async (req, res) => {
+    try {
+      const webhookUrl = await storage.getSystemConfig("discord.webhookUrl");
+      res.json({ configured: !!(webhookUrl && webhookUrl.length > 0) });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to fetch Discord settings");
+      res.status(500).json({ error: "Failed to fetch Discord settings" });
+    }
+  });
+
+  app.post("/api/settings/discord", async (req, res) => {
+    try {
+      const { webhookUrl } = req.body as { webhookUrl?: string };
+      if (
+        webhookUrl &&
+        !webhookUrl.startsWith("https://discord.com/api/webhooks/") &&
+        !webhookUrl.startsWith("https://discordapp.com/api/webhooks/")
+      ) {
+        return res.status(400).json({ error: "Invalid Discord webhook URL" });
+      }
+      await storage.setSystemConfig("discord.webhookUrl", webhookUrl?.trim() ?? "");
+      res.json({ success: true });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to update Discord settings");
+      res.status(500).json({ error: "Failed to update Discord settings" });
+    }
+  });
+
   // User Settings routes
   app.get("/api/settings", async (req, res) => {
     try {
@@ -2681,6 +2709,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       routesLogger.error({ error }, "Failed to refresh RSS feeds");
       res.status(500).json({ error: "Failed to refresh RSS feeds" });
+    }
+  });
+
+  app.post("/api/stats/discord-share", async (req, res) => {
+    try {
+      const webhookUrl = await storage.getSystemConfig("discord.webhookUrl");
+      if (!webhookUrl) {
+        return res.status(400).json({
+          error: "Discord webhook not configured. Go to Settings → Services to set it up.",
+        });
+      }
+
+      const { image, message } = req.body as { image?: string; message?: string };
+      if (!image) return res.status(400).json({ error: "No image data provided" });
+
+      const base64Data = image.split(",")[1];
+      if (!base64Data) return res.status(400).json({ error: "Invalid image data" });
+
+      const imageBuffer = Buffer.from(base64Data, "base64");
+      const formData = new FormData();
+      if (message) formData.append("content", message);
+      formData.append("file", new Blob([imageBuffer], { type: "image/png" }), "questarr-stats.png");
+
+      const discordRes = await fetch(webhookUrl, { method: "POST", body: formData });
+      if (!discordRes.ok) {
+        const errorText = await discordRes.text().catch(() => "Unknown Discord error");
+        routesLogger.error(
+          { status: discordRes.status, error: errorText },
+          "Discord webhook request failed"
+        );
+        return res.status(502).json({ error: "Failed to post to Discord" });
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to share stats to Discord");
+      res.status(500).json({ error: "Failed to share stats to Discord" });
     }
   });
 

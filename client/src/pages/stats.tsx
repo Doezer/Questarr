@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { type Game } from "@shared/schema";
 import StatsCard from "@/components/StatsCard";
@@ -14,13 +14,18 @@ import {
   CheckCircle2,
   BarChart3,
   LayoutGrid,
+  Share2,
 } from "lucide-react";
 import { calculateLibraryStats } from "@/lib/stats";
 import { apiRequest } from "@/lib/queryClient";
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import ShareDiscordDialog from "@/components/ShareDiscordDialog";
 
 export default function StatsPage() {
+  const [shareOpen, setShareOpen] = useState(false);
+
   const { data: games = [], isLoading } = useQuery<Game[]>({
     queryKey: ["/api/games", "", true], // Empty search, include hidden
     queryFn: async () => {
@@ -57,12 +62,20 @@ export default function StatsPage() {
 
   return (
     <div className="h-full overflow-auto p-6 space-y-8">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight mb-2">Library Statistics</h1>
-        <p className="text-muted-foreground">
-          Detailed insights into your collection of {stats.totalGames} games.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight mb-2">Library Statistics</h1>
+          <p className="text-muted-foreground">
+            Detailed insights into your collection of {stats.totalGames} games.
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => setShareOpen(true)}>
+          <Share2 className="w-4 h-4 mr-2" />
+          Share to Discord
+        </Button>
       </div>
+
+      <ShareDiscordDialog open={shareOpen} onOpenChange={setShareOpen} stats={stats} />
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatsCard

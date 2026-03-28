@@ -711,7 +711,18 @@ export async function checkAutoSearch() {
               continue;
             }
 
-            const { updateItems } = searchResult;
+            let { updateItems } = searchResult;
+
+            if (preferredGroups.length > 0) {
+              const preferredUpdates = updateItems.filter(
+                (item) =>
+                  item.group &&
+                  preferredGroups.some((g) => g.toLowerCase() === item.group!.toLowerCase())
+              );
+              if (preferredUpdates.length > 0) {
+                updateItems = preferredUpdates;
+              }
+            }
 
             if (updateItems.length > 0 && settings.notifyUpdates) {
               const notification = await storage.addNotification({

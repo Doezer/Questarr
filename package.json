@@ -171,5 +171,8 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "overrides": {
+    "socket.io-parser": "4.2.6"
   }
 }

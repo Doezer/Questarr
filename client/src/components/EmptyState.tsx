@@ -2,11 +2,7 @@ import React from "react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-
-type IconComponent = React.ComponentType<{
-  className?: string;
-  "aria-hidden"?: boolean | "true" | "false";
-}>;
+import { type IconComponent } from "@/types/components";
 
 interface EmptyStateProps {
   icon: IconComponent;

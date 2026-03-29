@@ -1,7 +1,6 @@
 import React from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-
-type IconComponent = React.ComponentType<{ className?: string }>;
+import { type IconComponent } from "@/types/components";
 
 interface StatsCardProps {
   title: string;

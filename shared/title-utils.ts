@@ -198,36 +198,38 @@ export function parseReleaseMetadata(releaseName: string): ReleaseMetadata {
   if (/\benglish\b/i.test(cleaned)) languages.push("English");
 
   // 4. Extract Platform
-  let platform: string | undefined;
-  if (/\b(ps5|playstation\s*5)\b/i.test(cleaned)) platform = "PS5";
-  else if (/\b(ps4|playstation\s*4)\b/i.test(cleaned)) platform = "PS4";
-  else if (/\b(ps3|playstation\s*3)\b/i.test(cleaned)) platform = "PS3";
-  else if (/\b(ps2|playstation\s*2)\b/i.test(cleaned)) platform = "PS2";
-  else if (/\b(psx|ps1|playstation\s*1)\b/i.test(cleaned)) platform = "PS1";
-  else if (/\b(psp)\b/i.test(cleaned)) platform = "PSP";
-  else if (/\b(ps\s?vita|vita)\b/i.test(cleaned)) platform = "PSVita";
-  else if (/\b(xbox\s*series|xbsx|xss)\b/i.test(cleaned)) platform = "Xbox Series";
-  else if (/\b(xbox|x360|xbox360)\b/i.test(cleaned)) platform = "Xbox";
-  else if (/\b(nintendo\s*switch|switch|nsw)\b/i.test(cleaned)) platform = "Switch";
-  else if (/\b(game\s?cube|gamecube|ngc|gc)\b/i.test(cleaned)) platform = "GameCube";
-  else if (/\b(wii\s*u|wiiu)\b/i.test(cleaned)) platform = "Wii U";
-  else if (/\b(wii)\b/i.test(cleaned)) platform = "Wii";
-  else if (/\b(3ds)\b/i.test(cleaned)) platform = "3DS";
-  else if (/\b(nds|nintendo\s*ds|\bds\b)\b/i.test(cleaned)) platform = "NDS";
-  else if (/\b(n64|nintendo\s*64)\b/i.test(cleaned)) platform = "N64";
-  else if (/\b(snes|super\s*nintendo|super\s*nes)\b/i.test(cleaned)) platform = "SNES";
-  else if (/\b(nes|famicom)\b/i.test(cleaned)) platform = "NES";
-  else if (/\b(gba|game\s*boy\s*advance)\b/i.test(cleaned)) platform = "GBA";
-  else if (/\b(gbc|game\s*boy\s*color)\b/i.test(cleaned)) platform = "GBC";
-  else if (/\b(game\s*boy|\bgb\b)\b/i.test(cleaned)) platform = "GB";
-  else if (/\b(dreamcast|\bdc\b)\b/i.test(cleaned)) platform = "Dreamcast";
-  else if (/\b(megadrive|mega\s*drive|genesis)\b/i.test(cleaned)) platform = "Mega Drive";
-  else if (/\b(master\s*system|\bsms\b)\b/i.test(cleaned)) platform = "Master System";
-  else if (/\b(neo\s*geo|neogeo)\b/i.test(cleaned)) platform = "Neo Geo";
-  else if (/\b(atari\s*2600|a2600)\b/i.test(cleaned)) platform = "Atari 2600";
-  else if (/\b(pc|windows|win64|win32)\b/i.test(cleaned)) platform = "PC";
-  else if (/\b(linux)\b/i.test(cleaned)) platform = "Linux";
-  else if (/\b(mac|macos|osx)\b/i.test(cleaned)) platform = "Mac";
+  const PLATFORM_PATTERNS: [RegExp, string][] = [
+    [/\b(ps5|playstation\s*5)\b/i, "PS5"],
+    [/\b(ps4|playstation\s*4)\b/i, "PS4"],
+    [/\b(ps3|playstation\s*3)\b/i, "PS3"],
+    [/\b(ps2|playstation\s*2)\b/i, "PS2"],
+    [/\b(psx|ps1|playstation\s*1)\b/i, "PS1"],
+    [/\b(psp)\b/i, "PSP"],
+    [/\b(ps\s?vita|vita)\b/i, "PSVita"],
+    [/\b(xbox\s*series|xbsx|xss)\b/i, "Xbox Series"],
+    [/\b(xbox|x360|xbox360)\b/i, "Xbox"],
+    [/\b(nintendo\s*switch|switch|nsw)\b/i, "Switch"],
+    [/\b(game\s?cube|gamecube|ngc|gc)\b/i, "GameCube"],
+    [/\b(wii\s*u|wiiu)\b/i, "Wii U"],
+    [/\b(wii)\b/i, "Wii"],
+    [/\b(3ds)\b/i, "3DS"],
+    [/\b(nds|nintendo\s*ds|\bds\b)\b/i, "NDS"],
+    [/\b(n64|nintendo\s*64)\b/i, "N64"],
+    [/\b(snes|super\s*nintendo|super\s*nes)\b/i, "SNES"],
+    [/\b(nes|famicom)\b/i, "NES"],
+    [/\b(gba|game\s*boy\s*advance)\b/i, "GBA"],
+    [/\b(gbc|game\s*boy\s*color)\b/i, "GBC"],
+    [/\b(game\s*boy|\bgb\b)\b/i, "GB"],
+    [/\b(dreamcast|\bdc\b)\b/i, "Dreamcast"],
+    [/\b(megadrive|mega\s*drive|genesis)\b/i, "Mega Drive"],
+    [/\b(master\s*system|\bsms\b)\b/i, "Master System"],
+    [/\b(neo\s*geo|neogeo)\b/i, "Neo Geo"],
+    [/\b(atari\s*2600|a2600)\b/i, "Atari 2600"],
+    [/\b(pc|windows|win64|win32)\b/i, "PC"],
+    [/\b(linux)\b/i, "Linux"],
+    [/\b(mac|macos|osx)\b/i, "Mac"],
+  ];
+  const platform = PLATFORM_PATTERNS.find(([regex]) => regex.test(cleaned))?.[1];
 
   // 5. DRM / Source
   let drm: string | undefined;

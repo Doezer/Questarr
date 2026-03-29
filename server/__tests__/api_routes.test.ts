@@ -1393,4 +1393,176 @@ describe("API Routes - Extended Coverage", () => {
       expect(response.status).toBe(400);
     });
   });
+
+  // ─── Discord Settings ───
+  describe("Discord settings", () => {
+    describe("GET /api/settings/discord", () => {
+      it("should return configured: true when webhook URL is set", async () => {
+        vi.mocked(storage.getSystemConfig).mockResolvedValue(
+          "https://discord.com/api/webhooks/123/abc"
+        );
+        const response = await request(app).get("/api/settings/discord");
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({ configured: true });
+      });
+
+      it("should return configured: false when webhook URL is empty", async () => {
+        vi.mocked(storage.getSystemConfig).mockResolvedValue("");
+        const response = await request(app).get("/api/settings/discord");
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({ configured: false });
+      });
+
+      it("should return configured: false when webhook URL is null", async () => {
+        vi.mocked(storage.getSystemConfig).mockResolvedValue(null);
+        const response = await request(app).get("/api/settings/discord");
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({ configured: false });
+      });
+
+      it("should return 500 on storage error", async () => {
+        vi.mocked(storage.getSystemConfig).mockRejectedValue(new Error("DB error"));
+        const response = await request(app).get("/api/settings/discord");
+        expect(response.status).toBe(500);
+      });
+    });
+
+    describe("POST /api/settings/discord", () => {
+      it("should save a valid discord.com webhook URL", async () => {
+        vi.mocked(storage.setSystemConfig).mockResolvedValue(undefined);
+        const response = await request(app)
+          .post("/api/settings/discord")
+          .send({ webhookUrl: "https://discord.com/api/webhooks/123/abc" });
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({ success: true });
+        expect(storage.setSystemConfig).toHaveBeenCalledWith(
+          "discord.webhookUrl",
+          "https://discord.com/api/webhooks/123/abc"
+        );
+      });
+
+      it("should save a valid discordapp.com webhook URL", async () => {
+        vi.mocked(storage.setSystemConfig).mockResolvedValue(undefined);
+        const response = await request(app)
+          .post("/api/settings/discord")
+          .send({ webhookUrl: "https://discordapp.com/api/webhooks/123/abc" });
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({ success: true });
+      });
+
+      it("should return 400 for an invalid webhook URL", async () => {
+        const response = await request(app)
+          .post("/api/settings/discord")
+          .send({ webhookUrl: "https://evil.com/steal" });
+        expect(response.status).toBe(400);
+        expect(response.body.error).toMatch(/invalid/i);
+        expect(storage.setSystemConfig).not.toHaveBeenCalled();
+      });
+
+      it("should clear the webhook URL when empty string is sent", async () => {
+        vi.mocked(storage.setSystemConfig).mockResolvedValue(undefined);
+        const response = await request(app).post("/api/settings/discord").send({ webhookUrl: "" });
+        expect(response.status).toBe(200);
+        expect(storage.setSystemConfig).toHaveBeenCalledWith("discord.webhookUrl", "");
+      });
+
+      it("should return 500 on storage error", async () => {
+        vi.mocked(storage.setSystemConfig).mockRejectedValue(new Error("DB error"));
+        const response = await request(app)
+          .post("/api/settings/discord")
+          .send({ webhookUrl: "https://discord.com/api/webhooks/123/abc" });
+        expect(response.status).toBe(500);
+      });
+    });
+  });
+
+  // ─── Discord Share ───
+  describe("POST /api/stats/discord-share", () => {
+    const validImageDataUrl =
+      "data:image/png;base64," + Buffer.from("fake-png-data").toString("base64");
+
+    beforeEach(() => {
+      vi.stubGlobal("fetch", vi.fn());
+    });
+
+    it("should return 400 when no webhook is configured", async () => {
+      vi.mocked(storage.getSystemConfig).mockResolvedValue(null);
+      const response = await request(app)
+        .post("/api/stats/discord-share")
+        .send({ image: validImageDataUrl });
+      expect(response.status).toBe(400);
+      expect(response.body.error).toMatch(/not configured/i);
+    });
+
+    it("should return 400 when webhook URL is invalid in DB", async () => {
+      vi.mocked(storage.getSystemConfig).mockResolvedValue("https://evil.com/webhook");
+      const response = await request(app)
+        .post("/api/stats/discord-share")
+        .send({ image: validImageDataUrl });
+      expect(response.status).toBe(400);
+      expect(response.body.error).toMatch(/invalid/i);
+    });
+
+    it("should return 400 when no image is provided", async () => {
+      vi.mocked(storage.getSystemConfig).mockResolvedValue(
+        "https://discord.com/api/webhooks/123/abc"
+      );
+      const response = await request(app).post("/api/stats/discord-share").send({});
+      expect(response.status).toBe(400);
+      expect(response.body.error).toMatch(/no image/i);
+    });
+
+    it("should return 400 for malformed image data", async () => {
+      vi.mocked(storage.getSystemConfig).mockResolvedValue(
+        "https://discord.com/api/webhooks/123/abc"
+      );
+      const response = await request(app)
+        .post("/api/stats/discord-share")
+        .send({ image: "not-a-valid-data-url" });
+      expect(response.status).toBe(400);
+      expect(response.body.error).toMatch(/invalid image/i);
+    });
+
+    it("should post to Discord and return success", async () => {
+      vi.mocked(storage.getSystemConfig).mockResolvedValue(
+        "https://discord.com/api/webhooks/123/abc"
+      );
+      vi.mocked(fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ok: true,
+      });
+      const response = await request(app)
+        .post("/api/stats/discord-share")
+        .send({ image: validImageDataUrl, message: "My stats" });
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ success: true });
+      expect(fetch).toHaveBeenCalledWith(
+        "https://discord.com/api/webhooks/123/abc",
+        expect.objectContaining({ method: "POST" })
+      );
+    });
+
+    it("should return 502 when Discord rejects the request", async () => {
+      vi.mocked(storage.getSystemConfig).mockResolvedValue(
+        "https://discord.com/api/webhooks/123/abc"
+      );
+      vi.mocked(fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ok: false,
+        status: 400,
+        text: vi.fn().mockResolvedValue("Bad Request"),
+      });
+      const response = await request(app)
+        .post("/api/stats/discord-share")
+        .send({ image: validImageDataUrl });
+      expect(response.status).toBe(502);
+      expect(response.body.error).toMatch(/discord/i);
+    });
+
+    it("should return 500 on unexpected error", async () => {
+      vi.mocked(storage.getSystemConfig).mockRejectedValue(new Error("DB error"));
+      const response = await request(app)
+        .post("/api/stats/discord-share")
+        .send({ image: validImageDataUrl });
+      expect(response.status).toBe(500);
+    });
+  });
 });

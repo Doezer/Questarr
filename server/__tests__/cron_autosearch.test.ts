@@ -50,6 +50,8 @@ vi.mock("../storage.js", () => ({
 const mockSearchAllIndexers = vi.fn();
 vi.mock("../search.js", () => ({
   searchAllIndexers: mockSearchAllIndexers,
+  filterBlacklistedReleases: (items: { title: string }[], blacklisted: Set<string>) =>
+    blacklisted.size > 0 ? items.filter((item) => !blacklisted.has(item.title)) : items,
 }));
 
 // Mock socket

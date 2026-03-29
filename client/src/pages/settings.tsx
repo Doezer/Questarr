@@ -47,7 +47,7 @@ import PasswordSettings from "@/components/PasswordSettings";
 import type { Config, UserSettings, DownloadRules, ReleaseBlacklist } from "@shared/schema";
 import { downloadRulesSchema } from "@shared/schema";
 import { parseJsonStringArray } from "@shared/title-utils";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 
 interface CertInfo {
   subject: string;
@@ -109,6 +109,17 @@ export default function SettingsPage() {
       toast({ variant: "destructive", description: "Failed to remove from blacklist" });
     },
   });
+
+  const blacklistByGame = useMemo(() => {
+    if (!blacklistEntries) return {};
+    return blacklistEntries.reduce<Record<string, (ReleaseBlacklist & { gameTitle: string })[]>>(
+      (acc, entry) => {
+        (acc[entry.gameTitle] ??= []).push(entry);
+        return acc;
+      },
+      {}
+    );
+  }, [blacklistEntries]);
 
   // Local state for form
   const [autoSearchEnabled, setAutoSearchEnabled] = useState(true);
@@ -1515,14 +1526,7 @@ export default function SettingsPage() {
                   <div className="text-sm text-muted-foreground">No blacklisted releases.</div>
                 ) : (
                   <div className="space-y-4">
-                    {Object.entries(
-                      blacklistEntries.reduce<
-                        Record<string, (ReleaseBlacklist & { gameTitle: string })[]>
-                      >((acc, entry) => {
-                        (acc[entry.gameTitle] ??= []).push(entry);
-                        return acc;
-                      }, {})
-                    ).map(([gameTitle, entries]) => (
+                    {Object.entries(blacklistByGame).map(([gameTitle, entries]) => (
                       <div key={gameTitle}>
                         <h4 className="text-sm font-semibold mb-2">{gameTitle}</h4>
                         <div className="space-y-2">
@@ -1538,7 +1542,7 @@ export default function SettingsPage() {
                                 <p className="text-xs text-muted-foreground">
                                   {entry.indexerName ? `${entry.indexerName} · ` : ""}
                                   {entry.createdAt
-                                    ? new Date(entry.createdAt).toLocaleDateString()
+                                    ? new Date(entry.createdAt).toISOString().split("T")[0]
                                     : ""}
                                 </p>
                               </div>

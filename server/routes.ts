@@ -61,7 +61,7 @@ const upload = multer({
     fileSize: 5 * 1024 * 1024, // 5MB limit
   },
 });
-import { searchAllIndexers } from "./search.js";
+import { searchAllIndexers, filterBlacklistedReleases } from "./search.js";
 import { xrelClient, DEFAULT_XREL_BASE, ALLOWED_XREL_DOMAINS } from "./xrel.js";
 import { normalizeTitle, cleanReleaseName } from "../shared/title-utils.js";
 import archiver from "archiver";
@@ -129,9 +129,7 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
       const game = await storage.getGame(gameId);
       if (game && game.userId === req.user.id) {
         const blacklisted = await storage.getReleaseBlacklistSet(gameId);
-        if (blacklisted.size > 0) {
-          filteredItems = items.filter((item) => !blacklisted.has(item.title));
-        }
+        filteredItems = filterBlacklistedReleases(items, blacklisted);
       }
     }
 

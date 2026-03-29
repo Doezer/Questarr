@@ -3,7 +3,7 @@ import { igdbClient } from "./igdb.js";
 import { igdbLogger } from "./logger.js";
 import { notifyUser } from "./socket.js";
 import { DownloaderManager } from "./downloaders.js";
-import { searchAllIndexers } from "./search.js";
+import { searchAllIndexers, filterBlacklistedReleases } from "./search.js";
 import { xrelClient, DEFAULT_XREL_BASE } from "./xrel.js";
 import { steamService } from "./steam.js";
 import { downloadRulesSchema, type Game, type InsertNotification } from "../shared/schema.js";
@@ -150,10 +150,7 @@ async function searchAndCategorizeItemsForGame(
 
   // Filter out blacklisted releases
   const blacklisted = await storage.getReleaseBlacklistSet(game.id);
-  const nonBlacklisted =
-    blacklisted.size > 0
-      ? matchedItems.filter((item) => !blacklisted.has(item.title))
-      : matchedItems;
+  const nonBlacklisted = filterBlacklistedReleases(matchedItems, blacklisted);
 
   if (nonBlacklisted.length === 0) {
     igdbLogger.debug(

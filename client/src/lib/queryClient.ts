@@ -22,10 +22,12 @@ async function throwIfResNotOk(res: Response) {
       data = text;
     }
 
-    const message = ((data as Record<string, unknown>)?.error ||
+    const raw =
+      (data as Record<string, unknown>)?.error ||
       (data as Record<string, unknown>)?.message ||
       res.statusText ||
-      String(res.status)) as string;
+      String(res.status);
+    const message = typeof raw === "string" ? raw : JSON.stringify(raw);
     throw new ApiError(res.status, message, data);
   }
 }

@@ -1,11 +1,11 @@
 import React from "react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
-import { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { type IconComponent } from "@/types/components";
 
 interface EmptyStateProps {
-  icon: LucideIcon;
+  icon: IconComponent;
   title: string;
   description: string;
   actionLabel?: string;

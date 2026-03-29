@@ -21,7 +21,6 @@ gha-creds-*.json
 coverage/
 playwright*/
 test-results/
-*.junit.xml
 
 # SQLite
 

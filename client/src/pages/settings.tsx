@@ -136,8 +136,10 @@ export default function SettingsPage() {
       }
       if (userSettings.preferredReleaseGroups) {
         try {
-          setPreferredReleaseGroups(JSON.parse(userSettings.preferredReleaseGroups) as string[]);
-        } catch {
+          const parsed = JSON.parse(userSettings.preferredReleaseGroups);
+          setPreferredReleaseGroups(Array.isArray(parsed) ? parsed : []);
+        } catch (error) {
+          console.warn("Failed to parse preferredReleaseGroups from settings", error);
           setPreferredReleaseGroups([]);
         }
       } else {

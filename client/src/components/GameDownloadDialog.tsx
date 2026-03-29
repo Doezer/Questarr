@@ -176,8 +176,8 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         if (groups.length > 0) {
           setSelectedGroups(groups);
         }
-      } catch {
-        // ignore malformed JSON
+      } catch (error) {
+        console.warn("Failed to parse preferred release groups from settings", error);
       }
     }
   }, [

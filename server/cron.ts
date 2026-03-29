@@ -85,6 +85,18 @@ function categorizeSearchItems(
   );
 }
 
+function applyPreferredGroupsFilter(
+  items: Awaited<ReturnType<typeof searchAllIndexers>>["items"],
+  preferredGroups: string[]
+): Awaited<ReturnType<typeof searchAllIndexers>>["items"] {
+  if (preferredGroups.length === 0) return items;
+  const filtered = items.filter(
+    (item) =>
+      item.group && preferredGroups.some((g) => g.toLowerCase() === item.group!.toLowerCase())
+  );
+  return filtered.length > 0 ? filtered : items;
+}
+
 async function searchAndCategorizeItemsForGame(
   game: Pick<Game, "title">,
   downloadRules: string | null
@@ -574,9 +586,17 @@ export async function checkAutoSearch() {
 
         let gamesWithResults = 0;
 
-        const preferredGroups: string[] = settings.preferredReleaseGroups
-          ? (JSON.parse(settings.preferredReleaseGroups) as string[])
-          : [];
+        let preferredGroups: string[] = [];
+        if (settings.preferredReleaseGroups) {
+          try {
+            const parsed = JSON.parse(settings.preferredReleaseGroups);
+            if (Array.isArray(parsed)) {
+              preferredGroups = parsed;
+            }
+          } catch (e) {
+            igdbLogger.warn({ userId, err: e }, "Malformed preferred_release_groups for user");
+          }
+        }
 
         for (const game of wantedGames) {
           try {
@@ -599,19 +619,8 @@ export async function checkAutoSearch() {
 
             gamesWithResults++;
 
-            let { mainItems } = searchResult;
-
             // Filter by preferred release groups if configured
-            if (preferredGroups.length > 0) {
-              const preferredItems = mainItems.filter(
-                (item) =>
-                  item.group &&
-                  preferredGroups.some((g) => g.toLowerCase() === item.group!.toLowerCase())
-              );
-              if (preferredItems.length > 0) {
-                mainItems = preferredItems;
-              }
-            }
+            const mainItems = applyPreferredGroupsFilter(searchResult.mainItems, preferredGroups);
 
             // Handle main items
             if (mainItems.length === 0) {
@@ -711,18 +720,10 @@ export async function checkAutoSearch() {
               continue;
             }
 
-            let { updateItems } = searchResult;
-
-            if (preferredGroups.length > 0) {
-              const preferredUpdates = updateItems.filter(
-                (item) =>
-                  item.group &&
-                  preferredGroups.some((g) => g.toLowerCase() === item.group!.toLowerCase())
-              );
-              if (preferredUpdates.length > 0) {
-                updateItems = preferredUpdates;
-              }
-            }
+            const updateItems = applyPreferredGroupsFilter(
+              searchResult.updateItems,
+              preferredGroups
+            );
 
             if (updateItems.length > 0 && settings.notifyUpdates) {
               const notification = await storage.addNotification({

@@ -10,7 +10,7 @@ Questarr has been deployed!
   export NODE_IP=$(kubectl get nodes -o jsonpath="{.items[0].status.addresses[0].address}")
   echo "http://$NODE_IP:$NODE_PORT"
 {{- else if contains "LoadBalancer" .Values.service.type }}
-  export SERVICE_IP=$(kubectl get svc {{ include "questarr.fullname" . }} -n {{ .Release.Namespace }} -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+  export SERVICE_IP=$(kubectl get svc {{ include "questarr.fullname" . }} -n {{ .Release.Namespace }} -o jsonpath='{range .status.loadBalancer.ingress[*]}{.ip}{.hostname}{end}')
   echo "http://$SERVICE_IP:{{ .Values.service.port }}"
 {{- else }}
   kubectl port-forward svc/{{ include "questarr.fullname" . }} 5000:{{ .Values.service.port }} -n {{ .Release.Namespace }}

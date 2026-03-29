@@ -1,3 +1,6 @@
+# WARNING: Do not set replicaCount > 1 when persistence is enabled.
+# The application uses SQLite which does not support concurrent writes from multiple replicas.
+# Doing so will cause database corruption.
 replicaCount: 1
 
 image:
@@ -12,8 +15,6 @@ fullnameOverride: ""
 env:
   PUID: "1000"
   PGID: "1000"
-  # IGDB_CLIENT_ID: ""
-  # IGDB_CLIENT_SECRET: ""
 
 # Sensitive values — stored in a Secret.
 # Set these or reference an existing secret via existingSecret.

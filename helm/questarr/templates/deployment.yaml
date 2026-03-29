@@ -5,6 +5,9 @@ metadata:
   labels:
     {{- include "questarr.labels" . | nindent 4 }}
 spec:
+  {{- if and (gt (.Values.replicaCount | int) 1) .Values.persistence.enabled }}
+  {{- fail "Using more than one replica is not supported with persistence enabled due to SQLite limitations." }}
+  {{- end }}
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:

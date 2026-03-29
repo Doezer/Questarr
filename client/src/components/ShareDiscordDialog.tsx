@@ -1,6 +1,6 @@
 import { useState, useRef } from "react";
 import { toPng } from "html-to-image";
-import { Share2, Loader2 } from "lucide-react";
+import { Share2, Loader2, Download } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -20,6 +20,8 @@ interface ShareDiscordDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   stats: LibraryStats;
+  date?: Date;
+  discordConfigured?: boolean;
 }
 
 const STAT_OPTIONS = [
@@ -37,13 +39,22 @@ const STATUS_COLORS: Record<string, string> = {
   Downloading: "#8b5cf6",
 };
 
-export default function ShareDiscordDialog({ open, onOpenChange, stats }: ShareDiscordDialogProps) {
+export default function ShareDiscordDialog({
+  open,
+  onOpenChange,
+  stats,
+  date,
+  discordConfigured,
+}: ShareDiscordDialogProps) {
   const { toast } = useToast();
   const cardRef = useRef<HTMLDivElement>(null);
   const [selected, setSelected] = useState<Set<StatId>>(
     new Set<StatId>(["overview", "status", "quickinfo"])
   );
   const [sharing, setSharing] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+
+  const displayDate = date ?? new Date();
 
   const toggle = (id: StatId) => {
     setSelected((prev) => {
@@ -54,11 +65,36 @@ export default function ShareDiscordDialog({ open, onOpenChange, stats }: ShareD
     });
   };
 
+  const captureImage = () => {
+    if (!cardRef.current || selected.size === 0) return null;
+    return toPng(cardRef.current, { pixelRatio: 2 });
+  };
+
+  const handleDownload = async () => {
+    setDownloading(true);
+    try {
+      const dataUrl = await captureImage();
+      if (!dataUrl) return;
+      const a = document.createElement("a");
+      a.href = dataUrl;
+      a.download = "questarr-stats.png";
+      a.click();
+    } catch (err) {
+      toast({
+        title: "Download failed",
+        description: err instanceof Error ? err.message : "An unexpected error occurred",
+        variant: "destructive",
+      });
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   const handleShare = async () => {
-    if (!cardRef.current || selected.size === 0) return;
     setSharing(true);
     try {
-      const dataUrl = await toPng(cardRef.current, { pixelRatio: 2 });
+      const dataUrl = await captureImage();
+      if (!dataUrl) return;
       const res = await apiRequest("POST", "/api/stats/discord-share", {
         image: dataUrl,
         message: "📊 My Questarr library stats",
@@ -80,15 +116,17 @@ export default function ShareDiscordDialog({ open, onOpenChange, stats }: ShareD
     }
   };
 
+  const busy = sharing || downloading;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Share2 className="w-5 h-5" />
-            Share to Discord
+            Share Stats
           </DialogTitle>
-          <DialogDescription>Choose which stats to include in the shared image.</DialogDescription>
+          <DialogDescription>Choose which stats to include in the image.</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3 py-2">
@@ -124,7 +162,7 @@ export default function ShareDiscordDialog({ open, onOpenChange, stats }: ShareD
               <div>
                 <div style={{ fontSize: 18, fontWeight: 700 }}>Questarr Library Stats</div>
                 <div style={{ fontSize: 12, color: "#9ca3af" }}>
-                  {new Date().toLocaleDateString("en-US", {
+                  {displayDate.toLocaleDateString("en-US", {
                     month: "long",
                     day: "numeric",
                     year: "numeric",
@@ -279,22 +317,37 @@ export default function ShareDiscordDialog({ open, onOpenChange, stats }: ShareD
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={sharing}>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
             Cancel
           </Button>
-          <Button onClick={handleShare} disabled={sharing || selected.size === 0}>
-            {sharing ? (
+          <Button variant="outline" onClick={handleDownload} disabled={busy || selected.size === 0}>
+            {downloading ? (
               <>
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Sharing...
+                Downloading...
               </>
             ) : (
               <>
-                <Share2 className="w-4 h-4 mr-2" />
-                Share
+                <Download className="w-4 h-4 mr-2" />
+                Download
               </>
             )}
           </Button>
+          {discordConfigured && (
+            <Button onClick={handleShare} disabled={busy || selected.size === 0}>
+              {sharing ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Sharing...
+                </>
+              ) : (
+                <>
+                  <Share2 className="w-4 h-4 mr-2" />
+                  Share to Discord
+                </>
+              )}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

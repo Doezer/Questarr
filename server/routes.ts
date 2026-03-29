@@ -2721,6 +2721,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      if (
+        !webhookUrl.startsWith("https://discord.com/api/webhooks/") &&
+        !webhookUrl.startsWith("https://discordapp.com/api/webhooks/")
+      ) {
+        routesLogger.error(
+          { webhookUrl },
+          "Attempted to use an invalid Discord webhook URL for sharing."
+        );
+        return res.status(400).json({ error: "Invalid Discord webhook URL configured." });
+      }
+
       const { image, message } = req.body as { image?: string; message?: string };
       if (!image) return res.status(400).json({ error: "No image data provided" });
 

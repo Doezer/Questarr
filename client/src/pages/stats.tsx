@@ -34,6 +34,14 @@ export default function StatsPage() {
     },
   });
 
+  const { data: discordConfig } = useQuery<{ configured: boolean }>({
+    queryKey: ["/api/settings/discord"],
+    queryFn: async () => {
+      const response = await apiRequest("GET", "/api/settings/discord");
+      return response.json();
+    },
+  });
+
   const stats = useMemo(() => calculateLibraryStats(games), [games]);
 
   const pieData = useMemo(() => {
@@ -71,11 +79,17 @@ export default function StatsPage() {
         </div>
         <Button variant="outline" size="sm" onClick={() => setShareOpen(true)}>
           <Share2 className="w-4 h-4 mr-2" />
-          Share to Discord
+          {discordConfig?.configured ? "Share to Discord" : "Share"}
         </Button>
       </div>
 
-      <ShareDiscordDialog open={shareOpen} onOpenChange={setShareOpen} stats={stats} />
+      <ShareDiscordDialog
+        open={shareOpen}
+        onOpenChange={setShareOpen}
+        stats={stats}
+        date={new Date()}
+        discordConfigured={discordConfig?.configured}
+      />
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatsCard

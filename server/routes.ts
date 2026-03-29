@@ -125,10 +125,13 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
     // Filter out blacklisted releases when a gameId context is provided
     const gameId = req.query.gameId as string | undefined;
     let filteredItems = items;
-    if (gameId) {
-      const blacklisted = await storage.getReleaseBlacklistSet(gameId);
-      if (blacklisted.size > 0) {
-        filteredItems = items.filter((item) => !blacklisted.has(item.title));
+    if (gameId && req.user) {
+      const game = await storage.getGame(gameId);
+      if (game && game.userId === req.user.id) {
+        const blacklisted = await storage.getReleaseBlacklistSet(gameId);
+        if (blacklisted.size > 0) {
+          filteredItems = items.filter((item) => !blacklisted.has(item.title));
+        }
       }
     }
 
@@ -1157,7 +1160,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!game) return res.status(404).json({ error: "Game not found" });
         if (game.userId !== userId) return res.status(403).json({ error: "Forbidden" });
 
-        await storage.removeReleaseBlacklist(id);
+        const deleted = await storage.removeReleaseBlacklist(id, gameId);
+        if (!deleted) return res.status(404).json({ error: "Blacklist entry not found" });
         res.status(204).send();
       } catch (error) {
         routesLogger.error({ error }, "error removing from blacklist");

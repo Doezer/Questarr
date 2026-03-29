@@ -154,7 +154,7 @@ export interface IStorage {
   addReleaseBlacklist(entry: InsertReleaseBlacklist): Promise<ReleaseBlacklist>;
   getReleaseBlacklist(gameId: string): Promise<ReleaseBlacklist[]>;
   getAllReleaseBlacklists(userId: string): Promise<(ReleaseBlacklist & { gameTitle: string })[]>;
-  removeReleaseBlacklist(id: string): Promise<void>;
+  removeReleaseBlacklist(id: string, gameId: string): Promise<boolean>;
   getReleaseBlacklistSet(gameId: string): Promise<Set<string>>;
 }
 
@@ -914,8 +914,11 @@ export class MemStorage implements IStorage {
       });
   }
 
-  async removeReleaseBlacklist(id: string): Promise<void> {
+  async removeReleaseBlacklist(id: string, gameId: string): Promise<boolean> {
+    const entry = this.releaseBlacklists.get(id);
+    if (!entry || entry.gameId !== gameId) return false;
     this.releaseBlacklists.delete(id);
+    return true;
   }
 
   async getReleaseBlacklistSet(gameId: string): Promise<Set<string>> {
@@ -1669,8 +1672,11 @@ export class DatabaseStorage implements IStorage {
       .orderBy(games.title, desc(releaseBlacklist.createdAt));
   }
 
-  async removeReleaseBlacklist(id: string): Promise<void> {
-    await db.delete(releaseBlacklist).where(eq(releaseBlacklist.id, id));
+  async removeReleaseBlacklist(id: string, gameId: string): Promise<boolean> {
+    const result = await db
+      .delete(releaseBlacklist)
+      .where(and(eq(releaseBlacklist.id, id), eq(releaseBlacklist.gameId, gameId)));
+    return result.changes > 0;
   }
 
   async getReleaseBlacklistSet(gameId: string): Promise<Set<string>> {

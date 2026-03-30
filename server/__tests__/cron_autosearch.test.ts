@@ -30,6 +30,7 @@ const mockUpdateGameSearchResultsAvailable = vi.fn();
 const mockUpdateGameStatus = vi.fn();
 const mockAddGameDownload = vi.fn();
 const mockGetEnabledDownloaders = vi.fn().mockResolvedValue([]);
+const mockGetReleaseBlacklistSet = vi.fn();
 
 vi.mock("../storage.js", () => ({
   storage: {
@@ -42,7 +43,7 @@ vi.mock("../storage.js", () => ({
     updateGameStatus: mockUpdateGameStatus,
     addGameDownload: mockAddGameDownload,
     getEnabledDownloaders: mockGetEnabledDownloaders,
-    getReleaseBlacklistSet: vi.fn().mockResolvedValue(new Set()),
+    getReleaseBlacklistSet: mockGetReleaseBlacklistSet,
   },
 }));
 
@@ -148,6 +149,7 @@ describe("Cron - checkAutoSearch", () => {
     mockSearchAllIndexers.mockResolvedValue({ items: [], errors: [], total: 0 });
     mockGetEnabledDownloaders.mockResolvedValue([]);
     mockAddNotification.mockResolvedValue({ id: "notif-1" });
+    mockGetReleaseBlacklistSet.mockResolvedValue(new Set());
   });
 
   afterEach(() => {
@@ -653,5 +655,29 @@ describe("Cron - checkAutoSearch", () => {
         })
       );
     });
+  });
+
+  it("should not notify when all matched items are blacklisted", async () => {
+    const game = { ...baseGame, status: "wanted" as const, releaseStatus: "released" as const };
+    mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [game]]]));
+    mockSearchAllIndexers.mockResolvedValue({
+      items: [
+        {
+          title: "Test Game-SKIDROW",
+          link: "https://example.com/download",
+          pubDate: FIXED_PUB_DATE,
+          seeders: 50,
+          size: 10_000,
+        },
+      ],
+      errors: [],
+      total: 1,
+    });
+    mockGetReleaseBlacklistSet.mockResolvedValue(new Set(["Test Game-SKIDROW"]));
+
+    await checkAutoSearch();
+
+    expect(mockAddNotification).not.toHaveBeenCalled();
+    expect(mockUpdateGameSearchResultsAvailable).not.toHaveBeenCalled();
   });
 });

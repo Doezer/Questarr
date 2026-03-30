@@ -27,6 +27,9 @@ const mockGetUserSettings = vi.fn();
 const mockUpdateUserSettings = vi.fn();
 const mockAddNotification = vi.fn();
 const mockUpdateGameSearchResultsAvailable = vi.fn();
+const mockUpdateGameStatus = vi.fn();
+const mockAddGameDownload = vi.fn();
+const mockGetEnabledDownloaders = vi.fn().mockResolvedValue([]);
 
 vi.mock("../storage.js", () => ({
   storage: {
@@ -36,8 +39,9 @@ vi.mock("../storage.js", () => ({
     updateUserSettings: mockUpdateUserSettings,
     addNotification: mockAddNotification,
     updateGameSearchResultsAvailable: mockUpdateGameSearchResultsAvailable,
-    // Other methods that might be called (though ideally we isolate the test enough)
-    getEnabledDownloaders: vi.fn().mockResolvedValue([]),
+    updateGameStatus: mockUpdateGameStatus,
+    addGameDownload: mockAddGameDownload,
+    getEnabledDownloaders: mockGetEnabledDownloaders,
   },
 }));
 
@@ -53,9 +57,10 @@ vi.mock("../socket.js", () => ({
 }));
 
 // Mock downloaders
+const mockAddDownloadWithFallback = vi.fn();
 vi.mock("../downloaders.js", () => ({
   DownloaderManager: {
-    addDownloadWithFallback: vi.fn(),
+    addDownloadWithFallback: mockAddDownloadWithFallback,
   },
 }));
 
@@ -120,6 +125,9 @@ describe("Cron - checkAutoSearch", () => {
     xrelSceneReleases: true,
     xrelP2pReleases: false,
     autoSearchUnreleased: false, // Default: false
+    preferredReleaseGroups: null,
+    filterByPreferredGroups: false,
+    steamSyncFailures: 0,
     updatedAt: new Date(FIXED_NOW),
   };
 
@@ -135,6 +143,8 @@ describe("Cron - checkAutoSearch", () => {
     mockGetUserGames.mockResolvedValue([]);
     mockGetUserSettings.mockResolvedValue(baseSettings);
     mockSearchAllIndexers.mockResolvedValue({ items: [], errors: [], total: 0 });
+    mockGetEnabledDownloaders.mockResolvedValue([]);
+    mockAddNotification.mockResolvedValue({ id: "notif-1" });
   });
 
   afterEach(() => {
@@ -419,5 +429,269 @@ describe("Cron - checkAutoSearch", () => {
     await checkAutoSearch();
 
     expect(mockUpdateGameSearchResultsAvailable).toHaveBeenCalledWith(game.id, true);
+  });
+
+  describe("Preferred Release Groups Filtering", () => {
+    const SKIDROW_ITEM = {
+      title: "Test Game SKIDROW",
+      link: "https://example.com/skidrow",
+      pubDate: FIXED_PUB_DATE,
+      seeders: 50,
+      size: 10_000,
+      group: "SKIDROW",
+    };
+    const CODEX_ITEM = {
+      title: "Test Game CODEX",
+      link: "https://example.com/codex",
+      pubDate: FIXED_PUB_DATE,
+      seeders: 80,
+      size: 10_000,
+      group: "CODEX",
+    };
+
+    it("should filter to preferred group when matching items exist (multiple→single triggers availability)", async () => {
+      const game = { ...baseGame, status: "wanted" as const, releaseStatus: "released" as const };
+      const settings = {
+        ...baseSettings,
+        preferredReleaseGroups: '["SKIDROW"]',
+        autoDownloadEnabled: false,
+        notifyMultipleDownloads: false,
+      };
+
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [game]]]));
+      mockGetUserSettings.mockResolvedValue(settings);
+      // Two main items (no update keywords), only SKIDROW matches preferred group
+      mockSearchAllIndexers.mockResolvedValue({
+        items: [CODEX_ITEM, SKIDROW_ITEM],
+        errors: [],
+        total: 2,
+      });
+
+      await checkAutoSearch();
+
+      // After filtering to 1 SKIDROW item, single-result path fires
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Game Available" })
+      );
+      expect(mockUpdateGameSearchResultsAvailable).toHaveBeenCalledWith(game.id, true);
+    });
+
+    it("should fall back to all items when no items match preferred groups", async () => {
+      const game = { ...baseGame, status: "wanted" as const, releaseStatus: "released" as const };
+      const settings = {
+        ...baseSettings,
+        preferredReleaseGroups: '["PLAZA"]',
+        autoDownloadEnabled: false,
+        notifyMultipleDownloads: true,
+      };
+
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [game]]]));
+      mockGetUserSettings.mockResolvedValue(settings);
+      // Two items, neither matches PLAZA → fallback to both
+      mockSearchAllIndexers.mockResolvedValue({
+        items: [CODEX_ITEM, SKIDROW_ITEM],
+        errors: [],
+        total: 2,
+      });
+
+      await checkAutoSearch();
+
+      // Fallback: 2 items used, notifyMultipleDownloads → "Multiple Results Found"
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Multiple Results Found" })
+      );
+    });
+
+    it("should not filter when preferredReleaseGroups is an empty array", async () => {
+      const game = { ...baseGame, status: "wanted" as const, releaseStatus: "released" as const };
+      const settings = {
+        ...baseSettings,
+        preferredReleaseGroups: "[]",
+        autoDownloadEnabled: false,
+        notifyMultipleDownloads: true,
+      };
+
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [game]]]));
+      mockGetUserSettings.mockResolvedValue(settings);
+      mockSearchAllIndexers.mockResolvedValue({
+        items: [CODEX_ITEM, SKIDROW_ITEM],
+        errors: [],
+        total: 2,
+      });
+
+      await checkAutoSearch();
+
+      // Empty array → no filter → 2 items → "Multiple Results Found"
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Multiple Results Found" })
+      );
+    });
+
+    it("should handle malformed JSON in preferredReleaseGroups gracefully", async () => {
+      const game = { ...baseGame, status: "wanted" as const, releaseStatus: "released" as const };
+      const settings = {
+        ...baseSettings,
+        preferredReleaseGroups: "not-valid-json",
+        autoDownloadEnabled: false,
+      };
+
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [game]]]));
+      mockGetUserSettings.mockResolvedValue(settings);
+      mockSearchAllIndexers.mockResolvedValue({
+        items: [SKIDROW_ITEM],
+        errors: [],
+        total: 1,
+      });
+
+      // Should not throw; should still process the game normally
+      await expect(checkAutoSearch()).resolves.not.toThrow();
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Game Available" })
+      );
+    });
+
+    it("should treat non-array JSON as no filter (use all items)", async () => {
+      const game = { ...baseGame, status: "wanted" as const, releaseStatus: "released" as const };
+      const settings = {
+        ...baseSettings,
+        preferredReleaseGroups: '"SKIDROW"', // valid JSON but a string, not array
+        autoDownloadEnabled: false,
+        notifyMultipleDownloads: true,
+      };
+
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [game]]]));
+      mockGetUserSettings.mockResolvedValue(settings);
+      mockSearchAllIndexers.mockResolvedValue({
+        items: [CODEX_ITEM, SKIDROW_ITEM],
+        errors: [],
+        total: 2,
+      });
+
+      await checkAutoSearch();
+
+      // Non-array → preferredGroups stays [] → no filter → 2 items
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Multiple Results Found" })
+      );
+    });
+
+    it("should include group name in Download Started notification", async () => {
+      const game = { ...baseGame, status: "wanted" as const, releaseStatus: "released" as const };
+      const settings = { ...baseSettings, autoDownloadEnabled: true };
+      const mockDownloader = { id: "dl-1", name: "qBittorrent", type: "torrent", enabled: true };
+
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [game]]]));
+      mockGetUserSettings.mockResolvedValue(settings);
+      mockGetEnabledDownloaders.mockResolvedValue([mockDownloader]);
+      mockAddDownloadWithFallback.mockResolvedValue({
+        success: true,
+        id: "hash-abc",
+        downloaderId: "dl-1",
+      });
+      mockSearchAllIndexers.mockResolvedValue({
+        items: [{ ...SKIDROW_ITEM, downloadType: "torrent" }],
+        errors: [],
+        total: 1,
+      });
+
+      await checkAutoSearch();
+
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Download Started",
+          message: expect.stringContaining("[SKIDROW]"),
+        })
+      );
+    });
+
+    it("should not include group suffix in Download Started notification when item has no group", async () => {
+      const game = { ...baseGame, status: "wanted" as const, releaseStatus: "released" as const };
+      const settings = { ...baseSettings, autoDownloadEnabled: true };
+      const mockDownloader = { id: "dl-1", name: "qBittorrent", type: "torrent", enabled: true };
+
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [game]]]));
+      mockGetUserSettings.mockResolvedValue(settings);
+      mockGetEnabledDownloaders.mockResolvedValue([mockDownloader]);
+      mockAddDownloadWithFallback.mockResolvedValue({
+        success: true,
+        id: "hash-abc",
+        downloaderId: "dl-1",
+      });
+      mockSearchAllIndexers.mockResolvedValue({
+        items: [
+          {
+            title: "Test Game",
+            link: "https://example.com/dl",
+            pubDate: FIXED_PUB_DATE,
+            seeders: 50,
+            size: 10_000,
+            downloadType: "torrent",
+            // no group field
+          },
+        ],
+        errors: [],
+        total: 1,
+      });
+
+      await checkAutoSearch();
+
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Download Started",
+          message: expect.not.stringContaining("["),
+        })
+      );
+    });
+
+    it("should filter owned-game update items by preferred groups", async () => {
+      const ownedGame = {
+        ...baseGame,
+        status: "owned" as const,
+        releaseStatus: "released" as const,
+      };
+      const settings = {
+        ...baseSettings,
+        preferredReleaseGroups: '["SKIDROW"]',
+        notifyUpdates: true,
+        autoDownloadEnabled: false,
+      };
+
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, []]]));
+      mockGetUserGames.mockResolvedValue([ownedGame]);
+      mockGetUserSettings.mockResolvedValue(settings);
+      // Return update items (title contains "Update") — only SKIDROW matches
+      mockSearchAllIndexers.mockResolvedValue({
+        items: [
+          {
+            title: "Test Game Update v1.1 CODEX",
+            link: "https://example.com/update-codex",
+            pubDate: FIXED_PUB_DATE,
+            seeders: 80,
+            size: 2_000,
+            group: "CODEX",
+          },
+          {
+            title: "Test Game Update v1.1 SKIDROW",
+            link: "https://example.com/update-skidrow",
+            pubDate: FIXED_PUB_DATE,
+            seeders: 50,
+            size: 2_000,
+            group: "SKIDROW",
+          },
+        ],
+        errors: [],
+        total: 2,
+      });
+
+      await checkAutoSearch();
+
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Game Updates Available",
+          // Filtered to 1 SKIDROW update
+          message: expect.stringContaining("1 update"),
+        })
+      );
+    });
   });
 });

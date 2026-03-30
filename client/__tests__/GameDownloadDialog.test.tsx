@@ -11,6 +11,24 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 // Mocking external dependencies
 const mockToast = vi.fn();
+
+vi.mock("@/components/ui/dropdown-menu", () => ({
+  DropdownMenu: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DropdownMenuTrigger: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DropdownMenuContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DropdownMenuItem: ({
+    children,
+    onClick,
+  }: {
+    children: React.ReactNode;
+    onClick?: () => void;
+  }) => <button onClick={onClick}>{children}</button>,
+  DropdownMenuSub: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DropdownMenuSubContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DropdownMenuSubTrigger: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DropdownMenuPortal: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DropdownMenuSeparator: () => <hr />,
+}));
 vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({
     toast: mockToast,
@@ -50,7 +68,7 @@ vi.mock("lucide-react", () => ({
   ChevronDown: () => <div data-testid="icon-chevron-down" />,
   ChevronUp: () => <div data-testid="icon-chevron-up" />,
   ChevronsUpDown: () => <div data-testid="icon-chevrons-up-down" />,
-  MoreVertical: () => <div />,
+  MoreVertical: () => <div data-testid="icon-more-vertical" />,
   Copy: () => <div />,
   Ban: () => <div data-testid="icon-ban" />,
 }));
@@ -148,6 +166,7 @@ type FetchOverrides = {
   search?: object;
   settings?: object;
   downloads?: object;
+  blacklist?: object;
 };
 
 /** Creates a fetch mock with sensible defaults, overridable per-endpoint. */
@@ -165,6 +184,13 @@ const createFetchMock = (overrides: FetchOverrides = {}) =>
     }
     if (urlString.includes("/api/settings")) {
       return { ok: true, json: async () => overrides.settings ?? {} };
+    }
+    if (urlString.includes("/blacklist")) {
+      return {
+        ok: true,
+        json: async () =>
+          overrides.blacklist ?? { id: "bl-1", gameId: mockGame.id, releaseTitle: "Test Torrent 1" },
+      };
     }
     if (urlString.includes("/api/downloads")) {
       return {
@@ -251,6 +277,30 @@ describe("GameDownloadDialog", () => {
 
     // Should trigger a re-sort -> Ascending -> ArrowUp
     expect(screen.getAllByTestId("icon-sort-up").length).toBeGreaterThan(0);
+  });
+
+  it("blacklists a release when clicking 'Blacklist release'", async () => {
+    renderComponent();
+
+    // Wait for results to load (dropdown is always rendered via mock)
+    await waitFor(
+      () => {
+        expect(screen.getAllByText("Blacklist release").length).toBeGreaterThan(0);
+      },
+      { timeout: 3000 }
+    );
+
+    fireEvent.click(screen.getAllByText("Blacklist release")[0]);
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining("/blacklist"),
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining("Test Torrent 1"),
+        })
+      );
+    });
   });
 
   it("shows a loading spinner on the download button when clicked", async () => {

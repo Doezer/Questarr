@@ -13,6 +13,7 @@ import type {
   InsertIndexer,
   InsertDownloader,
   InsertUserSettings,
+  InsertReleaseBlacklist,
 } from "../../shared/schema";
 import type { MemStorage as MemStorageType } from "../storage.js";
 
@@ -303,6 +304,81 @@ describe("MemStorage", () => {
 
       expect(settings.autoSearchUnreleased).toBe(false); // Default is false
       expect(settings.autoSearchEnabled).toBe(true); // Default is true
+    });
+  });
+
+  describe("Release Blacklist Management", () => {
+    const userId = "bl-user-1";
+    let gameId: string;
+
+    beforeEach(async () => {
+      const game = await storage.addGame({
+        title: "Blacklist Game",
+        igdbId: 9001,
+        status: "wanted",
+        hidden: null,
+        userId,
+      } as InsertGame);
+      gameId = game.id;
+    });
+
+    it("should add a release to the blacklist", async () => {
+      const entry = await storage.addReleaseBlacklist({ gameId, releaseTitle: "Game-SKIDROW" });
+      expect(entry.gameId).toBe(gameId);
+      expect(entry.releaseTitle).toBe("Game-SKIDROW");
+      expect(entry.id).toBeDefined();
+    });
+
+    it("should return existing entry on duplicate add", async () => {
+      const first = await storage.addReleaseBlacklist({ gameId, releaseTitle: "Game-SKIDROW" });
+      const second = await storage.addReleaseBlacklist({ gameId, releaseTitle: "Game-SKIDROW" });
+      expect(second.id).toBe(first.id);
+    });
+
+    it("should list blacklist entries for a game", async () => {
+      await storage.addReleaseBlacklist({ gameId, releaseTitle: "Game-SKIDROW" });
+      await storage.addReleaseBlacklist({ gameId, releaseTitle: "Game-CODEX" });
+      const entries = await storage.getReleaseBlacklist(gameId);
+      expect(entries).toHaveLength(2);
+      expect(entries.map((e) => e.releaseTitle)).toContain("Game-SKIDROW");
+      expect(entries.map((e) => e.releaseTitle)).toContain("Game-CODEX");
+    });
+
+    it("should return all blacklist entries with game titles for a user", async () => {
+      await storage.addReleaseBlacklist({ gameId, releaseTitle: "Game-SKIDROW" });
+      const all = await storage.getAllReleaseBlacklists(userId);
+      expect(all).toHaveLength(1);
+      expect(all[0].gameTitle).toBe("Blacklist Game");
+      expect(all[0].releaseTitle).toBe("Game-SKIDROW");
+    });
+
+    it("should not return entries from other users' games", async () => {
+      await storage.addReleaseBlacklist({ gameId, releaseTitle: "Game-SKIDROW" });
+      const others = await storage.getAllReleaseBlacklists("other-user");
+      expect(others).toHaveLength(0);
+    });
+
+    it("should remove a blacklist entry and return true", async () => {
+      const entry = await storage.addReleaseBlacklist({ gameId, releaseTitle: "Game-SKIDROW" });
+      const removed = await storage.removeReleaseBlacklist(entry.id, gameId);
+      expect(removed).toBe(true);
+      const remaining = await storage.getReleaseBlacklist(gameId);
+      expect(remaining).toHaveLength(0);
+    });
+
+    it("should return false when removing a non-existent entry", async () => {
+      const result = await storage.removeReleaseBlacklist("nonexistent-id", gameId);
+      expect(result).toBe(false);
+    });
+
+    it("should return a Set of release titles for a game", async () => {
+      await storage.addReleaseBlacklist({ gameId, releaseTitle: "Game-SKIDROW" });
+      await storage.addReleaseBlacklist({ gameId, releaseTitle: "Game-CODEX" });
+      const set = await storage.getReleaseBlacklistSet(gameId);
+      expect(set).toBeInstanceOf(Set);
+      expect(set.has("Game-SKIDROW")).toBe(true);
+      expect(set.has("Game-CODEX")).toBe(true);
+      expect(set.size).toBe(2);
     });
   });
 });

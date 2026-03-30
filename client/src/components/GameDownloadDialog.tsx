@@ -67,7 +67,7 @@ import {
   downloadRulesSchema,
 } from "@shared/schema";
 import { groupDownloadsByCategory, type DownloadCategory } from "@shared/download-categorizer";
-import { parseReleaseMetadata } from "@shared/title-utils";
+import { parseReleaseMetadata, parseJsonStringArray } from "@shared/title-utils";
 
 interface DownloadItem {
   title: string;
@@ -170,14 +170,10 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         console.warn("Failed to apply download rules from settings", error);
       }
     }
-    if (userSettings?.filterByPreferredGroups && userSettings.preferredReleaseGroups) {
-      try {
-        const groups = JSON.parse(userSettings.preferredReleaseGroups) as string[];
-        if (groups.length > 0) {
-          setSelectedGroups(groups);
-        }
-      } catch (error) {
-        console.warn("Failed to parse preferred release groups from settings", error);
+    if (userSettings?.filterByPreferredGroups) {
+      const groups = parseJsonStringArray(userSettings.preferredReleaseGroups);
+      if (groups.length > 0) {
+        setSelectedGroups(groups);
       }
     }
   }, [

@@ -8,7 +8,12 @@ import { xrelClient, DEFAULT_XREL_BASE } from "./xrel.js";
 import { steamService } from "./steam.js";
 import { downloadRulesSchema, type Game, type InsertNotification } from "../shared/schema.js";
 import { categorizeDownload } from "../shared/download-categorizer.js";
-import { releaseMatchesGame, normalizeTitle, cleanReleaseName } from "../shared/title-utils.js";
+import {
+  releaseMatchesGame,
+  normalizeTitle,
+  cleanReleaseName,
+  parseJsonStringArray,
+} from "../shared/title-utils.js";
 
 const DELAY_THRESHOLD_DAYS = 7;
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -586,17 +591,7 @@ export async function checkAutoSearch() {
 
         let gamesWithResults = 0;
 
-        let preferredGroups: string[] = [];
-        if (settings.preferredReleaseGroups) {
-          try {
-            const parsed = JSON.parse(settings.preferredReleaseGroups);
-            if (Array.isArray(parsed)) {
-              preferredGroups = parsed;
-            }
-          } catch (e) {
-            igdbLogger.warn({ userId, err: e }, "Malformed preferred_release_groups for user");
-          }
-        }
+        const preferredGroups = parseJsonStringArray(settings.preferredReleaseGroups);
 
         for (const game of wantedGames) {
           try {

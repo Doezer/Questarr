@@ -43,6 +43,7 @@ import PreferredReleaseGroupsSettings from "@/components/PreferredReleaseGroupsS
 import PasswordSettings from "@/components/PasswordSettings";
 import type { Config, UserSettings, DownloadRules } from "@shared/schema";
 import { downloadRulesSchema } from "@shared/schema";
+import { parseJsonStringArray } from "@shared/title-utils";
 import { useState, useEffect, useRef } from "react";
 
 interface CertInfo {
@@ -134,17 +135,7 @@ export default function SettingsPage() {
       } else {
         setDownloadRules(null);
       }
-      if (userSettings.preferredReleaseGroups) {
-        try {
-          const parsed = JSON.parse(userSettings.preferredReleaseGroups);
-          setPreferredReleaseGroups(Array.isArray(parsed) ? parsed : []);
-        } catch (error) {
-          console.warn("Failed to parse preferredReleaseGroups from settings", error);
-          setPreferredReleaseGroups([]);
-        }
-      } else {
-        setPreferredReleaseGroups([]);
-      }
+      setPreferredReleaseGroups(parseJsonStringArray(userSettings.preferredReleaseGroups));
       setFilterByPreferredGroups(userSettings.filterByPreferredGroups ?? false);
       setXrelSceneReleases(userSettings.xrelSceneReleases ?? true);
       setXrelP2pReleases(userSettings.xrelP2pReleases ?? false);

@@ -143,51 +143,42 @@ const renderComponent = (onOpenChange = mockOnOpenChange) => {
   );
 };
 
+type FetchOverrides = {
+  search?: object;
+  settings?: object;
+  downloads?: object;
+};
+
+/** Creates a fetch mock with sensible defaults, overridable per-endpoint. */
+const createFetchMock = (overrides: FetchOverrides = {}) =>
+  vi.fn(async (url: RequestInfo | URL) => {
+    const urlString = url.toString();
+    if (urlString.includes("/api/search")) {
+      return { ok: true, json: async () => overrides.search ?? mockTorrents };
+    }
+    if (urlString.includes("/api/indexers/enabled")) {
+      return { ok: true, json: async () => mockEnabledIndexers };
+    }
+    if (urlString.includes("/api/downloaders/enabled")) {
+      return { ok: true, json: async () => mockDownloaders };
+    }
+    if (urlString.includes("/api/settings")) {
+      return { ok: true, json: async () => overrides.settings ?? {} };
+    }
+    if (urlString.includes("/api/downloads")) {
+      return {
+        ok: true,
+        json: async () =>
+          overrides.downloads ?? { success: true, downloaderName: "TestDownloader" },
+      };
+    }
+    return { ok: false, json: async () => ({}) };
+  }) as never;
+
 describe("GameDownloadDialog", () => {
   beforeEach(() => {
     vi.resetAllMocks();
-
-    // Mock API responses
-    global.fetch = vi.fn(async (url) => {
-      const urlString = url.toString();
-
-      if (urlString.includes("/api/search")) {
-        return Promise.resolve({
-          ok: true,
-          json: async () => mockTorrents,
-        });
-      }
-
-      if (urlString.includes("/api/indexers/enabled")) {
-        return Promise.resolve({
-          ok: true,
-          json: async () => mockEnabledIndexers,
-        });
-      }
-
-      if (urlString.includes("/api/downloaders/enabled")) {
-        return Promise.resolve({
-          ok: true,
-          json: async () => mockDownloaders,
-        });
-      }
-
-      if (urlString.includes("/api/settings")) {
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({}),
-        });
-      }
-
-      if (urlString.includes("/api/downloads")) {
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({ success: true, downloaderName: "TestDownloader" }),
-        });
-      }
-
-      return Promise.resolve({ ok: false, json: async () => ({}) });
-    }) as never;
+    global.fetch = createFetchMock();
   });
 
   it("renders search results correctly", async () => {
@@ -308,25 +299,9 @@ describe("GameDownloadDialog", () => {
   });
 
   it("shows destructive toast when download API returns success:false", async () => {
-    global.fetch = vi.fn(async (url) => {
-      const urlString = url.toString();
-      if (urlString.includes("/api/search")) {
-        return { ok: true, json: async () => mockTorrents };
-      }
-      if (urlString.includes("/api/indexers/enabled")) {
-        return { ok: true, json: async () => mockEnabledIndexers };
-      }
-      if (urlString.includes("/api/downloaders/enabled")) {
-        return { ok: true, json: async () => mockDownloaders };
-      }
-      if (urlString.includes("/api/settings")) {
-        return { ok: true, json: async () => ({}) };
-      }
-      if (urlString.includes("/api/downloads")) {
-        return { ok: true, json: async () => ({ success: false, message: "Downloader offline" }) };
-      }
-      return { ok: false, json: async () => ({}) };
-    }) as never;
+    global.fetch = createFetchMock({
+      downloads: { success: false, message: "Downloader offline" },
+    });
 
     renderComponent();
 
@@ -344,30 +319,9 @@ describe("GameDownloadDialog", () => {
   });
 
   it("displays indexer errors returned by the search API", async () => {
-    global.fetch = vi.fn(async (url) => {
-      const urlString = url.toString();
-      if (urlString.includes("/api/search")) {
-        return {
-          ok: true,
-          json: async () => ({
-            items: [],
-            total: 0,
-            offset: 0,
-            errors: ["Indexer A: connection timeout"],
-          }),
-        };
-      }
-      if (urlString.includes("/api/indexers/enabled")) {
-        return { ok: true, json: async () => mockEnabledIndexers };
-      }
-      if (urlString.includes("/api/downloaders/enabled")) {
-        return { ok: true, json: async () => mockDownloaders };
-      }
-      if (urlString.includes("/api/settings")) {
-        return { ok: true, json: async () => ({}) };
-      }
-      return { ok: false, json: async () => ({}) };
-    }) as never;
+    global.fetch = createFetchMock({
+      search: { items: [], total: 0, offset: 0, errors: ["Indexer A: connection timeout"] },
+    });
 
     renderComponent();
 
@@ -402,25 +356,9 @@ describe("GameDownloadDialog", () => {
       indexerName: "Indexer A",
     };
 
-    global.fetch = vi.fn(async (url) => {
-      const urlString = url.toString();
-      if (urlString.includes("/api/search")) {
-        return {
-          ok: true,
-          json: async () => ({ items: [mainItem, updateItem], total: 2, offset: 0 }),
-        };
-      }
-      if (urlString.includes("/api/indexers/enabled")) {
-        return { ok: true, json: async () => mockEnabledIndexers };
-      }
-      if (urlString.includes("/api/downloaders/enabled")) {
-        return { ok: true, json: async () => mockDownloaders };
-      }
-      if (urlString.includes("/api/settings")) {
-        return { ok: true, json: async () => ({}) };
-      }
-      return { ok: false, json: async () => ({}) };
-    }) as never;
+    global.fetch = createFetchMock({
+      search: { items: [mainItem, updateItem], total: 2, offset: 0 },
+    });
 
     renderComponent();
 
@@ -439,59 +377,38 @@ describe("GameDownloadDialog", () => {
     });
   });
 
-  it("filters displayed results to preferred groups when filterByPreferredGroups is enabled", async () => {
-    const skidrowItem = {
-      guid: "skidrow-1",
-      title: "Test Game SKIDROW",
-      link: "http://test.com/skidrow",
-      pubDate: new Date().toISOString(),
-      size: 1024 * 1024 * 100,
-      seeders: 50,
-      leechers: 2,
-      indexerName: "Indexer A",
-      group: "SKIDROW",
-    };
-    const codexItem = {
-      guid: "codex-1",
-      title: "Test Game CODEX",
-      link: "http://test.com/codex",
-      pubDate: new Date().toISOString(),
-      size: 1024 * 1024 * 100,
-      seeders: 80,
-      leechers: 5,
-      indexerName: "Indexer A",
-      group: "CODEX",
-    };
+  const skidrowItem = {
+    guid: "skidrow-1",
+    title: "Test Game SKIDROW",
+    link: "http://test.com/skidrow",
+    pubDate: new Date().toISOString(),
+    size: 1024 * 1024 * 100,
+    seeders: 50,
+    leechers: 2,
+    indexerName: "Indexer A",
+    group: "SKIDROW",
+  };
+  const codexItem = {
+    guid: "codex-1",
+    title: "Test Game CODEX",
+    link: "http://test.com/codex",
+    pubDate: new Date().toISOString(),
+    size: 1024 * 1024 * 100,
+    seeders: 80,
+    leechers: 5,
+    indexerName: "Indexer A",
+    group: "CODEX",
+  };
+  const groupSearchResults = { items: [skidrowItem, codexItem], total: 2, offset: 0 };
 
-    global.fetch = vi.fn(async (url) => {
-      const urlString = url.toString();
-      if (urlString.includes("/api/search")) {
-        return {
-          ok: true,
-          json: async () => ({ items: [skidrowItem, codexItem], total: 2, offset: 0 }),
-        };
-      }
-      if (urlString.includes("/api/indexers/enabled")) {
-        return { ok: true, json: async () => mockEnabledIndexers };
-      }
-      if (urlString.includes("/api/downloaders/enabled")) {
-        return { ok: true, json: async () => mockDownloaders };
-      }
-      if (urlString.includes("/api/settings")) {
-        return {
-          ok: true,
-          json: async () => ({
-            filterByPreferredGroups: true,
-            preferredReleaseGroups: '["SKIDROW"]',
-          }),
-        };
-      }
-      return { ok: false, json: async () => ({}) };
-    }) as never;
+  it("filters displayed results to preferred groups when filterByPreferredGroups is enabled", async () => {
+    global.fetch = createFetchMock({
+      search: groupSearchResults,
+      settings: { filterByPreferredGroups: true, preferredReleaseGroups: '["SKIDROW"]' },
+    });
 
     renderComponent();
 
-    // SKIDROW item must appear; CODEX must be absent after group filter applies
     await waitFor(
       () => {
         expect(screen.getAllByText("Test Game SKIDROW").length).toBeGreaterThan(0);
@@ -503,54 +420,10 @@ describe("GameDownloadDialog", () => {
   });
 
   it("shows all results when filterByPreferredGroups is false even if groups are configured", async () => {
-    const skidrowItem = {
-      guid: "skidrow-1",
-      title: "Test Game SKIDROW",
-      link: "http://test.com/skidrow",
-      pubDate: new Date().toISOString(),
-      size: 1024 * 1024 * 100,
-      seeders: 50,
-      leechers: 2,
-      indexerName: "Indexer A",
-      group: "SKIDROW",
-    };
-    const codexItem = {
-      guid: "codex-1",
-      title: "Test Game CODEX",
-      link: "http://test.com/codex",
-      pubDate: new Date().toISOString(),
-      size: 1024 * 1024 * 100,
-      seeders: 80,
-      leechers: 5,
-      indexerName: "Indexer A",
-      group: "CODEX",
-    };
-
-    global.fetch = vi.fn(async (url) => {
-      const urlString = url.toString();
-      if (urlString.includes("/api/search")) {
-        return {
-          ok: true,
-          json: async () => ({ items: [skidrowItem, codexItem], total: 2, offset: 0 }),
-        };
-      }
-      if (urlString.includes("/api/indexers/enabled")) {
-        return { ok: true, json: async () => mockEnabledIndexers };
-      }
-      if (urlString.includes("/api/downloaders/enabled")) {
-        return { ok: true, json: async () => mockDownloaders };
-      }
-      if (urlString.includes("/api/settings")) {
-        return {
-          ok: true,
-          json: async () => ({
-            filterByPreferredGroups: false,
-            preferredReleaseGroups: '["SKIDROW"]',
-          }),
-        };
-      }
-      return { ok: false, json: async () => ({}) };
-    }) as never;
+    global.fetch = createFetchMock({
+      search: groupSearchResults,
+      settings: { filterByPreferredGroups: false, preferredReleaseGroups: '["SKIDROW"]' },
+    });
 
     renderComponent();
 

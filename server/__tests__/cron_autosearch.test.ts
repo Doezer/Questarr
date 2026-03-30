@@ -151,6 +151,14 @@ describe("Cron - checkAutoSearch", () => {
     vi.useRealTimers();
   });
 
+  const UPDATE_ITEM = {
+    title: "Test Game Update v1.1",
+    link: "https://example.com/update",
+    pubDate: FIXED_PUB_DATE,
+    seeders: 100,
+    size: 1024,
+  };
+
   it("should search for released games when autoSearchUnreleased is false (default)", async () => {
     // Setup: Game is released. Settings default (autoSearchUnreleased = false).
     const game = { ...baseGame, releaseStatus: "released" as const };
@@ -276,19 +284,7 @@ describe("Cron - checkAutoSearch", () => {
 
     mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [game]]]));
     mockGetUserSettings.mockResolvedValue(settings);
-    mockSearchAllIndexers.mockResolvedValue({
-      items: [
-        {
-          title: "Test Game Update v1.1",
-          link: "https://example.com/update",
-          pubDate: FIXED_PUB_DATE,
-          seeders: 100,
-          size: 1024,
-        },
-      ],
-      errors: [],
-      total: 1,
-    });
+    mockSearchAllIndexers.mockResolvedValue({ items: [UPDATE_ITEM], errors: [], total: 1 });
 
     await checkAutoSearch();
 
@@ -304,19 +300,7 @@ describe("Cron - checkAutoSearch", () => {
     mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, []]]));
     mockGetUserGames.mockResolvedValue([game]);
     mockGetUserSettings.mockResolvedValue(settings);
-    mockSearchAllIndexers.mockResolvedValue({
-      items: [
-        {
-          title: "Test Game Update v1.1",
-          link: "https://example.com/update",
-          pubDate: FIXED_PUB_DATE,
-          seeders: 100,
-          size: 1024,
-        },
-      ],
-      errors: [],
-      total: 1,
-    });
+    mockSearchAllIndexers.mockResolvedValue({ items: [UPDATE_ITEM], errors: [], total: 1 });
 
     await checkAutoSearch();
 
@@ -448,9 +432,15 @@ describe("Cron - checkAutoSearch", () => {
       size: 10_000,
       group: "CODEX",
     };
+    const TWO_MAIN_ITEMS = { items: [CODEX_ITEM, SKIDROW_ITEM], errors: [], total: 2 };
+
+    let wantedGame: Game;
+    beforeEach(() => {
+      wantedGame = { ...baseGame, status: "wanted" as const, releaseStatus: "released" as const };
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [wantedGame]]]));
+    });
 
     it("should filter to preferred group when matching items exist (multiple→single triggers availability)", async () => {
-      const game = { ...baseGame, status: "wanted" as const, releaseStatus: "released" as const };
       const settings = {
         ...baseSettings,
         preferredReleaseGroups: '["SKIDROW"]',
@@ -458,14 +448,9 @@ describe("Cron - checkAutoSearch", () => {
         notifyMultipleDownloads: false,
       };
 
-      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [game]]]));
       mockGetUserSettings.mockResolvedValue(settings);
       // Two main items (no update keywords), only SKIDROW matches preferred group
-      mockSearchAllIndexers.mockResolvedValue({
-        items: [CODEX_ITEM, SKIDROW_ITEM],
-        errors: [],
-        total: 2,
-      });
+      mockSearchAllIndexers.mockResolvedValue(TWO_MAIN_ITEMS);
 
       await checkAutoSearch();
 
@@ -473,11 +458,10 @@ describe("Cron - checkAutoSearch", () => {
       expect(mockAddNotification).toHaveBeenCalledWith(
         expect.objectContaining({ title: "Game Available" })
       );
-      expect(mockUpdateGameSearchResultsAvailable).toHaveBeenCalledWith(game.id, true);
+      expect(mockUpdateGameSearchResultsAvailable).toHaveBeenCalledWith(wantedGame.id, true);
     });
 
     it("should fall back to all items when no items match preferred groups", async () => {
-      const game = { ...baseGame, status: "wanted" as const, releaseStatus: "released" as const };
       const settings = {
         ...baseSettings,
         preferredReleaseGroups: '["PLAZA"]',
@@ -485,14 +469,9 @@ describe("Cron - checkAutoSearch", () => {
         notifyMultipleDownloads: true,
       };
 
-      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [game]]]));
       mockGetUserSettings.mockResolvedValue(settings);
       // Two items, neither matches PLAZA → fallback to both
-      mockSearchAllIndexers.mockResolvedValue({
-        items: [CODEX_ITEM, SKIDROW_ITEM],
-        errors: [],
-        total: 2,
-      });
+      mockSearchAllIndexers.mockResolvedValue(TWO_MAIN_ITEMS);
 
       await checkAutoSearch();
 
@@ -503,7 +482,6 @@ describe("Cron - checkAutoSearch", () => {
     });
 
     it("should not filter when preferredReleaseGroups is an empty array", async () => {
-      const game = { ...baseGame, status: "wanted" as const, releaseStatus: "released" as const };
       const settings = {
         ...baseSettings,
         preferredReleaseGroups: "[]",
@@ -511,13 +489,8 @@ describe("Cron - checkAutoSearch", () => {
         notifyMultipleDownloads: true,
       };
 
-      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [game]]]));
       mockGetUserSettings.mockResolvedValue(settings);
-      mockSearchAllIndexers.mockResolvedValue({
-        items: [CODEX_ITEM, SKIDROW_ITEM],
-        errors: [],
-        total: 2,
-      });
+      mockSearchAllIndexers.mockResolvedValue(TWO_MAIN_ITEMS);
 
       await checkAutoSearch();
 
@@ -528,20 +501,14 @@ describe("Cron - checkAutoSearch", () => {
     });
 
     it("should handle malformed JSON in preferredReleaseGroups gracefully", async () => {
-      const game = { ...baseGame, status: "wanted" as const, releaseStatus: "released" as const };
       const settings = {
         ...baseSettings,
         preferredReleaseGroups: "not-valid-json",
         autoDownloadEnabled: false,
       };
 
-      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [game]]]));
       mockGetUserSettings.mockResolvedValue(settings);
-      mockSearchAllIndexers.mockResolvedValue({
-        items: [SKIDROW_ITEM],
-        errors: [],
-        total: 1,
-      });
+      mockSearchAllIndexers.mockResolvedValue({ items: [SKIDROW_ITEM], errors: [], total: 1 });
 
       // Should not throw; should still process the game normally
       await expect(checkAutoSearch()).resolves.not.toThrow();
@@ -551,7 +518,6 @@ describe("Cron - checkAutoSearch", () => {
     });
 
     it("should treat non-array JSON as no filter (use all items)", async () => {
-      const game = { ...baseGame, status: "wanted" as const, releaseStatus: "released" as const };
       const settings = {
         ...baseSettings,
         preferredReleaseGroups: '"SKIDROW"', // valid JSON but a string, not array
@@ -559,13 +525,8 @@ describe("Cron - checkAutoSearch", () => {
         notifyMultipleDownloads: true,
       };
 
-      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [game]]]));
       mockGetUserSettings.mockResolvedValue(settings);
-      mockSearchAllIndexers.mockResolvedValue({
-        items: [CODEX_ITEM, SKIDROW_ITEM],
-        errors: [],
-        total: 2,
-      });
+      mockSearchAllIndexers.mockResolvedValue(TWO_MAIN_ITEMS);
 
       await checkAutoSearch();
 
@@ -576,11 +537,9 @@ describe("Cron - checkAutoSearch", () => {
     });
 
     it("should include group name in Download Started notification", async () => {
-      const game = { ...baseGame, status: "wanted" as const, releaseStatus: "released" as const };
       const settings = { ...baseSettings, autoDownloadEnabled: true };
       const mockDownloader = { id: "dl-1", name: "qBittorrent", type: "torrent", enabled: true };
 
-      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [game]]]));
       mockGetUserSettings.mockResolvedValue(settings);
       mockGetEnabledDownloaders.mockResolvedValue([mockDownloader]);
       mockAddDownloadWithFallback.mockResolvedValue({
@@ -605,11 +564,9 @@ describe("Cron - checkAutoSearch", () => {
     });
 
     it("should not include group suffix in Download Started notification when item has no group", async () => {
-      const game = { ...baseGame, status: "wanted" as const, releaseStatus: "released" as const };
       const settings = { ...baseSettings, autoDownloadEnabled: true };
       const mockDownloader = { id: "dl-1", name: "qBittorrent", type: "torrent", enabled: true };
 
-      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [game]]]));
       mockGetUserSettings.mockResolvedValue(settings);
       mockGetEnabledDownloaders.mockResolvedValue([mockDownloader]);
       mockAddDownloadWithFallback.mockResolvedValue({

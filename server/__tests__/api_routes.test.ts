@@ -1402,7 +1402,7 @@ describe("API Routes - Extended Coverage", () => {
     });
   });
 
-  // ─── Discord Settings ───
+
   describe("Discord settings", () => {
     describe("GET /api/settings/discord", () => {
       it("should return configured: true when webhook URL is set", async () => {

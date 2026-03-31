@@ -113,12 +113,14 @@ function formatDate(dateString: string): string {
 }
 
 import { apiRequest } from "@/lib/queryClient";
+import { useDebounce } from "@/hooks/use-debounce";
 import { formatBytes, formatAge, isUsenetItem } from "@/lib/downloads-utils";
 
 export default function GameDownloadDialog({ game, open, onOpenChange }: GameDownloadDialogProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
+  const debouncedSearchQuery = useDebounce(searchQuery, 300);
   const [downloadingGuid, setDownloadingGuid] = useState<string | null>(null);
   const [showBundleDialog, setShowBundleDialog] = useState(false);
   const [selectedMainDownload, setSelectedMainDownload] = useState<DownloadItem | null>(null);
@@ -183,8 +185,8 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   }, [open, game, applyDownloadRules, setDefaults]);
 
   const { data: searchResults, isLoading: isSearching } = useQuery<SearchResult>({
-    queryKey: [`/api/search?query=${encodeURIComponent(searchQuery)}`],
-    enabled: open && searchQuery.trim().length > 0,
+    queryKey: [`/api/search?query=${encodeURIComponent(debouncedSearchQuery)}`],
+    enabled: open && debouncedSearchQuery.trim().length > 0,
   });
 
   const { data: enabledIndexers } = useQuery<Indexer[]>({

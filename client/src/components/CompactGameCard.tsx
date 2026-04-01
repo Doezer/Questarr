@@ -200,7 +200,7 @@ const CompactGameCard = ({
             {game.status === "wanted" && (
               <Badge
                 variant={releaseStatus.variant}
-                className={`text-[10px] h-5 px-1.5 ${releaseStatus.className || ""}`}
+                className={`text-xs h-5 px-1.5 ${releaseStatus.className || ""}`}
               >
                 {releaseStatus.label}
               </Badge>
@@ -211,7 +211,7 @@ const CompactGameCard = ({
               <Badge
                 variant="secondary"
                 className={cn(
-                  "text-[10px] h-5 px-1.5 bg-gray-500 text-white",
+                  "text-xs h-5 px-1.5 bg-gray-500 text-white",
                   density !== "comfortable" ? "h-4 px-1 text-[9px]" : ""
                 )}
               >
@@ -241,12 +241,12 @@ const CompactGameCard = ({
             <div className="flex flex-wrap gap-1 mt-1">
               {game.genres && game.genres.length > 0 ? (
                 game.genres.slice(0, 3).map((genre) => (
-                  <span key={genre} className="text-[10px] bg-muted px-1.5 py-0.5 rounded-sm">
+                  <span key={genre} className="text-xs bg-muted px-1.5 py-0.5 rounded-sm">
                     {genre}
                   </span>
                 ))
               ) : (
-                <span className="text-[10px] text-muted-foreground">No genres</span>
+                <span className="text-xs text-muted-foreground">No genres</span>
               )}
             </div>
           )}

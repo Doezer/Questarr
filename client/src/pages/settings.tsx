@@ -1427,7 +1427,7 @@ export default function SettingsPage() {
                                     : "Generate Self-Signed Certificate"}
                                 </Button>
                                 {!!certInfo && !certInfo.selfSigned && (
-                                  <p className="text-[10px] text-muted-foreground mt-1">
+                                  <p className="text-xs text-muted-foreground mt-1">
                                     Certificate generation disabled because a non-self-signed
                                     certificate is detected.
                                   </p>

@@ -110,13 +110,13 @@ export default function Header({ title = "Dashboard" }: HeaderProps) {
           {/* Storage Info */}
           <div className="flex items-center gap-2 sm:gap-3">
             {isLoading && (
-              <span className="text-[10px] sm:text-xs text-muted-foreground animate-pulse">
+              <span className="text-xs text-muted-foreground animate-pulse">
                 Checking storage...
               </span>
             )}
-            {isError && <span className="text-[10px] sm:text-xs text-destructive">Error</span>}
+            {isError && <span className="text-xs text-destructive">Error</span>}
             {!isLoading && !isError && storageInfo.length === 0 && (
-              <span className="text-[10px] sm:text-xs text-muted-foreground opacity-50 hidden sm:inline">
+              <span className="text-xs text-muted-foreground opacity-50 hidden sm:inline">
                 No downloaders
               </span>
             )}
@@ -126,10 +126,13 @@ export default function Header({ title = "Dashboard" }: HeaderProps) {
                 <Tooltip key={info.downloaderId}>
                   <TooltipTrigger asChild>
                     <div
-                      className="flex items-center gap-1 sm:gap-1.5 text-[10px] sm:text-xs text-muted-foreground border rounded-full px-2 py-0.5 sm:px-2.5 sm:py-1 hover:bg-muted/50 transition-colors cursor-help"
+                      className="flex items-center gap-1 sm:gap-1.5 text-xs text-muted-foreground border rounded-full px-2 py-0.5 sm:px-2.5 sm:py-1 hover:bg-muted/50 transition-colors cursor-help"
                       tabIndex={0}
                       role="button"
                       aria-label={`Storage for ${info.downloaderName}: ${formatBytes(info.freeSpace)} available`}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") e.currentTarget.click();
+                      }}
                     >
                       <HardDrive className="w-3 sm:w-3.5 h-3 sm:h-3.5" />
                       <span className="font-medium">{formatBytes(info.freeSpace)}</span>
@@ -138,10 +141,8 @@ export default function Header({ title = "Dashboard" }: HeaderProps) {
                   <TooltipContent>
                     <div className="text-center">
                       <p className="font-semibold">{info.downloaderName}</p>
-                      <p className="text-[10px] text-muted-foreground">Free Disk Space</p>
-                      {info.error && (
-                        <p className="text-destructive text-[10px] mt-1">{info.error}</p>
-                      )}
+                      <p className="text-xs text-muted-foreground">Free Disk Space</p>
+                      {info.error && <p className="text-destructive text-xs mt-1">{info.error}</p>}
                     </div>
                   </TooltipContent>
                 </Tooltip>

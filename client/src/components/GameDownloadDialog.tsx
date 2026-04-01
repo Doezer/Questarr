@@ -327,6 +327,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       });
       queryClient.invalidateQueries({ queryKey: ["/api/downloads"] });
       queryClient.invalidateQueries({ queryKey: ["/api/downloads/summary"] });
+      onOpenChange(false);
     },
     onError: (error: Error) => {
       toast({
@@ -784,7 +785,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                       {/* Downloads in this category */}
                       <div className="border rounded-md divide-y mb-4 bg-card overflow-hidden">
                         {/* Sticky Sort Header */}
-                        <div className="sticky top-0 z-10 bg-muted/95 backdrop-blur-md p-3 text-[10px] font-bold flex items-center px-4 border-b group">
+                        <div className="sticky top-0 z-10 bg-muted/95 backdrop-blur-md p-3 text-xs font-bold flex items-center px-4 border-b group">
                           <div className="flex-1 flex items-center">
                             <span className="text-muted-foreground/70 uppercase tracking-widest">
                               Release Information
@@ -883,7 +884,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                     {metadata.version && (
                                       <Badge
                                         variant="secondary"
-                                        className="h-5 px-1.5 text-[10px] font-mono bg-blue-500/10 text-blue-600 dark:text-blue-400 border-none"
+                                        className="h-5 px-1.5 text-xs font-mono bg-blue-500/10 text-blue-600 dark:text-blue-400 border-none"
                                       >
                                         {metadata.version}
                                       </Badge>
@@ -892,7 +893,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                       <Badge
                                         key={lang}
                                         variant="secondary"
-                                        className="h-5 px-1.5 text-[10px] bg-green-500/10 text-green-600 dark:text-green-400 border-none"
+                                        className="h-5 px-1.5 text-xs bg-green-500/10 text-green-600 dark:text-green-400 border-none"
                                       >
                                         {lang}
                                       </Badge>
@@ -900,7 +901,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                     {metadata.drm && (
                                       <Badge
                                         variant="secondary"
-                                        className="h-5 px-1.5 text-[10px] bg-purple-500/10 text-purple-600 dark:text-purple-400 border-none"
+                                        className="h-5 px-1.5 text-xs bg-purple-500/10 text-purple-600 dark:text-purple-400 border-none"
                                       >
                                         {metadata.drm}
                                       </Badge>
@@ -908,7 +909,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                     {metadata.platform && (
                                       <Badge
                                         variant="secondary"
-                                        className="h-5 px-1.5 text-[10px] bg-orange-500/10 text-orange-600 dark:text-orange-400 border-none"
+                                        className="h-5 px-1.5 text-xs bg-orange-500/10 text-orange-600 dark:text-orange-400 border-none"
                                       >
                                         {metadata.platform}
                                       </Badge>
@@ -916,7 +917,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                     {metadata.isScene && (
                                       <Badge
                                         variant="outline"
-                                        className="h-5 px-1.5 text-[10px] border-muted-foreground/30 text-muted-foreground uppercase tracking-tighter"
+                                        className="h-5 px-1.5 text-xs border-muted-foreground/30 text-muted-foreground uppercase tracking-tighter"
                                       >
                                         Scene
                                       </Badge>
@@ -951,7 +952,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                     <div className="text-xs font-medium">
                                       {formatDate(download.pubDate)}
                                     </div>
-                                    <div className="text-[10px] text-muted-foreground/50">
+                                    <div className="text-xs text-muted-foreground/50">
                                       {formatAge(isUsenet ? download.age : hoursOld / 24)}
                                     </div>
                                   </div>
@@ -972,7 +973,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                       <Activity className="h-3 w-3" />
                                       {isUsenet ? (download.grabs ?? 0) : (download.seeders ?? 0)}
                                     </div>
-                                    <div className="text-[10px] uppercase font-bold opacity-70">
+                                    <div className="text-xs uppercase font-bold opacity-70">
                                       {isUsenet ? "Grabs" : "Seeds"}
                                     </div>
                                   </div>

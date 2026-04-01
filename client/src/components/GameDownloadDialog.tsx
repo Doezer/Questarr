@@ -67,7 +67,7 @@ import {
   downloadRulesSchema,
 } from "@shared/schema";
 import { groupDownloadsByCategory, type DownloadCategory } from "@shared/download-categorizer";
-import { parseReleaseMetadata } from "@shared/title-utils";
+import { parseReleaseMetadata, parseJsonStringArray } from "@shared/title-utils";
 
 interface DownloadItem {
   title: string;
@@ -172,7 +172,17 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         console.warn("Failed to apply download rules from settings", error);
       }
     }
-  }, [userSettings?.downloadRules]);
+    if (userSettings?.filterByPreferredGroups) {
+      const groups = parseJsonStringArray(userSettings.preferredReleaseGroups);
+      if (groups.length > 0) {
+        setSelectedGroups(groups);
+      }
+    }
+  }, [
+    userSettings?.downloadRules,
+    userSettings?.filterByPreferredGroups,
+    userSettings?.preferredReleaseGroups,
+  ]);
 
   // Auto-populate search when dialog opens with game title
   useEffect(() => {

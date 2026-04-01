@@ -10,9 +10,10 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 // Mocking external dependencies
+const mockToast = vi.fn();
 vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({
-    toast: vi.fn(),
+    toast: mockToast,
     toasts: [],
   }),
 }));
@@ -128,64 +129,56 @@ const createTestQueryClient = () =>
   });
 
 let queryClient: QueryClient;
+const mockOnOpenChange = vi.fn();
 
-const renderComponent = () => {
+const renderComponent = (onOpenChange = mockOnOpenChange) => {
   queryClient = createTestQueryClient();
   return render(
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <GameDownloadDialog game={mockGame} open={true} onOpenChange={() => {}} />
+        <GameDownloadDialog game={mockGame} open={true} onOpenChange={onOpenChange} />
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>
   );
 };
 
+type FetchOverrides = {
+  search?: object;
+  settings?: object;
+  downloads?: object;
+};
+
+/** Creates a fetch mock with sensible defaults, overridable per-endpoint. */
+const createFetchMock = (overrides: FetchOverrides = {}) =>
+  vi.fn(async (url: RequestInfo | URL) => {
+    const urlString = url.toString();
+    if (urlString.includes("/api/search")) {
+      return { ok: true, json: async () => overrides.search ?? mockTorrents };
+    }
+    if (urlString.includes("/api/indexers/enabled")) {
+      return { ok: true, json: async () => mockEnabledIndexers };
+    }
+    if (urlString.includes("/api/downloaders/enabled")) {
+      return { ok: true, json: async () => mockDownloaders };
+    }
+    if (urlString.includes("/api/settings")) {
+      return { ok: true, json: async () => overrides.settings ?? {} };
+    }
+    if (urlString.includes("/api/downloads")) {
+      return {
+        ok: true,
+        json: async () =>
+          overrides.downloads ?? { success: true, downloaderName: "TestDownloader" },
+      };
+    }
+    return { ok: false, json: async () => ({}) };
+  }) as never;
+
 describe("GameDownloadDialog", () => {
   beforeEach(() => {
     vi.resetAllMocks();
-
-    // Mock API responses
-    global.fetch = vi.fn(async (url) => {
-      const urlString = url.toString();
-
-      if (urlString.includes("/api/search")) {
-        return Promise.resolve({
-          ok: true,
-          json: async () => mockTorrents,
-        });
-      }
-
-      if (urlString.includes("/api/indexers/enabled")) {
-        return Promise.resolve({
-          ok: true,
-          json: async () => mockEnabledIndexers,
-        });
-      }
-
-      if (urlString.includes("/api/downloaders/enabled")) {
-        return Promise.resolve({
-          ok: true,
-          json: async () => mockDownloaders,
-        });
-      }
-
-      if (urlString.includes("/api/settings")) {
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({}),
-        });
-      }
-
-      if (urlString.includes("/api/downloads")) {
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({ success: true, downloaderName: "TestDownloader" }),
-        });
-      }
-
-      return Promise.resolve({ ok: false, json: async () => ({}) });
-    }) as never;
+    global.fetch = createFetchMock();
   });
 
   it("renders search results correctly", async () => {
@@ -287,5 +280,159 @@ describe("GameDownloadDialog", () => {
         })
       );
     });
+  });
+
+  it("closes dialog after successful download", async () => {
+    renderComponent();
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("icon-download").length).toBeGreaterThan(0);
+    });
+
+    const downloadButton = screen.getAllByTestId("icon-download")[0].closest("button");
+    if (!downloadButton) throw new Error("Download button not found");
+    fireEvent.click(downloadButton);
+
+    await waitFor(() => {
+      expect(mockOnOpenChange).toHaveBeenCalledWith(false);
+    });
+  });
+
+  it("shows destructive toast when download API returns success:false", async () => {
+    global.fetch = createFetchMock({
+      downloads: { success: false, message: "Downloader offline" },
+    });
+
+    renderComponent();
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("icon-download").length).toBeGreaterThan(0);
+    });
+
+    const downloadButton = screen.getAllByTestId("icon-download")[0].closest("button");
+    if (!downloadButton) throw new Error("Download button not found");
+    fireEvent.click(downloadButton);
+
+    await waitFor(() => {
+      expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({ variant: "destructive" }));
+    });
+  });
+
+  it("displays indexer errors returned by the search API", async () => {
+    global.fetch = createFetchMock({
+      search: { items: [], total: 0, offset: 0, errors: ["Indexer A: connection timeout"] },
+    });
+
+    renderComponent();
+
+    await waitFor(
+      () => {
+        expect(screen.getByText("Indexer Errors")).toBeInTheDocument();
+        expect(screen.getByText(/Indexer A: connection timeout/)).toBeInTheDocument();
+      },
+      { timeout: 3000 }
+    );
+  });
+
+  it("shows bundle dialog when clicking a main item that has updates available", async () => {
+    const mainItem = {
+      guid: "main-1",
+      title: "Test Game SKIDROW",
+      link: "http://test.com/main",
+      pubDate: new Date().toISOString(),
+      size: 1024 * 1024 * 100,
+      seeders: 50,
+      leechers: 2,
+      indexerName: "Indexer A",
+    };
+    const updateItem = {
+      guid: "update-1",
+      title: "Test Game Update",
+      link: "http://test.com/update",
+      pubDate: new Date().toISOString(),
+      size: 1024 * 1024 * 5,
+      seeders: 20,
+      leechers: 1,
+      indexerName: "Indexer A",
+    };
+
+    global.fetch = createFetchMock({
+      search: { items: [mainItem, updateItem], total: 2, offset: 0 },
+    });
+
+    renderComponent();
+
+    await waitFor(
+      () => {
+        expect(screen.getAllByText("Test Game SKIDROW").length).toBeGreaterThan(0);
+      },
+      { timeout: 3000 }
+    );
+
+    const downloadButtons = screen.getAllByTestId("icon-download");
+    fireEvent.click(downloadButtons[0].closest("button")!);
+
+    await waitFor(() => {
+      expect(screen.getByText("Download with Updates?")).toBeInTheDocument();
+    });
+  });
+
+  const skidrowItem = {
+    guid: "skidrow-1",
+    title: "Test Game SKIDROW",
+    link: "http://test.com/skidrow",
+    pubDate: new Date().toISOString(),
+    size: 1024 * 1024 * 100,
+    seeders: 50,
+    leechers: 2,
+    indexerName: "Indexer A",
+    group: "SKIDROW",
+  };
+  const codexItem = {
+    guid: "codex-1",
+    title: "Test Game CODEX",
+    link: "http://test.com/codex",
+    pubDate: new Date().toISOString(),
+    size: 1024 * 1024 * 100,
+    seeders: 80,
+    leechers: 5,
+    indexerName: "Indexer A",
+    group: "CODEX",
+  };
+  const groupSearchResults = { items: [skidrowItem, codexItem], total: 2, offset: 0 };
+
+  it("filters displayed results to preferred groups when filterByPreferredGroups is enabled", async () => {
+    global.fetch = createFetchMock({
+      search: groupSearchResults,
+      settings: { filterByPreferredGroups: true, preferredReleaseGroups: '["SKIDROW"]' },
+    });
+
+    renderComponent();
+
+    await waitFor(
+      () => {
+        expect(screen.getAllByText("Test Game SKIDROW").length).toBeGreaterThan(0);
+      },
+      { timeout: 3000 }
+    );
+
+    expect(screen.queryByText("Test Game CODEX")).toBeNull();
+  });
+
+  it("shows all results when filterByPreferredGroups is false even if groups are configured", async () => {
+    global.fetch = createFetchMock({
+      search: groupSearchResults,
+      settings: { filterByPreferredGroups: false, preferredReleaseGroups: '["SKIDROW"]' },
+    });
+
+    renderComponent();
+
+    await waitFor(
+      () => {
+        expect(screen.getAllByText("Test Game SKIDROW").length).toBeGreaterThan(0);
+        expect(screen.getAllByText("Test Game CODEX").length).toBeGreaterThan(0);
+      },
+      { timeout: 3000 }
+    );
   });
 });

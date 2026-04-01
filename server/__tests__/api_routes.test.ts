@@ -1403,6 +1403,16 @@ describe("API Routes - Extended Coverage", () => {
     });
   });
 
+  // ─── Release Blacklist routes ───
+  describe("Release Blacklist routes", () => {
+    const gameId = "123e4567-e89b-12d3-a456-426614174000";
+    const mockGame = { id: gameId, userId: "user-1", title: "Test Game" };
+    const blacklistEntry = {
+      id: "bl-1",
+      gameId,
+      releaseTitle: "Test Game-SKIDROW",
+      createdAt: new Date().toISOString(),
+    };
 
     describe("POST /api/games/:gameId/blacklist", () => {
       it("should add a release to the blacklist", async () => {

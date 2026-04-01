@@ -634,4 +634,160 @@ describe("GameDownloadDialog", () => {
       { timeout: 3000 }
     );
   });
+
+  it("displays Freeleech badge for torrents with downloadVolumeFactor of 0", async () => {
+    global.fetch = createFetchMock({
+      search: {
+        items: [
+          {
+            guid: "fl-1",
+            title: "Freeleech Game",
+            link: "http://test.com/freeleech",
+            pubDate: new Date().toISOString(),
+            size: 1024 * 1024 * 100,
+            seeders: 20,
+            leechers: 3,
+            downloadVolumeFactor: 0,
+            uploadVolumeFactor: 1,
+            indexerName: "Indexer A",
+          },
+        ],
+        total: 1,
+        offset: 0,
+      },
+    });
+
+    renderComponent();
+
+    await waitFor(
+      () => {
+        expect(screen.getByText("Freeleech")).toBeInTheDocument();
+      },
+      { timeout: 3000 }
+    );
+  });
+
+  it("does not display Freeleech badge when downloadVolumeFactor is absent", async () => {
+    global.fetch = createFetchMock({
+      search: {
+        items: [
+          {
+            guid: "no-fl-1",
+            title: "Normal Torrent Game",
+            link: "http://test.com/normal",
+            pubDate: new Date().toISOString(),
+            size: 1024 * 1024 * 100,
+            seeders: 10,
+            leechers: 2,
+            indexerName: "Indexer A",
+          },
+        ],
+        total: 1,
+        offset: 0,
+      },
+    });
+
+    renderComponent();
+
+    await waitFor(
+      () => {
+        expect(screen.getAllByText("Normal Torrent Game").length).toBeGreaterThan(0);
+      },
+      { timeout: 3000 }
+    );
+
+    expect(screen.queryByText("Freeleech")).toBeNull();
+  });
+
+  it("displays leechers count for torrent results", async () => {
+    global.fetch = createFetchMock({
+      search: {
+        items: [
+          {
+            guid: "leecher-1",
+            title: "Torrent With Leechers",
+            link: "http://test.com/leechers",
+            pubDate: new Date().toISOString(),
+            size: 1024 * 1024 * 100,
+            seeders: 15,
+            leechers: 7,
+            indexerName: "Indexer A",
+          },
+        ],
+        total: 1,
+        offset: 0,
+      },
+    });
+
+    renderComponent();
+
+    await waitFor(
+      () => {
+        expect(screen.getByText("7L")).toBeInTheDocument();
+      },
+      { timeout: 3000 }
+    );
+  });
+
+  it("displays file count for usenet results", async () => {
+    global.fetch = createFetchMock({
+      search: {
+        items: [
+          {
+            guid: "nzb-files-1",
+            title: "Usenet Game With Files",
+            link: "http://test.com/nzb",
+            pubDate: new Date().toISOString(),
+            size: 1024 * 1024 * 50,
+            grabs: 30,
+            age: 1,
+            files: 12,
+            indexerName: "Indexer C",
+          },
+        ],
+        total: 1,
+        offset: 0,
+      },
+    });
+
+    renderComponent();
+
+    await waitFor(
+      () => {
+        expect(screen.getByText("12 files")).toBeInTheDocument();
+      },
+      { timeout: 3000 }
+    );
+  });
+
+  it("displays poster name for usenet results", async () => {
+    global.fetch = createFetchMock({
+      search: {
+        items: [
+          {
+            guid: "nzb-poster-1",
+            title: "Usenet Game With Poster",
+            link: "http://test.com/nzb2",
+            pubDate: new Date().toISOString(),
+            size: 1024 * 1024 * 50,
+            grabs: 10,
+            age: 2,
+            poster: "uploader@example.com",
+            indexerName: "Indexer C",
+          },
+        ],
+        total: 1,
+        offset: 0,
+      },
+    });
+
+    renderComponent();
+
+    await waitFor(
+      () => {
+        expect(screen.getByText("uploader@example.com")).toBeInTheDocument();
+      },
+      { timeout: 3000 }
+    );
+  });
 });

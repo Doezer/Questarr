@@ -476,6 +476,187 @@ describe("Search Module - searchAllIndexers", () => {
     expect(result.items).toHaveLength(1);
     expect(result.items[0].group).toBe("RELGROUP");
   });
+
+  it("should map downloadVolumeFactor and uploadVolumeFactor from torznab items", async () => {
+    const torznabIndexer: Indexer = {
+      id: "torznab-1",
+      name: "Torznab Indexer",
+      url: "http://torznab.example.com",
+      apiKey: "key1",
+      protocol: "torznab",
+      enabled: true,
+      priority: 1,
+      categories: ["4000"],
+      rssEnabled: true,
+      autoSearchEnabled: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    vi.mocked(storage.getEnabledIndexers).mockResolvedValue([torznabIndexer]);
+    vi.mocked(torznabClient.searchMultipleIndexers).mockResolvedValue({
+      results: {
+        items: [
+          {
+            title: "Freeleech Game",
+            link: "http://example.com/download",
+            pubDate: "2024-01-01T00:00:00Z",
+            size: 1000000,
+            seeders: 10,
+            leechers: 3,
+            downloadVolumeFactor: 0,
+            uploadVolumeFactor: 2,
+            category: "4000",
+            guid: "guid-free",
+            indexerId: "torznab-1",
+            indexerName: "Torznab Indexer",
+          },
+        ],
+        total: 1,
+      },
+      errors: [],
+    });
+
+    const result = await searchAllIndexers({ query: "freeleech game" });
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].downloadVolumeFactor).toBe(0);
+    expect(result.items[0].uploadVolumeFactor).toBe(2);
+  });
+
+  it("should pass through undefined downloadVolumeFactor when not provided by indexer", async () => {
+    const torznabIndexer: Indexer = {
+      id: "torznab-1",
+      name: "Torznab Indexer",
+      url: "http://torznab.example.com",
+      apiKey: "key1",
+      protocol: "torznab",
+      enabled: true,
+      priority: 1,
+      categories: ["4000"],
+      rssEnabled: true,
+      autoSearchEnabled: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    vi.mocked(storage.getEnabledIndexers).mockResolvedValue([torznabIndexer]);
+    vi.mocked(torznabClient.searchMultipleIndexers).mockResolvedValue({
+      results: {
+        items: [
+          {
+            title: "Normal Game",
+            link: "http://example.com/download",
+            pubDate: "2024-01-01T00:00:00Z",
+            size: 1000000,
+            seeders: 5,
+            category: "4000",
+            guid: "guid-normal",
+            indexerId: "torznab-1",
+            indexerName: "Torznab Indexer",
+            // No downloadVolumeFactor / uploadVolumeFactor
+          },
+        ],
+        total: 1,
+      },
+      errors: [],
+    });
+
+    const result = await searchAllIndexers({ query: "normal game" });
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].downloadVolumeFactor).toBeUndefined();
+    expect(result.items[0].uploadVolumeFactor).toBeUndefined();
+  });
+
+  it("should map files from newznab items", async () => {
+    const newznabIndexer: Indexer = {
+      id: "newznab-1",
+      name: "Newznab Indexer",
+      url: "http://newznab.example.com",
+      apiKey: "key2",
+      protocol: "newznab",
+      enabled: true,
+      priority: 1,
+      categories: ["4000"],
+      rssEnabled: true,
+      autoSearchEnabled: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    vi.mocked(storage.getEnabledIndexers).mockResolvedValue([newznabIndexer]);
+    vi.mocked(newznabClient.searchMultipleIndexers).mockResolvedValue({
+      results: {
+        items: [
+          {
+            title: "Usenet Game Complete",
+            link: "http://usenet.example.com/nzb",
+            publishDate: "2024-01-02T00:00:00Z",
+            size: 2000000,
+            grabs: 10,
+            age: 1,
+            files: 12,
+            category: ["4000"],
+            guid: "guid-nzb",
+            indexerId: "newznab-1",
+            indexerName: "Newznab Indexer",
+          },
+        ],
+        total: 1,
+      },
+      errors: [],
+    });
+
+    const result = await searchAllIndexers({ query: "usenet game" });
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].files).toBe(12);
+  });
+
+  it("should pass through undefined files when not provided by newznab indexer", async () => {
+    const newznabIndexer: Indexer = {
+      id: "newznab-1",
+      name: "Newznab Indexer",
+      url: "http://newznab.example.com",
+      apiKey: "key2",
+      protocol: "newznab",
+      enabled: true,
+      priority: 1,
+      categories: ["4000"],
+      rssEnabled: true,
+      autoSearchEnabled: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    vi.mocked(storage.getEnabledIndexers).mockResolvedValue([newznabIndexer]);
+    vi.mocked(newznabClient.searchMultipleIndexers).mockResolvedValue({
+      results: {
+        items: [
+          {
+            title: "Usenet Game No Files",
+            link: "http://usenet.example.com/nzb",
+            publishDate: "2024-01-02T00:00:00Z",
+            size: 2000000,
+            grabs: 5,
+            category: ["4000"],
+            guid: "guid-nzb-nofiles",
+            indexerId: "newznab-1",
+            indexerName: "Newznab Indexer",
+            // No files field
+          },
+        ],
+        total: 1,
+      },
+      errors: [],
+    });
+
+    const result = await searchAllIndexers({ query: "usenet game" });
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].files).toBeUndefined();
+  });
 });
 
 describe("filterBlacklistedReleases", () => {

@@ -261,41 +261,42 @@ export default function SearchPage() {
     : downloaders;
 
   return (
-    <div className="h-full overflow-auto p-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-2">Game Search</h1>
-        <p className="text-muted-foreground">Search for games across configured indexers</p>
+    <div className="h-full overflow-auto p-6">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold tracking-tight">Search</h1>
+        <p className="text-muted-foreground text-sm mt-0.5">
+          Search for games across configured indexers
+        </p>
       </div>
 
       {/* Search Form */}
-      <Card className="mb-8">
-        <CardHeader>
-          <CardTitle className="flex items-center">
-            <Search className="h-5 w-5 mr-2" />
-            Search Games
-          </CardTitle>
-          <CardDescription>Search for games using your configured Torznab indexers</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSearch} className="flex gap-4" data-testid="form-search">
-            <div className="flex-1">
-              <Input
-                placeholder="Enter game title..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                data-testid="input-search-query"
-              />
-            </div>
-            <Button type="submit" disabled={isSearching} data-testid="button-search">
-              {isSearching ? "Searching..." : "Search"}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+      <form onSubmit={handleSearch} className="flex gap-2 mb-6" data-testid="form-search">
+        <div className="flex-1">
+          <Input
+            placeholder="Enter game title..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            data-testid="input-search-query"
+          />
+        </div>
+        <Button type="submit" disabled={isSearching} data-testid="button-search">
+          {isSearching ? (
+            <>
+              <Search className="h-4 w-4 mr-2 animate-spin" />
+              Searching...
+            </>
+          ) : (
+            <>
+              <Search className="h-4 w-4 mr-2" />
+              Search
+            </>
+          )}
+        </Button>
+      </form>
 
       {/* Search Results */}
       {searchError && (
-        <Card className="mb-8" data-testid="card-search-error">
+        <Card className="mb-6" data-testid="card-search-error">
           <CardHeader>
             <CardTitle className="text-destructive" data-testid="text-search-error-title">
               Search Error
@@ -312,8 +313,8 @@ export default function SearchPage() {
       {searchResults && (
         <div>
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-semibold" data-testid="text-search-results-count">
-              Search Results ({searchResults.total} found)
+            <h2 className="text-base font-semibold" data-testid="text-search-results-count">
+              {searchResults.total} result{searchResults.total !== 1 ? "s" : ""} found
             </h2>
             {searchResults.errors && searchResults.errors.length > 0 && (
               <Badge variant="destructive" data-testid="badge-indexer-errors">

@@ -61,35 +61,17 @@ export default function LibraryPage() {
 
   return (
     <div className="h-full overflow-auto p-6">
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex items-start justify-between gap-4 mb-3">
         <div>
-          <h1 className="text-3xl font-bold">Library</h1>
-          <p className="text-muted-foreground">Your collection of games</p>
+          <h1 className="text-2xl font-bold tracking-tight">Library</h1>
+          {games.length > 0 && (
+            <p className="text-sm text-muted-foreground mt-0.5">
+              <span className="font-medium text-foreground">{games.length}</span> game
+              {games.length !== 1 ? "s" : ""} collected
+            </p>
+          )}
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant={showSearchResultsOnly ? "default" : "outline"}
-            size="sm"
-            className={`h-8 gap-1.5 ${showSearchResultsOnly ? "text-violet-300 bg-violet-700 hover:bg-violet-600 border-violet-600" : ""}`}
-            onClick={() => setShowSearchResultsOnly(!showSearchResultsOnly)}
-            aria-label="Show games with search results only"
-          >
-            <Search className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Search Results</span>
-          </Button>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant={showDownloadsOnly ? "default" : "outline"}
-                size="icon"
-                onClick={() => setShowDownloadsOnly((v) => !v)}
-                aria-label={showDownloadsOnly ? "Show all games" : "Show games with downloads only"}
-              >
-                <Download className="w-4 h-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{showDownloadsOnly ? "Show all" : "Has downloads"}</TooltipContent>
-          </Tooltip>
+        <div className="shrink-0 pt-1">
           <ViewControlsToolbar
             viewMode={viewMode}
             onViewModeChange={setViewMode}
@@ -97,6 +79,34 @@ export default function LibraryPage() {
             onListDensityChange={setListDensity}
           />
         </div>
+      </div>
+
+      <div className="flex items-center gap-2 mb-3">
+        <Button
+          variant={showSearchResultsOnly ? "default" : "outline"}
+          size="sm"
+          className={`h-7 gap-1.5 text-xs ${showSearchResultsOnly ? "text-violet-300 bg-violet-700 hover:bg-violet-600 border-violet-600" : ""}`}
+          onClick={() => setShowSearchResultsOnly(!showSearchResultsOnly)}
+          aria-label="Show games with search results only"
+        >
+          <Search className="h-3 w-3" />
+          Has Results
+        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant={showDownloadsOnly ? "default" : "outline"}
+              size="sm"
+              className="h-7 gap-1.5 text-xs"
+              onClick={() => setShowDownloadsOnly((v) => !v)}
+              aria-label={showDownloadsOnly ? "Show all games" : "Show games with downloads only"}
+            >
+              <Download className="h-3 w-3" />
+              Has Downloads
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{showDownloadsOnly ? "Show all" : "Has downloads"}</TooltipContent>
+        </Tooltip>
       </div>
 
       {libraryGames.length === 0 && !isLoading ? (

@@ -294,7 +294,7 @@ export default function Downloads() {
 
   if (isLoading) {
     return (
-      <div className="p-8">
+      <div className="p-6">
         <div className="flex items-center space-x-2" data-testid="loading-downloads">
           <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
           <span data-testid="text-loading-downloads">Loading downloads...</span>
@@ -304,22 +304,26 @@ export default function Downloads() {
   }
 
   return (
-    <div className="h-full overflow-auto p-8">
-      <div className="flex justify-between items-center mb-8">
+    <div className="h-full overflow-auto p-6">
+      <div className="flex justify-between items-center mb-6">
         <div>
-          <h1 className="text-3xl font-bold">Downloads</h1>
-          <p className="text-muted-foreground">Monitor and manage active downloads</p>
+          <h1 className="text-2xl font-bold tracking-tight">Downloads</h1>
+          <p className="text-muted-foreground text-sm mt-0.5">
+            Monitor and manage active downloads
+          </p>
         </div>
-        <Button variant="outline" onClick={() => refetch()} data-testid="button-refresh">
+        <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="button-refresh">
           <RefreshCw className="h-4 w-4 mr-2" />
           Refresh
         </Button>
       </div>
 
-      {/* Status filter tabs */}
-      <div className="flex flex-col gap-4 mb-6">
-        <div className="flex flex-wrap items-center gap-4">
-          <span className="text-sm font-medium text-muted-foreground">Status:</span>
+      {/* Filter row */}
+      <div className="flex flex-wrap items-center gap-6 mb-6">
+        <div className="flex items-center gap-3">
+          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider shrink-0">
+            Status
+          </span>
           <Tabs
             value={statusFilter}
             onValueChange={(value) => setStatusFilter(value as DownloadStatusType | "all")}
@@ -348,15 +352,17 @@ export default function Downloads() {
           </Tabs>
         </div>
 
-        <div className="flex flex-wrap items-center gap-4">
-          <span className="text-sm font-medium text-muted-foreground">Protocol:</span>
+        <div className="flex items-center gap-3">
+          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider shrink-0">
+            Protocol
+          </span>
           <Tabs
             value={typeFilter}
             onValueChange={(value) => setTypeFilter(value as DownloadType | "all")}
             aria-label="Filter downloads by protocol"
           >
             <TabsList>
-              <TabsTrigger value="all">All Protocols</TabsTrigger>
+              <TabsTrigger value="all">All</TabsTrigger>
               <TabsTrigger value="torrent" className="flex items-center gap-2">
                 <Download className="h-3 w-3" /> Torrents
               </TabsTrigger>

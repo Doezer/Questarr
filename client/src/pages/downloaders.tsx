@@ -295,7 +295,7 @@ export default function DownloadersPage() {
 
   if (isLoading) {
     return (
-      <div className="p-8">
+      <div className="p-6">
         <div className="flex items-center space-x-2">
           <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
           <span>Loading downloaders...</span>
@@ -305,11 +305,11 @@ export default function DownloadersPage() {
   }
 
   return (
-    <div className="h-full overflow-auto p-8">
-      <div className="flex justify-between items-center mb-8">
+    <div className="h-full overflow-auto p-6">
+      <div className="flex justify-between items-center mb-6">
         <div>
-          <h1 className="text-3xl font-bold">Downloaders</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-2xl font-bold tracking-tight">Downloaders</h1>
+          <p className="text-muted-foreground text-sm mt-0.5">
             Manage download clients for automated downloads. Downloads are sent to enabled clients
             in priority order (lowest number first), with automatic fallback if a client fails.
           </p>

@@ -72,8 +72,8 @@ export default function StatsPage() {
     <div className="h-full overflow-auto p-6 space-y-8">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight mb-2">Library Statistics</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-2xl font-bold tracking-tight">Statistics</h1>
+          <p className="text-muted-foreground text-sm mt-0.5">
             Detailed insights into your collection of {stats.totalGames} games.
           </p>
         </div>

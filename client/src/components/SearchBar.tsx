@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { useDebounce } from "@/hooks/use-debounce";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Search, Filter, X, LayoutGrid } from "lucide-react";
@@ -22,11 +23,16 @@ export default function SearchBar({
   onRemoveFilter,
 }: SearchBarProps) {
   const [searchQuery, setSearchQuery] = useState("");
+  const debouncedSearchQuery = useDebounce(searchQuery, 300);
+
+  // Trigger search when debounced value changes
+  useEffect(() => {
+    onSearch?.(debouncedSearchQuery);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearchQuery]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    console.warn(`Search triggered: ${searchQuery}`);
-    onSearch?.(searchQuery);
   };
 
   // Trigger search on input change for live search
@@ -34,7 +40,6 @@ export default function SearchBar({
     const value = e.target.value;
     setSearchQuery(value);
     console.warn(`Search input change: ${value}`);
-    onSearch?.(value);
   };
 
   const handleClearSearch = () => {

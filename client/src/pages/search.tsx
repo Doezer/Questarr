@@ -396,14 +396,14 @@ export default function SearchPage() {
                           <>
                             {download.grabs !== undefined && (
                               <>
-                                <span className="text-blue-600 font-medium">{download.grabs}</span>
+                                <span className="text-primary font-medium">{download.grabs}</span>
                                 <span>grabs</span>
                                 {download.age !== undefined && <span>•</span>}
                               </>
                             )}
                             {download.age !== undefined && (
                               <>
-                                <span className="text-purple-600 font-medium">
+                                <span className="text-muted-foreground font-medium">
                                   {formatAge(download.age)}
                                 </span>
                                 <span>old</span>
@@ -412,11 +412,11 @@ export default function SearchPage() {
                           </>
                         ) : (
                           <div className="flex items-center gap-1">
-                            <span className="text-green-600 font-medium">
+                            <span className="text-emerald-600 dark:text-emerald-400 font-medium">
                               {download.seeders ?? 0}
                             </span>
                             <span>/</span>
-                            <span className="text-red-600 font-medium">
+                            <span className="text-destructive font-medium">
                               {download.leechers ?? 0}
                             </span>
                             <span>peers</span>

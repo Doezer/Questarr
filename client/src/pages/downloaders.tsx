@@ -369,6 +369,7 @@ export default function DownloadersPage() {
                       onClick={() => testConnectionMutation.mutate({ id: downloader.id })}
                       disabled={testingDownloaderId === downloader.id}
                       title="Test connection"
+                      aria-label={`Test connection for ${downloader.name}`}
                       data-testid={`button-test-downloader-${downloader.id}`}
                     >
                       <Activity className="h-4 w-4" />
@@ -384,6 +385,7 @@ export default function DownloadersPage() {
                       variant="outline"
                       size="icon"
                       onClick={() => handleEdit(downloader)}
+                      aria-label={`Edit ${downloader.name}`}
                       data-testid={`button-edit-downloader-${downloader.id}`}
                     >
                       <Edit className="h-4 w-4" />
@@ -392,6 +394,7 @@ export default function DownloadersPage() {
                       variant="outline"
                       size="icon"
                       onClick={() => deleteMutation.mutate(downloader.id)}
+                      aria-label={`Delete ${downloader.name}`}
                       data-testid={`button-delete-downloader-${downloader.id}`}
                     >
                       <Trash2 className="h-4 w-4" />
@@ -424,6 +427,11 @@ export default function DownloadersPage() {
                 include Transmission, rTorrent, qBittorrent, SABnzbd, and NZBGet.
               </CardDescription>
             </CardHeader>
+            <CardContent>
+              <Button onClick={handleAdd} data-testid="button-add-downloader-empty">
+                Add Downloader
+              </Button>
+            </CardContent>
           </Card>
         )}
       </div>

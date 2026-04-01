@@ -3,8 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import SearchBar from "./SearchBar";
 import GameGrid from "./GameGrid";
-import StatsCard from "./StatsCard";
-import { Star, Gamepad2, Filter, X, Bookmark, CheckCircle2, Library } from "lucide-react";
+import { Star, X, Bookmark, CheckCircle2, Library } from "lucide-react";
 import { type Game } from "@shared/schema";
 import { type GameStatus } from "./StatusBadge";
 import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
@@ -127,33 +126,7 @@ export default function Dashboard() {
     return filters;
   }, [statusFilter, genreFilter, platformFilter]);
 
-  // Calculate statistics using the new utility
   const libStats = useMemo(() => calculateLibraryStats(games), [games]);
-
-  const stats = useMemo(() => {
-    if (!libStats.totalGames) return [];
-
-    return [
-      {
-        title: "Total Games",
-        value: libStats.totalGames,
-        subtitle: "in library",
-        icon: Gamepad2,
-      },
-      {
-        title: "Avg. Rating",
-        value: libStats.avgRating,
-        subtitle: "average rating",
-        icon: Star,
-      },
-      {
-        title: "Metadata Health",
-        value: `${libStats.metadataHealth}%`,
-        subtitle: "complete metadata",
-        icon: Filter,
-      },
-    ];
-  }, [libStats]);
 
   // ⚡ Bolt: Memoize event handlers with `useCallback` to prevent unnecessary
   // re-renders in child components like `SearchBar` that depend on stable
@@ -240,25 +213,14 @@ export default function Dashboard() {
                   <span className="opacity-30">·</span>
                   <span>
                     avg.{" "}
-                    <span className="font-medium text-foreground">⭐ {libStats.avgRating}</span>
+                    <span className="font-medium text-foreground">
+                      <span aria-hidden="true">⭐</span> {libStats.avgRating}
+                    </span>
                   </span>
                 </>
               )}
             </div>
           )}
-        </div>
-
-        {/* Stats cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {stats.map((stat) => (
-            <StatsCard
-              key={stat.title}
-              title={stat.title}
-              value={stat.value}
-              subtitle={stat.subtitle}
-              icon={stat.icon}
-            />
-          ))}
         </div>
 
         <div className="space-y-3">

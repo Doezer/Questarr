@@ -7,9 +7,8 @@ import { type GameStatus } from "@/components/StatusBadge";
 import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { useToast } from "@/hooks/use-toast";
 import EmptyState from "@/components/EmptyState";
-import { Gamepad2, Download, Search } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import GameFilterPills from "@/components/GameFilterPills";
+import { Gamepad2 } from "lucide-react";
 import { useViewControls } from "@/hooks/use-view-controls";
 import ViewControlsToolbar from "@/components/ViewControlsToolbar";
 import { useDownloadSummary } from "@/hooks/use-download-summary";
@@ -82,31 +81,12 @@ export default function LibraryPage() {
       </div>
 
       <div className="flex items-center gap-2 mb-3">
-        <Button
-          variant={showSearchResultsOnly ? "default" : "outline"}
-          size="sm"
-          className={`h-7 gap-1.5 text-xs ${showSearchResultsOnly ? "text-violet-300 bg-violet-700 hover:bg-violet-600 border-violet-600" : ""}`}
-          onClick={() => setShowSearchResultsOnly(!showSearchResultsOnly)}
-          aria-label="Show games with search results only"
-        >
-          <Search className="h-3 w-3" />
-          Has Results
-        </Button>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant={showDownloadsOnly ? "default" : "outline"}
-              size="sm"
-              className="h-7 gap-1.5 text-xs"
-              onClick={() => setShowDownloadsOnly((v) => !v)}
-              aria-label={showDownloadsOnly ? "Show all games" : "Show games with downloads only"}
-            >
-              <Download className="h-3 w-3" />
-              Has Downloads
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{showDownloadsOnly ? "Show all" : "Has downloads"}</TooltipContent>
-        </Tooltip>
+        <GameFilterPills
+          showSearchResultsOnly={showSearchResultsOnly}
+          setShowSearchResultsOnly={setShowSearchResultsOnly}
+          showDownloadsOnly={showDownloadsOnly}
+          setShowDownloadsOnly={setShowDownloadsOnly}
+        />
       </div>
 
       {libraryGames.length === 0 && !isLoading ? (

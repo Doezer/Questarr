@@ -31,7 +31,7 @@ type SortOption = "release-asc" | "release-desc" | "added-desc" | "title-asc";
 // ⚡ Bolt: Move sortGames outside of the component to prevent it from being recreated
 // on every render, which would break the `useMemo` dependencies below if it were
 // included in the dependency array.
-const sortGames = (gameList: Game[], currentSortBy: SortOption): Game[] => {
+export const sortGames = (gameList: Game[], currentSortBy: SortOption): Game[] => {
   const sorted = [...gameList];
 
   return sorted.sort((a, b) => {

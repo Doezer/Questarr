@@ -28,6 +28,38 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 type SortOption = "release-asc" | "release-desc" | "added-desc" | "title-asc";
 
+// ⚡ Bolt: Move sortGames outside of the component to prevent it from being recreated
+// on every render, which would break the `useMemo` dependencies below if it were
+// included in the dependency array.
+const sortGames = (gameList: Game[], currentSortBy: SortOption): Game[] => {
+  const sorted = [...gameList];
+
+  switch (currentSortBy) {
+    case "release-asc":
+      return sorted.sort((a, b) => {
+        if (!a.releaseDate) return 1;
+        if (!b.releaseDate) return -1;
+        return new Date(a.releaseDate).getTime() - new Date(b.releaseDate).getTime();
+      });
+    case "release-desc":
+      return sorted.sort((a, b) => {
+        if (!a.releaseDate) return 1;
+        if (!b.releaseDate) return -1;
+        return new Date(b.releaseDate).getTime() - new Date(a.releaseDate).getTime();
+      });
+    case "added-desc":
+      return sorted.sort((a, b) => {
+        if (!a.addedAt) return 1;
+        if (!b.addedAt) return -1;
+        return new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime();
+      });
+    case "title-asc":
+      return sorted.sort((a, b) => a.title.localeCompare(b.title));
+    default:
+      return sorted;
+  }
+};
+
 export default function WishlistPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();

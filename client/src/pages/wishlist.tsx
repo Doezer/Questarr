@@ -34,30 +34,32 @@ type SortOption = "release-asc" | "release-desc" | "added-desc" | "title-asc";
 const sortGames = (gameList: Game[], currentSortBy: SortOption): Game[] => {
   const sorted = [...gameList];
 
-  switch (currentSortBy) {
-    case "release-asc":
-      return sorted.sort((a, b) => {
+  return sorted.sort((a, b) => {
+    switch (currentSortBy) {
+      case "release-asc": {
+        if (!a.releaseDate && !b.releaseDate) return 0;
         if (!a.releaseDate) return 1;
         if (!b.releaseDate) return -1;
         return new Date(a.releaseDate).getTime() - new Date(b.releaseDate).getTime();
-      });
-    case "release-desc":
-      return sorted.sort((a, b) => {
+      }
+      case "release-desc": {
+        if (!a.releaseDate && !b.releaseDate) return 0;
         if (!a.releaseDate) return 1;
         if (!b.releaseDate) return -1;
         return new Date(b.releaseDate).getTime() - new Date(a.releaseDate).getTime();
-      });
-    case "added-desc":
-      return sorted.sort((a, b) => {
+      }
+      case "added-desc": {
+        if (!a.addedAt && !b.addedAt) return 0;
         if (!a.addedAt) return 1;
         if (!b.addedAt) return -1;
         return new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime();
-      });
-    case "title-asc":
-      return sorted.sort((a, b) => a.title.localeCompare(b.title));
-    default:
-      return sorted;
-  }
+      }
+      case "title-asc":
+        return a.title.localeCompare(b.title);
+      default:
+        return 0;
+    }
+  });
 };
 
 export default function WishlistPage() {

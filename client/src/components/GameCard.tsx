@@ -164,17 +164,17 @@ const GameCard = ({
           )}
         </div>
         <SearchResultsBadge visible={game.searchResultsAvailable ?? false} />
-        <div
-          onClick={(e) => e.stopPropagation()}
-          className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-200 rounded-t-md flex items-center justify-center gap-2"
-        >
+        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-200 rounded-t-md flex items-center justify-center gap-2">
           {isDiscovery && (
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   size="icon"
                   variant="default"
-                  onClick={handleDownloadClick}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void handleDownloadClick();
+                  }}
                   disabled={addGameMutation.isPending}
                   aria-label={`Download ${game.title}`}
                   data-testid={`button-download-${game.id}`}
@@ -213,7 +213,10 @@ const GameCard = ({
                 <Button
                   size="icon"
                   variant="secondary"
-                  onClick={handleToggleHidden}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleToggleHidden();
+                  }}
                   aria-label={game.hidden ? `Unhide ${game.title}` : `Hide ${game.title}`}
                   data-testid={`button-toggle-hidden-${game.id}`}
                 >

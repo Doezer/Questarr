@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -159,6 +159,23 @@ export const xrelNotifiedReleases = sqliteTable("xrel_notified_releases", {
   ),
 });
 
+// Track releases blacklisted by users to hide them from per-game search results
+export const releaseBlacklist = sqliteTable(
+  "release_blacklist",
+  {
+    id: text("id").primaryKey(),
+    gameId: text("game_id")
+      .notNull()
+      .references(() => games.id, { onDelete: "cascade" }),
+    releaseTitle: text("release_title").notNull(),
+    indexerName: text("indexer_name"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+  },
+  (t) => [uniqueIndex("release_blacklist_game_title_idx").on(t.gameId, t.releaseTitle)]
+);
+
 export const notifications = sqliteTable("notifications", {
   id: text("id").primaryKey(),
   userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
@@ -260,6 +277,13 @@ export const insertXrelNotifiedReleaseSchema = createInsertSchema(xrelNotifiedRe
   id: true,
   createdAt: true,
 });
+
+export const insertReleaseBlacklistSchema = createInsertSchema(releaseBlacklist).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertReleaseBlacklist = (typeof insertReleaseBlacklistSchema)["_output"];
+export type ReleaseBlacklist = typeof releaseBlacklist.$inferSelect;
 
 export const insertUserSettingsSchema = createInsertSchema(userSettings).omit({
   id: true,

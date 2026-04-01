@@ -167,17 +167,30 @@ export default function CalendarPage() {
 
   return (
     <div className="h-full overflow-auto p-6">
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex items-start justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-3xl font-bold">Release Calendar</h1>
-          <p className="text-muted-foreground">Track upcoming game releases</p>
+          <h1 className="text-2xl font-bold tracking-tight">Release Calendar</h1>
+          <p className="text-muted-foreground text-sm mt-0.5">Track upcoming game releases</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 shrink-0 pt-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={navigatePrevious}
+            aria-label="Previous period"
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </Button>
+          <span className="text-base font-semibold min-w-[140px] text-center">{getTitle()}</span>
+          <Button variant="ghost" size="icon" onClick={navigateNext} aria-label="Next period">
+            <ChevronRight className="h-5 w-5" />
+          </Button>
+          <div className="w-px h-5 bg-border mx-1" />
           <Button variant="outline" size="sm" onClick={goToToday}>
             Today
           </Button>
           <Select value={viewMode} onValueChange={(v) => setViewMode(v as ViewMode)}>
-            <SelectTrigger className="w-[120px]">
+            <SelectTrigger className="w-[110px] h-8 text-sm">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -187,16 +200,6 @@ export default function CalendarPage() {
             </SelectContent>
           </Select>
         </div>
-      </div>
-
-      <div className="flex items-center justify-between mb-6">
-        <Button variant="ghost" size="icon" onClick={navigatePrevious} aria-label="Previous period">
-          <ChevronLeft className="h-5 w-5" />
-        </Button>
-        <h2 className="text-2xl font-semibold">{getTitle()}</h2>
-        <Button variant="ghost" size="icon" onClick={navigateNext} aria-label="Next period">
-          <ChevronRight className="h-5 w-5" />
-        </Button>
       </div>
 
       {isLoading ? (

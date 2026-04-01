@@ -4,7 +4,7 @@ import { apiRequest } from "@/lib/queryClient";
 import SearchBar from "./SearchBar";
 import GameGrid from "./GameGrid";
 import StatsCard from "./StatsCard";
-import { Star, Gamepad2, Filter, X } from "lucide-react";
+import { Star, Gamepad2, Filter, X, Bookmark, CheckCircle2, Library } from "lucide-react";
 import { type Game } from "@shared/schema";
 import { type GameStatus } from "./StatusBadge";
 import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
@@ -128,8 +128,9 @@ export default function Dashboard() {
   }, [statusFilter, genreFilter, platformFilter]);
 
   // Calculate statistics using the new utility
+  const libStats = useMemo(() => calculateLibraryStats(games), [games]);
+
   const stats = useMemo(() => {
-    const libStats = calculateLibraryStats(games);
     if (!libStats.totalGames) return [];
 
     return [
@@ -152,7 +153,7 @@ export default function Dashboard() {
         icon: Filter,
       },
     ];
-  }, [games]);
+  }, [libStats]);
 
   // ⚡ Bolt: Memoize event handlers with `useCallback` to prevent unnecessary
   // re-renders in child components like `SearchBar` that depend on stable
@@ -201,8 +202,54 @@ export default function Dashboard() {
 
   return (
     <div className="h-full overflow-auto p-6" data-testid="layout-dashboard">
-      <div className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="space-y-8">
+        {/* Page header */}
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">My Library</h1>
+          {libStats.totalGames > 0 && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-sm text-muted-foreground">
+              <span>
+                <span className="font-medium text-foreground">{libStats.totalGames}</span> games
+              </span>
+              <span className="opacity-30">·</span>
+              <span className="flex items-center gap-1">
+                <Bookmark className="h-3 w-3" />
+                <span className="font-medium text-foreground">
+                  {libStats.statusBreakdown.wanted}
+                </span>{" "}
+                wanted
+              </span>
+              <span className="opacity-30">·</span>
+              <span className="flex items-center gap-1">
+                <Library className="h-3 w-3" />
+                <span className="font-medium text-foreground">
+                  {libStats.statusBreakdown.owned}
+                </span>{" "}
+                owned
+              </span>
+              <span className="opacity-30">·</span>
+              <span className="flex items-center gap-1">
+                <CheckCircle2 className="h-3 w-3" />
+                <span className="font-medium text-foreground">
+                  {libStats.statusBreakdown.completed}
+                </span>{" "}
+                completed
+              </span>
+              {libStats.avgRating !== "N/A" && (
+                <>
+                  <span className="opacity-30">·</span>
+                  <span>
+                    avg.{" "}
+                    <span className="font-medium text-foreground">⭐ {libStats.avgRating}</span>
+                  </span>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Stats cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           {stats.map((stat) => (
             <StatsCard
               key={stat.title}
@@ -214,8 +261,17 @@ export default function Dashboard() {
           ))}
         </div>
 
-        <div className="space-y-4">
-          <h2 className="text-lg font-semibold">Recent Additions</h2>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-semibold">
+              Library
+              {activeFilters.length > 0 && (
+                <span className="ml-2 text-sm font-normal text-muted-foreground">
+                  — {filteredGames.length} of {games.length} shown
+                </span>
+              )}
+            </h2>
+          </div>
           <SearchBar
             onSearch={handleSearch}
             onFilterToggle={handleFilterToggle}

@@ -492,18 +492,20 @@ export default function DiscoverPage() {
         <Tabs defaultValue="igdb" className="space-y-6">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
-              <h1 className="text-2xl font-bold mb-2">Discover Games</h1>
-              <p className="text-muted-foreground">
+              <h1 className="text-2xl font-bold tracking-tight">Discover</h1>
+              <p className="text-muted-foreground text-sm mt-0.5">
                 Explore popular games, new releases, and find your next adventure
               </p>
             </div>
 
-            <TabsList>
-              <TabsTrigger value="igdb">IGDB Discovery</TabsTrigger>
-              <TabsTrigger value="rss" className="gap-2">
-                <Rss className="h-4 w-4" /> RSS Feeds
-              </TabsTrigger>
-            </TabsList>
+            <div className="flex items-center gap-3 shrink-0">
+              <TabsList>
+                <TabsTrigger value="igdb">IGDB</TabsTrigger>
+                <TabsTrigger value="rss" className="gap-2">
+                  <Rss className="h-4 w-4" /> RSS
+                </TabsTrigger>
+              </TabsList>
+            </div>
           </div>
 
           <TabsContent value="igdb" className="space-y-8">

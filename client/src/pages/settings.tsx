@@ -1,6 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Settings as SettingsIcon,
   Server,
   Key,
   RefreshCw,
@@ -526,7 +525,7 @@ export default function SettingsPage() {
 
   if (isLoading) {
     return (
-      <div className="p-8">
+      <div className="p-6">
         <div className="flex items-center space-x-2">
           <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
           <span>Loading configuration...</span>
@@ -537,7 +536,7 @@ export default function SettingsPage() {
 
   if (error) {
     return (
-      <div className="p-8">
+      <div className="p-6">
         <Card>
           <CardHeader>
             <CardTitle>Error Loading Configuration</CardTitle>
@@ -549,13 +548,12 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="h-full overflow-auto p-8">
-      <div className="flex items-center mb-8">
-        <SettingsIcon className="h-8 w-8 mr-3" />
-        <div>
-          <h1 className="text-3xl font-bold">Settings</h1>
-          <p className="text-muted-foreground">Configure your preferences and system settings</p>
-        </div>
+    <div className="h-full overflow-auto p-6">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
+        <p className="text-muted-foreground text-sm mt-0.5">
+          Configure your preferences and system settings
+        </p>
       </div>
 
       <div className="w-full space-y-6">

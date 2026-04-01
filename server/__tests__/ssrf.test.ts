@@ -88,6 +88,19 @@ describe("isSafeUrl Security Check", () => {
     vi.mocked(dns.lookup as unknown as import("dns").LookupAddress[]).mockResolvedValueOnce([]);
     expect(await isSafeUrl("http://empty-dns.com")).toBe(false);
   });
+
+  it("should allow magnet links without DNS validation (no SSRF risk)", async () => {
+    expect(
+      await isSafeUrl("magnet:?xt=urn:btih:ABCDEF1234567890ABCDEF1234567890ABCDEF12&dn=Test+Game")
+    ).toBe(true);
+    expect(
+      await isSafeUrl(
+        "magnet:?xt=urn:btih:ABCDEF1234567890ABCDEF1234567890ABCDEF12&dn=Test+Game&tr=http://tracker.example.com/announce"
+      )
+    ).toBe(true);
+    // DNS lookup should not be called for magnet links
+    expect(dns.lookup).not.toHaveBeenCalled();
+  });
 });
 
 describe("safeFetch", () => {

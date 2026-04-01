@@ -1092,6 +1092,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ── Release Blacklist routes ──
 
+  /** Resolves a game by id and verifies ownership; sends 404/403 and returns null on failure. */
+  async function resolveOwnedGame(
+    gameId: string,
+    userId: string,
+    res: Response
+  ): Promise<Awaited<ReturnType<typeof storage.getGame>> | null> {
+    const game = await storage.getGame(gameId);
+    if (!game) {
+      res.status(404).json({ error: "Game not found" });
+      return null;
+    }
+    if (game.userId !== userId) {
+      res.status(403).json({ error: "Forbidden" });
+      return null;
+    }
+    return game;
+  }
+
   // Add release to blacklist for a specific game
   app.post(
     "/api/games/:gameId/blacklist",
@@ -1101,9 +1119,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const { gameId } = req.params;
         const userId = req.user!.id;
 
-        const game = await storage.getGame(gameId);
-        if (!game) return res.status(404).json({ error: "Game not found" });
-        if (game.userId !== userId) return res.status(403).json({ error: "Forbidden" });
+        if (!(await resolveOwnedGame(gameId, userId, res))) return;
 
         const parsed = insertReleaseBlacklistSchema.safeParse({ ...req.body, gameId });
         if (!parsed.success) {
@@ -1132,9 +1148,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const { gameId } = req.params;
         const userId = req.user!.id;
 
-        const game = await storage.getGame(gameId);
-        if (!game) return res.status(404).json({ error: "Game not found" });
-        if (game.userId !== userId) return res.status(403).json({ error: "Forbidden" });
+        if (!(await resolveOwnedGame(gameId, userId, res))) return;
 
         const entries = await storage.getReleaseBlacklist(gameId);
         res.json(entries);
@@ -1154,9 +1168,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const { gameId, id } = req.params;
         const userId = req.user!.id;
 
-        const game = await storage.getGame(gameId);
-        if (!game) return res.status(404).json({ error: "Game not found" });
-        if (game.userId !== userId) return res.status(403).json({ error: "Forbidden" });
+        if (!(await resolveOwnedGame(gameId, userId, res))) return;
 
         const deleted = await storage.removeReleaseBlacklist(id, gameId);
         if (!deleted) return res.status(404).json({ error: "Blacklist entry not found" });

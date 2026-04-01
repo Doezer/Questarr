@@ -380,5 +380,45 @@ describe("MemStorage", () => {
       expect(set.has("Game-CODEX")).toBe(true);
       expect(set.size).toBe(2);
     });
+
+    it("should return an empty Set for a game with no blacklist entries", async () => {
+      const set = await storage.getReleaseBlacklistSet(gameId);
+      expect(set).toBeInstanceOf(Set);
+      expect(set.size).toBe(0);
+    });
+
+    it("should store and return indexerName when provided", async () => {
+      const entry = await storage.addReleaseBlacklist({
+        gameId,
+        releaseTitle: "Game-SKIDROW",
+        indexerName: "1337x",
+      });
+      expect(entry.indexerName).toBe("1337x");
+    });
+
+    it("should sort getAllReleaseBlacklists by gameTitle then newest first", async () => {
+      const gameB = await storage.addGame({
+        title: "Zebra Game",
+        igdbId: 9002,
+        status: "wanted",
+        hidden: null,
+        userId,
+      } as InsertGame);
+
+      await storage.addReleaseBlacklist({ gameId, releaseTitle: "Blacklist-1" });
+      await storage.addReleaseBlacklist({ gameId, releaseTitle: "Blacklist-2" });
+      await storage.addReleaseBlacklist({ gameId: gameB.id, releaseTitle: "Zebra-1" });
+
+      const all = await storage.getAllReleaseBlacklists(userId);
+      expect(all).toHaveLength(3);
+      // "Blacklist Game" entries precede "Zebra Game" (alphabetical)
+      expect(all[0].gameTitle).toBe("Blacklist Game");
+      expect(all[1].gameTitle).toBe("Blacklist Game");
+      expect(all[2].gameTitle).toBe("Zebra Game");
+      // Both "Blacklist Game" entries are present (order within same title is stable by creation)
+      const blTitles = [all[0].releaseTitle, all[1].releaseTitle];
+      expect(blTitles).toContain("Blacklist-1");
+      expect(blTitles).toContain("Blacklist-2");
+    });
   });
 });

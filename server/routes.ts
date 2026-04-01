@@ -14,6 +14,7 @@ import {
   updateUserSettingsSchema,
   updatePasswordSchema,
   insertRssFeedSchema,
+  insertReleaseBlacklistSchema,
   type Config,
   type Game,
   type Indexer,
@@ -60,7 +61,7 @@ const upload = multer({
     fileSize: 5 * 1024 * 1024, // 5MB limit
   },
 });
-import { searchAllIndexers } from "./search.js";
+import { searchAllIndexers, filterBlacklistedReleases } from "./search.js";
 import { xrelClient, DEFAULT_XREL_BASE, ALLOWED_XREL_DOMAINS } from "./xrel.js";
 import { normalizeTitle, cleanReleaseName } from "../shared/title-utils.js";
 import archiver from "archiver";
@@ -121,8 +122,19 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
       offset,
     });
 
+    // Filter out blacklisted releases when a gameId context is provided
+    const gameId = req.query.gameId as string | undefined;
+    let filteredItems = items;
+    if (gameId && req.user) {
+      const game = await storage.getGame(gameId);
+      if (game && game.userId === req.user.id) {
+        const blacklisted = await storage.getReleaseBlacklistSet(gameId);
+        filteredItems = filterBlacklistedReleases(items, blacklisted);
+      }
+    }
+
     res.json({
-      items,
+      items: filteredItems,
       total,
       offset,
       errors: errors.length > 0 ? errors : undefined,
@@ -1077,6 +1089,108 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     }
   );
+
+  // ── Release Blacklist routes ──
+
+  /** Resolves a game by id and verifies ownership; sends 404/403 and returns null on failure. */
+  async function resolveOwnedGame(
+    gameId: string,
+    userId: string,
+    res: Response
+  ): Promise<Awaited<ReturnType<typeof storage.getGame>> | null> {
+    const game = await storage.getGame(gameId);
+    if (!game) {
+      res.status(404).json({ error: "Game not found" });
+      return null;
+    }
+    if (game.userId !== userId) {
+      res.status(403).json({ error: "Forbidden" });
+      return null;
+    }
+    return game;
+  }
+
+  // Add release to blacklist for a specific game
+  app.post(
+    "/api/games/:gameId/blacklist",
+    authenticateToken,
+    async (req: Request, res: Response) => {
+      try {
+        const { gameId } = req.params;
+        const userId = req.user!.id;
+
+        if (!(await resolveOwnedGame(gameId, userId, res))) return;
+
+        const parsed = insertReleaseBlacklistSchema.safeParse({ ...req.body, gameId });
+        if (!parsed.success) {
+          return res.status(400).json({ error: "Invalid data", details: parsed.error.issues });
+        }
+        const { releaseTitle } = parsed.data;
+        if (!releaseTitle || releaseTitle.length > 500) {
+          return res.status(400).json({ error: "releaseTitle required (max 500 chars)" });
+        }
+
+        const entry = await storage.addReleaseBlacklist(parsed.data);
+        res.status(201).json(entry);
+      } catch (error) {
+        routesLogger.error({ error }, "error adding to blacklist");
+        res.status(500).json({ error: "Failed to add to blacklist" });
+      }
+    }
+  );
+
+  // List blacklisted releases for a game
+  app.get(
+    "/api/games/:gameId/blacklist",
+    authenticateToken,
+    async (req: Request, res: Response) => {
+      try {
+        const { gameId } = req.params;
+        const userId = req.user!.id;
+
+        if (!(await resolveOwnedGame(gameId, userId, res))) return;
+
+        const entries = await storage.getReleaseBlacklist(gameId);
+        res.json(entries);
+      } catch (error) {
+        routesLogger.error({ error }, "error listing blacklist");
+        res.status(500).json({ error: "Failed to list blacklist" });
+      }
+    }
+  );
+
+  // Remove a blacklist entry
+  app.delete(
+    "/api/games/:gameId/blacklist/:id",
+    authenticateToken,
+    async (req: Request, res: Response) => {
+      try {
+        const { gameId, id } = req.params;
+        const userId = req.user!.id;
+
+        if (!(await resolveOwnedGame(gameId, userId, res))) return;
+
+        const deleted = await storage.removeReleaseBlacklist(id, gameId);
+        if (!deleted) return res.status(404).json({ error: "Blacklist entry not found" });
+        res.status(204).send();
+      } catch (error) {
+        routesLogger.error({ error }, "error removing from blacklist");
+        res.status(500).json({ error: "Failed to remove from blacklist" });
+      }
+    }
+  );
+
+  // List all blacklisted releases across all user's games (for Settings page)
+  app.get("/api/blacklist", authenticateToken, async (req: Request, res: Response) => {
+    try {
+      const userId = req.user!.id;
+      const entries = await storage.getAllReleaseBlacklists(userId);
+      res.json(entries);
+    } catch (error) {
+      routesLogger.error({ error }, "error listing all blacklists");
+      res.status(500).json({ error: "Failed to list blacklists" });
+    }
+  });
 
   // IGDB discovery routes
 

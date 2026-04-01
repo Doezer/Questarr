@@ -184,3 +184,13 @@ export async function searchAllIndexers(
     errors: combinedErrors,
   };
 }
+
+/**
+ * Filters search items by removing any whose title appears in the blacklist set.
+ */
+export function filterBlacklistedReleases(
+  items: SearchItem[],
+  blacklisted: Set<string>
+): SearchItem[] {
+  return blacklisted.size > 0 ? items.filter((item) => !blacklisted.has(item.title)) : items;
+}

@@ -196,7 +196,10 @@ const GameCard = ({
               <Button
                 size="icon"
                 variant="secondary"
-                onClick={handleDetailsClick}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDetailsClick();
+                }}
                 aria-label={`View details for ${game.title}`}
                 data-testid={`button-details-${game.id}`}
               >

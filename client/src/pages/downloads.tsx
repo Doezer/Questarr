@@ -592,6 +592,7 @@ export default function Downloads() {
                   <Progress
                     value={download.progress}
                     className="h-2"
+                    aria-label={`Download progress: ${download.progress.toFixed(1)}%`}
                     data-testid={`progress-bar-${download.id}`}
                   />
                   {download.error && (

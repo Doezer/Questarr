@@ -425,6 +425,7 @@ export default function IndexersPage() {
                       onClick={() => testConnectionMutation.mutate({ id: indexer.id })}
                       disabled={testingIndexerId === indexer.id}
                       title="Test connection"
+                      aria-label={`Test connection for ${indexer.name}`}
                       data-testid={`button-test-indexer-${indexer.id}`}
                     >
                       <Activity className="h-4 w-4" />
@@ -440,6 +441,7 @@ export default function IndexersPage() {
                       variant="outline"
                       size="icon"
                       onClick={() => handleEdit(indexer)}
+                      aria-label={`Edit ${indexer.name}`}
                       data-testid={`button-edit-indexer-${indexer.id}`}
                     >
                       <Edit className="h-4 w-4" />
@@ -448,6 +450,7 @@ export default function IndexersPage() {
                       variant="outline"
                       size="icon"
                       onClick={() => deleteMutation.mutate(indexer.id)}
+                      aria-label={`Delete ${indexer.name}`}
                       data-testid={`button-delete-indexer-${indexer.id}`}
                     >
                       <Trash2 className="h-4 w-4" />
@@ -478,6 +481,11 @@ export default function IndexersPage() {
                 Jackett, Prowlarr, or direct Torznab-compatible trackers.
               </CardDescription>
             </CardHeader>
+            <CardContent>
+              <Button onClick={handleAdd} data-testid="button-add-indexer-empty">
+                Add Indexer
+              </Button>
+            </CardContent>
           </Card>
         )}
       </div>

@@ -162,7 +162,7 @@ export default function ShareDiscordDialog({
               <div>
                 <div style={{ fontSize: 18, fontWeight: 700 }}>Questarr Library Stats</div>
                 <div style={{ fontSize: 12, color: "#9ca3af" }}>
-                  {displayDate.toLocaleDateString("en-US", {
+                  {displayDate.toLocaleDateString(undefined, {
                     month: "long",
                     day: "numeric",
                     year: "numeric",

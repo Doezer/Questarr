@@ -28,7 +28,7 @@ function formatDate(date: Date): string {
 }
 
 function getMonthName(month: number): string {
-  return new Date(2000, month, 1).toLocaleDateString("en-US", { month: "long" });
+  return new Date(2000, month, 1).toLocaleDateString(undefined, { month: "long" });
 }
 
 function getWeekDays(date: Date): Date[] {
@@ -281,7 +281,7 @@ function YearView({
                 gamesInMonth.map(([date, games]) => (
                   <div key={date} className="text-sm">
                     <div className="text-muted-foreground mb-1">
-                      {new Date(date).toLocaleDateString("en-US", {
+                      {new Date(date).toLocaleDateString(undefined, {
                         month: "short",
                         day: "numeric",
                       })}
@@ -381,7 +381,7 @@ function WeekView({
           const dateKey = formatDate(day);
           const gamesOnDay = gamesByDate[dateKey] || [];
           const isToday = formatDate(new Date()) === dateKey;
-          const dayName = day.toLocaleDateString("en-US", { weekday: "short" });
+          const dayName = day.toLocaleDateString(undefined, { weekday: "short" });
 
           return (
             <div
@@ -394,7 +394,7 @@ function WeekView({
                   {day.getDate()}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {day.toLocaleDateString("en-US", { month: "short" })}
+                  {day.toLocaleDateString(undefined, { month: "short" })}
                 </div>
               </div>
               <div className="space-y-2">
@@ -429,10 +429,11 @@ function GameBadge({
     return (
       <Tooltip>
         <TooltipTrigger asChild>
-          <div
+          <button
+            type="button"
             onClick={onClick}
             className={cn(
-              "flex items-center gap-1 p-1 rounded hover:opacity-80 cursor-pointer transition-opacity",
+              "flex items-center gap-1 p-1 rounded hover:opacity-80 transition-opacity w-full text-left",
               isDelayed ? "bg-destructive/20 border border-destructive/30" : "bg-muted"
             )}
           >
@@ -447,28 +448,28 @@ function GameBadge({
               {game.title}
               {isDelayed && " (Delayed)"}
             </span>
-          </div>
+          </button>
         </TooltipTrigger>
         <TooltipContent>
           <div className="max-w-xs">
             <p className="font-semibold">{game.title}</p>
             {isDelayed && (
-              <Badge variant="destructive" className="mt-1 text-[10px] h-4">
+              <Badge variant="destructive" className="mt-1 text-xs h-4">
                 Delayed
               </Badge>
             )}
             <p className="text-xs text-muted-foreground mt-1">
               {game.releaseDate &&
-                new Date(game.releaseDate).toLocaleDateString("en-US", {
+                new Date(game.releaseDate).toLocaleDateString(undefined, {
                   year: "numeric",
                   month: "long",
                   day: "numeric",
                 })}
             </p>
             {isDelayed && game.originalReleaseDate && (
-              <p className="text-[10px] text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 Original:{" "}
-                {new Date(game.originalReleaseDate).toLocaleDateString("en-US", {
+                {new Date(game.originalReleaseDate).toLocaleDateString(undefined, {
                   month: "short",
                   day: "numeric",
                 })}
@@ -483,10 +484,11 @@ function GameBadge({
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <div
+        <button
+          type="button"
           onClick={onClick}
           className={cn(
-            "flex items-center gap-2 p-2 rounded hover:opacity-80 cursor-pointer transition-all",
+            "flex items-center gap-2 p-2 rounded hover:opacity-80 transition-all w-full text-left",
             isDelayed ? "bg-destructive/10 border border-destructive/20" : "bg-muted"
           )}
         >
@@ -501,34 +503,34 @@ function GameBadge({
                 {game.title}
               </p>
               {isDelayed && (
-                <Badge variant="destructive" className="text-[10px] h-4 px-1">
+                <Badge variant="destructive" className="text-xs h-4 px-1">
                   Delayed
                 </Badge>
               )}
             </div>
             <p className="text-xs text-muted-foreground">
               {game.releaseDate &&
-                new Date(game.releaseDate).toLocaleDateString("en-US", {
+                new Date(game.releaseDate).toLocaleDateString(undefined, {
                   month: "short",
                   day: "numeric",
                   year: "numeric",
                 })}
             </p>
           </div>
-        </div>
+        </button>
       </TooltipTrigger>
       <TooltipContent>
         <div className="max-w-xs">
           <p className="font-semibold">{game.title}</p>
           {isDelayed && (
             <div className="flex flex-col gap-0.5 mt-1">
-              <Badge variant="destructive" className="w-fit text-[10px] h-4">
+              <Badge variant="destructive" className="w-fit text-xs h-4">
                 Delayed
               </Badge>
               {game.originalReleaseDate && (
-                <p className="text-[10px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   Was originally scheduled for:{" "}
-                  {new Date(game.originalReleaseDate).toLocaleDateString("en-US", {
+                  {new Date(game.originalReleaseDate).toLocaleDateString(undefined, {
                     month: "long",
                     day: "numeric",
                     year: "numeric",

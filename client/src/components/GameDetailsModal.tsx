@@ -11,11 +11,23 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Calendar, Star, Monitor, Gamepad2, Tag, Download, Eye, EyeOff, X } from "lucide-react";
+import {
+  Calendar,
+  Star,
+  Monitor,
+  Gamepad2,
+  Tag,
+  Download,
+  Eye,
+  EyeOff,
+  X,
+  Search,
+} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { type Game } from "@shared/schema";
 import StatusBadge from "./StatusBadge";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 // ⚡ Bolt: Lazy load the download dialog to keep the details modal lightweight.
 const GameDownloadDialog = lazy(() => import("./GameDownloadDialog"));
@@ -99,7 +111,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                 <DialogDescription className="sr-only">
                   Detailed information about {game.title}
                 </DialogDescription>
-                <div className="flex items-center gap-2 mb-3">
+                <div className="flex items-center gap-2 mb-3 flex-wrap">
                   <StatusBadge status={game.status} />
                   {game.rating && (
                     <div className="flex items-center gap-1 text-sm">
@@ -114,6 +126,21 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                         {new Date(game.releaseDate).getFullYear()}
                       </span>
                     </div>
+                  )}
+                  {game.searchResultsAvailable && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Badge
+                          variant="outline"
+                          className="gap-1 border-violet-500 text-violet-400 cursor-default"
+                          data-testid={`badge-search-results-${game.id}`}
+                        >
+                          <Search className="w-3 h-3" />
+                          Results available
+                        </Badge>
+                      </TooltipTrigger>
+                      <TooltipContent>Downloads found on indexers</TooltipContent>
+                    </Tooltip>
                   )}
                 </div>
 

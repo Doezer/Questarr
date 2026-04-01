@@ -970,7 +970,7 @@ class IGDBClient {
         ? `https:${igdbGame.cover.url.replace("t_thumb", "t_cover_big")}`
         : "",
       releaseDate: releaseDate ? releaseDate.toISOString().split("T")[0] : "",
-      rating: igdbGame.rating ? Math.round(igdbGame.rating) / 10 : 0,
+      rating: igdbGame.rating ? Math.round(igdbGame.rating) / 10 : null,
       platforms: igdbGame.platforms?.map((p) => p.name) || [],
       genres: igdbGame.genres?.map((g) => g.name) || [],
       publishers:

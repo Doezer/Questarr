@@ -959,7 +959,7 @@ async function addNewSteamWishlistGames(
       coverUrl: formatted.coverUrl as string,
       summary: formatted.summary as string,
       releaseDate: formatted.releaseDate as string,
-      rating: formatted.rating as number,
+      rating: formatted.rating as number | null,
       platforms: formatted.platforms as string[],
       genres: formatted.genres as string[],
       developers: formatted.developers as string[],

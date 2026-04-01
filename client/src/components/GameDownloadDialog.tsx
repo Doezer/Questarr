@@ -88,6 +88,7 @@ interface DownloadItem {
   // Usenet-specific fields
   grabs?: number;
   age?: number;
+  files?: number;
   poster?: string;
   group?: string;
 }
@@ -980,6 +981,14 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                         Scene
                                       </Badge>
                                     )}
+                                    {!isUsenet && download.downloadVolumeFactor === 0 && (
+                                      <Badge
+                                        variant="secondary"
+                                        className="h-5 px-1.5 text-[10px] bg-emerald-500/15 text-emerald-500 dark:text-emerald-400 border-none uppercase tracking-tighter"
+                                      >
+                                        Freeleech
+                                      </Badge>
+                                    )}
                                   </div>
 
                                   {/* Release info line */}
@@ -1000,6 +1009,17 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                     )}
                                     <span>•</span>
                                     <span>{download.indexerName}</span>
+                                    {isUsenet && download.poster && (
+                                      <>
+                                        <span>•</span>
+                                        <span
+                                          className="truncate max-w-[160px]"
+                                          title={download.poster}
+                                        >
+                                          {download.poster}
+                                        </span>
+                                      </>
+                                    )}
                                   </div>
                                 </div>
 
@@ -1018,6 +1038,11 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                   {/* Size Column */}
                                   <div className="min-w-[70px] text-right font-mono text-xs font-bold">
                                     {download.size ? formatBytes(download.size) : "-"}
+                                    {isUsenet && download.files != null && (
+                                      <div className="text-[10px] font-sans font-normal text-muted-foreground/60">
+                                        {download.files} files
+                                      </div>
+                                    )}
                                   </div>
 
                                   {/* Health Column */}
@@ -1034,6 +1059,11 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                     <div className="text-xs uppercase font-bold opacity-70">
                                       {isUsenet ? "Grabs" : "Seeds"}
                                     </div>
+                                    {!isUsenet && download.leechers != null && (
+                                      <div className="text-[10px] text-muted-foreground/60">
+                                        {download.leechers}L
+                                      </div>
+                                    )}
                                   </div>
 
                                   {/* Actions Column */}

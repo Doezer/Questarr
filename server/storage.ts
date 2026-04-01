@@ -817,6 +817,8 @@ export class MemStorage implements IStorage {
       xrelP2pReleases: insertSettings.xrelP2pReleases ?? false,
       autoSearchUnreleased: insertSettings.autoSearchUnreleased ?? false,
       steamSyncFailures: 0,
+      preferredReleaseGroups: insertSettings.preferredReleaseGroups ?? null,
+      filterByPreferredGroups: insertSettings.filterByPreferredGroups ?? false,
       updatedAt: new Date(),
     };
     this.userSettings.set(id, settings);

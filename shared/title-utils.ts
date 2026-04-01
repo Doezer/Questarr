@@ -251,3 +251,17 @@ export function parseReleaseMetadata(releaseName: string): ReleaseMetadata {
     isScene: !!group && !["p2p", "gls", "initial", "rarbg", "crack"].includes(group.toLowerCase()),
   };
 }
+
+/**
+ * Safely parses a JSON-encoded string array.
+ * Returns an empty array if the value is null/undefined, not valid JSON, or not an array.
+ */
+export function parseJsonStringArray(value: string | null | undefined): string[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? (parsed as string[]) : [];
+  } catch {
+    return [];
+  }
+}

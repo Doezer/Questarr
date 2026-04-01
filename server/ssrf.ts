@@ -20,6 +20,12 @@ export async function isSafeUrl(
   urlStr: string,
   options: { allowPrivate?: boolean } = { allowPrivate: true }
 ): Promise<boolean> {
+  // Magnet links are not HTTP(S) URLs and do not cause any server-side network connection.
+  // They are passed directly to the download client, so they pose no SSRF risk.
+  if (urlStr.startsWith("magnet:")) {
+    return true;
+  }
+
   let url: URL;
   try {
     // Ensure protocol is http or https

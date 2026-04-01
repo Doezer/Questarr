@@ -25,7 +25,7 @@ vi.mock("../newznab.js", () => ({
   },
 }));
 
-const { searchAllIndexers } = await import("../search.js");
+const { searchAllIndexers, filterBlacklistedReleases } = await import("../search.js");
 const { storage } = await import("../storage.js");
 const { torznabClient } = await import("../torznab.js");
 const { newznabClient } = await import("../newznab.js");
@@ -475,5 +475,43 @@ describe("Search Module - searchAllIndexers", () => {
 
     expect(result.items).toHaveLength(1);
     expect(result.items[0].group).toBe("RELGROUP");
+  });
+});
+
+describe("filterBlacklistedReleases", () => {
+  const makeItem = (title: string) => ({
+    title,
+    link: "http://example.com",
+    downloadType: "torrent" as const,
+  });
+
+  it("returns all items when blacklist is empty", () => {
+    const items = [makeItem("Game-GROUP"), makeItem("Game-OTHER")];
+    expect(filterBlacklistedReleases(items, new Set())).toEqual(items);
+  });
+
+  it("filters out blacklisted titles", () => {
+    const items = [makeItem("Game-GROUP"), makeItem("Game-OTHER")];
+    const result = filterBlacklistedReleases(items, new Set(["Game-GROUP"]));
+    expect(result).toHaveLength(1);
+    expect(result[0].title).toBe("Game-OTHER");
+  });
+
+  it("returns empty array when all items are blacklisted", () => {
+    const items = [makeItem("Game-A"), makeItem("Game-B")];
+    const result = filterBlacklistedReleases(items, new Set(["Game-A", "Game-B"]));
+    expect(result).toHaveLength(0);
+  });
+
+  it("is case-sensitive (does not filter non-matching case)", () => {
+    const items = [makeItem("Game-GROUP")];
+    const result = filterBlacklistedReleases(items, new Set(["game-group"]));
+    expect(result).toHaveLength(1);
+  });
+
+  it("returns original array reference when blacklist is empty (fast path)", () => {
+    const items = [makeItem("Game-GROUP")];
+    const result = filterBlacklistedReleases(items, new Set());
+    expect(result).toBe(items);
   });
 });

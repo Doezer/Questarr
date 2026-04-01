@@ -3,7 +3,7 @@ import { igdbClient } from "./igdb.js";
 import { igdbLogger } from "./logger.js";
 import { notifyUser } from "./socket.js";
 import { DownloaderManager } from "./downloaders.js";
-import { searchAllIndexers } from "./search.js";
+import { searchAllIndexers, filterBlacklistedReleases } from "./search.js";
 import { xrelClient, DEFAULT_XREL_BASE } from "./xrel.js";
 import { steamService } from "./steam.js";
 import { downloadRulesSchema, type Game, type InsertNotification } from "../shared/schema.js";
@@ -103,7 +103,7 @@ function applyPreferredGroupsFilter(
 }
 
 async function searchAndCategorizeItemsForGame(
-  game: Pick<Game, "title">,
+  game: Pick<Game, "id" | "title">,
   downloadRules: string | null
 ): Promise<AutoSearchCategorizedItems | null> {
   const { items, errors } = await searchAllIndexers({
@@ -148,6 +148,18 @@ async function searchAndCategorizeItemsForGame(
     return null;
   }
 
+  // Filter out blacklisted releases
+  const blacklisted = await storage.getReleaseBlacklistSet(game.id);
+  const nonBlacklisted = filterBlacklistedReleases(matchedItems, blacklisted);
+
+  if (nonBlacklisted.length === 0) {
+    igdbLogger.debug(
+      { gameTitle: game.title, matchedCount: matchedItems.length },
+      "All matched items were blacklisted"
+    );
+    return null;
+  }
+
   let rules: AutoSearchRules;
   try {
     rules = getAutoSearchRules(downloadRules);
@@ -156,7 +168,7 @@ async function searchAndCategorizeItemsForGame(
     rules = getAutoSearchRules(null);
   }
 
-  return categorizeSearchItems(matchedItems, rules);
+  return categorizeSearchItems(nonBlacklisted, rules);
 }
 
 export function startCronJobs() {

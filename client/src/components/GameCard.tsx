@@ -149,6 +149,9 @@ const GameCard = ({
         <DownloadIndicator summary={downloadSummary} />
         <div className="absolute top-2 right-2 flex flex-col gap-1">
           {!isDiscovery && game.status && <StatusBadge status={game.status} />}
+          {game.earlyAccess && (
+            <Badge className="text-xs bg-amber-500 border-amber-600 text-white">Early Access</Badge>
+          )}
           {game.status === "wanted" && (
             <Badge
               variant={releaseStatus.variant}

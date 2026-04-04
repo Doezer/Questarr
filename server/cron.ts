@@ -312,7 +312,12 @@ export async function checkGameUpdates() {
     }
 
     // If things changed, update DB
-    if (game.releaseDate !== currentReleaseDateStr || game.releaseStatus !== newReleaseStatus) {
+    const newEarlyAccess = igdbGame.status === 4;
+    if (
+      game.releaseDate !== currentReleaseDateStr ||
+      game.releaseStatus !== newReleaseStatus ||
+      game.earlyAccess !== newEarlyAccess
+    ) {
       igdbLogger.info(
         {
           game: game.title,
@@ -328,6 +333,7 @@ export async function checkGameUpdates() {
       queueUpdate({
         releaseDate: currentReleaseDateStr,
         releaseStatus: newReleaseStatus,
+        earlyAccess: newEarlyAccess,
       });
 
       // Send notification if game is delayed

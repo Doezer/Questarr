@@ -1030,6 +1030,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   coverUrl: updatedData.coverUrl as string,
                   screenshots: updatedData.screenshots as string[],
                   releaseDate: updatedData.releaseDate as string,
+                  earlyAccess: updatedData.earlyAccess as boolean,
                 },
               });
             }

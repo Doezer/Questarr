@@ -338,6 +338,7 @@ export class MemStorage implements IStorage {
       steamAppId: insertGame.steamAppId || null,
       originalReleaseDate: insertGame.originalReleaseDate || null,
       releaseStatus: insertGame.releaseStatus || "upcoming",
+      earlyAccess: insertGame.earlyAccess ?? false,
       searchResultsAvailable: false,
       addedAt: new Date(),
       completedAt: null,
@@ -1134,6 +1135,7 @@ export class DatabaseStorage implements IStorage {
       hidden: insertGame.hidden ?? false,
       originalReleaseDate: insertGame.originalReleaseDate ?? null,
       releaseStatus: insertGame.releaseStatus ?? "upcoming",
+      earlyAccess: insertGame.earlyAccess ?? false,
       addedAt: new Date(),
     };
 

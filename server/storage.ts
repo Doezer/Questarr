@@ -109,6 +109,9 @@ export interface IStorage {
 
   // GameDownload methods
   getDownloadingGameDownloads(): Promise<GameDownload[]>;
+  getDownloadsByGameId(
+    gameId: string
+  ): Promise<(GameDownload & { downloaderName: string | null })[]>;
   updateGameDownloadStatus(id: string, status: string): Promise<void>;
   addGameDownload(gameDownload: InsertGameDownload): Promise<GameDownload>;
   getDownloadSummaryByGame(): Promise<Record<string, DownloadSummary>>;
@@ -336,6 +339,9 @@ export class MemStorage implements IStorage {
       screenshots: insertGame.screenshots || null,
       igdbId: insertGame.igdbId || null,
       steamAppId: insertGame.steamAppId || null,
+      source: insertGame.source ?? null,
+      igdbWebsites: insertGame.igdbWebsites || null,
+      aggregatedRating: insertGame.aggregatedRating ?? null,
       originalReleaseDate: insertGame.originalReleaseDate || null,
       releaseStatus: insertGame.releaseStatus || "upcoming",
       earlyAccess: insertGame.earlyAccess ?? false,
@@ -618,6 +624,17 @@ export class MemStorage implements IStorage {
     return Array.from(this.gameDownloads.values()).filter((gd) => gd.status === "downloading");
   }
 
+  async getDownloadsByGameId(
+    gameId: string
+  ): Promise<(GameDownload & { downloaderName: string | null })[]> {
+    return Array.from(this.gameDownloads.values())
+      .filter((gd) => gd.gameId === gameId)
+      .map((gd) => ({
+        ...gd,
+        downloaderName: this.downloaders.get(gd.downloaderId)?.name ?? null,
+      }));
+  }
+
   async updateGameDownloadStatus(id: string, status: string): Promise<void> {
     const gd = this.gameDownloads.get(id);
     if (gd) {
@@ -633,6 +650,7 @@ export class MemStorage implements IStorage {
       id,
       status: insertGameDownload.status || "downloading",
       downloadType: insertGameDownload.downloadType || "torrent",
+      fileSize: insertGameDownload.fileSize ?? null,
       addedAt: new Date(),
       completedAt: null,
     };
@@ -1131,6 +1149,10 @@ export class DatabaseStorage implements IStorage {
       publishers: insertGame.publishers ?? null,
       developers: insertGame.developers ?? null,
       screenshots: insertGame.screenshots ?? null,
+      steamAppId: insertGame.steamAppId ?? null,
+      source: insertGame.source ?? null,
+      igdbWebsites: insertGame.igdbWebsites ?? null,
+      aggregatedRating: insertGame.aggregatedRating ?? null,
       status: insertGame.status ?? "wanted",
       hidden: insertGame.hidden ?? false,
       originalReleaseDate: insertGame.originalReleaseDate ?? null,
@@ -1388,6 +1410,30 @@ export class DatabaseStorage implements IStorage {
           eq(gameDownloads.status, "failed")
         ) as SQL
       );
+  }
+
+  async getDownloadsByGameId(
+    gameId: string
+  ): Promise<(GameDownload & { downloaderName: string | null })[]> {
+    const rows = await db
+      .select({
+        id: gameDownloads.id,
+        gameId: gameDownloads.gameId,
+        downloaderId: gameDownloads.downloaderId,
+        downloadType: gameDownloads.downloadType,
+        downloadHash: gameDownloads.downloadHash,
+        downloadTitle: gameDownloads.downloadTitle,
+        status: gameDownloads.status,
+        fileSize: gameDownloads.fileSize,
+        addedAt: gameDownloads.addedAt,
+        completedAt: gameDownloads.completedAt,
+        downloaderName: downloaders.name,
+      })
+      .from(gameDownloads)
+      .leftJoin(downloaders, eq(gameDownloads.downloaderId, downloaders.id))
+      .where(eq(gameDownloads.gameId, gameId))
+      .orderBy(desc(gameDownloads.addedAt));
+    return rows;
   }
 
   async updateGameDownloadStatus(id: string, status: string): Promise<void> {

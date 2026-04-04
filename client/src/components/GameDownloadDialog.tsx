@@ -614,7 +614,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-6xl max-h-[90vh] flex flex-col overflow-hidden">
+      <DialogContent className="max-w-6xl max-h-[90vh] flex flex-col ">
         <DialogHeader className="flex-shrink-0">
           <DialogTitle>Download {game.title}</DialogTitle>
           <DialogDescription>
@@ -783,9 +783,9 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                       </div>
 
                       {/* Downloads in this category */}
-                      <div className="border rounded-md divide-y mb-4 bg-card overflow-hidden">
+                      <div className="border rounded-md divide-y mb-4 bg-card">
                         {/* Sticky Sort Header */}
-                        <div className="sticky top-0 z-10 bg-muted/95 backdrop-blur-md p-3 text-xs font-bold flex items-center px-4 border-b group">
+                        <div className="sticky top-0 z-10 bg-muted/95 backdrop-blur-md p-3 text-xs font-bold flex items-center px-4 border-b rounded-t-md group">
                           <div className="flex-1 flex items-center">
                             <span className="text-muted-foreground/70 uppercase tracking-widest">
                               Release Information

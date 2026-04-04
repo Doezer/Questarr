@@ -42,6 +42,9 @@ export interface DownloadData {
   error?: string;
   downloaderId: string;
   downloaderName: string;
+  // Questarr tracking fields
+  trackedByQuestarr?: boolean;
+  downloaderCategory?: string;
 }
 
 /**

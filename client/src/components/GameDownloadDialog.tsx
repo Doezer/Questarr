@@ -737,7 +737,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
           )}
         </div>
 
-        <ScrollArea className="flex-1 mt-4 overflow-y-auto">
+        <div className="flex-1 mt-4 overflow-y-auto min-h-0">
           <div className="space-y-4 pr-4">
             {isSearching && (
               <div className="flex items-center justify-center py-8">
@@ -1100,7 +1100,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
               </Card>
             )}
           </div>
-        </ScrollArea>
+        </div>
       </DialogContent>
 
       {/* Bundle Confirmation Dialog */}

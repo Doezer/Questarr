@@ -87,6 +87,7 @@ vi.mock("../storage.js", () => ({
     clearAllNotifications: vi.fn(),
     syncIndexers: vi.fn().mockResolvedValue({ added: 0, updated: 0 }),
     addGameDownload: vi.fn(),
+    getDownloadsByGameId: vi.fn().mockResolvedValue([]),
     getDownloadSummaryByGame: vi.fn().mockResolvedValue({}),
     getAllRssFeeds: vi.fn().mockResolvedValue([]),
     addRssFeed: vi.fn(),
@@ -1927,6 +1928,60 @@ describe("API Routes - Extended Coverage", () => {
         expect(response.status).toBe(200);
         expect(response.body).toEqual([]);
       });
+    });
+  });
+
+  // ─── GET /api/games/:id/downloads ───
+  describe("GET /api/games/:id/downloads", () => {
+    const gameId = "123e4567-e89b-12d3-a456-426614174000";
+
+    it("should return downloads for a game", async () => {
+      const mockDownloads = [
+        {
+          id: "dl-1",
+          gameId,
+          downloaderId: "d-1",
+          downloaderName: "qBit",
+          downloadHash: "abc",
+          downloadTitle: "Game-SKIDROW",
+          status: "downloading",
+          downloadType: "torrent",
+          fileSize: null,
+          addedAt: new Date(),
+          completedAt: null,
+        },
+      ];
+      vi.mocked(storage.getDownloadsByGameId).mockResolvedValue(mockDownloads as any);
+
+      const response = await request(app).get(`/api/games/${gameId}/downloads`);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveLength(1);
+      expect(response.body[0].downloaderName).toBe("qBit");
+      expect(storage.getDownloadsByGameId).toHaveBeenCalledWith(gameId);
+    });
+
+    it("should return empty array when game has no downloads", async () => {
+      vi.mocked(storage.getDownloadsByGameId).mockResolvedValue([]);
+
+      const response = await request(app).get(`/api/games/${gameId}/downloads`);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual([]);
+    });
+
+    it("should return 400 for an invalid (non-UUID) game id", async () => {
+      const response = await request(app).get("/api/games/not-a-valid-id/downloads");
+      expect(response.status).toBe(400);
+    });
+
+    it("should return 500 when storage throws", async () => {
+      vi.mocked(storage.getDownloadsByGameId).mockRejectedValue(new Error("DB error"));
+
+      const response = await request(app).get(`/api/games/${gameId}/downloads`);
+
+      expect(response.status).toBe(500);
+      expect(response.body.error).toMatch(/failed to fetch game downloads/i);
     });
   });
 });

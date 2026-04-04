@@ -12,6 +12,7 @@ import type {
   InsertUser,
   InsertIndexer,
   InsertDownloader,
+  InsertGameDownload,
   InsertUserSettings,
   InsertReleaseBlacklist,
 } from "../../shared/schema";
@@ -419,6 +420,110 @@ describe("MemStorage", () => {
       const blTitles = [all[0].releaseTitle, all[1].releaseTitle];
       expect(blTitles).toContain("Blacklist-1");
       expect(blTitles).toContain("Blacklist-2");
+    });
+  });
+
+  describe("getDownloadsByGameId", () => {
+    let userId: string;
+    let gameId: string;
+    let downloaderId: string;
+
+    beforeEach(async () => {
+      const user = await storage.registerSetupUser({
+        username: "dluser",
+        passwordHash: "hash",
+      });
+      userId = user.id;
+
+      const game = await storage.addGame({
+        title: "Download Game",
+        igdbId: 5000,
+        status: "wanted",
+        hidden: false,
+        userId,
+      } as InsertGame);
+      gameId = game.id;
+
+      const downloader = await storage.addDownloader({
+        name: "qBit",
+        type: "qbittorrent",
+        url: "http://localhost:8080",
+        apiKey: "",
+        enabled: true,
+        priority: 1,
+      } as InsertDownloader);
+      downloaderId = downloader.id;
+    });
+
+    it("returns empty array when game has no downloads", async () => {
+      const downloads = await storage.getDownloadsByGameId(gameId);
+      expect(downloads).toEqual([]);
+    });
+
+    it("returns downloads for the given game with downloaderName joined", async () => {
+      await storage.addGameDownload({
+        gameId,
+        downloaderId,
+        downloadHash: "abc123",
+        downloadTitle: "Download Game-SKIDROW",
+        status: "downloading",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+
+      const downloads = await storage.getDownloadsByGameId(gameId);
+      expect(downloads).toHaveLength(1);
+      expect(downloads[0].gameId).toBe(gameId);
+      expect(downloads[0].downloaderName).toBe("qBit");
+    });
+
+    it("only returns downloads belonging to the specified game", async () => {
+      const otherGame = await storage.addGame({
+        title: "Other Game",
+        igdbId: 5001,
+        status: "wanted",
+        hidden: false,
+        userId,
+      } as InsertGame);
+
+      await storage.addGameDownload({
+        gameId,
+        downloaderId,
+        downloadHash: "hash-target",
+        downloadTitle: "Target-GROUP",
+        status: "downloading",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+      await storage.addGameDownload({
+        gameId: otherGame.id,
+        downloaderId,
+        downloadHash: "hash-other",
+        downloadTitle: "Other-GROUP",
+        status: "downloading",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+
+      const downloads = await storage.getDownloadsByGameId(gameId);
+      expect(downloads).toHaveLength(1);
+      expect(downloads[0].downloadHash).toBe("hash-target");
+    });
+
+    it("sets downloaderName to null when downloader no longer exists", async () => {
+      await storage.addGameDownload({
+        gameId,
+        downloaderId: "nonexistent-downloader",
+        downloadHash: "xyz",
+        downloadTitle: "Orphan-GROUP",
+        status: "downloading",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+
+      const downloads = await storage.getDownloadsByGameId(gameId);
+      expect(downloads).toHaveLength(1);
+      expect(downloads[0].downloaderName).toBeNull();
     });
   });
 });

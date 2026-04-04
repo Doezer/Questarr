@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import React from "react";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import GameDetailsModal from "../src/components/GameDetailsModal";
@@ -35,6 +35,54 @@ vi.mock("lucide-react", () => ({
   Eye: (props: Record<string, unknown>) => <div data-testid="icon-eye" {...props} />,
   EyeOff: (props: Record<string, unknown>) => <div data-testid="icon-eye-off" {...props} />,
   X: (props: Record<string, unknown>) => <div data-testid="icon-x" {...props} />,
+  ExternalLink: (props: Record<string, unknown>) => (
+    <div data-testid="icon-external-link" {...props} />
+  ),
+  UserRound: (props: Record<string, unknown>) => <div data-testid="icon-user-round" {...props} />,
+  Zap: (props: Record<string, unknown>) => <div data-testid="icon-zap" {...props} />,
+  TrendingUp: (props: Record<string, unknown>) => <div data-testid="icon-trending-up" {...props} />,
+  Clock: (props: Record<string, unknown>) => <div data-testid="icon-clock" {...props} />,
+  HardDrive: (props: Record<string, unknown>) => <div data-testid="icon-hard-drive" {...props} />,
+  CheckCircle2: (props: Record<string, unknown>) => (
+    <div data-testid="icon-check-circle2" {...props} />
+  ),
+  Loader2: (props: Record<string, unknown>) => <div data-testid="icon-loader2" {...props} />,
+  AlertCircle: (props: Record<string, unknown>) => (
+    <div data-testid="icon-alert-circle" {...props} />
+  ),
+  PauseCircle: (props: Record<string, unknown>) => (
+    <div data-testid="icon-pause-circle" {...props} />
+  ),
+  Users: (props: Record<string, unknown>) => <div data-testid="icon-users" {...props} />,
+  Building2: (props: Record<string, unknown>) => <div data-testid="icon-building2" {...props} />,
+}));
+
+vi.mock("react-icons/fa", () => ({
+  FaSteam: (props: Record<string, unknown>) => <div data-testid="icon-fa-steam" {...props} />,
+  FaRedditAlien: (props: Record<string, unknown>) => (
+    <div data-testid="icon-fa-reddit" {...props} />
+  ),
+  FaDiscord: (props: Record<string, unknown>) => <div data-testid="icon-fa-discord" {...props} />,
+  FaWikipediaW: (props: Record<string, unknown>) => (
+    <div data-testid="icon-fa-wikipedia" {...props} />
+  ),
+  FaItchIo: (props: Record<string, unknown>) => <div data-testid="icon-fa-itchio" {...props} />,
+  FaTwitch: (props: Record<string, unknown>) => <div data-testid="icon-fa-twitch" {...props} />,
+}));
+
+vi.mock("react-icons/si", () => ({
+  SiGogdotcom: (props: Record<string, unknown>) => <div data-testid="icon-si-gog" {...props} />,
+  SiEpicgames: (props: Record<string, unknown>) => <div data-testid="icon-si-epic" {...props} />,
+  SiProtondb: (props: Record<string, unknown>) => <div data-testid="icon-si-protondb" {...props} />,
+  SiPcgamingwiki: (props: Record<string, unknown>) => (
+    <div data-testid="icon-si-pcgamingwiki" {...props} />
+  ),
+  SiMetacritic: (props: Record<string, unknown>) => (
+    <div data-testid="icon-si-metacritic" {...props} />
+  ),
+  SiItchdotio: (props: Record<string, unknown>) => (
+    <div data-testid="icon-si-itchdotio" {...props} />
+  ),
 }));
 
 const mockGame = {
@@ -48,27 +96,23 @@ const mockGame = {
   genres: ["Action", "Adventure"],
   platforms: ["PC", "PS5"],
   screenshots: ["http://test.com/screen1.jpg", "http://test.com/screen2.jpg"],
+  hidden: false,
+  source: "manual",
 } as unknown as import("@shared/schema").Game;
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: false,
-      queryFn: async ({ queryKey }) => {
-        const response = await fetch(queryKey.join(""));
-        if (!response.ok) throw new Error("Network response was not ok");
-        return response.json();
-      },
+const createQueryClient = () =>
+  new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
     },
-  },
-});
+  });
 
 // Mock fetch
 global.fetch = vi.fn();
 
 const renderComponent = (game = mockGame) => {
   return render(
-    <QueryClientProvider client={queryClient}>
+    <QueryClientProvider client={createQueryClient()}>
       <GameDetailsModal game={game} open={true} onOpenChange={() => {}} />
       <Toaster />
     </QueryClientProvider>
@@ -78,6 +122,11 @@ const renderComponent = (game = mockGame) => {
 describe("GameDetailsModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default: downloads endpoint returns empty array
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue([]),
+    });
   });
 
   it("renders game details correctly", () => {
@@ -99,9 +148,11 @@ describe("GameDetailsModal", () => {
     expect(screen.getByTestId("badge-platform-ps5")).toBeInTheDocument();
   });
 
-  it("renders screenshots", () => {
+  it("renders screenshots in Media tab", () => {
     renderComponent();
-    expect(screen.getAllByRole("img", { name: /screenshot/i })).toHaveLength(2);
+    // Media tab uses forceMount so screenshots are always in the DOM (hidden until tab activated)
+    expect(screen.getByTestId("screenshot-0")).toBeInTheDocument();
+    expect(screen.getByTestId("screenshot-1")).toBeInTheDocument();
   });
 
   it("opens download dialog when download button is clicked", async () => {
@@ -114,10 +165,9 @@ describe("GameDetailsModal", () => {
   });
 
   it("handles remove game action", async () => {
-    global.fetch = vi.fn().mockResolvedValue({ ok: true });
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true });
     renderComponent();
 
-    // Need to find the remote button with the complex ID
     const removeButton = screen.getByTestId(`button-remove-game-quick-${mockGame.id}`);
     fireEvent.click(removeButton);
 
@@ -130,9 +180,9 @@ describe("GameDetailsModal", () => {
   });
 
   it("handles hide game action", async () => {
-    global.fetch = vi
-      .fn()
-      .mockResolvedValueOnce({ ok: true, json: vi.fn().mockResolvedValue({ hidden: true }) });
+    (global.fetch as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ ok: true, json: vi.fn().mockResolvedValue([]) }) // downloads
+      .mockResolvedValueOnce({ ok: true, json: vi.fn().mockResolvedValue({ hidden: true }) }); // hide
     renderComponent();
 
     const hideButton = screen.getByTestId(`button-toggle-hidden-quick-${mockGame.id}`);
@@ -150,15 +200,11 @@ describe("GameDetailsModal", () => {
   });
 
   it("handles unhide game action when game starts hidden", async () => {
-    global.fetch = vi
-      .fn()
-      .mockResolvedValueOnce({ ok: true, json: vi.fn().mockResolvedValue({ hidden: false }) });
+    (global.fetch as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ ok: true, json: vi.fn().mockResolvedValue([]) }) // downloads
+      .mockResolvedValueOnce({ ok: true, json: vi.fn().mockResolvedValue({ hidden: false }) }); // unhide
 
-    const hiddenGame = {
-      ...mockGame,
-      hidden: true,
-    };
-
+    const hiddenGame = { ...mockGame, hidden: true };
     renderComponent(hiddenGame);
 
     const unhideButton = screen.getByTestId(`button-toggle-hidden-quick-${mockGame.id}`);
@@ -177,10 +223,7 @@ describe("GameDetailsModal", () => {
   });
 
   it("truncates long summary and expands it", () => {
-    const longSummaryGame = {
-      ...mockGame,
-      summary: "A".repeat(300),
-    };
+    const longSummaryGame = { ...mockGame, summary: "A".repeat(300) };
     renderComponent(longSummaryGame);
 
     const summaryText = screen.getByTestId(`text-summary-${mockGame.id}`);

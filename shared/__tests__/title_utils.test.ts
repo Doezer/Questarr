@@ -5,6 +5,7 @@ import {
   titleMatches,
   releaseMatchesGame,
   parseReleaseMetadata,
+  parseJsonStringArray,
 } from "../title-utils.js";
 
 describe("title-utils", () => {
@@ -116,6 +117,43 @@ describe("title-utils", () => {
       const metadata = parseReleaseMetadata(release);
       expect(metadata.platform).toBe("Mac");
       expect(metadata.drm).toBe("DRM-Free");
+    });
+  });
+
+  describe("parseJsonStringArray", () => {
+    it("parses a valid JSON string array", () => {
+      expect(parseJsonStringArray('["a","b","c"]')).toEqual(["a", "b", "c"]);
+    });
+
+    it("returns empty array for null", () => {
+      expect(parseJsonStringArray(null)).toEqual([]);
+    });
+
+    it("returns empty array for undefined", () => {
+      expect(parseJsonStringArray(undefined)).toEqual([]);
+    });
+
+    it("returns empty array for empty string", () => {
+      expect(parseJsonStringArray("")).toEqual([]);
+    });
+
+    it("returns empty array for invalid JSON", () => {
+      expect(parseJsonStringArray("not-json")).toEqual([]);
+      expect(parseJsonStringArray('["unclosed')).toEqual([]);
+    });
+
+    it("returns empty array when JSON is not an array", () => {
+      expect(parseJsonStringArray('{"key":"value"}')).toEqual([]);
+      expect(parseJsonStringArray('"just-a-string"')).toEqual([]);
+      expect(parseJsonStringArray("42")).toEqual([]);
+    });
+
+    it("returns empty array for JSON null literal", () => {
+      expect(parseJsonStringArray("null")).toEqual([]);
+    });
+
+    it("handles an empty JSON array", () => {
+      expect(parseJsonStringArray("[]")).toEqual([]);
     });
   });
 });

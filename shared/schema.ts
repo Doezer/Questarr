@@ -66,6 +66,11 @@ export const games = sqliteTable("games", {
   publishers: text("publishers", { mode: "json" }).$type<string[]>(),
   developers: text("developers", { mode: "json" }).$type<string[]>(),
   screenshots: text("screenshots", { mode: "json" }).$type<string[]>(),
+  source: text("source").default("manual"), // "manual" | "steam" | "api"
+  igdbWebsites: text("igdb_websites", { mode: "json" }).$type<
+    Array<{ category: number; url: string }>
+  >(),
+  aggregatedRating: real("aggregated_rating"),
   status: text("status").notNull().default("wanted"), // Enum validation handled by Zod
   originalReleaseDate: text("original_release_date"),
   releaseStatus: text("release_status").default("upcoming"), // Enum validation handled by Zod
@@ -139,6 +144,7 @@ export const gameDownloads = sqliteTable("game_downloads", {
   downloadHash: text("download_hash").notNull(),
   downloadTitle: text("download_title").notNull(),
   status: text("status").notNull().default("downloading"),
+  fileSize: integer("file_size"), // bytes, stored at completion when available
   addedAt: integer("added_at", { mode: "timestamp_ms" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),

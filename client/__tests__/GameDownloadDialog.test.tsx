@@ -189,7 +189,11 @@ const createFetchMock = (overrides: FetchOverrides = {}) =>
       return {
         ok: true,
         json: async () =>
-          overrides.blacklist ?? { id: "bl-1", gameId: mockGame.id, releaseTitle: "Test Torrent 1" },
+          overrides.blacklist ?? {
+            id: "bl-1",
+            gameId: mockGame.id,
+            releaseTitle: "Test Torrent 1",
+          },
       };
     }
     if (urlString.includes("/api/downloads")) {

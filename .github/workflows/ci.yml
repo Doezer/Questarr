@@ -33,7 +33,7 @@ jobs:
         run: npm run check
       
       - name: Tests
-        run: npx vitest run --coverage --reporter=junit --outputFile=test-report.junit.xml
+        run: npm test -- --coverage --reporter=junit --outputFile=test-report.junit.xml
       
       - name: Build project
         run: npm run build

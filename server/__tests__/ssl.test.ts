@@ -23,7 +23,6 @@ vi.mock("fs", () => ({
   },
 }));
 
-vi.mock("path");
 vi.mock("node-forge");
 
 // Mock tls with correct shape for dynamic import
@@ -37,6 +36,7 @@ vi.mock("tls", () => ({
 describe("SSL Module", () => {
   beforeEach(() => {
     vi.resetModules();
+    vi.restoreAllMocks();
     vi.clearAllMocks();
 
     // Default successful mocks
@@ -53,7 +53,7 @@ describe("SSL Module", () => {
   describe("generateSelfSignedCert", () => {
     it("should generate and save certificate and key files", async () => {
       // Mock path.join
-      vi.mocked(path.join).mockImplementation((...args) => args.join("/"));
+      vi.spyOn(path, "join").mockImplementation((...args) => args.join("/"));
 
       // Mock forge
       const mockKeys = { publicKey: "pub", privateKey: "priv" };

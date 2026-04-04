@@ -92,6 +92,17 @@ SQLite with Drizzle ORM. Schema defined in `shared/schema.ts`. Migrations in `/m
 - **Frontend styling**: Tailwind CSS utility classes, dark-first theme with CSS variables. Colors: primary blue `#3B82F6`, secondary emerald `#10B981`, background dark slate `#1F2937`.
 - **Components**: Functional, TypeScript interfaces for props, Radix UI for interactive primitives
 
+### React Performance
+
+- Wrap expensive computations in `useMemo`; wrap stable callbacks passed as props or used in dependency arrays in `useCallback`.
+- Prefer deriving state via `useMemo` over storing redundant state that can be computed from existing state/props.
+
+### Accessibility
+
+- All interactive elements must have an accessible label: use `aria-label` on icon-only buttons/controls, `htmlFor` + `id` pairs on form fields, and `aria-labelledby` when a visible heading already describes the region.
+- Use semantic HTML elements (`<button>`, `<nav>`, `<main>`, `<section>`) rather than `<div>` with click handlers.
+- Radix UI primitives handle most ARIA roles automatically — avoid duplicating role attributes they already set.
+
 ## Testing
 
 - **Unit tests**: Vitest with `@testing-library/react` (client) and supertest (server). Tests use in-memory SQLite.

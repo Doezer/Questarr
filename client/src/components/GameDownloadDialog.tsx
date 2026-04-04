@@ -391,6 +391,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         if (!old) return old;
         return { ...old, items: old.items.filter((i) => i.title !== item.title) };
       });
+      queryClient.invalidateQueries({ queryKey: ["/api/blacklist"] });
       toast({ description: "Release blacklisted" });
     },
     onError: () => {

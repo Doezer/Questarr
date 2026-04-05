@@ -82,6 +82,26 @@ interface DownloadsResponse {
   errors: DownloaderError[];
 }
 
+const STATUS_ORDER: DownloadStatusType[] = [
+  "downloading",
+  "repairing",
+  "unpacking",
+  "seeding",
+  "completed",
+  "paused",
+  "error",
+];
+
+const STATUS_COLORS: Record<DownloadStatusType, string> = {
+  downloading: "text-blue-400",
+  seeding: "text-green-400",
+  completed: "text-green-600",
+  paused: "text-yellow-400",
+  error: "text-red-400",
+  repairing: "text-orange-400",
+  unpacking: "text-purple-400",
+};
+
 export default function Downloads() {
   const { toast } = useToast();
   const [hasShownErrors, setHasShownErrors] = useState<Set<string>>(new Set());
@@ -292,6 +312,22 @@ export default function Downloads() {
     });
   };
 
+  // Group downloads by downloader for the summary section
+  const downloaderSummaries = useMemo(() => {
+    const map = new Map<
+      string,
+      { name: string; counts: Partial<Record<DownloadStatusType, number>> }
+    >();
+    for (const d of downloads) {
+      if (!map.has(d.downloaderId)) {
+        map.set(d.downloaderId, { name: d.downloaderName, counts: {} });
+      }
+      const entry = map.get(d.downloaderId)!;
+      entry.counts[d.status] = (entry.counts[d.status] ?? 0) + 1;
+    }
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [downloads]);
+
   if (isLoading) {
     return (
       <div className="p-6">
@@ -317,6 +353,33 @@ export default function Downloads() {
           Refresh
         </Button>
       </div>
+
+      {/* Per-downloader summary */}
+      {downloaderSummaries.length > 0 && (
+        <div className="flex flex-wrap gap-3 mb-6">
+          {downloaderSummaries.map((dl) => (
+            <div
+              key={dl.name}
+              className="flex items-center gap-3 px-4 py-2 rounded-lg border bg-card text-sm"
+            >
+              <span className="font-medium shrink-0">{dl.name}</span>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                {STATUS_ORDER.filter((s) => (dl.counts[s] ?? 0) > 0).map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setStatusFilter(s)}
+                    className={`flex items-center gap-1 hover:underline transition-colors ${STATUS_COLORS[s]}`}
+                    aria-label={`Filter by ${s}`}
+                  >
+                    <span className="font-semibold">{dl.counts[s]}</span>
+                    <span className="text-muted-foreground">{s}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Filter row */}
       <div className="flex flex-wrap items-center gap-6 mb-6">

@@ -133,7 +133,8 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: Readonly<Ap
       { libraryCount: 0, wishlistCount: 0 }
     );
   }, [games]);
-  const activeDownloadsCount = downloadsData?.downloads?.length || 0;
+  const activeDownloadsCount =
+    downloadsData?.downloads?.filter((d) => d.status === "downloading").length || 0;
 
   const navigation = staticNavigation.map((item) => {
     let badge: string | undefined;

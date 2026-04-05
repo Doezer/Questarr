@@ -298,7 +298,10 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         .sort((a, b) => {
           let comparison = 0;
           if (sortBy === "seeders") {
-            comparison = (b.seeders ?? 0) - (a.seeders ?? 0);
+            // Health metric: seeders for torrents, grabs for Usenet
+            const aHealth = isUsenetItem(a) ? (a.grabs ?? 0) : (a.seeders ?? 0);
+            const bHealth = isUsenetItem(b) ? (b.grabs ?? 0) : (b.seeders ?? 0);
+            comparison = bHealth - aHealth;
           } else if (sortBy === "date") {
             comparison = new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime();
           } else {

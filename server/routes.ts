@@ -1024,7 +1024,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   publishers: updatedData.publishers as string[],
                   developers: updatedData.developers as string[],
                   summary: updatedData.summary as string,
-                  rating: updatedData.rating as number,
+                  rating: updatedData.rating as number | null,
                   genres: updatedData.genres as string[],
                   platforms: updatedData.platforms as string[],
                   coverUrl: updatedData.coverUrl as string,

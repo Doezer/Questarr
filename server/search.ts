@@ -18,8 +18,11 @@ export interface SearchItem {
   // Protocol-specific fields
   seeders?: number;
   leechers?: number;
+  downloadVolumeFactor?: number;
+  uploadVolumeFactor?: number;
   grabs?: number;
   age?: number;
+  files?: number;
   poster?: string;
   group?: string;
   comments?: string;
@@ -136,6 +139,8 @@ export async function searchAllIndexers(
           downloadType: "torrent" as const,
           seeders: item.seeders,
           leechers: item.leechers,
+          downloadVolumeFactor: item.downloadVolumeFactor,
+          uploadVolumeFactor: item.uploadVolumeFactor,
           group: parseReleaseMetadata(item.title).group,
           comments,
         } as SearchItem;
@@ -158,6 +163,7 @@ export async function searchAllIndexers(
             downloadType: "usenet" as const,
             grabs: item.grabs,
             age: item.age,
+            files: item.files,
             poster: item.poster,
             group: item.group,
           }) as SearchItem

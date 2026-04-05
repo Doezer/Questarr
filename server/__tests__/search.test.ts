@@ -30,6 +30,48 @@ const { storage } = await import("../storage.js");
 const { torznabClient } = await import("../torznab.js");
 const { newznabClient } = await import("../newznab.js");
 
+const makeTorznabIndexer = (overrides: Partial<Indexer> = {}): Indexer => ({
+  id: "torznab-1",
+  name: "Torznab Indexer",
+  url: "http://torznab.example.com",
+  apiKey: "key1",
+  protocol: "torznab",
+  enabled: true,
+  priority: 1,
+  categories: ["4000"],
+  rssEnabled: true,
+  autoSearchEnabled: true,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+  ...overrides,
+});
+
+const makeNewznabIndexer = (overrides: Partial<Indexer> = {}): Indexer => ({
+  id: "newznab-1",
+  name: "Newznab Indexer",
+  url: "http://newznab.example.com",
+  apiKey: "key2",
+  protocol: "newznab",
+  enabled: true,
+  priority: 1,
+  categories: ["4000"],
+  rssEnabled: true,
+  autoSearchEnabled: true,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+  ...overrides,
+});
+
+const makeTorznabResponse = (items: object[], errors: string[] = []) => ({
+  results: { items, total: items.length },
+  errors,
+});
+
+const makeNewznabResponse = (items: object[], errors: string[] = []) => ({
+  results: { items, total: items.length },
+  errors,
+});
+
 describe("Search Module - searchAllIndexers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -49,44 +91,27 @@ describe("Search Module - searchAllIndexers", () => {
   });
 
   it("should search torznab indexers and return formatted results", async () => {
-    const torznabIndexer: Indexer = {
-      id: "torznab-1",
-      name: "Torznab Indexer",
-      url: "http://torznab.example.com",
-      apiKey: "key1",
-      protocol: "torznab",
-      enabled: true,
-      priority: 1,
-      categories: ["4000"],
-      rssEnabled: true,
-      autoSearchEnabled: true,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
+    const torznabIndexer = makeTorznabIndexer();
 
     vi.mocked(storage.getEnabledIndexers).mockResolvedValue([torznabIndexer]);
-    vi.mocked(torznabClient.searchMultipleIndexers).mockResolvedValue({
-      results: {
-        items: [
-          {
-            title: "Test Game",
-            link: "http://example.com/download",
-            pubDate: "2024-01-01T00:00:00Z",
-            size: 1000000,
-            seeders: 10,
-            leechers: 2,
-            category: "4000",
-            guid: "guid-123",
-            indexerId: "torznab-1",
-            indexerName: "Torznab Indexer",
-            indexerUrl: "http://torznab.example.com",
-            comments: "http://torznab.example.com/details/guid-123",
-          },
-        ],
-        total: 1,
-      },
-      errors: [],
-    });
+    vi.mocked(torznabClient.searchMultipleIndexers).mockResolvedValue(
+      makeTorznabResponse([
+        {
+          title: "Test Game",
+          link: "http://example.com/download",
+          pubDate: "2024-01-01T00:00:00Z",
+          size: 1000000,
+          seeders: 10,
+          leechers: 2,
+          category: "4000",
+          guid: "guid-123",
+          indexerId: "torznab-1",
+          indexerName: "Torznab Indexer",
+          indexerUrl: "http://torznab.example.com",
+          comments: "http://torznab.example.com/details/guid-123",
+        },
+      ])
+    );
 
     const result = await searchAllIndexers({ query: "test game" });
 
@@ -102,44 +127,27 @@ describe("Search Module - searchAllIndexers", () => {
   });
 
   it("should search newznab indexers and return formatted results", async () => {
-    const newznabIndexer: Indexer = {
-      id: "newznab-1",
-      name: "Newznab Indexer",
-      url: "http://newznab.example.com",
-      apiKey: "key2",
-      protocol: "newznab",
-      enabled: true,
-      priority: 1,
-      categories: ["4000"],
-      rssEnabled: true,
-      autoSearchEnabled: true,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
+    const newznabIndexer = makeNewznabIndexer();
 
     vi.mocked(storage.getEnabledIndexers).mockResolvedValue([newznabIndexer]);
-    vi.mocked(newznabClient.searchMultipleIndexers).mockResolvedValue({
-      results: {
-        items: [
-          {
-            title: "Test Usenet Game",
-            link: "http://usenet.example.com/nzb",
-            publishDate: "2024-01-02T00:00:00Z",
-            size: 2000000,
-            grabs: 5,
-            age: 2.5,
-            category: ["4000"],
-            guid: "guid-456",
-            indexerId: "newznab-1",
-            indexerName: "Newznab Indexer",
-            poster: "user@example.com",
-            group: "alt.binaries.games",
-          },
-        ],
-        total: 1,
-      },
-      errors: [],
-    });
+    vi.mocked(newznabClient.searchMultipleIndexers).mockResolvedValue(
+      makeNewznabResponse([
+        {
+          title: "Test Usenet Game",
+          link: "http://usenet.example.com/nzb",
+          publishDate: "2024-01-02T00:00:00Z",
+          size: 2000000,
+          grabs: 5,
+          age: 2.5,
+          category: ["4000"],
+          guid: "guid-456",
+          indexerId: "newznab-1",
+          indexerName: "Newznab Indexer",
+          poster: "user@example.com",
+          group: "alt.binaries.games",
+        },
+      ])
+    );
 
     const result = await searchAllIndexers({ query: "test game" });
 
@@ -157,77 +165,42 @@ describe("Search Module - searchAllIndexers", () => {
   });
 
   it("should combine results from both torznab and newznab indexers", async () => {
-    const torznabIndexer: Indexer = {
-      id: "torznab-1",
-      name: "Torznab Indexer",
-      url: "http://torznab.example.com",
-      apiKey: "key1",
-      protocol: "torznab",
-      enabled: true,
-      priority: 1,
-      categories: ["4000"],
-      rssEnabled: true,
-      autoSearchEnabled: true,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-
-    const newznabIndexer: Indexer = {
-      id: "newznab-1",
-      name: "Newznab Indexer",
-      url: "http://newznab.example.com",
-      apiKey: "key2",
-      protocol: "newznab",
-      enabled: true,
-      priority: 2,
-      categories: ["4000"],
-      rssEnabled: true,
-      autoSearchEnabled: true,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
+    const torznabIndexer = makeTorznabIndexer();
+    const newznabIndexer = makeNewznabIndexer({ priority: 2 });
 
     vi.mocked(storage.getEnabledIndexers).mockResolvedValue([torznabIndexer, newznabIndexer]);
 
-    vi.mocked(torznabClient.searchMultipleIndexers).mockResolvedValue({
-      results: {
-        items: [
-          {
-            title: "Torrent Game",
-            link: "http://torrent.example.com/download",
-            pubDate: "2024-01-01T00:00:00Z",
-            size: 1000000,
-            seeders: 10,
-            category: "4000",
-            guid: "guid-torrent",
-            indexerId: "torznab-1",
-            indexerName: "Torznab Indexer",
-          },
-        ],
-        total: 1,
-      },
-      errors: [],
-    });
+    vi.mocked(torznabClient.searchMultipleIndexers).mockResolvedValue(
+      makeTorznabResponse([
+        {
+          title: "Torrent Game",
+          link: "http://torrent.example.com/download",
+          pubDate: "2024-01-01T00:00:00Z",
+          size: 1000000,
+          seeders: 10,
+          category: "4000",
+          guid: "guid-torrent",
+          indexerId: "torznab-1",
+          indexerName: "Torznab Indexer",
+        },
+      ])
+    );
 
-    vi.mocked(newznabClient.searchMultipleIndexers).mockResolvedValue({
-      results: {
-        items: [
-          {
-            title: "Usenet Game",
-            link: "http://usenet.example.com/nzb",
-            publishDate: "2024-01-02T00:00:00Z",
-            size: 2000000,
-            grabs: 5,
-            category: ["4000"],
-            guid: "guid-usenet",
-            indexerId: "newznab-1",
-            indexerName: "Newznab Indexer",
-          },
-        ],
-        total: 1,
-      },
-      errors: [],
-    });
+    vi.mocked(newznabClient.searchMultipleIndexers).mockResolvedValue(
+      makeNewznabResponse([
+        {
+          title: "Usenet Game",
+          link: "http://usenet.example.com/nzb",
+          publishDate: "2024-01-02T00:00:00Z",
+          size: 2000000,
+          grabs: 5,
+          category: ["4000"],
+          guid: "guid-usenet",
+          indexerId: "newznab-1",
+          indexerName: "Newznab Indexer",
+        },
+      ])
+    );
 
     const result = await searchAllIndexers({ query: "test game" });
 
@@ -238,48 +211,29 @@ describe("Search Module - searchAllIndexers", () => {
   });
 
   it("should sort results by date (newest first)", async () => {
-    const torznabIndexer: Indexer = {
-      id: "torznab-1",
-      name: "Torznab Indexer",
-      url: "http://torznab.example.com",
-      apiKey: "key1",
-      protocol: "torznab",
-      enabled: true,
-      priority: 1,
-      categories: ["4000"],
-      rssEnabled: true,
-      autoSearchEnabled: true,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-
-    vi.mocked(storage.getEnabledIndexers).mockResolvedValue([torznabIndexer]);
-    vi.mocked(torznabClient.searchMultipleIndexers).mockResolvedValue({
-      results: {
-        items: [
-          {
-            title: "Old Game",
-            link: "http://example.com/old",
-            pubDate: "2024-01-01T00:00:00Z",
-            guid: "guid-old",
-            indexerId: "torznab-1",
-            indexerName: "Torznab Indexer",
-            category: "4000",
-          },
-          {
-            title: "New Game",
-            link: "http://example.com/new",
-            pubDate: "2024-01-10T00:00:00Z",
-            guid: "guid-new",
-            indexerId: "torznab-1",
-            indexerName: "Torznab Indexer",
-            category: "4000",
-          },
-        ],
-        total: 2,
-      },
-      errors: [],
-    });
+    vi.mocked(storage.getEnabledIndexers).mockResolvedValue([makeTorznabIndexer()]);
+    vi.mocked(torznabClient.searchMultipleIndexers).mockResolvedValue(
+      makeTorznabResponse([
+        {
+          title: "Old Game",
+          link: "http://example.com/old",
+          pubDate: "2024-01-01T00:00:00Z",
+          guid: "guid-old",
+          indexerId: "torznab-1",
+          indexerName: "Torznab Indexer",
+          category: "4000",
+        },
+        {
+          title: "New Game",
+          link: "http://example.com/new",
+          pubDate: "2024-01-10T00:00:00Z",
+          guid: "guid-new",
+          indexerId: "torznab-1",
+          indexerName: "Torznab Indexer",
+          category: "4000",
+        },
+      ])
+    );
 
     const result = await searchAllIndexers({ query: "game" });
 
@@ -289,29 +243,10 @@ describe("Search Module - searchAllIndexers", () => {
   });
 
   it("should aggregate errors from indexers", async () => {
-    const torznabIndexer: Indexer = {
-      id: "torznab-1",
-      name: "Torznab Indexer",
-      url: "http://torznab.example.com",
-      apiKey: "key1",
-      protocol: "torznab",
-      enabled: true,
-      priority: 1,
-      categories: ["4000"],
-      rssEnabled: true,
-      autoSearchEnabled: true,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-
-    vi.mocked(storage.getEnabledIndexers).mockResolvedValue([torznabIndexer]);
-    vi.mocked(torznabClient.searchMultipleIndexers).mockResolvedValue({
-      results: {
-        items: [],
-        total: 0,
-      },
-      errors: ["Connection timeout", "Rate limit exceeded"],
-    });
+    vi.mocked(storage.getEnabledIndexers).mockResolvedValue([makeTorznabIndexer()]);
+    vi.mocked(torznabClient.searchMultipleIndexers).mockResolvedValue(
+      makeTorznabResponse([], ["Connection timeout", "Rate limit exceeded"])
+    );
 
     const result = await searchAllIndexers({ query: "test" });
 
@@ -321,41 +256,22 @@ describe("Search Module - searchAllIndexers", () => {
   });
 
   it("should construct comments URL when not provided by indexer", async () => {
-    const torznabIndexer: Indexer = {
-      id: "torznab-1",
-      name: "Torznab Indexer",
-      url: "http://torznab.example.com",
-      apiKey: "key1",
-      protocol: "torznab",
-      enabled: true,
-      priority: 1,
-      categories: ["4000"],
-      rssEnabled: true,
-      autoSearchEnabled: true,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-
-    vi.mocked(storage.getEnabledIndexers).mockResolvedValue([torznabIndexer]);
-    vi.mocked(torznabClient.searchMultipleIndexers).mockResolvedValue({
-      results: {
-        items: [
-          {
-            title: "Test Game",
-            link: "http://example.com/download",
-            pubDate: "2024-01-01T00:00:00Z",
-            guid: "http://example.com/details/12345",
-            indexerId: "torznab-1",
-            indexerName: "Torznab Indexer",
-            indexerUrl: "http://torznab.example.com",
-            category: "4000",
-            // No comments field provided
-          },
-        ],
-        total: 1,
-      },
-      errors: [],
-    });
+    vi.mocked(storage.getEnabledIndexers).mockResolvedValue([makeTorznabIndexer()]);
+    vi.mocked(torznabClient.searchMultipleIndexers).mockResolvedValue(
+      makeTorznabResponse([
+        {
+          title: "Test Game",
+          link: "http://example.com/download",
+          pubDate: "2024-01-01T00:00:00Z",
+          guid: "http://example.com/details/12345",
+          indexerId: "torznab-1",
+          indexerName: "Torznab Indexer",
+          indexerUrl: "http://torznab.example.com",
+          category: "4000",
+          // No comments field provided
+        },
+      ])
+    );
 
     const result = await searchAllIndexers({ query: "test" });
 
@@ -364,29 +280,9 @@ describe("Search Module - searchAllIndexers", () => {
   });
 
   it("should handle limit and offset parameters", async () => {
-    const torznabIndexer: Indexer = {
-      id: "torznab-1",
-      name: "Torznab Indexer",
-      url: "http://torznab.example.com",
-      apiKey: "key1",
-      protocol: "torznab",
-      enabled: true,
-      priority: 1,
-      categories: ["4000"],
-      rssEnabled: true,
-      autoSearchEnabled: true,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-
+    const torznabIndexer = makeTorznabIndexer();
     vi.mocked(storage.getEnabledIndexers).mockResolvedValue([torznabIndexer]);
-    vi.mocked(torznabClient.searchMultipleIndexers).mockResolvedValue({
-      results: {
-        items: [],
-        total: 0,
-      },
-      errors: [],
-    });
+    vi.mocked(torznabClient.searchMultipleIndexers).mockResolvedValue(makeTorznabResponse([]));
 
     await searchAllIndexers({ query: "test", limit: 25, offset: 10 });
 
@@ -400,29 +296,9 @@ describe("Search Module - searchAllIndexers", () => {
   });
 
   it("should use default limit of 50 when not specified", async () => {
-    const torznabIndexer: Indexer = {
-      id: "torznab-1",
-      name: "Torznab Indexer",
-      url: "http://torznab.example.com",
-      apiKey: "key1",
-      protocol: "torznab",
-      enabled: true,
-      priority: 1,
-      categories: ["4000"],
-      rssEnabled: true,
-      autoSearchEnabled: true,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-
+    const torznabIndexer = makeTorznabIndexer();
     vi.mocked(storage.getEnabledIndexers).mockResolvedValue([torznabIndexer]);
-    vi.mocked(torznabClient.searchMultipleIndexers).mockResolvedValue({
-      results: {
-        items: [],
-        total: 0,
-      },
-      errors: [],
-    });
+    vi.mocked(torznabClient.searchMultipleIndexers).mockResolvedValue(makeTorznabResponse([]));
 
     await searchAllIndexers({ query: "test" });
 
@@ -435,46 +311,132 @@ describe("Search Module - searchAllIndexers", () => {
     );
   });
   it("should extract release group from title for torznab items", async () => {
-    const torznabIndexer: Indexer = {
-      id: "torznab-1",
-      name: "Torznab Indexer",
-      url: "http://torznab.example.com",
-      apiKey: "key1",
-      protocol: "torznab",
-      enabled: true,
-      priority: 1,
-      categories: ["4000"],
-      rssEnabled: true,
-      autoSearchEnabled: true,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-
-    vi.mocked(storage.getEnabledIndexers).mockResolvedValue([torznabIndexer]);
-    vi.mocked(torznabClient.searchMultipleIndexers).mockResolvedValue({
-      results: {
-        items: [
-          {
-            title: "Game.Title-RELGROUP",
-            link: "http://example.com/download",
-            pubDate: "2024-01-01T00:00:00Z",
-            size: 1000000,
-            seeders: 10,
-            category: "4000",
-            guid: "guid-123",
-            indexerId: "torznab-1",
-            indexerName: "Torznab Indexer",
-          },
-        ],
-        total: 1,
-      },
-      errors: [],
-    });
+    vi.mocked(storage.getEnabledIndexers).mockResolvedValue([makeTorznabIndexer()]);
+    vi.mocked(torznabClient.searchMultipleIndexers).mockResolvedValue(
+      makeTorznabResponse([
+        {
+          title: "Game.Title-RELGROUP",
+          link: "http://example.com/download",
+          pubDate: "2024-01-01T00:00:00Z",
+          size: 1000000,
+          seeders: 10,
+          category: "4000",
+          guid: "guid-123",
+          indexerId: "torznab-1",
+          indexerName: "Torznab Indexer",
+        },
+      ])
+    );
 
     const result = await searchAllIndexers({ query: "test game" });
 
     expect(result.items).toHaveLength(1);
     expect(result.items[0].group).toBe("RELGROUP");
+  });
+
+  it("should map downloadVolumeFactor and uploadVolumeFactor from torznab items", async () => {
+    vi.mocked(storage.getEnabledIndexers).mockResolvedValue([makeTorznabIndexer()]);
+    vi.mocked(torznabClient.searchMultipleIndexers).mockResolvedValue(
+      makeTorznabResponse([
+        {
+          title: "Freeleech Game",
+          link: "http://example.com/download",
+          pubDate: "2024-01-01T00:00:00Z",
+          size: 1000000,
+          seeders: 10,
+          leechers: 3,
+          downloadVolumeFactor: 0,
+          uploadVolumeFactor: 2,
+          category: "4000",
+          guid: "guid-free",
+          indexerId: "torznab-1",
+          indexerName: "Torznab Indexer",
+        },
+      ])
+    );
+
+    const result = await searchAllIndexers({ query: "freeleech game" });
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].downloadVolumeFactor).toBe(0);
+    expect(result.items[0].uploadVolumeFactor).toBe(2);
+  });
+
+  it("should pass through undefined downloadVolumeFactor when not provided by indexer", async () => {
+    vi.mocked(storage.getEnabledIndexers).mockResolvedValue([makeTorznabIndexer()]);
+    vi.mocked(torznabClient.searchMultipleIndexers).mockResolvedValue(
+      makeTorznabResponse([
+        {
+          title: "Normal Game",
+          link: "http://example.com/download",
+          pubDate: "2024-01-01T00:00:00Z",
+          size: 1000000,
+          seeders: 5,
+          category: "4000",
+          guid: "guid-normal",
+          indexerId: "torznab-1",
+          indexerName: "Torznab Indexer",
+          // No downloadVolumeFactor / uploadVolumeFactor
+        },
+      ])
+    );
+
+    const result = await searchAllIndexers({ query: "normal game" });
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].downloadVolumeFactor).toBeUndefined();
+    expect(result.items[0].uploadVolumeFactor).toBeUndefined();
+  });
+
+  it("should map files from newznab items", async () => {
+    vi.mocked(storage.getEnabledIndexers).mockResolvedValue([makeNewznabIndexer()]);
+    vi.mocked(newznabClient.searchMultipleIndexers).mockResolvedValue(
+      makeNewznabResponse([
+        {
+          title: "Usenet Game Complete",
+          link: "http://usenet.example.com/nzb",
+          publishDate: "2024-01-02T00:00:00Z",
+          size: 2000000,
+          grabs: 10,
+          age: 1,
+          files: 12,
+          category: ["4000"],
+          guid: "guid-nzb",
+          indexerId: "newznab-1",
+          indexerName: "Newznab Indexer",
+        },
+      ])
+    );
+
+    const result = await searchAllIndexers({ query: "usenet game" });
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].files).toBe(12);
+  });
+
+  it("should pass through undefined files when not provided by newznab indexer", async () => {
+    vi.mocked(storage.getEnabledIndexers).mockResolvedValue([makeNewznabIndexer()]);
+    vi.mocked(newznabClient.searchMultipleIndexers).mockResolvedValue(
+      makeNewznabResponse([
+        {
+          title: "Usenet Game No Files",
+          link: "http://usenet.example.com/nzb",
+          publishDate: "2024-01-02T00:00:00Z",
+          size: 2000000,
+          grabs: 5,
+          category: ["4000"],
+          guid: "guid-nzb-nofiles",
+          indexerId: "newznab-1",
+          indexerName: "Newznab Indexer",
+          // No files field
+        },
+      ])
+    );
+
+    const result = await searchAllIndexers({ query: "usenet game" });
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].files).toBeUndefined();
   });
 });
 

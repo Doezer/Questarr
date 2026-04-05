@@ -95,42 +95,87 @@ const mockGame = {
   gameDetails: {},
 } as unknown as import("@shared/schema").Game;
 
-const mockTorrents = {
-  items: [
-    {
-      guid: "123",
-      title: "Test Torrent 1",
-      link: "http://test.com/torrent1",
-      pubDate: new Date().toISOString(),
-      size: 1024 * 1024 * 100, // 100MB
-      seeders: 10,
-      leechers: 2,
-      indexerName: "Indexer A",
-    },
-    {
+type TorrentItemOverrides = {
+  guid?: string;
+  title?: string;
+  link?: string;
+  pubDate?: string;
+  size?: number;
+  seeders?: number;
+  leechers?: number;
+  indexerName?: string;
+  group?: string;
+  downloadVolumeFactor?: number;
+  uploadVolumeFactor?: number;
+};
+
+type UsenetItemOverrides = {
+  guid?: string;
+  title?: string;
+  link?: string;
+  pubDate?: string;
+  size?: number;
+  grabs?: number;
+  age?: number;
+  indexerName?: string;
+  files?: number;
+  poster?: string;
+};
+
+const makeTorrentItem = (overrides: TorrentItemOverrides = {}) => ({
+  guid: overrides.guid ?? "torrent-1",
+  title: overrides.title ?? "Test Torrent",
+  link: overrides.link ?? "http://test.com/torrent",
+  pubDate: overrides.pubDate ?? new Date().toISOString(),
+  size: overrides.size ?? 1024 * 1024 * 100,
+  seeders: overrides.seeders ?? 10,
+  leechers: overrides.leechers ?? 2,
+  indexerName: overrides.indexerName ?? "Indexer A",
+  ...(overrides.group !== undefined && { group: overrides.group }),
+  ...(overrides.downloadVolumeFactor !== undefined && {
+    downloadVolumeFactor: overrides.downloadVolumeFactor,
+  }),
+  ...(overrides.uploadVolumeFactor !== undefined && {
+    uploadVolumeFactor: overrides.uploadVolumeFactor,
+  }),
+});
+
+const makeUsenetItem = (overrides: UsenetItemOverrides = {}) => ({
+  guid: overrides.guid ?? "usenet-1",
+  title: overrides.title ?? "Test Usenet NZB",
+  link: overrides.link ?? "http://test.com/nzb",
+  pubDate: overrides.pubDate ?? new Date().toISOString(),
+  size: overrides.size ?? 1024 * 1024 * 50,
+  grabs: overrides.grabs ?? 50,
+  age: overrides.age ?? 2,
+  indexerName: overrides.indexerName ?? "Indexer C",
+  ...(overrides.files !== undefined && { files: overrides.files }),
+  ...(overrides.poster !== undefined && { poster: overrides.poster }),
+});
+
+const makeSearchResult = (items: object[], total?: number) => ({
+  items,
+  total: total ?? items.length,
+  offset: 0,
+});
+
+const mockTorrents = makeSearchResult(
+  [
+    makeTorrentItem({ guid: "123", title: "Test Torrent 1", link: "http://test.com/torrent1" }),
+    makeTorrentItem({
       guid: "456",
       title: "Test Torrent 2",
       link: "http://test.com/torrent2",
-      pubDate: new Date(Date.now() - 86400000).toISOString(), // 1 day ago
-      size: 1024 * 1024 * 200, // 200MB
+      pubDate: new Date(Date.now() - 86400000).toISOString(),
+      size: 1024 * 1024 * 200,
       seeders: 5,
       leechers: 1,
       indexerName: "Indexer B",
-    },
-    {
-      guid: "789",
-      title: "Test Usenet NZB",
-      link: "http://test.com/nzb1",
-      pubDate: new Date().toISOString(),
-      size: 1024 * 1024 * 50, // 50MB
-      grabs: 50,
-      age: 2,
-      indexerName: "Indexer C",
-    },
+    }),
+    makeUsenetItem({ guid: "789", title: "Test Usenet NZB", link: "http://test.com/nzb1" }),
   ],
-  total: 3,
-  offset: 0,
-};
+  3
+);
 
 const mockEnabledIndexers = [
   { id: 1, name: "Indexer A", enabled: true },
@@ -405,29 +450,23 @@ describe("GameDownloadDialog", () => {
   });
 
   it("shows bundle dialog when clicking a main item that has updates available", async () => {
-    const mainItem = {
+    const mainItem = makeTorrentItem({
       guid: "main-1",
       title: "Test Game SKIDROW",
       link: "http://test.com/main",
-      pubDate: new Date().toISOString(),
-      size: 1024 * 1024 * 100,
       seeders: 50,
-      leechers: 2,
-      indexerName: "Indexer A",
-    };
-    const updateItem = {
+    });
+    const updateItem = makeTorrentItem({
       guid: "update-1",
       title: "Test Game Update",
       link: "http://test.com/update",
-      pubDate: new Date().toISOString(),
       size: 1024 * 1024 * 5,
       seeders: 20,
       leechers: 1,
-      indexerName: "Indexer A",
-    };
+    });
 
     global.fetch = createFetchMock({
-      search: { items: [mainItem, updateItem], total: 2, offset: 0 },
+      search: makeSearchResult([mainItem, updateItem]),
     });
 
     renderComponent();
@@ -447,29 +486,23 @@ describe("GameDownloadDialog", () => {
     });
   });
 
-  const skidrowItem = {
+  const skidrowItem = makeTorrentItem({
     guid: "skidrow-1",
     title: "Test Game SKIDROW",
     link: "http://test.com/skidrow",
-    pubDate: new Date().toISOString(),
-    size: 1024 * 1024 * 100,
     seeders: 50,
     leechers: 2,
-    indexerName: "Indexer A",
     group: "SKIDROW",
-  };
-  const codexItem = {
+  });
+  const codexItem = makeTorrentItem({
     guid: "codex-1",
     title: "Test Game CODEX",
     link: "http://test.com/codex",
-    pubDate: new Date().toISOString(),
-    size: 1024 * 1024 * 100,
     seeders: 80,
     leechers: 5,
-    indexerName: "Indexer A",
     group: "CODEX",
-  };
-  const groupSearchResults = { items: [skidrowItem, codexItem], total: 2, offset: 0 };
+  });
+  const groupSearchResults = makeSearchResult([skidrowItem, codexItem]);
 
   it("filters displayed results to preferred groups when filterByPreferredGroups is enabled", async () => {
     global.fetch = createFetchMock({
@@ -506,29 +539,24 @@ describe("GameDownloadDialog", () => {
     );
   });
 
-  const pcItem = {
+  const pcItem = makeTorrentItem({
     guid: "pc-1",
     title: "Test Game PC v1.0-SKIDROW",
     link: "http://test.com/pc",
-    pubDate: new Date().toISOString(),
-    size: 1024 * 1024 * 100,
     seeders: 50,
     leechers: 2,
-    indexerName: "Indexer A",
     group: "SKIDROW",
-  };
-  const macItem = {
+  });
+  const macItem = makeTorrentItem({
     guid: "mac-1",
     title: "Test Game Mac Edition-CODEX",
     link: "http://test.com/mac",
-    pubDate: new Date().toISOString(),
     size: 1024 * 1024 * 80,
     seeders: 30,
     leechers: 1,
-    indexerName: "Indexer A",
     group: "CODEX",
-  };
-  const platformSearchResults = { items: [pcItem, macItem], total: 2, offset: 0 };
+  });
+  const platformSearchResults = makeSearchResult([pcItem, macItem]);
 
   it("shows platform filter section when results contain platform metadata", async () => {
     global.fetch = createFetchMock({ search: platformSearchResults });
@@ -619,7 +647,7 @@ describe("GameDownloadDialog", () => {
     fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
 
     // Now simulate search returning only PC results (no Mac platform)
-    const pcOnlyResults = { items: [pcItem], total: 1, offset: 0 };
+    const pcOnlyResults = makeSearchResult([pcItem]);
     global.fetch = createFetchMock({ search: pcOnlyResults });
 
     // Change search query to trigger re-fetch
@@ -630,6 +658,127 @@ describe("GameDownloadDialog", () => {
     await waitFor(
       () => {
         expect(screen.queryAllByText("Mac").length).toBe(0);
+      },
+      { timeout: 3000 }
+    );
+  });
+
+  it("displays Freeleech badge for torrents with downloadVolumeFactor of 0", async () => {
+    global.fetch = createFetchMock({
+      search: makeSearchResult([
+        makeTorrentItem({
+          guid: "fl-1",
+          title: "Freeleech Game",
+          link: "http://test.com/freeleech",
+          seeders: 20,
+          leechers: 3,
+          downloadVolumeFactor: 0,
+          uploadVolumeFactor: 1,
+        }),
+      ]),
+    });
+
+    renderComponent();
+
+    await waitFor(
+      () => {
+        expect(screen.getByText("Freeleech")).toBeInTheDocument();
+      },
+      { timeout: 3000 }
+    );
+  });
+
+  it("does not display Freeleech badge when downloadVolumeFactor is absent", async () => {
+    global.fetch = createFetchMock({
+      search: makeSearchResult([
+        makeTorrentItem({
+          guid: "no-fl-1",
+          title: "Normal Torrent Game",
+          link: "http://test.com/normal",
+        }),
+      ]),
+    });
+
+    renderComponent();
+
+    await waitFor(
+      () => {
+        expect(screen.getAllByText("Normal Torrent Game").length).toBeGreaterThan(0);
+      },
+      { timeout: 3000 }
+    );
+
+    expect(screen.queryByText("Freeleech")).toBeNull();
+  });
+
+  it("displays leechers count for torrent results", async () => {
+    global.fetch = createFetchMock({
+      search: makeSearchResult([
+        makeTorrentItem({
+          guid: "leecher-1",
+          title: "Torrent With Leechers",
+          link: "http://test.com/leechers",
+          seeders: 15,
+          leechers: 7,
+        }),
+      ]),
+    });
+
+    renderComponent();
+
+    await waitFor(
+      () => {
+        expect(screen.getByText("7L")).toBeInTheDocument();
+      },
+      { timeout: 3000 }
+    );
+  });
+
+  it("displays file count for usenet results", async () => {
+    global.fetch = createFetchMock({
+      search: makeSearchResult([
+        makeUsenetItem({
+          guid: "nzb-files-1",
+          title: "Usenet Game With Files",
+          link: "http://test.com/nzb",
+          grabs: 30,
+          age: 1,
+          files: 12,
+          indexerName: "Indexer C",
+        }),
+      ]),
+    });
+
+    renderComponent();
+
+    await waitFor(
+      () => {
+        expect(screen.getByText("12 files")).toBeInTheDocument();
+      },
+      { timeout: 3000 }
+    );
+  });
+
+  it("displays poster name for usenet results", async () => {
+    global.fetch = createFetchMock({
+      search: makeSearchResult([
+        makeUsenetItem({
+          guid: "nzb-poster-1",
+          title: "Usenet Game With Poster",
+          link: "http://test.com/nzb2",
+          grabs: 10,
+          age: 2,
+          poster: "uploader@example.com",
+          indexerName: "Indexer C",
+        }),
+      ]),
+    });
+
+    renderComponent();
+
+    await waitFor(
+      () => {
+        expect(screen.getByText("uploader@example.com")).toBeInTheDocument();
       },
       { timeout: 3000 }
     );

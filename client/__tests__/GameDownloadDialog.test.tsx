@@ -490,4 +490,133 @@ describe("GameDownloadDialog", () => {
       { timeout: 3000 }
     );
   });
+
+  const pcItem = {
+    guid: "pc-1",
+    title: "Test Game PC v1.0-SKIDROW",
+    link: "http://test.com/pc",
+    pubDate: new Date().toISOString(),
+    size: 1024 * 1024 * 100,
+    seeders: 50,
+    leechers: 2,
+    indexerName: "Indexer A",
+    group: "SKIDROW",
+  };
+  const macItem = {
+    guid: "mac-1",
+    title: "Test Game Mac Edition-CODEX",
+    link: "http://test.com/mac",
+    pubDate: new Date().toISOString(),
+    size: 1024 * 1024 * 80,
+    seeders: 30,
+    leechers: 1,
+    indexerName: "Indexer A",
+    group: "CODEX",
+  };
+  const platformSearchResults = { items: [pcItem, macItem], total: 2, offset: 0 };
+
+  it("shows platform filter section when results contain platform metadata", async () => {
+    global.fetch = createFetchMock({ search: platformSearchResults });
+
+    renderComponent();
+
+    await waitFor(
+      () => {
+        expect(screen.getAllByText("Test Game PC v1.0-SKIDROW").length).toBeGreaterThan(0);
+      },
+      { timeout: 3000 }
+    );
+
+    // Open filters
+    fireEvent.click(screen.getByText("Show Filters"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Platform")).toBeInTheDocument();
+    });
+  });
+
+  it("filters results by selected platform", async () => {
+    global.fetch = createFetchMock({ search: platformSearchResults });
+
+    renderComponent();
+
+    await waitFor(
+      () => {
+        expect(screen.getAllByText("Test Game PC v1.0-SKIDROW").length).toBeGreaterThan(0);
+        expect(screen.getAllByText("Test Game Mac Edition-CODEX").length).toBeGreaterThan(0);
+      },
+      { timeout: 3000 }
+    );
+
+    // Open filters
+    fireEvent.click(screen.getByText("Show Filters"));
+
+    // Open the platform MultiSelect
+    const platformTrigger = screen.getByText("All platforms").closest("button")!;
+    fireEvent.click(platformTrigger);
+
+    // Select "PC" via the role="option" element in the dropdown
+    await waitFor(() => {
+      const pcOption = screen.getByRole("option", { name: /\bPC\b/ });
+      expect(pcOption).toBeInTheDocument();
+    });
+
+    const pcOption = screen.getByRole("option", { name: /\bPC\b/ });
+    fireEvent.click(pcOption);
+
+    // After selecting PC, Mac item should be filtered out
+    await waitFor(() => {
+      expect(screen.queryByText("Test Game Mac Edition-CODEX")).toBeNull();
+      expect(screen.getAllByText("Test Game PC v1.0-SKIDROW").length).toBeGreaterThan(0);
+    });
+  });
+
+  it("clears stale platform selections when search results no longer include that platform", async () => {
+    // Start with PC + Mac results
+    global.fetch = createFetchMock({ search: platformSearchResults });
+
+    renderComponent();
+
+    await waitFor(
+      () => {
+        expect(screen.getAllByText("Test Game PC v1.0-SKIDROW").length).toBeGreaterThan(0);
+      },
+      { timeout: 3000 }
+    );
+
+    // Open filters and select Mac
+    fireEvent.click(screen.getByText("Show Filters"));
+    const platformTrigger = screen.getByText("All platforms").closest("button")!;
+    fireEvent.click(platformTrigger);
+
+    await waitFor(() =>
+      expect(screen.getByRole("option", { name: /\bMac\b/ })).toBeInTheDocument()
+    );
+    fireEvent.click(screen.getByRole("option", { name: /\bMac\b/ }));
+
+    // Mac chip should now appear in the MultiSelect trigger (as a removable badge)
+    await waitFor(() => {
+      // The trigger now shows at least 2 "Mac" elements: badge chip + platform badge in row
+      expect(screen.getAllByText("Mac").length).toBeGreaterThan(0);
+    });
+
+    // Close the popover before changing search
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+
+    // Now simulate search returning only PC results (no Mac platform)
+    const pcOnlyResults = { items: [pcItem], total: 1, offset: 0 };
+    global.fetch = createFetchMock({ search: pcOnlyResults });
+
+    // Change search query to trigger re-fetch
+    const searchInput = screen.getByDisplayValue("Test Game");
+    fireEvent.change(searchInput, { target: { value: "Test Game PC" } });
+
+    // Both the Mac item row and the Mac chip in the MultiSelect trigger should be gone
+    await waitFor(
+      () => {
+        expect(screen.queryAllByText("Mac").length).toBe(0);
+      },
+      { timeout: 3000 }
+    );
+  });
 });

@@ -20,3 +20,8 @@ class MockResizeObserver {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 global.ResizeObserver = MockResizeObserver as any;
+
+// jsdom does not implement scrollIntoView; stub it to prevent errors in cmdk/Radix popups
+if (typeof window !== "undefined") {
+  window.HTMLElement.prototype.scrollIntoView = vi.fn();
+}

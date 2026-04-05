@@ -138,6 +138,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     new Set(["main", "update", "dlc", "extra"] as DownloadCategory[])
   );
   const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
+  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
 
   const setDefaults = useCallback(() => {
     setSearchQuery("");
@@ -152,6 +153,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     setShowFilters(false);
     setVisibleCategories(new Set(["main", "update", "dlc", "extra"] as DownloadCategory[]));
     setSelectedGroups([]);
+    setSelectedPlatforms([]);
   }, []);
 
   const { data: userSettings } = useQuery<UserSettings>({
@@ -240,6 +242,35 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     return Array.from(groups).sort();
   }, [searchResults?.items]);
 
+  // Pre-calculate release metadata once per item to avoid repeated regex operations
+  const itemsMetadata = useMemo(() => {
+    if (!searchResults?.items) return new Map<string, ReturnType<typeof parseReleaseMetadata>>();
+    return new Map(
+      searchResults.items.map((item) => [item.title, parseReleaseMetadata(item.title)])
+    );
+  }, [searchResults?.items]);
+
+  const availablePlatforms = useMemo(() => {
+    const platforms = new Set(
+      Array.from(itemsMetadata.values())
+        .map((meta) => meta.platform)
+        .filter((p): p is string => Boolean(p))
+    );
+    return Array.from(platforms)
+      .sort((a, b) => a.localeCompare(b))
+      .map((p) => ({ label: p, value: p }));
+  }, [itemsMetadata]);
+
+  // Remove stale platform selections when available platforms change
+  useEffect(() => {
+    const validValues = new Set(availablePlatforms.map((p) => p.value));
+    setSelectedPlatforms((prev) => {
+      if (prev.length === 0) return prev;
+      const filtered = prev.filter((p) => validValues.has(p));
+      return filtered.length !== prev.length ? filtered : prev;
+    });
+  }, [availablePlatforms]);
+
   // Apply filters and sorting
   const filteredCategorizedDownloads = useMemo(() => {
     const filtered: Record<DownloadCategory, DownloadItem[]> = {
@@ -259,6 +290,11 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         .filter((t) => (t.seeders ?? 0) >= minSeeders)
         .filter((t) => selectedIndexer === "all" || t.indexerName === selectedIndexer)
         .filter((t) => selectedGroups.length === 0 || (t.group && selectedGroups.includes(t.group)))
+        .filter((t) => {
+          if (selectedPlatforms.length === 0) return true;
+          const platform = itemsMetadata.get(t.title)?.platform;
+          return platform ? selectedPlatforms.includes(platform) : false;
+        })
         .sort((a, b) => {
           let comparison = 0;
           if (sortBy === "seeders") {
@@ -276,12 +312,14 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     return filtered;
   }, [
     categorizedDownloads,
+    itemsMetadata,
     minSeeders,
     selectedIndexer,
     sortBy,
     sortOrder,
     visibleCategories,
     selectedGroups,
+    selectedPlatforms,
   ]);
 
   // Sorted items for display (by date)
@@ -656,7 +694,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
           </div>
 
           {showFilters && (
-            <div className="grid grid-cols-3 gap-4 p-4 border rounded-md bg-muted/50">
+            <div className="grid grid-cols-4 gap-4 p-4 border rounded-md bg-muted/50">
               <div className="space-y-2">
                 <Label htmlFor="indexer" className="text-sm">
                   Indexer
@@ -695,6 +733,20 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
               </div>
 
               <div className="space-y-2">
+                <Label className="text-sm">Platform</Label>
+                <MultiSelect
+                  options={availablePlatforms}
+                  selected={selectedPlatforms}
+                  onChange={setSelectedPlatforms}
+                  placeholder={
+                    availablePlatforms.length === 0 ? "No platforms detected" : "All platforms"
+                  }
+                  className="w-full"
+                  disabled={availablePlatforms.length === 0}
+                />
+              </div>
+
+              <div className="space-y-2">
                 <Label htmlFor="minSeeders" className="text-sm">
                   Min Seeders
                 </Label>
@@ -708,7 +760,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                 />
               </div>
 
-              <div className="col-span-3 space-y-2">
+              <div className="col-span-4 space-y-2">
                 <Label className="text-sm">Categories</Label>
                 <div className="flex flex-wrap gap-2">
                   {(["main", "update", "dlc", "extra"] as const).map((cat) => (
@@ -816,7 +868,9 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
 
                         {downloadsInCategory.map((download: DownloadItem) => {
                           const isUsenet = isUsenetItem(download);
-                          const metadata = parseReleaseMetadata(download.title);
+                          const metadata =
+                            itemsMetadata.get(download.title) ??
+                            parseReleaseMetadata(download.title);
 
                           // Health calculation
                           let healthColor = "text-muted-foreground";

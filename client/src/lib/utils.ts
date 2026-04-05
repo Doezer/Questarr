@@ -67,6 +67,7 @@ export function mapGameToInsertGame(game: Game): InsertGame {
     screenshots: game.screenshots,
     status: game.status,
     hidden: game.hidden || false,
+    earlyAccess: game.earlyAccess || false,
   };
 }
 

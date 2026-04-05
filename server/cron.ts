@@ -1,5 +1,5 @@
 import { storage } from "./storage.js";
-import { igdbClient } from "./igdb.js";
+import { igdbClient, IGDB_EARLY_ACCESS_STATUS } from "./igdb.js";
 import { igdbLogger } from "./logger.js";
 import { notifyUser } from "./socket.js";
 import { DownloaderManager } from "./downloaders.js";
@@ -254,16 +254,24 @@ export async function checkGameUpdates() {
   for (const game of gamesToCheck) {
     const igdbGame = igdbGameMap.get(game.igdbId!);
 
-    if (!igdbGame || !igdbGame.first_release_date) continue;
-
-    const currentReleaseDate = new Date(igdbGame.first_release_date * 1000);
-    const currentReleaseDateStr = currentReleaseDate.toISOString().split("T")[0];
+    if (!igdbGame) continue;
 
     // Helper to queue update
     const queueUpdate = (updates: Partial<Game>) => {
       const existing = updatesMap.get(game.id) || {};
       updatesMap.set(game.id, { ...existing, ...updates });
     };
+
+    // Update early access flag regardless of whether a release date is known
+    const newEarlyAccess = igdbGame.status === IGDB_EARLY_ACCESS_STATUS;
+    if (game.earlyAccess !== newEarlyAccess) {
+      queueUpdate({ earlyAccess: newEarlyAccess });
+    }
+
+    if (!igdbGame.first_release_date) continue;
+
+    const currentReleaseDate = new Date(igdbGame.first_release_date * 1000);
+    const currentReleaseDateStr = currentReleaseDate.toISOString().split("T")[0];
 
     // Initialize originalReleaseDate if not set
     if (!game.originalReleaseDate) {
@@ -275,11 +283,6 @@ export async function checkGameUpdates() {
           releaseDate: currentReleaseDateStr,
           originalReleaseDate: currentReleaseDateStr,
         });
-        // We need to update local object if we were to continue using it,
-        // but the original code did 'continue'.
-        // However, 'continue' skips the rest of the loop logic (status check).
-        // If we just initialized, do we want to skip status check?
-        // Original code: yes.
         continue;
       }
     }
@@ -311,13 +314,8 @@ export async function checkGameUpdates() {
       });
     }
 
-    // If things changed, update DB
-    const newEarlyAccess = igdbGame.status === 4;
-    if (
-      game.releaseDate !== currentReleaseDateStr ||
-      game.releaseStatus !== newReleaseStatus ||
-      game.earlyAccess !== newEarlyAccess
-    ) {
+    // If release date or status changed, update DB
+    if (game.releaseDate !== currentReleaseDateStr || game.releaseStatus !== newReleaseStatus) {
       igdbLogger.info(
         {
           game: game.title,
@@ -333,7 +331,6 @@ export async function checkGameUpdates() {
       queueUpdate({
         releaseDate: currentReleaseDateStr,
         releaseStatus: newReleaseStatus,
-        earlyAccess: newEarlyAccess,
       });
 
       // Send notification if game is delayed

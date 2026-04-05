@@ -133,7 +133,7 @@ const GameCard = ({
     <Card
       ref={cardRef}
       onClick={handleDetailsClick}
-      className={`group hover-elevate transition-all duration-200 max-w-[225px] mx-auto w-full cursor-pointer ${game.hidden ? "opacity-60 grayscale" : ""}`}
+      className={`group hover-elevate transition-all duration-200 max-w-[225px] mx-auto w-full cursor-pointer flex flex-col h-full ${game.hidden ? "opacity-60 grayscale" : ""}`}
       data-testid={`card-game-${game.id}`}
     >
       <div className="relative">
@@ -236,7 +236,7 @@ const GameCard = ({
           )}
         </div>
       </div>
-      <CardContent className="p-3" onClick={(e) => e.stopPropagation()}>
+      <CardContent className="p-3 flex flex-col flex-1" onClick={(e) => e.stopPropagation()}>
         <h3
           className="font-semibold text-sm mb-2 line-clamp-2"
           data-testid={`text-title-${game.id}`}
@@ -269,7 +269,7 @@ const GameCard = ({
             </TooltipContent>
           </Tooltip>
         </div>
-        <div className="flex flex-wrap gap-1 mb-3">
+        <div className="flex flex-wrap gap-1 mb-3 flex-1 content-start">
           {game.genres?.slice(0, 2).map((genre) => (
             <span
               key={genre}
@@ -280,38 +280,44 @@ const GameCard = ({
             </span>
           )) || <span className="text-xs text-muted-foreground">No genres</span>}
         </div>
-        {isDiscovery ? (
-          <Button
-            variant="default"
-            size="sm"
-            className="w-full"
-            onClick={() => onTrackGame?.(game)}
-            disabled={addGameMutation.isPending}
-            data-testid={`button-track-${game.id}`}
-            aria-label={`Track ${game.title}`}
-          >
-            {addGameMutation.isPending ? (
-              <>
-                <Loader2 className="h-3 w-3 mr-2 animate-spin" />
-                Tracking...
-              </>
-            ) : (
-              "Track Game"
-            )}
-          </Button>
-        ) : (
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full"
-            onClick={handleStatusClick}
-            data-testid={`button-status-${game.id}`}
-            aria-label={`Mark ${game.title} as ${nextStatusLabel}`}
-          >
-            Mark as{" "}
-            {game.status === "wanted" ? "Owned" : game.status === "owned" ? "Completed" : "Wanted"}
-          </Button>
-        )}
+        <div className="mt-auto">
+          {isDiscovery ? (
+            <Button
+              variant="default"
+              size="sm"
+              className="w-full"
+              onClick={() => onTrackGame?.(game)}
+              disabled={addGameMutation.isPending}
+              data-testid={`button-track-${game.id}`}
+              aria-label={`Track ${game.title}`}
+            >
+              {addGameMutation.isPending ? (
+                <>
+                  <Loader2 className="h-3 w-3 mr-2 animate-spin" />
+                  Tracking...
+                </>
+              ) : (
+                "Track Game"
+              )}
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full"
+              onClick={handleStatusClick}
+              data-testid={`button-status-${game.id}`}
+              aria-label={`Mark ${game.title} as ${nextStatusLabel}`}
+            >
+              Mark as{" "}
+              {game.status === "wanted"
+                ? "Owned"
+                : game.status === "owned"
+                  ? "Completed"
+                  : "Wanted"}
+            </Button>
+          )}
+        </div>
       </CardContent>
 
       {/* ⚡ Bolt: Conditionally render modals only when they are active.

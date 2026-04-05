@@ -93,12 +93,16 @@ export default function Dashboard() {
   });
 
   const uniqueGenres = useMemo(
-    () => Array.from(new Set(games.flatMap((g) => g.genres ?? []))).sort(),
+    () =>
+      Array.from(new Set(games.flatMap((g) => g.genres ?? []))).sort((a, b) => a.localeCompare(b)),
     [games]
   );
 
   const uniquePlatforms = useMemo(
-    () => Array.from(new Set(games.flatMap((g) => g.platforms ?? []))).sort(),
+    () =>
+      Array.from(new Set(games.flatMap((g) => g.platforms ?? []))).sort((a, b) =>
+        a.localeCompare(b)
+      ),
     [games]
   );
 

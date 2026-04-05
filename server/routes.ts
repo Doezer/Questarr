@@ -1255,6 +1255,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const igdbGames = await igdbClient.getPopularGames(limitNum);
       const formattedGames = igdbGames.map((game) => igdbClient.formatGameData(game));
 
+      res.set("Cache-Control", "public, max-age=3600, stale-while-revalidate=600");
       res.json(formattedGames);
     } catch (error) {
       routesLogger.error({ error }, "error fetching popular games");
@@ -1271,6 +1272,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const igdbGames = await igdbClient.getRecentReleases(limitNum);
       const formattedGames = igdbGames.map((game) => igdbClient.formatGameData(game));
 
+      res.set("Cache-Control", "public, max-age=3600, stale-while-revalidate=600");
       res.json(formattedGames);
     } catch (error) {
       routesLogger.error({ error }, "error fetching recent releases");
@@ -1287,6 +1289,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const igdbGames = await igdbClient.getUpcomingReleases(limitNum);
       const formattedGames = igdbGames.map((game) => igdbClient.formatGameData(game));
 
+      res.set("Cache-Control", "public, max-age=3600, stale-while-revalidate=600");
       res.json(formattedGames);
     } catch (error) {
       routesLogger.error({ error }, "error fetching upcoming releases");
@@ -1310,6 +1313,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const igdbGames = await igdbClient.getGamesByGenre(genre, limit, offset);
       const formattedGames = igdbGames.map((game) => igdbClient.formatGameData(game));
 
+      res.set("Cache-Control", "public, max-age=3600, stale-while-revalidate=600");
       res.json(formattedGames);
     } catch (error) {
       console.error("Error fetching games by genre:", error);
@@ -1333,6 +1337,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const igdbGames = await igdbClient.getGamesByPlatform(platform, limit, offset);
       const formattedGames = igdbGames.map((game) => igdbClient.formatGameData(game));
 
+      res.set("Cache-Control", "public, max-age=3600, stale-while-revalidate=600");
       res.json(formattedGames);
     } catch (error) {
       console.error("Error fetching games by platform:", error);
@@ -1344,6 +1349,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/igdb/genres", igdbRateLimiter, async (req, res) => {
     try {
       const genres = await igdbClient.getGenres();
+      res.set("Cache-Control", "public, max-age=86400, stale-while-revalidate=3600");
       res.json(genres);
     } catch (error) {
       console.error("Error fetching genres:", error);
@@ -1355,6 +1361,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/igdb/platforms", igdbRateLimiter, async (req, res) => {
     try {
       const platforms = await igdbClient.getPlatforms();
+      res.set("Cache-Control", "public, max-age=86400, stale-while-revalidate=3600");
       res.json(platforms);
     } catch (error) {
       console.error("Error fetching platforms:", error);

@@ -91,6 +91,7 @@ const HIGH_RATING_THRESHOLD = 70;
 const HIGH_RATING_COUNT = 5;
 const MAX_LIMIT = 100;
 const MAX_OFFSET = 10000;
+const HOUR_IN_SECONDS = 3600;
 
 const FALLBACK_PLATFORMS: Array<{ id: number; name: string }> = [
   { id: 6, name: "PC (Microsoft Windows)" },
@@ -613,34 +614,35 @@ class IGDBClient {
   async getRecentReleases(limit: number = 20): Promise<IGDBGame[]> {
     if (!(await this.ensureConfigured())) return [];
 
-    const thirtyDaysAgo = Math.floor((Date.now() - 30 * 24 * 60 * 60 * 1000) / 1000);
-    const now = Math.floor(Date.now() / 1000);
+    // Round timestamps to the nearest hour so the query string (and thus the cache key)
+    // stays identical for all calls within the same hour, enabling effective caching.
+    const nowHour = Math.floor(Date.now() / (HOUR_IN_SECONDS * 1000)) * HOUR_IN_SECONDS;
+    const thirtyDaysAgo = nowHour - 30 * 24 * HOUR_IN_SECONDS;
 
     const igdbQuery = `
       fields ${IGDB_GAME_FIELDS};
-      where first_release_date >= ${thirtyDaysAgo} & first_release_date <= ${now};
+      where first_release_date >= ${thirtyDaysAgo} & first_release_date <= ${nowHour};
       sort first_release_date desc;
       limit ${limit};
     `;
 
-    // ⚡ Bolt: Cache recent releases for 1 hour.
     return this.makeRequest<IGDBGame[]>("games", igdbQuery, 60 * 60 * 1000);
   }
 
   async getUpcomingReleases(limit: number = 20): Promise<IGDBGame[]> {
     if (!(await this.ensureConfigured())) return [];
 
-    const now = Math.floor(Date.now() / 1000);
-    const sixMonthsFromNow = Math.floor((Date.now() + 6 * 30 * 24 * 60 * 60 * 1000) / 1000);
+    // Round timestamps to the nearest hour for stable cache keys.
+    const nowHour = Math.floor(Date.now() / (HOUR_IN_SECONDS * 1000)) * HOUR_IN_SECONDS;
+    const sixMonthsFromNow = nowHour + 6 * 30 * 24 * HOUR_IN_SECONDS;
 
     const igdbQuery = `
       fields ${IGDB_GAME_FIELDS};
-      where first_release_date >= ${now} & first_release_date <= ${sixMonthsFromNow};
+      where first_release_date >= ${nowHour} & first_release_date <= ${sixMonthsFromNow};
       sort first_release_date asc;
       limit ${limit};
     `;
 
-    // ⚡ Bolt: Cache upcoming releases for 1 hour.
     return this.makeRequest<IGDBGame[]>("games", igdbQuery, 60 * 60 * 1000);
   }
 

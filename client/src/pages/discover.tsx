@@ -63,10 +63,10 @@ const DEFAULT_PLATFORMS: Platform[] = [
 // Cache duration for relatively static data (1 hour)
 const STATIC_DATA_STALE_TIME = 1000 * 60 * 60;
 
-// Client-side stale time for discovery sections — matches the server-side IGDB cache TTL.
-// Popular/Recent/Upcoming change slowly; genre/platform searches are cached per-combination.
-const DISCOVERY_STALE_TIME = 1000 * 60 * 30; // 30 minutes
-const GENRE_PLATFORM_STALE_TIME = 1000 * 60 * 15; // 15 minutes
+// Client-side stale time for discovery carousel sections.
+// Aligned to the server-side Cache-Control max-age (3600s = 1 hour) so refetches
+// don't happen before the server cache can serve fresh data.
+const DISCOVERY_STALE_TIME = STATIC_DATA_STALE_TIME;
 
 // 🎨 Palette: Custom SelectTrigger that shows a loading spinner.
 const SelectTriggerWithSpinner = ({
@@ -604,7 +604,7 @@ export default function DiscoverPage() {
                   hideWanted,
                 ]}
                 queryFn={fetchGamesByGenre}
-                staleTime={GENRE_PLATFORM_STALE_TIME}
+                staleTime={DISCOVERY_STALE_TIME}
                 onStatusChange={handleStatusChange}
                 onTrackGame={handleTrackGame}
                 onToggleHidden={handleToggleHidden}
@@ -643,7 +643,7 @@ export default function DiscoverPage() {
                   hideWanted,
                 ]}
                 queryFn={fetchGamesByPlatform}
-                staleTime={GENRE_PLATFORM_STALE_TIME}
+                staleTime={DISCOVERY_STALE_TIME}
                 onStatusChange={handleStatusChange}
                 onTrackGame={handleTrackGame}
                 onToggleHidden={handleToggleHidden}

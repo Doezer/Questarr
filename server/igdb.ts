@@ -442,7 +442,7 @@ class IGDBClient {
         const responseData = await this.makeRequest<Array<{ name: string; result: IGDBGame[] }>>(
           "multiquery",
           multiqueryBody,
-          60 * 60 * 1000
+          HOUR_IN_SECONDS * 1000
         ); // Cache for 1 hour
 
         logger.debug(`[DEBUG] Multiquery response length: ${responseData.length}`);
@@ -577,7 +577,7 @@ class IGDBClient {
         limit 100;
       `;
         // Cache batch requests for 1 hour, skip queue for manual batching
-        return this.makeRequest<IGDBGame[]>("games", igdbQuery, 60 * 60 * 1000, true);
+        return this.makeRequest<IGDBGame[]>("games", igdbQuery, HOUR_IN_SECONDS * 1000, true);
       });
 
       const results = await Promise.all(promises);
@@ -597,6 +597,11 @@ class IGDBClient {
     return allResults;
   }
 
+  /** Returns the current Unix timestamp (seconds) floored to the nearest hour. */
+  private currentHourTimestamp(): number {
+    return Math.floor(Date.now() / (HOUR_IN_SECONDS * 1000)) * HOUR_IN_SECONDS;
+  }
+
   async getPopularGames(limit: number = 20): Promise<IGDBGame[]> {
     if (!(await this.ensureConfigured())) return [];
 
@@ -608,7 +613,7 @@ class IGDBClient {
     `;
 
     // ⚡ Bolt: Cache popular games for 1 hour to reduce load during high traffic.
-    return this.makeRequest<IGDBGame[]>("games", igdbQuery, 60 * 60 * 1000);
+    return this.makeRequest<IGDBGame[]>("games", igdbQuery, HOUR_IN_SECONDS * 1000);
   }
 
   async getRecentReleases(limit: number = 20): Promise<IGDBGame[]> {
@@ -616,7 +621,7 @@ class IGDBClient {
 
     // Round timestamps to the nearest hour so the query string (and thus the cache key)
     // stays identical for all calls within the same hour, enabling effective caching.
-    const nowHour = Math.floor(Date.now() / (HOUR_IN_SECONDS * 1000)) * HOUR_IN_SECONDS;
+    const nowHour = this.currentHourTimestamp();
     const thirtyDaysAgo = nowHour - 30 * 24 * HOUR_IN_SECONDS;
 
     const igdbQuery = `
@@ -626,14 +631,14 @@ class IGDBClient {
       limit ${limit};
     `;
 
-    return this.makeRequest<IGDBGame[]>("games", igdbQuery, 60 * 60 * 1000);
+    return this.makeRequest<IGDBGame[]>("games", igdbQuery, HOUR_IN_SECONDS * 1000);
   }
 
   async getUpcomingReleases(limit: number = 20): Promise<IGDBGame[]> {
     if (!(await this.ensureConfigured())) return [];
 
     // Round timestamps to the nearest hour for stable cache keys.
-    const nowHour = Math.floor(Date.now() / (HOUR_IN_SECONDS * 1000)) * HOUR_IN_SECONDS;
+    const nowHour = this.currentHourTimestamp();
     const sixMonthsFromNow = nowHour + 6 * 30 * 24 * HOUR_IN_SECONDS;
 
     const igdbQuery = `
@@ -643,7 +648,7 @@ class IGDBClient {
       limit ${limit};
     `;
 
-    return this.makeRequest<IGDBGame[]>("games", igdbQuery, 60 * 60 * 1000);
+    return this.makeRequest<IGDBGame[]>("games", igdbQuery, HOUR_IN_SECONDS * 1000);
   }
 
   async getGamesByGenres(
@@ -680,7 +685,7 @@ class IGDBClient {
 
     try {
       // ⚡ Bolt: Cache genre-based searches for 1 hour.
-      return await this.makeRequest<IGDBGame[]>("games", igdbQuery, 60 * 60 * 1000);
+      return await this.makeRequest<IGDBGame[]>("games", igdbQuery, HOUR_IN_SECONDS * 1000);
     } catch {
       igdbLogger.warn({ genres }, `genre search failed`);
       return [];
@@ -734,7 +739,7 @@ class IGDBClient {
 
     try {
       // ⚡ Bolt: Cache platform-based searches for 1 hour.
-      return await this.makeRequest<IGDBGame[]>("games", igdbQuery, 60 * 60 * 1000);
+      return await this.makeRequest<IGDBGame[]>("games", igdbQuery, HOUR_IN_SECONDS * 1000);
     } catch (error) {
       igdbLogger.warn({ platforms, error }, `platform search failed`);
       return [];
@@ -842,7 +847,7 @@ class IGDBClient {
 
     try {
       // ⚡ Bolt: Cache genre search results for 1 hour.
-      return await this.makeRequest<IGDBGame[]>("games", igdbQuery, 60 * 60 * 1000);
+      return await this.makeRequest<IGDBGame[]>("games", igdbQuery, HOUR_IN_SECONDS * 1000);
     } catch (error) {
       console.warn(`IGDB genre search failed for genre: ${genre}`, error);
       return [];
@@ -874,7 +879,7 @@ class IGDBClient {
 
     try {
       // ⚡ Bolt: Cache platform search results for 1 hour.
-      return await this.makeRequest<IGDBGame[]>("games", igdbQuery, 60 * 60 * 1000);
+      return await this.makeRequest<IGDBGame[]>("games", igdbQuery, HOUR_IN_SECONDS * 1000);
     } catch (error) {
       console.warn(`IGDB platform search failed for platform: ${platform}`, error);
       return [];

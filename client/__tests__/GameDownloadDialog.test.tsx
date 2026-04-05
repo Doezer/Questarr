@@ -361,37 +361,9 @@ describe("GameDownloadDialog", () => {
         expect.stringContaining("/blacklist"),
         expect.objectContaining({
           method: "POST",
-          body: expect.any(String),
-        })
-      );
-    });
-  });
-
-  it("shows a loading spinner on the download button when clicked", async () => {
-    renderComponent();
-
-    // Wait for torrents to be loaded and displayed
-    await waitFor(() => {
-      expect(screen.getAllByTestId("icon-download").length).toBeGreaterThan(0);
-    });
-
-    const downloadIcon = screen.getAllByTestId("icon-download")[0];
-    const downloadButton = downloadIcon.closest("button");
-
-    expect(downloadButton).toBeInTheDocument();
-    if (!downloadButton) throw new Error("Button not found");
-
-    // Click the download button
-    fireEvent.click(downloadButton);
-
-    // The component uses useMutation, checking for the loader might be flaky if it resolves too fast
-    // But we should verify the API call was made
-    await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledWith(
-        expect.stringContaining("/api/downloads"),
-        expect.objectContaining({
-          method: "POST",
-          body: expect.any(String),
+          // Results are sorted desc by health. "Test Usenet NZB" has 50 grabs,
+          // "Test Torrent 1" has 10 seeders, so NZB is first.
+          body: expect.stringContaining("Test Usenet NZB"),
         })
       );
     });

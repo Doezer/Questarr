@@ -63,6 +63,11 @@ const DEFAULT_PLATFORMS: Platform[] = [
 // Cache duration for relatively static data (1 hour)
 const STATIC_DATA_STALE_TIME = 1000 * 60 * 60;
 
+// Client-side stale time for discovery carousel sections.
+// Aligned to the server-side Cache-Control max-age (3600s = 1 hour) so refetches
+// don't happen before the server cache can serve fresh data.
+const DISCOVERY_STALE_TIME = STATIC_DATA_STALE_TIME;
+
 // 🎨 Palette: Custom SelectTrigger that shows a loading spinner.
 const SelectTriggerWithSpinner = ({
   loading,
@@ -537,6 +542,7 @@ export default function DiscoverPage() {
               title="Popular Games"
               queryKey={["/api/igdb/popular", hiddenIgdbIds.size, hideOwned, hideWanted]}
               queryFn={fetchPopularGames}
+              staleTime={DISCOVERY_STALE_TIME}
               onStatusChange={handleStatusChange}
               onTrackGame={handleTrackGame}
               onToggleHidden={handleToggleHidden}
@@ -548,6 +554,7 @@ export default function DiscoverPage() {
               title="Recent Releases"
               queryKey={["/api/igdb/recent", hiddenIgdbIds.size, hideOwned, hideWanted]}
               queryFn={fetchRecentGames}
+              staleTime={DISCOVERY_STALE_TIME}
               onStatusChange={handleStatusChange}
               onTrackGame={handleTrackGame}
               onToggleHidden={handleToggleHidden}
@@ -559,6 +566,7 @@ export default function DiscoverPage() {
               title="Coming Soon"
               queryKey={["/api/igdb/upcoming", hiddenIgdbIds.size, hideOwned, hideWanted]}
               queryFn={fetchUpcomingGames}
+              staleTime={DISCOVERY_STALE_TIME}
               onStatusChange={handleStatusChange}
               onTrackGame={handleTrackGame}
               onToggleHidden={handleToggleHidden}
@@ -596,6 +604,7 @@ export default function DiscoverPage() {
                   hideWanted,
                 ]}
                 queryFn={fetchGamesByGenre}
+                staleTime={DISCOVERY_STALE_TIME}
                 onStatusChange={handleStatusChange}
                 onTrackGame={handleTrackGame}
                 onToggleHidden={handleToggleHidden}
@@ -634,6 +643,7 @@ export default function DiscoverPage() {
                   hideWanted,
                 ]}
                 queryFn={fetchGamesByPlatform}
+                staleTime={DISCOVERY_STALE_TIME}
                 onStatusChange={handleStatusChange}
                 onTrackGame={handleTrackGame}
                 onToggleHidden={handleToggleHidden}

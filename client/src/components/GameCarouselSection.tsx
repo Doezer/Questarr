@@ -20,6 +20,7 @@ interface GameCarouselSectionProps {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   queryKey: any[];
   queryFn: () => Promise<Game[]>;
+  staleTime?: number;
   onStatusChange?: (gameId: string, newStatus: GameStatus) => void;
   onViewDetails?: (gameId: string) => void;
   onTrackGame?: (game: Game) => void;
@@ -34,6 +35,7 @@ const GameCarouselSection = ({
   title,
   queryKey,
   queryFn,
+  staleTime,
   onStatusChange,
   onViewDetails,
   onTrackGame,
@@ -54,6 +56,7 @@ const GameCarouselSection = ({
   } = useQuery<Game[]>({
     queryKey,
     queryFn,
+    staleTime,
   });
 
   // Update scroll states when API changes or when carousel slides

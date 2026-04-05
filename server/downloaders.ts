@@ -133,6 +133,93 @@ interface DownloaderClient {
   getFreeSpace(): Promise<number>;
 }
 
+/**
+ * Fetches a URL while manually following redirects to detect magnet link redirects.
+ * Standard fetch follows HTTP redirects automatically but silently fails when the chain
+ * includes a protocol change (HTTP → magnet:), losing the magnet URI.
+ * This helper intercepts each redirect and returns the magnet link if detected.
+ */
+async function fetchWithMagnetDetection(
+  url: string,
+  maxRedirects = 5
+): Promise<{ response?: Response; magnetLink?: string }> {
+  let currentUrl = url;
+  let redirects = 0;
+
+  const fetchUrl = async (targetUrl: string) => {
+    if (!(await isSafeUrl(targetUrl))) {
+      throw new Error(`Unsafe URL blocked: ${targetUrl}`);
+    }
+    return safeFetch(targetUrl, {
+      method: "GET",
+      headers: {
+        "User-Agent": DOWNLOAD_CLIENT_USER_AGENT,
+        Accept: "application/x-bittorrent, */*",
+      },
+      redirect: "manual",
+      signal: AbortSignal.timeout(30000),
+    });
+  };
+
+  while (redirects < maxRedirects) {
+    let response = await fetchUrl(currentUrl);
+
+    // Simple retry for 400 Bad Request with '+' in URL (some indexers encode spaces as '+')
+    if (!response.ok && response.status === 400 && currentUrl.includes("+")) {
+      try {
+        const urlObj = new URL(currentUrl);
+        const originalSearch = urlObj.search;
+        const fixedSearch = originalSearch.replace(/\+/g, "%20");
+        if (fixedSearch !== originalSearch) {
+          urlObj.search = fixedSearch;
+          const fixedUrl = urlObj.toString();
+          downloadersLogger.warn(
+            { original: currentUrl, fixed: fixedUrl },
+            "Retrying download with %20 instead of + in query string"
+          );
+          response = await fetchUrl(fixedUrl);
+        }
+      } catch (parseError) {
+        downloadersLogger.warn(
+          { url: currentUrl, error: parseError },
+          "Failed to parse URL when attempting '+' to '%20' retry"
+        );
+      }
+    }
+
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location");
+      if (!location) {
+        return { response };
+      }
+
+      downloadersLogger.debug(
+        { currentUrl, location, status: response.status },
+        "Download URL returned redirect"
+      );
+
+      if (location.startsWith("magnet:")) {
+        downloadersLogger.info("Download URL redirected to a magnet link");
+        return { magnetLink: location };
+      }
+
+      try {
+        currentUrl = new URL(location, currentUrl).toString();
+      } catch (error) {
+        downloadersLogger.warn({ location, error }, "Failed to parse redirect URL");
+        return { response };
+      }
+
+      redirects++;
+      continue;
+    }
+
+    return { response };
+  }
+
+  throw new Error(`Too many redirects (max ${maxRedirects})`);
+}
+
 export class TransmissionClient implements DownloaderClient {
   private downloader: Downloader;
   private sessionId: string | null = null;
@@ -215,52 +302,44 @@ export class TransmissionClient implements DownloaderClient {
           return { success: false, message: `Unsafe URL blocked: ${request.url}` };
         }
 
-        // Download the file locally first
-        // This is necessary because Transmission might not have access to the indexer (e.g. private trackers)
+        // Download the torrent file locally; uses manual redirect-following to detect
+        // magnet link redirects that standard fetch cannot handle (HTTP → magnet: protocol change).
         try {
           downloadersLogger.debug(
             { url: request.url },
             "Downloading file locally for Transmission"
           );
 
-          const fetchTorrent = async (url: string) => {
-            // URL already checked above, but check again if it changes (e.g. redirects handled by fetch)
-            // standard fetch follows redirects, so we can't easily check intermediate URLs here unless we assume fetchUrl behavior
-            // But here we just use fetch.
-            // We already checked request.url.
-            return safeFetch(url, {
-              headers: {
-                "User-Agent": DOWNLOAD_CLIENT_USER_AGENT,
-                Accept: "application/x-bittorrent, */*",
-              },
-            });
-          };
+          let fetchResult = await fetchWithMagnetDetection(request.url);
 
-          let response = await fetchTorrent(request.url);
-
-          if (!response.ok) {
-            // Retry logic similar to rTorrent client
-            if (response.status === 400 && request.url.includes("+")) {
-              const fixedUrl = request.url.replace(/\+/g, "%20");
-              response = await fetchTorrent(fixedUrl);
-
-              if (!response.ok && request.url.includes("&file=")) {
-                const urlNoFile = request.url.split("&file=")[0];
-                response = await fetchTorrent(urlNoFile);
-              }
-            }
+          // Some indexers reject the request when a &file= param is present — retry without it
+          if (
+            !fetchResult.magnetLink &&
+            !fetchResult.response?.ok &&
+            request.url.includes("&file=")
+          ) {
+            const urlNoFile = request.url.split("&file=")[0];
+            downloadersLogger.warn(
+              { original: request.url, fixed: urlNoFile },
+              "Retrying download without &file= parameter"
+            );
+            fetchResult = await fetchWithMagnetDetection(urlNoFile);
           }
 
-          if (response.ok) {
-            const arrayBuffer = await response.arrayBuffer();
+          if (fetchResult.magnetLink) {
+            // Indexer redirected to a magnet URI — pass it directly to Transmission
+            downloadersLogger.info(
+              { magnetLink: fetchResult.magnetLink },
+              "Detected magnet redirect, passing to Transmission"
+            );
+            args.filename = fetchResult.magnetLink;
+          } else if (fetchResult.response?.ok) {
+            const arrayBuffer = await fetchResult.response.arrayBuffer();
             const buffer = Buffer.from(arrayBuffer);
 
-            // Try to parse hash for immediate return
             try {
               const parsed = await parseTorrent(buffer);
               if (parsed && parsed.infoHash) {
-                // We can't set ID on the return object directly here as Transmission returns it
-                // but we can verify it matches later if needed
                 downloadersLogger.debug({ hash: parsed.infoHash }, "Parsed download hash locally");
               }
             } catch {
@@ -851,145 +930,25 @@ export class RTorrentClient implements DownloaderClient {
   ): Promise<{ success: boolean; id?: string; message: string }> {
     try {
       if (!request.url) {
-        return {
-          success: false,
-          message: "Download URL is required",
-        };
+        return { success: false, message: "Download URL is required" };
       }
 
       if (!(await isSafeUrl(request.url))) {
         return { success: false, message: `Unsafe URL blocked: ${request.url}` };
       }
 
-      // Helper to fetch with standard headers
-      const fetchTorrent = async (url: string) => {
-        downloadersLogger.debug({ url }, "Downloading file locally");
-        return safeFetch(url, {
-          headers: {
-            "User-Agent": DOWNLOAD_CLIENT_USER_AGENT,
-            Accept: "application/x-bittorrent, */*",
-          },
-        });
-      };
-
-      let response = await fetchTorrent(request.url);
-
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => "No body");
-        downloadersLogger.error(
-          {
-            status: response.status,
-            statusText: response.statusText,
-            url: request.url,
-            headers: Object.fromEntries(response.headers.entries()),
-            errorBody: errorText,
-          },
-          "Failed to download file from indexer"
-        );
-
-        // Retry with %20 replacement for + if 400 Bad Request
-        if (response.status === 400 && request.url.includes("+")) {
-          const fixedUrl = request.url.replace(/\+/g, "%20");
-          downloadersLogger.warn(
-            { original: request.url, fixed: fixedUrl },
-            "Retrying download with %20 instead of +"
-          );
-          response = await fetchTorrent(fixedUrl);
-
-          if (!response.ok) {
-            const retryErrorText = await response.text().catch(() => "No body");
-            downloadersLogger.error(
-              {
-                status: response.status,
-                url: fixedUrl,
-                errorBody: retryErrorText,
-              },
-              "Retry with %20 failed"
-            );
-
-            // Retry 2: Remove 'file' parameter entirely (it's often just for naming)
-            if (request.url.includes("&file=")) {
-              const urlNoFile = request.url.split("&file=")[0];
-              downloadersLogger.warn(
-                { original: request.url, fixed: urlNoFile },
-                "Retrying download without file parameter"
-              );
-              response = await fetchTorrent(urlNoFile);
-
-              if (!response.ok) {
-                return {
-                  success: false,
-                  message: `Failed to download file (retry without file param failed): ${response.statusText}`,
-                };
-              }
-            } else {
-              return {
-                success: false,
-                message: `Failed to download file (retry failed): ${response.statusText}`,
-              };
-            }
-          }
-        } else {
-          // Also try removing file param if we didn't try %20 (e.g. no + in URL but still 400)
-          if (response.status === 400 && request.url.includes("&file=")) {
-            const urlNoFile = request.url.split("&file=")[0];
-            downloadersLogger.warn(
-              { original: request.url, fixed: urlNoFile },
-              "Retrying download without file parameter"
-            );
-            response = await fetchTorrent(urlNoFile);
-
-            if (!response.ok) {
-              return {
-                success: false,
-                message: `Failed to download file (retry without file param failed): ${response.statusText}`,
-              };
-            }
-          } else {
-            return {
-              success: false,
-              message: `Failed to download file from indexer: ${response.statusText}`,
-            };
-          }
-        }
+      const isMagnet = request.url.startsWith("magnet:");
+      const category = request.category || this.downloader.category;
+      let downloadPath = request.downloadPath || this.downloader.downloadPath;
+      if (downloadPath && category) {
+        downloadPath = `${downloadPath}/${category}`;
       }
 
-      const arrayBuffer = await response.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
-
-      // 2. Parse it to get the hash
-      let infoHash = "unknown";
-      try {
-        // parse-torrent can handle buffer input
-        const parsed = await parseTorrent(buffer);
-        if (parsed && parsed.infoHash) {
-          infoHash = parsed.infoHash.toLowerCase();
-        }
-      } catch (_e) {
-        downloadersLogger.warn({ error: _e }, "Failed to parse file for hash");
-      }
-
-      // 3. Send raw file to rTorrent
-      // Determine which method to use based on addStopped setting
-      const addMethod = this.downloader.addStopped ? "load.raw" : "load.raw_start";
-
-      downloadersLogger.debug(
-        { method: addMethod, size: buffer.length, hash: infoHash },
-        "Uploading raw file to rTorrent"
-      );
-
-      // rTorrent expects the raw data as the first argument (after empty target)
-      // load.raw_start("", buffer)
-      const result = await this.makeXMLRPCRequest(addMethod, ["", buffer]);
-
-      // Result is usually 0 on success
-      if (result === 0) {
-        // Set category/label if specified
-        const category = request.category || this.downloader.category;
-        if (category && infoHash !== "unknown") {
+      // Apply category and download-directory settings after a torrent is registered
+      const applySettings = async (infoHash: string) => {
+        if (infoHash === "unknown") return;
+        if (category) {
           try {
-            // Give rTorrent a moment to register the download before setting properties
-            // though with XML-RPC it should be sequential
             await this.makeXMLRPCRequest("d.custom1.set", [infoHash, category]);
           } catch (error) {
             downloadersLogger.warn(
@@ -998,15 +957,8 @@ export class RTorrentClient implements DownloaderClient {
             );
           }
         }
-
-        // Set download directory if specified
-        let downloadPath = request.downloadPath || this.downloader.downloadPath;
-        if (downloadPath && infoHash !== "unknown") {
+        if (downloadPath) {
           try {
-            // Optionally append category as a subdirectory (like Transmission)
-            if (category) {
-              downloadPath = `${downloadPath}/${category}`;
-            }
             await this.makeXMLRPCRequest("d.directory.set", [infoHash, downloadPath]);
             downloadersLogger.debug(
               { hash: infoHash, path: downloadPath },
@@ -1019,21 +971,105 @@ export class RTorrentClient implements DownloaderClient {
             );
           }
         }
+      };
 
+      // Add a magnet link directly via load.start / load.normal
+      const addMagnetLink = async (
+        magnetUri: string
+      ): Promise<{ success: boolean; id?: string; message: string }> => {
+        const infoHash = extractHashFromUrl(magnetUri) ?? "unknown";
+        const addMethod = this.downloader.addStopped ? "load.normal" : "load.start";
+        downloadersLogger.debug(
+          { method: addMethod, hash: infoHash },
+          "Adding magnet link to rTorrent"
+        );
+        const result = await this.makeXMLRPCRequest(addMethod, ["", magnetUri]);
+        if (result === 0) {
+          await applySettings(infoHash);
+          return {
+            success: true,
+            id: infoHash,
+            message: `Download added successfully${this.downloader.addStopped ? " (stopped)" : ""}`,
+          };
+        }
+        return {
+          success: false,
+          message: `Failed to add download (rTorrent returned code: ${result})`,
+        };
+      };
+
+      if (isMagnet) {
+        return await addMagnetLink(request.url);
+      }
+
+      // Non-magnet: fetch the torrent file with redirect-to-magnet detection
+      downloadersLogger.debug({ url: request.url }, "Downloading file locally for rTorrent");
+
+      let fetchResult = await fetchWithMagnetDetection(request.url);
+
+      // Some indexers reject the request when a &file= param is present — retry without it
+      if (!fetchResult.magnetLink && !fetchResult.response?.ok && request.url.includes("&file=")) {
+        const urlNoFile = request.url.split("&file=")[0];
+        downloadersLogger.warn(
+          { original: request.url, fixed: urlNoFile },
+          "Retrying download without &file= parameter"
+        );
+        fetchResult = await fetchWithMagnetDetection(urlNoFile);
+      }
+
+      if (fetchResult.magnetLink) {
+        downloadersLogger.info(
+          { magnetLink: fetchResult.magnetLink },
+          "Detected magnet redirect, adding to rTorrent"
+        );
+        return await addMagnetLink(fetchResult.magnetLink);
+      }
+
+      if (!fetchResult.response?.ok) {
+        const status = fetchResult.response?.status ?? "unknown";
+        const statusText = fetchResult.response?.statusText ?? "No response";
+        downloadersLogger.error(
+          { status, url: request.url },
+          "Failed to download file from indexer"
+        );
+        return { success: false, message: `Failed to download file from indexer: ${statusText}` };
+      }
+
+      const arrayBuffer = await fetchResult.response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+
+      // Parse the torrent to extract the info hash for subsequent property-setting calls
+      let infoHash = "unknown";
+      try {
+        const parsed = await parseTorrent(buffer);
+        if (parsed && parsed.infoHash) {
+          infoHash = parsed.infoHash.toLowerCase();
+        }
+      } catch (_e) {
+        downloadersLogger.warn({ error: _e }, "Failed to parse file for hash");
+      }
+
+      const addMethod = this.downloader.addStopped ? "load.raw" : "load.raw_start";
+      downloadersLogger.debug(
+        { method: addMethod, size: buffer.length, hash: infoHash },
+        "Uploading raw file to rTorrent"
+      );
+
+      const result = await this.makeXMLRPCRequest(addMethod, ["", buffer]);
+
+      if (result === 0) {
+        await applySettings(infoHash);
         return {
           success: true,
           id: infoHash,
           message: `Download added successfully${this.downloader.addStopped ? " (stopped)" : ""}`,
         };
-      } else {
-        // Check if result is 0 (success) even if type check failed or something else
-        // Some rTorrent versions might return empty string or other success indicators
-        // But standard XML-RPC returns 0 for success on load commands
-        return {
-          success: false,
-          message: `Failed to add download (rTorrent returned code: ${result})`,
-        };
       }
+
+      return {
+        success: false,
+        message: `Failed to add download (rTorrent returned code: ${result})`,
+      };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       downloadersLogger.error({ error, url: request.url }, "Failed to add download");
@@ -2106,7 +2142,7 @@ export class QBittorrentClient implements DownloaderClient {
       let parsedInfoHash: string | null = null;
 
       try {
-        const { response: torrentResponse, magnetLink } = await this.fetchWithMagnetDetection(
+        const { response: torrentResponse, magnetLink } = await fetchWithMagnetDetection(
           request.url
         );
 
@@ -2966,100 +3002,6 @@ export class QBittorrentClient implements DownloaderClient {
     }
 
     return response;
-  }
-
-  /**
-   * Helper to fetch a URL while manually handling redirects to detect magnet links.
-   * Standard fetch follows HTTP redirects but fails on protocol changes (HTTP -> magnet).
-   */
-  private async fetchWithMagnetDetection(
-    url: string,
-    maxRedirects = 5
-  ): Promise<{ response?: Response; magnetLink?: string }> {
-    let currentUrl = url;
-    let redirects = 0;
-
-    /**
-     * fetch function to use.
-     * Use a consistent User-Agent as some indexers block unknown or bot-like User-Agents
-     */
-    const fetchUrl = async (targetUrl: string) => {
-      if (!(await isSafeUrl(targetUrl))) {
-        throw new Error(`Unsafe URL blocked: ${targetUrl}`);
-      }
-      return safeFetch(targetUrl, {
-        method: "GET",
-        headers: {
-          "User-Agent": DOWNLOAD_CLIENT_USER_AGENT,
-          Accept: "application/x-bittorrent, */*",
-        },
-        redirect: "manual",
-        signal: AbortSignal.timeout(30000),
-      });
-    };
-
-    while (redirects < maxRedirects) {
-      let response = await fetchUrl(currentUrl);
-
-      // Simple retry logic for 400 Bad Request with '+' in URL
-      // Some trackers/indexers don't handle '+' correctly in query params
-      if (!response.ok && response.status === 400 && currentUrl.includes("+")) {
-        try {
-          const urlObj = new URL(currentUrl);
-          const originalSearch = urlObj.search;
-          const fixedSearch = originalSearch.replace(/\+/g, "%20");
-          if (fixedSearch !== originalSearch) {
-            urlObj.search = fixedSearch;
-            const fixedUrl = urlObj.toString();
-            downloadersLogger.warn(
-              { original: currentUrl, fixed: fixedUrl },
-              "Retrying download with %20 instead of + in query string"
-            );
-            response = await fetchUrl(fixedUrl);
-          }
-        } catch (parseError) {
-          downloadersLogger.warn(
-            { url: currentUrl, error: parseError },
-            "Failed to parse URL when attempting '+' to '%20' retry"
-          );
-        }
-      }
-
-      if (response.status >= 300 && response.status < 400) {
-        const location = response.headers.get("location");
-        if (!location) {
-          // Redirect without location, pass through so caller sees the 3xx response or handles it
-          return { response };
-        }
-
-        downloadersLogger.debug(
-          { currentUrl, location, status: response.status },
-          "Download URL returned redirect"
-        );
-
-        if (location.startsWith("magnet:")) {
-          downloadersLogger.info("Download URL redirected to a magnet link");
-          return { magnetLink: location };
-        }
-
-        // Handle relative URLs
-        try {
-          // If we have a base URL, use it
-          currentUrl = new URL(location, currentUrl).toString();
-        } catch (error) {
-          // Fallback if URL construction fails
-          downloadersLogger.warn({ location, error }, "Failed to parse redirect URL");
-          return { response };
-        }
-
-        redirects++;
-        continue;
-      }
-
-      return { response };
-    }
-
-    throw new Error(`Too many redirects (max ${maxRedirects})`);
   }
 }
 

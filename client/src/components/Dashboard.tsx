@@ -44,6 +44,12 @@ export default function Dashboard() {
   const [genreFilter, setGenreFilter] = useState<string>("all");
   const [platformFilter, setPlatformFilter] = useState<string>("all");
 
+  const clearAllFilters = useCallback(() => {
+    setStatusFilter("all");
+    setGenreFilter("all");
+    setPlatformFilter("all");
+  }, []);
+
   const { viewMode, setViewMode, listDensity, setListDensity } = useViewControls("dashboard");
   const [gridColumns, setGridColumns] = useLocalStorageState("dashboardGridColumns", 5);
   const [showHiddenGames, setShowHiddenGames] = useLocalStorageState("showHiddenGames", false);
@@ -221,7 +227,9 @@ export default function Dashboard() {
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent align="end" className="w-72 space-y-4 p-4">
-                  <div className={`space-y-3 ${viewMode === "list" ? "opacity-50" : ""}`}>
+                  <div
+                    className={`space-y-3 ${viewMode === "list" ? "opacity-50 pointer-events-none" : ""}`}
+                  >
                     <div className="flex items-center justify-between">
                       <Label
                         className="flex items-center gap-2 text-sm font-medium"
@@ -288,11 +296,7 @@ export default function Dashboard() {
               variant="ghost"
               size="sm"
               className="h-6 text-xs gap-1 text-muted-foreground hover:text-foreground px-2"
-              onClick={() => {
-                setStatusFilter("all");
-                setGenreFilter("all");
-                setPlatformFilter("all");
-              }}
+              onClick={clearAllFilters}
             >
               <X className="h-3 w-3" />
               Clear all

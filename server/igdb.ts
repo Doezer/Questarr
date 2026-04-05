@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { config } from "./config.js";
 import { igdbLogger } from "./logger.js";
 import { storage } from "./storage.js";
@@ -56,6 +57,11 @@ interface IGDBAuthResponse {
   expires_in: number;
   token_type: string;
 }
+
+const igdbWebsiteSchema = z.object({
+  category: z.number(),
+  url: z.string().url(),
+});
 
 /**
  * Sanitizes user input for use in IGDB API queries.
@@ -1001,7 +1007,10 @@ class IGDBClient {
       screenshots:
         igdbGame.screenshots?.map((s) => `https:${s.url.replace("t_thumb", "t_screenshot_big")}`) ||
         [],
-      igdbWebsites: igdbGame.websites || [],
+      igdbWebsites: igdbWebsiteSchema
+        .array()
+        .catch([])
+        .parse(igdbGame.websites ?? []),
       aggregatedRating: igdbGame.aggregated_rating
         ? Math.round(igdbGame.aggregated_rating) / 10
         : undefined,

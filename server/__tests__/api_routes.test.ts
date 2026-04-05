@@ -1934,6 +1934,7 @@ describe("API Routes - Extended Coverage", () => {
   // ─── GET /api/games/:id/downloads ───
   describe("GET /api/games/:id/downloads", () => {
     const gameId = "123e4567-e89b-12d3-a456-426614174000";
+    const mockGame = { id: gameId, userId: "user-1", title: "Test Game" };
 
     it("should return downloads for a game", async () => {
       const mockDownloads = [
@@ -1951,6 +1952,7 @@ describe("API Routes - Extended Coverage", () => {
           completedAt: null,
         },
       ];
+      vi.mocked(storage.getGame).mockResolvedValue(mockGame as any);
       vi.mocked(storage.getDownloadsByGameId).mockResolvedValue(mockDownloads as any);
 
       const response = await request(app).get(`/api/games/${gameId}/downloads`);
@@ -1962,6 +1964,7 @@ describe("API Routes - Extended Coverage", () => {
     });
 
     it("should return empty array when game has no downloads", async () => {
+      vi.mocked(storage.getGame).mockResolvedValue(mockGame as any);
       vi.mocked(storage.getDownloadsByGameId).mockResolvedValue([]);
 
       const response = await request(app).get(`/api/games/${gameId}/downloads`);
@@ -1976,6 +1979,7 @@ describe("API Routes - Extended Coverage", () => {
     });
 
     it("should return 500 when storage throws", async () => {
+      vi.mocked(storage.getGame).mockResolvedValue(mockGame as any);
       vi.mocked(storage.getDownloadsByGameId).mockRejectedValue(new Error("DB error"));
 
       const response = await request(app).get(`/api/games/${gameId}/downloads`);

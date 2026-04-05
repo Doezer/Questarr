@@ -1035,10 +1035,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   screenshots: updatedData.screenshots as string[],
                   releaseDate: updatedData.releaseDate as string,
                   earlyAccess: updatedData.earlyAccess as boolean,
-                  igdbWebsites: updatedData.igdbWebsites as Array<{
-                    url: string;
-                    category: number;
-                  }>,
+                  igdbWebsites: z
+                    .array(z.object({ url: z.string(), category: z.number() }))
+                    .catch([])
+                    .parse(updatedData.igdbWebsites),
                   aggregatedRating: updatedData.aggregatedRating as number | undefined,
                 },
               });

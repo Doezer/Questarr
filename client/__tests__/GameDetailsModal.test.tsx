@@ -55,6 +55,7 @@ vi.mock("lucide-react", () => ({
   ),
   Users: (props: Record<string, unknown>) => <div data-testid="icon-users" {...props} />,
   Building2: (props: Record<string, unknown>) => <div data-testid="icon-building2" {...props} />,
+  Search: (props: Record<string, unknown>) => <div data-testid="icon-search" {...props} />,
 }));
 
 vi.mock("react-icons/fa", () => ({
@@ -82,6 +83,9 @@ vi.mock("react-icons/si", () => ({
   ),
   SiItchdotio: (props: Record<string, unknown>) => (
     <div data-testid="icon-si-itchdotio" {...props} />
+  ),
+  SiNexusmods: (props: Record<string, unknown>) => (
+    <div data-testid="icon-si-nexusmods" {...props} />
   ),
 }));
 

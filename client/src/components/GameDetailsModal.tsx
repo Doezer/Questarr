@@ -52,7 +52,7 @@ import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { type Game, type GameDownload } from "@shared/schema";
 import StatusBadge from "./StatusBadge";
 import { apiRequest } from "@/lib/queryClient";
-import { safeUrl, formatBytes } from "@/lib/utils";
+import { safeUrl, formatBytes, isDiscoveryId } from "@/lib/utils";
 
 const GameDownloadDialog = lazy(() => import("./GameDownloadDialog"));
 
@@ -214,7 +214,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
       const res = await apiRequest("GET", `/api/games/${game!.id}/downloads`);
       return res.json();
     },
-    enabled: open && !!game?.id,
+    enabled: open && !!game?.id && !isDiscoveryId(game.id),
   });
 
   const removeGameMutation = useMutation({
@@ -551,7 +551,11 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
             </TabsContent>
 
             {/* ── Media tab ── */}
-            <TabsContent value="media" className="flex-1 min-h-0">
+            <TabsContent
+              value="media"
+              forceMount
+              className="flex-1 min-h-0 data-[state=inactive]:hidden"
+            >
               <ScrollArea className="h-full">
                 <div className="pr-4 pb-2">
                   {game.screenshots && game.screenshots.length > 0 ? (

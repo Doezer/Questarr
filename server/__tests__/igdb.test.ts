@@ -451,6 +451,5 @@ describe("IGDBClient - formatGameData metadata fields", () => {
     const results = await igdbClient.searchGames("Test Game", 1);
 
     expect(results[0].websites).toBeUndefined();
->>>>>>> f56f694 (test: add coverage for new metadata fields, downloads endpoint, and hooks)
   });
 });

@@ -1,18 +1,29 @@
 import React, { useState, useCallback, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
-import SearchBar from "./SearchBar";
+import PageToolbar from "./PageToolbar";
 import GameGrid from "./GameGrid";
-import { Star, X, Bookmark, CheckCircle2, Library } from "lucide-react";
+import {
+  Bookmark,
+  CheckCircle2,
+  EyeOff,
+  Filter,
+  LayoutGrid,
+  Library,
+  Settings2,
+  X,
+} from "lucide-react";
 import { type Game } from "@shared/schema";
 import { type GameStatus } from "./StatusBadge";
 import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { useToast } from "@/hooks/use-toast";
 import { useDebounce } from "@/hooks/use-debounce";
 import { calculateLibraryStats } from "@/lib/stats";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -20,34 +31,32 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import DisplaySettingsModal from "./DisplaySettingsModal";
+import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
+import { useViewControls } from "@/hooks/use-view-controls";
 import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 
 export default function Dashboard() {
   const [searchQuery, setSearchQuery] = useState("");
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
   const [showFilters, setShowFilters] = useState(false);
-  const [showDisplaySettings, setShowDisplaySettings] = useState(false);
   const [statusFilter, setStatusFilter] = useState<GameStatus | "all">("all");
   const [genreFilter, setGenreFilter] = useState<string>("all");
   const [platformFilter, setPlatformFilter] = useState<string>("all");
 
-  // View Settings
+  const clearAllFilters = useCallback(() => {
+    setStatusFilter("all");
+    setGenreFilter("all");
+    setPlatformFilter("all");
+  }, []);
+
+  const { viewMode, setViewMode, listDensity, setListDensity } = useViewControls("dashboard");
   const [gridColumns, setGridColumns] = useLocalStorageState("dashboardGridColumns", 5);
   const [showHiddenGames, setShowHiddenGames] = useLocalStorageState("showHiddenGames", false);
-  const [viewMode, setViewMode] = useLocalStorageState(
-    "dashboardViewMode",
-    "grid" as "grid" | "list"
-  );
-  const [listDensity, setListDensity] = useLocalStorageState(
-    "dashboardListDensity",
-    "comfortable" as "comfortable" | "compact" | "ultra-compact"
-  );
 
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  // Query user's collection
   const {
     data: games = [],
     isLoading,
@@ -56,19 +65,13 @@ export default function Dashboard() {
     queryKey: ["/api/games", debouncedSearchQuery, showHiddenGames],
     queryFn: async () => {
       const params = new URLSearchParams();
-      if (debouncedSearchQuery.trim()) {
-        params.set("search", debouncedSearchQuery.trim());
-      }
-      if (showHiddenGames) {
-        params.set("includeHidden", "true");
-      }
-
+      if (debouncedSearchQuery.trim()) params.set("search", debouncedSearchQuery.trim());
+      if (showHiddenGames) params.set("includeHidden", "true");
       const response = await apiRequest("GET", `/api/games?${params}`);
       return response.json();
     },
   });
 
-  // Status update mutation (for existing games in collection)
   const statusMutation = useMutation({
     mutationFn: async ({ gameId, status }: { gameId: string; status: GameStatus }) => {
       const response = await apiRequest("PATCH", `/api/games/${gameId}/status`, { status });
@@ -89,76 +92,45 @@ export default function Dashboard() {
     errorMessage: "Failed to update game visibility",
   });
 
-  // Calculate unique genres and platforms from user's game collection
-  const uniqueGenres = useMemo(() => {
-    return Array.from(new Set(games.flatMap((g) => g.genres ?? []))).sort();
-  }, [games]);
+  const uniqueGenres = useMemo(
+    () =>
+      Array.from(new Set(games.flatMap((g) => g.genres ?? []))).sort((a, b) => a.localeCompare(b)),
+    [games]
+  );
 
-  const uniquePlatforms = useMemo(() => {
-    return Array.from(new Set(games.flatMap((g) => g.platforms ?? []))).sort();
-  }, [games]);
+  const uniquePlatforms = useMemo(
+    () =>
+      Array.from(new Set(games.flatMap((g) => g.platforms ?? []))).sort((a, b) =>
+        a.localeCompare(b)
+      ),
+    [games]
+  );
 
-  // Filter games based on active filters
   const filteredGames = useMemo(() => {
     return games.filter((game) => {
-      // Status filter
-      if (statusFilter !== "all" && game.status !== statusFilter) {
-        return false;
-      }
-      // Genre filter
-      if (genreFilter !== "all" && !game.genres?.includes(genreFilter)) {
-        return false;
-      }
-      // Platform filter
-      if (platformFilter !== "all" && !game.platforms?.includes(platformFilter)) {
-        return false;
-      }
+      if (statusFilter !== "all" && game.status !== statusFilter) return false;
+      if (genreFilter !== "all" && !game.genres?.includes(genreFilter)) return false;
+      if (platformFilter !== "all" && !game.platforms?.includes(platformFilter)) return false;
       return true;
     });
   }, [games, statusFilter, genreFilter, platformFilter]);
 
-  // Active filters for display
   const activeFilters = useMemo(() => {
-    const filters: string[] = [];
-    if (statusFilter !== "all") filters.push(`Status: ${statusFilter}`);
-    if (genreFilter !== "all") filters.push(`Genre: ${genreFilter}`);
-    if (platformFilter !== "all") filters.push(`Platform: ${platformFilter}`);
+    const filters: { label: string; onRemove: () => void }[] = [];
+    if (statusFilter !== "all")
+      filters.push({ label: `Status: ${statusFilter}`, onRemove: () => setStatusFilter("all") });
+    if (genreFilter !== "all")
+      filters.push({ label: `Genre: ${genreFilter}`, onRemove: () => setGenreFilter("all") });
+    if (platformFilter !== "all")
+      filters.push({
+        label: `Platform: ${platformFilter}`,
+        onRemove: () => setPlatformFilter("all"),
+      });
     return filters;
   }, [statusFilter, genreFilter, platformFilter]);
 
   const libStats = useMemo(() => calculateLibraryStats(games), [games]);
 
-  // ⚡ Bolt: Memoize event handlers with `useCallback` to prevent unnecessary
-  // re-renders in child components like `SearchBar` that depend on stable
-  // function references.
-  const handleSearch = useCallback((query: string) => {
-    setSearchQuery(query);
-  }, []);
-
-  const handleFilterToggle = useCallback(() => {
-    setShowFilters((prev) => !prev);
-  }, []);
-
-  const handleRemoveFilter = useCallback((filter: string) => {
-    // Parse filter string (format: "Type: Value")
-    const [type] = filter.split(": ");
-    if (type === "Status") setStatusFilter("all");
-    else if (type === "Genre") setGenreFilter("all");
-    else if (type === "Platform") setPlatformFilter("all");
-  }, []);
-
-  const clearAllFilters = useCallback(() => {
-    setStatusFilter("all");
-    setGenreFilter("all");
-    setPlatformFilter("all");
-  }, []);
-
-  // ⚡ Bolt: Memoize `handleStatusChange` with `useCallback`.
-  // This function is passed down through `GameGrid` to `GameCard` components.
-  // Since `GameCard` is wrapped in `React.memo`, passing a stable function
-  // reference is crucial to prevent every card from re-rendering whenever
-  // the `Dashboard` component re-renders. Without `useCallback`, a new
-  // function would be created on each render, defeating the purpose of memoization.
   const handleStatusChange = useCallback(
     (gameId: string, newStatus: GameStatus) => {
       statusMutation.mutate({ gameId, status: newStatus });
@@ -175,7 +147,7 @@ export default function Dashboard() {
 
   return (
     <div className="h-full overflow-auto p-6" data-testid="layout-dashboard">
-      <div className="space-y-8">
+      <div className="space-y-3">
         {/* Page header */}
         <div>
           <h1 className="text-2xl font-bold tracking-tight">My Library</h1>
@@ -223,125 +195,193 @@ export default function Dashboard() {
           )}
         </div>
 
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-base font-semibold">
-              Library
-              {activeFilters.length > 0 && (
-                <span className="ml-2 text-sm font-normal text-muted-foreground">
-                  — {filteredGames.length} of {games.length} shown
-                </span>
-              )}
-            </h2>
-          </div>
-          <SearchBar
-            onSearch={handleSearch}
-            onFilterToggle={handleFilterToggle}
-            onLayoutSettingsToggle={() => setShowDisplaySettings(true)}
-            activeFilters={activeFilters}
-            onRemoveFilter={handleRemoveFilter}
-            placeholder="Search your library..."
-          />
-
-          {/* Filter Panel */}
-          {showFilters && (
-            <Card>
-              <CardContent className="p-4 space-y-4">
-                <div className="flex items-center justify-between">
-                  <Label className="text-sm font-semibold">Filters</Label>
-                  {activeFilters.length > 0 && (
-                    <Button variant="ghost" size="sm" onClick={clearAllFilters} className="gap-2">
-                      <X className="w-4 h-4" />
-                      Clear All
-                    </Button>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {/* Status Filter */}
-                  <div className="space-y-2">
-                    <Label>Status</Label>
-                    <Select
-                      value={statusFilter}
-                      onValueChange={(value) => setStatusFilter(value as GameStatus | "all")}
+        {/* Toolbar: search + view controls + filter toggle + grid settings */}
+        <PageToolbar
+          search={searchQuery}
+          onSearchChange={setSearchQuery}
+          searchPlaceholder="Search your library..."
+          viewControls={{
+            viewMode,
+            onViewModeChange: setViewMode,
+            listDensity,
+            onListDensityChange: setListDensity,
+          }}
+          actions={
+            <>
+              <Button
+                variant={showFilters ? "secondary" : "outline"}
+                size="sm"
+                className="h-8 gap-1.5"
+                onClick={() => setShowFilters((v) => !v)}
+                aria-label="Toggle filters"
+                aria-expanded={showFilters}
+              >
+                <Filter className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Filters</span>
+                {activeFilters.length > 0 && (
+                  <span className="ml-0.5 rounded-full bg-primary text-primary-foreground text-[10px] font-semibold w-4 h-4 flex items-center justify-center">
+                    {activeFilters.length}
+                  </span>
+                )}
+              </Button>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-8" aria-label="Grid settings">
+                    <Settings2 className="h-3.5 w-3.5" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-72 space-y-4 p-4">
+                  <div
+                    className={`space-y-3 ${viewMode === "list" ? "opacity-50 pointer-events-none" : ""}`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <Label
+                        className="flex items-center gap-2 text-sm font-medium"
+                        aria-disabled={viewMode === "list"}
+                      >
+                        <LayoutGrid className="h-4 w-4" />
+                        Grid Columns
+                      </Label>
+                      <span className="text-sm font-bold w-4 text-center">{gridColumns}</span>
+                    </div>
+                    <Slider
+                      value={[gridColumns]}
+                      onValueChange={([val]) => setGridColumns(val)}
+                      min={2}
+                      max={10}
+                      step={1}
+                      disabled={viewMode === "list"}
+                      aria-label="Grid columns"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {viewMode === "list"
+                        ? "Switch to grid view to adjust the number of columns."
+                        : "Number of columns in the game grid (2–10)."}
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-between border-t pt-3">
+                    <Label
+                      htmlFor="show-hidden"
+                      className="flex items-center gap-2 text-sm font-medium cursor-pointer"
                     >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All</SelectItem>
-                        <SelectItem value="wanted">Wanted</SelectItem>
-                        <SelectItem value="owned">Owned</SelectItem>
-                        <SelectItem value="completed">Completed</SelectItem>
-                        <SelectItem value="downloading">Downloading</SelectItem>
-                      </SelectContent>
-                    </Select>
+                      <EyeOff className="h-4 w-4" />
+                      Show Hidden Games
+                    </Label>
+                    <Switch
+                      id="show-hidden"
+                      checked={showHiddenGames}
+                      onCheckedChange={setShowHiddenGames}
+                    />
                   </div>
+                </PopoverContent>
+              </Popover>
+            </>
+          }
+        />
 
-                  {/* Genre Filter */}
-                  <div className="space-y-2">
-                    <Label>Genre</Label>
-                    <Select value={genreFilter} onValueChange={setGenreFilter}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Genres</SelectItem>
-                        {uniqueGenres.map((genre) => (
-                          <SelectItem key={genre} value={genre}>
-                            {genre}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+        {/* Active filter badges */}
+        {activeFilters.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            {activeFilters.map((f) => (
+              <Badge key={f.label} variant="secondary" className="gap-1">
+                {f.label}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-3 w-3 p-0 hover:bg-transparent"
+                  onClick={f.onRemove}
+                  aria-label={`Remove filter: ${f.label}`}
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              </Badge>
+            ))}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 text-xs gap-1 text-muted-foreground hover:text-foreground px-2"
+              onClick={clearAllFilters}
+            >
+              <X className="h-3 w-3" />
+              Clear all
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              {filteredGames.length} of {games.length} shown
+            </span>
+          </div>
+        )}
 
-                  {/* Platform Filter */}
-                  <div className="space-y-2">
-                    <Label>Platform</Label>
-                    <Select value={platformFilter} onValueChange={setPlatformFilter}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Platforms</SelectItem>
-                        {uniquePlatforms.map((platform) => (
-                          <SelectItem key={platform} value={platform}>
-                            {platform}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+        {/* Filter panel */}
+        {showFilters && (
+          <Card>
+            <CardContent className="p-4 space-y-4">
+              <Label className="text-sm font-semibold">Filters</Label>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label>Status</Label>
+                  <Select
+                    value={statusFilter}
+                    onValueChange={(value) => setStatusFilter(value as GameStatus | "all")}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All</SelectItem>
+                      <SelectItem value="wanted">Wanted</SelectItem>
+                      <SelectItem value="owned">Owned</SelectItem>
+                      <SelectItem value="completed">Completed</SelectItem>
+                      <SelectItem value="downloading">Downloading</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
-              </CardContent>
-            </Card>
-          )}
+                <div className="space-y-2">
+                  <Label>Genre</Label>
+                  <Select value={genreFilter} onValueChange={setGenreFilter}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Genres</SelectItem>
+                      {uniqueGenres.map((genre) => (
+                        <SelectItem key={genre} value={genre}>
+                          {genre}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Platform</Label>
+                  <Select value={platformFilter} onValueChange={setPlatformFilter}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Platforms</SelectItem>
+                      {uniquePlatforms.map((platform) => (
+                        <SelectItem key={platform} value={platform}>
+                          {platform}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
-          <DisplaySettingsModal
-            open={showDisplaySettings}
-            onOpenChange={setShowDisplaySettings}
-            gridColumns={gridColumns}
-            onGridColumnsChange={setGridColumns}
-            showHiddenGames={showHiddenGames}
-            onShowHiddenGamesChange={setShowHiddenGames}
-            viewMode={viewMode}
-            onViewModeChange={setViewMode}
-            density={listDensity}
-            onDensityChange={setListDensity}
-          />
-
-          <GameGrid
-            games={filteredGames}
-            onStatusChange={handleStatusChange}
-            onToggleHidden={handleToggleHidden}
-            isLoading={isLoading}
-            isFetching={isFetching}
-            columns={gridColumns}
-            viewMode={viewMode}
-            density={listDensity}
-          />
-        </div>
+        <GameGrid
+          games={filteredGames}
+          onStatusChange={handleStatusChange}
+          onToggleHidden={handleToggleHidden}
+          isLoading={isLoading}
+          isFetching={isFetching}
+          columns={gridColumns}
+          viewMode={viewMode}
+          density={listDensity}
+        />
       </div>
     </div>
   );

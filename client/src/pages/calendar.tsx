@@ -9,6 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import PageToolbar from "@/components/PageToolbar";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { type Game, type Config } from "@shared/schema";
@@ -34,7 +35,8 @@ function getMonthName(month: number): string {
 function getWeekDays(date: Date): Date[] {
   const day = date.getDay();
   const diff = date.getDate() - day + (day === 0 ? -6 : 1); // Adjust when day is sunday
-  const monday = new Date(date.setDate(diff));
+  const monday = new Date(date);
+  monday.setDate(diff);
   return Array.from({ length: 7 }, (_, i) => {
     const d = new Date(monday);
     d.setDate(monday.getDate() + i);
@@ -167,39 +169,43 @@ export default function CalendarPage() {
 
   return (
     <div className="h-full overflow-auto p-6">
-      <div className="flex items-start justify-between gap-4 mb-6">
+      <div className="space-y-3 mb-6">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Release Calendar</h1>
           <p className="text-muted-foreground text-sm mt-0.5">Track upcoming game releases</p>
         </div>
-        <div className="flex items-center gap-2 shrink-0 pt-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={navigatePrevious}
-            aria-label="Previous period"
-          >
-            <ChevronLeft className="h-5 w-5" />
-          </Button>
-          <span className="text-base font-semibold min-w-[140px] text-center">{getTitle()}</span>
-          <Button variant="ghost" size="icon" onClick={navigateNext} aria-label="Next period">
-            <ChevronRight className="h-5 w-5" />
-          </Button>
-          <div className="w-px h-5 bg-border mx-1" />
-          <Button variant="outline" size="sm" onClick={goToToday}>
-            Today
-          </Button>
-          <Select value={viewMode} onValueChange={(v) => setViewMode(v as ViewMode)}>
-            <SelectTrigger className="w-[110px] h-8 text-sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="year">Year</SelectItem>
-              <SelectItem value="month">Month</SelectItem>
-              <SelectItem value="week">Week</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+        <PageToolbar
+          filterPills={<span className="text-base font-semibold">{getTitle()}</span>}
+          actions={
+            <>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={navigatePrevious}
+                aria-label="Previous period"
+              >
+                <ChevronLeft className="h-5 w-5" />
+              </Button>
+              <Button variant="ghost" size="icon" onClick={navigateNext} aria-label="Next period">
+                <ChevronRight className="h-5 w-5" />
+              </Button>
+              <div className="w-px h-5 bg-border" />
+              <Button variant="outline" size="sm" onClick={goToToday}>
+                Today
+              </Button>
+              <Select value={viewMode} onValueChange={(v) => setViewMode(v as ViewMode)}>
+                <SelectTrigger className="w-[110px] h-8 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="year">Year</SelectItem>
+                  <SelectItem value="month">Month</SelectItem>
+                  <SelectItem value="week">Week</SelectItem>
+                </SelectContent>
+              </Select>
+            </>
+          }
+        />
       </div>
 
       {isLoading ? (

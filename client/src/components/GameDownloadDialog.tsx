@@ -257,7 +257,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         .filter((p): p is string => Boolean(p))
     );
     return Array.from(platforms)
-      .sort()
+      .sort((a, b) => a.localeCompare(b))
       .map((p) => ({ label: p, value: p }));
   }, [itemsMetadata]);
 

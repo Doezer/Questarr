@@ -3,7 +3,7 @@ FROM node:22-alpine AS base
 
 WORKDIR /app
 
-COPY package*.json .npmrc ./
+COPY package*.json ./
 RUN npm ci
 
 # Build stage
@@ -33,7 +33,7 @@ ENV PGID=1000
 RUN apk add --no-cache su-exec shadow
 
 # Install production dependencies only
-COPY package*.json .npmrc ./
+COPY package*.json ./
 RUN npm ci --omit=dev
 
 # Copy necessary files from build stage

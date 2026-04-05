@@ -2,18 +2,8 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
-import { codecovVitePlugin } from "@codecov/vite-plugin";
-
 export default defineConfig({
-  plugins: [
-    react(),
-    tailwindcss(),
-    codecovVitePlugin({
-      enableBundleAnalysis: process.env.CODECOV_TOKEN !== undefined,
-      bundleName: "questarr",
-      uploadToken: process.env.CODECOV_TOKEN,
-    }),
-  ],
+  plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "client", "src"),

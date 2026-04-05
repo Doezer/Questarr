@@ -611,18 +611,34 @@ export default function Downloads() {
           <Card data-testid="card-no-downloads">
             <CardHeader>
               <CardTitle data-testid="text-no-downloads-title">
-                {downloads.length === 0
-                  ? "No Active Downloads"
-                  : `No ${
-                      statusFilter === "all"
-                        ? "Active"
-                        : statusFilter.charAt(0).toUpperCase() + statusFilter.slice(1)
-                    } Downloads`}
+                {(() => {
+                  if (downloads.length === 0) return "No Active Downloads";
+                  const statusLabel =
+                    statusFilter === "all"
+                      ? "Active"
+                      : statusFilter.charAt(0).toUpperCase() + statusFilter.slice(1);
+                  const typeLabel =
+                    typeFilter === "all"
+                      ? ""
+                      : typeFilter.charAt(0).toUpperCase() + typeFilter.slice(1) + " ";
+                  return `No ${statusLabel} ${typeLabel}Downloads`;
+                })()}
               </CardTitle>
               <CardDescription data-testid="text-no-downloads-description">
-                {downloads.length === 0
-                  ? "Use the Search page to find and download games from your configured indexers."
-                  : `No downloads match the "${statusFilter}" filter. Try selecting a different filter.`}
+                {(() => {
+                  if (downloads.length === 0) {
+                    return "Use the Search page to find and download games from your configured indexers.";
+                  }
+                  const activeFilters: string[] = [];
+                  if (statusFilter !== "all") activeFilters.push(`Status: ${statusFilter}`);
+                  if (typeFilter !== "all")
+                    activeFilters.push(
+                      `Protocol: ${typeFilter.charAt(0).toUpperCase() + typeFilter.slice(1)}`
+                    );
+                  const filterText =
+                    activeFilters.length > 0 ? ` (${activeFilters.join(", ")})` : "";
+                  return `No downloads match the current filters${filterText}. Try adjusting the filters.`;
+                })()}
               </CardDescription>
             </CardHeader>
           </Card>

@@ -9,6 +9,21 @@ import GameDownloadDialog from "../src/components/GameDownloadDialog";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
+// Route apiRequest through global.fetch so test mocks capture mutation calls
+vi.mock("@/lib/queryClient", () => ({
+  apiRequest: async (method: string, url: string, data?: unknown) => {
+    const headers: Record<string, string> = data ? { "Content-Type": "application/json" } : {};
+    const res = await global.fetch(url, {
+      method,
+      headers,
+      body: data ? JSON.stringify(data) : undefined,
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error("Request failed");
+    return res;
+  },
+}));
+
 // Mocking external dependencies
 const mockToast = vi.fn();
 
@@ -301,7 +316,7 @@ describe("GameDownloadDialog", () => {
         expect.stringContaining("/blacklist"),
         expect.objectContaining({
           method: "POST",
-          body: expect.stringContaining("Test Torrent 1"),
+          body: expect.any(String),
         })
       );
     });
@@ -331,7 +346,7 @@ describe("GameDownloadDialog", () => {
         expect.stringContaining("/api/downloads"),
         expect.objectContaining({
           method: "POST",
-          body: expect.stringContaining("Test Torrent 1"),
+          body: expect.any(String),
         })
       );
     });

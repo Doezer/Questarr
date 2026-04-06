@@ -939,10 +939,9 @@ export class RTorrentClient implements DownloaderClient {
 
       const isMagnet = request.url.startsWith("magnet:");
       const category = request.category || this.downloader.category;
-      let downloadPath = request.downloadPath || this.downloader.downloadPath;
-      if (downloadPath && category) {
-        downloadPath = `${downloadPath}/${category}`;
-      }
+      // rTorrent supports categories natively via d.custom1.set, so the download path
+      // must not have the category appended — that would cause double-nesting like /path/cat/cat.
+      const downloadPath = request.downloadPath || this.downloader.downloadPath;
 
       // Apply category and download-directory settings after a torrent is registered
       const applySettings = async (infoHash: string) => {

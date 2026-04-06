@@ -131,6 +131,7 @@ describe("Cron - checkAutoSearch", () => {
     autoSearchUnreleased: false, // Default: false
     preferredReleaseGroups: null,
     filterByPreferredGroups: false,
+    preferredPlatform: null,
     steamSyncFailures: 0,
     updatedAt: new Date(FIXED_NOW),
   };
@@ -653,6 +654,158 @@ describe("Cron - checkAutoSearch", () => {
           // Filtered to 1 SKIDROW update
           message: expect.stringContaining("1 update"),
         })
+      );
+    });
+  });
+
+  describe("Preferred Platform Filtering", () => {
+    const PC_ITEM = {
+      title: "Test Game PC-SKIDROW",
+      link: "https://example.com/pc",
+      pubDate: FIXED_PUB_DATE,
+      seeders: 50,
+      size: 10_000,
+      group: "SKIDROW",
+    };
+    // Release with no platform marker in title (typical PC release)
+    const NO_PLATFORM_ITEM = {
+      title: "Test Game-CODEX",
+      link: "https://example.com/noplatform",
+      pubDate: FIXED_PUB_DATE,
+      seeders: 80,
+      size: 10_000,
+      group: "CODEX",
+    };
+    const PS5_ITEM = {
+      title: "Test Game PS5-GROUP",
+      link: "https://example.com/ps5",
+      pubDate: FIXED_PUB_DATE,
+      seeders: 60,
+      size: 10_000,
+      group: "GROUP",
+    };
+
+    let wantedGame: Game;
+    beforeEach(() => {
+      wantedGame = { ...baseGame, status: "wanted" as const, releaseStatus: "released" as const };
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [wantedGame]]]));
+    });
+
+    it("should include explicit PC releases when PC is the preferred platform", async () => {
+      const settings = { ...baseSettings, preferredPlatform: "PC", notifyMultipleDownloads: true };
+      mockGetUserSettings.mockResolvedValue(settings);
+      mockSearchAllIndexers.mockResolvedValue({
+        items: [PC_ITEM, PS5_ITEM],
+        errors: [],
+        total: 2,
+      });
+
+      await checkAutoSearch();
+
+      // Only PC_ITEM passes the platform filter → single result → availability notification
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Game Available" })
+      );
+    });
+
+    it("should include no-platform releases when PC is the preferred platform", async () => {
+      const settings = { ...baseSettings, preferredPlatform: "PC", notifyMultipleDownloads: true };
+      mockGetUserSettings.mockResolvedValue(settings);
+      mockSearchAllIndexers.mockResolvedValue({
+        items: [NO_PLATFORM_ITEM, PS5_ITEM],
+        errors: [],
+        total: 2,
+      });
+
+      await checkAutoSearch();
+
+      // NO_PLATFORM_ITEM has no detected platform → matches PC filter → single result
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Game Available" })
+      );
+    });
+
+    it("should exclude no-platform releases when a non-PC platform is preferred", async () => {
+      const settings = {
+        ...baseSettings,
+        preferredPlatform: "PS5",
+        notifyMultipleDownloads: true,
+      };
+      mockGetUserSettings.mockResolvedValue(settings);
+      mockSearchAllIndexers.mockResolvedValue({
+        items: [NO_PLATFORM_ITEM, PS5_ITEM],
+        errors: [],
+        total: 2,
+      });
+
+      await checkAutoSearch();
+
+      // NO_PLATFORM_ITEM excluded, only PS5_ITEM passes → single result
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Game Available" })
+      );
+    });
+
+    it("should apply platform filter before preferred groups (platform is strict)", async () => {
+      const settings = {
+        ...baseSettings,
+        preferredPlatform: "PC",
+        preferredReleaseGroups: '["SKIDROW"]',
+        notifyMultipleDownloads: true,
+      };
+      mockGetUserSettings.mockResolvedValue(settings);
+      // PS5_ITEM filtered out by platform; PC_ITEM + NO_PLATFORM_ITEM both pass platform filter
+      // Then group filter prefers SKIDROW → single PC_ITEM
+      mockSearchAllIndexers.mockResolvedValue({
+        items: [PC_ITEM, NO_PLATFORM_ITEM, PS5_ITEM],
+        errors: [],
+        total: 3,
+      });
+
+      await checkAutoSearch();
+
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Game Available" })
+      );
+    });
+
+    it("should fall back to full platform-filtered set when no group matches after platform filter", async () => {
+      const settings = {
+        ...baseSettings,
+        preferredPlatform: "PC",
+        preferredReleaseGroups: '["PLAZA"]', // PLAZA not present
+        notifyMultipleDownloads: true,
+      };
+      mockGetUserSettings.mockResolvedValue(settings);
+      mockSearchAllIndexers.mockResolvedValue({
+        items: [PC_ITEM, NO_PLATFORM_ITEM, PS5_ITEM],
+        errors: [],
+        total: 3,
+      });
+
+      await checkAutoSearch();
+
+      // Platform filter keeps PC_ITEM + NO_PLATFORM_ITEM (2 items)
+      // Group filter finds no PLAZA → falls back to 2 items → multiple notification
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Multiple Results Found" })
+      );
+    });
+
+    it("should not apply platform filter when preferredPlatform is null", async () => {
+      const settings = { ...baseSettings, preferredPlatform: null, notifyMultipleDownloads: true };
+      mockGetUserSettings.mockResolvedValue(settings);
+      mockSearchAllIndexers.mockResolvedValue({
+        items: [PC_ITEM, PS5_ITEM, NO_PLATFORM_ITEM],
+        errors: [],
+        total: 3,
+      });
+
+      await checkAutoSearch();
+
+      // No platform filter → all 3 items → multiple notification
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Multiple Results Found" })
       );
     });
   });

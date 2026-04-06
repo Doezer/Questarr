@@ -6,6 +6,7 @@ import {
   releaseMatchesGame,
   parseReleaseMetadata,
   parseJsonStringArray,
+  matchesPlatformFilter,
 } from "../title-utils.js";
 
 describe("title-utils", () => {
@@ -154,6 +155,45 @@ describe("title-utils", () => {
 
     it("handles an empty JSON array", () => {
       expect(parseJsonStringArray("[]")).toEqual([]);
+    });
+  });
+
+  describe("matchesPlatformFilter", () => {
+    describe("PC platform", () => {
+      it("matches releases explicitly detected as PC", () => {
+        expect(matchesPlatformFilter("PC", "PC")).toBe(true);
+      });
+
+      it("matches releases with no detected platform", () => {
+        expect(matchesPlatformFilter(undefined, "PC")).toBe(true);
+      });
+
+      it("does not match non-PC platforms when PC is preferred", () => {
+        expect(matchesPlatformFilter("PS5", "PC")).toBe(false);
+        expect(matchesPlatformFilter("Switch", "PC")).toBe(false);
+        expect(matchesPlatformFilter("Xbox", "PC")).toBe(false);
+      });
+    });
+
+    describe("non-PC platforms", () => {
+      it("matches when detected platform equals preferred", () => {
+        expect(matchesPlatformFilter("PS5", "PS5")).toBe(true);
+        expect(matchesPlatformFilter("PS4", "PS4")).toBe(true);
+        expect(matchesPlatformFilter("Switch", "Switch")).toBe(true);
+        expect(matchesPlatformFilter("Xbox", "Xbox")).toBe(true);
+        expect(matchesPlatformFilter("Mac", "Mac")).toBe(true);
+        expect(matchesPlatformFilter("Linux", "Linux")).toBe(true);
+      });
+
+      it("does not match different explicit platforms", () => {
+        expect(matchesPlatformFilter("PS4", "PS5")).toBe(false);
+        expect(matchesPlatformFilter("Xbox", "Switch")).toBe(false);
+      });
+
+      it("does not match releases with no detected platform for non-PC preferred", () => {
+        expect(matchesPlatformFilter(undefined, "PS5")).toBe(false);
+        expect(matchesPlatformFilter(undefined, "Switch")).toBe(false);
+      });
     });
   });
 });

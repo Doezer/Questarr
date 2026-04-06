@@ -13,6 +13,8 @@ import {
   normalizeTitle,
   cleanReleaseName,
   parseJsonStringArray,
+  parseReleaseMetadata,
+  matchesPlatformFilter,
 } from "../shared/title-utils.js";
 
 const DELAY_THRESHOLD_DAYS = 7;
@@ -100,6 +102,22 @@ function applyPreferredGroupsFilter(
       item.group && preferredGroups.some((g) => g.toLowerCase() === item.group!.toLowerCase())
   );
   return filtered.length > 0 ? filtered : items;
+}
+
+/**
+ * Applies a strict preferred platform filter to search items.
+ * PC is special: matches releases with no detected platform as well as explicit PC detections.
+ * Returns the input unchanged when no preferred platform is configured.
+ */
+function applyPreferredPlatformFilter(
+  items: Awaited<ReturnType<typeof searchAllIndexers>>["items"],
+  preferredPlatform: string | null | undefined
+): Awaited<ReturnType<typeof searchAllIndexers>>["items"] {
+  if (!preferredPlatform) return items;
+  return items.filter((item) => {
+    const { platform } = parseReleaseMetadata(item.title);
+    return matchesPlatformFilter(platform, preferredPlatform);
+  });
 }
 
 async function searchAndCategorizeItemsForGame(
@@ -607,6 +625,7 @@ export async function checkAutoSearch() {
         let gamesWithResults = 0;
 
         const preferredGroups = parseJsonStringArray(settings.preferredReleaseGroups);
+        const preferredPlatform = settings.preferredPlatform ?? null;
 
         for (const game of wantedGames) {
           try {
@@ -629,8 +648,12 @@ export async function checkAutoSearch() {
 
             gamesWithResults++;
 
-            // Filter by preferred release groups if configured
-            const mainItems = applyPreferredGroupsFilter(searchResult.mainItems, preferredGroups);
+            // Apply platform filter first (strict), then preferred groups (soft preference)
+            const platformFilteredMain = applyPreferredPlatformFilter(
+              searchResult.mainItems,
+              preferredPlatform
+            );
+            const mainItems = applyPreferredGroupsFilter(platformFilteredMain, preferredGroups);
 
             // Handle main items
             if (mainItems.length === 0) {
@@ -730,10 +753,11 @@ export async function checkAutoSearch() {
               continue;
             }
 
-            const updateItems = applyPreferredGroupsFilter(
+            const platformFilteredUpdate = applyPreferredPlatformFilter(
               searchResult.updateItems,
-              preferredGroups
+              preferredPlatform
             );
+            const updateItems = applyPreferredGroupsFilter(platformFilteredUpdate, preferredGroups);
 
             if (updateItems.length > 0 && settings.notifyUpdates) {
               const notification = await storage.addNotification({

@@ -45,7 +45,7 @@ import PreferredReleaseGroupsSettings from "@/components/PreferredReleaseGroupsS
 import PasswordSettings from "@/components/PasswordSettings";
 import type { Config, UserSettings, DownloadRules, ReleaseBlacklist } from "@shared/schema";
 import { downloadRulesSchema } from "@shared/schema";
-import { parseJsonStringArray } from "@shared/title-utils";
+import { parseJsonStringArray, CANONICAL_PLATFORMS } from "@shared/title-utils";
 import { useState, useEffect, useRef, useMemo } from "react";
 
 interface CertInfo {
@@ -139,6 +139,7 @@ export default function SettingsPage() {
   const [downloadRules, setDownloadRules] = useState<DownloadRules | null>(null);
   const [preferredReleaseGroups, setPreferredReleaseGroups] = useState<string[]>([]);
   const [filterByPreferredGroups, setFilterByPreferredGroups] = useState(false);
+  const [preferredPlatform, setPreferredPlatform] = useState<string>("");
   const [xrelSceneReleases, setXrelSceneReleases] = useState(true);
   const [xrelP2pReleases, setXrelP2pReleases] = useState(false);
   const [xrelApiBase, setXrelApiBase] = useState("");
@@ -171,6 +172,7 @@ export default function SettingsPage() {
       }
       setPreferredReleaseGroups(parseJsonStringArray(userSettings.preferredReleaseGroups));
       setFilterByPreferredGroups(userSettings.filterByPreferredGroups ?? false);
+      setPreferredPlatform(userSettings.preferredPlatform ?? "");
       setXrelSceneReleases(userSettings.xrelSceneReleases ?? true);
       setXrelP2pReleases(userSettings.xrelP2pReleases ?? false);
     }
@@ -441,6 +443,7 @@ export default function SettingsPage() {
         notifyMultipleDownloads,
         notifyUpdates,
         searchIntervalHours,
+        preferredPlatform: preferredPlatform || null,
       },
       successMessage: "Your auto-search preferences have been saved.",
     });
@@ -708,6 +711,33 @@ export default function SettingsPage() {
                       />
                     </div>
                   )}
+                </div>
+
+                {/* Preferred Platform */}
+                <div className="space-y-2 pt-4 border-t">
+                  <Label htmlFor="preferred-platform" className="text-sm font-medium">
+                    Preferred Platform
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Pre-filter results to this platform in the download dialog and auto-search. PC
+                    also matches releases with no explicit platform tag.
+                  </p>
+                  <Select
+                    value={preferredPlatform || "__none__"}
+                    onValueChange={(v) => setPreferredPlatform(v === "__none__" ? "" : v)}
+                  >
+                    <SelectTrigger id="preferred-platform" className="w-48">
+                      <SelectValue placeholder="No preference" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">No preference</SelectItem>
+                      {CANONICAL_PLATFORMS.map((p) => (
+                        <SelectItem key={p} value={p}>
+                          {p}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div className="flex justify-end pt-4 border-t">

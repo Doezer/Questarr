@@ -32,6 +32,7 @@ import {
   Info,
   Download,
   Newspaper,
+  Tag,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -69,6 +70,9 @@ interface DownloadStatus {
   unpackStatus?: "unpacking" | "completed" | "failed";
   age?: number;
   grabs?: number;
+  // Questarr tracking fields
+  trackedByQuestarr?: boolean;
+  downloaderCategory?: string;
 }
 
 interface DownloaderError {
@@ -109,6 +113,7 @@ export default function Downloads() {
   const [detailsModalOpen, setDetailsModalOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<DownloadStatusType | "all">("all");
   const [typeFilter, setTypeFilter] = useState<DownloadType | "all">("all");
+  const [questarrFilter, setQuestarrFilter] = useState<"all" | "questarr">("all");
 
   const {
     data: downloadsData,
@@ -130,8 +135,22 @@ export default function Downloads() {
     if (typeFilter !== "all") {
       filtered = filtered.filter((d) => (d.downloadType || "torrent") === typeFilter);
     }
+    if (questarrFilter === "questarr") {
+      filtered = filtered.filter((d) => d.trackedByQuestarr);
+    }
     return filtered;
-  }, [downloads, statusFilter, typeFilter]);
+  }, [downloads, statusFilter, typeFilter, questarrFilter]);
+
+  // Collect unique active category filters from downloaders for the banner
+  const categoryBannerEntries = useMemo(() => {
+    const seen = new Map<string, string>(); // downloaderName → category
+    for (const d of downloads) {
+      if (d.downloaderCategory && !seen.has(d.downloaderName)) {
+        seen.set(d.downloaderName, d.downloaderCategory);
+      }
+    }
+    return Array.from(seen.entries());
+  }, [downloads]);
 
   // Show toast notifications for downloader errors
   // Only show each error once per session to avoid spam
@@ -435,7 +454,47 @@ export default function Downloads() {
             </TabsList>
           </Tabs>
         </div>
+
+        <div className="flex items-center gap-3">
+          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider shrink-0">
+            Source
+          </span>
+          <Tabs
+            value={questarrFilter}
+            onValueChange={(value) => setQuestarrFilter(value as "all" | "questarr")}
+            aria-label="Filter downloads by source"
+          >
+            <TabsList>
+              <TabsTrigger value="all" data-testid="filter-source-all">
+                All
+              </TabsTrigger>
+              <TabsTrigger
+                value="questarr"
+                className="flex items-center gap-2"
+                data-testid="filter-source-questarr"
+              >
+                <Download className="h-3 w-3" /> Questarr only
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
       </div>
+
+      {/* Category filter banner */}
+      {categoryBannerEntries.length > 0 && (
+        <div
+          className="flex items-center gap-2 mb-4 px-3 py-2 rounded-md bg-muted/50 text-muted-foreground text-sm"
+          data-testid="category-filter-banner"
+          role="status"
+          aria-live="polite"
+        >
+          <Tag className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <span>
+            Category filter active —{" "}
+            {categoryBannerEntries.map(([name, cat]) => `${name}: "${cat}"`).join(", ")}
+          </span>
+        </div>
+      )}
 
       <div className="grid gap-4">
         {filteredDownloads.length > 0 ? (

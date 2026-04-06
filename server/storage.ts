@@ -115,6 +115,7 @@ export interface IStorage {
   updateGameDownloadStatus(id: string, status: string): Promise<void>;
   addGameDownload(gameDownload: InsertGameDownload): Promise<GameDownload>;
   getDownloadSummaryByGame(): Promise<Record<string, DownloadSummary>>;
+  getTrackedDownloadKeys(): Promise<Set<string>>;
 
   // Notification methods
   getNotifications(limit?: number): Promise<Notification[]>;
@@ -656,6 +657,14 @@ export class MemStorage implements IStorage {
     };
     this.gameDownloads.set(id, gameDownload);
     return gameDownload;
+  }
+
+  async getTrackedDownloadKeys(): Promise<Set<string>> {
+    const keys = new Set<string>();
+    for (const gd of Array.from(this.gameDownloads.values())) {
+      keys.add(`${gd.downloaderId}:${gd.downloadHash}`);
+    }
+    return keys;
   }
 
   async getDownloadSummaryByGame(): Promise<Record<string, DownloadSummary>> {
@@ -1451,6 +1460,16 @@ export class DatabaseStorage implements IStorage {
       .values({ ...insertGameDownload, id })
       .returning();
     return gameDownload;
+  }
+
+  async getTrackedDownloadKeys(): Promise<Set<string>> {
+    const rows = await db
+      .select({
+        downloaderId: gameDownloads.downloaderId,
+        downloadHash: gameDownloads.downloadHash,
+      })
+      .from(gameDownloads);
+    return new Set(rows.map((r) => `${r.downloaderId}:${r.downloadHash}`));
   }
 
   async getDownloadSummaryByGame(): Promise<Record<string, DownloadSummary>> {

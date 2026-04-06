@@ -125,10 +125,10 @@ export function getStatusBadgeVariant(
 /**
  * Filter downloads by status
  */
-export function filterDownloadsByStatus(
-  downloads: DownloadData[],
+export function filterDownloadsByStatus<T extends DownloadData>(
+  downloads: T[],
   filter: DownloadStatusType | "all"
-): DownloadData[] {
+): T[] {
   if (filter === "all") {
     return downloads;
   }

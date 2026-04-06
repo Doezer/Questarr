@@ -2080,6 +2080,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/downloads", async (req, res) => {
     try {
       const enabledDownloaders = await storage.getEnabledDownloaders();
+      const trackedKeys = await storage.getTrackedDownloadKeys();
       // ⚡ Bolt: Fetch downloads from all downloaders in parallel to reduce latency.
       const results = await Promise.all(
         enabledDownloaders.map(async (downloader) => {
@@ -2091,6 +2092,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 ...download,
                 downloaderId: downloader.id,
                 downloaderName: downloader.name,
+                trackedByQuestarr: trackedKeys.has(`${downloader.id}:${download.id}`),
+                downloaderCategory: downloader.category ?? undefined,
               })),
             };
           } catch (error) {

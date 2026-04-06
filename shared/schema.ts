@@ -418,6 +418,9 @@ export interface DownloadStatus {
   // Common fields
   error?: string;
   category?: string;
+  // Questarr tracking fields
+  trackedByQuestarr?: boolean; // True if the download was initiated through Questarr
+  downloaderCategory?: string; // The category configured on the downloader (for display purposes)
 }
 
 export interface DownloadDetails extends DownloadStatus {

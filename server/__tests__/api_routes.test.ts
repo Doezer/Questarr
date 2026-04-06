@@ -89,6 +89,7 @@ vi.mock("../storage.js", () => ({
     addGameDownload: vi.fn(),
     getDownloadsByGameId: vi.fn().mockResolvedValue([]),
     getDownloadSummaryByGame: vi.fn().mockResolvedValue({}),
+    getTrackedDownloadKeys: vi.fn().mockResolvedValue(new Set()),
     getAllRssFeeds: vi.fn().mockResolvedValue([]),
     addRssFeed: vi.fn(),
     updateRssFeed: vi.fn(),
@@ -1126,6 +1127,57 @@ describe("API Routes - Extended Coverage", () => {
       } finally {
         mockConfig.server.isProduction = false;
       }
+    });
+
+    it("should mark downloads as trackedByQuestarr when hash matches a game download", async () => {
+      vi.mocked(storage.getEnabledDownloaders).mockResolvedValue([
+        { id: "dl-1", name: "My qBit", category: "games" } as unknown as Downloader,
+      ]);
+      vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(new Set(["dl-1:abc123"]));
+      vi.mocked(DownloaderManager.getAllDownloads).mockResolvedValue([
+        { id: "abc123", name: "Game A", status: "downloading", progress: 50 } as never,
+        { id: "xyz789", name: "Game B", status: "downloading", progress: 20 } as never,
+      ]);
+
+      const response = await request(app).get("/api/downloads");
+
+      expect(response.status).toBe(200);
+      const downloads = response.body.downloads;
+      expect(downloads).toHaveLength(2);
+      expect(downloads.find((d: { id: string }) => d.id === "abc123").trackedByQuestarr).toBe(true);
+      expect(downloads.find((d: { id: string }) => d.id === "xyz789").trackedByQuestarr).toBe(
+        false
+      );
+    });
+
+    it("should include downloaderCategory from the downloader settings", async () => {
+      vi.mocked(storage.getEnabledDownloaders).mockResolvedValue([
+        { id: "dl-1", name: "My qBit", category: "games" } as unknown as Downloader,
+      ]);
+      vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(new Set());
+      vi.mocked(DownloaderManager.getAllDownloads).mockResolvedValue([
+        { id: "abc123", name: "Game A", status: "downloading", progress: 50 } as never,
+      ]);
+
+      const response = await request(app).get("/api/downloads");
+
+      expect(response.status).toBe(200);
+      expect(response.body.downloads[0].downloaderCategory).toBe("games");
+    });
+
+    it("should omit downloaderCategory when the downloader has no category configured", async () => {
+      vi.mocked(storage.getEnabledDownloaders).mockResolvedValue([
+        { id: "dl-1", name: "My DL" } as unknown as Downloader,
+      ]);
+      vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(new Set());
+      vi.mocked(DownloaderManager.getAllDownloads).mockResolvedValue([
+        { id: "abc123", name: "Game A", status: "downloading", progress: 50 } as never,
+      ]);
+
+      const response = await request(app).get("/api/downloads");
+
+      expect(response.status).toBe(200);
+      expect(response.body.downloads[0].downloaderCategory).toBeUndefined();
     });
   });
 

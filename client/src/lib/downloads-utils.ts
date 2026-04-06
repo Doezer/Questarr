@@ -42,9 +42,6 @@ export interface DownloadData {
   error?: string;
   downloaderId: string;
   downloaderName: string;
-  // Questarr tracking fields
-  trackedByQuestarr?: boolean;
-  downloaderCategory?: string;
 }
 
 /**
@@ -128,10 +125,10 @@ export function getStatusBadgeVariant(
 /**
  * Filter downloads by status
  */
-export function filterDownloadsByStatus(
-  downloads: DownloadData[],
+export function filterDownloadsByStatus<T extends DownloadData>(
+  downloads: T[],
   filter: DownloadStatusType | "all"
-): DownloadData[] {
+): T[] {
   if (filter === "all") {
     return downloads;
   }

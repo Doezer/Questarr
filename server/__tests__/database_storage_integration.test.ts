@@ -165,4 +165,34 @@ describe("DatabaseStorage Integration", () => {
     expect(summary[gameB.id].topStatus).toBe("failed");
     expect(summary[gameB.id].downloadTypes).toContain("torrent");
   });
+
+  it("getTrackedDownloadKeys returns downloaderId:downloadHash keys for all game downloads", async () => {
+    const userId = randomUUID();
+    await db.insert(users).values({ id: userId, username: "user_" + userId, passwordHash: "hash" });
+
+    const game = await storage.addGame({
+      title: "Tracked Game",
+      status: "wanted",
+      userId,
+      hidden: false,
+    } as InsertGame);
+
+    const downloaderId = randomUUID();
+    await db
+      .insert(downloaders)
+      .values({ id: downloaderId, name: "Client", type: "torrent", url: "http://localhost" });
+
+    await storage.addGameDownload({
+      gameId: game.id,
+      downloaderId,
+      downloadType: "torrent",
+      downloadHash: "hash-x",
+      downloadTitle: "Tracked Game-GROUP",
+      status: "downloading",
+    });
+
+    const keys = await storage.getTrackedDownloadKeys();
+    expect(keys.has(`${downloaderId}:hash-x`)).toBe(true);
+    expect(keys.size).toBe(1);
+  });
 });

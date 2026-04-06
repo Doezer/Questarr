@@ -82,6 +82,7 @@ export interface IStorage {
   addGame(game: InsertGame): Promise<Game>;
   updateGameStatus(id: string, statusUpdate: UpdateGameStatus): Promise<Game | undefined>;
   updateGameHidden(id: string, hidden: boolean): Promise<Game | undefined>;
+  updateGameUserRating(id: string, userId: string, userRating: number | null): Promise<Game | undefined>;
   updateGameSearchResultsAvailable(gameId: string, available: boolean): Promise<void>;
   updateGame(id: string, updates: Partial<Game>): Promise<Game | undefined>;
   updateGamesBatch(updates: { id: string; data: Partial<Game> }[]): Promise<void>;
@@ -347,6 +348,7 @@ export class MemStorage implements IStorage {
       releaseStatus: insertGame.releaseStatus || "upcoming",
       earlyAccess: insertGame.earlyAccess ?? false,
       searchResultsAvailable: false,
+      userRating: null,
       addedAt: new Date(),
       completedAt: null,
     };
@@ -377,6 +379,15 @@ export class MemStorage implements IStorage {
       hidden: hidden,
     };
 
+    this.games.set(id, updatedGame);
+    return updatedGame;
+  }
+
+  async updateGameUserRating(id: string, userId: string, userRating: number | null): Promise<Game | undefined> {
+    const game = this.games.get(id);
+    if (!game || game.userId !== userId) return undefined;
+
+    const updatedGame: Game = { ...game, userRating };
     this.games.set(id, updatedGame);
     return updatedGame;
   }
@@ -1192,6 +1203,15 @@ export class DatabaseStorage implements IStorage {
       .update(games)
       .set({ hidden })
       .where(eq(games.id, id))
+      .returning();
+    return updatedGame || undefined;
+  }
+
+  async updateGameUserRating(id: string, userId: string, userRating: number | null): Promise<Game | undefined> {
+    const [updatedGame] = await db
+      .update(games)
+      .set({ userRating })
+      .where(and(eq(games.id, id), eq(games.userId, userId)))
       .returning();
     return updatedGame || undefined;
   }

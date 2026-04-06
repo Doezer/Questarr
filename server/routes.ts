@@ -8,6 +8,7 @@ import {
   insertGameSchema,
   updateGameStatusSchema,
   updateGameHiddenSchema,
+  updateGameUserRatingSchema,
   insertIndexerSchema,
   insertDownloaderSchema,
   insertNotificationSchema,
@@ -983,6 +984,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         routesLogger.error({ error }, "error updating game visibility");
         res.status(500).json({ error: "Failed to update game visibility" });
+      }
+    }
+  );
+
+  // Update personal user rating (0.5–10 in 0.5 increments, or null to clear)
+  app.patch(
+    "/api/games/:id/user-rating",
+    sensitiveEndpointLimiter,
+    sanitizeGameId,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const { id } = req.params;
+        const userId = req.user!.id;
+        const { userRating } = updateGameUserRatingSchema.parse(req.body);
+
+        const updatedGame = await storage.updateGameUserRating(id, userId, userRating);
+        if (!updatedGame) {
+          return res.status(404).json({ error: "Game not found" });
+        }
+
+        res.json(updatedGame);
+      } catch (error) {
+        if (error instanceof z.ZodError) {
+          return res.status(400).json({ error: "Invalid user rating data", details: error.errors });
+        }
+        routesLogger.error({ error }, "error updating game user rating");
+        res.status(500).json({ error: "Failed to update user rating" });
       }
     }
   );

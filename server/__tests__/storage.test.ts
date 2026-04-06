@@ -201,6 +201,43 @@ describe("MemStorage", () => {
       const removed = await storage.removeGame("fake-id");
       expect(removed).toBe(false);
     });
+
+    it("should set and update user rating", async () => {
+      const game = await storage.addGame({
+        title: "Rated Game",
+        igdbId: 99,
+        status: "owned",
+        userId: "user-1",
+        hidden: false,
+      });
+
+      const withRating = await storage.updateGameUserRating(game.id, "user-1", 8);
+      expect(withRating?.userRating).toBe(8);
+
+      const withHalf = await storage.updateGameUserRating(game.id, "user-1", 7.5);
+      expect(withHalf?.userRating).toBe(7.5);
+
+      const retrieved = await storage.getGame(game.id);
+      expect(retrieved?.userRating).toBe(7.5);
+    });
+
+    it("should clear user rating with null", async () => {
+      const game = await storage.addGame({
+        title: "Clear Rating Game",
+        igdbId: 100,
+        status: "owned",
+        userId: "user-1",
+        hidden: false,
+      });
+      await storage.updateGameUserRating(game.id, "user-1", 6);
+      const cleared = await storage.updateGameUserRating(game.id, "user-1", null);
+      expect(cleared?.userRating).toBeNull();
+    });
+
+    it("should return undefined when updating user rating for non-existent game", async () => {
+      const result = await storage.updateGameUserRating("no-such-id", "user-1", 5);
+      expect(result).toBeUndefined();
+    });
   });
 
   describe("Indexer Management", () => {

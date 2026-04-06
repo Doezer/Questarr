@@ -525,5 +525,38 @@ describe("MemStorage", () => {
       expect(downloads).toHaveLength(1);
       expect(downloads[0].downloaderName).toBeNull();
     });
+
+    describe("getTrackedDownloadKeys", () => {
+      it("returns an empty set when there are no game downloads", async () => {
+        const keys = await storage.getTrackedDownloadKeys();
+        expect(keys.size).toBe(0);
+      });
+
+      it("returns a key for each game download as downloaderId:downloadHash", async () => {
+        await storage.addGameDownload({
+          gameId,
+          downloaderId,
+          downloadHash: "hash-a",
+          downloadTitle: "Game A-GROUP",
+          status: "downloading",
+          downloadType: "torrent",
+          fileSize: null,
+        } as InsertGameDownload);
+        await storage.addGameDownload({
+          gameId,
+          downloaderId,
+          downloadHash: "hash-b",
+          downloadTitle: "Game B-GROUP",
+          status: "completed",
+          downloadType: "torrent",
+          fileSize: null,
+        } as InsertGameDownload);
+
+        const keys = await storage.getTrackedDownloadKeys();
+        expect(keys.has(`${downloaderId}:hash-a`)).toBe(true);
+        expect(keys.has(`${downloaderId}:hash-b`)).toBe(true);
+        expect(keys.size).toBe(2);
+      });
+    });
   });
 });

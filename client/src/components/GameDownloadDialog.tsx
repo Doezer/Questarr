@@ -925,7 +925,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                     </Tooltip>
 
                                     <h4 className="font-bold text-base truncate leading-tight">
-                                      {metadata.gameTitle || download.title}
+                                      {download.title}
                                     </h4>
 
                                     {isNew && (
@@ -993,21 +993,12 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
 
                                   {/* Release info line */}
                                   <div className="flex items-center gap-2 text-[11px] text-muted-foreground/70">
-                                    <span
-                                      className="font-medium truncate max-w-[300px]"
-                                      title={download.title}
-                                    >
-                                      {download.title}
-                                    </span>
                                     {metadata.group && (
-                                      <>
-                                        <span>•</span>
-                                        <span className="font-bold text-foreground/50">
-                                          {metadata.group}
-                                        </span>
-                                      </>
+                                      <span className="font-bold text-foreground/50">
+                                        {metadata.group}
+                                      </span>
                                     )}
-                                    <span>•</span>
+                                    {metadata.group && <span>•</span>}
                                     <span>{download.indexerName}</span>
                                     {isUsenet && download.poster && (
                                       <>

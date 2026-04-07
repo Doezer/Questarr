@@ -659,6 +659,7 @@ describe("Cron - checkAutoSearch", () => {
   });
 
   describe("Preferred Platform Filtering", () => {
+    // Fixtures — titles must include "Test Game" to pass releaseMatchesGame()
     const PC_ITEM = {
       title: "Test Game PC-SKIDROW",
       link: "https://example.com/pc",
@@ -667,7 +668,6 @@ describe("Cron - checkAutoSearch", () => {
       size: 10_000,
       group: "SKIDROW",
     };
-    // Release with no platform marker in title (typical PC release)
     const NO_PLATFORM_ITEM = {
       title: "Test Game-CODEX",
       link: "https://example.com/noplatform",
@@ -685,125 +685,85 @@ describe("Cron - checkAutoSearch", () => {
       group: "GROUP",
     };
 
-    let wantedGame: Game;
     beforeEach(() => {
-      wantedGame = { ...baseGame, status: "wanted" as const, releaseStatus: "released" as const };
+      const wantedGame = {
+        ...baseGame,
+        status: "wanted" as const,
+        releaseStatus: "released" as const,
+      };
       mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [wantedGame]]]));
     });
 
-    it("should include explicit PC releases when PC is the preferred platform", async () => {
-      const settings = { ...baseSettings, preferredPlatform: "PC", notifyMultipleDownloads: true };
-      mockGetUserSettings.mockResolvedValue(settings);
-      mockSearchAllIndexers.mockResolvedValue({
-        items: [PC_ITEM, PS5_ITEM],
-        errors: [],
-        total: 2,
+    /** Set up mocks and run checkAutoSearch in one call. */
+    async function runPlatformSearch(
+      platform: string | null,
+      items: (typeof PC_ITEM)[],
+      overrides: Partial<UserSettings> = {}
+    ): Promise<void> {
+      mockGetUserSettings.mockResolvedValue({
+        ...baseSettings,
+        ...overrides,
+        preferredPlatform: platform,
       });
-
+      mockSearchAllIndexers.mockResolvedValue({ items, errors: [], total: items.length });
       await checkAutoSearch();
+    }
 
+    it("should include explicit PC releases when PC is the preferred platform", async () => {
       // Only PC_ITEM passes the platform filter → single result → availability notification
+      await runPlatformSearch("PC", [PC_ITEM, PS5_ITEM], { notifyMultipleDownloads: true });
       expect(mockAddNotification).toHaveBeenCalledWith(
         expect.objectContaining({ title: "Game Available" })
       );
     });
 
     it("should include no-platform releases when PC is the preferred platform", async () => {
-      const settings = { ...baseSettings, preferredPlatform: "PC", notifyMultipleDownloads: true };
-      mockGetUserSettings.mockResolvedValue(settings);
-      mockSearchAllIndexers.mockResolvedValue({
-        items: [NO_PLATFORM_ITEM, PS5_ITEM],
-        errors: [],
-        total: 2,
+      // NO_PLATFORM_ITEM has no detected platform → treated as PC → single result
+      await runPlatformSearch("PC", [NO_PLATFORM_ITEM, PS5_ITEM], {
+        notifyMultipleDownloads: true,
       });
-
-      await checkAutoSearch();
-
-      // NO_PLATFORM_ITEM has no detected platform → matches PC filter → single result
       expect(mockAddNotification).toHaveBeenCalledWith(
         expect.objectContaining({ title: "Game Available" })
       );
     });
 
     it("should exclude no-platform releases when a non-PC platform is preferred", async () => {
-      const settings = {
-        ...baseSettings,
-        preferredPlatform: "PS5",
+      // NO_PLATFORM_ITEM excluded (not PS5), only PS5_ITEM passes → single result
+      await runPlatformSearch("PS5", [NO_PLATFORM_ITEM, PS5_ITEM], {
         notifyMultipleDownloads: true,
-      };
-      mockGetUserSettings.mockResolvedValue(settings);
-      mockSearchAllIndexers.mockResolvedValue({
-        items: [NO_PLATFORM_ITEM, PS5_ITEM],
-        errors: [],
-        total: 2,
       });
-
-      await checkAutoSearch();
-
-      // NO_PLATFORM_ITEM excluded, only PS5_ITEM passes → single result
       expect(mockAddNotification).toHaveBeenCalledWith(
         expect.objectContaining({ title: "Game Available" })
       );
     });
 
     it("should apply platform filter before preferred groups (platform is strict)", async () => {
-      const settings = {
-        ...baseSettings,
-        preferredPlatform: "PC",
+      // PS5_ITEM removed by platform; PC_ITEM + NO_PLATFORM_ITEM pass; SKIDROW group narrows to PC_ITEM
+      await runPlatformSearch("PC", [PC_ITEM, NO_PLATFORM_ITEM, PS5_ITEM], {
         preferredReleaseGroups: '["SKIDROW"]',
         notifyMultipleDownloads: true,
-      };
-      mockGetUserSettings.mockResolvedValue(settings);
-      // PS5_ITEM filtered out by platform; PC_ITEM + NO_PLATFORM_ITEM both pass platform filter
-      // Then group filter prefers SKIDROW → single PC_ITEM
-      mockSearchAllIndexers.mockResolvedValue({
-        items: [PC_ITEM, NO_PLATFORM_ITEM, PS5_ITEM],
-        errors: [],
-        total: 3,
       });
-
-      await checkAutoSearch();
-
       expect(mockAddNotification).toHaveBeenCalledWith(
         expect.objectContaining({ title: "Game Available" })
       );
     });
 
-    it("should fall back to full platform-filtered set when no group matches after platform filter", async () => {
-      const settings = {
-        ...baseSettings,
-        preferredPlatform: "PC",
-        preferredReleaseGroups: '["PLAZA"]', // PLAZA not present
+    it("should fall back to platform-filtered set when no group matches after platform filter", async () => {
+      // Platform keeps PC_ITEM + NO_PLATFORM_ITEM (2 items); PLAZA absent → fallback to 2 → multiple
+      await runPlatformSearch("PC", [PC_ITEM, NO_PLATFORM_ITEM, PS5_ITEM], {
+        preferredReleaseGroups: '["PLAZA"]',
         notifyMultipleDownloads: true,
-      };
-      mockGetUserSettings.mockResolvedValue(settings);
-      mockSearchAllIndexers.mockResolvedValue({
-        items: [PC_ITEM, NO_PLATFORM_ITEM, PS5_ITEM],
-        errors: [],
-        total: 3,
       });
-
-      await checkAutoSearch();
-
-      // Platform filter keeps PC_ITEM + NO_PLATFORM_ITEM (2 items)
-      // Group filter finds no PLAZA → falls back to 2 items → multiple notification
       expect(mockAddNotification).toHaveBeenCalledWith(
         expect.objectContaining({ title: "Multiple Results Found" })
       );
     });
 
     it("should not apply platform filter when preferredPlatform is null", async () => {
-      const settings = { ...baseSettings, preferredPlatform: null, notifyMultipleDownloads: true };
-      mockGetUserSettings.mockResolvedValue(settings);
-      mockSearchAllIndexers.mockResolvedValue({
-        items: [PC_ITEM, PS5_ITEM, NO_PLATFORM_ITEM],
-        errors: [],
-        total: 3,
+      // No filter → all 3 items → multiple notification
+      await runPlatformSearch(null, [PC_ITEM, PS5_ITEM, NO_PLATFORM_ITEM], {
+        notifyMultipleDownloads: true,
       });
-
-      await checkAutoSearch();
-
-      // No platform filter → all 3 items → multiple notification
       expect(mockAddNotification).toHaveBeenCalledWith(
         expect.objectContaining({ title: "Multiple Results Found" })
       );

@@ -249,11 +249,11 @@ const GameCard = ({
               <div
                 className="flex items-center gap-1"
                 role="img"
-                aria-label={`Rating: ${game.rating != null ? `${game.rating} out of 10` : "Not rated"}`}
+                aria-label={`Rating: ${game.rating !== null ? `${game.rating} out of 10` : "Not rated"}`}
               >
                 <Star className="w-3 h-3 text-accent" aria-hidden="true" />
                 <span data-testid={`text-rating-${game.id}`}>
-                  {game.rating != null ? `${game.rating}/10` : "N/A"}
+                  {game.rating !== null ? `${game.rating}/10` : "N/A"}
                 </span>
               </div>
             </TooltipTrigger>

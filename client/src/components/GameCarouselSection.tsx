@@ -164,9 +164,9 @@ const GameCarouselSection = ({
             <TooltipTrigger asChild>
               <div
                 className="inline-block"
-                role={!canScrollPrev ? "group" : undefined}
-                aria-label={!canScrollPrev ? "First page reached" : undefined}
-                tabIndex={!canScrollPrev ? 0 : undefined}
+                role={canScrollPrev ? undefined : "group"}
+                aria-label={canScrollPrev ? undefined : "First page reached"}
+                tabIndex={canScrollPrev ? undefined : 0}
               >
                 <Button
                   variant="outline"
@@ -189,9 +189,9 @@ const GameCarouselSection = ({
             <TooltipTrigger asChild>
               <div
                 className="inline-block"
-                role={!canScrollNext ? "group" : undefined}
-                aria-label={!canScrollNext ? "Last page reached" : undefined}
-                tabIndex={!canScrollNext ? 0 : undefined}
+                role={canScrollNext ? undefined : "group"}
+                aria-label={canScrollNext ? undefined : "Last page reached"}
+                tabIndex={canScrollNext ? undefined : 0}
               >
                 <Button
                   variant="outline"

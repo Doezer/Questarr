@@ -4,6 +4,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import GameCard from "../src/components/GameCard";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 vi.mock("lucide-react", () => ({
   Download: () => <div data-testid="icon-download" />,
@@ -90,7 +91,9 @@ describe("GameCard", () => {
   const renderComponent = (props = {}) => {
     return render(
       <QueryClientProvider client={queryClient}>
-        <GameCard game={mockGame} {...props} />
+        <TooltipProvider>
+          <GameCard game={mockGame} {...props} />
+        </TooltipProvider>
       </QueryClientProvider>
     );
   };

@@ -346,10 +346,12 @@ describe("RTorrentClient", () => {
       expect(result.success).toBe(true);
       expect(fetchMock.mock.calls.length).toBe(4); // download + add + set category + set path
 
-      // Verify d.directory.set was called with /downloads/games (category append)
+      // rTorrent handles categories natively via d.custom1.set — the path must NOT
+      // have the category appended (that would cause double-nesting /path/cat/cat).
       const directorySetCall = fetchMock.mock.calls[3][1].body;
       expect(directorySetCall).toContain("d.directory.set");
-      expect(directorySetCall).toContain("/downloads/games");
+      expect(directorySetCall).toContain("/downloads");
+      expect(directorySetCall).not.toContain("/downloads/games");
     });
 
     it("should add download with downloadPath only (no category)", async () => {

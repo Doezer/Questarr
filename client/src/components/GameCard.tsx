@@ -249,7 +249,7 @@ const GameCard = ({
               <div
                 className="flex items-center gap-1"
                 tabIndex={0}
-                role="group"
+                role="img"
                 aria-label={`Rating: ${game.rating ? `${game.rating} out of 10` : "Not rated"}`}
               >
                 <Star className="w-3 h-3 text-accent" aria-hidden="true" />
@@ -267,7 +267,7 @@ const GameCard = ({
               <div
                 className="flex items-center gap-1"
                 tabIndex={0}
-                role="group"
+                role="img"
                 aria-label={`Release Date: ${game.releaseDate || "To be announced"}`}
               >
                 <Calendar className="w-3 h-3" aria-hidden="true" />

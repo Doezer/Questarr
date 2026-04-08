@@ -165,7 +165,7 @@ const GameCarouselSection = ({
               <div
                 className="inline-block"
                 tabIndex={!canScrollPrev ? 0 : -1}
-                role="group"
+                role="region"
                 aria-label={!canScrollPrev ? "First page reached" : "Previous page"}
               >
                 <Button
@@ -190,7 +190,7 @@ const GameCarouselSection = ({
               <div
                 className="inline-block"
                 tabIndex={!canScrollNext ? 0 : -1}
-                role="group"
+                role="region"
                 aria-label={!canScrollNext ? "Last page reached" : "Next page"}
               >
                 <Button

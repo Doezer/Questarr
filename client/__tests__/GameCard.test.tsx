@@ -102,6 +102,20 @@ describe("GameCard", () => {
     expect(screen.getByTestId("text-release-1")).toHaveTextContent("2024-01-01");
   });
 
+  it("displays a rating of 0 as '0/10' rather than 'N/A'", () => {
+    renderComponent({ game: { ...mockGame, rating: 0 } });
+    expect(screen.getByTestId("text-rating-1")).toHaveTextContent("0/10");
+    const ratingGroup = screen.getByRole("img", { name: /Rating: 0 out of 10/i });
+    expect(ratingGroup).toBeInTheDocument();
+  });
+
+  it("shows 'N/A' and 'Not rated' aria-label when rating is null", () => {
+    renderComponent({ game: { ...mockGame, rating: null } });
+    expect(screen.getByTestId("text-rating-1")).toHaveTextContent("N/A");
+    const ratingGroup = screen.getByRole("img", { name: /Rating: Not rated/i });
+    expect(ratingGroup).toBeInTheDocument();
+  });
+
   it("calls onViewDetails when clicking the card", () => {
     const onViewDetails = vi.fn();
     renderComponent({ onViewDetails });

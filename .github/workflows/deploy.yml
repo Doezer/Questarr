@@ -12,6 +12,7 @@ on:
         options:
           - production
           - dev
+          - test
       tag:
         description: "Docker image tag (leave empty for auto-generated tag)"
         required: false

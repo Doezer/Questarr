@@ -85,6 +85,13 @@
       "when": 1774730644854,
       "tag": "0011_preferred_release_groups",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1775461016503,
+      "tag": "0012_user_rating",
+      "breakpoints": true
     }
   ]
 }

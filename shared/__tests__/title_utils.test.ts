@@ -181,6 +181,9 @@ describe("title-utils", () => {
         expect(matchesPlatformFilter("PS4", "PS4")).toBe(true);
         expect(matchesPlatformFilter("Switch", "Switch")).toBe(true);
         expect(matchesPlatformFilter("Xbox", "Xbox")).toBe(true);
+        expect(matchesPlatformFilter("Xbox Series", "Xbox Series")).toBe(true);
+        // "Xbox" preference is a superset: it also matches Xbox Series releases
+        expect(matchesPlatformFilter("Xbox Series", "Xbox")).toBe(true);
         expect(matchesPlatformFilter("Mac", "Mac")).toBe(true);
         expect(matchesPlatformFilter("Linux", "Linux")).toBe(true);
       });

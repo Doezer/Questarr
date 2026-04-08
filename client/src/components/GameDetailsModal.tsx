@@ -329,18 +329,15 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   });
 
   const userRatingMutation = useMutation<
-    Game,
+    void,
     Error,
     { gameId: string; userRating: number | null }
   >({
     mutationFn: async ({ gameId, userRating }) => {
-      const res = await apiRequest("PATCH", `/api/games/${gameId}/user-rating`, { userRating });
-      return res.json() as Promise<Game>;
+      await apiRequest("PATCH", `/api/games/${gameId}/user-rating`, { userRating });
     },
-    onSuccess: (updatedGame) => {
-      queryClient.setQueryData<Game[]>(["/api/games"], (old) =>
-        old ? old.map((g) => (g.id === updatedGame.id ? updatedGame : g)) : old
-      );
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
     },
     onError: () => {
       toast({ description: "Failed to save your rating", variant: "destructive" });
@@ -729,59 +726,56 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
             >
               <ScrollArea className="h-full">
                 <div className="space-y-6 pr-4 pb-2">
-                  {/* Your Rating */}
-                  <div data-testid="section-user-rating">
-                    <h4 className="font-medium text-sm text-muted-foreground mb-2">Your rating</h4>
-                    <StarRatingInput value={currentUserRating} onChange={handleUserRatingChange} />
-                  </div>
-
                   {/* Ratings */}
-                  {(game.rating || game.aggregatedRating) && (
-                    <div>
-                      <h3 className="font-semibold mb-3 flex items-center gap-2">
-                        <Star className="w-4 h-4" />
-                        Ratings
-                      </h3>
-                      <div className="flex flex-wrap gap-4">
-                        {game.rating ? (
-                          <div className="flex items-center gap-3">
-                            <div
-                              className={`w-14 h-14 rounded-xl flex items-center justify-center text-lg font-bold ${scoreColor(game.rating)}`}
-                            >
-                              {game.rating.toFixed(1)}
-                            </div>
-                            <div>
-                              <div className="flex items-center gap-1.5 text-sm font-medium">
-                                <Users className="w-3.5 h-3.5" />
-                                IGDB Users
-                              </div>
-                              <p className="text-xs text-muted-foreground mt-0.5">
-                                Community score
-                              </p>
-                            </div>
+                  <div>
+                    <h3 className="font-semibold mb-3 flex items-center gap-2">
+                      <Star className="w-4 h-4" />
+                      Ratings
+                    </h3>
+                    <div className="flex flex-wrap gap-4 mb-4">
+                      {game.rating ? (
+                        <div className="flex items-center gap-3">
+                          <div
+                            className={`w-14 h-14 rounded-xl flex items-center justify-center text-lg font-bold ${scoreColor(game.rating)}`}
+                          >
+                            {game.rating.toFixed(1)}
                           </div>
-                        ) : null}
-                        {game.aggregatedRating ? (
-                          <div className="flex items-center gap-3">
-                            <div
-                              className={`w-14 h-14 rounded-xl flex items-center justify-center text-lg font-bold ${scoreColor(game.aggregatedRating)}`}
-                            >
-                              {game.aggregatedRating.toFixed(1)}
+                          <div>
+                            <div className="flex items-center gap-1.5 text-sm font-medium">
+                              <Users className="w-3.5 h-3.5" />
+                              IGDB Users
                             </div>
-                            <div>
-                              <div className="flex items-center gap-1.5 text-sm font-medium">
-                                <SiMetacritic size={14} />
-                                Critics
-                              </div>
-                              <p className="text-xs text-muted-foreground mt-0.5">
-                                Aggregate score
-                              </p>
-                            </div>
+                            <p className="text-xs text-muted-foreground mt-0.5">Community score</p>
                           </div>
-                        ) : null}
-                      </div>
+                        </div>
+                      ) : null}
+                      {game.aggregatedRating ? (
+                        <div className="flex items-center gap-3">
+                          <div
+                            className={`w-14 h-14 rounded-xl flex items-center justify-center text-lg font-bold ${scoreColor(game.aggregatedRating)}`}
+                          >
+                            {game.aggregatedRating.toFixed(1)}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-1.5 text-sm font-medium">
+                              <SiMetacritic size={14} />
+                              Critics
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-0.5">Aggregate score</p>
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
-                  )}
+                    <div data-testid="section-user-rating">
+                      <h4 className="font-medium text-sm text-muted-foreground mb-2">
+                        Your rating
+                      </h4>
+                      <StarRatingInput
+                        value={currentUserRating}
+                        onChange={handleUserRatingChange}
+                      />
+                    </div>
+                  </div>
 
                   <TooltipProvider>
                     {/* IGDB website links */}

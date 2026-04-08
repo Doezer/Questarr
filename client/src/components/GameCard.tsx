@@ -249,7 +249,7 @@ const GameCard = ({
               <div
                 className="flex items-center gap-1"
                 role="img"
-                aria-label={`Rating: ${game.rating !== null ? `${game.rating} out of 10` : "Not rated"}`}
+                aria-label={`IGDB rating: ${game.rating !== null ? `${game.rating} out of 10` : "Not rated"}`}
               >
                 <Star className="w-3 h-3 text-accent" aria-hidden="true" />
                 <span data-testid={`text-rating-${game.id}`}>
@@ -258,9 +258,26 @@ const GameCard = ({
               </div>
             </TooltipTrigger>
             <TooltipContent>
-              <p>Rating</p>
+              <p>IGDB score</p>
             </TooltipContent>
           </Tooltip>
+          {!isDiscovery && game.userRating !== null && game.userRating !== undefined && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div
+                  className="flex items-center gap-1"
+                  role="img"
+                  aria-label={`My rating: ${game.userRating} out of 10`}
+                >
+                  <Star className="w-3 h-3 fill-primary text-primary" aria-hidden="true" />
+                  <span data-testid={`text-user-rating-${game.id}`}>{game.userRating}/10</span>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>My rating</p>
+              </TooltipContent>
+            </Tooltip>
+          )}
           <Tooltip>
             <TooltipTrigger asChild>
               <div

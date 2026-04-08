@@ -36,6 +36,7 @@ import {
   ExternalLink,
   Users,
   Building2,
+  ThumbsUp,
 } from "lucide-react";
 import { FaSteam, FaRedditAlien, FaDiscord, FaWikipediaW, FaTwitch } from "react-icons/fa";
 import {
@@ -71,6 +72,20 @@ interface HLTBEntry {
   gameplayMainExtra: number;
   gameplayCompletionist: number;
   url: string;
+}
+
+interface NexusMod {
+  mod_id: number;
+  name: string;
+  summary: string;
+  picture_url: string | null;
+  mod_downloads: number;
+  mod_unique_downloads: number;
+  endorsement_count: number;
+  version: string;
+  updated_timestamp: number;
+  domain_name: string;
+  user: { name: string };
 }
 
 function scoreColor(score: number): string {
@@ -159,12 +174,6 @@ function getDerivedLinks(
       Icon: Tag as IconComponent,
       colorClass: "text-green-400",
       href: `https://isthereanydeal.com/search/?q=${t}`,
-    },
-    {
-      label: "NexusMods",
-      Icon: SiNexusmods as IconComponent,
-      colorClass: "text-amber-500",
-      href: `https://www.nexusmods.com/games?keyword=${t}`,
     },
   ];
 }
@@ -343,7 +352,38 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     staleTime: 24 * 60 * 60 * 1000,
   });
 
+  const { data: nexusGameData, isError: nexusDomainError } = useQuery<{
+    configured: boolean;
+    domain: string | null;
+  }>({
+    queryKey: [`/api/nexusmods/game-domain`, game?.title],
+    queryFn: async () => {
+      const res = await apiRequest(
+        "GET",
+        `/api/nexusmods/game-domain?title=${encodeURIComponent(game!.title)}`
+      );
+      return res.json();
+    },
+    enabled: open && !!game,
+  });
+
   const hltbData = hltbResult?.data ?? null;
+
+  const nexusDomain = nexusGameData?.configured ? nexusGameData.domain : undefined;
+
+  const { data: trendingMods = [], isLoading: trendingLoading } = useQuery<NexusMod[]>({
+    queryKey: [`/api/nexusmods/trending-mods`, nexusDomain],
+    queryFn: async () => {
+      const res = await apiRequest(
+        "GET",
+        `/api/nexusmods/trending-mods?domain=${encodeURIComponent(nexusDomain!)}&limit=10`
+      );
+      return res.json();
+    },
+    enabled: !!nexusDomain,
+    staleTime: 60 * 60 * 1000,
+  });
+
   const removeGameMutation = useMutation({
     mutationFn: async (gameId: string) => {
       await apiRequest("DELETE", `/api/games/${gameId}`);
@@ -534,6 +574,12 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                 )}
               </TabsTrigger>
               <TabsTrigger value="links">Links & Ratings</TabsTrigger>
+              {nexusDomain && (
+                <TabsTrigger value="mods">
+                  <SiNexusmods className="h-3.5 w-3.5 text-amber-500 mr-1" />
+                  Mods
+                </TabsTrigger>
+              )}
             </TabsList>
 
             {/* ── Overview tab ── */}
@@ -922,12 +968,125 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                             <TooltipContent className="sm:hidden">{link.label}</TooltipContent>
                           </Tooltip>
                         ))}
+                        {/* NexusMods: direct link when configured + found, fallback search when unconfigured */}
+                        {nexusGameData &&
+                          (nexusDomain ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <a
+                                  href={safeUrl(`https://www.nexusmods.com/${nexusDomain}/mods/`)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                >
+                                  <Button variant="outline" size="sm" className="gap-2">
+                                    <SiNexusmods size={16} className="text-amber-500" />
+                                    <span className="hidden sm:inline">NexusMods</span>
+                                  </Button>
+                                </a>
+                              </TooltipTrigger>
+                              <TooltipContent className="sm:hidden">NexusMods</TooltipContent>
+                            </Tooltip>
+                          ) : !nexusGameData.configured ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <a
+                                  href={safeUrl(
+                                    `https://www.nexusmods.com/games?keyword=${encodeURIComponent(game.title)}`
+                                  )}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                >
+                                  <Button variant="outline" size="sm" className="gap-2">
+                                    <SiNexusmods size={16} className="text-amber-500" />
+                                    <span className="hidden sm:inline">NexusMods</span>
+                                  </Button>
+                                </a>
+                              </TooltipTrigger>
+                              <TooltipContent className="sm:hidden">NexusMods</TooltipContent>
+                            </Tooltip>
+                          ) : null)}
                       </div>
                     </div>
                   </TooltipProvider>
                 </div>
               </ScrollArea>
             </TabsContent>
+
+            {/* ── Mods tab ── */}
+            {nexusDomain && (
+              <TabsContent value="mods" className="flex-1 min-h-0">
+                <ScrollArea className="h-full">
+                  <div className="space-y-4 pr-4 pb-2">
+                    <h3 className="font-semibold flex items-center gap-2">
+                      <SiNexusmods className="w-4 h-4 text-amber-500" />
+                      Trending Mods on Nexus Mods
+                    </h3>
+                    {trendingLoading ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {Array.from({ length: 4 }).map((_, i) => (
+                          <div key={i} className="h-24 rounded-lg bg-muted animate-pulse" />
+                        ))}
+                      </div>
+                    ) : trendingMods.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No trending mods found.</p>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {trendingMods.map((mod) => (
+                          <a
+                            key={mod.mod_id}
+                            href={safeUrl(
+                              `https://www.nexusmods.com/${nexusDomain}/mods/${mod.mod_id}`
+                            )}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="group"
+                          >
+                            <Card className="overflow-hidden hover:ring-1 hover:ring-amber-500 transition-all">
+                              <CardContent className="p-0 flex gap-3">
+                                {mod.picture_url ? (
+                                  <img
+                                    src={mod.picture_url}
+                                    alt={mod.name}
+                                    className="w-20 h-20 object-cover flex-shrink-0"
+                                  />
+                                ) : (
+                                  <div className="w-20 h-20 flex-shrink-0 bg-muted flex items-center justify-center">
+                                    <SiNexusmods className="w-6 h-6 text-muted-foreground" />
+                                  </div>
+                                )}
+                                <div className="flex-1 min-w-0 py-2 pr-2">
+                                  <p className="text-sm font-medium truncate group-hover:text-amber-400 transition-colors">
+                                    {mod.name}
+                                  </p>
+                                  {mod.summary && (
+                                    <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
+                                      {mod.summary}
+                                    </p>
+                                  )}
+                                  <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                                    <span className="flex items-center gap-1">
+                                      <Download className="w-3 h-3" />
+                                      {mod.mod_unique_downloads.toLocaleString()}
+                                    </span>
+                                    <span className="flex items-center gap-1">
+                                      <ThumbsUp className="w-3 h-3" />
+                                      {mod.endorsement_count.toLocaleString()}
+                                    </span>
+                                    {mod.user?.name && (
+                                      <span className="truncate">by {mod.user.name}</span>
+                                    )}
+                                  </div>
+                                </div>
+                              </CardContent>
+                            </Card>
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </ScrollArea>
+              </TabsContent>
+            )}
           </Tabs>
         </DialogContent>
       </Dialog>

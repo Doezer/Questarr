@@ -49,6 +49,7 @@ import { prowlarrClient } from "./prowlarr.js";
 import { isSafeUrl, safeFetch } from "./ssrf.js";
 import { hashPassword, comparePassword, generateToken, authenticateToken } from "./auth.js";
 import { hltbClient } from "./hltb.js";
+import { nexusmodsClient } from "./nexusmods.js";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -2958,6 +2959,76 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       routesLogger.error({ error }, "Failed to share stats to Discord");
       res.status(500).json({ error: "Failed to share stats to Discord" });
+    }
+  });
+
+  // ── NexusMods settings ───────────────────────────────────────────────────────
+
+  app.get("/api/settings/nexusmods", sensitiveEndpointLimiter, async (_req, res) => {
+    try {
+      const dbKey = await storage.getSystemConfig("nexusmods.apiKey");
+      const configured = !!(dbKey && dbKey.length > 0) || nexusmodsClient.isConfigured();
+      let source: "env" | "database" | undefined;
+      if (dbKey && dbKey.length > 0) {
+        source = "database";
+      } else if (process.env.NEXUSMODS_API_KEY) {
+        source = "env";
+      }
+      res.json({ configured, source });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to fetch NexusMods settings");
+      res.status(500).json({ error: "Failed to fetch NexusMods settings" });
+    }
+  });
+
+  app.post("/api/settings/nexusmods", sensitiveEndpointLimiter, async (req, res) => {
+    try {
+      const { apiKey } = req.body as { apiKey?: string };
+      if (!apiKey || apiKey.trim().length === 0) {
+        return res.status(400).json({ error: "API key is required" });
+      }
+      await storage.setSystemConfig("nexusmods.apiKey", apiKey.trim());
+      nexusmodsClient.configure(apiKey.trim());
+      routesLogger.info("NexusMods API key updated via settings");
+      res.json({ success: true });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to update NexusMods settings");
+      res.status(500).json({ error: "Failed to update NexusMods settings" });
+    }
+  });
+
+  // ── NexusMods game lookup ─────────────────────────────────────────────────────
+
+  app.get("/api/nexusmods/game-domain", async (req, res) => {
+    try {
+      const title = typeof req.query.title === "string" ? req.query.title.trim() : "";
+      if (!title) {
+        return res.status(400).json({ error: "title query parameter is required" });
+      }
+      if (!nexusmodsClient.isConfigured()) {
+        return res.json({ configured: false, domain: null });
+      }
+      const domain = await nexusmodsClient.findGameDomain(title);
+      res.json({ configured: true, domain });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to look up NexusMods game domain");
+      res.status(500).json({ error: "Failed to look up NexusMods game domain" });
+    }
+  });
+
+  app.get("/api/nexusmods/trending-mods", async (req, res) => {
+    try {
+      const domain = typeof req.query.domain === "string" ? req.query.domain.trim() : "";
+      if (!domain) {
+        return res.status(400).json({ error: "domain query parameter is required" });
+      }
+      const limitRaw = typeof req.query.limit === "string" ? parseInt(req.query.limit, 10) : 10;
+      const limit = Number.isNaN(limitRaw) || limitRaw < 1 ? 10 : Math.min(limitRaw, 20);
+      const mods = await nexusmodsClient.getTrendingMods(domain, limit);
+      res.json(mods);
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to fetch NexusMods trending mods");
+      res.status(500).json({ error: "Failed to fetch NexusMods trending mods" });
     }
   });
 

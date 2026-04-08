@@ -103,12 +103,6 @@ vi.mock("../nexusmods.js", () => ({
   },
 }));
 
-vi.mock("../hltb.js", () => ({
-  hltbClient: {
-    lookup: vi.fn().mockResolvedValue(null),
-  },
-}));
-
 vi.mock("../igdb.js", () => ({
   igdbClient: {
     searchGames: vi.fn().mockResolvedValue([]),
@@ -205,7 +199,7 @@ vi.mock("../ssrf.js", () => ({ isSafeUrl: vi.fn().mockResolvedValue(true), safeF
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-describe("HLTB Routes", () => {
+describe("NexusMods Routes", () => {
   let app: express.Express;
 
   beforeEach(async () => {
@@ -215,72 +209,169 @@ describe("HLTB Routes", () => {
     await registerRoutes(app);
   });
 
-  async function getHltbMock() {
-    const mod = await import("../hltb.js");
-    return mod.hltbClient;
+  // Helper: get the mocked nexusmods client
+  async function getNexusMock() {
+    const mod = await import("../nexusmods.js");
+    return mod.nexusmodsClient;
   }
 
-  describe("GET /api/hltb/lookup", () => {
-    it("returns { data: null } when no match is found", async () => {
-      const hltbMock = await getHltbMock();
-      vi.mocked(hltbMock.lookup).mockResolvedValue(null);
+  // Helper: get the mocked storage
+  async function getStorageMock() {
+    const mod = await import("../storage.js");
+    return mod.storage;
+  }
 
-      const res = await request(app).get("/api/hltb/lookup").query({ title: "UnknownGame" });
+  // ── GET /api/settings/nexusmods ─────────────────────────────────────────────
 
+  describe("GET /api/settings/nexusmods", () => {
+    it("returns configured: false when API key is not set", async () => {
+      const storageMock = await getStorageMock();
+      vi.mocked(storageMock.getSystemConfig).mockResolvedValue(undefined);
+      const nexusMock = await getNexusMock();
+      vi.mocked(nexusMock.isConfigured).mockReturnValue(false);
+
+      const res = await request(app).get("/api/settings/nexusmods");
       expect(res.status).toBe(200);
-      expect(res.body.data).toBeNull();
+      expect(res.body.configured).toBe(false);
     });
 
-    it("returns entry data when a match is found", async () => {
-      const hltbMock = await getHltbMock();
-      const mockEntry = {
-        id: 36936,
-        name: "Nioh",
-        gameplayMain: 35,
-        gameplayMainExtra: 61,
-        gameplayCompletionist: 94,
-        url: "https://howlongtobeat.com/game/36936",
-      };
-      vi.mocked(hltbMock.lookup).mockResolvedValue(mockEntry);
+    it("returns configured: true and source: database when DB key is set", async () => {
+      const storageMock = await getStorageMock();
+      vi.mocked(storageMock.getSystemConfig).mockResolvedValue("db-api-key");
+      const nexusMock = await getNexusMock();
+      vi.mocked(nexusMock.isConfigured).mockReturnValue(true);
 
-      const res = await request(app).get("/api/hltb/lookup").query({ title: "Nioh" });
+      const res = await request(app).get("/api/settings/nexusmods");
+      expect(res.status).toBe(200);
+      expect(res.body.configured).toBe(true);
+      expect(res.body.source).toBe("database");
+    });
+  });
+
+  // ── POST /api/settings/nexusmods ────────────────────────────────────────────
+
+  describe("POST /api/settings/nexusmods", () => {
+    it("saves API key and returns success", async () => {
+      const storageMock = await getStorageMock();
+      vi.mocked(storageMock.setSystemConfig).mockResolvedValue(undefined);
+
+      const res = await request(app)
+        .post("/api/settings/nexusmods")
+        .send({ apiKey: "valid-api-key" });
 
       expect(res.status).toBe(200);
-      expect(res.body.data).toMatchObject({
-        id: 36936,
-        name: "Nioh",
-        gameplayMain: 35,
-        url: "https://howlongtobeat.com/game/36936",
-      });
+      expect(res.body.success).toBe(true);
+      expect(storageMock.setSystemConfig).toHaveBeenCalledWith("nexusmods.apiKey", "valid-api-key");
+    });
+
+    it("returns 400 when API key is empty", async () => {
+      const res = await request(app).post("/api/settings/nexusmods").send({ apiKey: "" });
+      expect(res.status).toBe(400);
+    });
+
+    it("returns 400 when API key is missing", async () => {
+      const res = await request(app).post("/api/settings/nexusmods").send({});
+      expect(res.status).toBe(400);
+    });
+  });
+
+  // ── GET /api/nexusmods/game-domain ──────────────────────────────────────────
+
+  describe("GET /api/nexusmods/game-domain", () => {
+    it("returns configured: false when not configured", async () => {
+      const nexusMock = await getNexusMock();
+      vi.mocked(nexusMock.isConfigured).mockReturnValue(false);
+
+      const res = await request(app)
+        .get("/api/nexusmods/game-domain")
+        .query({ title: "Witcher 3" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.configured).toBe(false);
+      expect(res.body.domain).toBeNull();
+    });
+
+    it("returns domain when configured and game found", async () => {
+      const nexusMock = await getNexusMock();
+      vi.mocked(nexusMock.isConfigured).mockReturnValue(true);
+      vi.mocked(nexusMock.findGameDomain).mockResolvedValue("witcher3");
+
+      const res = await request(app)
+        .get("/api/nexusmods/game-domain")
+        .query({ title: "The Witcher 3" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.configured).toBe(true);
+      expect(res.body.domain).toBe("witcher3");
+    });
+
+    it("returns domain: null when configured but game not found", async () => {
+      const nexusMock = await getNexusMock();
+      vi.mocked(nexusMock.isConfigured).mockReturnValue(true);
+      vi.mocked(nexusMock.findGameDomain).mockResolvedValue(null);
+
+      const res = await request(app)
+        .get("/api/nexusmods/game-domain")
+        .query({ title: "UnknownGame12345" });
+
+      expect(res.status).toBe(200);
+      expect(res.body.configured).toBe(true);
+      expect(res.body.domain).toBeNull();
     });
 
     it("returns 400 when title param is missing", async () => {
-      const res = await request(app).get("/api/hltb/lookup");
+      const res = await request(app).get("/api/nexusmods/game-domain");
+      expect(res.status).toBe(400);
+    });
+  });
+
+  // ── GET /api/nexusmods/trending-mods ────────────────────────────────────────
+
+  describe("GET /api/nexusmods/trending-mods", () => {
+    const mockMods = [
+      {
+        mod_id: 1,
+        name: "Mod A",
+        summary: "Summary",
+        picture_url: "https://example.com/img.jpg",
+        mod_downloads: 1000,
+        mod_unique_downloads: 800,
+        endorsement_count: 500,
+        version: "1.0",
+        updated_timestamp: 1700000000,
+        domain_name: "witcher3",
+        user: { name: "Author" },
+      },
+    ];
+
+    it("returns trending mods for a valid domain", async () => {
+      const nexusMock = await getNexusMock();
+      vi.mocked(nexusMock.getTrendingMods).mockResolvedValue(mockMods);
+
+      const res = await request(app)
+        .get("/api/nexusmods/trending-mods")
+        .query({ domain: "witcher3" });
+
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body)).toBe(true);
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0].mod_id).toBe(1);
+    });
+
+    it("returns 400 when domain param is missing", async () => {
+      const res = await request(app).get("/api/nexusmods/trending-mods");
       expect(res.status).toBe(400);
     });
 
-    it("returns 400 when title param is empty string", async () => {
-      const res = await request(app).get("/api/hltb/lookup").query({ title: "" });
-      expect(res.status).toBe(400);
-    });
+    it("respects limit query param", async () => {
+      const nexusMock = await getNexusMock();
+      vi.mocked(nexusMock.getTrendingMods).mockResolvedValue(mockMods);
 
-    it("calls hltbClient.lookup with the provided title", async () => {
-      const hltbMock = await getHltbMock();
-      vi.mocked(hltbMock.lookup).mockResolvedValue(null);
+      await request(app)
+        .get("/api/nexusmods/trending-mods")
+        .query({ domain: "witcher3", limit: "5" });
 
-      await request(app).get("/api/hltb/lookup").query({ title: "The Witcher 3" });
-
-      expect(hltbMock.lookup).toHaveBeenCalledWith("The Witcher 3");
-    });
-
-    it("returns 500 when hltbClient.lookup throws", async () => {
-      const hltbMock = await getHltbMock();
-      vi.mocked(hltbMock.lookup).mockRejectedValue(new Error("Internal error"));
-
-      const res = await request(app).get("/api/hltb/lookup").query({ title: "Nioh" });
-
-      expect(res.status).toBe(500);
-      expect(res.body.error).toBeDefined();
+      expect(nexusMock.getTrendingMods).toHaveBeenCalledWith("witcher3", 5);
     });
   });
 });

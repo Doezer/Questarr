@@ -350,7 +350,7 @@ describe("RTorrentClient", () => {
       // have the category appended (that would cause double-nesting /path/cat/cat).
       const directorySetCall = fetchMock.mock.calls[3][1].body;
       expect(directorySetCall).toContain("d.directory.set");
-      expect(directorySetCall).toContain("/downloads");
+      expect(directorySetCall).toContain("/downloads</string>");
       expect(directorySetCall).not.toContain("/downloads/games");
     });
 

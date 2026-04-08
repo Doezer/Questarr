@@ -343,6 +343,26 @@ describe("MemStorage", () => {
       expect(settings.autoSearchUnreleased).toBe(false); // Default is false
       expect(settings.autoSearchEnabled).toBe(true); // Default is true
     });
+
+    it("should persist and retrieve preferredPlatform", async () => {
+      const user = await storage.createUser({
+        username: "platformuser",
+        passwordHash: "hash",
+      });
+
+      const settings = await storage.createUserSettings({
+        userId: user.id,
+        preferredPlatform: "PS5",
+      });
+
+      expect(settings.preferredPlatform).toBe("PS5");
+
+      const updated = await storage.updateUserSettings(user.id, { preferredPlatform: "Switch" });
+      expect(updated?.preferredPlatform).toBe("Switch");
+
+      const cleared = await storage.updateUserSettings(user.id, { preferredPlatform: null });
+      expect(cleared?.preferredPlatform).toBeNull();
+    });
   });
 
   describe("Release Blacklist Management", () => {

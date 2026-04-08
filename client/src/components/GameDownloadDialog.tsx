@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Dialog,
@@ -68,7 +68,11 @@ import {
   downloadRulesSchema,
 } from "@shared/schema";
 import { groupDownloadsByCategory, type DownloadCategory } from "@shared/download-categorizer";
-import { parseReleaseMetadata, parseJsonStringArray } from "@shared/title-utils";
+import {
+  parseReleaseMetadata,
+  parseJsonStringArray,
+  matchesPlatformFilter,
+} from "@shared/title-utils";
 
 interface DownloadItem {
   title: string;
@@ -140,6 +144,9 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   );
   const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
+  // Tracks whether platform preselection has been applied this dialog session to prevent
+  // re-applying it (and overriding the user's manual choice) if userSettings refetches.
+  const platformPreselectedRef = useRef(false);
 
   const setDefaults = useCallback(() => {
     setSearchQuery("");
@@ -155,6 +162,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     setVisibleCategories(new Set(["main", "update", "dlc", "extra"] as DownloadCategory[]));
     setSelectedGroups([]);
     setSelectedPlatforms([]);
+    platformPreselectedRef.current = false;
   }, []);
 
   const { data: userSettings } = useQuery<UserSettings>({
@@ -182,10 +190,15 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         setSelectedGroups(groups);
       }
     }
+    if (userSettings?.preferredPlatform && !platformPreselectedRef.current) {
+      setSelectedPlatforms([userSettings.preferredPlatform]);
+      platformPreselectedRef.current = true;
+    }
   }, [
     userSettings?.downloadRules,
     userSettings?.filterByPreferredGroups,
     userSettings?.preferredReleaseGroups,
+    userSettings?.preferredPlatform,
   ]);
 
   // Auto-populate search when dialog opens with game title
@@ -252,18 +265,24 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   }, [searchResults?.items]);
 
   const availablePlatforms = useMemo(() => {
+    const metas = Array.from(itemsMetadata.values());
     const platforms = new Set(
-      Array.from(itemsMetadata.values())
-        .map((meta) => meta.platform)
-        .filter((p): p is string => Boolean(p))
+      metas.map((meta) => meta.platform).filter((p): p is string => Boolean(p))
     );
+    // PC also covers releases with no detected platform — add it when such items exist
+    if (metas.some((meta) => !meta.platform)) {
+      platforms.add("PC");
+    }
     return Array.from(platforms)
       .sort((a, b) => a.localeCompare(b))
       .map((p) => ({ label: p, value: p }));
   }, [itemsMetadata]);
 
-  // Remove stale platform selections when available platforms change
+  // Remove stale platform selections when available platforms change.
+  // Guard: skip when results haven't loaded yet (empty availablePlatforms) so that a
+  // preselected preferred platform isn't wiped before the first result set arrives.
   useEffect(() => {
+    if (availablePlatforms.length === 0) return;
     const validValues = new Set(availablePlatforms.map((p) => p.value));
     setSelectedPlatforms((prev) => {
       if (prev.length === 0) return prev;
@@ -294,7 +313,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         .filter((t) => {
           if (selectedPlatforms.length === 0) return true;
           const platform = itemsMetadata.get(t.title)?.platform;
-          return platform ? selectedPlatforms.includes(platform) : false;
+          return selectedPlatforms.some((sp) => matchesPlatformFilter(platform, sp));
         })
         .sort((a, b) => {
           let comparison = 0;

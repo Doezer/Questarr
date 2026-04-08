@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useDebounce } from "@/hooks/use-debounce";
 import { queryClient } from "@/lib/queryClient";
@@ -107,9 +107,14 @@ export default function SearchPage() {
     enabled: debouncedSearchQuery.trim().length > 0,
   });
 
-  const sortedItems = (searchResults?.items || []).slice().sort((a, b) => {
-    return new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime();
-  });
+  // ⚡ Bolt: Memoize the sorted search results to avoid O(n log n) date parsing
+  // and sorting on every render when interacting with the search page state
+  // (like opening the download dialog or typing).
+  const sortedItems = useMemo(() => {
+    return (searchResults?.items || []).slice().sort((a, b) => {
+      return new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime();
+    });
+  }, [searchResults?.items]);
 
   // Show toast notification when search completes
   useEffect(() => {

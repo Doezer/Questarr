@@ -95,6 +95,7 @@ const mockGame = {
   summary: "This is a test summary for the game.",
   status: "wanted",
   rating: 8.5,
+  userRating: null,
   releaseDate: new Date("2023-01-01").toISOString(),
   coverUrl: "http://test.com/cover.jpg",
   genres: ["Action", "Adventure"],
@@ -108,6 +109,7 @@ const createQueryClient = () =>
   new QueryClient({
     defaultOptions: {
       queries: { retry: false },
+      mutations: { retry: false },
     },
   });
 
@@ -237,5 +239,56 @@ describe("GameDetailsModal", () => {
     fireEvent.click(readMoreButton);
 
     expect(summaryText).toHaveTextContent("Show less");
+  });
+
+  it("renders the Your rating section", () => {
+    renderComponent();
+    // Links tab is forceMount-ed; always in DOM
+    expect(screen.getByTestId("section-user-rating")).toBeInTheDocument();
+    expect(screen.getByText("Your rating")).toBeInTheDocument();
+  });
+
+  it('shows "Not rated" when userRating is null', () => {
+    renderComponent({ ...mockGame, userRating: null } as unknown as import("@shared/schema").Game);
+    expect(screen.getByText("Not rated")).toBeInTheDocument();
+  });
+
+  it("shows numeric rating when userRating is set", () => {
+    renderComponent({ ...mockGame, userRating: 8 } as unknown as import("@shared/schema").Game);
+    expect(screen.getByText("4/5")).toBeInTheDocument();
+  });
+
+  it("calls the user-rating API when a star is clicked", async () => {
+    // First call: downloads query (on render); second call: user-rating mutation (on click)
+    (global.fetch as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ ok: true, json: vi.fn().mockResolvedValue([]) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ ...mockGame, userRating: 8 }),
+      });
+
+    renderComponent();
+
+    // Links tab is forceMount-ed; activate the tab so the button is interactive
+    fireEvent.click(screen.getByRole("tab", { name: /links/i }));
+
+    const rateButton = await screen.findByRole("button", { name: "Rate 4 out of 5" });
+    fireEvent.click(rateButton);
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining(`/api/games/${mockGame.id}/user-rating`),
+        expect.objectContaining({
+          method: "PATCH",
+          body: JSON.stringify({ userRating: 8 }),
+        })
+      );
+    });
+  });
+
+  it("uses 'IGDB score' label instead of 'Rating' in the metadata section", () => {
+    renderComponent();
+    expect(screen.getByText("IGDB score")).toBeInTheDocument();
+    expect(screen.queryByText("Rating")).not.toBeInTheDocument();
   });
 });

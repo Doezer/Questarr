@@ -199,6 +199,103 @@ function SourceBadge({ source }: { source: string | null | undefined }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
+/** Click target for a half-star or full-star position within StarRatingInput. */
+function StarHitTarget({
+  ratingValue,
+  currentValue,
+  isRightHalf,
+  onHover,
+  onChange,
+}: {
+  ratingValue: number;
+  currentValue: number | null;
+  isRightHalf: boolean;
+  onHover: (v: number | null) => void;
+  onChange: (v: number | null) => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={`absolute inset-0 ${isRightHalf ? "left-1/2 " : ""}w-1/2 z-10 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:rounded-sm`}
+      aria-label={`Rate ${ratingValue / 2} out of 5`}
+      onMouseEnter={() => onHover(ratingValue)}
+      onMouseLeave={() => onHover(null)}
+      onClick={() => onChange(currentValue === ratingValue ? null : ratingValue)}
+    />
+  );
+}
+
+/** Interactive star rating: 0.5–10 in 0.5 increments, keyboard + mouse accessible. */
+function StarRatingInput({
+  value,
+  onChange,
+}: {
+  value: number | null;
+  onChange: (rating: number | null) => void;
+}) {
+  const [hovered, setHovered] = useState<number | null>(null);
+  const display = hovered ?? value;
+
+  return (
+    <div className="flex items-center gap-1" role="group" aria-label="Your rating">
+      {[1, 2, 3, 4, 5].map((star) => {
+        const fullValue = star * 2; // e.g. star=3 → fullValue=6
+        const halfValue = star * 2 - 1; // e.g. star=3 → halfValue=5
+        const isFull = display !== null && display >= fullValue;
+        const isHalf = display !== null && display >= halfValue && display < fullValue;
+
+        return (
+          <span key={star} className="relative inline-flex w-5 h-5">
+            <StarHitTarget
+              ratingValue={halfValue}
+              currentValue={value}
+              isRightHalf={false}
+              onHover={setHovered}
+              onChange={onChange}
+            />
+            <StarHitTarget
+              ratingValue={fullValue}
+              currentValue={value}
+              isRightHalf={true}
+              onHover={setHovered}
+              onChange={onChange}
+            />
+            {/* Background star first so the accent star renders on top */}
+            {isHalf && (
+              <Star
+                className="w-5 h-5 pointer-events-none text-muted-foreground absolute inset-0"
+                aria-hidden="true"
+              />
+            )}
+            {/* Visual star (accent-filled when full/half, muted otherwise) */}
+            <Star
+              className={`w-5 h-5 pointer-events-none transition-colors ${
+                isFull
+                  ? "text-accent fill-current"
+                  : isHalf
+                    ? "text-accent fill-current [clip-path:inset(0_50%_0_0)]"
+                    : "text-muted-foreground"
+              }`}
+              aria-hidden="true"
+            />
+          </span>
+        );
+      })}
+      {/* Always rendered so aria-live is a stable region for screen readers */}
+      <span className="text-sm text-muted-foreground ml-1" aria-live="polite">
+        {value !== null ? (
+          <>
+            {value % 2 === 0 ? value / 2 : `${Math.floor(value / 2)}.5`}/5
+            <span className="sr-only"> ({value}/10)</span>
+          </>
+        ) : (
+          "Not rated"
+        )}
+      </span>
+    </div>
+  );
+}
+
 export default function GameDetailsModal({ game, open, onOpenChange }: GameDetailsModalProps) {
   const [selectedScreenshot, setSelectedScreenshot] = useState<string | null>(null);
   const [downloadOpen, setDownloadOpen] = useState(false);
@@ -219,8 +316,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
 
   const removeGameMutation = useMutation({
     mutationFn: async (gameId: string) => {
-      const res = await apiRequest("DELETE", `/api/games/${gameId}`);
-      if (!res.ok) throw new Error("Failed to remove game");
+      await apiRequest("DELETE", `/api/games/${gameId}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/games"] });
@@ -232,6 +328,25 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     },
   });
 
+  const userRatingMutation = useMutation<
+    Game,
+    Error,
+    { gameId: string; userRating: number | null }
+  >({
+    mutationFn: async ({ gameId, userRating }) => {
+      const res = await apiRequest("PATCH", `/api/games/${gameId}/user-rating`, { userRating });
+      return res.json() as Promise<Game>;
+    },
+    onSuccess: (updatedGame) => {
+      queryClient.setQueryData<Game[]>(["/api/games"], (old) =>
+        old ? old.map((g) => (g.id === updatedGame.id ? updatedGame : g)) : old
+      );
+    },
+    onError: () => {
+      toast({ description: "Failed to save your rating", variant: "destructive" });
+    },
+  });
+
   const hiddenMutation = useHiddenMutation({
     hiddenSuccessMessage: "Game hidden from library",
     unhiddenSuccessMessage: "Game unhidden",
@@ -239,6 +354,10 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   });
 
   if (!game) return null;
+
+  const handleUserRatingChange = (rating: number | null) => {
+    userRatingMutation.mutate({ gameId: game.id, userRating: rating });
+  };
 
   const SUMMARY_LIMIT = 280;
   const isSummaryLong = game.summary && game.summary.length > SUMMARY_LIMIT;
@@ -249,6 +368,10 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
 
   const igdbWebsites = (game.igdbWebsites ?? []) as Array<{ category: number; url: string }>;
   const derivedLinks = getDerivedLinks(game);
+  // Optimistic display: show pending value immediately while the mutation is in flight.
+  const currentUserRating = userRatingMutation.isPending
+    ? (userRatingMutation.variables?.userRating ?? null)
+    : (game.userRating ?? null);
 
   return (
     <>
@@ -405,6 +528,17 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
 
                   {/* Metadata grid */}
                   <div className="grid md:grid-cols-2 gap-4">
+                    {game.rating && (
+                      <div>
+                        <h4 className="font-medium text-sm text-muted-foreground mb-1">
+                          IGDB score
+                        </h4>
+                        <div className="flex items-center gap-1">
+                          <Star className="w-4 h-4 text-accent fill-current" />
+                          <span className="text-sm font-medium">{game.rating}/10</span>
+                        </div>
+                      </div>
+                    )}
                     {game.releaseDate && (
                       <div>
                         <h4 className="font-medium text-sm text-muted-foreground mb-1">
@@ -588,9 +722,19 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
             </TabsContent>
 
             {/* ── Links & Ratings tab ── */}
-            <TabsContent value="links" className="flex-1 min-h-0">
+            <TabsContent
+              value="links"
+              forceMount
+              className="flex-1 min-h-0 data-[state=inactive]:hidden"
+            >
               <ScrollArea className="h-full">
                 <div className="space-y-6 pr-4 pb-2">
+                  {/* Your Rating */}
+                  <div data-testid="section-user-rating">
+                    <h4 className="font-medium text-sm text-muted-foreground mb-2">Your rating</h4>
+                    <StarRatingInput value={currentUserRating} onChange={handleUserRatingChange} />
+                  </div>
+
                   {/* Ratings */}
                   {(game.rating || game.aggregatedRating) && (
                     <div>

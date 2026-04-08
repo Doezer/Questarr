@@ -63,6 +63,7 @@ vi.mock("../storage.js", () => ({
     updateUserSettings: vi.fn().mockResolvedValue({}),
     updateGameStatus: vi.fn(),
     updateGameHidden: vi.fn(),
+    updateGameUserRating: vi.fn(),
     updateGameSearchResultsAvailable: vi.fn().mockResolvedValue(undefined),
     updateUserPassword: vi.fn(),
     updateGamesBatch: vi.fn(),
@@ -702,6 +703,80 @@ describe("API Routes - Extended Coverage", () => {
         .patch(`/api/games/${gameId}/hidden`)
         .send({ hidden: true });
       expect(response.status).toBe(200);
+    });
+  });
+
+  describe("PATCH /api/games/:id/user-rating", () => {
+    const gameId = "123e4567-e89b-12d3-a456-426614174000";
+
+    it("should set a valid rating scoped to the authenticated user", async () => {
+      const updatedGame = { id: gameId, userRating: 8 };
+      vi.mocked(storage.updateGameUserRating).mockResolvedValue(updatedGame as unknown as Game);
+
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/user-rating`)
+        .send({ userRating: 8 });
+      expect(response.status).toBe(200);
+      expect(response.body.userRating).toBe(8);
+      expect(vi.mocked(storage.updateGameUserRating)).toHaveBeenCalledWith(gameId, "user-1", 8);
+    });
+
+    it("should accept a half-step rating (0.5 increment)", async () => {
+      const updatedGame = { id: gameId, userRating: 7.5 };
+      vi.mocked(storage.updateGameUserRating).mockResolvedValue(updatedGame as unknown as Game);
+
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/user-rating`)
+        .send({ userRating: 7.5 });
+      expect(response.status).toBe(200);
+    });
+
+    it("should clear the rating with null", async () => {
+      const updatedGame = { id: gameId, userRating: null };
+      vi.mocked(storage.updateGameUserRating).mockResolvedValue(updatedGame as unknown as Game);
+
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/user-rating`)
+        .send({ userRating: null });
+      expect(response.status).toBe(200);
+      expect(response.body.userRating).toBeNull();
+    });
+
+    it("should return 400 for rating above 10", async () => {
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/user-rating`)
+        .send({ userRating: 11 });
+      expect(response.status).toBe(400);
+    });
+
+    it("should return 400 for rating below 0", async () => {
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/user-rating`)
+        .send({ userRating: -1 });
+      expect(response.status).toBe(400);
+    });
+
+    it("should return 400 for rating of 0 (minimum is 0.5)", async () => {
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/user-rating`)
+        .send({ userRating: 0 });
+      expect(response.status).toBe(400);
+    });
+
+    it("should return 400 for non-0.5-increment rating", async () => {
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/user-rating`)
+        .send({ userRating: 7.3 });
+      expect(response.status).toBe(400);
+    });
+
+    it("should return 404 if game not found (including cross-user access)", async () => {
+      vi.mocked(storage.updateGameUserRating).mockResolvedValue(undefined);
+
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/user-rating`)
+        .send({ userRating: 5 });
+      expect(response.status).toBe(404);
     });
   });
 

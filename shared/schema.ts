@@ -76,6 +76,7 @@ export const games = sqliteTable("games", {
   releaseStatus: text("release_status").default("upcoming"), // Enum validation handled by Zod
   earlyAccess: integer("early_access", { mode: "boolean" }).notNull().default(false),
   hidden: integer("hidden", { mode: "boolean" }).notNull().default(false),
+  userRating: real("user_rating"),
   searchResultsAvailable: integer("search_results_available", { mode: "boolean" })
     .default(false)
     .notNull(),
@@ -226,6 +227,17 @@ export const updateGameStatusSchema = z.object({
 
 export const updateGameHiddenSchema = z.object({
   hidden: z.boolean(),
+});
+
+export const updateGameUserRatingSchema = z.object({
+  userRating: z
+    .number()
+    .min(0.5, "userRating must be at least 0.5")
+    .max(10, "userRating must be at most 10")
+    .refine((v) => v * 2 === Math.round(v * 2), {
+      message: "userRating must be in 0.5 increments",
+    })
+    .nullable(),
 });
 
 export const insertIndexerSchema = createInsertSchema(indexers, {

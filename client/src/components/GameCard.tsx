@@ -248,7 +248,6 @@ const GameCard = ({
             <TooltipTrigger asChild>
               <div
                 className="flex items-center gap-1"
-                tabIndex={0}
                 role="img"
                 aria-label={`Rating: ${game.rating ? `${game.rating} out of 10` : "Not rated"}`}
               >
@@ -266,7 +265,6 @@ const GameCard = ({
             <TooltipTrigger asChild>
               <div
                 className="flex items-center gap-1"
-                tabIndex={0}
                 role="img"
                 aria-label={`Release Date: ${game.releaseDate || "To be announced"}`}
               >

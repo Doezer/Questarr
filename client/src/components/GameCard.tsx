@@ -246,10 +246,14 @@ const GameCard = ({
         <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
           <Tooltip>
             <TooltipTrigger asChild>
-              <div className="flex items-center gap-1" tabIndex={0}>
+              <div
+                className="flex items-center gap-1"
+                role="img"
+                aria-label={`Rating: ${game.rating !== null ? `${game.rating} out of 10` : "Not rated"}`}
+              >
                 <Star className="w-3 h-3 text-accent" aria-hidden="true" />
                 <span data-testid={`text-rating-${game.id}`}>
-                  {game.rating ? `${game.rating}/10` : "N/A"}
+                  {game.rating !== null ? `${game.rating}/10` : "N/A"}
                 </span>
               </div>
             </TooltipTrigger>
@@ -259,7 +263,11 @@ const GameCard = ({
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
-              <div className="flex items-center gap-1" tabIndex={0}>
+              <div
+                className="flex items-center gap-1"
+                role="img"
+                aria-label={`Release Date: ${game.releaseDate || "To be announced"}`}
+              >
                 <Calendar className="w-3 h-3" aria-hidden="true" />
                 <span data-testid={`text-release-${game.id}`}>{game.releaseDate || "TBA"}</span>
               </div>

@@ -162,14 +162,19 @@ const GameCarouselSection = ({
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
-              <div className="inline-block" tabIndex={!canScrollPrev ? 0 : -1}>
+              <div
+                className="inline-block"
+                role={canScrollPrev ? undefined : "group"}
+                aria-label={canScrollPrev ? undefined : "First page reached"}
+                tabIndex={canScrollPrev ? undefined : 0}
+              >
                 <Button
                   variant="outline"
                   size="icon"
                   className="h-8 w-8 disabled:opacity-50"
                   onClick={scrollPrev}
                   disabled={!canScrollPrev}
-                  aria-label="Previous"
+                  aria-label={canScrollPrev ? "Previous page" : "First page reached"}
                   data-testid={`carousel-prev-${title.toLowerCase().replace(/\s+/g, "-")}`}
                 >
                   <ChevronLeft className="h-4 w-4" />
@@ -177,19 +182,24 @@ const GameCarouselSection = ({
               </div>
             </TooltipTrigger>
             <TooltipContent>
-              <p>{!canScrollPrev ? "First page reached" : "Previous page"}</p>
+              <p>{canScrollPrev ? "Previous page" : "First page reached"}</p>
             </TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
-              <div className="inline-block" tabIndex={!canScrollNext ? 0 : -1}>
+              <div
+                className="inline-block"
+                role={canScrollNext ? undefined : "group"}
+                aria-label={canScrollNext ? undefined : "Last page reached"}
+                tabIndex={canScrollNext ? undefined : 0}
+              >
                 <Button
                   variant="outline"
                   size="icon"
                   className="h-8 w-8 disabled:opacity-50"
                   onClick={scrollNext}
                   disabled={!canScrollNext}
-                  aria-label="Next"
+                  aria-label={canScrollNext ? "Next page" : "Last page reached"}
                   data-testid={`carousel-next-${title.toLowerCase().replace(/\s+/g, "-")}`}
                 >
                   <ChevronRight className="h-4 w-4" />
@@ -197,7 +207,7 @@ const GameCarouselSection = ({
               </div>
             </TooltipTrigger>
             <TooltipContent>
-              <p>{!canScrollNext ? "Last page reached" : "Next page"}</p>
+              <p>{canScrollNext ? "Next page" : "Last page reached"}</p>
             </TooltipContent>
           </Tooltip>
         </div>

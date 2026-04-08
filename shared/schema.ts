@@ -38,6 +38,7 @@ export const userSettings = sqliteTable("user_settings", {
   filterByPreferredGroups: integer("filter_by_preferred_groups", { mode: "boolean" })
     .notNull()
     .default(false),
+  preferredPlatform: text("preferred_platform"),
   updatedAt: integer("updated_at", { mode: "timestamp" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),

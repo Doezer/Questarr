@@ -731,6 +731,70 @@ describe("GameDownloadDialog", () => {
     );
   });
 
+  describe("Preferred Platform preselection", () => {
+    /** Render with a specific preferred platform and search result titles. */
+    async function renderWithPlatform(
+      platform: string | null,
+      items: ReturnType<typeof makeTorrentItem>[]
+    ) {
+      global.fetch = createFetchMock({
+        settings: { preferredPlatform: platform },
+        search: makeSearchResult(items),
+      });
+      renderComponent();
+    }
+
+    it("preselects the preferred platform and shows only matching items", async () => {
+      await renderWithPlatform("PS5", [
+        makeTorrentItem({ guid: "ps5-1", title: "Test Game PS5-GROUP", seeders: 50 }),
+        makeTorrentItem({ guid: "pc-1", title: "Test Game PC-SKIDROW", seeders: 40 }),
+      ]);
+      await waitFor(
+        () => expect(screen.getAllByText("Test Game PS5-GROUP").length).toBeGreaterThan(0),
+        { timeout: 3000 }
+      );
+      expect(screen.queryByText("Test Game PC-SKIDROW")).toBeNull();
+    });
+
+    it("PC preselection includes releases with no detected platform", async () => {
+      await renderWithPlatform("PC", [
+        makeTorrentItem({ guid: "noplatform-1", title: "Test Game-CODEX", seeders: 80 }),
+        makeTorrentItem({ guid: "ps5-1", title: "Test Game PS5-GROUP", seeders: 60 }),
+      ]);
+      await waitFor(
+        () => expect(screen.getAllByText("Test Game-CODEX").length).toBeGreaterThan(0),
+        { timeout: 3000 }
+      );
+      expect(screen.queryByText("Test Game PS5-GROUP")).toBeNull();
+    });
+
+    it("PC preselection includes explicit PC releases", async () => {
+      await renderWithPlatform("PC", [
+        makeTorrentItem({ guid: "pc-1", title: "Test Game PC-SKIDROW", seeders: 50 }),
+        makeTorrentItem({ guid: "ps5-1", title: "Test Game PS5-GROUP", seeders: 60 }),
+      ]);
+      await waitFor(
+        () => expect(screen.getAllByText("Test Game PC-SKIDROW").length).toBeGreaterThan(0),
+        { timeout: 3000 }
+      );
+      expect(screen.queryByText("Test Game PS5-GROUP")).toBeNull();
+    });
+
+    it("does not preselect platform when none is configured", async () => {
+      await renderWithPlatform(null, [
+        makeTorrentItem({ guid: "ps5-1", title: "Test Game PS5-GROUP", seeders: 60 }),
+        makeTorrentItem({ guid: "pc-1", title: "Test Game PC-SKIDROW", seeders: 50 }),
+      ]);
+      await waitFor(
+        () => {
+          expect(screen.getAllByText("Test Game PS5-GROUP").length).toBeGreaterThan(0);
+          expect(screen.getAllByText("Test Game PC-SKIDROW").length).toBeGreaterThan(0);
+        },
+        { timeout: 3000 }
+      );
+    });
+  });
+
   it("displays poster name for usenet results", async () => {
     global.fetch = createFetchMock({
       search: makeSearchResult([

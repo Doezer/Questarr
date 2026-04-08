@@ -253,6 +253,45 @@ export function parseReleaseMetadata(releaseName: string): ReleaseMetadata {
 }
 
 /**
+ * Canonical platform labels shared across settings, dialog filtering, and automation.
+ * These are user-facing labels — not raw IGDB platform names.
+ */
+export const CANONICAL_PLATFORMS = [
+  "PC",
+  "PS5",
+  "PS4",
+  "PS3",
+  "Switch",
+  "Xbox Series",
+  "Xbox",
+  "Mac",
+  "Linux",
+] as const;
+export type CanonicalPlatform = (typeof CANONICAL_PLATFORMS)[number];
+
+/**
+ * Returns true if a release's detected platform matches the preferred platform filter.
+ *
+ * PC is special: many PC releases omit any platform marker in their title, so "PC"
+ * matches both releases explicitly detected as "PC" and releases with no detected platform.
+ * All non-PC platforms require an explicit detected platform match.
+ */
+export function matchesPlatformFilter(
+  releasePlatform: string | undefined,
+  preferredPlatform: string
+): boolean {
+  if (preferredPlatform === "PC") {
+    return !releasePlatform || releasePlatform === "PC";
+  }
+  // "Xbox" is a superset that covers both Xbox and Xbox Series releases.
+  // Users who select "Xbox" should not miss Xbox Series titles.
+  if (preferredPlatform === "Xbox") {
+    return releasePlatform === "Xbox" || releasePlatform === "Xbox Series";
+  }
+  return releasePlatform === preferredPlatform;
+}
+
+/**
  * Safely parses a JSON-encoded string array.
  * Returns an empty array if the value is null/undefined, not valid JSON, or not an array.
  */

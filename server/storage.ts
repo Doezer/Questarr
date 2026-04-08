@@ -870,6 +870,7 @@ export class MemStorage implements IStorage {
       steamSyncFailures: 0,
       preferredReleaseGroups: insertSettings.preferredReleaseGroups ?? null,
       filterByPreferredGroups: insertSettings.filterByPreferredGroups ?? false,
+      preferredPlatform: insertSettings.preferredPlatform ?? null,
       updatedAt: new Date(),
     };
     this.userSettings.set(id, settings);

@@ -92,6 +92,13 @@
       "when": 1775461016503,
       "tag": "0012_user_rating",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1744130000000,
+      "tag": "0013_preferred_platform",
+      "breakpoints": true
     }
   ]
 }

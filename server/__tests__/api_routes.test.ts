@@ -1449,7 +1449,7 @@ describe("API Routes - Extended Coverage", () => {
       it("should delete RSS feed", async () => {
         vi.mocked(storage.removeRssFeed).mockResolvedValue(true);
         const response = await request(app).delete("/api/rss/feeds/feed-1");
-        expect(response.status).toBe(200);
+        expect(response.status).toBe(204);
       });
 
       it("should return 404 for missing feed", async () => {

@@ -8,7 +8,7 @@ import { type User } from "@shared/schema";
 const router = Router();
 
 // Manual Steam ID Update
-router.put("/api/user/steam-id", authenticateToken, async (req, res) => {
+router.patch("/api/user/steam-id", authenticateToken, async (req, res) => {
   try {
     const { steamId } = req.body;
     const user = req.user as User;

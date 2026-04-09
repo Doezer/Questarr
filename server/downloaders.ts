@@ -66,6 +66,7 @@ interface TransmissionTorrent {
     lastAnnounceTime: number;
     nextAnnounceTime?: number;
   }>;
+  labels?: string[];
   [key: string]: unknown;
 }
 
@@ -542,6 +543,7 @@ export class TransmissionClient implements DownloaderClient {
         "uploadRatio",
         "errorString",
         "hashString", // Required for matching downloads by hash
+        "labels", // Transmission 2.8+: used as category identifier
       ],
     });
 
@@ -660,6 +662,7 @@ export class TransmissionClient implements DownloaderClient {
       leechers: torrent.peersGettingFromUs,
       ratio: torrent.uploadRatio,
       error: torrent.errorString || undefined,
+      category: torrent.labels?.[0],
     };
   }
 
@@ -3031,30 +3034,7 @@ export class DownloaderManager {
 
   static async getAllDownloads(downloader: Downloader): Promise<DownloadStatus[]> {
     const client = this.createClient(downloader);
-    const downloads = await client.getAllDownloads();
-
-    // Filter by configured category if set
-    if (downloader.category) {
-      const filterCategory = downloader.category.toLowerCase();
-      return downloads.filter((t) => {
-        // Strict category match if available
-        if (t.category) {
-          return t.category.toLowerCase() === filterCategory;
-        }
-
-        // If category is missing in the download status:
-        // For clients that support categories (rTorrent, qBittorrent, Usenet), missing category means "Uncategorized",
-        // so we exclude it if a filter is active.
-        // For Transmission, we haven't implemented category mapping yet, so we include everything to avoid hiding all downloads.
-        if (downloader.type === "transmission") {
-          return true;
-        }
-
-        return false;
-      });
-    }
-
-    return downloads;
+    return client.getAllDownloads();
   }
 
   static async getDownloadStatus(

@@ -189,15 +189,13 @@ vi.mock("../search.js", () => ({
 }));
 vi.mock("../config-loader.js", () => ({
   configLoader: {
-    getSslConfig: vi
-      .fn()
-      .mockReturnValue({
-        enabled: false,
-        port: 5000,
-        certPath: "",
-        keyPath: "",
-        redirectHttp: false,
-      }),
+    getSslConfig: vi.fn().mockReturnValue({
+      enabled: false,
+      port: 5000,
+      certPath: "",
+      keyPath: "",
+      redirectHttp: false,
+    }),
     saveConfig: vi.fn(),
     getConfigDir: vi.fn().mockReturnValue("/tmp/config"),
   },

@@ -56,6 +56,7 @@ vi.mock("lucide-react", () => ({
   Users: (props: Record<string, unknown>) => <div data-testid="icon-users" {...props} />,
   Building2: (props: Record<string, unknown>) => <div data-testid="icon-building2" {...props} />,
   Search: (props: Record<string, unknown>) => <div data-testid="icon-search" {...props} />,
+  ThumbsUp: (props: Record<string, unknown>) => <div data-testid="icon-thumbs-up" {...props} />,
 }));
 
 vi.mock("react-icons/fa", () => ({
@@ -124,6 +125,7 @@ global.fetch = vi.fn();
 function makeFetchMock(overrides: Record<string, unknown> = {}) {
   const defaults: Record<string, unknown> = {
     "/api/hltb/lookup": { data: null },
+    "/api/nexusmods/game-domain": { configured: false, domain: null },
   };
   const routes = { ...defaults, ...overrides };
 
@@ -330,7 +332,6 @@ describe("GameDetailsModal", () => {
               url: "https://howlongtobeat.com/game/12345",
             },
           },
-          "/api/nexusmods/game-domain": { configured: false, domain: null },
         })
       );
 
@@ -355,7 +356,6 @@ describe("GameDetailsModal", () => {
               url: hltbUrl,
             },
           },
-          "/api/nexusmods/game-domain": { configured: false, domain: null },
         })
       );
 
@@ -395,7 +395,6 @@ describe("GameDetailsModal", () => {
               url: "https://howlongtobeat.com/game/12345",
             },
           },
-          "/api/nexusmods/game-domain": { configured: false, domain: null },
         })
       );
 
@@ -409,6 +408,86 @@ describe("GameDetailsModal", () => {
       });
 
       expect(screen.queryByTestId("section-hltb")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("NexusMods integration", () => {
+    it("shows fallback search link when Nexus Mods is not configured", async () => {
+      // default beforeEach mock: configured: false, domain: null → fallback link shown
+      renderComponent();
+      fireEvent.click(screen.getByRole("tab", { name: /links/i }));
+
+      await waitFor(() => {
+        expect(global.fetch).toHaveBeenCalledWith(
+          expect.stringContaining("/api/nexusmods/game-domain"),
+          expect.anything()
+        );
+      });
+
+      // Fallback link points to nexusmods.com search
+      const nexusLink = await screen.findByRole("link", { name: /nexusmods/i });
+      expect(nexusLink).toHaveAttribute(
+        "href",
+        expect.stringContaining("nexusmods.com/games?keyword=")
+      );
+    });
+
+    it("shows direct mod link when domain is found", async () => {
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+        makeFetchMock({ "/api/nexusmods/game-domain": { configured: true, domain: "testgame" } })
+      );
+
+      renderComponent();
+      fireEvent.click(screen.getByRole("tab", { name: /links/i }));
+
+      const nexusLink = await screen.findByRole("link", { name: /nexusmods/i });
+      expect(nexusLink).toHaveAttribute(
+        "href",
+        expect.stringContaining("nexusmods.com/testgame/mods/")
+      );
+    });
+
+    it("hides NexusMods link when configured but no domain found", async () => {
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+        makeFetchMock({ "/api/nexusmods/game-domain": { configured: true, domain: null } })
+      );
+
+      renderComponent();
+      fireEvent.click(screen.getByRole("tab", { name: /links/i }));
+
+      await waitFor(() => {
+        expect(global.fetch).toHaveBeenCalledWith(
+          expect.stringContaining("/api/nexusmods/game-domain"),
+          expect.anything()
+        );
+      });
+
+      expect(screen.queryByRole("link", { name: /nexusmods/i })).not.toBeInTheDocument();
+    });
+
+    it("shows Mods tab when domain is found", async () => {
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+        makeFetchMock({ "/api/nexusmods/game-domain": { configured: true, domain: "testgame" } })
+      );
+
+      renderComponent();
+
+      await waitFor(() => {
+        expect(screen.getByRole("tab", { name: /mods/i })).toBeInTheDocument();
+      });
+    });
+
+    it("does not show Mods tab when not configured", async () => {
+      renderComponent();
+
+      await waitFor(() => {
+        expect(global.fetch).toHaveBeenCalledWith(
+          expect.stringContaining("/api/nexusmods/game-domain"),
+          expect.anything()
+        );
+      });
+
+      expect(screen.queryByRole("tab", { name: /^mods$/i })).not.toBeInTheDocument();
     });
   });
 });

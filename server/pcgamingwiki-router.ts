@@ -7,7 +7,8 @@ interface CargoQueryResult {
   cargoquery: Array<{ title: { _pageName: string } }>;
 }
 
-const PCGW_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const PCGW_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours for confirmed results
+const PCGW_FAILURE_TTL_MS = 5 * 60 * 1000; // 5 minutes for transient failures
 
 const pcgwCache = new Map<number, { url: string | null; expires: number }>();
 
@@ -23,20 +24,20 @@ async function lookupPcgwUrl(steamAppId: number): Promise<string | null> {
     `&tables=Infobox_game&fields=Infobox_game._pageName` +
     `&where=${encodeURIComponent(where)}&format=json`;
 
-  let url: string | null = null;
   try {
     const response = await safeFetch(apiUrl);
     const data = (await response.json()) as CargoQueryResult;
     const pageName = data?.cargoquery?.[0]?.title?._pageName;
-    if (pageName) {
-      url = `https://www.pcgamingwiki.com/wiki/${encodeURIComponent(pageName).replace(/%20/g, "_")}`;
-    }
+    const url = pageName
+      ? `https://www.pcgamingwiki.com/wiki/${encodeURIComponent(pageName).replace(/%20/g, "_")}`
+      : null;
+    pcgwCache.set(steamAppId, { url, expires: Date.now() + PCGW_CACHE_TTL_MS });
+    return url;
   } catch (err) {
     routesLogger.warn({ err, steamAppId }, "PCGamingWiki lookup failed");
+    pcgwCache.set(steamAppId, { url: null, expires: Date.now() + PCGW_FAILURE_TTL_MS });
+    return null;
   }
-
-  pcgwCache.set(steamAppId, { url, expires: Date.now() + PCGW_CACHE_TTL_MS });
-  return url;
 }
 
 const router = Router();

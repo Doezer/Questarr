@@ -117,4 +117,30 @@ describe("lookupPcgwUrl (unit)", () => {
 
     expect(url).toBe("https://www.pcgamingwiki.com/wiki/Red_Dead_Redemption_2");
   });
+
+  it("caches failures with a short TTL so transient errors are retried sooner", async () => {
+    vi.mocked(safeFetch).mockRejectedValue(new Error("network error"));
+    const before = Date.now();
+
+    await lookupPcgwUrl(1733240);
+
+    const entry = pcgwCache.get(1733240);
+    expect(entry).toBeDefined();
+    expect(entry!.url).toBeNull();
+    // Failure TTL should be ≤ 5 minutes, well below the 24-hour success TTL
+    expect(entry!.expires).toBeLessThan(before + 6 * 60 * 1000);
+  });
+
+  it("caches successful results with the full 24-hour TTL", async () => {
+    vi.mocked(safeFetch).mockResolvedValue(makeCargoResponse("Phantom Fury") as never);
+    const before = Date.now();
+
+    await lookupPcgwUrl(1733240);
+
+    const entry = pcgwCache.get(1733240);
+    expect(entry).toBeDefined();
+    expect(entry!.url).not.toBeNull();
+    // Success TTL should be close to 24 hours
+    expect(entry!.expires).toBeGreaterThan(before + 23 * 60 * 60 * 1000);
+  });
 });

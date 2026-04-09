@@ -127,9 +127,8 @@ function getDerivedLinks(
 ): Array<SiteLinkConfig & { href: string }> {
   const t = encodeURIComponent(game.title);
 
-  const pcgwEntry: Array<SiteLinkConfig & { href: string }> = [];
-  if (pcgwUrl !== null) {
-    pcgwEntry.push({
+  return [
+    {
       label: "PCGamingWiki",
       Icon: SiPcgamingwiki as IconComponent,
       colorClass: "text-teal-400",
@@ -138,11 +137,7 @@ function getDerivedLinks(
         (game.steamAppId
           ? `https://www.pcgamingwiki.com/api/redirect?steamappid=${game.steamAppId}`
           : `https://www.pcgamingwiki.com/w/index.php?search=${t}`),
-    });
-  }
-
-  return [
-    ...pcgwEntry,
+    },
     {
       label: "HowLongToBeat",
       Icon: Clock as IconComponent,
@@ -387,11 +382,9 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
 
   const { data: pcgwData } = useQuery<{ url: string | null }>({
     queryKey: ["/api/external/pcgamingwiki", game?.steamAppId],
-    queryFn: async () => {
-      const res = await apiRequest(
-        "GET",
-        `/api/external/pcgamingwiki?steamAppId=${game!.steamAppId}`
-      );
+    queryFn: async ({ queryKey }) => {
+      const [, steamAppId] = queryKey;
+      const res = await apiRequest("GET", `/api/external/pcgamingwiki?steamAppId=${steamAppId}`);
       return res.json();
     },
     enabled: open && !!game?.steamAppId,

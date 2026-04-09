@@ -14,6 +14,8 @@ import { startCronJobs } from "./cron.js";
 import { setupSocketIO } from "./socket.js";
 import { ensureDatabase } from "./migrate.js";
 import { rssService } from "./rss.js";
+import { nexusmodsClient } from "./nexusmods.js";
+import { storage } from "./storage.js";
 
 const app = express();
 if (config.server.isProduction) {
@@ -139,6 +141,13 @@ app.use((req, res, next) => {
 
     // Initialize RSS service (seeding default feeds)
     await rssService.initialize();
+
+    // Initialize NexusMods client from DB (env var already applied at module load)
+    const dbNexusKey = await storage.getSystemConfig("nexusmods.apiKey");
+    if (dbNexusKey && dbNexusKey.length > 0) {
+      nexusmodsClient.configure(dbNexusKey);
+      log("NexusMods API key loaded from database");
+    }
 
     const server = await registerRoutes(app);
 

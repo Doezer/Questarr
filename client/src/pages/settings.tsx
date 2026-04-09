@@ -21,6 +21,7 @@ import {
   Ban,
   Trash2,
 } from "lucide-react";
+import { SiNexusmods } from "react-icons/si";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -145,6 +146,8 @@ export default function SettingsPage() {
   const [xrelApiBase, setXrelApiBase] = useState("");
   const [discordWebhookUrl, setDiscordWebhookUrl] = useState("");
   const [showDiscordWebhook, setShowDiscordWebhook] = useState(false);
+  const [nexusApiKey, setNexusApiKey] = useState("");
+  const [showNexusApiKey, setShowNexusApiKey] = useState(false);
 
   // Sync with fetched settings
   useEffect(() => {
@@ -211,6 +214,14 @@ export default function SettingsPage() {
     queryFn: () => apiRequest("GET", "/api/settings/discord").then((r) => r.json()),
   });
 
+  const { data: nexusmodsSettings } = useQuery<{
+    configured: boolean;
+    source?: "env" | "database";
+  }>({
+    queryKey: ["/api/settings/nexusmods"],
+    queryFn: () => apiRequest("GET", "/api/settings/nexusmods").then((r) => r.json()),
+  });
+
   const updateDiscordMutation = useMutation({
     mutationFn: async (webhookUrl: string) => {
       const res = await apiRequest("POST", "/api/settings/discord", { webhookUrl });
@@ -225,6 +236,26 @@ export default function SettingsPage() {
       toast({ title: "Failed to save Discord webhook", variant: "destructive" });
     },
   });
+
+  const updateNexusMutation = useMutation({
+    mutationFn: async (apiKey: string) => {
+      const res = await apiRequest("POST", "/api/settings/nexusmods", { apiKey });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings/nexusmods"] });
+      setNexusApiKey("");
+      toast({ title: "Nexus Mods API key saved" });
+    },
+    onError: () => {
+      toast({ title: "Failed to save Nexus Mods API key", variant: "destructive" });
+    },
+  });
+
+  const handleSaveNexus = () => {
+    if (!nexusApiKey.trim()) return;
+    updateNexusMutation.mutate(nexusApiKey.trim());
+  };
 
   const [certInfo, setCertInfo] = useState<CertInfo | null>(null); // State for cert info
   const [isCertBrowserOpen, setIsCertBrowserOpen] = useState(false);
@@ -817,6 +848,104 @@ export default function SettingsPage() {
                       </a>
                     </p>
                   </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Nexus Mods Card */}
+            <Card id="nexusmods-config">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    <SiNexusmods className="h-5 w-5 text-amber-500" />
+                    <CardTitle className="text-lg">Nexus Mods</CardTitle>
+                  </div>
+                  {nexusmodsSettings?.configured ? (
+                    <Badge
+                      variant={nexusmodsSettings.source === "database" ? "default" : "secondary"}
+                    >
+                      {nexusmodsSettings.source === "database"
+                        ? "Database (Active)"
+                        : "Environment Variable"}
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline">Not Configured</Badge>
+                  )}
+                </div>
+                <CardDescription>
+                  Display trending mods and verify if your games have a Nexus Mods section.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="nexus-api-key">Personal API Key</Label>
+                  <div className="relative">
+                    <Input
+                      id="nexus-api-key"
+                      type={showNexusApiKey ? "text" : "password"}
+                      placeholder={
+                        nexusmodsSettings?.configured
+                          ? "Enter a new key to override the current one"
+                          : "Enter your Nexus Mods API key"
+                      }
+                      value={nexusApiKey}
+                      onChange={(e) => setNexusApiKey(e.target.value)}
+                      className="pr-10"
+                    />
+                    {nexusApiKey && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                        onClick={() => setShowNexusApiKey(!showNexusApiKey)}
+                        aria-label={showNexusApiKey ? "Hide API key" : "Show API key"}
+                      >
+                        {showNexusApiKey ? (
+                          <EyeOff className="h-4 w-4 text-muted-foreground" />
+                        ) : (
+                          <Eye className="h-4 w-4 text-muted-foreground" />
+                        )}
+                      </Button>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Get your personal API key on the{" "}
+                    <a
+                      href="https://www.nexusmods.com/users/myaccount?tab=api"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline"
+                    >
+                      Nexus Mods account page
+                    </a>
+                    . Rate limits: 500 req/hour, 20,000 req/day.
+                    {nexusmodsSettings?.source === "env" && (
+                      <span className="block mt-1">
+                        A key is configured via the <code>NEXUSMODS_API_KEY</code> environment
+                        variable. Saving a key here will override it.
+                      </span>
+                    )}
+                  </p>
+                </div>
+                <div className="flex justify-end pt-2 border-t">
+                  <Button
+                    onClick={handleSaveNexus}
+                    disabled={updateNexusMutation.isPending || !nexusApiKey.trim()}
+                    className="gap-2"
+                  >
+                    {updateNexusMutation.isPending ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Key className="h-4 w-4" />
+                        Save API Key
+                      </>
+                    )}
+                  </Button>
                 </div>
               </CardContent>
             </Card>

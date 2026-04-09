@@ -968,8 +968,8 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                             <TooltipContent className="sm:hidden">{link.label}</TooltipContent>
                           </Tooltip>
                         ))}
-                        {/* NexusMods: direct link when configured + found, fallback search when unconfigured */}
-                        {nexusGameData &&
+                        {/* NexusMods: direct link when configured + found, fallback search when unconfigured or on error */}
+                        {(nexusGameData || nexusDomainError) &&
                           (nexusDomain ? (
                             <Tooltip>
                               <TooltipTrigger asChild>
@@ -986,7 +986,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                               </TooltipTrigger>
                               <TooltipContent className="sm:hidden">NexusMods</TooltipContent>
                             </Tooltip>
-                          ) : !nexusGameData.configured ? (
+                          ) : !nexusGameData?.configured || nexusDomainError ? (
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <a

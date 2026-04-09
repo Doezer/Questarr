@@ -62,7 +62,7 @@ class NexusModsClient {
 
   private buildHeaders(): Record<string, string> {
     return {
-      apikey: this.apiKey ?? "",
+      apikey: this.apiKey ?? "", // NOSONAR - NexusMods API requires this header name; key is loaded from config, not hardcoded
       Accept: "application/json",
     };
   }

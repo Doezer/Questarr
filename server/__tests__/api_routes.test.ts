@@ -1204,6 +1204,23 @@ describe("API Routes - Extended Coverage", () => {
       }
     });
 
+    it("should mark downloads as trackedByQuestarr when hash matches with case-insensitive comparison", async () => {
+      vi.mocked(storage.getEnabledDownloaders).mockResolvedValue([
+        { id: "dl-1", name: "My rTorrent", category: "games" } as unknown as Downloader,
+      ]);
+      // Stored key uses lowercase (as saved by addDownload)
+      vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(new Set(["dl-1:abc123"]));
+      // rTorrent returns hashes in UPPERCASE
+      vi.mocked(DownloaderManager.getAllDownloads).mockResolvedValue([
+        { id: "ABC123", name: "Game A", status: "downloading", progress: 50 } as never,
+      ]);
+
+      const response = await request(app).get("/api/downloads");
+
+      expect(response.status).toBe(200);
+      expect(response.body.downloads[0].trackedByQuestarr).toBe(true);
+    });
+
     it("should mark downloads as trackedByQuestarr when hash matches a game download", async () => {
       vi.mocked(storage.getEnabledDownloaders).mockResolvedValue([
         { id: "dl-1", name: "My qBit", category: "games" } as unknown as Downloader,

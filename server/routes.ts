@@ -2131,7 +2131,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 ...download,
                 downloaderId: downloader.id,
                 downloaderName: downloader.name,
-                trackedByQuestarr: trackedKeys.has(`${downloader.id}:${download.id}`),
+                trackedByQuestarr:
+                  trackedKeys.has(`${downloader.id}:${download.id}`) ||
+                  trackedKeys.has(`${downloader.id}:${download.id.toLowerCase()}`),
                 downloaderCategory: downloader.category ?? undefined,
               })),
             };

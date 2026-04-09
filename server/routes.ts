@@ -914,7 +914,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const gameData = insertGameSchema.parse({ ...req.body, userId });
 
         const userGames = await storage.getUserGames(userId, true); // Check against all games including hidden
-        const existingGame = userGames.find((g) => g.igdbId === gameData.igdbId);
+        const existingGame = userGames.find((g) =>
+          gameData.igdbId != null
+            ? g.igdbId === gameData.igdbId
+            : g.title.toLowerCase() === gameData.title.toLowerCase()
+        );
 
         if (existingGame) {
           return res.status(409).json({ error: "Game already in collection", game: existingGame });
@@ -1018,7 +1022,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   );
 
   // Refresh metadata for all games
-  app.post("/api/games/refresh-metadata", async (req, res) => {
+  app.post("/api/games/refresh-metadata", igdbRateLimiter, async (req, res) => {
     try {
       const userId = req.user!.id;
       const userGames = await storage.getUserGames(userId, true);
@@ -1282,9 +1286,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/games/discover", igdbRateLimiter, async (req, res) => {
     try {
       const limit = req.query.limit ? parseInt(req.query.limit as string) : 20;
+      const userId = req.user!.id;
 
       // Get user's current games for recommendations
-      const userGames = await storage.getAllGames();
+      const userGames = await storage.getUserGames(userId, true);
 
       // Get recommendations from IGDB
       const igdbGames = await igdbClient.getRecommendations(
@@ -2159,9 +2164,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/downloads/summary", authenticateToken, async (_req, res) => {
+  app.get("/api/downloads/summary", authenticateToken, async (req, res) => {
     try {
-      const summary = await storage.getDownloadSummaryByGame();
+      const summary = await storage.getDownloadSummaryByGame(req.user!.id);
       res.json(summary);
     } catch (error) {
       routesLogger.error({ module: "routes", error }, "Failed to get download summary");
@@ -2289,7 +2294,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Notification routes
-  app.get("/api/notifications", async (req, res) => {
+  app.get("/api/notifications", authenticateToken, async (req, res) => {
     try {
       const limit = req.query.limit ? parseInt(req.query.limit as string) : 50;
       const notifications = await storage.getNotifications(limit);
@@ -2300,7 +2305,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/notifications/unread-count", async (req, res) => {
+  app.get("/api/notifications/unread-count", authenticateToken, async (req, res) => {
     try {
       const count = await storage.getUnreadNotificationsCount();
       res.json({ count });
@@ -2310,7 +2315,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/notifications", validateRequest, async (req, res) => {
+  app.post("/api/notifications", authenticateToken, validateRequest, async (req, res) => {
     try {
       const notificationData = insertNotificationSchema.parse(req.body);
       const notification = await storage.addNotification(notificationData);
@@ -2332,7 +2337,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/notifications/:id/read", async (req, res) => {
+  app.put("/api/notifications/:id/read", authenticateToken, async (req, res) => {
     try {
       const { id } = req.params;
       const notification = await storage.markNotificationAsRead(id);
@@ -2346,7 +2351,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/notifications/read-all", async (req, res) => {
+  app.put("/api/notifications/read-all", authenticateToken, async (req, res) => {
     try {
       await storage.markAllNotificationsAsRead();
       res.json({ success: true });
@@ -2356,7 +2361,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/notifications", async (req, res) => {
+  app.delete("/api/notifications", authenticateToken, async (req, res) => {
     try {
       await storage.clearAllNotifications();
       res.status(204).send();
@@ -2780,7 +2785,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Check for existing
       const userGames = await storage.getUserGames(userId, true);
-      const existingGame = userGames.find((g) => g.igdbId === gameData.igdbId);
+      const existingGame = userGames.find((g) =>
+        gameData.igdbId != null
+          ? g.igdbId === gameData.igdbId
+          : g.title.toLowerCase() === gameData.title.toLowerCase()
+      );
 
       if (existingGame) {
         return res.status(409).json({ error: "Game already in collection", game: existingGame });
@@ -2867,7 +2876,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!success) {
         return res.status(404).json({ error: "Feed not found" });
       }
-      res.json({ success: true });
+      res.status(204).send();
     } catch (error) {
       routesLogger.error({ error }, "Failed to delete RSS feed");
       res.status(500).json({ error: "Failed to delete RSS feed" });
@@ -2917,6 +2926,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const { image, message } = req.body as { image?: string; message?: string };
       if (!image) return res.status(400).json({ error: "No image data provided" });
+
+      if (!/^data:image\/(png|jpeg|gif|webp);base64,/.test(image)) {
+        return res
+          .status(400)
+          .json({ error: "Invalid image format. Only PNG, JPEG, GIF, and WebP are supported." });
+      }
 
       const base64Data = image.split(",")[1];
       if (!base64Data) return res.status(400).json({ error: "Invalid image data" });

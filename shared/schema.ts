@@ -39,7 +39,7 @@ export const userSettings = sqliteTable("user_settings", {
     .notNull()
     .default(false),
   preferredPlatform: text("preferred_platform"),
-  updatedAt: integer("updated_at", { mode: "timestamp" }).default(
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),
 });

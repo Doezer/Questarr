@@ -1,8 +1,6 @@
 {
   "permissions": {
     "allow": [
-      "Bash(grep -r \"OpenAI\\\\|Stripe\\\\|AWS\\\\|Supabase\\\\|Firebase\\\\|IGDB\\\\|Steam\" /c/Users/Vincent/Repos/Perso/Questarr.main/Questarr/server --include=*.ts)",
-      "Bash(find /c/Users/Vincent/Repos/Perso/Questarr.main/Questarr/migrations -type f -name *.sql)",
       "mcp__Claude_Preview__preview_start",
       "Skill(code-review:code-review)",
       "Skill(code-review:code-review:*)",

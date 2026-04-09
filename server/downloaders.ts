@@ -119,17 +119,24 @@ interface DownloadRequest {
   downloadType?: "torrent" | "usenet";
 }
 
+interface DownloaderActionResult {
+  success: boolean;
+  message: string;
+}
+
+interface DownloadResult extends DownloaderActionResult {
+  id?: string;
+}
+
 interface DownloaderClient {
-  testConnection(): Promise<{ success: boolean; message: string }>;
-  addDownload(
-    request: DownloadRequest
-  ): Promise<{ success: boolean; id?: string; message: string }>;
+  testConnection(): Promise<DownloaderActionResult>;
+  addDownload(request: DownloadRequest): Promise<DownloadResult>;
   getDownloadStatus(id: string): Promise<DownloadStatus | null>;
   getDownloadDetails(id: string): Promise<DownloadDetails | null>;
   getAllDownloads(): Promise<DownloadStatus[]>;
-  pauseDownload(id: string): Promise<{ success: boolean; message: string }>;
-  resumeDownload(id: string): Promise<{ success: boolean; message: string }>;
-  removeDownload(id: string, deleteFiles?: boolean): Promise<{ success: boolean; message: string }>;
+  pauseDownload(id: string): Promise<DownloaderActionResult>;
+  resumeDownload(id: string): Promise<DownloaderActionResult>;
+  removeDownload(id: string, deleteFiles?: boolean): Promise<DownloaderActionResult>;
   getFreeSpace(): Promise<number>;
 }
 
@@ -3022,9 +3029,7 @@ export class DownloaderManager {
     }
   }
 
-  static async testDownloader(
-    downloader: Downloader
-  ): Promise<{ success: boolean; message: string }> {
+  static async testDownloader(downloader: Downloader): Promise<DownloaderActionResult> {
     try {
       const client = this.createClient(downloader);
       return await client.testConnection();
@@ -3037,7 +3042,7 @@ export class DownloaderManager {
   static async addDownload(
     downloader: Downloader,
     request: DownloadRequest
-  ): Promise<{ success: boolean; id?: string; message: string }> {
+  ): Promise<DownloadResult> {
     try {
       const client = this.createClient(downloader);
       return await client.addDownload(request);

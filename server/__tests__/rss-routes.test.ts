@@ -169,8 +169,8 @@ describe("RSS Routes", () => {
 
       const res = await request(app).delete("/api/rss/feeds/1");
 
-      expect(res.status).toBe(200);
-      expect(res.body).toEqual({ success: true });
+      expect(res.status).toBe(204);
+      expect(res.body).toEqual({});
       expect(storage.removeRssFeed).toHaveBeenCalledWith("1");
     });
 

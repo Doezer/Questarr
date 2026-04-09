@@ -370,9 +370,12 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       }
       return results;
     },
-    onSuccess: (results) => {
+    onSuccess: (results, variables) => {
       const successfulResults = results.filter((r) => r.success);
       const successCount = successfulResults.length;
+      const failedResults = results
+        .map((r, i) => ({ result: r, download: variables[i] }))
+        .filter(({ result }) => !result.success);
       if (successCount === 0) {
         toast({ title: "Failed to start download", variant: "destructive" });
         return;
@@ -386,6 +389,13 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         description:
           results.length > 1 ? `Added ${successCount} of ${results.length} downloads` : undefined,
       });
+      if (failedResults.length > 0) {
+        toast({
+          title: `${failedResults.length} download(s) failed`,
+          description: failedResults.map(({ download }) => download.title).join(", "),
+          variant: "destructive",
+        });
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/downloads"] });
       queryClient.invalidateQueries({ queryKey: ["/api/downloads/summary"] });
       onOpenChange(false);
@@ -1155,6 +1165,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                         })()}
                                         <DropdownMenuItem
                                           onClick={() => blacklistMutation.mutate(download)}
+                                          disabled={blacklistMutation.isPending}
                                           className="text-destructive focus:text-destructive"
                                         >
                                           <Ban className="h-4 w-4 mr-2" />

@@ -1,0 +1,20 @@
+Questarr has been deployed!
+
+1. Get the application URL:
+{{- if .Values.ingress.enabled }}
+{{- range .Values.ingress.hosts }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+{{- end }}
+{{- else if contains "NodePort" .Values.service.type }}
+  export NODE_PORT=$(kubectl get svc {{ include "questarr.fullname" . }} -n {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}")
+  export NODE_IP=$(kubectl get nodes -o jsonpath="{.items[0].status.addresses[0].address}")
+  echo "http://$NODE_IP:$NODE_PORT"
+{{- else if contains "LoadBalancer" .Values.service.type }}
+  export SERVICE_IP=$(kubectl get svc {{ include "questarr.fullname" . }} -n {{ .Release.Namespace }} -o jsonpath='{range .status.loadBalancer.ingress[*]}{.ip}{.hostname}{end}')
+  echo "http://$SERVICE_IP:{{ .Values.service.port }}"
+{{- else }}
+  kubectl port-forward svc/{{ include "questarr.fullname" . }} 5000:{{ .Values.service.port }} -n {{ .Release.Namespace }}
+  echo "http://localhost:5000"
+{{- end }}
+
+2. Data is persisted in a PersistentVolumeClaim: {{ include "questarr.fullname" . }}-data

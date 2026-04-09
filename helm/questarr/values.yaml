@@ -1,0 +1,89 @@
+# WARNING: Do not set replicaCount > 1 when persistence is enabled.
+# The application uses SQLite which does not support concurrent writes from multiple replicas.
+# Doing so will cause database corruption.
+replicaCount: 1
+
+image:
+  repository: ghcr.io/doezer/questarr
+  pullPolicy: IfNotPresent
+  tag: "" # Defaults to appVersion
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+env:
+  PUID: "1000"
+  PGID: "1000"
+
+# Sensitive values — stored in a Secret.
+# Set these or reference an existing secret via existingSecret.
+secret:
+  jwtSecret: ""
+  igdbClientId: ""
+  igdbClientSecret: ""
+
+# Use an existing Secret instead of creating one.
+# The secret must have keys: JWT_SECRET, IGDB_CLIENT_ID, IGDB_CLIENT_SECRET
+existingSecret: ""
+
+service:
+  type: ClusterIP
+  port: 5000
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: questarr.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: questarr-tls
+  #    hosts:
+  #      - questarr.local
+
+persistence:
+  enabled: true
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 1Gi
+  # existingClaim: ""
+
+resources: {}
+  # limits:
+  #   cpu: 500m
+  #   memory: 512Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 256Mi
+
+# Run as the questarr user (UID 1000 by default — matches PUID)
+podSecurityContext:
+  fsGroup: 1000
+
+securityContext: {}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+livenessProbe:
+  httpGet:
+    path: /api/health
+    port: http
+  initialDelaySeconds: 40
+  periodSeconds: 30
+  timeoutSeconds: 10
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /api/health
+    port: http
+  initialDelaySeconds: 20
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3

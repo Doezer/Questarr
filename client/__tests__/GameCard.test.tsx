@@ -105,10 +105,10 @@ describe("GameCard", () => {
     expect(screen.getByTestId("text-release-1")).toHaveTextContent("2024-01-01");
   });
 
-  it("displays a rating of 0 as '0/10' rather than 'N/A'", () => {
+  it("displays a rating of 0 as 'N/A' since 0 is unrated", () => {
     renderComponent({ game: { ...mockGame, rating: 0 } });
-    expect(screen.getByTestId("text-rating-1")).toHaveTextContent("0/10");
-    const ratingGroup = screen.getByRole("img", { name: /Rating: 0 out of 10/i });
+    expect(screen.getByTestId("text-rating-1")).toHaveTextContent("N/A");
+    const ratingGroup = screen.getByRole("img", { name: /Rating: Not rated/i });
     expect(ratingGroup).toBeInTheDocument();
   });
 

@@ -249,11 +249,11 @@ const GameCard = ({
               <div
                 className="flex items-center gap-1"
                 role="img"
-                aria-label={`IGDB rating: ${game.rating !== null ? `${game.rating} out of 10` : "Not rated"}`}
+                aria-label={`IGDB rating: ${game.rating ? `${game.rating} out of 10` : "Not rated"}`}
               >
                 <Star className="w-3 h-3 text-accent" aria-hidden="true" />
                 <span data-testid={`text-rating-${game.id}`}>
-                  {game.rating !== null ? `${game.rating}/10` : "N/A"}
+                  {game.rating ? `${game.rating}/10` : "N/A"}
                 </span>
               </div>
             </TooltipTrigger>
@@ -295,7 +295,7 @@ const GameCard = ({
           </Tooltip>
         </div>
         <div className="flex flex-wrap gap-1 mb-3 flex-1 content-start">
-          {game.genres?.slice(0, 2).map((genre) => (
+          {game.genres?.slice(0, 1).map((genre) => (
             <span
               key={genre}
               className="text-xs bg-muted px-2 py-1 rounded-sm"

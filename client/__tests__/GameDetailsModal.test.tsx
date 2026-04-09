@@ -116,6 +116,27 @@ const createQueryClient = () =>
 // Mock fetch
 global.fetch = vi.fn();
 
+/**
+ * Creates a fetch mock that routes by URL substring.
+ * Defaults: `/api/hltb/lookup` → `{ data: null }`, everything else → `[]`.
+ * Pass overrides to replace or extend defaults for a specific test.
+ */
+function makeFetchMock(overrides: Record<string, unknown> = {}) {
+  const defaults: Record<string, unknown> = {
+    "/api/hltb/lookup": { data: null },
+  };
+  const routes = { ...defaults, ...overrides };
+
+  return (url: string) => {
+    for (const [pattern, value] of Object.entries(routes)) {
+      if (typeof url === "string" && url.includes(pattern)) {
+        return Promise.resolve({ ok: true, json: vi.fn().mockResolvedValue(value) });
+      }
+    }
+    return Promise.resolve({ ok: true, json: vi.fn().mockResolvedValue([]) });
+  };
+}
+
 const renderComponent = (game = mockGame) => {
   return render(
     <QueryClientProvider client={createQueryClient()}>
@@ -128,19 +149,7 @@ const renderComponent = (game = mockGame) => {
 describe("GameDetailsModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Default mock: handle all endpoints
-    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
-      if (typeof url === "string" && url.includes("/api/hltb/lookup")) {
-        return Promise.resolve({
-          ok: true,
-          json: vi.fn().mockResolvedValue({ data: null }),
-        });
-      }
-      return Promise.resolve({
-        ok: true,
-        json: vi.fn().mockResolvedValue([]),
-      });
-    });
+    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(makeFetchMock());
   });
 
   it("renders game details correctly", () => {
@@ -194,21 +203,9 @@ describe("GameDetailsModal", () => {
   });
 
   it("handles hide game action", async () => {
-    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
-      if (typeof url === "string" && url.includes("/api/hltb/lookup")) {
-        return Promise.resolve({
-          ok: true,
-          json: vi.fn().mockResolvedValue({ data: null }),
-        });
-      }
-      if (typeof url === "string" && url.includes("/hidden")) {
-        return Promise.resolve({
-          ok: true,
-          json: vi.fn().mockResolvedValue({ hidden: true }),
-        });
-      }
-      return Promise.resolve({ ok: true, json: vi.fn().mockResolvedValue([]) });
-    });
+    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+      makeFetchMock({ "/hidden": { hidden: true } })
+    );
     renderComponent();
 
     const hideButton = screen.getByTestId(`button-toggle-hidden-quick-${mockGame.id}`);
@@ -226,21 +223,9 @@ describe("GameDetailsModal", () => {
   });
 
   it("handles unhide game action when game starts hidden", async () => {
-    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
-      if (typeof url === "string" && url.includes("/api/hltb/lookup")) {
-        return Promise.resolve({
-          ok: true,
-          json: vi.fn().mockResolvedValue({ data: null }),
-        });
-      }
-      if (typeof url === "string" && url.includes("/hidden")) {
-        return Promise.resolve({
-          ok: true,
-          json: vi.fn().mockResolvedValue({ hidden: false }),
-        });
-      }
-      return Promise.resolve({ ok: true, json: vi.fn().mockResolvedValue([]) });
-    });
+    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+      makeFetchMock({ "/hidden": { hidden: false } })
+    );
 
     const hiddenGame = { ...mockGame, hidden: true };
     renderComponent(hiddenGame);
@@ -291,21 +276,9 @@ describe("GameDetailsModal", () => {
   });
 
   it("calls the user-rating API when a star is clicked", async () => {
-    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
-      if (typeof url === "string" && url.includes("/api/hltb/lookup")) {
-        return Promise.resolve({
-          ok: true,
-          json: vi.fn().mockResolvedValue({ data: null }),
-        });
-      }
-      if (typeof url === "string" && url.includes("/user-rating")) {
-        return Promise.resolve({
-          ok: true,
-          json: vi.fn().mockResolvedValue({ ...mockGame, userRating: 8 }),
-        });
-      }
-      return Promise.resolve({ ok: true, json: vi.fn().mockResolvedValue([]) });
-    });
+    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+      makeFetchMock({ "/user-rating": { ...mockGame, userRating: 8 } })
+    );
 
     renderComponent();
 
@@ -347,28 +320,19 @@ describe("GameDetailsModal", () => {
     });
 
     it("shows HLTB section with completion times when data is present", async () => {
-      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
-        if (typeof url === "string" && url.includes("/api/hltb/lookup")) {
-          return Promise.resolve({
-            ok: true,
-            json: vi.fn().mockResolvedValue({
-              data: {
-                gameplayMain: 25,
-                gameplayMainExtra: 40,
-                gameplayCompletionist: 65,
-                url: "https://howlongtobeat.com/game/12345",
-              },
-            }),
-          });
-        }
-        if (typeof url === "string" && url.includes("/api/nexusmods/game-domain")) {
-          return Promise.resolve({
-            ok: true,
-            json: vi.fn().mockResolvedValue({ configured: false, domain: null }),
-          });
-        }
-        return Promise.resolve({ ok: true, json: vi.fn().mockResolvedValue([]) });
-      });
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+        makeFetchMock({
+          "/api/hltb/lookup": {
+            data: {
+              gameplayMain: 25,
+              gameplayMainExtra: 40,
+              gameplayCompletionist: 65,
+              url: "https://howlongtobeat.com/game/12345",
+            },
+          },
+          "/api/nexusmods/game-domain": { configured: false, domain: null },
+        })
+      );
 
       renderComponent();
 
@@ -381,28 +345,19 @@ describe("GameDetailsModal", () => {
 
     it("shows HowLongToBeat link with direct URL in Overview when data is present", async () => {
       const hltbUrl = "https://howlongtobeat.com/game/12345";
-      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
-        if (typeof url === "string" && url.includes("/api/hltb/lookup")) {
-          return Promise.resolve({
-            ok: true,
-            json: vi.fn().mockResolvedValue({
-              data: {
-                gameplayMain: 25,
-                gameplayMainExtra: 0,
-                gameplayCompletionist: 0,
-                url: hltbUrl,
-              },
-            }),
-          });
-        }
-        if (typeof url === "string" && url.includes("/api/nexusmods/game-domain")) {
-          return Promise.resolve({
-            ok: true,
-            json: vi.fn().mockResolvedValue({ configured: false, domain: null }),
-          });
-        }
-        return Promise.resolve({ ok: true, json: vi.fn().mockResolvedValue([]) });
-      });
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+        makeFetchMock({
+          "/api/hltb/lookup": {
+            data: {
+              gameplayMain: 25,
+              gameplayMainExtra: 0,
+              gameplayCompletionist: 0,
+              url: hltbUrl,
+            },
+          },
+          "/api/nexusmods/game-domain": { configured: false, domain: null },
+        })
+      );
 
       renderComponent();
 
@@ -430,28 +385,19 @@ describe("GameDetailsModal", () => {
     });
 
     it("hides HLTB section when all completion times are zero", async () => {
-      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
-        if (typeof url === "string" && url.includes("/api/hltb/lookup")) {
-          return Promise.resolve({
-            ok: true,
-            json: vi.fn().mockResolvedValue({
-              data: {
-                gameplayMain: 0,
-                gameplayMainExtra: 0,
-                gameplayCompletionist: 0,
-                url: "https://howlongtobeat.com/game/12345",
-              },
-            }),
-          });
-        }
-        if (typeof url === "string" && url.includes("/api/nexusmods/game-domain")) {
-          return Promise.resolve({
-            ok: true,
-            json: vi.fn().mockResolvedValue({ configured: false, domain: null }),
-          });
-        }
-        return Promise.resolve({ ok: true, json: vi.fn().mockResolvedValue([]) });
-      });
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+        makeFetchMock({
+          "/api/hltb/lookup": {
+            data: {
+              gameplayMain: 0,
+              gameplayMainExtra: 0,
+              gameplayCompletionist: 0,
+              url: "https://howlongtobeat.com/game/12345",
+            },
+          },
+          "/api/nexusmods/game-domain": { configured: false, domain: null },
+        })
+      );
 
       renderComponent();
 

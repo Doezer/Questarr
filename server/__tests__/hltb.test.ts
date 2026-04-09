@@ -63,6 +63,17 @@ describe("HLTBClient", () => {
     expect(result).toBeNull();
   });
 
+  it("does not cache non-200 responses so retries can succeed", async () => {
+    mockSafeFetch.mockResolvedValueOnce(makeResponse({}, false));
+    mockSafeFetch.mockResolvedValueOnce(makeResponse(MOCK_SEARCH_RESPONSE));
+    const { hltbClient } = await import("../hltb.js");
+    const firstResult = await hltbClient.lookup("Nioh");
+    expect(firstResult).toBeNull();
+    const secondResult = await hltbClient.lookup("Nioh");
+    expect(secondResult).not.toBeNull();
+    expect(mockSafeFetch).toHaveBeenCalledTimes(2);
+  });
+
   it("returns null when response has no data", async () => {
     mockSafeFetch.mockResolvedValue(makeResponse({ count: 0, data: [] }));
     const { hltbClient } = await import("../hltb.js");
@@ -145,6 +156,17 @@ describe("HLTBClient", () => {
     const { hltbClient } = await import("../hltb.js");
     const result = await hltbClient.lookup("Nioh");
     expect(result).toBeNull();
+  });
+
+  it("does not cache network errors so retries can succeed", async () => {
+    mockSafeFetch.mockRejectedValueOnce(new Error("Network error"));
+    mockSafeFetch.mockResolvedValueOnce(makeResponse(MOCK_SEARCH_RESPONSE));
+    const { hltbClient } = await import("../hltb.js");
+    const firstResult = await hltbClient.lookup("Nioh");
+    expect(firstResult).toBeNull();
+    const secondResult = await hltbClient.lookup("Nioh");
+    expect(secondResult).not.toBeNull();
+    expect(mockSafeFetch).toHaveBeenCalledTimes(2);
   });
 
   it("caches result and does not call safeFetch a second time for the same title", async () => {

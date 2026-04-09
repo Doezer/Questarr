@@ -608,29 +608,22 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                           How Long to Beat
                         </h3>
                         <div className="grid grid-cols-3 gap-3">
-                          {hltbData.gameplayMain > 0 && (
-                            <div className="bg-card rounded-lg p-3 text-center">
-                              <p className="text-xs text-muted-foreground mb-1">Main Story</p>
-                              <p className="text-base font-semibold text-yellow-400">
-                                {hltbData.gameplayMain}h
-                              </p>
-                            </div>
-                          )}
-                          {hltbData.gameplayMainExtra > 0 && (
-                            <div className="bg-card rounded-lg p-3 text-center">
-                              <p className="text-xs text-muted-foreground mb-1">Main + Extras</p>
-                              <p className="text-base font-semibold text-yellow-400">
-                                {hltbData.gameplayMainExtra}h
-                              </p>
-                            </div>
-                          )}
-                          {hltbData.gameplayCompletionist > 0 && (
-                            <div className="bg-card rounded-lg p-3 text-center">
-                              <p className="text-xs text-muted-foreground mb-1">Completionist</p>
-                              <p className="text-base font-semibold text-yellow-400">
-                                {hltbData.gameplayCompletionist}h
-                              </p>
-                            </div>
+                          {(
+                            [
+                              { label: "Main Story", value: hltbData.gameplayMain },
+                              { label: "Main + Extras", value: hltbData.gameplayMainExtra },
+                              { label: "Completionist", value: hltbData.gameplayCompletionist },
+                            ] as const
+                          ).map(
+                            ({ label, value }) =>
+                              value > 0 && (
+                                <div key={label} className="bg-card rounded-lg p-3 text-center">
+                                  <p className="text-xs text-muted-foreground mb-1">{label}</p>
+                                  <p className="text-base font-semibold text-yellow-400">
+                                    {value}h
+                                  </p>
+                                </div>
+                              )
                           )}
                         </div>
                         <p className="text-xs text-muted-foreground mt-1.5">

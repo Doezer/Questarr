@@ -55,7 +55,9 @@ function levenshtein(a: string, b: string): number {
       curr[j] =
         a[i - 1] === b[j - 1] ? prev[j - 1] : 1 + Math.min(prev[j], curr[j - 1], prev[j - 1]);
     }
-    prev.splice(0, n + 1, ...curr);
+    for (let k = 0; k <= n; k++) {
+      prev[k] = curr[k];
+    }
   }
   return prev[n];
 }
@@ -81,11 +83,15 @@ class HLTBClient {
     }
 
     const result = await this.fetchBestMatch(title);
-    this.cache.set(key, { data: result, expiry: now + CACHE_TTL_MS });
-    return result;
+    // Only cache definitive "no match" results, not transient network failures
+    if (result !== undefined) {
+      this.cache.set(key, { data: result, expiry: now + CACHE_TTL_MS });
+    }
+    return result ?? null;
   }
 
-  private async fetchBestMatch(title: string): Promise<HLTBEntry | null> {
+  /** Returns `null` when no match is found (cacheable), `undefined` on transient errors (not cached). */
+  private async fetchBestMatch(title: string): Promise<HLTBEntry | null | undefined> {
     try {
       const searchTerms = title.split(" ").filter(Boolean);
       const body = {
@@ -124,7 +130,8 @@ class HLTBClient {
 
       if (!response.ok) {
         hltbLogger.debug({ status: response.status, title }, "HLTB search returned non-200");
-        return null;
+        // Transient upstream error — do not cache
+        return undefined;
       }
 
       const json = (await response.json()) as HLTBSearchResponse;
@@ -158,7 +165,8 @@ class HLTBClient {
       };
     } catch (error) {
       hltbLogger.debug({ error, title }, "HLTB lookup failed");
-      return null;
+      // Network/parse error — do not cache so it can be retried
+      return undefined;
     }
   }
 }

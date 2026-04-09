@@ -48,6 +48,7 @@ import { configLoader } from "./config-loader.js";
 import { prowlarrClient } from "./prowlarr.js";
 import { isSafeUrl, safeFetch } from "./ssrf.js";
 import { hashPassword, comparePassword, generateToken, authenticateToken } from "./auth.js";
+import { hltbClient } from "./hltb.js";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -2939,6 +2940,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       routesLogger.error({ error }, "Failed to share stats to Discord");
       res.status(500).json({ error: "Failed to share stats to Discord" });
+    }
+  });
+
+  // ── HowLongToBeat lookup ──────────────────────────────────────────────────────
+
+  app.get("/api/hltb/lookup", authenticateToken, async (req, res) => {
+    try {
+      const title = typeof req.query.title === "string" ? req.query.title.trim() : "";
+      if (!title) {
+        return res.status(400).json({ error: "title query parameter is required" });
+      }
+      const data = await hltbClient.lookup(title);
+      res.json({ data });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to look up HLTB data");
+      res.status(500).json({ error: "Failed to look up HLTB data" });
     }
   });
 

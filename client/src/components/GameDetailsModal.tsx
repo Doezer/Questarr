@@ -120,17 +120,29 @@ function resolveWebsiteConfig(w: { category?: number; url: string }): SiteLinkCo
   return null;
 }
 
-function getDerivedLinks(game: Game, hltbUrl?: string): Array<SiteLinkConfig & { href: string }> {
+function getDerivedLinks(
+  game: Game,
+  hltbUrl?: string,
+  pcgwUrl?: string | null
+): Array<SiteLinkConfig & { href: string }> {
   const t = encodeURIComponent(game.title);
-  return [
-    {
+
+  const pcgwEntry: Array<SiteLinkConfig & { href: string }> = [];
+  if (pcgwUrl !== null) {
+    pcgwEntry.push({
       label: "PCGamingWiki",
       Icon: SiPcgamingwiki as IconComponent,
       colorClass: "text-teal-400",
-      href: game.steamAppId
-        ? `https://www.pcgamingwiki.com/api/redirect?steamappid=${game.steamAppId}`
-        : `https://www.pcgamingwiki.com/w/index.php?search=${t}`,
-    },
+      href:
+        pcgwUrl ??
+        (game.steamAppId
+          ? `https://www.pcgamingwiki.com/api/redirect?steamappid=${game.steamAppId}`
+          : `https://www.pcgamingwiki.com/w/index.php?search=${t}`),
+    });
+  }
+
+  return [
+    ...pcgwEntry,
     {
       label: "HowLongToBeat",
       Icon: Clock as IconComponent,
@@ -373,6 +385,19 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     errorMessage: "Failed to update game visibility",
   });
 
+  const { data: pcgwData } = useQuery<{ url: string | null }>({
+    queryKey: ["/api/external/pcgamingwiki", game?.steamAppId],
+    queryFn: async () => {
+      const res = await apiRequest(
+        "GET",
+        `/api/external/pcgamingwiki?steamAppId=${game!.steamAppId}`
+      );
+      return res.json();
+    },
+    enabled: open && !!game?.steamAppId,
+    staleTime: 24 * 60 * 60 * 1000,
+  });
+
   if (!game) return null;
 
   const handleUserRatingChange = (rating: number | null) => {
@@ -387,7 +412,8 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
       : game.summary;
 
   const igdbWebsites = (game.igdbWebsites ?? []) as Array<{ category: number; url: string }>;
-  const derivedLinks = getDerivedLinks(game, hltbData?.url);
+
+  const derivedLinks = getDerivedLinks(game, hltbData?.url, pcgwData?.url);
   // Optimistic display: show pending value immediately while the mutation is in flight.
   const currentUserRating = userRatingMutation.isPending
     ? (userRatingMutation.variables?.userRating ?? null)

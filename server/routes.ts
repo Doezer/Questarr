@@ -69,6 +69,7 @@ import { normalizeTitle, cleanReleaseName } from "../shared/title-utils.js";
 import archiver from "archiver";
 import helmet from "helmet";
 import { steamRoutes } from "./steam-routes.js";
+import { pcgamingwikiRouter } from "./pcgamingwiki-router.js";
 
 // Cache-Control header values for IGDB discovery endpoints
 const CC_IGDB_GAME_LIST = "public, max-age=3600, stale-while-revalidate=600";
@@ -198,6 +199,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   );
   // Use Steam Routes
   app.use(steamRoutes);
+  // Use PCGamingWiki Routes
+  app.use(pcgamingwikiRouter);
 
   // Auth Routes
   app.get("/api/auth/status", async (_req, res) => {

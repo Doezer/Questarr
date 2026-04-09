@@ -248,6 +248,8 @@ const { storage } = await import("../storage.js");
 import type { MemStorage as MemStorageType } from "../storage.js";
 import type { InsertGameDownload, DownloadSummary } from "../../shared/schema.js";
 
+const USER_ID = "test-user-1";
+
 const makeDownload = (overrides: Partial<InsertGameDownload> = {}): InsertGameDownload => ({
   gameId: "game-1",
   downloaderId: "dl-1",
@@ -258,16 +260,26 @@ const makeDownload = (overrides: Partial<InsertGameDownload> = {}): InsertGameDo
   ...overrides,
 });
 
+// Seed game IDs that tests use directly into MemStorage's internal map (test-only).
+function seedGames(memStorage: MemStorageType, gameIds: string[], userId: string = USER_ID): void {
+  const gamesMap = (memStorage as unknown as { games: Map<string, { id: string; userId: string }> })
+    .games;
+  for (const id of gameIds) {
+    gamesMap.set(id, { id, userId } as unknown as { id: string; userId: string });
+  }
+}
+
 // ─── Storage unit tests ───
 describe("getDownloadSummaryByGame (MemStorage)", () => {
   let memStorage: MemStorageType;
 
   beforeEach(() => {
     memStorage = new MemStorage();
+    seedGames(memStorage, ["game-1", "game-2"]);
   });
 
   it("returns empty object when no downloads exist", async () => {
-    const summary = await memStorage.getDownloadSummaryByGame();
+    const summary = await memStorage.getDownloadSummaryByGame(USER_ID);
     expect(summary).toEqual({});
   });
 
@@ -275,7 +287,7 @@ describe("getDownloadSummaryByGame (MemStorage)", () => {
     await memStorage.addGameDownload(
       makeDownload({ status: "downloading", downloadType: "torrent" })
     );
-    const summary = await memStorage.getDownloadSummaryByGame();
+    const summary = await memStorage.getDownloadSummaryByGame(USER_ID);
     expect(summary["game-1"]).toEqual({
       topStatus: "downloading",
       count: 1,
@@ -287,7 +299,7 @@ describe("getDownloadSummaryByGame (MemStorage)", () => {
     await memStorage.addGameDownload(makeDownload({ downloadHash: "hash-1", status: "completed" }));
     await memStorage.addGameDownload(makeDownload({ downloadHash: "hash-2", status: "completed" }));
     await memStorage.addGameDownload(makeDownload({ downloadHash: "hash-3", status: "completed" }));
-    const summary = await memStorage.getDownloadSummaryByGame();
+    const summary = await memStorage.getDownloadSummaryByGame(USER_ID);
     expect(summary["game-1"].count).toBe(3);
   });
 
@@ -301,7 +313,7 @@ describe("getDownloadSummaryByGame (MemStorage)", () => {
     await memStorage.addGameDownload(
       makeDownload({ downloadHash: "hash-3", downloadType: "torrent" })
     );
-    const summary = await memStorage.getDownloadSummaryByGame();
+    const summary = await memStorage.getDownloadSummaryByGame(USER_ID);
     expect(summary["game-1"].downloadTypes).toHaveLength(2);
     expect(summary["game-1"].downloadTypes).toContain("torrent");
     expect(summary["game-1"].downloadTypes).toContain("usenet");
@@ -309,34 +321,38 @@ describe("getDownloadSummaryByGame (MemStorage)", () => {
 
   it("resolves topStatus with correct priority: failed > downloading > paused > completed", async () => {
     await memStorage.addGameDownload(makeDownload({ downloadHash: "hash-1", status: "completed" }));
-    expect((await memStorage.getDownloadSummaryByGame())["game-1"].topStatus).toBe("completed");
+    expect((await memStorage.getDownloadSummaryByGame(USER_ID))["game-1"].topStatus).toBe(
+      "completed"
+    );
 
     await memStorage.addGameDownload(makeDownload({ downloadHash: "hash-2", status: "paused" }));
-    expect((await memStorage.getDownloadSummaryByGame())["game-1"].topStatus).toBe("paused");
+    expect((await memStorage.getDownloadSummaryByGame(USER_ID))["game-1"].topStatus).toBe("paused");
 
     await memStorage.addGameDownload(
       makeDownload({ downloadHash: "hash-3", status: "downloading" })
     );
-    expect((await memStorage.getDownloadSummaryByGame())["game-1"].topStatus).toBe("downloading");
+    expect((await memStorage.getDownloadSummaryByGame(USER_ID))["game-1"].topStatus).toBe(
+      "downloading"
+    );
 
     await memStorage.addGameDownload(makeDownload({ downloadHash: "hash-4", status: "failed" }));
-    expect((await memStorage.getDownloadSummaryByGame())["game-1"].topStatus).toBe("failed");
+    expect((await memStorage.getDownloadSummaryByGame(USER_ID))["game-1"].topStatus).toBe("failed");
   });
 
   it("does not downgrade topStatus when a lower-priority status is added", async () => {
     await memStorage.addGameDownload(makeDownload({ downloadHash: "hash-1", status: "failed" }));
-    expect((await memStorage.getDownloadSummaryByGame())["game-1"].topStatus).toBe("failed");
+    expect((await memStorage.getDownloadSummaryByGame(USER_ID))["game-1"].topStatus).toBe("failed");
 
     await memStorage.addGameDownload(
       makeDownload({ downloadHash: "hash-2", status: "downloading" })
     );
-    expect((await memStorage.getDownloadSummaryByGame())["game-1"].topStatus).toBe("failed");
+    expect((await memStorage.getDownloadSummaryByGame(USER_ID))["game-1"].topStatus).toBe("failed");
 
     await memStorage.addGameDownload(makeDownload({ downloadHash: "hash-3", status: "paused" }));
-    expect((await memStorage.getDownloadSummaryByGame())["game-1"].topStatus).toBe("failed");
+    expect((await memStorage.getDownloadSummaryByGame(USER_ID))["game-1"].topStatus).toBe("failed");
 
     await memStorage.addGameDownload(makeDownload({ downloadHash: "hash-4", status: "completed" }));
-    expect((await memStorage.getDownloadSummaryByGame())["game-1"].topStatus).toBe("failed");
+    expect((await memStorage.getDownloadSummaryByGame(USER_ID))["game-1"].topStatus).toBe("failed");
   });
 
   it("handles multiple games independently", async () => {
@@ -351,7 +367,7 @@ describe("getDownloadSummaryByGame (MemStorage)", () => {
         downloadType: "usenet",
       })
     );
-    const summary = await memStorage.getDownloadSummaryByGame();
+    const summary = await memStorage.getDownloadSummaryByGame(USER_ID);
     expect(summary["game-1"].topStatus).toBe("downloading");
     expect(summary["game-2"].topStatus).toBe("failed");
     expect(Object.keys(summary)).toHaveLength(2);

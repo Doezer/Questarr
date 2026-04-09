@@ -245,7 +245,7 @@ function StarRatingInput({
         const isHalf = display !== null && display >= halfValue && display < fullValue;
 
         return (
-          <span key={star} className="relative inline-flex w-5 h-5">
+          <span key={star} className="relative inline-flex w-5 h-5 overflow-visible">
             <StarHitTarget
               ratingValue={halfValue}
               currentValue={value}

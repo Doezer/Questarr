@@ -2163,9 +2163,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/downloads/summary", authenticateToken, async (_req, res) => {
+  app.get("/api/downloads/summary", authenticateToken, async (req, res) => {
     try {
-      const summary = await storage.getDownloadSummaryByGame();
+      const summary = await storage.getDownloadSummaryByGame(req.user!.id);
       res.json(summary);
     } catch (error) {
       routesLogger.error({ module: "routes", error }, "Failed to get download summary");
@@ -2925,6 +2925,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const { image, message } = req.body as { image?: string; message?: string };
       if (!image) return res.status(400).json({ error: "No image data provided" });
+
+      if (!/^data:image\/(png|jpeg|gif|webp);base64,/.test(image)) {
+        return res
+          .status(400)
+          .json({ error: "Invalid image format. Only PNG, JPEG, GIF, and WebP are supported." });
+      }
 
       const base64Data = image.split(",")[1];
       if (!base64Data) return res.status(400).json({ error: "Invalid image data" });

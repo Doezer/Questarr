@@ -82,7 +82,11 @@ export interface IStorage {
   addGame(game: InsertGame): Promise<Game>;
   updateGameStatus(id: string, statusUpdate: UpdateGameStatus): Promise<Game | undefined>;
   updateGameHidden(id: string, hidden: boolean): Promise<Game | undefined>;
-  updateGameUserRating(id: string, userId: string, userRating: number | null): Promise<Game | undefined>;
+  updateGameUserRating(
+    id: string,
+    userId: string,
+    userRating: number | null
+  ): Promise<Game | undefined>;
   updateGameSearchResultsAvailable(gameId: string, available: boolean): Promise<void>;
   updateGame(id: string, updates: Partial<Game>): Promise<Game | undefined>;
   updateGamesBatch(updates: { id: string; data: Partial<Game> }[]): Promise<void>;
@@ -115,7 +119,7 @@ export interface IStorage {
   ): Promise<(GameDownload & { downloaderName: string | null })[]>;
   updateGameDownloadStatus(id: string, status: string): Promise<void>;
   addGameDownload(gameDownload: InsertGameDownload): Promise<GameDownload>;
-  getDownloadSummaryByGame(): Promise<Record<string, DownloadSummary>>;
+  getDownloadSummaryByGame(userId: string): Promise<Record<string, DownloadSummary>>;
   getTrackedDownloadKeys(): Promise<Set<string>>;
 
   // Notification methods
@@ -383,7 +387,11 @@ export class MemStorage implements IStorage {
     return updatedGame;
   }
 
-  async updateGameUserRating(id: string, userId: string, userRating: number | null): Promise<Game | undefined> {
+  async updateGameUserRating(
+    id: string,
+    userId: string,
+    userRating: number | null
+  ): Promise<Game | undefined> {
     const game = this.games.get(id);
     if (!game || game.userId !== userId) return undefined;
 
@@ -678,10 +686,16 @@ export class MemStorage implements IStorage {
     return keys;
   }
 
-  async getDownloadSummaryByGame(): Promise<Record<string, DownloadSummary>> {
+  async getDownloadSummaryByGame(userId: string): Promise<Record<string, DownloadSummary>> {
+    const userGameIds = new Set(
+      Array.from(this.games.values())
+        .filter((g) => g.userId === userId)
+        .map((g) => g.id)
+    );
     const result: Record<string, DownloadSummary> = {};
     for (const gd of Array.from(this.gameDownloads.values())) {
       const gameId = gd.gameId;
+      if (!userGameIds.has(gameId)) continue;
       const status = gd.status as DownloadSummary["topStatus"];
       const downloadType = (gd.downloadType ?? "torrent") as "torrent" | "usenet";
       if (!result[gameId]) {
@@ -1208,7 +1222,11 @@ export class DatabaseStorage implements IStorage {
     return updatedGame || undefined;
   }
 
-  async updateGameUserRating(id: string, userId: string, userRating: number | null): Promise<Game | undefined> {
+  async updateGameUserRating(
+    id: string,
+    userId: string,
+    userRating: number | null
+  ): Promise<Game | undefined> {
     const [updatedGame] = await db
       .update(games)
       .set({ userRating })
@@ -1493,7 +1511,7 @@ export class DatabaseStorage implements IStorage {
     return new Set(rows.map((r) => `${r.downloaderId}:${r.downloadHash}`));
   }
 
-  async getDownloadSummaryByGame(): Promise<Record<string, DownloadSummary>> {
+  async getDownloadSummaryByGame(userId: string): Promise<Record<string, DownloadSummary>> {
     const rows = await db
       .select({
         gameId: gameDownloads.gameId,
@@ -1509,6 +1527,8 @@ export class DatabaseStorage implements IStorage {
         downloadTypes: sql<string>`group_concat(DISTINCT ${gameDownloads.downloadType})`,
       })
       .from(gameDownloads)
+      .innerJoin(games, eq(gameDownloads.gameId, games.id))
+      .where(eq(games.userId, userId))
       .groupBy(gameDownloads.gameId);
 
     return Object.fromEntries(

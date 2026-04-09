@@ -150,7 +150,7 @@ describe("DatabaseStorage Integration", () => {
       status: "failed",
     });
 
-    const summary = await storage.getDownloadSummaryByGame();
+    const summary = await storage.getDownloadSummaryByGame(userId);
 
     expect(Object.keys(summary)).toHaveLength(2);
 

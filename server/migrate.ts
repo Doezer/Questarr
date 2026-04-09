@@ -205,7 +205,12 @@ export async function runMigrations(): Promise<void> {
       try {
         db.transaction((tx) => {
           for (const statement of statements) {
-            if (!statement.trim()) continue;
+            const stripped = statement
+              .split("\n")
+              .filter((line) => !line.trim().startsWith("--"))
+              .join("\n")
+              .trim();
+            if (!stripped) continue;
             try {
               tx.run(sql.raw(statement));
             } catch (e) {

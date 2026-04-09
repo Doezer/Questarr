@@ -128,10 +128,18 @@ const renderComponent = (game = mockGame) => {
 describe("GameDetailsModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Default: downloads endpoint returns empty array
-    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
-      ok: true,
-      json: vi.fn().mockResolvedValue([]),
+    // Default mock: handle all endpoints
+    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (typeof url === "string" && url.includes("/api/hltb/lookup")) {
+        return Promise.resolve({
+          ok: true,
+          json: vi.fn().mockResolvedValue({ data: null }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: vi.fn().mockResolvedValue([]),
+      });
     });
   });
 
@@ -186,9 +194,21 @@ describe("GameDetailsModal", () => {
   });
 
   it("handles hide game action", async () => {
-    (global.fetch as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce({ ok: true, json: vi.fn().mockResolvedValue([]) }) // downloads
-      .mockResolvedValueOnce({ ok: true, json: vi.fn().mockResolvedValue({ hidden: true }) }); // hide
+    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (typeof url === "string" && url.includes("/api/hltb/lookup")) {
+        return Promise.resolve({
+          ok: true,
+          json: vi.fn().mockResolvedValue({ data: null }),
+        });
+      }
+      if (typeof url === "string" && url.includes("/hidden")) {
+        return Promise.resolve({
+          ok: true,
+          json: vi.fn().mockResolvedValue({ hidden: true }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: vi.fn().mockResolvedValue([]) });
+    });
     renderComponent();
 
     const hideButton = screen.getByTestId(`button-toggle-hidden-quick-${mockGame.id}`);
@@ -206,9 +226,21 @@ describe("GameDetailsModal", () => {
   });
 
   it("handles unhide game action when game starts hidden", async () => {
-    (global.fetch as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce({ ok: true, json: vi.fn().mockResolvedValue([]) }) // downloads
-      .mockResolvedValueOnce({ ok: true, json: vi.fn().mockResolvedValue({ hidden: false }) }); // unhide
+    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (typeof url === "string" && url.includes("/api/hltb/lookup")) {
+        return Promise.resolve({
+          ok: true,
+          json: vi.fn().mockResolvedValue({ data: null }),
+        });
+      }
+      if (typeof url === "string" && url.includes("/hidden")) {
+        return Promise.resolve({
+          ok: true,
+          json: vi.fn().mockResolvedValue({ hidden: false }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: vi.fn().mockResolvedValue([]) });
+    });
 
     const hiddenGame = { ...mockGame, hidden: true };
     renderComponent(hiddenGame);
@@ -259,13 +291,21 @@ describe("GameDetailsModal", () => {
   });
 
   it("calls the user-rating API when a star is clicked", async () => {
-    // First call: downloads query (on render); second call: user-rating mutation (on click)
-    (global.fetch as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce({ ok: true, json: vi.fn().mockResolvedValue([]) })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: vi.fn().mockResolvedValue({ ...mockGame, userRating: 8 }),
-      });
+    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (typeof url === "string" && url.includes("/api/hltb/lookup")) {
+        return Promise.resolve({
+          ok: true,
+          json: vi.fn().mockResolvedValue({ data: null }),
+        });
+      }
+      if (typeof url === "string" && url.includes("/user-rating")) {
+        return Promise.resolve({
+          ok: true,
+          json: vi.fn().mockResolvedValue({ ...mockGame, userRating: 8 }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: vi.fn().mockResolvedValue([]) });
+    });
 
     renderComponent();
 
@@ -290,5 +330,139 @@ describe("GameDetailsModal", () => {
     renderComponent();
     expect(screen.getByText("IGDB score")).toBeInTheDocument();
     expect(screen.queryByText("Rating")).not.toBeInTheDocument();
+  });
+
+  describe("HowLongToBeat integration", () => {
+    it("does not show HLTB section when data is null", async () => {
+      renderComponent();
+
+      await waitFor(() => {
+        expect(global.fetch).toHaveBeenCalledWith(
+          expect.stringContaining("/api/hltb/lookup"),
+          expect.anything()
+        );
+      });
+
+      expect(screen.queryByTestId("section-hltb")).not.toBeInTheDocument();
+    });
+
+    it("shows HLTB section with completion times when data is present", async () => {
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+        if (typeof url === "string" && url.includes("/api/hltb/lookup")) {
+          return Promise.resolve({
+            ok: true,
+            json: vi.fn().mockResolvedValue({
+              data: {
+                gameplayMain: 25,
+                gameplayMainExtra: 40,
+                gameplayCompletionist: 65,
+                url: "https://howlongtobeat.com/game/12345",
+              },
+            }),
+          });
+        }
+        if (typeof url === "string" && url.includes("/api/nexusmods/game-domain")) {
+          return Promise.resolve({
+            ok: true,
+            json: vi.fn().mockResolvedValue({ configured: false, domain: null }),
+          });
+        }
+        return Promise.resolve({ ok: true, json: vi.fn().mockResolvedValue([]) });
+      });
+
+      renderComponent();
+
+      const section = await screen.findByTestId("section-hltb");
+      expect(section).toBeInTheDocument();
+      expect(screen.getByText("25h")).toBeInTheDocument();
+      expect(screen.getByText("40h")).toBeInTheDocument();
+      expect(screen.getByText("65h")).toBeInTheDocument();
+    });
+
+    it("shows HowLongToBeat link with direct URL in Overview when data is present", async () => {
+      const hltbUrl = "https://howlongtobeat.com/game/12345";
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+        if (typeof url === "string" && url.includes("/api/hltb/lookup")) {
+          return Promise.resolve({
+            ok: true,
+            json: vi.fn().mockResolvedValue({
+              data: {
+                gameplayMain: 25,
+                gameplayMainExtra: 0,
+                gameplayCompletionist: 0,
+                url: hltbUrl,
+              },
+            }),
+          });
+        }
+        if (typeof url === "string" && url.includes("/api/nexusmods/game-domain")) {
+          return Promise.resolve({
+            ok: true,
+            json: vi.fn().mockResolvedValue({ configured: false, domain: null }),
+          });
+        }
+        return Promise.resolve({ ok: true, json: vi.fn().mockResolvedValue([]) });
+      });
+
+      renderComponent();
+
+      // Wait for HLTB section to appear (ensures hltbData has loaded and all links updated)
+      await screen.findByTestId("section-hltb");
+
+      const links = screen.getAllByRole("link", { name: /howlongtobeat/i });
+      expect(links.length).toBeGreaterThan(0);
+      expect(links.every((el) => el.getAttribute("href") === hltbUrl)).toBe(true);
+    });
+
+    it("shows fallback search link in Links tab when HLTB returns null", async () => {
+      renderComponent();
+      fireEvent.click(screen.getByRole("tab", { name: /links/i }));
+
+      await waitFor(() => {
+        expect(global.fetch).toHaveBeenCalledWith(
+          expect.stringContaining("/api/hltb/lookup"),
+          expect.anything()
+        );
+      });
+
+      const hltbLink = screen.getByRole("link", { name: /howlongtobeat/i });
+      expect(hltbLink.getAttribute("href")).toContain("howlongtobeat.com/?q=");
+    });
+
+    it("hides HLTB section when all completion times are zero", async () => {
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+        if (typeof url === "string" && url.includes("/api/hltb/lookup")) {
+          return Promise.resolve({
+            ok: true,
+            json: vi.fn().mockResolvedValue({
+              data: {
+                gameplayMain: 0,
+                gameplayMainExtra: 0,
+                gameplayCompletionist: 0,
+                url: "https://howlongtobeat.com/game/12345",
+              },
+            }),
+          });
+        }
+        if (typeof url === "string" && url.includes("/api/nexusmods/game-domain")) {
+          return Promise.resolve({
+            ok: true,
+            json: vi.fn().mockResolvedValue({ configured: false, domain: null }),
+          });
+        }
+        return Promise.resolve({ ok: true, json: vi.fn().mockResolvedValue([]) });
+      });
+
+      renderComponent();
+
+      await waitFor(() => {
+        expect(global.fetch).toHaveBeenCalledWith(
+          expect.stringContaining("/api/hltb/lookup"),
+          expect.anything()
+        );
+      });
+
+      expect(screen.queryByTestId("section-hltb")).not.toBeInTheDocument();
+    });
   });
 });

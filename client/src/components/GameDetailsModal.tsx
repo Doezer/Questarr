@@ -64,6 +64,15 @@ interface GameDetailsModalProps {
 
 type GameDownloadWithDownloader = GameDownload & { downloaderName: string | null };
 
+interface HLTBEntry {
+  id: number;
+  name: string;
+  gameplayMain: number;
+  gameplayMainExtra: number;
+  gameplayCompletionist: number;
+  url: string;
+}
+
 function scoreColor(score: number): string {
   if (score >= 7.5) return "bg-emerald-600 text-white";
   if (score >= 6.0) return "bg-amber-500 text-white";
@@ -111,7 +120,7 @@ function resolveWebsiteConfig(w: { category?: number; url: string }): SiteLinkCo
   return null;
 }
 
-function getDerivedLinks(game: Game): Array<SiteLinkConfig & { href: string }> {
+function getDerivedLinks(game: Game, hltbUrl?: string): Array<SiteLinkConfig & { href: string }> {
   const t = encodeURIComponent(game.title);
   return [
     {
@@ -126,7 +135,7 @@ function getDerivedLinks(game: Game): Array<SiteLinkConfig & { href: string }> {
       label: "HowLongToBeat",
       Icon: Clock as IconComponent,
       colorClass: "text-yellow-400",
-      href: `https://howlongtobeat.com/?q=${t}`,
+      href: hltbUrl ?? `https://howlongtobeat.com/?q=${t}`,
     },
     ...(game.steamAppId
       ? [
@@ -314,6 +323,20 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     enabled: open && !!game?.id && !isDiscoveryId(game.id),
   });
 
+  const { data: hltbResult } = useQuery<{ data: HLTBEntry | null }>({
+    queryKey: [`/api/hltb/lookup`, game?.title],
+    queryFn: async () => {
+      const res = await apiRequest(
+        "GET",
+        `/api/hltb/lookup?title=${encodeURIComponent(game!.title)}`
+      );
+      return res.json();
+    },
+    enabled: open && !!game,
+    staleTime: 24 * 60 * 60 * 1000,
+  });
+
+  const hltbData = hltbResult?.data ?? null;
   const removeGameMutation = useMutation({
     mutationFn: async (gameId: string) => {
       await apiRequest("DELETE", `/api/games/${gameId}`);
@@ -364,7 +387,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
       : game.summary;
 
   const igdbWebsites = (game.igdbWebsites ?? []) as Array<{ category: number; url: string }>;
-  const derivedLinks = getDerivedLinks(game);
+  const derivedLinks = getDerivedLinks(game, hltbData?.url);
   // Optimistic display: show pending value immediately while the mutation is in flight.
   const currentUserRating = userRatingMutation.isPending
     ? (userRatingMutation.variables?.userRating ?? null)
@@ -573,6 +596,49 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                       </div>
                     )}
                   </div>
+
+                  {/* HowLongToBeat completion times */}
+                  {hltbData &&
+                    (hltbData.gameplayMain > 0 ||
+                      hltbData.gameplayMainExtra > 0 ||
+                      hltbData.gameplayCompletionist > 0) && (
+                      <div data-testid="section-hltb">
+                        <h3 className="font-semibold mb-2 flex items-center gap-2">
+                          <Clock className="w-4 h-4 text-yellow-400" />
+                          How Long to Beat
+                        </h3>
+                        <div className="grid grid-cols-3 gap-3">
+                          {(
+                            [
+                              { label: "Main Story", value: hltbData.gameplayMain },
+                              { label: "Main + Extras", value: hltbData.gameplayMainExtra },
+                              { label: "Completionist", value: hltbData.gameplayCompletionist },
+                            ] as const
+                          ).map(
+                            ({ label, value }) =>
+                              value > 0 && (
+                                <div key={label} className="bg-card rounded-lg p-3 text-center">
+                                  <p className="text-xs text-muted-foreground mb-1">{label}</p>
+                                  <p className="text-base font-semibold text-yellow-400">
+                                    {value}h
+                                  </p>
+                                </div>
+                              )
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1.5">
+                          Data from{" "}
+                          <a
+                            href={hltbData.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="underline hover:text-foreground"
+                          >
+                            HowLongToBeat
+                          </a>
+                        </p>
+                      </div>
+                    )}
 
                   {/* Genres and Platforms */}
                   <div className="grid md:grid-cols-2 gap-5">

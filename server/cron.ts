@@ -20,6 +20,11 @@ import {
 const DELAY_THRESHOLD_DAYS = 7;
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const DOWNLOAD_CHECK_INTERVAL_MS = 60 * 1000; // 1 minute
+
+// Track consecutive "not found" counts per download to avoid prematurely marking
+// downloads as owned during the brief SABnzbd queue→history transition window.
+const downloadMissCount = new Map<string, number>();
+const DOWNLOAD_MISS_THRESHOLD = 3;
 const AUTO_SEARCH_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const XREL_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours (xREL search rate limit: 2/5s)
 const OWNED_STATUSES = new Set(["owned", "completed", "downloading"]);
@@ -388,7 +393,7 @@ export async function checkGameUpdates() {
   );
 }
 
-async function checkDownloadStatus() {
+export async function checkDownloadStatus() {
   const downloadingDownloads = await storage.getDownloadingGameDownloads();
 
   igdbLogger.info({ downloadingCount: downloadingDownloads.length }, "Checking download status");
@@ -425,9 +430,26 @@ async function checkDownloadStatus() {
 
       for (const download of downloads) {
         // Match by hash/ID (handle case sensitivity just in case)
-        const remoteDownload = activeDownloadMap.get(download.downloadHash.toLowerCase());
+        let remoteDownload = activeDownloadMap.get(download.downloadHash.toLowerCase());
+
+        // For Usenet clients (SABnzbd, NZBGet), getAllDownloads() only returns
+        // queue items. Once a download finishes it moves to history and disappears
+        // from the queue. Fall back to a direct per-item check so history items
+        // are found before declaring the download missing.
+        if (!remoteDownload) {
+          const individualStatus = await DownloaderManager.getDownloadStatus(
+            downloader,
+            download.downloadHash
+          );
+          if (individualStatus) {
+            remoteDownload = individualStatus;
+          }
+        }
 
         if (remoteDownload) {
+          // Clear any previous miss count — download is alive.
+          downloadMissCount.delete(download.id);
+
           igdbLogger.debug(
             {
               item: download.downloadTitle,
@@ -531,9 +553,43 @@ async function checkDownloadStatus() {
           // 2. Download failed and was manually removed
           // 3. Download was cancelled by the user
           // 4. Downloader was cleared/reset
+          // 5. SABnzbd/usenet: brief transition window between queue and history
           // Currently, we assume completion, but this may not always be correct.
           // TODO: Consider adding a user preference to handle this scenario differently
           // (e.g., reset to "wanted" status, or require manual confirmation)
+
+          // Guard against false "not found" during brief queue→history transitions
+          // (common with SABnzbd post-processing). Only act after several consecutive misses.
+          const misses = (downloadMissCount.get(download.id) ?? 0) + 1;
+          downloadMissCount.set(download.id, misses);
+
+          igdbLogger.debug(
+            {
+              downloadId: download.id,
+              downloadHash: download.downloadHash,
+              misses,
+              threshold: DOWNLOAD_MISS_THRESHOLD,
+            },
+            "SABnzbd: download miss count"
+          );
+
+          if (misses < DOWNLOAD_MISS_THRESHOLD) {
+            igdbLogger.warn(
+              {
+                gameId: download.gameId,
+                downloadId: download.id,
+                downloadTitle: download.downloadTitle,
+                downloadHash: download.downloadHash,
+                misses,
+                threshold: DOWNLOAD_MISS_THRESHOLD,
+              },
+              "Download not found in downloader - will retry before marking as completed"
+            );
+            continue;
+          }
+
+          // Threshold reached — proceed with assumption of completion.
+          downloadMissCount.delete(download.id);
 
           // Fetch game info for better logging and notification
           const game = await storage.getGame(download.gameId);

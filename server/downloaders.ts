@@ -3507,6 +3507,10 @@ export class SABnzbdClient implements DownloaderClient {
       const item = queue.slots.find((slot) => slot.nzo_id === id);
       if (!item) {
         // Check history if not in queue
+        downloadersLogger.debug(
+          { id, queueSize: queue.slots.length },
+          "SABnzbd: item not in queue, checking history"
+        );
         return await this.getFromHistory(id);
       }
 
@@ -3579,49 +3583,73 @@ export class SABnzbdClient implements DownloaderClient {
   }
 
   private async getFromHistory(id: string): Promise<DownloadStatus | null> {
-    try {
-      const url = this.getApiUrl("history");
-      const response = await fetch(url);
-      const data = await response.json();
-      const history: SABnzbdHistory = data.history;
+    // Try with nzo_ids filter first (optimization). Some SABnzbd versions ignore
+    // this parameter and return all history, or return empty slots — in that case
+    // fall back to fetching the full history and searching locally.
+    for (const useFilter of [true, false]) {
+      try {
+        const params: Record<string, string> = useFilter ? { nzo_ids: id } : {};
+        const url = this.getApiUrl("history", params);
+        downloadersLogger.debug({ id, useFilter }, "SABnzbd: fetching history");
+        const response = await this.fetchWithFallback(url);
+        const data = await response.json();
+        const history: SABnzbdHistory = data.history;
 
-      const item = history.slots.find((slot) => slot.nzo_id === id);
-      if (!item) {
+        if (!history?.slots) {
+          downloadersLogger.debug({ id, useFilter }, "SABnzbd: history response missing slots");
+          return null;
+        }
+
+        const item = history.slots.find((slot) => slot.nzo_id === id);
+        downloadersLogger.debug(
+          { id, useFilter, slotCount: history.slots.length, found: !!item },
+          "SABnzbd: history result"
+        );
+
+        if (!item) {
+          // If we used the nzo_ids filter and got no results, the filter may not be
+          // supported — retry with a full history scan.
+          if (useFilter) continue;
+          return null;
+        }
+
+        let status: DownloadStatus["status"];
+        let repairStatus: DownloadStatus["repairStatus"];
+        let unpackStatus: DownloadStatus["unpackStatus"];
+
+        if (item.status === "Completed") {
+          status = "completed";
+          repairStatus = "good";
+          unpackStatus = "completed";
+        } else if (item.status === "Failed") {
+          status = "error";
+          repairStatus = "failed";
+        } else {
+          status = "paused";
+        }
+
+        return {
+          id: item.nzo_id,
+          name: item.name,
+          downloadType: "usenet",
+          status,
+          progress: status === "completed" ? 100 : 0,
+          size: item.bytes,
+          downloaded: item.bytes,
+          category: item.category,
+          error: status === "error" ? item.fail_message : undefined,
+          repairStatus,
+          unpackStatus,
+        };
+      } catch (error) {
+        downloadersLogger.error(
+          { error, id, useFilter: useFilter },
+          "Failed to get SABnzbd history"
+        );
         return null;
       }
-
-      let status: DownloadStatus["status"];
-      let repairStatus: DownloadStatus["repairStatus"];
-      let unpackStatus: DownloadStatus["unpackStatus"];
-
-      if (item.status === "Completed") {
-        status = "completed";
-        repairStatus = "good";
-        unpackStatus = "completed";
-      } else if (item.status === "Failed") {
-        status = "error";
-        repairStatus = "failed";
-      } else {
-        status = "paused";
-      }
-
-      return {
-        id: item.nzo_id,
-        name: item.name,
-        downloadType: "usenet",
-        status,
-        progress: status === "completed" ? 100 : 0,
-        size: item.bytes,
-        downloaded: item.bytes,
-        category: item.category,
-        error: status === "error" ? item.fail_message : undefined,
-        repairStatus,
-        unpackStatus,
-      };
-    } catch (error) {
-      downloadersLogger.error({ error }, "Failed to get SABnzbd history");
-      return null;
     }
+    return null;
   }
 
   async getDownloadDetails(id: string): Promise<DownloadDetails | null> {

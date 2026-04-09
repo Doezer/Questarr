@@ -16,6 +16,17 @@ interface TableRepair {
   columns: ColumnRepair[];
 }
 
+interface NewTableSpec {
+  createSql: string;
+  /**
+   * SQL to run immediately before indexSql (e.g. a DELETE to remove duplicate
+   * rows before a UNIQUE index is enforced on a table that may already exist
+   * in a drifted database without that index).
+   */
+  dedupSql?: string;
+  indexSql?: string;
+}
+
 // ─── v1.2.2 → v1.3.0 repair spec ────────────────────────────────────────────
 // Lists every column and table added between v1.2.2 (migrations 0000–0003) and
 // v1.3.0 (migrations 0004–0013). Covers users who ran an intermediate dev image
@@ -66,7 +77,7 @@ const REPAIRS_V1_3_0: Record<string, TableRepair> = {
 };
 
 // New tables added in v1.3.0 that must exist (CREATE TABLE IF NOT EXISTS is safe).
-const NEW_TABLES_V1_3_0: Array<{ createSql: string; indexSql?: string }> = [
+const NEW_TABLES_V1_3_0: Array<NewTableSpec> = [
   {
     // 0008 – release blacklist
     createSql: `
@@ -77,6 +88,18 @@ const NEW_TABLES_V1_3_0: Array<{ createSql: string; indexSql?: string }> = [
         \`indexer_name\` text,
         \`created_at\` integer DEFAULT (strftime('%s', 'now') * 1000),
         FOREIGN KEY (\`game_id\`) REFERENCES \`games\`(\`id\`) ON UPDATE no action ON DELETE cascade
+      )
+    `,
+    // A drifted database may already contain the table without the unique index,
+    // and may have accumulated duplicate (game_id, release_title) pairs.  Remove
+    // duplicates (keeping the oldest rowid) before enforcing uniqueness so that
+    // CREATE UNIQUE INDEX does not hard-fail and abort startup.
+    dedupSql: `
+      DELETE FROM \`release_blacklist\`
+      WHERE rowid NOT IN (
+        SELECT MIN(rowid)
+        FROM \`release_blacklist\`
+        GROUP BY \`game_id\`, \`release_title\`
       )
     `,
     indexSql: `
@@ -97,21 +120,25 @@ async function repairSchemaForV1_3_0(): Promise<void> {
   logger.info("Running schema repair check for v1.2.2 → v1.3.0...");
   let repairedColumns = 0;
 
-  for (const [table, spec] of Object.entries(REPAIRS_V1_3_0)) {
-    const rows = db.all<{ name: string }>(sql.raw(`PRAGMA table_info(\`${table}\`)`));
-    const existing = new Set(rows.map((r) => r.name));
+  // Wrap column repairs in a single transaction for atomicity and performance.
+  db.transaction((tx) => {
+    for (const [table, spec] of Object.entries(REPAIRS_V1_3_0)) {
+      const rows = tx.all<{ name: string }>(sql.raw(`PRAGMA table_info(\`${table}\`)`));
+      const existing = new Set(rows.map((r) => r.name));
 
-    for (const col of spec.columns) {
-      if (!existing.has(col.name)) {
-        logger.warn(`Schema repair: \`${table}\`.\`${col.name}\` is missing — adding it now`);
-        db.run(sql.raw(`ALTER TABLE \`${table}\` ADD COLUMN \`${col.name}\` ${col.definition}`));
-        repairedColumns++;
+      for (const col of spec.columns) {
+        if (!existing.has(col.name)) {
+          logger.warn(`Schema repair: \`${table}\`.\`${col.name}\` is missing — adding it now`);
+          tx.run(sql.raw(`ALTER TABLE \`${table}\` ADD COLUMN \`${col.name}\` ${col.definition}`));
+          repairedColumns++;
+        }
       }
     }
-  }
+  });
 
-  for (const { createSql, indexSql } of NEW_TABLES_V1_3_0) {
+  for (const { createSql, dedupSql, indexSql } of NEW_TABLES_V1_3_0) {
     db.run(sql.raw(createSql));
+    if (dedupSql) db.run(sql.raw(dedupSql));
     if (indexSql) db.run(sql.raw(indexSql));
   }
 

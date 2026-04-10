@@ -276,6 +276,32 @@ export const insertGameDownloadSchema = createInsertSchema(gameDownloads).omit({
 // Legacy schema name for backward compatibility
 export const insertGameDownloadLegacySchema = insertGameDownloadSchema;
 
+// Request body schema for the claim-download endpoint
+export const claimDownloadRequestSchema = z.object({
+  downloaderId: z.string().min(1),
+  downloadHash: z.string().min(1),
+  downloadTitle: z.string().min(1),
+  currentStatus: z.string().min(1),
+  category: z.enum(["main", "update", "dlc", "extra"]),
+  gameId: z.string().optional(),
+  newGame: z
+    .object({
+      igdbId: z.number().int().optional(),
+      title: z.string().min(1),
+      coverUrl: z.string().optional(),
+      summary: z.string().optional(),
+      releaseDate: z.string().optional(),
+      platforms: z.array(z.string()).optional(),
+      genres: z.array(z.string()).optional(),
+      rating: z.number().optional(),
+      aggregatedRating: z.number().optional(),
+      screenshots: z.array(z.string()).optional(),
+      igdbWebsites: z.array(z.object({ category: z.number(), url: z.string() })).optional(),
+    })
+    .optional(),
+});
+export type ClaimDownloadRequest = z.infer<typeof claimDownloadRequestSchema>;
+
 export const insertNotificationSchema = createInsertSchema(notifications).omit({
   id: true,
   createdAt: true,

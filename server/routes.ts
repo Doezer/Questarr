@@ -17,6 +17,7 @@ import {
   updatePasswordSchema,
   insertRssFeedSchema,
   insertReleaseBlacklistSchema,
+  claimDownloadRequestSchema,
   type Config,
   type Game,
   type Indexer,
@@ -2190,7 +2191,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user!.id;
       const enabledDownloaders = await storage.getEnabledDownloaders();
-      const trackedKeys = await storage.getTrackedDownloadKeys();
+      const rawTrackedKeys = await storage.getTrackedDownloadKeys();
+      // Normalise to lowercase so case differences in stored vs. live hashes never cause false "untracked" results
+      const trackedKeys = new Set(Array.from(rawTrackedKeys).map((k) => k.toLowerCase()));
 
       // Fetch downloads from all downloaders in parallel
       const allDownloads: Array<{
@@ -2221,8 +2224,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 });
               }
             }
-          } catch {
-            // Skip downloaders that fail
+          } catch (error) {
+            routesLogger.warn(
+              { error, downloaderName: downloader.name },
+              "Failed to fetch downloads from downloader during scan, skipping."
+            );
           }
         })
       );
@@ -2248,13 +2254,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Try to match each group against user's library
       const userGames = await storage.getUserGames(userId, false);
 
+      // Pre-calculate cleaned download titles and normalised game titles to avoid
+      // redundant string operations inside the O(N×M) matching loop.
+      const normalizedGameTitles = userGames.map((game) => ({
+        game,
+        normTitle: normalizeTitle(game.title),
+      }));
+
       const groups = Array.from(groupMap.values()).map((group) => {
+        const cleanedDlTitles = group.downloads.map((d) => cleanReleaseName(d.downloadTitle));
+
         // Find best library match using any download in the group
         let libraryMatch: { game: (typeof userGames)[0]; confidence: number } | null = null;
 
-        outer: for (const game of userGames) {
-          for (const d of group.downloads) {
-            if (releaseMatchesGame(d.downloadTitle, game.title)) {
+        outer: for (const { game } of normalizedGameTitles) {
+          for (let i = 0; i < group.downloads.length; i++) {
+            if (releaseMatchesGame(cleanedDlTitles[i], game.title)) {
               libraryMatch = { game, confidence: 0.9 };
               break outer;
             }
@@ -2281,6 +2296,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/downloads/claim", authenticateToken, async (req, res) => {
     try {
       const userId = req.user!.id;
+
+      const parsed = claimDownloadRequestSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
+      }
       const {
         downloaderId,
         downloadHash,
@@ -2289,31 +2309,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         category,
         gameId,
         newGame,
-      } = req.body as {
-        downloaderId: string;
-        downloadHash: string;
-        downloadTitle: string;
-        currentStatus: string;
-        category: "main" | "update" | "dlc" | "extra";
-        gameId?: string;
-        newGame?: {
-          igdbId?: number;
-          title: string;
-          coverUrl?: string;
-          summary?: string;
-          releaseDate?: string;
-          platforms?: string[];
-          genres?: string[];
-          rating?: number;
-          aggregatedRating?: number;
-          screenshots?: string[];
-          igdbWebsites?: { category: number; url: string }[];
-        };
-      };
+      } = parsed.data;
 
-      if (!downloaderId || !downloadHash || !downloadTitle || !currentStatus || !category) {
-        return res.status(400).json({ error: "Missing required fields" });
-      }
       if (!gameId && !newGame) {
         return res.status(400).json({ error: "Provide either gameId or newGame" });
       }
@@ -2349,22 +2346,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
       } else {
-        // Determine initial game status
-        const initialGameStatus =
-          category === "main"
-            ? downloadStatus === "completed"
-              ? "owned"
-              : "downloading"
-            : "wanted";
+        // Avoid duplicates: reuse an existing library entry for the same IGDB game
+        if (newGame!.igdbId != null) {
+          const existing = await storage.getGameByIgdbId(newGame!.igdbId);
+          if (existing && existing.userId === userId) {
+            resolvedGameId = existing.id;
+            if (category === "main") {
+              const targetStatus = downloadStatus === "completed" ? "owned" : "downloading";
+              if (
+                (targetStatus === "downloading" && existing.status === "wanted") ||
+                (targetStatus === "owned" &&
+                  (existing.status === "wanted" || existing.status === "downloading"))
+              ) {
+                await storage.updateGameStatus(existing.id, { status: targetStatus });
+              }
+            }
+          }
+        }
 
-        const game = await storage.addGame(
-          insertGameSchema.parse({
-            ...newGame,
-            userId,
-            status: initialGameStatus,
-          })
-        );
-        resolvedGameId = game.id;
+        if (!resolvedGameId!) {
+          // Determine initial game status
+          const initialGameStatus =
+            category === "main"
+              ? downloadStatus === "completed"
+                ? "owned"
+                : "downloading"
+              : "wanted";
+
+          const game = await storage.addGame(
+            insertGameSchema.parse({
+              ...newGame,
+              userId,
+              status: initialGameStatus,
+            })
+          );
+          resolvedGameId = game.id;
+        }
       }
 
       const downloader = await storage.getDownloader(downloaderId);
@@ -2383,6 +2400,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           status: downloadStatus,
         })
       );
+
+      // Clear stale "search results available" flag now that the game has a linked download
+      await storage.updateGameSearchResultsAvailable(resolvedGameId, false);
 
       res.json({ success: true, gameId: resolvedGameId });
     } catch (error) {

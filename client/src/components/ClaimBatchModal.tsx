@@ -129,7 +129,13 @@ export default function ClaimBatchModal({ open, onOpenChange }: ClaimBatchModalP
         const state = groupStates.get(group.baseTitle)!;
         const selectedGame = state.selectedGame!;
 
-        for (const dl of group.downloads) {
+        // Track the gameId returned by the first claim in this group so that
+        // subsequent downloads (updates, DLC, extras) link to the same game row
+        // instead of creating duplicate entries.
+        let resolvedGroupGameId: string | undefined =
+          selectedGame.source === "library" ? selectedGame.id : undefined;
+
+        const buildBody = (dl: (typeof group.downloads)[0], gid?: string) => {
           const body: Record<string, unknown> = {
             downloaderId: dl.downloaderId,
             downloadHash: dl.downloadHash,
@@ -137,9 +143,8 @@ export default function ClaimBatchModal({ open, onOpenChange }: ClaimBatchModalP
             currentStatus: dl.status,
             category: dl.category,
           };
-
-          if (selectedGame.source === "library" && selectedGame.id) {
-            body.gameId = selectedGame.id;
+          if (gid) {
+            body.gameId = gid;
           } else {
             const g = selectedGame.data;
             body.newGame = {
@@ -154,11 +159,38 @@ export default function ClaimBatchModal({ open, onOpenChange }: ClaimBatchModalP
               aggregatedRating: g.aggregatedRating,
               screenshots: g.screenshots,
               igdbWebsites: g.igdbWebsites,
-              source: "api",
             };
           }
+          return body;
+        };
 
-          await apiRequest("POST", "/api/downloads/claim", body);
+        if (!resolvedGroupGameId && group.downloads.length > 0) {
+          // Send the first download sequentially to obtain (or create) the game row,
+          // then parallelise the remaining downloads using the resolved game ID.
+          const first = group.downloads[0];
+          const firstResponse = await apiRequest(
+            "POST",
+            "/api/downloads/claim",
+            buildBody(first, undefined)
+          );
+          const firstResult = (await firstResponse.json()) as { gameId: string };
+          resolvedGroupGameId = firstResult?.gameId;
+
+          // Parallelize the remaining downloads now that we have a gameId
+          await Promise.all(
+            group.downloads
+              .slice(1)
+              .map((dl) =>
+                apiRequest("POST", "/api/downloads/claim", buildBody(dl, resolvedGroupGameId))
+              )
+          );
+        } else {
+          // Library game: all downloads already have a gameId — parallelise immediately
+          await Promise.all(
+            group.downloads.map((dl) =>
+              apiRequest("POST", "/api/downloads/claim", buildBody(dl, resolvedGroupGameId))
+            )
+          );
         }
 
         setProgress({ done: i + 1, total: toProcess.length });

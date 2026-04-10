@@ -3034,7 +3034,21 @@ export class DownloaderManager {
 
   static async getAllDownloads(downloader: Downloader): Promise<DownloadStatus[]> {
     const client = this.createClient(downloader);
-    return client.getAllDownloads();
+    const downloads = await client.getAllDownloads();
+
+    // Filter by configured category if set
+    if (downloader.category) {
+      const filterCategory = downloader.category.toLowerCase();
+      return downloads.filter((t) => {
+        if (t.category) {
+          return t.category.toLowerCase() === filterCategory;
+        }
+        // No category on the download item means it is uncategorised — exclude when a filter is active.
+        return false;
+      });
+    }
+
+    return downloads;
   }
 
   static async getDownloadStatus(

@@ -321,9 +321,7 @@ function GameRow({
       <div className="flex-1 min-w-0">
         <p className="font-medium text-sm truncate">{game.title}</p>
         {game.releaseDate && (
-          <p className="text-xs text-muted-foreground">
-            {new Date(game.releaseDate).getFullYear()}
-          </p>
+          <p className="text-xs text-muted-foreground">{game.releaseDate.substring(0, 4)}</p>
         )}
       </div>
       {selected && <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />}

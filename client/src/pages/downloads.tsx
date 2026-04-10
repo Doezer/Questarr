@@ -803,7 +803,7 @@ export default function Downloads() {
       )}
 
       {/* Link to Game Modal */}
-      <Suspense>
+      <Suspense fallback={<div className="fixed inset-0 bg-background/80 backdrop-blur-sm" />}>
         {claimTarget && (
           <ClaimDownloadModal
             download={claimTarget}
@@ -816,7 +816,7 @@ export default function Downloads() {
       </Suspense>
 
       {/* Batch Scan Modal */}
-      <Suspense>
+      <Suspense fallback={<div className="fixed inset-0 bg-background/80 backdrop-blur-sm" />}>
         <ClaimBatchModal open={batchModalOpen} onOpenChange={setBatchModalOpen} />
       </Suspense>
     </div>

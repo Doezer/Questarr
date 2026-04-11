@@ -402,7 +402,6 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       if (game?.id) {
         queryClient.invalidateQueries({ queryKey: [`/api/games/${game.id}/downloads`] });
       }
-      onOpenChange(false);
     },
     onError: (error: Error) => {
       toast({

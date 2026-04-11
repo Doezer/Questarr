@@ -1,5 +1,5 @@
 import React from "react";
-import { Search, Download } from "lucide-react";
+import { Search, Download, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -8,6 +8,8 @@ interface GameFilterPillsProps {
   setShowSearchResultsOnly: (value: boolean) => void;
   showDownloadsOnly: boolean;
   setShowDownloadsOnly: (value: boolean | ((prev: boolean) => boolean)) => void;
+  showUpdateAvailableOnly?: boolean;
+  setShowUpdateAvailableOnly?: (value: boolean | ((prev: boolean) => boolean)) => void;
 }
 
 export default function GameFilterPills({
@@ -15,6 +17,8 @@ export default function GameFilterPills({
   setShowSearchResultsOnly,
   showDownloadsOnly,
   setShowDownloadsOnly,
+  showUpdateAvailableOnly = false,
+  setShowUpdateAvailableOnly,
 }: Readonly<GameFilterPillsProps>) {
   return (
     <>
@@ -43,6 +47,27 @@ export default function GameFilterPills({
         </TooltipTrigger>
         <TooltipContent>{showDownloadsOnly ? "Show all" : "Has downloads"}</TooltipContent>
       </Tooltip>
+      {setShowUpdateAvailableOnly && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant={showUpdateAvailableOnly ? "default" : "outline"}
+              size="sm"
+              className="h-7 gap-1.5 text-xs"
+              onClick={() => setShowUpdateAvailableOnly((v) => !v)}
+              aria-label={
+                showUpdateAvailableOnly ? "Show all games" : "Show games with update downloads only"
+              }
+            >
+              <RefreshCw className="h-3 w-3" />
+              Update Available
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {showUpdateAvailableOnly ? "Show all" : "Has update downloads"}
+          </TooltipContent>
+        </Tooltip>
+      )}
     </>
   );
 }

@@ -872,7 +872,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                     return (
                       sum +
                       downloads
-                        .filter((t) => (t.seeders ?? 0) >= minSeeders)
+                        .filter((t) => isUsenetItem(t) || (t.seeders ?? 0) >= minSeeders)
                         .filter(
                           (t) => selectedIndexer === "all" || t.indexerName === selectedIndexer
                         )

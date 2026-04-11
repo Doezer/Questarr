@@ -369,7 +369,7 @@ describe("GameDownloadDialog", () => {
     });
   });
 
-  it("closes dialog after successful download", async () => {
+  it("keeps dialog open and shows toast after successful download", async () => {
     renderComponent();
 
     await waitFor(() => {
@@ -381,8 +381,13 @@ describe("GameDownloadDialog", () => {
     fireEvent.click(downloadButton);
 
     await waitFor(() => {
-      expect(mockOnOpenChange).toHaveBeenCalledWith(false);
+      expect(mockToast).toHaveBeenCalledWith(
+        expect.objectContaining({ title: expect.stringContaining("download(s) sent") })
+      );
     });
+
+    // Dialog should remain open (onOpenChange should NOT be called with false)
+    expect(mockOnOpenChange).not.toHaveBeenCalledWith(false);
   });
 
   it("shows destructive toast when download API returns success:false", async () => {

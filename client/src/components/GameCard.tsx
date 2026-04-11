@@ -283,10 +283,12 @@ const GameCard = ({
               <div
                 className="flex items-center gap-1"
                 role="img"
-                aria-label={`Release Date: ${game.releaseDate || "To be announced"}`}
+                aria-label={`Release Date: ${game.releaseDate ? new Date(game.releaseDate).getFullYear() : "To be announced"}`}
               >
                 <Calendar className="w-3 h-3" aria-hidden="true" />
-                <span data-testid={`text-release-${game.id}`}>{game.releaseDate || "TBA"}</span>
+                <span data-testid={`text-release-${game.id}`}>
+                  {game.releaseDate ? new Date(game.releaseDate).getFullYear() : "TBA"}
+                </span>
               </div>
             </TooltipTrigger>
             <TooltipContent>

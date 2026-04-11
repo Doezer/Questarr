@@ -31,6 +31,13 @@ vi.mock("../auth.js", () => ({
     req.user = { id: 1, username: "testuser" };
     next();
   },
+  optionalAuthenticateToken: (
+    _req: import("express").Request,
+    _res: import("express").Response,
+    next: import("express").NextFunction
+  ) => {
+    next();
+  },
   hashPassword: vi.fn(),
   comparePassword: vi.fn(),
   generateToken: vi.fn(),

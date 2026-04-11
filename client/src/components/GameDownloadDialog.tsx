@@ -232,16 +232,6 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     enabled: open,
   });
 
-  const torrentCompatibleDownloaders = useMemo(
-    () => downloaders.filter((d) => ["transmission", "rtorrent", "qbittorrent"].includes(d.type)),
-    [downloaders]
-  );
-
-  const usenetCompatibleDownloaders = useMemo(
-    () => downloaders.filter((d) => ["sabnzbd", "nzbget"].includes(d.type)),
-    [downloaders]
-  );
-
   // Categorize downloads
   const categorizedDownloads = useMemo(() => {
     if (!searchResults?.items) return { main: [], update: [], dlc: [], extra: [] };
@@ -873,12 +863,32 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                   (sum, arr) => sum + arr.length,
                   0
                 );
-                const totalCategorized = Object.values(categorizedDownloads).reduce(
-                  (sum, arr) => sum + arr.length,
+                // Count items that pass all active filters *except* platform so the banner
+                // only appears when platform filtering is specifically the cause of an empty
+                // list, not when other filters (e.g. minSeeders) already hide everything.
+                const totalWithoutPlatformFilter = Object.entries(categorizedDownloads).reduce(
+                  (sum, [cat, downloads]) => {
+                    if (!visibleCategories.has(cat as DownloadCategory)) return sum;
+                    return (
+                      sum +
+                      downloads
+                        .filter((t) => (t.seeders ?? 0) >= minSeeders)
+                        .filter(
+                          (t) => selectedIndexer === "all" || t.indexerName === selectedIndexer
+                        )
+                        .filter(
+                          (t) =>
+                            selectedGroups.length === 0 ||
+                            (t.group && selectedGroups.includes(t.group))
+                        ).length
+                    );
+                  },
                   0
                 );
                 const platformFilterHidesAll =
-                  selectedPlatforms.length > 0 && totalFiltered === 0 && totalCategorized > 0;
+                  selectedPlatforms.length > 0 &&
+                  totalFiltered === 0 &&
+                  totalWithoutPlatformFilter > 0;
                 return (
                   <div className="space-y-8">
                     {/* Platform filter banner: shown when the preferred platform leaves no results */}

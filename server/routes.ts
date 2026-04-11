@@ -152,22 +152,29 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
     if (gameId && req.user) {
       const game = await storage.getGame(gameId);
       if (game && game.userId === req.user.id) {
-        const blacklisted = await storage.getReleaseBlacklistSet(gameId);
+        const [blacklisted, userSettings] = await Promise.all([
+          storage.getReleaseBlacklistSet(gameId),
+          storage.getUserSettings(req.user.id),
+        ]);
         filteredItems = filterBlacklistedReleases(items, blacklisted);
         blacklistedCount = items.length - filteredItems.length;
 
-        // Apply preferred platform filter to determine if results are truly available
-        // for this user, then update the live flag so it stays accurate without waiting
-        // for the next cron run (fixes stale "has results" badge and newly-added games).
-        const userSettings = await storage.getUserSettings(req.user.id);
-        const preferredPlatform = userSettings?.preferredPlatform ?? null;
-        const platformFiltered = preferredPlatform
-          ? filteredItems.filter((item) => {
-              const { platform } = parseReleaseMetadata(item.title);
-              return matchesPlatformFilter(platform, preferredPlatform);
-            })
-          : filteredItems;
-        await storage.updateGameSearchResultsAvailable(game.id, platformFiltered.length > 0);
+        // Update the "has results" flag only for canonical game-title searches so that
+        // partial/custom user-typed queries in the download dialog don't flip the badge
+        // based on a transient, narrow result set. Runs async to avoid blocking the response.
+        const isCanonicalSearch = normalizeTitle(query.trim()) === normalizeTitle(game.title);
+        if (isCanonicalSearch) {
+          const preferredPlatform = userSettings?.preferredPlatform ?? null;
+          const platformFiltered = preferredPlatform
+            ? filteredItems.filter((item) => {
+                const { platform } = parseReleaseMetadata(item.title);
+                return matchesPlatformFilter(platform, preferredPlatform);
+              })
+            : filteredItems;
+          storage
+            .updateGameSearchResultsAvailable(game.id, platformFiltered.length > 0)
+            .catch((err) => routesLogger.warn({ err }, "Failed to update searchResultsAvailable"));
+        }
       }
     }
 

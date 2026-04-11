@@ -102,7 +102,7 @@ describe("GameCard", () => {
     renderComponent();
     expect(screen.getByTestId("text-title-1")).toHaveTextContent("Test Game");
     expect(screen.getByTestId("text-rating-1")).toHaveTextContent("8.5/10");
-    expect(screen.getByTestId("text-release-1")).toHaveTextContent("2024-01-01");
+    expect(screen.getByTestId("text-release-1")).toHaveTextContent("2024");
   });
 
   it("displays a rating of 0 as 'N/A' since 0 is unrated", () => {

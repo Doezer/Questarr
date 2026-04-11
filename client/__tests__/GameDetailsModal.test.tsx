@@ -252,12 +252,13 @@ describe("GameDetailsModal", () => {
     renderComponent(longSummaryGame);
 
     const summaryText = screen.getByTestId(`text-summary-${mockGame.id}`);
-    expect(summaryText).toHaveTextContent("Read more");
+    // Summary paragraph shows truncated text; "Read more" is a sibling button
+    expect(summaryText.textContent?.length).toBeLessThan(300);
 
     const readMoreButton = screen.getByText("Read more");
     fireEvent.click(readMoreButton);
 
-    expect(summaryText).toHaveTextContent("Show less");
+    expect(screen.getByText("Show less")).toBeInTheDocument();
   });
 
   it("renders the Your rating section", () => {

@@ -292,6 +292,7 @@ describe("getDownloadSummaryByGame (MemStorage)", () => {
       topStatus: "downloading",
       count: 1,
       downloadTypes: ["torrent"],
+      hasUpdateDownload: false,
     });
   });
 
@@ -403,8 +404,18 @@ describe("GET /api/downloads/summary", () => {
 
   it("returns correct summary map when downloads exist", async () => {
     const mockSummary: Record<string, DownloadSummary> = {
-      "game-1": { topStatus: "downloading", count: 2, downloadTypes: ["torrent"] },
-      "game-2": { topStatus: "completed", count: 1, downloadTypes: ["usenet"] },
+      "game-1": {
+        topStatus: "downloading",
+        count: 2,
+        downloadTypes: ["torrent"],
+        hasUpdateDownload: false,
+      },
+      "game-2": {
+        topStatus: "completed",
+        count: 1,
+        downloadTypes: ["usenet"],
+        hasUpdateDownload: false,
+      },
     };
     vi.mocked(storage.getDownloadSummaryByGame).mockResolvedValue(mockSummary);
     const res = await request(app)

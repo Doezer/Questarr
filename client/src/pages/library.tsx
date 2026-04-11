@@ -20,6 +20,7 @@ export default function LibraryPage() {
   const [showDownloadsOnly, setShowDownloadsOnly] = useState(false);
   const downloadSummaries = useDownloadSummary();
   const [showSearchResultsOnly, setShowSearchResultsOnly] = useState(false);
+  const [showUpdateAvailableOnly, setShowUpdateAvailableOnly] = useState(false);
 
   const { data: games = [], isLoading } = useQuery<Game[]>({
     queryKey: ["/api/games", "?status=owned,completed,downloading"],
@@ -31,10 +32,13 @@ export default function LibraryPage() {
     return result;
   }, [games, showSearchResultsOnly]);
 
-  const displayedGames = useMemo(
-    () => (showDownloadsOnly ? libraryGames.filter((g) => downloadSummaries[g.id]) : libraryGames),
-    [libraryGames, showDownloadsOnly, downloadSummaries]
-  );
+  const displayedGames = useMemo(() => {
+    let result = libraryGames;
+    if (showDownloadsOnly) result = result.filter((g) => downloadSummaries[g.id]);
+    if (showUpdateAvailableOnly)
+      result = result.filter((g) => downloadSummaries[g.id]?.hasUpdateDownload);
+    return result;
+  }, [libraryGames, showDownloadsOnly, showUpdateAvailableOnly, downloadSummaries]);
 
   const statusMutation = useMutation({
     mutationFn: async ({ gameId, status }: { gameId: string; status: GameStatus }) => {
@@ -76,6 +80,8 @@ export default function LibraryPage() {
               setShowSearchResultsOnly={setShowSearchResultsOnly}
               showDownloadsOnly={showDownloadsOnly}
               setShowDownloadsOnly={setShowDownloadsOnly}
+              showUpdateAvailableOnly={showUpdateAvailableOnly}
+              setShowUpdateAvailableOnly={setShowUpdateAvailableOnly}
             />
           }
           viewControls={{

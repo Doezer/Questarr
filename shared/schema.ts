@@ -398,6 +398,7 @@ export interface DownloadSummary {
   topStatus: "downloading" | "paused" | "failed" | "completed";
   count: number;
   downloadTypes: ("torrent" | "usenet")[];
+  hasUpdateDownload: boolean;
 }
 
 // Application configuration type

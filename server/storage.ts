@@ -40,6 +40,7 @@ import {
 import { randomUUID } from "crypto";
 import { db } from "./db.js";
 import { eq, like, or, sql, desc, and, inArray, type SQL } from "drizzle-orm";
+import { categorizeDownload } from "../shared/download-categorizer.js";
 
 const STATUS_PRIORITY: Record<string, number> = {
   failed: 4,
@@ -698,11 +699,13 @@ export class MemStorage implements IStorage {
       if (!userGameIds.has(gameId)) continue;
       const status = gd.status as DownloadSummary["topStatus"];
       const downloadType = (gd.downloadType ?? "torrent") as "torrent" | "usenet";
+      const isUpdate = categorizeDownload(gd.downloadTitle).category === "update";
       if (!result[gameId]) {
         result[gameId] = {
           topStatus: status,
           count: 1,
           downloadTypes: [downloadType],
+          hasUpdateDownload: isUpdate,
         };
       } else {
         result[gameId].topStatus = resolveTopStatus(result[gameId].topStatus, status);
@@ -710,6 +713,7 @@ export class MemStorage implements IStorage {
         if (!result[gameId].downloadTypes.includes(downloadType)) {
           result[gameId].downloadTypes.push(downloadType);
         }
+        if (isUpdate) result[gameId].hasUpdateDownload = true;
       }
     }
     return result;
@@ -1525,6 +1529,7 @@ export class DatabaseStorage implements IStorage {
           END
         `,
         downloadTypes: sql<string>`group_concat(DISTINCT ${gameDownloads.downloadType})`,
+        downloadTitles: sql<string>`group_concat(${gameDownloads.downloadTitle}, '||')`,
       })
       .from(gameDownloads)
       .innerJoin(games, eq(gameDownloads.gameId, games.id))
@@ -1532,17 +1537,22 @@ export class DatabaseStorage implements IStorage {
       .groupBy(gameDownloads.gameId);
 
     return Object.fromEntries(
-      rows.map((row) => [
-        row.gameId,
-        {
-          topStatus: row.topStatus as DownloadSummary["topStatus"],
-          count: row.count,
-          downloadTypes: (row.downloadTypes ?? "torrent").split(",").filter(Boolean) as (
-            | "torrent"
-            | "usenet"
-          )[],
-        },
-      ])
+      rows.map((row) => {
+        const titles = (row.downloadTitles ?? "").split("||").filter(Boolean);
+        const hasUpdateDownload = titles.some((t) => categorizeDownload(t).category === "update");
+        return [
+          row.gameId,
+          {
+            topStatus: row.topStatus as DownloadSummary["topStatus"],
+            count: row.count,
+            downloadTypes: (row.downloadTypes ?? "torrent").split(",").filter(Boolean) as (
+              | "torrent"
+              | "usenet"
+            )[],
+            hasUpdateDownload,
+          },
+        ];
+      })
     );
   }
 

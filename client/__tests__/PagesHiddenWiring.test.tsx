@@ -4,7 +4,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import WishlistPage from "../src/pages/wishlist";
-import LibraryPage from "../src/pages/library";
+import Dashboard from "../src/components/Dashboard";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 const TEST_GAME_ID = "11111111-1111-1111-1111-111111111111";
@@ -128,8 +128,8 @@ describe("Page hidden wiring", () => {
     ).toBe(true);
   });
 
-  it("wires onToggleHidden in LibraryPage", async () => {
-    renderWithQueryClient(<LibraryPage />);
+  it("wires onToggleHidden in Dashboard", async () => {
+    renderWithQueryClient(<Dashboard />);
 
     const triggerButton = await screen.findByTestId("button-trigger-toggle-hidden");
     fireEvent.click(triggerButton);
@@ -147,7 +147,7 @@ describe("Page hidden wiring", () => {
   });
 });
 
-describe("LibraryPage filter buttons", () => {
+describe("Dashboard filter buttons", () => {
   const gameWithDownload = {
     id: TEST_GAME_ID,
     title: "Downloaded Game",
@@ -190,7 +190,7 @@ describe("LibraryPage filter buttons", () => {
   });
 
   it("filters to games with downloads when hasDownloads button toggled", async () => {
-    renderWithQueryClient(<LibraryPage />);
+    renderWithQueryClient(<Dashboard />);
 
     // Wait for both games to appear in initial render
     await waitFor(() => {
@@ -210,7 +210,7 @@ describe("LibraryPage filter buttons", () => {
   });
 
   it("filters to games with search results when search results button toggled", async () => {
-    renderWithQueryClient(<LibraryPage />);
+    renderWithQueryClient(<Dashboard />);
 
     await waitFor(() => {
       const calls = gameGridSpy.mock.calls;

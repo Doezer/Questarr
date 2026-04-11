@@ -337,6 +337,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
       return res.json();
     },
     enabled: open && !!game?.id && !isDiscoveryId(game.id),
+    refetchInterval: 5000,
   });
 
   const { data: hltbResult } = useQuery<{ data: HLTBEntry | null }>({
@@ -607,20 +608,20 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                         About
                       </h3>
                       <p
-                        className="text-sm text-muted-foreground leading-relaxed"
+                        className="text-sm text-muted-foreground leading-relaxed break-words"
                         data-testid={`text-summary-${game.id}`}
                       >
                         {displaySummary}
-                        {isSummaryLong && (
-                          <Button
-                            variant="link"
-                            className="p-0 h-auto ml-1 font-semibold"
-                            onClick={() => setIsSummaryExpanded(!isSummaryExpanded)}
-                          >
-                            {isSummaryExpanded ? "Show less" : "Read more"}
-                          </Button>
-                        )}
                       </p>
+                      {isSummaryLong && (
+                        <Button
+                          variant="link"
+                          className="p-0 h-auto mt-1 font-semibold"
+                          onClick={() => setIsSummaryExpanded(!isSummaryExpanded)}
+                        >
+                          {isSummaryExpanded ? "Show less" : "Read more"}
+                        </Button>
+                      )}
                     </div>
                   )}
 

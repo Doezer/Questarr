@@ -38,6 +38,8 @@ import { Switch } from "@/components/ui/switch";
 import { useViewControls } from "@/hooks/use-view-controls";
 import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 import { setAddGamePendingQuery, clearAddGamePendingQuery } from "@/lib/add-game-store";
+import { useDownloadSummary } from "@/hooks/use-download-summary";
+import GameFilterPills from "./GameFilterPills";
 
 export default function Dashboard() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -46,16 +48,21 @@ export default function Dashboard() {
   const [statusFilter, setStatusFilter] = useState<GameStatus | "all">("all");
   const [genreFilter, setGenreFilter] = useState<string>("all");
   const [platformFilter, setPlatformFilter] = useState<string>("all");
+  const [showSearchResultsOnly, setShowSearchResultsOnly] = useState(false);
+  const [showDownloadsOnly, setShowDownloadsOnly] = useState(false);
 
   const clearAllFilters = useCallback(() => {
     setStatusFilter("all");
     setGenreFilter("all");
     setPlatformFilter("all");
+    setShowSearchResultsOnly(false);
+    setShowDownloadsOnly(false);
   }, []);
 
   const { viewMode, setViewMode, listDensity, setListDensity } = useViewControls("dashboard");
   const [gridColumns, setGridColumns] = useLocalStorageState("dashboardGridColumns", 5);
   const [showHiddenGames, setShowHiddenGames] = useLocalStorageState("showHiddenGames", false);
+  const downloadSummaries = useDownloadSummary();
 
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -114,9 +121,19 @@ export default function Dashboard() {
       if (statusFilter !== "all" && game.status !== statusFilter) return false;
       if (genreFilter !== "all" && !game.genres?.includes(genreFilter)) return false;
       if (platformFilter !== "all" && !game.platforms?.includes(platformFilter)) return false;
+      if (showSearchResultsOnly && !game.searchResultsAvailable) return false;
+      if (showDownloadsOnly && !downloadSummaries[game.id]) return false;
       return true;
     });
-  }, [games, statusFilter, genreFilter, platformFilter]);
+  }, [
+    games,
+    statusFilter,
+    genreFilter,
+    platformFilter,
+    showSearchResultsOnly,
+    showDownloadsOnly,
+    downloadSummaries,
+  ]);
 
   const activeFilters = useMemo(() => {
     const filters: { label: string; onRemove: () => void }[] = [];
@@ -129,8 +146,15 @@ export default function Dashboard() {
         label: `Platform: ${platformFilter}`,
         onRemove: () => setPlatformFilter("all"),
       });
+    if (showSearchResultsOnly)
+      filters.push({
+        label: "Has Search Results",
+        onRemove: () => setShowSearchResultsOnly(false),
+      });
+    if (showDownloadsOnly)
+      filters.push({ label: "Has Downloads", onRemove: () => setShowDownloadsOnly(false) });
     return filters;
-  }, [statusFilter, genreFilter, platformFilter]);
+  }, [statusFilter, genreFilter, platformFilter, showSearchResultsOnly, showDownloadsOnly]);
 
   const libStats = useMemo(() => calculateLibraryStats(games), [games]);
 
@@ -205,11 +229,19 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* Toolbar: search + view controls + filter toggle + grid settings */}
+        {/* Toolbar: search + filter pills + view controls + filter toggle + grid settings */}
         <PageToolbar
           search={searchQuery}
           onSearchChange={setSearchQuery}
           searchPlaceholder="Search your library..."
+          filterPills={
+            <GameFilterPills
+              showSearchResultsOnly={showSearchResultsOnly}
+              setShowSearchResultsOnly={setShowSearchResultsOnly}
+              showDownloadsOnly={showDownloadsOnly}
+              setShowDownloadsOnly={setShowDownloadsOnly}
+            />
+          }
           viewControls={{
             viewMode,
             onViewModeChange: setViewMode,
@@ -405,6 +437,7 @@ export default function Dashboard() {
             isLoading={isLoading}
             isFetching={isFetching}
             columns={gridColumns}
+            downloadSummaries={downloadSummaries}
             viewMode={viewMode}
             density={listDensity}
           />

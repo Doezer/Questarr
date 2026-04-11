@@ -1,6 +1,5 @@
 import {
   Home,
-  Library,
   Download,
   Calendar,
   Settings,
@@ -43,11 +42,6 @@ const staticNavigation = [
     title: "Discover",
     url: "/discover",
     icon: Compass,
-  },
-  {
-    title: "Library",
-    url: "/library",
-    icon: Library,
   },
   {
     title: "Downloads",
@@ -120,18 +114,8 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: Readonly<Ap
     refetchInterval: 5000,
   });
 
-  const { libraryCount, wishlistCount } = useMemo(() => {
-    return games.reduce(
-      (counts, g) => {
-        if (["owned", "completed", "downloading"].includes(g.status)) {
-          counts.libraryCount++;
-        } else if (g.status === "wanted") {
-          counts.wishlistCount++;
-        }
-        return counts;
-      },
-      { libraryCount: 0, wishlistCount: 0 }
-    );
+  const wishlistCount = useMemo(() => {
+    return games.filter((g) => g.status === "wanted").length;
   }, [games]);
   const activeDownloadsCount =
     downloadsData?.downloads?.filter((d) => d.status === "downloading").length || 0;
@@ -139,9 +123,7 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: Readonly<Ap
   const navigation = staticNavigation.map((item) => {
     let badge: string | undefined;
 
-    if (item.title === "Library" && libraryCount > 0) {
-      badge = libraryCount.toString();
-    } else if (item.title === "Wishlist" && wishlistCount > 0) {
+    if (item.title === "Wishlist" && wishlistCount > 0) {
       badge = wishlistCount.toString();
     } else if (item.title === "Downloads" && activeDownloadsCount > 0) {
       badge = activeDownloadsCount.toString();

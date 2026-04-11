@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, lazy, Suspense } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import {
@@ -33,6 +33,8 @@ import {
   Download,
   Newspaper,
   Tag,
+  ScanLine,
+  Link2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -47,6 +49,8 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import DownloadDetailsModal from "@/components/DownloadDetailsModal";
+const ClaimDownloadModal = lazy(() => import("@/components/ClaimDownloadModal"));
+const ClaimBatchModal = lazy(() => import("@/components/ClaimBatchModal"));
 
 interface DownloadStatus {
   id: string;
@@ -114,6 +118,8 @@ export default function Downloads() {
   const [statusFilter, setStatusFilter] = useState<DownloadStatusType | "all">("all");
   const [typeFilter, setTypeFilter] = useState<DownloadType | "all">("all");
   const [questarrFilter, setQuestarrFilter] = useState<"all" | "questarr">("all");
+  const [claimTarget, setClaimTarget] = useState<DownloadStatus | null>(null);
+  const [batchModalOpen, setBatchModalOpen] = useState(false);
 
   const {
     data: downloadsData,
@@ -478,6 +484,17 @@ export default function Downloads() {
             </TabsList>
           </Tabs>
         </div>
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setBatchModalOpen(true)}
+          className="ml-auto flex items-center gap-2"
+          aria-label="Scan unlinked downloads"
+        >
+          <ScanLine className="h-4 w-4" />
+          Scan Unlinked
+        </Button>
       </div>
 
       {/* Category filter banner */}
@@ -684,6 +701,13 @@ export default function Downloads() {
                           View Details
                         </DropdownMenuItem>
                         <DropdownMenuItem
+                          onClick={() => setClaimTarget(download)}
+                          data-testid={`button-link-${download.id}`}
+                        >
+                          <Link2 className="h-4 w-4 mr-2" />
+                          Link to Game
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
                           onClick={() => handleRemove(download, false)}
                           data-testid={`button-remove-${download.id}`}
                         >
@@ -777,6 +801,24 @@ export default function Downloads() {
           onOpenChange={setDetailsModalOpen}
         />
       )}
+
+      {/* Link to Game Modal */}
+      <Suspense fallback={<div className="fixed inset-0 bg-background/80 backdrop-blur-sm" />}>
+        {claimTarget && (
+          <ClaimDownloadModal
+            download={claimTarget}
+            open={!!claimTarget}
+            onOpenChange={(v) => {
+              if (!v) setClaimTarget(null);
+            }}
+          />
+        )}
+      </Suspense>
+
+      {/* Batch Scan Modal */}
+      <Suspense fallback={<div className="fixed inset-0 bg-background/80 backdrop-blur-sm" />}>
+        <ClaimBatchModal open={batchModalOpen} onOpenChange={setBatchModalOpen} />
+      </Suspense>
     </div>
   );
 }

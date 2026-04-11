@@ -6,6 +6,7 @@ import { db } from "./db.js";
 import { sql } from "drizzle-orm";
 import {
   insertGameSchema,
+  insertGameDownloadSchema,
   updateGameStatusSchema,
   updateGameHiddenSchema,
   updateGameUserRatingSchema,
@@ -16,6 +17,7 @@ import {
   updatePasswordSchema,
   insertRssFeedSchema,
   insertReleaseBlacklistSchema,
+  claimDownloadRequestSchema,
   type Config,
   type Game,
   type Indexer,
@@ -66,7 +68,8 @@ const upload = multer({
 });
 import { searchAllIndexers, filterBlacklistedReleases } from "./search.js";
 import { xrelClient, DEFAULT_XREL_BASE, ALLOWED_XREL_DOMAINS } from "./xrel.js";
-import { normalizeTitle, cleanReleaseName } from "../shared/title-utils.js";
+import { normalizeTitle, cleanReleaseName, releaseMatchesGame } from "../shared/title-utils.js";
+import { categorizeDownload } from "../shared/download-categorizer.js";
 import archiver from "archiver";
 import helmet from "helmet";
 import { steamRoutes } from "./steam-routes.js";
@@ -2180,6 +2183,231 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       routesLogger.error({ module: "routes", error }, "Failed to get download summary");
       res.status(500).json({ error: "Failed to get download summary" });
+    }
+  });
+
+  // Scan all downloads and return those not yet linked to any game, grouped by base title with library matches
+  app.get("/api/downloads/scan", authenticateToken, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const enabledDownloaders = await storage.getEnabledDownloaders();
+      const rawTrackedKeys = await storage.getTrackedDownloadKeys();
+      // Normalise to lowercase so case differences in stored vs. live hashes never cause false "untracked" results
+      const trackedKeys = new Set(Array.from(rawTrackedKeys).map((k) => k.toLowerCase()));
+
+      // Fetch downloads from all downloaders in parallel
+      const allDownloads: Array<{
+        downloaderId: string;
+        downloaderName: string;
+        downloadId: string;
+        downloadHash: string;
+        downloadTitle: string;
+        status: string;
+        downloadType: "torrent" | "usenet";
+      }> = [];
+
+      await Promise.all(
+        enabledDownloaders.map(async (downloader) => {
+          try {
+            const downloads = await DownloaderManager.getAllDownloads(downloader);
+            for (const d of downloads) {
+              const key = `${downloader.id}:${d.id.toLowerCase()}`;
+              if (!trackedKeys.has(key)) {
+                allDownloads.push({
+                  downloaderId: downloader.id,
+                  downloaderName: downloader.name,
+                  downloadId: d.id,
+                  downloadHash: d.id.toLowerCase(),
+                  downloadTitle: d.name,
+                  status: d.status,
+                  downloadType: d.downloadType ?? "torrent",
+                });
+              }
+            }
+          } catch (error) {
+            routesLogger.warn(
+              { error, downloaderName: downloader.name },
+              "Failed to fetch downloads from downloader during scan, skipping."
+            );
+          }
+        })
+      );
+
+      // Categorize and group by normalized base title
+      type DownloadScanItem = (typeof allDownloads)[0] & {
+        category: string;
+        categoryConfidence: number;
+      };
+      const groupMap = new Map<string, { baseTitle: string; downloads: DownloadScanItem[] }>();
+
+      for (const d of allDownloads) {
+        const { category, confidence } = categorizeDownload(d.downloadTitle);
+        const baseTitle = normalizeTitle(cleanReleaseName(d.downloadTitle));
+        const key = baseTitle || normalizeTitle(d.downloadTitle);
+
+        if (!groupMap.has(key)) {
+          groupMap.set(key, { baseTitle: key, downloads: [] });
+        }
+        groupMap.get(key)!.downloads.push({ ...d, category, categoryConfidence: confidence });
+      }
+
+      // Try to match each group against user's library
+      const userGames = await storage.getUserGames(userId, false);
+
+      // Pre-calculate cleaned download titles and normalised game titles to avoid
+      // redundant string operations inside the O(N×M) matching loop.
+      const normalizedGameTitles = userGames.map((game) => ({
+        game,
+        normTitle: normalizeTitle(game.title),
+      }));
+
+      const groups = Array.from(groupMap.values()).map((group) => {
+        const cleanedDlTitles = group.downloads.map((d) => cleanReleaseName(d.downloadTitle));
+
+        // Find best library match using any download in the group
+        let libraryMatch: { game: (typeof userGames)[0]; confidence: number } | null = null;
+
+        outer: for (const { game } of normalizedGameTitles) {
+          for (let i = 0; i < group.downloads.length; i++) {
+            if (releaseMatchesGame(cleanedDlTitles[i], game.title)) {
+              libraryMatch = { game, confidence: 0.9 };
+              break outer;
+            }
+          }
+        }
+
+        return {
+          baseTitle: group.baseTitle,
+          downloads: group.downloads,
+          libraryMatch: libraryMatch
+            ? { game: libraryMatch.game, confidence: libraryMatch.confidence }
+            : null,
+        };
+      });
+
+      res.json({ groups });
+    } catch (error) {
+      routesLogger.error({ error }, "error scanning downloads");
+      res.status(500).json({ error: "Failed to scan downloads" });
+    }
+  });
+
+  // Claim (link) a download client entry to a game in the library
+  app.post("/api/downloads/claim", authenticateToken, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+
+      const parsed = claimDownloadRequestSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
+      }
+      const {
+        downloaderId,
+        downloadHash,
+        downloadTitle,
+        currentStatus,
+        category,
+        gameId,
+        newGame,
+      } = parsed.data;
+
+      if (!gameId && !newGame) {
+        return res.status(400).json({ error: "Provide either gameId or newGame" });
+      }
+
+      // Determine download status for gameDownloads record
+      const downloadStatus =
+        currentStatus === "completed" || currentStatus === "seeding"
+          ? "completed"
+          : currentStatus === "downloading"
+            ? "downloading"
+            : currentStatus === "paused"
+              ? "paused"
+              : "downloading";
+
+      let resolvedGameId: string;
+
+      if (gameId) {
+        const existing = await storage.getGame(gameId);
+        if (!existing || existing.userId !== userId) {
+          return res.status(404).json({ error: "Game not found" });
+        }
+        resolvedGameId = gameId;
+
+        // Update game status if this is the main download
+        if (category === "main") {
+          const targetStatus = downloadStatus === "completed" ? "owned" : "downloading";
+          if (
+            (targetStatus === "downloading" && existing.status === "wanted") ||
+            (targetStatus === "owned" &&
+              (existing.status === "wanted" || existing.status === "downloading"))
+          ) {
+            await storage.updateGameStatus(existing.id, { status: targetStatus });
+          }
+        }
+      } else {
+        // Avoid duplicates: reuse an existing library entry for the same IGDB game
+        if (newGame!.igdbId != null) {
+          const existing = await storage.getGameByIgdbId(newGame!.igdbId);
+          if (existing && existing.userId === userId) {
+            resolvedGameId = existing.id;
+            if (category === "main") {
+              const targetStatus = downloadStatus === "completed" ? "owned" : "downloading";
+              if (
+                (targetStatus === "downloading" && existing.status === "wanted") ||
+                (targetStatus === "owned" &&
+                  (existing.status === "wanted" || existing.status === "downloading"))
+              ) {
+                await storage.updateGameStatus(existing.id, { status: targetStatus });
+              }
+            }
+          }
+        }
+
+        if (!resolvedGameId!) {
+          // Determine initial game status
+          const initialGameStatus =
+            category === "main"
+              ? downloadStatus === "completed"
+                ? "owned"
+                : "downloading"
+              : "wanted";
+
+          const game = await storage.addGame(
+            insertGameSchema.parse({
+              ...newGame,
+              userId,
+              status: initialGameStatus,
+            })
+          );
+          resolvedGameId = game.id;
+        }
+      }
+
+      const downloader = await storage.getDownloader(downloaderId);
+      if (!downloader) {
+        return res.status(404).json({ error: "Downloader not found" });
+      }
+
+      await storage.addGameDownload(
+        insertGameDownloadSchema.parse({
+          gameId: resolvedGameId,
+          downloaderId,
+          downloadHash: downloadHash.toLowerCase(),
+          downloadTitle,
+          downloadType:
+            downloader.type === "sabnzbd" || downloader.type === "nzbget" ? "usenet" : "torrent",
+          status: downloadStatus,
+        })
+      );
+
+      // Clear stale "search results available" flag now that the game has a linked download
+      await storage.updateGameSearchResultsAvailable(resolvedGameId, false);
+
+      res.json({ success: true, gameId: resolvedGameId });
+    } catch (error) {
+      routesLogger.error({ error }, "error claiming download");
+      res.status(500).json({ error: "Failed to claim download" });
     }
   });
 

@@ -42,6 +42,9 @@ import { db } from "./db.js";
 import { eq, like, or, sql, desc, and, inArray, type SQL } from "drizzle-orm";
 import { categorizeDownload } from "../shared/download-categorizer.js";
 
+const isUpdateDownload = (title: string): boolean =>
+  categorizeDownload(title).category === "update";
+
 const STATUS_PRIORITY: Record<string, number> = {
   failed: 4,
   downloading: 3,
@@ -699,7 +702,7 @@ export class MemStorage implements IStorage {
       if (!userGameIds.has(gameId)) continue;
       const status = gd.status as DownloadSummary["topStatus"];
       const downloadType = (gd.downloadType ?? "torrent") as "torrent" | "usenet";
-      const isUpdate = categorizeDownload(gd.downloadTitle).category === "update";
+      const isUpdate = isUpdateDownload(gd.downloadTitle);
       if (!result[gameId]) {
         result[gameId] = {
           topStatus: status,
@@ -1529,7 +1532,13 @@ export class DatabaseStorage implements IStorage {
           END
         `,
         downloadTypes: sql<string>`group_concat(DISTINCT ${gameDownloads.downloadType})`,
-        downloadTitles: sql<string>`group_concat(${gameDownloads.downloadTitle}, '||')`,
+        hasUpdateDownload: sql<number>`max(CASE
+          WHEN ${gameDownloads.downloadTitle} LIKE '%update%'
+            OR ${gameDownloads.downloadTitle} LIKE '%patch%'
+            OR ${gameDownloads.downloadTitle} LIKE '%hotfix%'
+            OR ${gameDownloads.downloadTitle} LIKE '%crackfix%'
+            OR ${gameDownloads.downloadTitle} LIKE '%fix%'
+          THEN 1 ELSE 0 END)`,
       })
       .from(gameDownloads)
       .innerJoin(games, eq(gameDownloads.gameId, games.id))
@@ -1538,8 +1547,6 @@ export class DatabaseStorage implements IStorage {
 
     return Object.fromEntries(
       rows.map((row) => {
-        const titles = (row.downloadTitles ?? "").split("||").filter(Boolean);
-        const hasUpdateDownload = titles.some((t) => categorizeDownload(t).category === "update");
         return [
           row.gameId,
           {
@@ -1549,7 +1556,7 @@ export class DatabaseStorage implements IStorage {
               | "torrent"
               | "usenet"
             )[],
-            hasUpdateDownload,
+            hasUpdateDownload: row.hasUpdateDownload > 0,
           },
         ];
       })

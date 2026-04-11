@@ -373,6 +373,28 @@ describe("getDownloadSummaryByGame (MemStorage)", () => {
     expect(summary["game-2"].topStatus).toBe("failed");
     expect(Object.keys(summary)).toHaveLength(2);
   });
+
+  it("sets hasUpdateDownload when a download title matches update patterns", async () => {
+    await memStorage.addGameDownload(
+      makeDownload({ downloadHash: "hash-main", downloadTitle: "Test.Game-GROUP" })
+    );
+    await memStorage.addGameDownload(
+      makeDownload({ downloadHash: "hash-upd", downloadTitle: "Test.Game.Update.v2-GROUP" })
+    );
+    const summary = await memStorage.getDownloadSummaryByGame(USER_ID);
+    expect(summary["game-1"].hasUpdateDownload).toBe(true);
+  });
+
+  it("leaves hasUpdateDownload false when no update title exists", async () => {
+    await memStorage.addGameDownload(
+      makeDownload({ downloadHash: "hash-1", downloadTitle: "Test.Game-GROUP" })
+    );
+    await memStorage.addGameDownload(
+      makeDownload({ downloadHash: "hash-2", downloadTitle: "Test.Game-DLC-GROUP" })
+    );
+    const summary = await memStorage.getDownloadSummaryByGame(USER_ID);
+    expect(summary["game-1"].hasUpdateDownload).toBe(false);
+  });
 });
 
 // ─── Integration tests ───

@@ -90,6 +90,7 @@ interface DownloadItem {
   comments?: string;
   indexerId?: string;
   indexerName?: string;
+  downloadType?: "torrent" | "usenet";
   // Usenet-specific fields
   grabs?: number;
   age?: number;
@@ -211,7 +212,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     } else if (!open) {
       setDefaults();
     }
-  }, [open, game, applyDownloadRules, setDefaults]);
+  }, [open, game, userSettings, applyDownloadRules, setDefaults]);
 
   const searchQueryKey = game?.id
     ? `/api/search?query=${encodeURIComponent(debouncedSearchQuery)}&gameId=${game.id}`
@@ -309,7 +310,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       if (!visibleCategories.has(category)) continue;
 
       filtered[category] = downloads
-        .filter((t) => (t.seeders ?? 0) >= minSeeders)
+        .filter((t) => isUsenetItem(t) || (t.seeders ?? 0) >= minSeeders)
         .filter((t) => selectedIndexer === "all" || t.indexerName === selectedIndexer)
         .filter((t) => selectedGroups.length === 0 || (t.group && selectedGroups.includes(t.group)))
         .filter((t) => {
@@ -490,7 +491,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         setSelectedMainDownload(download);
         setIsDirectDownloadMode(false);
         // Select all updates by default
-        setSelectedUpdateIndices(new Set(categorizedDownloads.update.map((_, i) => i)));
+        setSelectedUpdateIndices(new Set(filteredCategorizedDownloads.update.map((_, i) => i)));
         setShowBundleDialog(true);
         return;
       }
@@ -510,7 +511,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     if (includeUpdates && selectedUpdateIndices.size > 0) {
       // Download main game + selected updates
       const selectedUpdates = Array.from(selectedUpdateIndices).map(
-        (i) => categorizedDownloads.update[i]
+        (i) => filteredCategorizedDownloads.update[i]
       );
       downloadMutation.mutate([selectedMainDownload, ...selectedUpdates]);
     } else {
@@ -541,7 +542,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         setSelectedMainDownload(download);
         setIsDirectDownloadMode(true);
         // Select all updates by default
-        setSelectedUpdateIndices(new Set(categorizedDownloads.update.map((_, i) => i)));
+        setSelectedUpdateIndices(new Set(filteredCategorizedDownloads.update.map((_, i) => i)));
         setShowBundleDialog(true);
         return;
       }
@@ -570,7 +571,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     setSelectedMainDownload(mainDownload);
     setIsDirectDownloadMode(true);
     // Select all updates by default
-    setSelectedUpdateIndices(new Set(categorizedDownloads.update.map((_, i) => i)));
+    setSelectedUpdateIndices(new Set(filteredCategorizedDownloads.update.map((_, i) => i)));
     setShowBundleDialog(true);
   };
 
@@ -580,7 +581,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     if (includeUpdates && selectedUpdateIndices.size > 0) {
       // Download selected updates as a ZIP bundle
       const selectedUpdates = Array.from(selectedUpdateIndices).map(
-        (i) => categorizedDownloads.update[i]
+        (i) => filteredCategorizedDownloads.update[i]
       );
       const downloads = [selectedMainDownload, ...selectedUpdates];
 
@@ -634,7 +635,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   };
 
   const selectAllUpdates = () => {
-    setSelectedUpdateIndices(new Set(categorizedDownloads.update.map((_, i) => i)));
+    setSelectedUpdateIndices(new Set(filteredCategorizedDownloads.update.map((_, i) => i)));
   };
 
   const deselectAllUpdates = () => {
@@ -1287,13 +1288,13 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
           <AlertDialogHeader>
             <AlertDialogTitle>Download with Updates?</AlertDialogTitle>
             <AlertDialogDescription>
-              {categorizedDownloads.update.length} update(s) are available for this game. Select
-              which updates you want to download with the main game.
+              {filteredCategorizedDownloads.update.length} update(s) are available for this game.
+              Select which updates you want to download with the main game.
             </AlertDialogDescription>
           </AlertDialogHeader>
 
           {/* List of updates with checkboxes */}
-          {categorizedDownloads.update.length > 0 && (
+          {filteredCategorizedDownloads.update.length > 0 && (
             <div className="my-4">
               <div className="flex items-center justify-between mb-2">
                 <div className="text-sm font-semibold">Available Updates:</div>
@@ -1319,7 +1320,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
               <div className="border rounded-md">
                 <ScrollArea className="h-[300px]">
                   <div className="p-3 space-y-3">
-                    {categorizedDownloads.update.map((update, index) => (
+                    {filteredCategorizedDownloads.update.map((update, index) => (
                       <div
                         key={update.guid || update.link}
                         className="flex items-start gap-3 p-2 rounded hover:bg-muted/50 transition-colors"
@@ -1351,7 +1352,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                 </ScrollArea>
               </div>
               <div className="text-xs text-muted-foreground mt-2">
-                {selectedUpdateIndices.size} of {categorizedDownloads.update.length} updates
+                {selectedUpdateIndices.size} of {filteredCategorizedDownloads.update.length} updates
                 selected
               </div>
             </div>

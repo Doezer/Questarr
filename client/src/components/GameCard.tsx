@@ -283,11 +283,11 @@ const GameCard = ({
               <div
                 className="flex items-center gap-1"
                 role="img"
-                aria-label={`Release Date: ${game.releaseDate ? new Date(game.releaseDate).getFullYear() : "To be announced"}`}
+                aria-label={`Release Date: ${game.releaseDate ? game.releaseDate.slice(0, 4) : "To be announced"}`}
               >
                 <Calendar className="w-3 h-3" aria-hidden="true" />
                 <span data-testid={`text-release-${game.id}`}>
-                  {game.releaseDate ? new Date(game.releaseDate).getFullYear() : "TBA"}
+                  {game.releaseDate ? game.releaseDate.slice(0, 4) : "TBA"}
                 </span>
               </div>
             </TooltipTrigger>
@@ -297,15 +297,19 @@ const GameCard = ({
           </Tooltip>
         </div>
         <div className="flex flex-wrap gap-1 mb-3 flex-1 content-start">
-          {game.genres?.slice(0, 1).map((genre) => (
-            <span
-              key={genre}
-              className="text-xs bg-muted px-2 py-1 rounded-sm"
-              data-testid={`tag-genre-${genre.toLowerCase()}`}
-            >
-              {genre}
-            </span>
-          )) || <span className="text-xs text-muted-foreground">No genres</span>}
+          {game.genres && game.genres.length > 0 ? (
+            game.genres.slice(0, 1).map((genre) => (
+              <span
+                key={genre}
+                className="text-xs bg-muted px-2 py-1 rounded-sm"
+                data-testid={`tag-genre-${genre.toLowerCase()}`}
+              >
+                {genre}
+              </span>
+            ))
+          ) : (
+            <span className="text-xs text-muted-foreground">No genres</span>
+          )}
         </div>
         <div className="mt-auto">
           {isDiscovery ? (

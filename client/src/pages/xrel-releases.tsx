@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, RefreshCw, Loader2, Plus } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -41,7 +41,8 @@ function formatDate(ts: number): string {
 
 function formatSize(mb?: number, unit?: string): string {
   if (mb == null) return "—";
-  if (unit === "GB" || (mb >= 1024 && !unit)) return `${(mb / 1024).toFixed(1)} GB`;
+  if (unit === "GB") return `${mb.toFixed(1)} GB`;
+  if (mb >= 1024 && !unit) return `${(mb / 1024).toFixed(1)} GB`;
   return `${mb} ${unit || "MB"}`;
 }
 
@@ -72,6 +73,13 @@ export default function XrelReleasesPage() {
       return res.json();
     },
   });
+
+  // XRL-2: sync local page state to what the server actually returned
+  useEffect(() => {
+    if (data?.pagination?.current_page && data.pagination.current_page < page) {
+      setPage(data.pagination.current_page);
+    }
+  }, [data, page]);
 
   const addGameMutation = useMutation({
     mutationFn: async (title: string) => {
@@ -219,12 +227,12 @@ export default function XrelReleasesPage() {
                           }}
                           disabled={
                             addGameMutation.isPending &&
-                            addGameMutation.variables === rel.matchCandidate.title
+                            addGameMutation.variables === rel.matchCandidate?.title
                           }
-                          title={`Add "${rel.matchCandidate.title}" to wanted list`}
+                          title={`Add "${rel.matchCandidate?.title ?? ""}" to wanted list`}
                         >
                           {addGameMutation.isPending &&
-                          addGameMutation.variables === rel.matchCandidate.title ? (
+                          addGameMutation.variables === rel.matchCandidate?.title ? (
                             <Loader2 className="h-3 w-3 animate-spin" />
                           ) : (
                             <Plus className="h-3 w-3" />

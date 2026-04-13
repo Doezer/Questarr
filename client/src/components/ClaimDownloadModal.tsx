@@ -65,7 +65,7 @@ export default function ClaimDownloadModal({
     data: Game;
   } | null>(null);
 
-  // Reset when download changes
+  // Reset when download changes; also reset mutation error state (CDM-2)
   useEffect(() => {
     if (open) {
       const d = categorizeDownload(download.name);
@@ -74,7 +74,10 @@ export default function ClaimDownloadModal({
       setIgdbQuery("");
       setDebouncedIgdbQuery("");
       setSelectedGame(null);
+      claimMutation.reset();
     }
+    // claimMutation.reset is stable — intentionally omitted from deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, download.name]);
 
   // Debounce IGDB query
@@ -109,6 +112,9 @@ export default function ClaimDownloadModal({
     },
     enabled: debouncedIgdbQuery.trim().length > 2,
   });
+
+  // CDM-3: clear stale results when query is too short
+  const displayedIgdbResults = debouncedIgdbQuery.trim().length > 2 ? igdbResults : [];
 
   const claimMutation = useMutation({
     mutationFn: async () => {
@@ -239,10 +245,10 @@ export default function ClaimDownloadModal({
             <div className="overflow-y-auto flex-1 space-y-1 pr-1">
               {isSearchingIgdb ? (
                 <p className="text-sm text-muted-foreground py-4 text-center">Searching…</p>
-              ) : igdbResults.length === 0 && debouncedIgdbQuery ? (
+              ) : displayedIgdbResults.length === 0 && debouncedIgdbQuery.trim().length > 2 ? (
                 <p className="text-sm text-muted-foreground py-4 text-center">No results found</p>
               ) : (
-                igdbResults.map((g) => (
+                displayedIgdbResults.map((g) => (
                   <GameRow
                     key={g.igdbId ?? g.id}
                     game={g}

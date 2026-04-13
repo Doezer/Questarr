@@ -72,6 +72,13 @@ export default function ClaimBatchModal({ open, onOpenChange }: ClaimBatchModalP
   const [groupStates, setGroupStates] = useState<Map<string, GroupState>>(new Map());
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
 
+  // CBM-4: Reset group states when modal closes so re-opens start fresh
+  useEffect(() => {
+    if (!open) {
+      setGroupStates(new Map());
+    }
+  }, [open]);
+
   const { data, isLoading, error } = useQuery<ScanResponse>({
     queryKey: ["/api/downloads/scan"],
     queryFn: () => apiRequest("GET", "/api/downloads/scan").then((r) => r.json()),
@@ -116,7 +123,7 @@ export default function ClaimBatchModal({ open, onOpenChange }: ClaimBatchModalP
 
   const claimAllMutation = useMutation({
     mutationFn: async () => {
-      if (!data?.groups) return;
+      if (!data?.groups) return 0;
       const toProcess = data.groups.filter((g) => {
         const state = groupStates.get(g.baseTitle);
         return state && !state.skip && state.selectedGame;
@@ -124,80 +131,101 @@ export default function ClaimBatchModal({ open, onOpenChange }: ClaimBatchModalP
 
       setProgress({ done: 0, total: toProcess.length });
 
+      let processedCount = 0;
+      const groupErrors: string[] = [];
+
       for (let i = 0; i < toProcess.length; i++) {
         const group = toProcess[i];
         const state = groupStates.get(group.baseTitle)!;
         const selectedGame = state.selectedGame!;
 
-        // Track the gameId returned by the first claim in this group so that
-        // subsequent downloads (updates, DLC, extras) link to the same game row
-        // instead of creating duplicate entries.
-        let resolvedGroupGameId: string | undefined =
-          selectedGame.source === "library" ? selectedGame.id : undefined;
+        try {
+          // Track the gameId returned by the first claim in this group so that
+          // subsequent downloads (updates, DLC, extras) link to the same game row
+          // instead of creating duplicate entries.
+          let resolvedGroupGameId: string | undefined =
+            selectedGame.source !== "igdb" ? selectedGame.id : undefined;
 
-        const buildBody = (dl: (typeof group.downloads)[0], gid?: string) => {
-          const body: Record<string, unknown> = {
-            downloaderId: dl.downloaderId,
-            downloadHash: dl.downloadHash,
-            downloadTitle: dl.downloadTitle,
-            currentStatus: dl.status,
-            category: dl.category,
-          };
-          if (gid) {
-            body.gameId = gid;
-          } else {
-            const g = selectedGame.data;
-            body.newGame = {
-              igdbId: g.igdbId,
-              title: g.title,
-              coverUrl: g.coverUrl,
-              summary: g.summary,
-              releaseDate: g.releaseDate,
-              platforms: g.platforms,
-              genres: g.genres,
-              rating: g.rating,
-              aggregatedRating: g.aggregatedRating,
-              screenshots: g.screenshots,
-              igdbWebsites: g.igdbWebsites,
+          const buildBody = (dl: (typeof group.downloads)[0], gid?: string) => {
+            const body: Record<string, unknown> = {
+              downloaderId: dl.downloaderId,
+              downloadHash: dl.downloadHash,
+              downloadTitle: dl.downloadTitle,
+              currentStatus: dl.status,
+              category: dl.category,
             };
-          }
-          return body;
-        };
+            if (gid) {
+              body.gameId = gid;
+            } else {
+              const g = selectedGame.data;
+              body.newGame = {
+                igdbId: g.igdbId,
+                title: g.title,
+                coverUrl: g.coverUrl,
+                summary: g.summary,
+                releaseDate: g.releaseDate,
+                platforms: g.platforms,
+                genres: g.genres,
+                rating: g.rating,
+                aggregatedRating: g.aggregatedRating,
+                screenshots: g.screenshots,
+                igdbWebsites: g.igdbWebsites,
+              };
+            }
+            return body;
+          };
 
-        if (!resolvedGroupGameId && group.downloads.length > 0) {
-          // Send the first download sequentially to obtain (or create) the game row,
-          // then parallelise the remaining downloads using the resolved game ID.
-          const first = group.downloads[0];
-          const firstResponse = await apiRequest(
-            "POST",
-            "/api/downloads/claim",
-            buildBody(first, undefined)
-          );
-          const firstResult = (await firstResponse.json()) as { gameId: string };
-          resolvedGroupGameId = firstResult?.gameId;
+          if (!resolvedGroupGameId && group.downloads.length > 0) {
+            // Send the first download sequentially to obtain (or create) the game row,
+            // then parallelise the remaining downloads using the resolved game ID.
+            const first = group.downloads[0];
+            const firstResponse = await apiRequest(
+              "POST",
+              "/api/downloads/claim",
+              buildBody(first, undefined)
+            );
+            const firstResult = (await firstResponse.json()) as { gameId: string };
+            resolvedGroupGameId = firstResult?.gameId;
 
-          // Parallelize the remaining downloads now that we have a gameId
-          await Promise.all(
-            group.downloads
-              .slice(1)
-              .map((dl) =>
+            if (!resolvedGroupGameId) {
+              throw new Error(`No gameId returned for group "${group.baseTitle}"`);
+            }
+
+            // Parallelize the remaining downloads now that we have a gameId
+            await Promise.all(
+              group.downloads
+                .slice(1)
+                .map((dl) =>
+                  apiRequest("POST", "/api/downloads/claim", buildBody(dl, resolvedGroupGameId))
+                )
+            );
+          } else {
+            // Library game: all downloads already have a gameId — parallelise immediately
+            await Promise.all(
+              group.downloads.map((dl) =>
                 apiRequest("POST", "/api/downloads/claim", buildBody(dl, resolvedGroupGameId))
               )
-          );
-        } else {
-          // Library game: all downloads already have a gameId — parallelise immediately
-          await Promise.all(
-            group.downloads.map((dl) =>
-              apiRequest("POST", "/api/downloads/claim", buildBody(dl, resolvedGroupGameId))
-            )
+            );
+          }
+
+          processedCount++;
+        } catch (err) {
+          groupErrors.push(
+            `"${group.baseTitle}": ${err instanceof Error ? err.message : "unknown error"}`
           );
         }
 
         setProgress({ done: i + 1, total: toProcess.length });
       }
+
+      if (groupErrors.length > 0 && processedCount === 0) {
+        throw new Error(`All groups failed: ${groupErrors[0]}`);
+      }
+
+      return processedCount;
     },
-    onSuccess: () => {
-      toast({ title: `Linked ${progress?.total ?? 0} download group(s) to games` });
+    onSuccess: (data) => {
+      toast({ title: `Linked ${data ?? 0} group(s) to games` });
       queryClient.invalidateQueries({ queryKey: ["/api/downloads"] });
       queryClient.invalidateQueries({ queryKey: ["/api/games"] });
       queryClient.invalidateQueries({ queryKey: ["/api/downloads/scan"] });
@@ -403,6 +431,10 @@ function GroupRow({
               <div className="max-h-36 overflow-y-auto space-y-1">
                 {searchingIgdb ? (
                   <p className="text-xs text-muted-foreground py-1 px-1">Searching…</p>
+                ) : igdbResults.length === 0 &&
+                  igdbDebouncedQuery.trim().length > 2 &&
+                  !searchingIgdb ? (
+                  <p className="text-sm text-muted-foreground py-1 px-1">No results found</p>
                 ) : (
                   igdbResults.map((g) => (
                     <button
@@ -411,7 +443,7 @@ function GroupRow({
                       onClick={() => {
                         onUpdate({
                           selectedGame: {
-                            id: g.igdbId?.toString(),
+                            id: undefined,
                             title: g.title,
                             source: "igdb",
                             data: g,

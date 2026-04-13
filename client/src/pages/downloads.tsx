@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, lazy, Suspense } from "react";
+import { useState, useEffect, useMemo, useRef, lazy, Suspense } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import {
@@ -112,7 +112,7 @@ const STATUS_COLORS: Record<DownloadStatusType, string> = {
 
 export default function Downloads() {
   const { toast } = useToast();
-  const [hasShownErrors, setHasShownErrors] = useState<Set<string>>(new Set());
+  const hasShownErrorsRef = useRef<Set<string>>(new Set());
   const [selectedDownload, setSelectedDownload] = useState<DownloadStatus | null>(null);
   const [detailsModalOpen, setDetailsModalOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<DownloadStatusType | "all">("all");
@@ -161,39 +161,30 @@ export default function Downloads() {
   // Show toast notifications for downloader errors
   // Only show each error once per session to avoid spam
   useEffect(() => {
-    // Remove resolved errors from tracking
     if (errors.length === 0) {
-      setHasShownErrors(new Set());
+      hasShownErrorsRef.current = new Set();
     } else {
       const currentErrorKeys = new Set(errors.map((e) => `${e.downloaderId}-${e.error}`));
-      setHasShownErrors((prev) => {
-        const newSet = new Set(prev);
-        Array.from(prev).forEach((key) => {
-          if (!currentErrorKeys.has(key)) {
-            newSet.delete(key);
-          }
-        });
-        return newSet;
+      // Remove resolved errors from tracking
+      Array.from(hasShownErrorsRef.current).forEach((key) => {
+        if (!currentErrorKeys.has(key)) {
+          hasShownErrorsRef.current.delete(key);
+        }
       });
-
       // Show new errors
       errors.forEach((error) => {
         const errorKey = `${error.downloaderId}-${error.error}`;
-        if (!hasShownErrors.has(errorKey)) {
+        if (!hasShownErrorsRef.current.has(errorKey)) {
           toast({
             title: `Downloader Error: ${error.downloaderName}`,
             description: error.error,
             variant: "destructive",
           });
-          setHasShownErrors((prev) => {
-            const newSet = new Set(prev);
-            newSet.add(errorKey);
-            return newSet;
-          });
+          hasShownErrorsRef.current.add(errorKey);
         }
       });
     }
-  }, [errors, hasShownErrors, toast]);
+  }, [errors, toast]);
 
   const handleShowDetails = (download: DownloadStatus) => {
     setSelectedDownload(download);
@@ -343,7 +334,7 @@ export default function Downloads() {
       string,
       { name: string; counts: Partial<Record<DownloadStatusType, number>> }
     >();
-    for (const d of downloads) {
+    for (const d of filteredDownloads) {
       if (!map.has(d.downloaderId)) {
         map.set(d.downloaderId, { name: d.downloaderName, counts: {} });
       }
@@ -661,26 +652,32 @@ export default function Downloads() {
                     </CardDescription>
                   </div>
                   <div className="flex items-center space-x-2 ml-4">
-                    {download.status === "paused" ? (
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        onClick={() => handleResume(download)}
-                        disabled={resumeMutation.isPending}
-                        data-testid={`button-resume-${download.id}`}
-                      >
-                        <Play className="h-4 w-4" />
-                      </Button>
-                    ) : (
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        onClick={() => handlePause(download)}
-                        disabled={pauseMutation.isPending}
-                        data-testid={`button-pause-${download.id}`}
-                      >
-                        <Pause className="h-4 w-4" />
-                      </Button>
+                    {["downloading", "paused", "repairing", "unpacking"].includes(
+                      download.status
+                    ) && (
+                      <>
+                        {download.status === "paused" ? (
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={() => handleResume(download)}
+                            disabled={resumeMutation.isPending}
+                            data-testid={`button-resume-${download.id}`}
+                          >
+                            <Play className="h-4 w-4" />
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={() => handlePause(download)}
+                            disabled={pauseMutation.isPending}
+                            data-testid={`button-pause-${download.id}`}
+                          >
+                            <Pause className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </>
                     )}
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>

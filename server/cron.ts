@@ -489,6 +489,9 @@ export async function checkDownloadStatus() {
               "Updated game status to 'owned' after completion"
             );
 
+            // Notify frontend to refresh downloads for this game
+            notifyUser("downloadUpdate", download.gameId);
+
             // Fetch game title for notification
             const game = await storage.getGame(download.gameId);
             const gameTitle = game ? game.title : download.downloadTitle;
@@ -534,6 +537,8 @@ export async function checkDownloadStatus() {
                 },
                 "Updated download status"
               );
+              // Notify frontend to refresh downloads for this game
+              notifyUser("downloadUpdate", download.gameId);
             }
 
             // Update game status
@@ -699,6 +704,8 @@ export async function checkAutoSearch() {
               settings.downloadRules
             );
             if (!searchResult) {
+              // No results at all (zero results or all blacklisted) — clear the badge
+              await storage.updateGameSearchResultsAvailable(game.id, false);
               continue;
             }
 

@@ -791,6 +791,7 @@ describe("Cron - checkAutoSearch", () => {
     await checkAutoSearch();
 
     expect(mockAddNotification).not.toHaveBeenCalled();
-    expect(mockUpdateGameSearchResultsAvailable).not.toHaveBeenCalled();
+    // CR-3: when all items are blacklisted, the "has results" flag must be cleared
+    expect(mockUpdateGameSearchResultsAvailable).toHaveBeenCalledWith(game.id, false);
   });
 });

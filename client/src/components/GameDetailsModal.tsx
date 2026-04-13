@@ -1,4 +1,4 @@
-import React, { useState, lazy, Suspense } from "react";
+import React, { useState, useEffect, lazy, Suspense } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Dialog,
@@ -48,6 +48,7 @@ import {
   SiItchdotio,
   SiNexusmods,
 } from "react-icons/si";
+import { io } from "socket.io-client";
 import { useToast } from "@/hooks/use-toast";
 import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { type Game, type GameDownload } from "@shared/schema";
@@ -328,6 +329,33 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  // GDM-3 & GDM-4: Reset isSummaryExpanded when game changes or modal closes
+  useEffect(() => {
+    if (!open) {
+      setIsSummaryExpanded(false);
+      setSelectedScreenshot(null);
+      setDownloadOpen(false);
+    }
+  }, [open]);
+
+  useEffect(() => {
+    setIsSummaryExpanded(false);
+  }, [game?.id]);
+
+  // GDM-2: Subscribe to socket download updates and invalidate the downloads query
+  useEffect(() => {
+    if (!open || !game?.id) return;
+    const socket = io();
+    socket.on("downloadUpdate", (gameId: string) => {
+      if (gameId === game.id) {
+        queryClient.invalidateQueries({ queryKey: [`/api/games/${game.id}/downloads`] });
+      }
+    });
+    return () => {
+      socket.disconnect();
+    };
+  }, [open, game?.id, queryClient]);
+
   const { data: gameDownloads = [], isLoading: downloadsLoading } = useQuery<
     GameDownloadWithDownloader[]
   >({
@@ -432,7 +460,13 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     staleTime: 24 * 60 * 60 * 1000,
   });
 
-  if (!game) return null;
+  if (!game) {
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        {/* placeholder so Radix can fire onOpenChange(false) when X is clicked */}
+      </Dialog>
+    );
+  }
 
   const handleUserRatingChange = (rating: number | null) => {
     userRatingMutation.mutate({ gameId: game.id, userRating: rating });
@@ -602,13 +636,13 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                 <div className="space-y-5 pr-4 pb-2">
                   {/* Summary */}
                   {game.summary && (
-                    <div>
+                    <div className="overflow-hidden">
                       <h3 className="font-semibold mb-2 flex items-center gap-2">
                         <Gamepad2 className="w-4 h-4" />
                         About
                       </h3>
                       <p
-                        className="text-sm text-muted-foreground leading-relaxed break-words"
+                        className="text-sm text-muted-foreground leading-relaxed break-words [overflow-wrap:anywhere]"
                         data-testid={`text-summary-${game.id}`}
                       >
                         {displaySummary}

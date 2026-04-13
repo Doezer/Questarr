@@ -10,7 +10,7 @@ import {
   EyeOff,
   Filter,
   LayoutGrid,
-  Library,
+  Library as LibraryIcon,
   Plus,
   Settings2,
   X,
@@ -41,7 +41,7 @@ import { setAddGamePendingQuery, clearAddGamePendingQuery } from "@/lib/add-game
 import { useDownloadSummary } from "@/hooks/use-download-summary";
 import GameFilterPills from "./GameFilterPills";
 
-export default function Dashboard() {
+export default function Library() {
   const [searchQuery, setSearchQuery] = useState("");
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
   const [showFilters, setShowFilters] = useState(false);
@@ -200,7 +200,7 @@ export default function Dashboard() {
               </span>
               <span className="opacity-30">·</span>
               <span className="flex items-center gap-1">
-                <Library className="h-3 w-3" />
+                <LibraryIcon className="h-3 w-3" />
                 <span className="font-medium text-foreground">
                   {libStats.statusBreakdown.owned}
                 </span>{" "}

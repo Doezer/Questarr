@@ -14,7 +14,7 @@ import { ThemeProvider } from "next-themes";
 
 // ⚡ Bolt: Code splitting with React.lazy
 // This reduces the initial bundle size by loading pages only when needed.
-const Dashboard = lazy(() => import("@/components/Dashboard"));
+const Library = lazy(() => import("@/components/Library"));
 const DiscoverPage = lazy(() => import("@/pages/discover"));
 const SearchPage = lazy(() => import("@/pages/search"));
 const DownloadsPage = lazy(() => import("@/pages/downloads"));
@@ -36,7 +36,7 @@ function Router() {
       <Switch>
         <Route path="/login" component={LoginPage} />
         <Route path="/setup" component={SetupPage} />
-        <Route path="/" component={Dashboard} />
+        <Route path="/" component={Library} />
         <Route path="/discover" component={DiscoverPage} />
         <Route path="/search" component={SearchPage} />
         <Route path="/downloads" component={DownloadsPage} />
@@ -73,7 +73,7 @@ function App() {
   const getPageTitle = (path: string) => {
     switch (path) {
       case "/":
-        return "Dashboard";
+        return "Library";
       case "/discover":
         return "Discover";
       case "/search":

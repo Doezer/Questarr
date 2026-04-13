@@ -179,8 +179,8 @@ export default function SettingsPage() {
       setXrelSceneReleases(userSettings.xrelSceneReleases ?? true);
       setXrelP2pReleases(userSettings.xrelP2pReleases ?? false);
     }
-    if (config?.xrel) {
-      setXrelApiBase(config.xrel.apiBase ?? "");
+    if (config?.xrel?.apiBase !== undefined) {
+      setXrelApiBase(config.xrel.apiBase);
     }
 
     if (igdbSettings?.clientId) {
@@ -424,10 +424,13 @@ export default function SettingsPage() {
 
   const updateIgdbMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/settings/igdb", {
+      const payload: { clientId: string; clientSecret?: string } = {
         clientId: igdbClientId,
-        clientSecret: igdbClientSecret,
-      });
+      };
+      if (igdbClientSecret) {
+        payload.clientSecret = igdbClientSecret;
+      }
+      const res = await apiRequest("POST", "/api/settings/igdb", payload);
       return res.json();
     },
     onSuccess: () => {
@@ -526,7 +529,11 @@ export default function SettingsPage() {
   };
 
   const handleSaveIgdb = () => {
-    if (!igdbClientId || !igdbClientSecret) {
+    const isAlreadyConfigured = igdbSettings?.configured === true;
+    const canSave =
+      (igdbClientId && igdbClientSecret) ||
+      (isAlreadyConfigured && (igdbClientId || igdbClientSecret));
+    if (!canSave) {
       toast({
         title: "Missing Credentials",
         description: "Please provide both Client ID and Client Secret.",

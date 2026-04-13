@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import Dashboard from "../src/components/Dashboard";
+import Library from "../src/components/Library";
 import React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -28,7 +28,7 @@ const createTestQueryClient = () =>
     },
   });
 
-describe("Dashboard Configuration", () => {
+describe("Library Configuration", () => {
   beforeEach(() => {
     localStorage.clear();
     vi.clearAllMocks();
@@ -39,7 +39,7 @@ describe("Dashboard Configuration", () => {
     render(
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
-          <Dashboard />
+          <Library />
         </TooltipProvider>
       </QueryClientProvider>
     );
@@ -65,12 +65,12 @@ describe("Dashboard Configuration", () => {
     render(
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
-          <Dashboard />
+          <Library />
         </TooltipProvider>
       </QueryClientProvider>
     );
 
-    // We can't easily see the internal state of Dashboard,
+    // We can't easily see the internal state of Library,
     // but we can check if it stays '7' in localStorage (it shouldn't overwrite with '5')
     expect(localStorage.getItem("dashboardGridColumns")).toBe("7");
   });

@@ -35,7 +35,7 @@ import { GitHubVersionLink } from "@/components/GitHubVersionLink";
 
 const staticNavigation = [
   {
-    title: "Dashboard",
+    title: "Library",
     url: "/",
     icon: Home,
   },

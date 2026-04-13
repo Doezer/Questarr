@@ -79,7 +79,7 @@
     "express": "^4.22.0",
     "express-rate-limit": "^8.3.2",
     "express-validator": "^7.3.2",
-    "fast-xml-parser": "^5.5.9",
+    "fast-xml-parser": "^5.5.12",
     "framer-motion": "^11.18.2",
     "helmet": "^8.1.0",
     "husky": "^9.1.7",

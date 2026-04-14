@@ -794,4 +794,14 @@ describe("Cron - checkAutoSearch", () => {
     // CR-3: when all items are blacklisted, the "has results" flag must be cleared
     expect(mockUpdateGameSearchResultsAvailable).toHaveBeenCalledWith(game.id, false);
   });
+
+  it("should clear search results badge when indexer returns zero items", async () => {
+    const game = { ...baseGame, releaseStatus: "released" as const };
+    mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [game]]]));
+    mockSearchAllIndexers.mockResolvedValue({ items: [], errors: [], total: 0 });
+
+    await checkAutoSearch();
+
+    expect(mockUpdateGameSearchResultsAvailable).toHaveBeenCalledWith(game.id, false);
+  });
 });

@@ -144,7 +144,7 @@ export default function ClaimBatchModal({ open, onOpenChange }: ClaimBatchModalP
           // subsequent downloads (updates, DLC, extras) link to the same game row
           // instead of creating duplicate entries.
           let resolvedGroupGameId: string | undefined =
-            selectedGame.source !== "igdb" ? selectedGame.id : undefined;
+            selectedGame.source === "library" ? selectedGame.id : undefined;
 
           const buildBody = (dl: (typeof group.downloads)[0], gid?: string) => {
             const body: Record<string, unknown> = {

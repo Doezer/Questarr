@@ -90,6 +90,13 @@ interface DownloadsResponse {
   errors: DownloaderError[];
 }
 
+const ACTIVE_DOWNLOAD_STATUSES: DownloadStatusType[] = [
+  "downloading",
+  "paused",
+  "repairing",
+  "unpacking",
+];
+
 const STATUS_ORDER: DownloadStatusType[] = [
   "downloading",
   "repairing",
@@ -652,9 +659,7 @@ export default function Downloads() {
                     </CardDescription>
                   </div>
                   <div className="flex items-center space-x-2 ml-4">
-                    {["downloading", "paused", "repairing", "unpacking"].includes(
-                      download.status
-                    ) && (
+                    {ACTIVE_DOWNLOAD_STATUSES.includes(download.status) && (
                       <>
                         {download.status === "paused" ? (
                           <Button

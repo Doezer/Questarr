@@ -498,7 +498,10 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
+        <DialogContent
+          className="max-w-4xl max-h-[90vh] flex flex-col"
+          onClick={(e) => e.stopPropagation()}
+        >
           {/* ── Header ── */}
           <DialogHeader className="flex-shrink-0 pb-0 pr-8">
             <div className="flex items-start justify-between gap-4">

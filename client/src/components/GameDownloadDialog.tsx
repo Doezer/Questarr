@@ -138,6 +138,10 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
 
   // Filter states
   const [minSeeders, setMinSeeders] = useState<number>(0);
+  const meetsSeederThreshold = useCallback(
+    (t: DownloadItem) => isUsenetItem(t) || (t.seeders ?? 0) >= minSeeders,
+    [minSeeders]
+  );
   const [selectedIndexer, setSelectedIndexer] = useState<string>("all");
   const [sortBy, setSortBy] = useState<"seeders" | "date" | "size">("seeders");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
@@ -310,7 +314,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       if (!visibleCategories.has(category)) continue;
 
       filtered[category] = downloads
-        .filter((t) => isUsenetItem(t) || (t.seeders ?? 0) >= minSeeders)
+        .filter(meetsSeederThreshold)
         .filter((t) => selectedIndexer === "all" || t.indexerName === selectedIndexer)
         .filter((t) => selectedGroups.length === 0 || (t.group && selectedGroups.includes(t.group)))
         .filter((t) => {
@@ -873,7 +877,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                     return (
                       sum +
                       downloads
-                        .filter((t) => isUsenetItem(t) || (t.seeders ?? 0) >= minSeeders)
+                        .filter(meetsSeederThreshold)
                         .filter(
                           (t) => selectedIndexer === "all" || t.indexerName === selectedIndexer
                         )

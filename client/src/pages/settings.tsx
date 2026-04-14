@@ -530,9 +530,9 @@ export default function SettingsPage() {
 
   const handleSaveIgdb = () => {
     const isAlreadyConfigured = igdbSettings?.configured === true;
-    const canSave =
-      (igdbClientId && igdbClientSecret) ||
-      (isAlreadyConfigured && (igdbClientId || igdbClientSecret));
+    const bothCredentialsProvided = !!(igdbClientId && igdbClientSecret);
+    const partialUpdateAllowed = isAlreadyConfigured && !!(igdbClientId || igdbClientSecret);
+    const canSave = bothCredentialsProvided || partialUpdateAllowed;
     if (!canSave) {
       toast({
         title: "Missing Credentials",

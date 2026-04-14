@@ -86,9 +86,9 @@ export default function ClaimBatchModal({ open, onOpenChange }: ClaimBatchModalP
     staleTime: 0,
   });
 
-  // Initialize group states when scan data arrives
+  // Initialize group states when scan data arrives or when modal reopens with cached data
   useEffect(() => {
-    if (!data?.groups) return;
+    if (!open || !data?.groups) return;
     setGroupStates((prev) => {
       const next = new Map(prev);
       for (const group of data.groups) {
@@ -110,7 +110,7 @@ export default function ClaimBatchModal({ open, onOpenChange }: ClaimBatchModalP
       }
       return next;
     });
-  }, [data]);
+  }, [data, open]);
 
   const updateGroup = useCallback((key: string, patch: Partial<GroupState>) => {
     setGroupStates((prev) => {

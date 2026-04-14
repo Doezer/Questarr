@@ -1114,11 +1114,11 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                                   <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
                                     <span className="flex items-center gap-1">
                                       <Download className="w-3 h-3" />
-                                      {mod.mod_unique_downloads.toLocaleString()}
+                                      {(mod.mod_unique_downloads ?? 0).toLocaleString()}
                                     </span>
                                     <span className="flex items-center gap-1">
                                       <ThumbsUp className="w-3 h-3" />
-                                      {mod.endorsement_count.toLocaleString()}
+                                      {(mod.endorsement_count ?? 0).toLocaleString()}
                                     </span>
                                     {mod.user?.name && (
                                       <span className="truncate">by {mod.user.name}</span>

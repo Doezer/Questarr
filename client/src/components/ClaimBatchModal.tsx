@@ -123,7 +123,7 @@ export default function ClaimBatchModal({ open, onOpenChange }: ClaimBatchModalP
 
   const claimAllMutation = useMutation({
     mutationFn: async () => {
-      if (!data?.groups) return 0;
+      if (!data?.groups) return { count: 0, hadErrors: false };
       const toProcess = data.groups.filter((g) => {
         const state = groupStates.get(g.baseTitle);
         return state && !state.skip && state.selectedGame;
@@ -222,10 +222,19 @@ export default function ClaimBatchModal({ open, onOpenChange }: ClaimBatchModalP
         throw new Error(`All groups failed: ${groupErrors[0]}`);
       }
 
-      return processedCount;
+      return { count: processedCount, hadErrors: groupErrors.length > 0 };
     },
-    onSuccess: (data) => {
-      toast({ title: `Linked ${data ?? 0} group(s) to games` });
+    onSuccess: (result) => {
+      const { count, hadErrors } = result ?? { count: 0, hadErrors: false };
+      if (hadErrors) {
+        toast({
+          title: `Linked ${count} group(s) — some groups failed`,
+          description: "One or more groups could not be claimed. Check your downloads.",
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: `Linked ${count} group(s) to games` });
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/downloads"] });
       queryClient.invalidateQueries({ queryKey: ["/api/games"] });
       queryClient.invalidateQueries({ queryKey: ["/api/downloads/scan"] });
@@ -343,6 +352,7 @@ function GroupRow({
     enabled: state.igdbOpen && igdbDebouncedQuery.trim().length > 2,
   });
 
+  if (group.downloads.length === 0) return null;
   const mainDownload = group.downloads.find((d) => d.category === "main") ?? group.downloads[0];
 
   return (
@@ -388,7 +398,10 @@ function GroupRow({
                 variant="ghost"
                 size="sm"
                 className="h-6 px-2 text-xs ml-auto"
-                onClick={() => onUpdate({ igdbOpen: !state.igdbOpen, igdbQuery: "" })}
+                onClick={() => {
+                  onUpdate({ igdbOpen: !state.igdbOpen, igdbQuery: "" });
+                  setIgdbDebouncedQuery("");
+                }}
               >
                 Change
                 <ChevronDown className="h-3 w-3 ml-1" />
@@ -438,7 +451,7 @@ function GroupRow({
                 ) : (
                   igdbResults.map((g) => (
                     <button
-                      key={g.igdbId ?? g.id}
+                      key={g.igdbId?.toString() ?? g.title}
                       type="button"
                       onClick={() => {
                         onUpdate({

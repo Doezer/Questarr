@@ -133,6 +133,7 @@ export default function Dashboard() {
   }, [statusFilter, genreFilter, platformFilter]);
 
   const libStats = useMemo(() => calculateLibraryStats(games), [games]);
+  const filtersActive = filteredGames.length < games.length;
 
   // Sync dashboard search query to the add-game store so the Header's AddGameModal
   // can pre-fill when opened while the user has typed something here.
@@ -170,7 +171,10 @@ export default function Dashboard() {
           {libStats.totalGames > 0 && (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-sm text-muted-foreground">
               <span>
-                <span className="font-medium text-foreground">{libStats.totalGames}</span> games
+                <span className="font-medium text-foreground">
+                  {filtersActive ? filteredGames.length : libStats.totalGames}
+                </span>{" "}
+                {filtersActive ? `of ${libStats.totalGames} games shown` : "games"}
               </span>
               <span className="opacity-30">·</span>
               <span className="flex items-center gap-1">

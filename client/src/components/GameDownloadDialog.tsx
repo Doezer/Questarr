@@ -343,7 +343,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   }, [
     categorizedDownloads,
     itemsMetadata,
-    minSeeders,
+    meetsSeederThreshold,
     selectedIndexer,
     sortBy,
     sortOrder,

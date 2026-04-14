@@ -156,13 +156,13 @@ export default function Downloads() {
 
   // Collect unique active category filters from downloaders for the banner
   const categoryBannerEntries = useMemo(() => {
-    const seen = new Map<string, string>(); // downloaderName → category
+    const seen = new Map<string, { name: string; category: string }>(); // downloaderId → {name, category}
     for (const d of downloads) {
-      if (d.downloaderCategory && !seen.has(d.downloaderName)) {
-        seen.set(d.downloaderName, d.downloaderCategory);
+      if (d.downloaderCategory && !seen.has(d.downloaderId)) {
+        seen.set(d.downloaderId, { name: d.downloaderName, category: d.downloaderCategory });
       }
     }
-    return Array.from(seen.entries());
+    return Array.from(seen.values());
   }, [downloads]);
 
   // Show toast notifications for downloader errors
@@ -349,7 +349,7 @@ export default function Downloads() {
       entry.counts[d.status] = (entry.counts[d.status] ?? 0) + 1;
     }
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [downloads]);
+  }, [filteredDownloads]);
 
   if (isLoading) {
     return (
@@ -506,7 +506,7 @@ export default function Downloads() {
           <Tag className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           <span>
             Category filter active —{" "}
-            {categoryBannerEntries.map(([name, cat]) => `${name}: "${cat}"`).join(", ")}
+            {categoryBannerEntries.map(({ name, category }) => `${name}: "${category}"`).join(", ")}
           </span>
         </div>
       )}
@@ -794,15 +794,20 @@ export default function Downloads() {
       </div>
 
       {/* Download Details Modal */}
-      {selectedDownload && (
-        <DownloadDetailsModal
-          downloaderId={selectedDownload.downloaderId}
-          downloadId={selectedDownload.id}
-          downloadName={selectedDownload.name}
-          open={detailsModalOpen}
-          onOpenChange={setDetailsModalOpen}
-        />
-      )}
+      {selectedDownload &&
+        (() => {
+          const liveSelectedDownload =
+            downloads.find((d) => d.id === selectedDownload.id) ?? selectedDownload;
+          return (
+            <DownloadDetailsModal
+              downloaderId={liveSelectedDownload.downloaderId}
+              downloadId={liveSelectedDownload.id}
+              downloadName={liveSelectedDownload.name}
+              open={detailsModalOpen}
+              onOpenChange={setDetailsModalOpen}
+            />
+          );
+        })()}
 
       {/* Link to Game Modal */}
       <Suspense fallback={<div className="fixed inset-0 bg-background/80 backdrop-blur-sm" />}>

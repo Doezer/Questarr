@@ -165,7 +165,7 @@ export default function XrelReleasesPage() {
               <RefreshCw className="h-8 w-8 animate-spin mr-2" />
               Loading…
             </div>
-          ) : list.length === 0 ? (
+          ) : !isFetching && list.length === 0 ? (
             <div className="text-center py-12">
               <p className="text-muted-foreground">No game releases found on this page.</p>
               {page < totalPages && (
@@ -251,6 +251,7 @@ export default function XrelReleasesPage() {
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-primary hover:underline inline-flex items-center gap-0.5 text-sm"
+                        aria-label={`View ${rel.ext_info?.title ?? rel.dirname} on xREL`}
                       >
                         <ExternalLink className="h-3.5 w-3.5" />
                         View
@@ -259,7 +260,7 @@ export default function XrelReleasesPage() {
                   </li>
                 ))}
               </ul>
-              {totalPages > 1 && (
+              {(page > 1 || totalPages > 1) && (
                 <div className="flex items-center justify-between pt-4 mt-4 border-t">
                   <Button
                     variant="outline"

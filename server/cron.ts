@@ -489,7 +489,8 @@ export async function checkDownloadStatus() {
               "Updated game status to 'owned' after completion"
             );
 
-            // Notify frontend to refresh downloads for this game
+            // Notify frontend to refresh downloads for this game.
+            // TODO: scope this to a per-user socket room once multi-user socket auth is wired up.
             notifyUser("downloadUpdate", download.gameId);
 
             // Fetch game title for notification
@@ -537,7 +538,8 @@ export async function checkDownloadStatus() {
                 },
                 "Updated download status"
               );
-              // Notify frontend to refresh downloads for this game
+              // Notify frontend to refresh downloads for this game.
+              // TODO: scope this to a per-user socket room once multi-user socket auth is wired up.
               notifyUser("downloadUpdate", download.gameId);
             }
 

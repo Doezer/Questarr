@@ -208,15 +208,24 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     userSettings?.preferredPlatform,
   ]);
 
-  // Auto-populate search when dialog opens with game title
+  // Initialize search query only when the dialog opens or game changes — not on settings refetch.
+  // Keeping this separate from applyDownloadRules prevents a settings re-fetch (e.g. on window
+  // focus) from overwriting a query the user has already edited.
   useEffect(() => {
     if (open && game) {
       setSearchQuery(game.title);
-      applyDownloadRules();
     } else if (!open) {
       setDefaults();
     }
-  }, [open, game, userSettings, applyDownloadRules, setDefaults]);
+  }, [open, game, setDefaults]);
+
+  // Apply download rules whenever settings load or change (applyDownloadRules identity changes
+  // whenever its userSettings deps change, so this fires at the right times).
+  useEffect(() => {
+    if (open && game) {
+      applyDownloadRules();
+    }
+  }, [open, game, applyDownloadRules]);
 
   const searchQueryKey = game?.id
     ? `/api/search?query=${encodeURIComponent(debouncedSearchQuery)}&gameId=${game.id}`

@@ -797,7 +797,10 @@ export default function Downloads() {
       {selectedDownload &&
         (() => {
           const liveSelectedDownload =
-            downloads.find((d) => d.id === selectedDownload.id) ?? selectedDownload;
+            downloads.find(
+              (d) =>
+                d.downloaderId === selectedDownload.downloaderId && d.id === selectedDownload.id
+            ) ?? selectedDownload;
           return (
             <DownloadDetailsModal
               downloaderId={liveSelectedDownload.downloaderId}

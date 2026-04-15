@@ -10,7 +10,7 @@ import { Toaster } from "@/components/ui/toaster";
 
 // Mocking external dependencies
 vi.mock("socket.io-client", () => ({
-  io: vi.fn(() => ({ on: vi.fn(), disconnect: vi.fn() })),
+  io: vi.fn(() => ({ on: vi.fn(), off: vi.fn(), disconnect: vi.fn() })),
 }));
 
 vi.mock("@/hooks/use-toast", () => ({

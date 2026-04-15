@@ -342,17 +342,20 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     setIsSummaryExpanded(false);
   }, [game?.id]);
 
-  // GDM-2: Subscribe to socket download updates and invalidate the downloads query
+  // GDM-2: Subscribe to socket download updates and invalidate the downloads query.
+  // io() returns the shared singleton — register/unregister the handler rather than
+  // disconnecting, which would tear down the app-wide connection used by NotificationCenter.
   useEffect(() => {
     if (!open || !game?.id) return;
     const socket = io();
-    socket.on("downloadUpdate", (gameId: string) => {
+    const handler = (gameId: string) => {
       if (gameId === game.id) {
         queryClient.invalidateQueries({ queryKey: [`/api/games/${game.id}/downloads`] });
       }
-    });
+    };
+    socket.on("downloadUpdate", handler);
     return () => {
-      socket.disconnect();
+      socket.off("downloadUpdate", handler);
     };
   }, [open, game?.id, queryClient]);
 

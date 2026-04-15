@@ -257,11 +257,14 @@ function YearView({
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
       {months.map((month) => {
-        // ⚡ Bolt: Pad month to match YYYY-MM prefix format
-        const monthStr = String(month + 1).padStart(2, "0");
-        const monthPrefix = `${year}-${monthStr}`;
+        const monthStart = new Date(year, month, 1);
+        const monthEnd = new Date(year, month + 1, 0);
 
-        const gamesInMonth = gamesEntries.filter(([date]) => date.startsWith(monthPrefix));
+        // ⚡ Bolt: Parse dates once from the pre-calculated entries array
+        const gamesInMonth = gamesEntries.filter(([date]) => {
+          const d = new Date(date);
+          return d >= monthStart && d <= monthEnd;
+        });
         const gameCount = gamesInMonth.reduce((sum, [, games]) => sum + games.length, 0);
 
         return (

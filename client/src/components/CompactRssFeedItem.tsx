@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { formatDistanceToNow } from "date-fns";
 import { RssFeedItem } from "@shared/schema";
 import { Button } from "@/components/ui/button";
+import { safeUrl } from "@/lib/utils";
 
 interface CompactRssFeedItemProps {
   item: RssFeedItem;
@@ -65,7 +66,7 @@ const CompactRssFeedItem = ({ item }: CompactRssFeedItemProps) => {
       <div className="flex items-center gap-2 self-center">
         <Button variant="outline" size="sm" className="h-8 gap-2" asChild>
           <a
-            href={item.link}
+            href={safeUrl(item.link)}
             target="_blank"
             rel="noopener noreferrer"
             aria-label={`View ${item.title} original article`}

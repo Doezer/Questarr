@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
+import { safeUrl } from "@/lib/utils";
 
 interface XrelRelease {
   id: string;
@@ -43,16 +44,6 @@ function formatSize(mb?: number, unit?: string): string {
   if (mb == null) return "—";
   if (unit === "GB" || (mb >= 1024 && !unit)) return `${(mb / 1024).toFixed(1)} GB`;
   return `${mb} ${unit || "MB"}`;
-}
-
-function safeUrl(url: string | undefined): string {
-  if (!url) return "#";
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === "http:" || parsed.protocol === "https:" ? url : "#";
-  } catch {
-    return "#";
-  }
 }
 
 export default function XrelReleasesPage() {
@@ -204,7 +195,6 @@ export default function XrelReleasesPage() {
                           >
                             {rel.libraryStatus.charAt(0).toUpperCase() + rel.libraryStatus.slice(1)}
                           </Badge>
-
                         ) : rel.matchCandidate ? (
                           <Button
                             variant="ghost"
@@ -229,7 +219,7 @@ export default function XrelReleasesPage() {
                             title={`Add "${rel.matchCandidate.title}" to wanted list`}
                           >
                             {addGameMutation.isPending &&
-                              addGameMutation.variables === rel.matchCandidate.title ? (
+                            addGameMutation.variables === rel.matchCandidate.title ? (
                               <Loader2 className="h-3 w-3 animate-spin" />
                             ) : (
                               <Plus className="h-3 w-3" />
@@ -284,6 +274,6 @@ export default function XrelReleasesPage() {
           </CardContent>
         </Card>
       </div>
-    </div >
+    </div>
   );
 }

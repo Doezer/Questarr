@@ -97,3 +97,18 @@ export function compareEnabledPriorityName<T extends EnabledPriorityNamed>(a: T,
 
   return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
 }
+
+/**
+ * Sanitizes user-supplied URLs for use in href attributes.
+ * Allows only http, https, and relative URLs.
+ */
+export function safeUrl(url: string | undefined): string {
+  if (!url) return "#";
+  try {
+    // Relative URLs will throw an error, which we catch and allow
+    const parsed = new URL(url, "http://localhost");
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? url : "#";
+  } catch {
+    return url.startsWith("/") || url.startsWith("#") ? url : "#";
+  }
+}

@@ -17,3 +17,7 @@
 ## 2025-05-23 - Unmemoized React Query array data transformations
 **Learning:** React Query frequently triggers re-renders on components. Any heavy transformation derived from query results (e.g. filtering, O(N log N) sorting, date parsing) directly inside the component body will fire on every re-render and degrade performance.
 **Action:** Extract list transformations or sorting using results from React Query into `useMemo`, ensuring `searchResults?.items` or equivalent array paths are added to the dependency array.
+
+## 2024-05-23 - Repeated string parsing inside React render loops
+**Learning:** Found that `client/src/pages/calendar.tsx` was calling `formatDate(new Date())` repeatedly inside `.map` render loops for daily calendar cells, allocating new `Date` objects and stringifying them 30-40 times per render. It also iterated `Object.entries(gamesByDate)` and re-parsed dates repeatedly.
+**Action:** Always extract invariant calculations (like calculating "today's" date string, or `Object.entries` conversions of state) outside of `.map` loops in React functional components. Use simple string prefix checks (`startsWith`) when evaluating grouped date keys instead of re-instantiating `Date` objects.

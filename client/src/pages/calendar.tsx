@@ -251,16 +251,17 @@ function YearView({
 }) {
   const year = currentDate.getFullYear();
   const months = Array.from({ length: 12 }, (_, i) => i);
+  // ⚡ Bolt: Pre-calculate the entries array once instead of 12 times
+  const gamesEntries = Object.entries(gamesByDate);
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
       {months.map((month) => {
-        const monthStart = new Date(year, month, 1);
-        const monthEnd = new Date(year, month + 1, 0);
-        const gamesInMonth = Object.entries(gamesByDate).filter(([date]) => {
-          const d = new Date(date);
-          return d >= monthStart && d <= monthEnd;
-        });
+        // ⚡ Bolt: Pad month to match YYYY-MM prefix format
+        const monthStr = String(month + 1).padStart(2, "0");
+        const monthPrefix = `${year}-${monthStr}`;
+
+        const gamesInMonth = gamesEntries.filter(([date]) => date.startsWith(monthPrefix));
         const gameCount = gamesInMonth.reduce((sum, [, games]) => sum + games.length, 0);
 
         return (
@@ -313,6 +314,9 @@ function MonthView({
   const days = getDaysInMonth(year, month);
   const weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
+  // ⚡ Bolt: Calculate 'today' string format once instead of inside the days loop
+  const todayDateString = formatDate(new Date());
+
   return (
     <div className="bg-card border rounded-lg p-4">
       <div className="grid grid-cols-7 gap-2 mb-2">
@@ -327,7 +331,7 @@ function MonthView({
           const isCurrentMonth = day.getMonth() === month;
           const dateKey = formatDate(day);
           const gamesOnDay = gamesByDate[dateKey] || [];
-          const isToday = formatDate(new Date()) === dateKey;
+          const isToday = todayDateString === dateKey;
 
           return (
             <div
@@ -371,13 +375,16 @@ function WeekView({
 }) {
   const weekDays = getWeekDays(new Date(currentDate));
 
+  // ⚡ Bolt: Calculate 'today' string format once instead of inside the loop
+  const todayDateString = formatDate(new Date());
+
   return (
     <div className="bg-card border rounded-lg p-4">
       <div className="grid grid-cols-7 gap-4">
         {weekDays.map((day, idx) => {
           const dateKey = formatDate(day);
           const gamesOnDay = gamesByDate[dateKey] || [];
-          const isToday = formatDate(new Date()) === dateKey;
+          const isToday = todayDateString === dateKey;
           const dayName = day.toLocaleDateString("en-US", { weekday: "short" });
 
           return (

@@ -201,8 +201,8 @@ function validatePaginationParams(query: { limit?: string; offset?: string }): {
   limit: number;
   offset: number;
 } {
-  const limit = Math.min(Math.max(1, Number.parseInt(query.limit as string, 10) || 20), 100);
-  const offset = Math.max(0, Number.parseInt(query.offset as string, 10) || 0);
+  const limit = Math.min(Math.max(1, parseInt(query.limit as string) || 20), 100);
+  const offset = Math.max(0, parseInt(query.offset as string) || 0);
   return { limit, offset };
 }
 
@@ -251,32 +251,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/logs", authenticateToken, async (req, res) => {
     try {
-      const rawLimit =
-        typeof req.query.limit === "string" ? Number.parseInt(req.query.limit, 10) : 200;
+      const rawLimit = typeof req.query.limit === "string" ? parseInt(req.query.limit, 10) : 200;
       const limit = Number.isNaN(rawLimit) || rawLimit < 1 ? 200 : Math.min(rawLimit, 1000);
 
       const logPath = path.resolve(process.cwd(), "server.log");
 
-      let stat: fs.Stats;
+      let content: string;
       try {
-        stat = await fs.promises.stat(logPath);
+        content = await fs.promises.readFile(logPath, "utf-8");
       } catch {
         return res.json({ lines: [] });
       }
 
-      // Read only the tail of the file to avoid loading the entire log into memory.
-      // 512 bytes per line is a generous upper bound for structured JSON log lines.
-      const tailBytes = Math.min(stat.size, limit * 512);
-      const buffer = Buffer.alloc(tailBytes);
-      const fileHandle = await fs.promises.open(logPath, "r");
-      try {
-        await fileHandle.read(buffer, 0, tailBytes, stat.size - tailBytes);
-      } finally {
-        await fileHandle.close();
-      }
-
-      const lines = buffer
-        .toString("utf-8")
+      const lines = content
         .split("\n")
         .filter((l) => l.trim().length > 0)
         .slice(-limit);

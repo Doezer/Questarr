@@ -1,30 +1,15 @@
 import pino from "pino";
-import { Writable } from "node:stream";
-import { consumeLogChunk, flushLogRemainder } from "./log-stream.js";
+import { Writable } from "stream";
 import { logEmitter } from "./log-events.js";
 
 class LogBroadcaster extends Writable {
-  private remainder = "";
-
   constructor() {
     super({ objectMode: false, decodeStrings: false });
   }
 
   _write(chunk: string | Buffer, _encoding: string, callback: () => void): void {
-    const { lines, remainder } = consumeLogChunk(chunk, this.remainder);
-    this.remainder = remainder;
-    for (const line of lines) {
-      logEmitter.emit("line", line);
-    }
-    callback();
-  }
-
-  _final(callback: (error?: Error | null) => void): void {
-    const line = flushLogRemainder(this.remainder);
-    if (line) {
-      logEmitter.emit("line", line);
-    }
-    this.remainder = "";
+    const line = chunk.toString().trim();
+    if (line) logEmitter.emit("line", line);
     callback();
   }
 }
@@ -59,7 +44,7 @@ export const logger = pino(
     timestamp: pino.stdTimeFunctions.isoTime,
     base: undefined,
   },
-  pino.multistream([{ stream: transport }, { stream: new LogBroadcaster(), level: "trace" }])
+  pino.multistream([{ stream: transport }, { stream: new LogBroadcaster(), level: "debug" }])
 );
 
 // Create child loggers for different modules

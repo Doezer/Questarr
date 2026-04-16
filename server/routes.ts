@@ -246,6 +246,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Use PCGamingWiki Routes
   app.use(pcgamingwikiRouter);
 
+  // ── Server logs ──────────────────────────────────────────────────────────────
+
+  app.get("/api/logs", authenticateToken, async (req, res) => {
+    try {
+      const rawLimit = typeof req.query.limit === "string" ? parseInt(req.query.limit, 10) : 200;
+      const limit = Number.isNaN(rawLimit) || rawLimit < 1 ? 200 : Math.min(rawLimit, 1000);
+
+      const logPath = path.resolve(process.cwd(), "server.log");
+
+      let content: string;
+      try {
+        content = await fs.promises.readFile(logPath, "utf-8");
+      } catch {
+        return res.json({ lines: [] });
+      }
+
+      const lines = content
+        .split("\n")
+        .filter((l) => l.trim().length > 0)
+        .slice(-limit);
+
+      res.json({ lines });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to read server log file");
+      res.status(500).json({ error: "Failed to read log file" });
+    }
+  });
+
   // Auth Routes
   app.get("/api/auth/status", async (_req, res) => {
     try {

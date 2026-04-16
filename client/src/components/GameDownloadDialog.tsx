@@ -1137,11 +1137,6 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                       {/* Size Column */}
                                       <div className="min-w-[70px] text-right font-mono text-xs font-bold">
                                         {download.size ? formatBytes(download.size) : "-"}
-                                        {isUsenet && download.files != null && (
-                                          <div className="text-[10px] font-sans font-normal text-muted-foreground/60">
-                                            {download.files} files
-                                          </div>
-                                        )}
                                       </div>
 
                                       {/* Health Column */}

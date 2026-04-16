@@ -155,6 +155,20 @@ describe("NexusModsClient", () => {
       const domain = await client.findGameDomain("Minecraft");
       expect(domain).toBeNull();
     });
+
+    it("does not match short game names that appear as substrings inside unrelated words", async () => {
+      // "Oni" must not match "Pioneers of Pagonia" (pagONIa contains 'oni' as a substring)
+      const gamesWithOni = [
+        ...MOCK_GAMES,
+        { id: 99, name: "Oni", domain_name: "oni" },
+        { id: 100, name: "Pioneers of Pagonia", domain_name: "pioneersofpagonia" },
+      ];
+      mockSafeFetch.mockResolvedValue(makeResponse(gamesWithOni) as unknown as Response);
+      const client = await getClient();
+      client.configure("key");
+      const domain = await client.findGameDomain("Pioneers of Pagonia");
+      expect(domain).toBe("pioneersofpagonia");
+    });
   });
 
   describe("getTrendingMods()", () => {

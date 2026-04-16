@@ -123,10 +123,16 @@ class NexusModsClient {
     const exact = games.find((g) => normalizeTitle(g.name) === needle);
     if (exact) return exact.domain_name;
 
-    // 2. One contains the other (handles "Game: Subtitle" cases)
+    // 2. Word-set containment: all words of the shorter title must appear in the longer one.
+    // This handles "Game: Subtitle" cases while avoiding false positives from short game names
+    // (e.g. "Oni") appearing as substrings inside unrelated words (e.g. "pagONIa").
+    const needleWords = needle.split(" ").filter(Boolean);
     const partial = games.find((g) => {
-      const hay = normalizeTitle(g.name);
-      return hay.includes(needle) || needle.includes(hay);
+      const hayWords = normalizeTitle(g.name).split(" ").filter(Boolean);
+      const [shorter, longer] =
+        needleWords.length <= hayWords.length ? [needleWords, hayWords] : [hayWords, needleWords];
+      const longerSet = new Set(longer);
+      return shorter.every((w) => longerSet.has(w));
     });
     return partial?.domain_name ?? null;
   }

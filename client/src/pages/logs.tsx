@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, memo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useLogStream } from "@/hooks/use-log-stream";
@@ -43,6 +43,8 @@ const MAX_LINES = 2000;
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 let lineCounter = 0;
+// Prefix with module-load timestamp so HMR resets don't produce duplicate React keys
+const counterPrefix = Date.now();
 
 function parseLogLine(raw: string): ParsedLogLine | null {
   try {
@@ -60,7 +62,7 @@ function parseLogLine(raw: string): ParsedLogLine | null {
       time: typeof obj.time === "string" ? obj.time : "",
       module: typeof obj.module === "string" ? obj.module : undefined,
       msg: typeof obj.msg === "string" ? obj.msg : raw,
-      id: `log-${++lineCounter}`,
+      id: `log-${counterPrefix}-${++lineCounter}`,
     };
   } catch {
     return null;
@@ -69,7 +71,7 @@ function parseLogLine(raw: string): ParsedLogLine | null {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function LogLineRow({ line }: Readonly<{ line: ParsedLogLine }>) {
+const LogLineRow = memo(function LogLineRow({ line }: Readonly<{ line: ParsedLogLine }>) {
   const timeStr = line.time ? new Date(line.time).toLocaleTimeString() : "";
 
   return (
@@ -86,7 +88,7 @@ function LogLineRow({ line }: Readonly<{ line: ParsedLogLine }>) {
       <span className="text-zinc-100 break-all min-w-0">{line.msg}</span>
     </div>
   );
-}
+});
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
@@ -162,12 +164,21 @@ export default function LogsPage() {
 
   const handleCopy = () => {
     const text = filteredLines.map((l) => l.raw).join("\n");
-    navigator.clipboard.writeText(text).then(() => {
-      toast({
-        title: "Copied",
-        description: `${filteredLines.length} log lines copied to clipboard`,
+    navigator.clipboard
+      .writeText(text)
+      .then(() => {
+        toast({
+          title: "Copied",
+          description: `${filteredLines.length} log lines copied to clipboard`,
+        });
+      })
+      .catch(() => {
+        toast({
+          title: "Copy failed",
+          description: "Clipboard access denied",
+          variant: "destructive",
+        });
       });
-    });
   };
 
   const handleClear = () => setLines([]);

@@ -227,7 +227,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
             Iterable<string> | null
           >),
           "script-src": scriptSrc,
-          "img-src": ["'self'", "data:", "https://images.igdb.com"],
+          "img-src": [
+            "'self'",
+            "data:",
+            "https://images.igdb.com",
+            "https://staticdelivery.nexusmods.com",
+          ],
           "connect-src": connectSrc,
           "upgrade-insecure-requests": isSslEnabled ? [] : null,
         },

@@ -1,4 +1,4 @@
-import React, { useState, lazy, Suspense } from "react";
+import React, { useState, useEffect, lazy, Suspense } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Dialog,
@@ -48,6 +48,7 @@ import {
   SiItchdotio,
   SiNexusmods,
 } from "react-icons/si";
+import { io } from "socket.io-client";
 import { useToast } from "@/hooks/use-toast";
 import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { type Game, type GameDownload } from "@shared/schema";
@@ -328,6 +329,36 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  // GDM-3 & GDM-4: Reset isSummaryExpanded when game changes or modal closes
+  useEffect(() => {
+    if (!open) {
+      setIsSummaryExpanded(false);
+      setSelectedScreenshot(null);
+      setDownloadOpen(false);
+    }
+  }, [open]);
+
+  useEffect(() => {
+    setIsSummaryExpanded(false);
+  }, [game?.id]);
+
+  // GDM-2: Subscribe to socket download updates and invalidate the downloads query.
+  // io() returns the shared singleton — register/unregister the handler rather than
+  // disconnecting, which would tear down the app-wide connection used by NotificationCenter.
+  useEffect(() => {
+    if (!open || !game?.id) return;
+    const socket = io();
+    const handler = (gameId: string) => {
+      if (gameId === game.id) {
+        queryClient.invalidateQueries({ queryKey: [`/api/games/${game.id}/downloads`] });
+      }
+    };
+    socket.on("downloadUpdate", handler);
+    return () => {
+      socket.off("downloadUpdate", handler);
+    };
+  }, [open, game?.id, queryClient]);
+
   const { data: gameDownloads = [], isLoading: downloadsLoading } = useQuery<
     GameDownloadWithDownloader[]
   >({
@@ -432,7 +463,13 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     staleTime: 24 * 60 * 60 * 1000,
   });
 
-  if (!game) return null;
+  if (!game) {
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        {/* placeholder so Radix can fire onOpenChange(false) when X is clicked */}
+      </Dialog>
+    );
+  }
 
   const handleUserRatingChange = (rating: number | null) => {
     userRatingMutation.mutate({ gameId: game.id, userRating: rating });
@@ -464,7 +501,10 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
+        <DialogContent
+          className="max-w-4xl max-h-[90vh] flex flex-col"
+          onClick={(e) => e.stopPropagation()}
+        >
           {/* ── Header ── */}
           <DialogHeader className="flex-shrink-0 pb-0 pr-8">
             <div className="flex items-start justify-between gap-4">
@@ -602,13 +642,13 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                 <div className="space-y-5 pr-4 pb-2">
                   {/* Summary */}
                   {game.summary && (
-                    <div>
+                    <div className="overflow-hidden">
                       <h3 className="font-semibold mb-2 flex items-center gap-2">
                         <Gamepad2 className="w-4 h-4" />
                         About
                       </h3>
                       <p
-                        className="text-sm text-muted-foreground leading-relaxed break-words"
+                        className="text-sm text-muted-foreground leading-relaxed break-words [overflow-wrap:anywhere]"
                         data-testid={`text-summary-${game.id}`}
                       >
                         {displaySummary}
@@ -1080,11 +1120,11 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                                   <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
                                     <span className="flex items-center gap-1">
                                       <Download className="w-3 h-3" />
-                                      {mod.mod_unique_downloads.toLocaleString()}
+                                      {(mod.mod_unique_downloads ?? 0).toLocaleString()}
                                     </span>
                                     <span className="flex items-center gap-1">
                                       <ThumbsUp className="w-3 h-3" />
-                                      {mod.endorsement_count.toLocaleString()}
+                                      {(mod.endorsement_count ?? 0).toLocaleString()}
                                     </span>
                                     {mod.user?.name && (
                                       <span className="truncate">by {mod.user.name}</span>

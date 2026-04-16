@@ -133,13 +133,20 @@ export default function Dashboard() {
   }, [statusFilter, genreFilter, platformFilter]);
 
   const libStats = useMemo(() => calculateLibraryStats(games), [games]);
+  const filtersActive = filteredGames.length < games.length;
 
   // Sync dashboard search query to the add-game store so the Header's AddGameModal
   // can pre-fill when opened while the user has typed something here.
   useEffect(() => {
     setAddGamePendingQuery(searchQuery);
-    return () => clearAddGamePendingQuery();
   }, [searchQuery]);
+
+  // Clear the add-game store only on unmount.
+  useEffect(() => {
+    return () => {
+      clearAddGamePendingQuery();
+    };
+  }, []);
 
   const handleStatusChange = useCallback(
     (gameId: string, newStatus: GameStatus) => {
@@ -164,7 +171,10 @@ export default function Dashboard() {
           {libStats.totalGames > 0 && (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-sm text-muted-foreground">
               <span>
-                <span className="font-medium text-foreground">{libStats.totalGames}</span> games
+                <span className="font-medium text-foreground">
+                  {filtersActive ? filteredGames.length : libStats.totalGames}
+                </span>{" "}
+                {filtersActive ? `of ${libStats.totalGames} games shown` : "games"}
               </span>
               <span className="opacity-30">·</span>
               <span className="flex items-center gap-1">
@@ -382,21 +392,52 @@ export default function Dashboard() {
           </Card>
         )}
 
-        {filteredGames.length === 0 && debouncedSearchQuery.trim() ? (
-          <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
-            <p className="text-lg font-medium mb-1">
-              No results for &ldquo;{debouncedSearchQuery}&rdquo;
-            </p>
-            <p className="text-sm text-muted-foreground mb-6">
-              This game isn&apos;t in your library yet.
-            </p>
-            <AddGameModal initialQuery={searchQuery}>
-              <Button size="lg" className="gap-2" data-testid="button-add-game-from-search">
-                <Plus className="w-4 h-4" />
-                Add &ldquo;{debouncedSearchQuery}&rdquo; to collection
-              </Button>
-            </AddGameModal>
-          </div>
+        {filteredGames.length === 0 ? (
+          (() => {
+            const hasActiveFilters =
+              debouncedSearchQuery.trim() ||
+              statusFilter !== "all" ||
+              genreFilter !== "all" ||
+              platformFilter !== "all";
+            return hasActiveFilters ? (
+              debouncedSearchQuery.trim() ? (
+                <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
+                  <p className="text-lg font-medium mb-1">
+                    No results for &ldquo;{debouncedSearchQuery}&rdquo;
+                  </p>
+                  <p className="text-sm text-muted-foreground mb-6">
+                    This game isn&apos;t in your library yet.
+                  </p>
+                  <AddGameModal initialQuery={debouncedSearchQuery}>
+                    <Button size="lg" className="gap-2" data-testid="button-add-game-from-search">
+                      <Plus className="w-4 h-4" />
+                      Add &ldquo;{debouncedSearchQuery}&rdquo; to collection
+                    </Button>
+                  </AddGameModal>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
+                  <p className="text-lg font-medium mb-1">No games match your current filters</p>
+                  <p className="text-sm text-muted-foreground">
+                    Try adjusting or clearing your filters.
+                  </p>
+                </div>
+              )
+            ) : (
+              <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
+                <p className="text-lg font-medium mb-1">No games yet</p>
+                <p className="text-sm text-muted-foreground mb-6">
+                  Start building your library by adding a game.
+                </p>
+                <AddGameModal initialQuery="">
+                  <Button size="lg" className="gap-2">
+                    <Plus className="w-4 h-4" />
+                    Add your first game
+                  </Button>
+                </AddGameModal>
+              </div>
+            );
+          })()
         ) : (
           <GameGrid
             games={filteredGames}

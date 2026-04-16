@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, RefreshCw, Loader2, Plus } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -41,7 +41,8 @@ function formatDate(ts: number): string {
 
 function formatSize(mb?: number, unit?: string): string {
   if (mb == null) return "—";
-  if (unit === "GB" || (mb >= 1024 && !unit)) return `${(mb / 1024).toFixed(1)} GB`;
+  if (unit === "GB") return `${mb.toFixed(1)} GB`;
+  if (mb >= 1024 && !unit) return `${(mb / 1024).toFixed(1)} GB`;
   return `${mb} ${unit || "MB"}`;
 }
 
@@ -72,6 +73,13 @@ export default function XrelReleasesPage() {
       return res.json();
     },
   });
+
+  // XRL-2: sync local page state to what the server actually returned
+  useEffect(() => {
+    if (data?.pagination?.current_page && data.pagination.current_page < page) {
+      setPage(data.pagination.current_page);
+    }
+  }, [data, page]);
 
   const addGameMutation = useMutation({
     mutationFn: async (title: string) => {
@@ -157,7 +165,7 @@ export default function XrelReleasesPage() {
               <RefreshCw className="h-8 w-8 animate-spin mr-2" />
               Loading…
             </div>
-          ) : list.length === 0 ? (
+          ) : !isFetching && list.length === 0 ? (
             <div className="text-center py-12">
               <p className="text-muted-foreground">No game releases found on this page.</p>
               {page < totalPages && (
@@ -219,12 +227,12 @@ export default function XrelReleasesPage() {
                           }}
                           disabled={
                             addGameMutation.isPending &&
-                            addGameMutation.variables === rel.matchCandidate.title
+                            addGameMutation.variables === rel.matchCandidate?.title
                           }
-                          title={`Add "${rel.matchCandidate.title}" to wanted list`}
+                          title={`Add "${rel.matchCandidate?.title ?? ""}" to wanted list`}
                         >
                           {addGameMutation.isPending &&
-                          addGameMutation.variables === rel.matchCandidate.title ? (
+                          addGameMutation.variables === rel.matchCandidate?.title ? (
                             <Loader2 className="h-3 w-3 animate-spin" />
                           ) : (
                             <Plus className="h-3 w-3" />
@@ -243,6 +251,7 @@ export default function XrelReleasesPage() {
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-primary hover:underline inline-flex items-center gap-0.5 text-sm"
+                        aria-label={`View ${rel.ext_info?.title ?? rel.dirname} on xREL`}
                       >
                         <ExternalLink className="h-3.5 w-3.5" />
                         View
@@ -251,7 +260,7 @@ export default function XrelReleasesPage() {
                   </li>
                 ))}
               </ul>
-              {totalPages > 1 && (
+              {(page > 1 || totalPages > 1) && (
                 <div className="flex items-center justify-between pt-4 mt-4 border-t">
                   <Button
                     variant="outline"

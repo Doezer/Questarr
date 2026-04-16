@@ -324,6 +324,14 @@ export function formatAge(days?: number): string {
 /**
  * Check if an item is a Usenet download (NZB) vs torrent
  */
-export function isUsenetItem(item: { grabs?: number; age?: number; seeders?: number }): boolean {
+export function isUsenetItem(item: {
+  grabs?: number;
+  age?: number;
+  seeders?: number;
+  downloadType?: "torrent" | "usenet";
+}): boolean {
+  if (item.downloadType !== undefined) {
+    return item.downloadType === "usenet";
+  }
   return (item.grabs !== undefined || item.age !== undefined) && item.seeders === undefined;
 }

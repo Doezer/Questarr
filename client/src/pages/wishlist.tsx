@@ -169,6 +169,9 @@ export default function WishlistPage() {
                 showDownloadsOnly={showDownloadsOnly}
                 setShowDownloadsOnly={setShowDownloadsOnly}
               />
+              {showSearchResultsOnly && showDownloadsOnly && (
+                <p className="text-xs text-muted-foreground">Multiple filters active</p>
+              )}
             </>
           }
           sortValue={sortBy}
@@ -182,13 +185,35 @@ export default function WishlistPage() {
           }}
         />
 
-        {wishlistGames.length === 0 && !isLoading ? (
+        {!isLoading && games.length === 0 ? (
           <EmptyState
             icon={Star}
             title="Your wishlist is empty"
             description="Keep track of games you want to play. Add them from the Discover page to get notified about releases and updates."
             actionLabel="Find Games"
             actionLink="/discover"
+          />
+        ) : !isLoading && filteredGames.length === 0 ? (
+          <EmptyState
+            icon={Star}
+            title={
+              showDownloadsOnly && showSearchResultsOnly
+                ? "No games match your filters"
+                : showDownloadsOnly
+                  ? "No games with active downloads"
+                  : showSearchResultsOnly
+                    ? "No games with search results"
+                    : !showUnreleased
+                      ? "No released games in your wishlist"
+                      : "No games match your filters"
+            }
+            description={
+              showDownloadsOnly || showSearchResultsOnly
+                ? "Try disabling one or more filters to see more games."
+                : !showUnreleased
+                  ? "All your wishlist games are upcoming or unannounced. Enable 'Unreleased' to see them."
+                  : "Try adjusting your filters."
+            }
           />
         ) : (
           <div className="space-y-12">

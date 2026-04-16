@@ -125,4 +125,9 @@ describe("GameCard", () => {
     fireEvent.click(screen.getByTestId("card-game-1"));
     expect(onViewDetails).toHaveBeenCalledWith("1");
   });
+
+  it("shows 'No genres' when genres array is empty", () => {
+    renderComponent({ game: { ...mockGame, genres: [] } });
+    expect(screen.getByText("No genres")).toBeInTheDocument();
+  });
 });

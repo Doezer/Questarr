@@ -585,5 +585,14 @@ describe("Usenet Utility Functions", () => {
     it("should return false if no identifying fields", () => {
       expect(isUsenetItem({})).toBe(false);
     });
+    it("returns true when downloadType is 'usenet'", () => {
+      expect(isUsenetItem({ downloadType: "usenet" })).toBe(true);
+    });
+    it("returns false when downloadType is 'torrent'", () => {
+      expect(isUsenetItem({ downloadType: "torrent" })).toBe(false);
+    });
+    it("downloadType takes precedence over grabs/age heuristic", () => {
+      expect(isUsenetItem({ downloadType: "torrent", grabs: 10, age: 5 })).toBe(false);
+    });
   });
 });

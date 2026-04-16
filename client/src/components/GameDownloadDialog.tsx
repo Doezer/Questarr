@@ -323,7 +323,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       if (!visibleCategories.has(category)) continue;
 
       filtered[category] = downloads
-        .filter(meetsSeederThreshold)
+        .filter((t) => meetsSeederThreshold(t))
         .filter((t) => selectedIndexer === "all" || t.indexerName === selectedIndexer)
         .filter((t) => selectedGroups.length === 0 || (t.group && selectedGroups.includes(t.group)))
         .filter((t) => {
@@ -886,7 +886,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                     return (
                       sum +
                       downloads
-                        .filter(meetsSeederThreshold)
+                        .filter((t) => meetsSeederThreshold(t))
                         .filter(
                           (t) => selectedIndexer === "all" || t.indexerName === selectedIndexer
                         )

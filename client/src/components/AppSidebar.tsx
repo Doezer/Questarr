@@ -13,6 +13,7 @@ import {
   Newspaper,
   Rss,
   PieChart,
+  ScrollText,
 } from "lucide-react";
 import { useMemo } from "react";
 import {
@@ -96,6 +97,11 @@ const management = [
     title: "Settings",
     url: "/settings",
     icon: Settings,
+  },
+  {
+    title: "Logs",
+    url: "/logs",
+    icon: ScrollText,
   },
 ];
 

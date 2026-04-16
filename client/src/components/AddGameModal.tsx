@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import {
   Dialog,
   DialogContent,
@@ -83,6 +83,7 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
       return response.json();
     },
     enabled: debouncedQuery.trim().length > 2 && !!config?.igdb.configured,
+    placeholderData: keepPreviousData,
   });
 
   // Get user's collection to check if games are already added

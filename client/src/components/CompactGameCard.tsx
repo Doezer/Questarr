@@ -8,7 +8,7 @@ import { type Game, type DownloadSummary } from "@shared/schema";
 import DownloadIndicator from "./DownloadIndicator";
 import SearchResultsBadge from "./SearchResultsBadge";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { mapGameToInsertGame, isDiscoveryId, cn, getNextStatusLabel } from "@/lib/utils";
+import { mapGameToInsertGame, isDiscoveryId, cn } from "@/lib/utils";
 import { apiRequest, ApiError } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import LazyModalFallback from "./LazyModalFallback";
@@ -119,8 +119,6 @@ const CompactGameCard = ({
   const handleToggleHidden = () => {
     onToggleHidden?.(game.id, !game.hidden);
   };
-
-  const nextStatusLabel = getNextStatusLabel(game.status);
 
   return (
     <>

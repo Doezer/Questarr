@@ -65,7 +65,7 @@ export default function ClaimDownloadModal({
     data: Game;
   } | null>(null);
 
-  // Reset when download changes
+  // Reset when download changes; also reset mutation error state (CDM-2)
   useEffect(() => {
     if (open) {
       const d = categorizeDownload(download.name);
@@ -74,7 +74,10 @@ export default function ClaimDownloadModal({
       setIgdbQuery("");
       setDebouncedIgdbQuery("");
       setSelectedGame(null);
+      claimMutation.reset();
     }
+    // claimMutation.reset is stable — intentionally omitted from deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, download.name]);
 
   // Debounce IGDB query
@@ -97,7 +100,11 @@ export default function ClaimDownloadModal({
   });
 
   // IGDB search
-  const { data: igdbResults = [], isLoading: isSearchingIgdb } = useQuery<IgdbSearchResult[]>({
+  const {
+    data: igdbResults = [],
+    isLoading: isSearchingIgdb,
+    isError: igdbSearchFailed,
+  } = useQuery<IgdbSearchResult[]>({
     queryKey: ["/api/igdb/search", debouncedIgdbQuery],
     queryFn: async () => {
       if (!debouncedIgdbQuery.trim()) return [];
@@ -109,6 +116,9 @@ export default function ClaimDownloadModal({
     },
     enabled: debouncedIgdbQuery.trim().length > 2,
   });
+
+  // CDM-3: clear stale results when query is too short
+  const displayedIgdbResults = debouncedIgdbQuery.trim().length > 2 ? igdbResults : [];
 
   const claimMutation = useMutation({
     mutationFn: async () => {
@@ -206,22 +216,28 @@ export default function ClaimDownloadModal({
                     : "No library matches found — try IGDB Search"}
                 </p>
               ) : (
-                libraryMatches.map((g) => (
-                  <GameRow
-                    key={g.id}
-                    game={g}
-                    selected={selectedGame?.id === g.id && selectedGame?.source === "library"}
-                    onSelect={() =>
-                      setSelectedGame({
-                        id: g.id,
-                        title: g.title,
-                        coverUrl: g.coverUrl ?? undefined,
-                        source: "library",
-                        data: g,
-                      })
-                    }
-                  />
-                ))
+                libraryMatches.map((g) => {
+                  const isSelected =
+                    selectedGame?.id === g.id && selectedGame?.source === "library";
+                  return (
+                    <GameRow
+                      key={g.id}
+                      game={g}
+                      selected={isSelected}
+                      onSelect={() =>
+                        isSelected
+                          ? setSelectedGame(null)
+                          : setSelectedGame({
+                              id: g.id,
+                              title: g.title,
+                              coverUrl: g.coverUrl ?? undefined,
+                              source: "library",
+                              data: g,
+                            })
+                      }
+                    />
+                  );
+                })
               )}
             </div>
           </TabsContent>
@@ -239,27 +255,35 @@ export default function ClaimDownloadModal({
             <div className="overflow-y-auto flex-1 space-y-1 pr-1">
               {isSearchingIgdb ? (
                 <p className="text-sm text-muted-foreground py-4 text-center">Searching…</p>
-              ) : igdbResults.length === 0 && debouncedIgdbQuery ? (
+              ) : igdbSearchFailed ? (
+                <p className="text-sm text-muted-foreground py-4 text-center">
+                  Search failed. Try again.
+                </p>
+              ) : displayedIgdbResults.length === 0 && debouncedIgdbQuery.trim().length > 2 ? (
                 <p className="text-sm text-muted-foreground py-4 text-center">No results found</p>
               ) : (
-                igdbResults.map((g) => (
-                  <GameRow
-                    key={g.igdbId ?? g.id}
-                    game={g}
-                    selected={
-                      selectedGame?.source === "igdb" && selectedGame?.data.igdbId === g.igdbId
-                    }
-                    onSelect={() =>
-                      setSelectedGame({
-                        id: g.igdbId?.toString() ?? g.id,
-                        title: g.title,
-                        coverUrl: g.coverUrl ?? undefined,
-                        source: "igdb",
-                        data: g,
-                      })
-                    }
-                  />
-                ))
+                displayedIgdbResults.map((g) => {
+                  const isSelected =
+                    selectedGame?.source === "igdb" && selectedGame?.data.igdbId === g.igdbId;
+                  return (
+                    <GameRow
+                      key={g.igdbId ?? g.id}
+                      game={g}
+                      selected={isSelected}
+                      onSelect={() =>
+                        isSelected
+                          ? setSelectedGame(null)
+                          : setSelectedGame({
+                              id: g.igdbId?.toString() ?? g.id,
+                              title: g.title,
+                              coverUrl: g.coverUrl ?? undefined,
+                              source: "igdb",
+                              data: g,
+                            })
+                      }
+                    />
+                  );
+                })
               )}
             </div>
           </TabsContent>

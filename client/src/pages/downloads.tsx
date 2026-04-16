@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, lazy, Suspense } from "react";
+import { useState, useEffect, useMemo, useRef, lazy, Suspense } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import {
@@ -90,6 +90,13 @@ interface DownloadsResponse {
   errors: DownloaderError[];
 }
 
+const ACTIVE_DOWNLOAD_STATUSES: DownloadStatusType[] = [
+  "downloading",
+  "paused",
+  "repairing",
+  "unpacking",
+];
+
 const STATUS_ORDER: DownloadStatusType[] = [
   "downloading",
   "repairing",
@@ -112,7 +119,7 @@ const STATUS_COLORS: Record<DownloadStatusType, string> = {
 
 export default function Downloads() {
   const { toast } = useToast();
-  const [hasShownErrors, setHasShownErrors] = useState<Set<string>>(new Set());
+  const hasShownErrorsRef = useRef<Set<string>>(new Set());
   const [selectedDownload, setSelectedDownload] = useState<DownloadStatus | null>(null);
   const [detailsModalOpen, setDetailsModalOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<DownloadStatusType | "all">("all");
@@ -149,51 +156,42 @@ export default function Downloads() {
 
   // Collect unique active category filters from downloaders for the banner
   const categoryBannerEntries = useMemo(() => {
-    const seen = new Map<string, string>(); // downloaderName → category
+    const seen = new Map<string, { name: string; category: string }>(); // downloaderId → {name, category}
     for (const d of downloads) {
-      if (d.downloaderCategory && !seen.has(d.downloaderName)) {
-        seen.set(d.downloaderName, d.downloaderCategory);
+      if (d.downloaderCategory && !seen.has(d.downloaderId)) {
+        seen.set(d.downloaderId, { name: d.downloaderName, category: d.downloaderCategory });
       }
     }
-    return Array.from(seen.entries());
+    return Array.from(seen.values());
   }, [downloads]);
 
   // Show toast notifications for downloader errors
   // Only show each error once per session to avoid spam
   useEffect(() => {
-    // Remove resolved errors from tracking
     if (errors.length === 0) {
-      setHasShownErrors(new Set());
+      hasShownErrorsRef.current = new Set();
     } else {
       const currentErrorKeys = new Set(errors.map((e) => `${e.downloaderId}-${e.error}`));
-      setHasShownErrors((prev) => {
-        const newSet = new Set(prev);
-        Array.from(prev).forEach((key) => {
-          if (!currentErrorKeys.has(key)) {
-            newSet.delete(key);
-          }
-        });
-        return newSet;
+      // Remove resolved errors from tracking
+      Array.from(hasShownErrorsRef.current).forEach((key) => {
+        if (!currentErrorKeys.has(key)) {
+          hasShownErrorsRef.current.delete(key);
+        }
       });
-
       // Show new errors
       errors.forEach((error) => {
         const errorKey = `${error.downloaderId}-${error.error}`;
-        if (!hasShownErrors.has(errorKey)) {
+        if (!hasShownErrorsRef.current.has(errorKey)) {
           toast({
             title: `Downloader Error: ${error.downloaderName}`,
             description: error.error,
             variant: "destructive",
           });
-          setHasShownErrors((prev) => {
-            const newSet = new Set(prev);
-            newSet.add(errorKey);
-            return newSet;
-          });
+          hasShownErrorsRef.current.add(errorKey);
         }
       });
     }
-  }, [errors, hasShownErrors, toast]);
+  }, [errors, toast]);
 
   const handleShowDetails = (download: DownloadStatus) => {
     setSelectedDownload(download);
@@ -343,7 +341,7 @@ export default function Downloads() {
       string,
       { name: string; counts: Partial<Record<DownloadStatusType, number>> }
     >();
-    for (const d of downloads) {
+    for (const d of filteredDownloads) {
       if (!map.has(d.downloaderId)) {
         map.set(d.downloaderId, { name: d.downloaderName, counts: {} });
       }
@@ -351,7 +349,7 @@ export default function Downloads() {
       entry.counts[d.status] = (entry.counts[d.status] ?? 0) + 1;
     }
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [downloads]);
+  }, [filteredDownloads]);
 
   if (isLoading) {
     return (
@@ -508,7 +506,7 @@ export default function Downloads() {
           <Tag className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           <span>
             Category filter active —{" "}
-            {categoryBannerEntries.map(([name, cat]) => `${name}: "${cat}"`).join(", ")}
+            {categoryBannerEntries.map(({ name, category }) => `${name}: "${category}"`).join(", ")}
           </span>
         </div>
       )}
@@ -661,26 +659,30 @@ export default function Downloads() {
                     </CardDescription>
                   </div>
                   <div className="flex items-center space-x-2 ml-4">
-                    {download.status === "paused" ? (
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        onClick={() => handleResume(download)}
-                        disabled={resumeMutation.isPending}
-                        data-testid={`button-resume-${download.id}`}
-                      >
-                        <Play className="h-4 w-4" />
-                      </Button>
-                    ) : (
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        onClick={() => handlePause(download)}
-                        disabled={pauseMutation.isPending}
-                        data-testid={`button-pause-${download.id}`}
-                      >
-                        <Pause className="h-4 w-4" />
-                      </Button>
+                    {ACTIVE_DOWNLOAD_STATUSES.includes(download.status) && (
+                      <>
+                        {download.status === "paused" ? (
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={() => handleResume(download)}
+                            disabled={resumeMutation.isPending}
+                            data-testid={`button-resume-${download.id}`}
+                          >
+                            <Play className="h-4 w-4" />
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={() => handlePause(download)}
+                            disabled={pauseMutation.isPending}
+                            data-testid={`button-pause-${download.id}`}
+                          >
+                            <Pause className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </>
                     )}
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -792,15 +794,23 @@ export default function Downloads() {
       </div>
 
       {/* Download Details Modal */}
-      {selectedDownload && (
-        <DownloadDetailsModal
-          downloaderId={selectedDownload.downloaderId}
-          downloadId={selectedDownload.id}
-          downloadName={selectedDownload.name}
-          open={detailsModalOpen}
-          onOpenChange={setDetailsModalOpen}
-        />
-      )}
+      {selectedDownload &&
+        (() => {
+          const liveSelectedDownload =
+            downloads.find(
+              (d) =>
+                d.downloaderId === selectedDownload.downloaderId && d.id === selectedDownload.id
+            ) ?? selectedDownload;
+          return (
+            <DownloadDetailsModal
+              downloaderId={liveSelectedDownload.downloaderId}
+              downloadId={liveSelectedDownload.id}
+              downloadName={liveSelectedDownload.name}
+              open={detailsModalOpen}
+              onOpenChange={setDetailsModalOpen}
+            />
+          );
+        })()}
 
       {/* Link to Game Modal */}
       <Suspense fallback={<div className="fixed inset-0 bg-background/80 backdrop-blur-sm" />}>

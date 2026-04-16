@@ -179,8 +179,8 @@ export default function SettingsPage() {
       setXrelSceneReleases(userSettings.xrelSceneReleases ?? true);
       setXrelP2pReleases(userSettings.xrelP2pReleases ?? false);
     }
-    if (config?.xrel) {
-      setXrelApiBase(config.xrel.apiBase ?? "");
+    if (config?.xrel?.apiBase !== undefined) {
+      setXrelApiBase(config.xrel.apiBase);
     }
 
     if (igdbSettings?.clientId) {
@@ -422,12 +422,56 @@ export default function SettingsPage() {
     },
   });
 
+  const updateAdvancedSettingsMutation = useMutation({
+    mutationFn: async ({
+      updates,
+      successMessage,
+    }: {
+      updates: Partial<UserSettings>;
+      successMessage: string;
+    }) => {
+      const res = await apiRequest("PATCH", "/api/settings", updates);
+
+      // Check if response is HTML (which means the route wasn't found and Vite served index.html)
+      const contentType = res.headers.get("content-type");
+      if (contentType && contentType.includes("text/html")) {
+        throw new Error("API route not found. Please restart the server to apply changes.");
+      }
+
+      return { data: await res.json(), successMessage };
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Settings Updated",
+        description: data.successMessage,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+    },
+    onError: (error: Error) => {
+      console.error("Settings update error:", error);
+
+      let message = error.message;
+      if (message.includes("Unexpected token") || message.includes("JSON")) {
+        message = "Server response invalid. Please restart the server.";
+      }
+
+      toast({
+        title: "Update Failed",
+        description: message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const updateIgdbMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/settings/igdb", {
+      const payload: { clientId: string; clientSecret?: string } = {
         clientId: igdbClientId,
-        clientSecret: igdbClientSecret,
-      });
+      };
+      if (igdbClientSecret) {
+        payload.clientSecret = igdbClientSecret;
+      }
+      const res = await apiRequest("POST", "/api/settings/igdb", payload);
       return res.json();
     },
     onSuccess: () => {
@@ -487,7 +531,7 @@ export default function SettingsPage() {
   };
 
   const handleSaveAdvanced = () => {
-    updateSettingsMutation.mutate({
+    updateAdvancedSettingsMutation.mutate({
       updates: {
         igdbRateLimitPerSecond,
       },
@@ -526,7 +570,11 @@ export default function SettingsPage() {
   };
 
   const handleSaveIgdb = () => {
-    if (!igdbClientId || !igdbClientSecret) {
+    const isAlreadyConfigured = igdbSettings?.configured === true;
+    const bothCredentialsProvided = !!(igdbClientId && igdbClientSecret);
+    const partialUpdateAllowed = isAlreadyConfigured && !!(igdbClientId || igdbClientSecret);
+    const canSave = bothCredentialsProvided || partialUpdateAllowed;
+    if (!canSave) {
       toast({
         title: "Missing Credentials",
         description: "Please provide both Client ID and Client Secret.",
@@ -1226,10 +1274,10 @@ export default function SettingsPage() {
                 <div className="flex justify-end pt-4 border-t">
                   <Button
                     onClick={handleSaveAdvanced}
-                    disabled={updateSettingsMutation.isPending}
+                    disabled={updateAdvancedSettingsMutation.isPending}
                     className="gap-2"
                   >
-                    {updateSettingsMutation.isPending ? (
+                    {updateAdvancedSettingsMutation.isPending ? (
                       <>
                         <RefreshCw className="h-4 w-4 animate-spin" />
                         Saving...
@@ -1287,6 +1335,7 @@ export default function SettingsPage() {
                         type="button"
                         variant="ghost"
                         size="icon"
+                        aria-label={showDiscordWebhook ? "Hide webhook URL" : "Show webhook URL"}
                         className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
                         onClick={() => setShowDiscordWebhook((v) => !v)}
                       >

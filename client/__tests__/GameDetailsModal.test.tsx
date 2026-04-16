@@ -9,6 +9,10 @@ import GameDetailsModal from "../src/components/GameDetailsModal";
 import { Toaster } from "@/components/ui/toaster";
 
 // Mocking external dependencies
+vi.mock("socket.io-client", () => ({
+  io: vi.fn(() => ({ on: vi.fn(), off: vi.fn(), disconnect: vi.fn() })),
+}));
+
 vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({
     toast: vi.fn(),
@@ -489,6 +493,51 @@ describe("GameDetailsModal", () => {
       });
 
       expect(screen.queryByRole("tab", { name: /^mods$/i })).not.toBeInTheDocument();
+    });
+  });
+
+  describe("null game handling", () => {
+    it("renders a placeholder Dialog instead of null when game is null", () => {
+      const onOpenChange = vi.fn();
+      render(
+        <QueryClientProvider client={createQueryClient()}>
+          <GameDetailsModal game={null} open={true} onOpenChange={onOpenChange} />
+        </QueryClientProvider>
+      );
+      // No game title rendered, no crash
+      expect(screen.queryByTestId("text-game-title-1")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("modal state reset", () => {
+    it("resets summary expansion when modal closes", async () => {
+      const { rerender } = renderComponent();
+
+      // Expand the summary
+      const expandBtn = screen.queryByRole("button", { name: /show more/i });
+      if (expandBtn) {
+        fireEvent.click(expandBtn);
+        expect(screen.getByRole("button", { name: /show less/i })).toBeInTheDocument();
+      }
+
+      // Close the modal
+      rerender(
+        <QueryClientProvider client={createQueryClient()}>
+          <GameDetailsModal game={mockGame} open={false} onOpenChange={() => {}} />
+          <Toaster />
+        </QueryClientProvider>
+      );
+
+      // Reopen
+      rerender(
+        <QueryClientProvider client={createQueryClient()}>
+          <GameDetailsModal game={mockGame} open={true} onOpenChange={() => {}} />
+          <Toaster />
+        </QueryClientProvider>
+      );
+
+      // Summary should be collapsed again
+      expect(screen.queryByRole("button", { name: /show less/i })).not.toBeInTheDocument();
     });
   });
 });

@@ -256,14 +256,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const logPath = path.resolve(process.cwd(), "server.log");
 
-      let content: string;
+      let stat: fs.Stats;
       try {
-        content = await fs.promises.readFile(logPath, "utf-8");
+        stat = await fs.promises.stat(logPath);
       } catch {
         return res.json({ lines: [] });
       }
 
-      const lines = content
+      // Read only the tail of the file to avoid loading the entire log into memory.
+      // 512 bytes per line is a generous upper bound for structured JSON log lines.
+      const tailBytes = Math.min(stat.size, limit * 512);
+      const buffer = Buffer.alloc(tailBytes);
+      const fileHandle = await fs.promises.open(logPath, "r");
+      try {
+        await fileHandle.read(buffer, 0, tailBytes, stat.size - tailBytes);
+      } finally {
+        await fileHandle.close();
+      }
+
+      const lines = buffer
+        .toString("utf-8")
         .split("\n")
         .filter((l) => l.trim().length > 0)
         .slice(-limit);

@@ -1,10 +1,11 @@
 import { useEffect, useRef } from "react";
-import { io, type Socket } from "socket.io-client";
+import { io } from "socket.io-client";
 
 /**
  * Subscribes to real-time log lines emitted by the server over Socket.io.
  * Calls `onLine` for each raw NDJSON string received.
- * Manages connection lifecycle (connect on mount, disconnect on unmount).
+ * Uses the shared socket.io singleton (io()) — does NOT disconnect on unmount,
+ * which would tear down the app-wide connection used by NotificationCenter.
  */
 export function useLogStream(onLine: (line: string) => void): void {
   // Stable ref so the effect doesn't re-run when onLine identity changes
@@ -12,16 +13,11 @@ export function useLogStream(onLine: (line: string) => void): void {
   onLineRef.current = onLine;
 
   useEffect(() => {
-    const socket: Socket = io(window.location.origin, {
-      transports: ["websocket", "polling"],
-    });
-
+    const socket = io(); // shared singleton
     const handler = (line: string) => onLineRef.current(line);
     socket.on("logLine", handler);
-
     return () => {
       socket.off("logLine", handler);
-      socket.disconnect();
     };
   }, []);
 }

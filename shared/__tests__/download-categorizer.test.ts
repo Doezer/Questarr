@@ -44,10 +44,11 @@ describe("download-categorizer", () => {
       expect(result.confidence).toBe(0.8);
     });
 
-    it("detects update via version number pattern", () => {
+    it("classifies version-number-only releases as main (version alone is ambiguous)", () => {
+      // "Game.v1.2.3-GROUP" could be an initial release — only explicit keywords like
+      // "update" or "patch" reliably distinguish updates from full releases.
       const result = categorizeDownload("Game.v1.2.3-GROUP");
-      expect(result.category).toBe("update");
-      expect(result.confidence).toBe(0.8);
+      expect(result.category).toBe("main");
     });
 
     it("detects update via crackfix keyword", () => {

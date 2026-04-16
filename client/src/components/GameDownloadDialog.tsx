@@ -73,6 +73,7 @@ import {
   parseReleaseMetadata,
   parseJsonStringArray,
   matchesPlatformFilter,
+  normalizeTitle,
 } from "@shared/title-utils";
 
 interface DownloadItem {
@@ -235,6 +236,15 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     queryKey: [searchQueryKey],
     enabled: open && debouncedSearchQuery.trim().length > 0,
   });
+
+  // When a canonical search (game title = search query) returns results, refresh the games list
+  // so the "Has results" badge reflects the updated searchResultsAvailable flag from the server.
+  useEffect(() => {
+    if (!searchResults || !game) return;
+    if (searchResults.items.length === 0) return;
+    if (normalizeTitle(debouncedSearchQuery) !== normalizeTitle(game.title)) return;
+    queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+  }, [searchResults, game, debouncedSearchQuery, queryClient]);
 
   const { data: enabledIndexers } = useQuery<Indexer[]>({
     queryKey: ["/api/indexers/enabled"],

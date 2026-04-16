@@ -294,19 +294,6 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       .map((p) => ({ label: p, value: p }));
   }, [itemsMetadata]);
 
-  // Remove stale platform selections when available platforms change.
-  // Guard: skip when results haven't loaded yet (empty availablePlatforms) so that a
-  // preselected preferred platform isn't wiped before the first result set arrives.
-  useEffect(() => {
-    if (availablePlatforms.length === 0) return;
-    const validValues = new Set(availablePlatforms.map((p) => p.value));
-    setSelectedPlatforms((prev) => {
-      if (prev.length === 0) return prev;
-      const filtered = prev.filter((p) => validValues.has(p));
-      return filtered.length !== prev.length ? filtered : prev;
-    });
-  }, [availablePlatforms]);
-
   // Apply filters and sorting
   const filteredCategorizedDownloads = useMemo(() => {
     const filtered: Record<DownloadCategory, DownloadItem[]> = {

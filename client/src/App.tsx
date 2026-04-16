@@ -30,6 +30,7 @@ const RssPage = lazy(() => import("@/pages/rss"));
 const LoginPage = lazy(() => import("@/pages/auth/login"));
 const SetupPage = lazy(() => import("@/pages/auth/setup"));
 const StatsPage = lazy(() => import("@/pages/stats"));
+const LogsPage = lazy(() => import("@/pages/logs"));
 
 function Router() {
   return (
@@ -50,6 +51,7 @@ function Router() {
         <Route path="/xrel" component={XrelReleasesPage} />
         <Route path="/rss" component={RssPage} />
         <Route path="/stats" component={StatsPage} />
+        <Route path="/logs" component={LogsPage} />
         <Route component={NotFound} />
       </Switch>
     </Suspense>
@@ -100,6 +102,8 @@ function App() {
         return "RSS Feeds";
       case "/stats":
         return "Statistics";
+      case "/logs":
+        return "Server Logs";
       default:
         return "Questarr";
     }

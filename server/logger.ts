@@ -1,4 +1,18 @@
 import pino from "pino";
+import { Writable } from "stream";
+import { logEmitter } from "./log-events.js";
+
+class LogBroadcaster extends Writable {
+  constructor() {
+    super({ objectMode: false, decodeStrings: false });
+  }
+
+  _write(chunk: string | Buffer, _encoding: string, callback: () => void): void {
+    const line = chunk.toString().trim();
+    if (line) logEmitter.emit("line", line);
+    callback();
+  }
+}
 
 const isProduction = process.env.NODE_ENV === "production";
 
@@ -30,7 +44,7 @@ export const logger = pino(
     timestamp: pino.stdTimeFunctions.isoTime,
     base: undefined,
   },
-  transport
+  pino.multistream([{ stream: transport }, { stream: new LogBroadcaster(), level: "debug" }])
 );
 
 // Create child loggers for different modules

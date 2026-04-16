@@ -263,42 +263,44 @@ export default function ClaimBatchModal({ open, onOpenChange }: ClaimBatchModalP
           </DialogDescription>
         </DialogHeader>
 
-        <ScrollArea className="flex-1 min-h-0 pr-2">
-          {isLoading && (
-            <div className="flex items-center justify-center py-12 gap-2 text-muted-foreground">
-              <Loader2 className="h-5 w-5 animate-spin" />
-              Scanning downloads…
-            </div>
-          )}
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <ScrollArea className="h-full pr-2">
+            {isLoading && (
+              <div className="flex items-center justify-center py-12 gap-2 text-muted-foreground">
+                <Loader2 className="h-5 w-5 animate-spin" />
+                Scanning downloads…
+              </div>
+            )}
 
-          {error && (
-            <div className="flex items-center gap-2 text-destructive py-8 justify-center">
-              <AlertCircle className="h-5 w-5" />
-              Failed to scan downloads
-            </div>
-          )}
+            {error && (
+              <div className="flex items-center gap-2 text-destructive py-8 justify-center">
+                <AlertCircle className="h-5 w-5" />
+                Failed to scan downloads
+              </div>
+            )}
 
-          {data && data.groups.length === 0 && (
-            <div className="flex items-center gap-2 text-muted-foreground py-8 justify-center">
-              <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-              All downloads are already linked to games
-            </div>
-          )}
+            {data && data.groups.length === 0 && (
+              <div className="flex items-center gap-2 text-muted-foreground py-8 justify-center">
+                <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                All downloads are already linked to games
+              </div>
+            )}
 
-          {data &&
-            data.groups.map((group) => {
-              const state = groupStates.get(group.baseTitle);
-              if (!state) return null;
-              return (
-                <GroupRow
-                  key={group.baseTitle}
-                  group={group}
-                  state={state}
-                  onUpdate={(patch) => updateGroup(group.baseTitle, patch)}
-                />
-              );
-            })}
-        </ScrollArea>
+            {data &&
+              data.groups.map((group) => {
+                const state = groupStates.get(group.baseTitle);
+                if (!state) return null;
+                return (
+                  <GroupRow
+                    key={group.baseTitle}
+                    group={group}
+                    state={state}
+                    onUpdate={(patch) => updateGroup(group.baseTitle, patch)}
+                  />
+                );
+              })}
+          </ScrollArea>
+        </div>
 
         {progress && (
           <p className="text-sm text-muted-foreground text-center">

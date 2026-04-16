@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import PageToolbar from "./PageToolbar";
 import GameGrid from "./GameGrid";
@@ -73,6 +73,7 @@ export default function Dashboard() {
       const response = await apiRequest("GET", `/api/games?${params}`);
       return response.json();
     },
+    placeholderData: keepPreviousData,
   });
 
   const statusMutation = useMutation({

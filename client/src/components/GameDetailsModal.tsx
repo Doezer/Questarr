@@ -55,7 +55,7 @@ import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { type Game, type GameDownload } from "@shared/schema";
 import StatusBadge from "./StatusBadge";
 import { apiRequest } from "@/lib/queryClient";
-import { safeUrl, formatBytes, isDiscoveryId } from "@/lib/utils";
+import { cn, safeUrl, formatBytes, isDiscoveryId } from "@/lib/utils";
 
 const GameDownloadDialog = lazy(() => import("./GameDownloadDialog"));
 
@@ -492,10 +492,6 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
 
   const SUMMARY_LIMIT = 280;
   const isSummaryLong = game.summary && game.summary.length > SUMMARY_LIMIT;
-  const displaySummary =
-    isSummaryLong && !isSummaryExpanded
-      ? `${game.summary?.slice(0, SUMMARY_LIMIT)}...`
-      : game.summary;
 
   // Include Steam link derived from steamAppId if IGDB didn't provide one (category 13)
   const rawWebsites = (game.igdbWebsites ?? []) as Array<{ category: number; url: string }>;
@@ -663,10 +659,13 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                         About
                       </h3>
                       <p
-                        className="text-sm text-muted-foreground leading-relaxed break-words [overflow-wrap:anywhere]"
+                        className={cn(
+                          "text-sm text-muted-foreground leading-relaxed break-words [overflow-wrap:anywhere]",
+                          isSummaryExpanded ? "max-h-48 overflow-y-auto" : "line-clamp-5"
+                        )}
                         data-testid={`text-summary-${game.id}`}
                       >
-                        {displaySummary}
+                        {game.summary}
                       </p>
                       {isSummaryLong && (
                         <Button

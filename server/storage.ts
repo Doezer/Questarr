@@ -123,6 +123,7 @@ export interface IStorage {
   ): Promise<(GameDownload & { downloaderName: string | null })[]>;
   updateGameDownloadStatus(id: string, status: string): Promise<void>;
   addGameDownload(gameDownload: InsertGameDownload): Promise<GameDownload>;
+  removeGameDownload(id: string, gameId: string): Promise<boolean>;
   getDownloadSummaryByGame(userId: string): Promise<Record<string, DownloadSummary>>;
   getTrackedDownloadKeys(): Promise<Set<string>>;
 
@@ -680,6 +681,12 @@ export class MemStorage implements IStorage {
     };
     this.gameDownloads.set(id, gameDownload);
     return gameDownload;
+  }
+
+  async removeGameDownload(id: string, gameId: string): Promise<boolean> {
+    const gd = this.gameDownloads.get(id);
+    if (!gd || gd.gameId !== gameId) return false;
+    return this.gameDownloads.delete(id);
   }
 
   async getTrackedDownloadKeys(): Promise<Set<string>> {
@@ -1506,6 +1513,14 @@ export class DatabaseStorage implements IStorage {
       .values({ ...insertGameDownload, id })
       .returning();
     return gameDownload;
+  }
+
+  async removeGameDownload(id: string, gameId: string): Promise<boolean> {
+    const result = await db
+      .delete(gameDownloads)
+      .where(and(eq(gameDownloads.id, id), eq(gameDownloads.gameId, gameId)))
+      .returning();
+    return result.length > 0;
   }
 
   async getTrackedDownloadKeys(): Promise<Set<string>> {

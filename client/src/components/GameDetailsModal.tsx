@@ -33,6 +33,7 @@ import {
   Loader2,
   AlertCircle,
   PauseCircle,
+  Trash2,
   ExternalLink,
   Users,
   Building2,
@@ -452,6 +453,20 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     errorMessage: "Failed to update game visibility",
   });
 
+  const removeDownloadMutation = useMutation({
+    mutationFn: async (downloadId: string) => {
+      await apiRequest("DELETE", `/api/games/${game!.id}/downloads/${downloadId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/games/${game!.id}/downloads`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/downloads/summary"] });
+      toast({ description: "Download record removed" });
+    },
+    onError: () => {
+      toast({ variant: "destructive", description: "Failed to remove download record" });
+    },
+  });
+
   const { data: pcgwData } = useQuery<{ url: string | null }>({
     queryKey: ["/api/external/pcgamingwiki", game?.steamAppId],
     queryFn: async ({ queryKey }) => {
@@ -844,18 +859,33 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                                 </div>
                               </div>
                             </div>
-                            <div className="flex-shrink-0 text-right">
-                              {dl.fileSize ? (
-                                <p className="text-sm font-medium">{formatBytes(dl.fileSize)}</p>
-                              ) : null}
-                              <p className="text-xs text-muted-foreground mt-0.5">
-                                {dl.addedAt ? new Date(dl.addedAt).toLocaleDateString() : "—"}
-                              </p>
-                              {dl.completedAt && (
-                                <p className="text-xs text-emerald-400 mt-0.5">
-                                  Done {new Date(dl.completedAt).toLocaleDateString()}
+                            <div className="flex items-start gap-3 flex-shrink-0">
+                              <div className="text-right">
+                                {dl.fileSize ? (
+                                  <p className="text-sm font-medium">{formatBytes(dl.fileSize)}</p>
+                                ) : null}
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                  {dl.addedAt ? new Date(dl.addedAt).toLocaleDateString() : "—"}
                                 </p>
-                              )}
+                                {dl.completedAt && (
+                                  <p className="text-xs text-emerald-400 mt-0.5">
+                                    Done {new Date(dl.completedAt).toLocaleDateString()}
+                                  </p>
+                                )}
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                                aria-label="Remove download record"
+                                disabled={
+                                  removeDownloadMutation.isPending &&
+                                  removeDownloadMutation.variables === dl.id
+                                }
+                                onClick={() => removeDownloadMutation.mutate(dl.id)}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
                             </div>
                           </div>
                         </CardContent>

@@ -441,50 +441,52 @@ function GroupRow({
                   autoFocus
                 />
               </div>
-              <div className="max-h-36 overflow-y-auto space-y-1">
-                {searchingIgdb ? (
-                  <p className="text-xs text-muted-foreground py-1 px-1">Searching…</p>
-                ) : igdbResults.length === 0 &&
-                  igdbDebouncedQuery.trim().length > 2 &&
-                  !searchingIgdb ? (
-                  <p className="text-sm text-muted-foreground py-1 px-1">No results found</p>
-                ) : (
-                  igdbResults.map((g) => (
-                    <button
-                      key={g.igdbId?.toString() ?? g.title}
-                      type="button"
-                      onClick={() => {
-                        onUpdate({
-                          selectedGame: {
-                            id: undefined,
-                            title: g.title,
-                            source: "igdb",
-                            data: g,
-                          },
-                          igdbOpen: false,
-                        });
-                      }}
-                      className="w-full flex items-center gap-2 px-2 py-1 rounded text-sm hover:bg-accent text-left"
-                    >
-                      {g.coverUrl ? (
-                        <img
-                          src={g.coverUrl}
-                          alt={g.title}
-                          className="h-8 w-6 object-cover rounded shrink-0"
-                        />
-                      ) : (
-                        <div className="h-8 w-6 rounded bg-muted shrink-0" />
-                      )}
-                      <span className="truncate">{g.title}</span>
-                      {g.releaseDate && (
-                        <span className="text-xs text-muted-foreground shrink-0">
-                          {new Date(g.releaseDate).getFullYear()}
-                        </span>
-                      )}
-                    </button>
-                  ))
-                )}
-              </div>
+              <ScrollArea className="max-h-36">
+                <div className="space-y-1">
+                  {searchingIgdb ? (
+                    <p className="text-xs text-muted-foreground py-1 px-1">Searching…</p>
+                  ) : igdbResults.length === 0 &&
+                    igdbDebouncedQuery.trim().length > 2 &&
+                    !searchingIgdb ? (
+                    <p className="text-sm text-muted-foreground py-1 px-1">No results found</p>
+                  ) : (
+                    igdbResults.map((g) => (
+                      <button
+                        key={g.igdbId?.toString() ?? g.title}
+                        type="button"
+                        onClick={() => {
+                          onUpdate({
+                            selectedGame: {
+                              id: undefined,
+                              title: g.title,
+                              source: "igdb",
+                              data: g,
+                            },
+                            igdbOpen: false,
+                          });
+                        }}
+                        className="w-full flex items-center gap-2 px-2 py-1 rounded text-sm hover:bg-accent text-left"
+                      >
+                        {g.coverUrl ? (
+                          <img
+                            src={g.coverUrl}
+                            alt={g.title}
+                            className="h-8 w-6 object-cover rounded shrink-0"
+                          />
+                        ) : (
+                          <div className="h-8 w-6 rounded bg-muted shrink-0" />
+                        )}
+                        <span className="truncate">{g.title}</span>
+                        {g.releaseDate && (
+                          <span className="text-xs text-muted-foreground shrink-0">
+                            {new Date(g.releaseDate).getFullYear()}
+                          </span>
+                        )}
+                      </button>
+                    ))
+                  )}
+                </div>
+              </ScrollArea>
             </div>
           )}
         </div>

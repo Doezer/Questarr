@@ -94,6 +94,14 @@ export const sanitizeGameId = [
     .withMessage("Invalid game ID format"),
 ];
 
+// Sanitization rules for download record ID parameters
+export const sanitizeDownloadId = [
+  param("downloadId")
+    .trim()
+    .matches(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
+    .withMessage("Invalid download ID format"),
+];
+
 // Sanitization rules for IGDB ID parameters
 export const sanitizeIgdbId = [
   param("id").trim().isInt({ min: 1 }).withMessage("Invalid IGDB ID").toInt(),

@@ -35,6 +35,7 @@ import {
   validateRequest,
   sanitizeSearchQuery,
   sanitizeGameId,
+  sanitizeDownloadId,
   sanitizeIgdbId,
   sanitizeGameStatus,
   sanitizeGameData,
@@ -2354,6 +2355,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Provide either gameId or newGame" });
       }
 
+      // Prevent duplicate: reject if this download is already linked to any game
+      const trackedKeys = await storage.getTrackedDownloadKeys();
+      if (trackedKeys.has(`${downloaderId}:${downloadHash.toLowerCase()}`)) {
+        return res.status(409).json({ error: "This download is already linked to a game" });
+      }
+
       // Determine download status for gameDownloads record
       const downloadStatus =
         currentStatus === "completed" || currentStatus === "seeding"
@@ -2449,6 +2456,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: "Failed to claim download" });
     }
   });
+
+  // Remove a linked download record from a game
+  app.delete(
+    "/api/games/:id/downloads/:downloadId",
+    sanitizeGameId,
+    sanitizeDownloadId,
+    validateRequest,
+    authenticateToken,
+    async (req: Request, res: Response) => {
+      try {
+        const userId = req.user!.id;
+        const game = await storage.getGame(req.params.id);
+        if (!game || game.userId !== userId) {
+          return res.status(404).json({ error: "Game not found" });
+        }
+        const removed = await storage.removeGameDownload(req.params.downloadId, req.params.id);
+        if (!removed) {
+          return res.status(404).json({ error: "Download record not found" });
+        }
+        res.json({ success: true });
+      } catch (error) {
+        routesLogger.error({ error }, "error removing game download");
+        res.status(500).json({ error: "Failed to remove download" });
+      }
+    }
+  );
 
   // Add download to best available downloader
   app.post(

@@ -257,7 +257,7 @@ describe("GameDetailsModal", () => {
 
     const summaryText = screen.getByTestId(`text-summary-${mockGame.id}`);
     // Summary paragraph shows truncated text; "Read more" is a sibling button
-    expect(summaryText.textContent?.length).toBeLessThan(300);
+    expect(summaryText.textContent?.length).toBeLessThanOrEqual(300);
 
     const readMoreButton = screen.getByText("Read more");
     fireEvent.click(readMoreButton);

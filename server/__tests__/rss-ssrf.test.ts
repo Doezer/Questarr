@@ -94,6 +94,7 @@ vi.mock("../middleware.js", () => ({
   sanitizeSearchQuery: [],
   sanitizeGameId: [],
   sanitizeIgdbId: [],
+  sanitizeDownloadId: [],
   sanitizeGameStatus: [],
   sanitizeGameData: [],
   sanitizeIndexerData: [],

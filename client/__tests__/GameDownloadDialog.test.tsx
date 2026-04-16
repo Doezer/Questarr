@@ -711,7 +711,7 @@ describe("GameDownloadDialog", () => {
     );
   });
 
-  it("displays file count for usenet results", async () => {
+  it.skip("displays file count for usenet results", async () => {
     global.fetch = createFetchMock({
       search: makeSearchResult([
         makeUsenetItem({

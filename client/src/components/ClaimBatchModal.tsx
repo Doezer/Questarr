@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Search, Link2, CheckCircle2, AlertCircle, Loader2, ChevronDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { type Game } from "@shared/schema";

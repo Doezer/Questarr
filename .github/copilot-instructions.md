@@ -32,8 +32,11 @@ Questarr is a video game management application inspired by the \*Arr ecosystem 
 - **IGDB API**: Game metadata, cover images, screenshots, ratings, and platform information (via Twitch OAuth)
 - **Torznab/Newznab**: Indexer search protocol (torrent/NZB)
 - **Download Clients**: qBittorrent, Transmission, rTorrent, sabnzbd, nzbget
-- **Steam**: OAuth integration for wishlist sync
+- **Steam**: Wishlist import and Steam App ID resolution
 - **xREL.to**: Scene release monitoring
+- **HowLongToBeat**: Gameplay time data with fuzzy title matching (24h cache)
+- **NexusMods**: Mod search and trending mods per game
+- **PCGamingWiki**: Game wiki URL lookup via Steam App ID (CargoQuery API, 24h cache)
 
 ## Project Structure
 
@@ -41,13 +44,13 @@ Questarr is a video game management application inspired by the \*Arr ecosystem 
 /client              # Frontend React application
   /src               # React components and client code
     /components      # Reusable React components
-    /pages           # Page components (lazy loaded)
+    /pages           # Page components (lazy loaded): library, discover, search, wishlist, calendar, downloads, indexers, downloaders, rss, xrel-releases, stats, settings
     /hooks           # Custom React hooks
     /lib             # Utilities & services (auth, queryClient, etc.)
     /components/ui   # shadcn/ui component library
 /server              # Backend Express application
   index.ts           # Server entry point, middleware chain
-  routes.ts          # All API endpoints
+  routes.ts          # All API endpoints (~3360 lines, organized by domain)
   storage.ts         # Database access layer (Drizzle queries)
   middleware.ts      # Rate limiters, validators, sanitizers
   auth.ts            # JWT generation/verification, password hashing
@@ -59,6 +62,12 @@ Questarr is a video game management application inspired by the \*Arr ecosystem 
   socket.ts          # WebSocket setup (Socket.io)
   torznab.ts         # Torznab protocol client
   newznab.ts         # Newznab protocol client
+  hltb.ts            # HowLongToBeat client (gameplay time data)
+  nexusmods.ts       # NexusMods API client (mod search)
+  steam.ts           # Steam wishlist import and App ID resolution
+  steam-routes.ts    # Express router for Steam endpoints
+  pcgamingwiki-router.ts  # PCGamingWiki URL lookup via Steam App ID
+  config.ts          # System-wide configuration access layer
 /shared              # Shared code between client and server
   schema.ts          # Drizzle ORM schema + Zod validation schemas
   title-utils.ts     # Game title normalization & matching
@@ -154,7 +163,7 @@ Pre-commit hooks (Husky + lint-staged) run ESLint + Prettier on staged files aut
 
 1. **API Design**: Follow RESTful principles for route design.
 2. **Error Handling**: Always handle errors with try-catch blocks.
-3. **Database**: Use Drizzle ORM for all database operations. Define schemas in `shared/schema.ts`.
+3. **Database**: Use Drizzle ORM for all database operations. Define schemas in `shared/schema.ts`. Key tables: `users`, `userSettings`, `systemConfig`, `games`, `indexers`, `downloaders`, `gameDownloads`, `notifications`, `rssFeeds`, `rssFeedItems`, `xrelNotifiedReleases`, `releaseBlacklist`. Notable game fields: `steamAppId`, `hidden`, `userRating` (0.5–10), `source` ("manual"|"steam"|"api").
 4. **Authentication**: Use JWT middleware for protected routes. Tokens are verified via `server/auth.ts`.
 5. **Input Validation**: Validate requests with express-validator middleware in `server/middleware.ts`.
 6. **Security**: Use `safeFetch()` from `server/ssrf.ts` for any outbound HTTP requests to prevent SSRF.

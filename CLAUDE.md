@@ -53,22 +53,28 @@ npm run db:push          # Push schema directly (dev only)
 
 Three-layer TypeScript app with a single `package.json` (not a monorepo):
 
-- **`/client/src`** — React 18 SPA. Wouter routing, TanStack React Query for server state, shadcn/ui + Radix primitives, Tailwind CSS 4. Pages are code-split with `React.lazy`.
+- **`/client/src`** — React 18 SPA. Wouter routing, TanStack React Query for server state, shadcn/ui + Radix primitives, Tailwind CSS 4. Pages are code-split with `React.lazy`. Pages: library, discover, search, wishlist, calendar, downloads, indexers, downloaders, rss, xrel-releases, stats, settings.
 - **`/server`** — Express REST API + Socket.io WebSockets. JWT auth (bcryptjs), express-validator for input validation, Pino logging, SSRF-protected fetch.
 - **`/shared`** — Drizzle ORM schema (`schema.ts`), Zod validation schemas (derived from Drizzle), game title normalization (`title-utils.ts`), download categorization.
 
 ### Key backend modules
 
-| File             | Purpose                                                                                 |
-| ---------------- | --------------------------------------------------------------------------------------- |
-| `routes.ts`      | All API endpoints (~2700 lines, organized by domain)                                    |
-| `storage.ts`     | Database access layer (Drizzle queries)                                                 |
-| `downloaders.ts` | Multi-client download management (qBittorrent, Transmission, rTorrent, sabnzbd, nzbget) |
-| `igdb.ts`        | IGDB API client with in-memory cache                                                    |
-| `search.ts`      | Aggregated Torznab/Newznab indexer search                                               |
-| `cron.ts`        | Scheduled jobs (auto-search, download checks, xREL monitoring, game updates)            |
-| `middleware.ts`  | Rate limiters, validators, sanitizers                                                   |
-| `ssrf.ts`        | SSRF URL validation (DNS rebinding, cloud metadata filtering)                           |
+| File                     | Purpose                                                                                 |
+| ------------------------ | --------------------------------------------------------------------------------------- |
+| `routes.ts`              | All API endpoints (~3360 lines, organized by domain)                                    |
+| `storage.ts`             | Database access layer (Drizzle queries)                                                 |
+| `downloaders.ts`         | Multi-client download management (qBittorrent, Transmission, rTorrent, sabnzbd, nzbget) |
+| `igdb.ts`                | IGDB API client with in-memory cache                                                    |
+| `search.ts`              | Aggregated Torznab/Newznab indexer search                                               |
+| `cron.ts`                | Scheduled jobs (auto-search, download checks, xREL monitoring, game updates)            |
+| `middleware.ts`          | Rate limiters, validators, sanitizers                                                   |
+| `ssrf.ts`                | SSRF URL validation (DNS rebinding, cloud metadata filtering)                           |
+| `hltb.ts`                | HowLongToBeat client — gameplay time lookup with 24h cache and fuzzy title matching     |
+| `nexusmods.ts`           | NexusMods API client — mod search and trending mods per game                            |
+| `steam.ts`               | Steam wishlist import and Steam App ID resolution                                       |
+| `steam-routes.ts`        | Express router for Steam endpoints                                                      |
+| `pcgamingwiki-router.ts` | PCGamingWiki URL lookup via Steam App ID (CargoQuery API, 24h cache)                    |
+| `config.ts`              | System-wide configuration access layer                                                  |
 
 ### Data flow
 
@@ -79,7 +85,9 @@ Three-layer TypeScript app with a single `package.json` (not a monorepo):
 
 ### Database
 
-SQLite with Drizzle ORM. Schema defined in `shared/schema.ts`. Migrations in `/migrations/`. Key tables: `users`, `userSettings`, `games`, `indexers`, `downloaders`, `gameDownloads`, `notifications`, `rssFeeds`, `rssFeedItems`.
+SQLite with Drizzle ORM. Schema defined in `shared/schema.ts`. Migrations in `/migrations/`. Key tables: `users`, `userSettings`, `systemConfig`, `games`, `indexers`, `downloaders`, `gameDownloads`, `notifications`, `rssFeeds`, `rssFeedItems`, `xrelNotifiedReleases`, `releaseBlacklist`.
+
+Notable game fields added: `steamAppId`, `hidden` (boolean), `userRating` (0.5–10 scale), `source` ("manual" | "steam" | "api"). User fields: `steamId64`. UserSettings fields: `preferredReleaseGroups`, `steamSyncFailures`.
 
 ## Code Conventions
 

@@ -222,7 +222,13 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
                             {game.releaseDate && (
                               <div className="flex items-center gap-1 text-sm text-muted-foreground">
                                 <Calendar className="w-3 h-3" />
-                                {new Date(game.releaseDate).getFullYear()}
+                                {game.releaseDate.endsWith("-12-31")
+                                  ? new Date(game.releaseDate).getFullYear()
+                                  : new Date(game.releaseDate).toLocaleDateString(undefined, {
+                                      year: "numeric",
+                                      month: "short",
+                                      day: "numeric",
+                                    })}
                               </div>
                             )}
                             {game.rating && (

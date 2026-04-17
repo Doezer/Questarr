@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient } from "@/lib/queryClient";
+import { queryClient, clearSearchCache } from "@/lib/queryClient";
+import { refreshIndexerQueries } from "@/lib/indexers-cache";
 import { asZodType, cn, compareEnabledPriorityName } from "@/lib/utils";
 import { Plus, Edit, Trash2, Check, X, Activity, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -36,6 +37,61 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { insertIndexerSchema, type Indexer, type InsertIndexer } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { MultiSelect, type MultiSelectOption } from "@/components/ui/multi-select";
+
+function PriorityControl({
+  id,
+  priority,
+  onSave,
+}: {
+  id: string;
+  priority: number;
+  onSave: (id: string, priority: number) => void;
+}) {
+  const [value, setValue] = useState(priority);
+
+  useEffect(() => {
+    setValue(priority);
+  }, [priority]);
+
+  const save = (next: number) => {
+    const clamped = Math.max(1, Math.min(100, next));
+    if (clamped !== priority) onSave(id, clamped);
+    setValue(clamped);
+  };
+
+  return (
+    <div className="flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold">
+      <span className="text-muted-foreground">Priority</span>
+      <button
+        type="button"
+        className="text-muted-foreground hover:text-foreground w-3.5 text-center leading-none"
+        onClick={() => save(value - 1)}
+        aria-label="Decrease priority"
+      >
+        −
+      </button>
+      <input
+        type="number"
+        min={1}
+        max={100}
+        value={value}
+        onChange={(e) => setValue(parseInt(e.target.value) || 1)}
+        onBlur={(e) => save(parseInt(e.target.value) || 1)}
+        onKeyDown={(e) => e.key === "Enter" && save(value)}
+        className="w-7 bg-transparent text-center outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+        aria-label="Priority value"
+      />
+      <button
+        type="button"
+        className="text-muted-foreground hover:text-foreground w-3.5 text-center leading-none"
+        onClick={() => save(value + 1)}
+        aria-label="Increase priority"
+      >
+        +
+      </button>
+    </div>
+  );
+}
 
 export default function IndexersPage() {
   const { toast } = useToast();
@@ -75,7 +131,8 @@ export default function IndexersPage() {
       return response.json();
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/indexers"] });
+      void refreshIndexerQueries(queryClient);
+      clearSearchCache();
       setIsProwlarrDialogOpen(false);
       toast({
         title: "Sync successful",
@@ -107,7 +164,8 @@ export default function IndexersPage() {
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/indexers"] });
+      void refreshIndexerQueries(queryClient);
+      clearSearchCache();
       setIsDialogOpen(false);
       setEditingIndexer(null);
       toast({ title: "Indexer added successfully" });
@@ -133,7 +191,8 @@ export default function IndexersPage() {
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/indexers"] });
+      void refreshIndexerQueries(queryClient);
+      clearSearchCache();
       setIsDialogOpen(false);
       setEditingIndexer(null);
       toast({ title: "Indexer updated successfully" });
@@ -157,7 +216,8 @@ export default function IndexersPage() {
       if (!response.ok) throw new Error("Failed to delete indexer");
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/indexers"] });
+      void refreshIndexerQueries(queryClient);
+      clearSearchCache();
       toast({ title: "Indexer deleted successfully" });
     },
     onError: () => {
@@ -181,7 +241,29 @@ export default function IndexersPage() {
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/indexers"] });
+      void refreshIndexerQueries(queryClient);
+      clearSearchCache();
+    },
+  });
+
+  const updatePriorityMutation = useMutation({
+    mutationFn: async ({ id, priority }: { id: string; priority: number }) => {
+      const token = localStorage.getItem("token");
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+      const response = await fetch(`/api/indexers/${id}`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ priority }),
+      });
+      if (!response.ok) throw new Error("Failed to update priority");
+      return response.json();
+    },
+    onSuccess: () => {
+      void refreshIndexerQueries(queryClient);
+      clearSearchCache();
     },
   });
 
@@ -338,7 +420,7 @@ export default function IndexersPage() {
 
   if (isLoading) {
     return (
-      <div className="p-8">
+      <div className="p-6">
         <div className="flex items-center space-x-2">
           <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
           <span>Loading indexers...</span>
@@ -348,11 +430,11 @@ export default function IndexersPage() {
   }
 
   return (
-    <div className="h-full overflow-auto p-8">
-      <div className="flex justify-between items-center mb-8">
+    <div className="h-full overflow-auto p-6">
+      <div className="flex justify-between items-center mb-6">
         <div>
-          <h1 className="text-3xl font-bold">Indexers</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-2xl font-bold tracking-tight">Indexers</h1>
+          <p className="text-muted-foreground text-sm mt-0.5">
             Manage Torznab and Newznab indexers for game discovery
           </p>
         </div>
@@ -410,7 +492,11 @@ export default function IndexersPage() {
                         </>
                       )}
                     </Badge>
-                    <Badge variant="outline">Priority {indexer.priority}</Badge>
+                    <PriorityControl
+                      id={indexer.id}
+                      priority={indexer.priority}
+                      onSave={(id, priority) => updatePriorityMutation.mutate({ id, priority })}
+                    />
                   </div>
                   <div className="flex items-center space-x-2">
                     <Button
@@ -419,6 +505,7 @@ export default function IndexersPage() {
                       onClick={() => testConnectionMutation.mutate({ id: indexer.id })}
                       disabled={testingIndexerId === indexer.id}
                       title="Test connection"
+                      aria-label={`Test connection for ${indexer.name}`}
                       data-testid={`button-test-indexer-${indexer.id}`}
                     >
                       <Activity className="h-4 w-4" />
@@ -434,6 +521,7 @@ export default function IndexersPage() {
                       variant="outline"
                       size="icon"
                       onClick={() => handleEdit(indexer)}
+                      aria-label={`Edit ${indexer.name}`}
                       data-testid={`button-edit-indexer-${indexer.id}`}
                     >
                       <Edit className="h-4 w-4" />
@@ -442,6 +530,7 @@ export default function IndexersPage() {
                       variant="outline"
                       size="icon"
                       onClick={() => deleteMutation.mutate(indexer.id)}
+                      aria-label={`Delete ${indexer.name}`}
                       data-testid={`button-delete-indexer-${indexer.id}`}
                     >
                       <Trash2 className="h-4 w-4" />
@@ -472,6 +561,11 @@ export default function IndexersPage() {
                 Jackett, Prowlarr, or direct Torznab-compatible trackers.
               </CardDescription>
             </CardHeader>
+            <CardContent>
+              <Button onClick={handleAdd} data-testid="button-add-indexer-empty">
+                Add Indexer
+              </Button>
+            </CardContent>
           </Card>
         )}
       </div>

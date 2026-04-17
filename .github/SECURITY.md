@@ -19,7 +19,6 @@ Never commit your `.env` file to version control. This file contains sensitive i
 Ensure you set the following environment variables in your production environment:
 
 - **`JWT_SECRET`**: This is used to sign authentication tokens. **You must change this from the default value.** Use a long, random string.
-- **`SESSION_SECRET`**: Used for session signing. Change this to a secure random string.
 - **`DATABASE_URL`**: Ensure your database connection string is secure and your database is not publicly accessible without authentication.
 - **`IGDB_CLIENT_SECRET`**: Your IGDB API secret.
 

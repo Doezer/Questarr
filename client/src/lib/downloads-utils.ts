@@ -125,10 +125,10 @@ export function getStatusBadgeVariant(
 /**
  * Filter downloads by status
  */
-export function filterDownloadsByStatus(
-  downloads: DownloadData[],
+export function filterDownloadsByStatus<T extends DownloadData>(
+  downloads: T[],
   filter: DownloadStatusType | "all"
-): DownloadData[] {
+): T[] {
   if (filter === "all") {
     return downloads;
   }
@@ -324,6 +324,14 @@ export function formatAge(days?: number): string {
 /**
  * Check if an item is a Usenet download (NZB) vs torrent
  */
-export function isUsenetItem(item: { grabs?: number; age?: number; seeders?: number }): boolean {
+export function isUsenetItem(item: {
+  grabs?: number;
+  age?: number;
+  seeders?: number;
+  downloadType?: "torrent" | "usenet";
+}): boolean {
+  if (item.downloadType !== undefined) {
+    return item.downloadType === "usenet";
+  }
   return (item.grabs !== undefined || item.age !== undefined) && item.seeders === undefined;
 }

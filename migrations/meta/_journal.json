@@ -29,6 +29,83 @@
       "when": 1770123406692,
       "tag": "0003_free_centennial",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1771060272911,
+      "tag": "0004_thin_wendigo",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1771766435000,
+      "tag": "0005_steam_integration",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1772821200000,
+      "tag": "0006_hidden_not_null",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1774639971136,
+      "tag": "0007_broad_hannibal_king",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1774730644852,
+      "tag": "0008_ambiguous_tomorrow_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1775338283241,
+      "tag": "0009_worthless_ikaris",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1774730644853,
+      "tag": "0010_game_metadata_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1774730644854,
+      "tag": "0011_preferred_release_groups",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1775461016503,
+      "tag": "0012_user_rating",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1744130000000,
+      "tag": "0013_preferred_platform",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1775762231796,
+      "tag": "0014_sync_snapshot",
+      "breakpoints": true
     }
   ]
 }

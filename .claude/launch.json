@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "questarr-dev",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/C", "npm", "--prefix", "Questarr", "run", "dev"],
+      "port": 5000
+    },
+    {
+      "name": "questarr-dev-test",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/C", "npm", "--prefix", "Questarr", "run", "dev:test"],
+      "port": 5100
+    },
+    {
+      "name": "vitest-ui",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/C", "npm", "--prefix", "Questarr", "run", "test:ui"],
+      "port": 51204
+    }
+  ]
+}

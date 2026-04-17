@@ -11,8 +11,8 @@
 export function normalizeTitle(title: string): string {
   return title
     .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ") // Replace non-alphanumeric with space
-    .replace(/\s+/g, " ") // Multiple spaces to single space
+    .replaceAll(/[^a-z0-9\s]/g, " ") // Replace non-alphanumeric with space
+    .replaceAll(/\s+/g, " ") // Multiple spaces to single space
     .trim();
 }
 
@@ -44,14 +44,23 @@ export function cleanReleaseName(releaseName: string): string {
   cleaned = cleaned.replace(/-[a-zA-Z0-9]+$/, "");
 
   // 2. Handle content in brackets or parentheses that often contains metadata
-  cleaned = cleaned.replace(/[[({][^\])}]*[\])}]/g, (match) => {
-    // If the bracketed content contains known tags or is mostly numeric (like a build ID), remove it
+  // Three separate regexes ensure only matched bracket pairs are consumed (e.g. `(foo]` is not matched).
+  const bracketCallback = (match: string) => {
     const inner = match.slice(1, -1).toLowerCase();
-    const hasTag = RELEASE_TAGS.some((tag) => tag.test(inner)) || VERSION_REGEX.test(inner);
+    // Reset lastIndex before each .test() — g-flag regexes are stateful and lastIndex
+    // advances after a match, causing intermittent misses on reuse.
+    const hasTag =
+      RELEASE_TAGS.some((tag) => {
+        tag.lastIndex = 0;
+        return tag.test(inner);
+      }) || VERSION_REGEX.test(inner);
     const isNumeric = /^\d+$/.test(inner.replace(/\s/g, ""));
     if (hasTag || isNumeric) return " ";
     return match; // Keep it if it might be part of the title (e.g. "Game (Special Edition)")
-  });
+  };
+  cleaned = cleaned.replace(/\([^)]*\)/g, bracketCallback);
+  cleaned = cleaned.replace(/\[[^\]]*\]/g, bracketCallback);
+  cleaned = cleaned.replace(/\{[^}]*\}/g, bracketCallback);
 
   // 3. Remove version patterns explicitly
   cleaned = cleaned.replace(VERSION_REGEX, " ");
@@ -77,10 +86,7 @@ export function cleanReleaseName(releaseName: string): string {
   });
 
   // Final cleanup of extra symbols and spaces
-  return cleaned
-    .replace(/[[\\]()]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return cleaned.replaceAll(/[[\]]/g, " ").replaceAll(/\s+/g, " ").trim();
 }
 
 /**
@@ -99,8 +105,8 @@ export function titleMatches(a: string, b: string): boolean {
 
   // Check if one contains the other (e.g. "The Witcher 3" vs "The Witcher 3: Wild Hunt")
   // We check for word boundaries to avoid matching "Fable" with "Fabletown"
-  const regexA = new RegExp(`\\b${normA.replace(/[.*+?^${}()|[\\]/g, "\\$&")}\\b`, "i");
-  const regexB = new RegExp(`\\b${normB.replace(/[.*+?^${}()|[\\]/g, "\\$&")}\\b`, "i");
+  const regexA = new RegExp(`\\b${normA.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
+  const regexB = new RegExp(`\\b${normB.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
 
   return regexA.test(normB) || regexB.test(normA);
 }
@@ -201,15 +207,38 @@ export function parseReleaseMetadata(releaseName: string): ReleaseMetadata {
   if (/\benglish\b/i.test(cleaned)) languages.push("English");
 
   // 4. Extract Platform
-  let platform: string | undefined;
-  if (/\b(ps5|playstation\s*5)\b/i.test(cleaned)) platform = "PS5";
-  else if (/\b(ps4|playstation\s*4)\b/i.test(cleaned)) platform = "PS4";
-  else if (/\b(xbox\s*series|xbsx|xss)\b/i.test(cleaned)) platform = "Xbox Series";
-  else if (/\b(xbox|x360|xbox360)\b/i.test(cleaned)) platform = "Xbox";
-  else if (/\b(switch|nsw)\b/i.test(cleaned)) platform = "Switch";
-  else if (/\b(pc|windows|win64|win32)\b/i.test(cleaned)) platform = "PC";
-  else if (/\b(linux)\b/i.test(cleaned)) platform = "Linux";
-  else if (/\b(mac|macos|osx)\b/i.test(cleaned)) platform = "Mac";
+  const PLATFORM_PATTERNS: [RegExp, string][] = [
+    [/\b(ps5|playstation\s*5)\b/i, "PS5"],
+    [/\b(ps4|playstation\s*4)\b/i, "PS4"],
+    [/\b(ps3|playstation\s*3)\b/i, "PS3"],
+    [/\b(ps2|playstation\s*2)\b/i, "PS2"],
+    [/\b(psx|ps1|playstation\s*1)\b/i, "PS1"],
+    [/\b(psp)\b/i, "PSP"],
+    [/\b(ps\s?vita|vita)\b/i, "PSVita"],
+    [/\b(xbox\s*series|xbsx|xss)\b/i, "Xbox Series"],
+    [/\b(xbox|x360|xbox360)\b/i, "Xbox"],
+    [/\b(nintendo\s*switch|switch|nsw)\b/i, "Switch"],
+    [/\b(game\s?cube|gamecube|ngc|gc)\b/i, "GameCube"],
+    [/\b(wii\s*u|wiiu)\b/i, "Wii U"],
+    [/\b(wii)\b/i, "Wii"],
+    [/\b(3ds)\b/i, "3DS"],
+    [/\b(nds|nintendo\s*ds|\bds\b)\b/i, "NDS"],
+    [/\b(n64|nintendo\s*64)\b/i, "N64"],
+    [/\b(snes|super\s*nintendo|super\s*nes)\b/i, "SNES"],
+    [/\b(nes|famicom)\b/i, "NES"],
+    [/\b(gba|game\s*boy\s*advance)\b/i, "GBA"],
+    [/\b(gbc|game\s*boy\s*color)\b/i, "GBC"],
+    [/\b(game\s*boy|\bgb\b)\b/i, "GB"],
+    [/\b(dreamcast|\bdc\b)\b/i, "Dreamcast"],
+    [/\b(megadrive|mega\s*drive|genesis)\b/i, "Mega Drive"],
+    [/\b(master\s*system|\bsms\b)\b/i, "Master System"],
+    [/\b(neo\s*geo|neogeo)\b/i, "Neo Geo"],
+    [/\b(atari\s*2600|a2600)\b/i, "Atari 2600"],
+    [/\b(pc|windows|win64|win32)\b/i, "PC"],
+    [/\b(linux)\b/i, "Linux"],
+    [/\b(mac|macos|osx)\b/i, "Mac"],
+  ];
+  const platform = PLATFORM_PATTERNS.find(([regex]) => regex.test(cleaned))?.[1];
 
   // 5. DRM / Source
   let drm: string | undefined;
@@ -230,4 +259,57 @@ export function parseReleaseMetadata(releaseName: string): ReleaseMetadata {
     drm,
     isScene: !!group && !["p2p", "gls", "initial", "rarbg", "crack"].includes(group.toLowerCase()),
   };
+}
+
+/**
+ * Canonical platform labels shared across settings, dialog filtering, and automation.
+ * These are user-facing labels — not raw IGDB platform names.
+ */
+export const CANONICAL_PLATFORMS = [
+  "PC",
+  "PS5",
+  "PS4",
+  "PS3",
+  "Switch",
+  "Xbox Series",
+  "Xbox",
+  "Mac",
+  "Linux",
+] as const;
+export type CanonicalPlatform = (typeof CANONICAL_PLATFORMS)[number];
+
+/**
+ * Returns true if a release's detected platform matches the preferred platform filter.
+ *
+ * PC is special: many PC releases omit any platform marker in their title, so "PC"
+ * matches both releases explicitly detected as "PC" and releases with no detected platform.
+ * All non-PC platforms require an explicit detected platform match.
+ */
+export function matchesPlatformFilter(
+  releasePlatform: string | undefined,
+  preferredPlatform: string
+): boolean {
+  if (preferredPlatform === "PC") {
+    return !releasePlatform || releasePlatform === "PC";
+  }
+  // "Xbox" is a superset that covers both Xbox and Xbox Series releases.
+  // Users who select "Xbox" should not miss Xbox Series titles.
+  if (preferredPlatform === "Xbox") {
+    return releasePlatform === "Xbox" || releasePlatform === "Xbox Series";
+  }
+  return releasePlatform === preferredPlatform;
+}
+
+/**
+ * Safely parses a JSON-encoded string array.
+ * Returns an empty array if the value is null/undefined, not valid JSON, or not an array.
+ */
+export function parseJsonStringArray(value: string | null | undefined): string[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? (parsed as string[]) : [];
+  } catch {
+    return [];
+  }
 }

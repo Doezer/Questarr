@@ -13,14 +13,7 @@ export interface CategorizedDownload {
 }
 
 // Patterns for different download types
-const UPDATE_PATTERNS = [
-  /\bupdate\b/i,
-  /\bpatch\b/i,
-  /\bhotfix\b/i,
-  /\bv?\d+\.\d+(\.\d+)?\.?\d*\b/i, // Version numbers like v1.2, 1.2.3, etc.
-  /\bcrackfix\b/i,
-  /\bfix\b/i,
-];
+const UPDATE_PATTERNS = [/\bupdate\b/i, /\bpatch\b/i, /\bhotfix\b/i, /\bcrackfix\b/i, /\bfix\b/i];
 
 const DLC_PATTERNS = [
   /\bDLC\b/i,

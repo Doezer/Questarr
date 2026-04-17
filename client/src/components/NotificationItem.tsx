@@ -49,7 +49,9 @@ export function NotificationItem({ notification, onRead, onClick }: Notification
       <span className="sr-only">
         {notification.read ? "Read" : "Unread"} notification: {notification.title}
       </span>
-      <div className="mt-0.5" aria-hidden="true">{getIcon()}</div>
+      <div className="mt-0.5" aria-hidden="true">
+        {getIcon()}
+      </div>
       <div className="flex-1 space-y-1">
         <div className="flex justify-between items-start" aria-hidden="true">
           <p className="font-medium leading-none">{notification.title}</p>

@@ -14,19 +14,20 @@ The migration tool is compatible with all Questarr versions from v1.0.0 onwards.
 ## Migration Steps
 
 1.  **Stop the current application:**
+
     ```bash
     docker compose down app
     ```
 
 2.  **Run the migration:**
     This special compose file spins up your old database and the new migration tool. It will automatically initialize the SQLite database (if it doesn't exist) and copy your data.
-    
+
     You can download the [docker-compose.migrate.yml](https://raw.githubusercontent.com/Doezer/Questarr/main/docker-compose.migrate.yml) here.
 
     ```bash
     docker compose -f docker-compose.migrate.yml up --abort-on-container-exit
     ```
-    
+
 3.  **Verify the output:**
     A new file `sqlite.db` should be created in the `data/` directory (created in your current folder).
 
@@ -46,19 +47,20 @@ The migration tool is compatible with all Questarr versions from v1.0.0 onwards.
             ... rest of definitions
     ```
 
-
 5.  **Start the new version:**
+
     ```bash
     docker compose up app -d
     ```
 
-    At this point, check that everything is as expected, and you are free to remove the db and the migrator from your docker project. Just add ``--remove-orphans`` to the previous command (when starting the container).
+    At this point, check that everything is as expected, and you are free to remove the db and the migrator from your docker project. Just add `--remove-orphans` to the previous command (when starting the container).
 
 Alternatively, you can run Questarr directly with Docker:
 
 ```bash
 docker run -d -p 5000:5000 -v ./data:/app/data ghcr.io/doezer/questarr:latest
 ```
+
 ## Troubleshooting
 
 - **Permissions (Linux/macOS):** If `sqlite.db` is created with root permissions and you cannot move it, use `sudo chown $USER:$USER data/sqlite.db`.

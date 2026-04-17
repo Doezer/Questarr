@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__Claude_Preview__preview_start",
+      "Skill(code-review:code-review)",
+      "Skill(code-review:code-review:*)",
+      "Bash(gh pr:*)",
+      "Bash(gh api:*)",
+      "Bash(python3 -c \"import sys,json,base64; d=json.load\\(sys.stdin\\); print\\(base64.b64decode\\(d[''''content'''']\\).decode\\(\\)\\)\")",
+      "Bash(node -e \"const chunks=[]; process.stdin.on\\(''''data'''',c=>chunks.push\\(c\\)\\); process.stdin.on\\(''''end'''',\\(\\)=>{const d=JSON.parse\\(chunks.join\\(''''''''\\)\\); console.log\\(Buffer.from\\(d.content,''''base64''''\\).toString\\(\\)\\);}\\)\")",
+      "Bash(node -e \"const chunks=[]; process.stdin.on\\(''''data'''',c=>chunks.push\\(c\\)\\); process.stdin.on\\(''''end'''',\\(\\)=>{const d=JSON.parse\\(chunks.join\\(''''''''\\)\\); d.forEach\\(f=>console.log\\(f.name\\)\\);}\\)\")",
+      "Bash(npx tsc:*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "npx prettier --write \"$CLAUDE_TOOL_INPUT_FILE_PATH\""
+          },
+          {
+            "type": "command",
+            "command": "bash -c 'if [[ \"$CLAUDE_TOOL_INPUT_FILE_PATH\" == *\".env\"* && \"$CLAUDE_TOOL_INPUT_FILE_PATH\" != *\".env.example\"* ]]; then echo \"Blocked: direct .env edits are not allowed\"; exit 2; fi'"
+          }
+        ]
+      }
+    ]
+  }
+}

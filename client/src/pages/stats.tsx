@@ -1,0 +1,227 @@
+import React, { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { type Game } from "@shared/schema";
+import StatsCard from "@/components/StatsCard";
+import {
+  Star,
+  Gamepad2,
+  Tags,
+  Filter,
+  Calendar,
+  Building2,
+  Code2,
+  Package,
+  CheckCircle2,
+  BarChart3,
+  LayoutGrid,
+  Share2,
+} from "lucide-react";
+import { calculateLibraryStats } from "@/lib/stats";
+import { apiRequest } from "@/lib/queryClient";
+import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recharts";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import ShareDiscordDialog from "@/components/ShareDiscordDialog";
+
+export default function StatsPage() {
+  const [shareOpen, setShareOpen] = useState(false);
+
+  const { data: games = [], isLoading } = useQuery<Game[]>({
+    queryKey: ["/api/games", "", true], // Empty search, include hidden
+    queryFn: async () => {
+      const response = await apiRequest("GET", "/api/games?includeHidden=true");
+      return response.json();
+    },
+  });
+
+  const { data: discordConfig } = useQuery<{ configured: boolean }>({
+    queryKey: ["/api/settings/discord"],
+    queryFn: async () => {
+      const response = await apiRequest("GET", "/api/settings/discord");
+      return response.json();
+    },
+  });
+
+  const stats = useMemo(() => calculateLibraryStats(games), [games]);
+
+  const pieData = useMemo(() => {
+    return [
+      { name: "Wanted", value: stats.statusBreakdown.wanted },
+      { name: "Owned", value: stats.statusBreakdown.owned },
+      { name: "Completed", value: stats.statusBreakdown.completed },
+      { name: "Downloading", value: stats.statusBreakdown.downloading },
+    ].filter((item) => item.value > 0);
+  }, [stats.statusBreakdown]);
+
+  const chartColors = {
+    Wanted: "#ef4444",
+    Owned: "#3b82f6",
+    Completed: "#10b981",
+    Downloading: "#8b5cf6",
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full overflow-auto p-6 space-y-8">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Statistics</h1>
+          <p className="text-muted-foreground text-sm mt-0.5">
+            Detailed insights into your collection of {stats.totalGames} games.
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => setShareOpen(true)}>
+          <Share2 className="w-4 h-4 mr-2" />
+          {discordConfig?.configured ? "Share to Discord" : "Share"}
+        </Button>
+      </div>
+
+      <ShareDiscordDialog
+        open={shareOpen}
+        onOpenChange={setShareOpen}
+        stats={stats}
+        date={new Date()}
+        discordConfigured={discordConfig?.configured}
+      />
+
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <StatsCard
+          title="Total Games"
+          value={stats.totalGames}
+          subtitle="in library"
+          icon={Package}
+        />
+        <StatsCard
+          title="Avg. Rating"
+          value={stats.avgRating}
+          subtitle="average score"
+          icon={Star}
+        />
+        <StatsCard
+          title="Completion Rate"
+          value={`${stats.completionRate}%`}
+          subtitle="of owned games"
+          icon={CheckCircle2}
+        />
+        <StatsCard
+          title="Metadata Health"
+          value={`${stats.metadataHealth}%`}
+          subtitle="complete metadata"
+          icon={Filter}
+        />
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
+        <Card className="col-span-4">
+          <CardHeader>
+            <CardTitle className="text-lg font-medium flex items-center gap-2">
+              <BarChart3 className="w-5 h-5 text-primary" />
+              Status Breakdown
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="h-[300px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={pieData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={60}
+                  outerRadius={100}
+                  paddingAngle={5}
+                  dataKey="value"
+                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                >
+                  {pieData.map((entry, index) => (
+                    <Cell
+                      key={`cell-${index}`}
+                      fill={chartColors[entry.name as keyof typeof chartColors]}
+                    />
+                  ))}
+                </Pie>
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: "hsl(var(--card))",
+                    borderColor: "hsl(var(--border))",
+                    borderRadius: "8px",
+                  }}
+                  itemStyle={{ color: "hsl(var(--foreground))" }}
+                />
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        <Card className="col-span-3">
+          <CardHeader>
+            <CardTitle className="text-lg font-medium flex items-center gap-2">
+              <LayoutGrid className="w-5 h-5 text-primary" />
+              Quick Info
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="divide-y">
+              <div className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
+                <Tags className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                <div>
+                  <p className="text-xs text-muted-foreground uppercase font-semibold tracking-wider">
+                    Top Genre
+                  </p>
+                  <p className="font-medium">{stats.topGenre?.name || "N/A"}</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 py-3">
+                <Gamepad2 className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                <div>
+                  <p className="text-xs text-muted-foreground uppercase font-semibold tracking-wider">
+                    Top Platform
+                  </p>
+                  <p className="font-medium">{stats.topPlatform?.name || "N/A"}</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 py-3">
+                <Building2 className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                <div>
+                  <p className="text-xs text-muted-foreground uppercase font-semibold tracking-wider">
+                    Top Publisher
+                  </p>
+                  <p className="font-medium">{stats.topPublisher?.name || "N/A"}</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 py-3">
+                <Code2 className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                <div>
+                  <p className="text-xs text-muted-foreground uppercase font-semibold tracking-wider">
+                    Unique Developers
+                  </p>
+                  <p className="font-medium">{stats.uniqueDevelopers}</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 py-3 last:pb-0">
+                <Calendar className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                <div>
+                  <p className="text-xs text-muted-foreground uppercase font-semibold tracking-wider">
+                    Avg. Release Year
+                  </p>
+                  <p className="font-medium">{stats.avgReleaseYear}</p>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}

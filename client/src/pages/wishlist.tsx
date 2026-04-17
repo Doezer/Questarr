@@ -67,21 +67,26 @@ export default function WishlistPage() {
   const [showDownloadsOnly, setShowDownloadsOnly] = useState(false);
   const downloadSummaries = useDownloadSummary();
   const [showSearchResultsOnly, setShowSearchResultsOnly] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const { data: games = [], isLoading } = useQuery<Game[]>({
     queryKey: ["/api/games", "?status=wanted"],
   });
 
   const wishlistGames = useMemo(() => {
-    if (showSearchResultsOnly) return games.filter((g) => g.searchResultsAvailable);
-    return games;
+    let result = games;
+    if (showSearchResultsOnly) result = result.filter((g) => g.searchResultsAvailable);
+    return result;
   }, [games, showSearchResultsOnly]);
 
-  const filteredGames = useMemo(
-    () =>
-      showDownloadsOnly ? wishlistGames.filter((g) => downloadSummaries[g.id]) : wishlistGames,
-    [wishlistGames, showDownloadsOnly, downloadSummaries]
-  );
+  const filteredGames = useMemo(() => {
+    let result = showDownloadsOnly
+      ? wishlistGames.filter((g) => downloadSummaries[g.id])
+      : wishlistGames;
+    if (searchQuery)
+      result = result.filter((g) => g.title.toLowerCase().includes(searchQuery.toLowerCase()));
+    return result;
+  }, [wishlistGames, showDownloadsOnly, downloadSummaries, searchQuery]);
 
   const { releasedGames, upcomingGames, tbaGames } = useMemo(() => {
     const now = new Date();
@@ -152,6 +157,9 @@ export default function WishlistPage() {
         </div>
 
         <PageToolbar
+          search={searchQuery}
+          onSearchChange={setSearchQuery}
+          searchPlaceholder="Filter wishlist..."
           filterPills={
             <>
               <Button
@@ -197,22 +205,26 @@ export default function WishlistPage() {
           <EmptyState
             icon={Star}
             title={
-              showDownloadsOnly && showSearchResultsOnly
-                ? "No games match your filters"
-                : showDownloadsOnly
-                  ? "No games with active downloads"
-                  : showSearchResultsOnly
-                    ? "No games with search results"
-                    : !showUnreleased
-                      ? "No released games in your wishlist"
-                      : "No games match your filters"
+              searchQuery
+                ? "No games match your search"
+                : showDownloadsOnly && showSearchResultsOnly
+                  ? "No games match your filters"
+                  : showDownloadsOnly
+                    ? "No games with active downloads"
+                    : showSearchResultsOnly
+                      ? "No games with search results"
+                      : !showUnreleased
+                        ? "No released games in your wishlist"
+                        : "No games match your filters"
             }
             description={
-              showDownloadsOnly || showSearchResultsOnly
-                ? "Try disabling one or more filters to see more games."
-                : !showUnreleased
-                  ? "All your wishlist games are upcoming or unannounced. Enable 'Unreleased' to see them."
-                  : "Try adjusting your filters."
+              searchQuery
+                ? `No wishlist games found for "${searchQuery}".`
+                : showDownloadsOnly || showSearchResultsOnly
+                  ? "Try disabling one or more filters to see more games."
+                  : !showUnreleased
+                    ? "All your wishlist games are upcoming or unannounced. Enable 'Unreleased' to see them."
+                    : "Try adjusting your filters."
             }
           />
         ) : (

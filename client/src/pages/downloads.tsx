@@ -35,7 +35,10 @@ import {
   Tag,
   ScanLine,
   Link2,
+  Search,
+  X,
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -125,6 +128,7 @@ export default function Downloads() {
   const [statusFilter, setStatusFilter] = useState<DownloadStatusType | "all">("all");
   const [typeFilter, setTypeFilter] = useState<DownloadType | "all">("all");
   const [questarrFilter, setQuestarrFilter] = useState<"all" | "questarr">("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const [claimTarget, setClaimTarget] = useState<DownloadStatus | null>(null);
   const [batchModalOpen, setBatchModalOpen] = useState(false);
 
@@ -151,8 +155,11 @@ export default function Downloads() {
     if (questarrFilter === "questarr") {
       filtered = filtered.filter((d) => d.trackedByQuestarr);
     }
+    if (searchQuery) {
+      filtered = filtered.filter((d) => d.name.toLowerCase().includes(searchQuery.toLowerCase()));
+    }
     return filtered;
-  }, [downloads, statusFilter, typeFilter, questarrFilter]);
+  }, [downloads, statusFilter, typeFilter, questarrFilter, searchQuery]);
 
   // Collect unique active category filters from downloaders for the banner
   const categoryBannerEntries = useMemo(() => {
@@ -406,6 +413,27 @@ export default function Downloads() {
 
       {/* Filter row */}
       <div className="flex flex-wrap items-center gap-6 mb-6">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <Input
+            type="search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Filter downloads..."
+            className="pl-9 h-8 w-48 text-sm"
+            aria-label="Filter downloads"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              aria-label="Clear search"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
         <div className="flex items-center gap-3">
           <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider shrink-0">
             Status

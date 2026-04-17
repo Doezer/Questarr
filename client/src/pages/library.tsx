@@ -21,6 +21,7 @@ export default function LibraryPage() {
   const downloadSummaries = useDownloadSummary();
   const [showSearchResultsOnly, setShowSearchResultsOnly] = useState(false);
   const [showUpdateAvailableOnly, setShowUpdateAvailableOnly] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const { data: games = [], isLoading } = useQuery<Game[]>({
     queryKey: ["/api/games", "?status=owned,completed,downloading"],
@@ -37,8 +38,10 @@ export default function LibraryPage() {
     if (showDownloadsOnly) result = result.filter((g) => downloadSummaries[g.id]);
     if (showUpdateAvailableOnly)
       result = result.filter((g) => downloadSummaries[g.id]?.hasUpdateDownload);
+    if (searchQuery)
+      result = result.filter((g) => g.title.toLowerCase().includes(searchQuery.toLowerCase()));
     return result;
-  }, [libraryGames, showDownloadsOnly, showUpdateAvailableOnly, downloadSummaries]);
+  }, [libraryGames, showDownloadsOnly, showUpdateAvailableOnly, downloadSummaries, searchQuery]);
 
   const statusMutation = useMutation({
     mutationFn: async ({ gameId, status }: { gameId: string; status: GameStatus }) => {
@@ -74,6 +77,9 @@ export default function LibraryPage() {
         </div>
 
         <PageToolbar
+          search={searchQuery}
+          onSearchChange={setSearchQuery}
+          searchPlaceholder="Filter library..."
           filterPills={
             <GameFilterPills
               showSearchResultsOnly={showSearchResultsOnly}
@@ -92,13 +98,23 @@ export default function LibraryPage() {
           }}
         />
 
-        {libraryGames.length === 0 && !isLoading ? (
+        {games.length === 0 && !isLoading ? (
           <EmptyState
             icon={Gamepad2}
             title="No games in library"
             description="Your library is looking a bit empty. Track games you own or want to play from the Discover page."
             actionLabel="Discover Games"
             actionLink="/discover"
+          />
+        ) : displayedGames.length === 0 && !isLoading ? (
+          <EmptyState
+            icon={Gamepad2}
+            title={searchQuery ? "No games match your search" : "No games match your filters"}
+            description={
+              searchQuery
+                ? `No library games found for "${searchQuery}".`
+                : "Try adjusting your filters."
+            }
           />
         ) : (
           <GameGrid

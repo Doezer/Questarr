@@ -77,6 +77,7 @@ export default function CalendarPage() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
   const [downloadDialogOpen, setDownloadDialogOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const handleGameClick = (game: Game) => {
     setSelectedGame(game);
@@ -95,8 +96,13 @@ export default function CalendarPage() {
 
   // Filter wanted games with release dates
   const wantedGames = useMemo(() => {
-    return games.filter((g) => g.status === "wanted" && g.releaseDate);
-  }, [games]);
+    return games.filter(
+      (g) =>
+        g.status === "wanted" &&
+        g.releaseDate &&
+        (!searchQuery || g.title.toLowerCase().includes(searchQuery.toLowerCase()))
+    );
+  }, [games, searchQuery]);
 
   // Group games by date
   const gamesByDate = useMemo(() => {
@@ -175,6 +181,9 @@ export default function CalendarPage() {
           <p className="text-muted-foreground text-sm mt-0.5">Track upcoming game releases</p>
         </div>
         <PageToolbar
+          search={searchQuery}
+          onSearchChange={setSearchQuery}
+          searchPlaceholder="Filter games..."
           filterPills={<span className="text-base font-semibold">{getTitle()}</span>}
           actions={
             <>

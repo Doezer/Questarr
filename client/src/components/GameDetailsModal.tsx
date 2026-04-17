@@ -546,7 +546,11 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                     <div className="flex items-center gap-1 text-sm text-muted-foreground">
                       <Calendar className="w-4 h-4" />
                       <span data-testid={`text-release-date-${game.id}`}>
-                        {new Date(game.releaseDate).getFullYear()}
+                        {new Date(game.releaseDate).toLocaleDateString(undefined, {
+                          year: "numeric",
+                          month: "short",
+                          day: "numeric",
+                        })}
                       </span>
                     </div>
                   )}

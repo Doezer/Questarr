@@ -127,7 +127,7 @@ export const sanitizeGameData = [
     .trim()
     .isLength({ max: 5000 })
     .withMessage("Summary must be at most 5000 characters"),
-  body("coverUrl").optional().trim().isURL().withMessage("Invalid cover URL"),
+  body("coverUrl").optional({ checkFalsy: true }).trim().isURL().withMessage("Invalid cover URL"),
   body("releaseDate")
     .optional({ nullable: true, checkFalsy: true })
     .trim()

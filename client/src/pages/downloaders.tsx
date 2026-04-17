@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { asZodType, cn, compareEnabledPriorityName } from "@/lib/utils";
@@ -51,6 +51,61 @@ const downloaderTypes = [
  */
 function isUsenetDownloader(type: string): boolean {
   return ["sabnzbd", "nzbget"].includes(type);
+}
+
+function PriorityControl({
+  id,
+  priority,
+  onSave,
+}: {
+  id: string;
+  priority: number;
+  onSave: (id: string, priority: number) => void;
+}) {
+  const [value, setValue] = useState(priority);
+
+  useEffect(() => {
+    setValue(priority);
+  }, [priority]);
+
+  const save = (next: number) => {
+    const clamped = Math.max(1, Math.min(100, next));
+    if (clamped !== priority) onSave(id, clamped);
+    setValue(clamped);
+  };
+
+  return (
+    <div className="flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold">
+      <span className="text-muted-foreground">Priority</span>
+      <button
+        type="button"
+        className="text-muted-foreground hover:text-foreground w-3.5 text-center leading-none"
+        onClick={() => save(value - 1)}
+        aria-label="Decrease priority"
+      >
+        −
+      </button>
+      <input
+        type="number"
+        min={1}
+        max={100}
+        value={value}
+        onChange={(e) => setValue(parseInt(e.target.value) || 1)}
+        onBlur={(e) => save(parseInt(e.target.value) || 1)}
+        onKeyDown={(e) => e.key === "Enter" && save(value)}
+        className="w-7 bg-transparent text-center outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+        aria-label="Priority value"
+      />
+      <button
+        type="button"
+        className="text-muted-foreground hover:text-foreground w-3.5 text-center leading-none"
+        onClick={() => save(value + 1)}
+        aria-label="Increase priority"
+      >
+        +
+      </button>
+    </div>
+  );
 }
 
 export default function DownloadersPage() {
@@ -154,6 +209,26 @@ export default function DownloadersPage() {
         body: JSON.stringify({ enabled }),
       });
       if (!response.ok) throw new Error("Failed to toggle downloader");
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/downloaders"] });
+    },
+  });
+
+  const updatePriorityMutation = useMutation({
+    mutationFn: async ({ id, priority }: { id: string; priority: number }) => {
+      const token = localStorage.getItem("token");
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+      const response = await fetch(`/api/downloaders/${id}`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ priority }),
+      });
+      if (!response.ok) throw new Error("Failed to update priority");
       return response.json();
     },
     onSuccess: () => {
@@ -360,7 +435,11 @@ export default function DownloadersPage() {
                         </>
                       )}
                     </Badge>
-                    <Badge variant="outline">Priority {downloader.priority}</Badge>
+                    <PriorityControl
+                      id={downloader.id}
+                      priority={downloader.priority}
+                      onSave={(id, priority) => updatePriorityMutation.mutate({ id, priority })}
+                    />
                   </div>
                   <div className="flex items-center space-x-2">
                     <Button

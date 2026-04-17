@@ -247,6 +247,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Use PCGamingWiki Routes
   app.use(pcgamingwikiRouter);
 
+  // ── Server logs ──────────────────────────────────────────────────────────────
+
+  app.get("/api/logs", authenticateToken, async (req, res) => {
+    try {
+      const rawLimit = typeof req.query.limit === "string" ? parseInt(req.query.limit, 10) : 200;
+      const limit = Number.isNaN(rawLimit) || rawLimit < 1 ? 200 : Math.min(rawLimit, 1000);
+
+      const logPath = path.resolve(process.cwd(), "server.log");
+
+      let stat: fs.Stats;
+      try {
+        stat = await fs.promises.stat(logPath);
+      } catch {
+        return res.json({ lines: [] });
+      }
+
+      // Read only the tail of the file to avoid loading the entire log into memory.
+      // 512 bytes per line is a generous upper bound for structured JSON log lines.
+      const tailBytes = Math.min(stat.size, limit * 512);
+      const buffer = Buffer.alloc(tailBytes);
+      const fileHandle = await fs.promises.open(logPath, "r");
+      try {
+        await fileHandle.read(buffer, 0, tailBytes, stat.size - tailBytes);
+      } finally {
+        await fileHandle.close();
+      }
+
+      const lines = buffer
+        .toString("utf-8")
+        .split("\n")
+        .filter((l) => l.trim().length > 0)
+        .slice(-limit);
+
+      res.json({ lines });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to read server log file");
+      res.status(500).json({ error: "Failed to read log file" });
+    }
+  });
+
   // Auth Routes
   app.get("/api/auth/status", async (_req, res) => {
     try {

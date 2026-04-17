@@ -2,6 +2,7 @@ import { Server } from "socket.io";
 import { type Server as HttpServer } from "http";
 import { expressLogger } from "./logger.js";
 import { config } from "./config.js";
+import { logEmitter } from "./log-events.js";
 
 let io: Server | undefined;
 
@@ -23,6 +24,10 @@ export function setupSocketIO(httpServer: HttpServer) {
       socket.on("disconnect", () => {
         expressLogger.info({ socketId: socket.id }, "Client disconnected from WebSocket");
       });
+    });
+
+    logEmitter.on("line", (line: string) => {
+      io!.emit("logLine", line);
     });
   }
 

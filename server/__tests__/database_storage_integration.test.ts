@@ -84,7 +84,9 @@ describe("DatabaseStorage Integration", () => {
     // 4. Test filtering: multiple statuses
     const activeGames = await storage.getUserGames(userId, false, ["owned", "completed"]);
     expect(activeGames).toHaveLength(2);
-    const statuses = activeGames.map((g: { status: string | null }) => g.status).sort();
+    const statuses = activeGames
+      .map((g: { status: string | null }) => g.status)
+      .sort((a, b) => (a ?? "").localeCompare(b ?? ""));
     expect(statuses).toEqual(["completed", "owned"]);
 
     // 5. Test filtering: no status filter (should return all)

@@ -207,7 +207,9 @@ app.use((req, res, next) => {
               }
               if (!req.secure) {
                 const host = req.hostname || "localhost";
-                return res.redirect(`https://${host}:${ssl.port}${req.url}`);
+                // Use req.path (Express-normalized, no host component) to prevent
+                // open redirect via user-controlled req.url (e.g. //evil.com/path).
+                return res.redirect(`https://${host}:${ssl.port}${req.path}`);
               }
               next();
             });

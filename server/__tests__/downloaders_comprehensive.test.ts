@@ -354,7 +354,7 @@ describe("Downloader Comprehensive Tests", () => {
     };
 
     const emptyQueueResponse = {
-      queue: { slots: [], speed: "0", diskspace1_norm: "100 GB" },
+      queue: { slots: [], speed: "0", diskspace1: 100, diskspace1_norm: "100 GB" },
     };
 
     const mockQueueThenHistory = (historyData: unknown) => {

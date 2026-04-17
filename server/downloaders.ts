@@ -3727,23 +3727,10 @@ export class SABnzbdClient implements DownloaderClient {
       const response = await this.fetchWithFallback(url);
       const data = await response.json();
 
-      if (data.queue?.diskspace1_norm) {
-        // Parse disk space (format: "123.45 GB")
-        const match = data.queue.diskspace1_norm.match(/([0-9.]+)\s*([KMGT]?B)/i);
-        if (match) {
-          const value = parseFloat(match[1]);
-          const unit = match[2].toUpperCase();
-
-          const multipliers: Record<string, number> = {
-            B: 1,
-            KB: 1024,
-            MB: 1024 * 1024,
-            GB: 1024 * 1024 * 1024,
-            TB: 1024 * 1024 * 1024 * 1024,
-          };
-
-          return value * (multipliers[unit] || 1);
-        }
+      // diskspace1 is free disk space in GB (float)
+      const gb = parseFloat(data.queue?.diskspace1);
+      if (!isNaN(gb)) {
+        return gb * 1024 * 1024 * 1024;
       }
 
       return 0;

@@ -4,11 +4,6 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { type IconComponent } from "@/types/components";
 
-type IconComponent = React.ComponentType<{
-  className?: string;
-  "aria-hidden"?: boolean | "true" | "false";
-}>;
-
 interface EmptyStateProps {
   icon: IconComponent;
   title: string;

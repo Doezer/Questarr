@@ -192,41 +192,6 @@ export interface RomMConfigInput {
   bindingMissingBehavior: RomMBindingMissingBehavior;
 }
 
-export interface DownloadStatus {
-  id: string;
-  name: string;
-  downloadType?: "torrent" | "usenet"; // Type of download
-  status:
-    | "downloading"
-    | "seeding"
-    | "completed"
-    | "paused"
-    | "error"
-    | "repairing"
-    | "unpacking"
-    | "completed_pending_import"
-    | "manual_review_required"
-    | "imported";
-  progress: number; // 0-100
-  // ... existing fields ...
-  downloadSpeed?: number; // bytes per second
-  uploadSpeed?: number; // bytes per second (torrents only)
-  eta?: number; // seconds
-  size?: number; // total bytes
-  downloaded?: number; // bytes downloaded
-  // Protocol-specific fields
-  seeders?: number;
-  leechers?: number;
-  ratio?: number;
-  // Usenet-specific fields
-  repairStatus?: "good" | "repairing" | "failed"; // Par2 repair status
-  unpackStatus?: "unpacking" | "completed" | "failed"; // Extract/unpack status
-  age?: number; // Age in days
-  // Common fields
-  error?: string;
-  category?: string;
-}
-
 export const systemConfig = sqliteTable("system_config", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),
@@ -706,8 +671,19 @@ export interface DownloadStatus {
   id: string;
   name: string;
   downloadType?: "torrent" | "usenet"; // Type of download
-  status: "downloading" | "seeding" | "completed" | "paused" | "error" | "repairing" | "unpacking";
+  status:
+    | "downloading"
+    | "seeding"
+    | "completed"
+    | "paused"
+    | "error"
+    | "repairing"
+    | "unpacking"
+    | "completed_pending_import"
+    | "manual_review_required"
+    | "imported";
   progress: number; // 0-100
+  // ... existing fields ...
   downloadSpeed?: number; // bytes per second
   uploadSpeed?: number; // bytes per second (torrents only)
   eta?: number; // seconds
@@ -728,6 +704,7 @@ export interface DownloadStatus {
   trackedByQuestarr?: boolean; // True if the download was initiated through Questarr
   downloaderCategory?: string; // The category configured on the downloader (for display purposes)
 }
+
 export interface DownloadDetails extends DownloadStatus {
   hash?: string;
   addedDate?: string;

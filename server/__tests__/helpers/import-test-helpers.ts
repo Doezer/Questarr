@@ -24,6 +24,12 @@ export function makeGame(overrides: Partial<Game> = {}): Game {
     releaseStatus: null,
     addedAt: null,
     completedAt: null,
+    source: null,
+    igdbWebsites: null,
+    aggregatedRating: null,
+    earlyAccess: false,
+    userRating: null,
+    searchResultsAvailable: false,
     ...overrides,
   };
 }

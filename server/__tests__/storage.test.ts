@@ -619,6 +619,12 @@ describe("MemStorage", () => {
 });
 
 describe("Import And Mapping Helpers", () => {
+  let storage: MemStorageType;
+
+  beforeEach(() => {
+    storage = new MemStorage();
+  });
+
   it("should return scoped import and RomM config values", async () => {
     const userA = await storage.createUser({ username: "userA", passwordHash: "hash-a" });
     const userB = await storage.createUser({ username: "userB", passwordHash: "hash-b" });

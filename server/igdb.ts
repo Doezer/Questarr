@@ -122,19 +122,6 @@ const FALLBACK_PLATFORMS: Array<{ id: number; name: string }> = [
   { id: 29, name: "Sega Mega Drive/Genesis" },
 ];
 
-const FALLBACK_PLATFORMS: Array<{ id: number; name: string }> = [
-  { id: 6, name: "PC (Microsoft Windows)" },
-  { id: 48, name: "PlayStation 4" },
-  { id: 167, name: "PlayStation 5" },
-  { id: 49, name: "Xbox One" },
-  { id: 169, name: "Xbox Series X|S" },
-  { id: 130, name: "Nintendo Switch" },
-  { id: 41, name: "Wii U" },
-  { id: 19, name: "Super Nintendo Entertainment System" },
-  { id: 24, name: "Game Boy Advance" },
-  { id: 29, name: "Sega Mega Drive/Genesis" },
-];
-
 // ⚡ Bolt: Define a cache entry interface for in-memory caching.
 interface CacheEntry<T> {
   data: T;

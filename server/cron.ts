@@ -297,12 +297,6 @@ export async function checkGameUpdates() {
     const currentReleaseDate = new Date(igdbGame.first_release_date * 1000);
     const currentReleaseDateStr = currentReleaseDate.toISOString().split("T")[0];
 
-    // Helper to queue update
-    const queueUpdate = (updates: Partial<Game>) => {
-      const existing = updatesMap.get(game.id) || {};
-      updatesMap.set(game.id, { ...existing, ...updates });
-    };
-
     // Initialize originalReleaseDate if not set
     if (!game.originalReleaseDate) {
       if (game.releaseDate) {

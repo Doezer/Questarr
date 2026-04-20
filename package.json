@@ -88,7 +88,7 @@
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^0.577.0",
     "multer": "^2.1.1",
-    "nanoid": "^5.1.7",
+    "nanoid": "^5.1.9",
     "next-themes": "^0.4.6",
     "node-forge": "^1.4.0",
     "parse-torrent": "^11.0.19",

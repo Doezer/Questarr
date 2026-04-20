@@ -683,7 +683,6 @@ export interface DownloadStatus {
     | "manual_review_required"
     | "imported";
   progress: number; // 0-100
-  // ... existing fields ...
   downloadSpeed?: number; // bytes per second
   uploadSpeed?: number; // bytes per second (torrents only)
   eta?: number; // seconds

@@ -1,24 +1,21 @@
 # Build stage with shared dependencies
-FROM node:22-alpine AS base
+FROM node:22-alpine@sha256:8ea2348b068a9544dae7317b4f3aafcdc032df1647bb7d768a05a5cad1a7683f AS base
 
 WORKDIR /app
 
 COPY package*.json ./
 RUN npm ci
 
-# Build stage
+# Build client and server
 FROM base AS builder
 
 WORKDIR /app
 
-COPY --from=base /app/node_modules ./node_modules
 COPY . .
-
-# Build client and server
 RUN npm run build
 
 # Production stage
-FROM node:22-alpine AS production
+FROM node:22-alpine@sha256:8ea2348b068a9544dae7317b4f3aafcdc032df1647bb7d768a05a5cad1a7683f AS production
 
 WORKDIR /app
 
@@ -32,9 +29,10 @@ ENV PGID=1000
 # Install su-exec (for privilege dropping) and shadow (for usermod/groupmod)
 RUN apk add --no-cache su-exec shadow
 
-# Install production dependencies only
+# Reuse node_modules from base and prune dev dependencies (avoids a second npm ci)
+COPY --from=base /app/node_modules ./node_modules
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN npm prune --omit=dev
 
 # Copy necessary files from build stage
 COPY --from=builder /app/dist ./dist

@@ -47,12 +47,12 @@ describe("Dashboard Configuration", () => {
     // Initial value (default 5)
     expect(localStorage.getItem("dashboardGridColumns")).toBe("5");
 
-    // Click layout settings toggle to show the modal
-    const layoutToggle = screen.getByLabelText("Toggle layout settings");
+    // Click grid settings button to open the popover
+    const layoutToggle = screen.getByLabelText("Grid settings");
     fireEvent.click(layoutToggle);
 
-    // Verify modal is shown (searching for title)
-    expect(screen.getByText("Display Settings")).toBeDefined();
+    // Verify popover is shown
+    expect(screen.getByText("Grid Columns")).toBeDefined();
 
     // Change setting in localStorage manually to simulate preference change
     localStorage.setItem("dashboardGridColumns", "8");

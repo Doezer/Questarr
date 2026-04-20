@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { config } from "./config.js";
 import { igdbLogger } from "./logger.js";
 import { storage } from "./storage.js";
@@ -7,6 +8,13 @@ import { logger } from "./logger.js";
 
 // Configuration constants for search limits
 const MAX_SEARCH_ATTEMPTS = 5;
+
+// IGDB status value for Early Access games
+export const IGDB_EARLY_ACCESS_STATUS = 4;
+
+// Shared field list for all IGDB game queries
+const IGDB_GAME_FIELDS =
+  "name, summary, cover.url, first_release_date, rating, aggregated_rating, aggregated_rating_count, platforms.name, genres.name, screenshots.url, websites.url, websites.category, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, status";
 
 export interface IGDBGame {
   id: number;
@@ -18,6 +26,8 @@ export interface IGDBGame {
   };
   first_release_date?: number;
   rating?: number;
+  aggregated_rating?: number;
+  aggregated_rating_count?: number;
   platforms?: Array<{
     id: number;
     name: string;
@@ -30,11 +40,16 @@ export interface IGDBGame {
     id: number;
     url: string;
   }>;
+  websites?: Array<{
+    category: number;
+    url: string;
+  }>;
   involved_companies?: Array<{
     company: { name: string };
     developer: boolean;
     publisher: boolean;
   }>;
+  status?: number;
 }
 
 interface IGDBAuthResponse {
@@ -42,6 +57,11 @@ interface IGDBAuthResponse {
   expires_in: number;
   token_type: string;
 }
+
+const igdbWebsiteSchema = z.object({
+  category: z.number(),
+  url: z.string().url(),
+});
 
 /**
  * Sanitizes user input for use in IGDB API queries.
@@ -76,6 +96,10 @@ function sanitizeIgdbInput(input: string): string {
     .slice(0, 100); // Limit length to prevent abuse
 }
 
+// Retry configuration for rate-limited requests
+const MAX_RETRY_ATTEMPTS = 3;
+const BASE_RETRY_DELAY_MS = 1000;
+
 // Constants for query thresholds
 const MIN_RATING_THRESHOLD = 60;
 const MIN_RATING_COUNT = 3;
@@ -83,6 +107,20 @@ const HIGH_RATING_THRESHOLD = 70;
 const HIGH_RATING_COUNT = 5;
 const MAX_LIMIT = 100;
 const MAX_OFFSET = 10000;
+const HOUR_IN_SECONDS = 3600;
+
+const FALLBACK_PLATFORMS: Array<{ id: number; name: string }> = [
+  { id: 6, name: "PC (Microsoft Windows)" },
+  { id: 48, name: "PlayStation 4" },
+  { id: 167, name: "PlayStation 5" },
+  { id: 49, name: "Xbox One" },
+  { id: 169, name: "Xbox Series X|S" },
+  { id: 130, name: "Nintendo Switch" },
+  { id: 41, name: "Wii U" },
+  { id: 19, name: "Super Nintendo Entertainment System" },
+  { id: 24, name: "Game Boy Advance" },
+  { id: 29, name: "Sega Mega Drive/Genesis" },
+];
 
 const FALLBACK_PLATFORMS: Array<{ id: number; name: string }> = [
   { id: 6, name: "PC (Microsoft Windows)" },
@@ -199,30 +237,47 @@ class IGDBClient {
 
     this.lastRequestTime = Date.now();
 
-    const response = await fetch(`https://api.igdb.com/v4/${endpoint}`, {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        "Client-ID": clientId!,
-        Authorization: `Bearer ${token}`,
-      },
-      body: query,
-    });
+    let attempt = 0;
+    while (true) {
+      const response = await fetch(`https://api.igdb.com/v4/${endpoint}`, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Client-ID": clientId!,
+          Authorization: `Bearer ${token}`,
+        },
+        body: query,
+      });
 
-    if (!response.ok) {
-      throw new Error(`IGDB API error: ${response.status}`);
+      if (response.status === 429 && attempt < MAX_RETRY_ATTEMPTS) {
+        const retryAfterHeader = response.headers.get("Retry-After");
+        const delay = retryAfterHeader
+          ? parseInt(retryAfterHeader, 10) * 1000
+          : BASE_RETRY_DELAY_MS * Math.pow(2, attempt);
+        igdbLogger.warn(
+          { endpoint, attempt: attempt + 1, delayMs: delay },
+          "IGDB rate limited (429), retrying after delay"
+        );
+        await new Promise((r) => setTimeout(r, delay));
+        attempt++;
+        continue;
+      }
+
+      if (!response.ok) {
+        throw new Error(`IGDB API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      // ⚡ Bolt: If a TTL is specified, store the response in the cache.
+      if (ttl > 0) {
+        const expiry = Date.now() + ttl;
+        this.cache.set(cacheKey, { data, expiry });
+        igdbLogger.debug({ cacheKey, ttl }, "cached response");
+      }
+
+      return data as T;
     }
-
-    const data = await response.json();
-
-    // ⚡ Bolt: If a TTL is specified, store the response in the cache.
-    if (ttl > 0) {
-      const expiry = Date.now() + ttl;
-      this.cache.set(cacheKey, { data, expiry });
-      igdbLogger.debug({ cacheKey, ttl }, "cached response");
-    }
-
-    return data as T;
   }
 
   // IGDB API returns dynamic JSON structures
@@ -274,16 +329,16 @@ class IGDBClient {
     // Try multiple search approaches to maximize results
     const searchApproaches = [
       // Approach 1: Full text search without category filter
-      `search "${sanitizedQuery}"; fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url, involved_companies.company.name, involved_companies.developer, involved_companies.publisher; limit ${limit};`,
+      `search "${sanitizedQuery}"; fields ${IGDB_GAME_FIELDS}; limit ${limit};`,
 
       // Approach 2: Full text search with category filter
-      `search "${sanitizedQuery}"; fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url, involved_companies.company.name, involved_companies.developer, involved_companies.publisher; where category = 0; limit ${limit};`,
+      `search "${sanitizedQuery}"; fields ${IGDB_GAME_FIELDS}; where category = 0; limit ${limit};`,
 
       // Approach 3: Case-insensitive name matching without category
-      `fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url, involved_companies.company.name, involved_companies.developer, involved_companies.publisher; where name ~= "${sanitizedQuery}"; limit ${limit};`,
+      `fields ${IGDB_GAME_FIELDS}; where name ~= "${sanitizedQuery}"; limit ${limit};`,
 
       // Approach 4: Partial name matching without category
-      `fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url, involved_companies.company.name, involved_companies.developer, involved_companies.publisher; where name ~ *"${sanitizedQuery}"*; sort rating desc; limit ${limit};`,
+      `fields ${IGDB_GAME_FIELDS}; where name ~ *"${sanitizedQuery}"*; sort rating desc; limit ${limit};`,
     ];
 
     for (let i = 0; i < searchApproaches.length && attemptCount < MAX_SEARCH_ATTEMPTS; i++) {
@@ -347,7 +402,7 @@ class IGDBClient {
           const sanitizedWord = sanitizeIgdbInput(word);
           if (!sanitizedWord) return [];
 
-          const wordQuery = `fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url, involved_companies.company.name, involved_companies.developer, involved_companies.publisher; where name ~ *"${sanitizedWord}"*; sort rating desc; limit ${limit};`;
+          const wordQuery = `fields ${IGDB_GAME_FIELDS}; where name ~ *"${sanitizedWord}"*; sort rating desc; limit ${limit};`;
           // Cache word search results for 15 minutes
           return await this.makeRequest<IGDBGame[]>("games", wordQuery, 15 * 60 * 1000);
         } catch (error) {
@@ -433,7 +488,7 @@ class IGDBClient {
         const responseData = await this.makeRequest<Array<{ name: string; result: IGDBGame[] }>>(
           "multiquery",
           multiqueryBody,
-          60 * 60 * 1000
+          HOUR_IN_SECONDS * 1000
         ); // Cache for 1 hour
 
         logger.debug(`[DEBUG] Multiquery response length: ${responseData.length}`);
@@ -463,7 +518,7 @@ class IGDBClient {
     if (!(await this.ensureConfigured())) return null;
 
     const igdbQuery = `
-      fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url, involved_companies.company.name, involved_companies.developer, involved_companies.publisher;
+      fields ${IGDB_GAME_FIELDS};
       where id = ${id};
     `;
 
@@ -563,12 +618,12 @@ class IGDBClient {
       const batch = chunks.slice(i, i + rateLimit);
       const promises = batch.map((chunk) => {
         const igdbQuery = `
-        fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url, involved_companies.company.name, involved_companies.developer, involved_companies.publisher;
+        fields ${IGDB_GAME_FIELDS};
         where id = (${chunk.join(",")});
         limit 100;
       `;
         // Cache batch requests for 1 hour, skip queue for manual batching
-        return this.makeRequest<IGDBGame[]>("games", igdbQuery, 60 * 60 * 1000, true);
+        return this.makeRequest<IGDBGame[]>("games", igdbQuery, HOUR_IN_SECONDS * 1000, true);
       });
 
       const results = await Promise.all(promises);
@@ -588,52 +643,58 @@ class IGDBClient {
     return allResults;
   }
 
+  /** Returns the current Unix timestamp (seconds) floored to the nearest hour. */
+  private currentHourTimestamp(): number {
+    return Math.floor(Date.now() / (HOUR_IN_SECONDS * 1000)) * HOUR_IN_SECONDS;
+  }
+
   async getPopularGames(limit: number = 20): Promise<IGDBGame[]> {
     if (!(await this.ensureConfigured())) return [];
 
     const igdbQuery = `
-      fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url, involved_companies.company.name, involved_companies.developer, involved_companies.publisher;
+      fields ${IGDB_GAME_FIELDS};
       where rating > 80 & rating_count > 10;
       sort rating desc;
       limit ${limit};
     `;
 
     // ⚡ Bolt: Cache popular games for 1 hour to reduce load during high traffic.
-    return this.makeRequest<IGDBGame[]>("games", igdbQuery, 60 * 60 * 1000);
+    return this.makeRequest<IGDBGame[]>("games", igdbQuery, HOUR_IN_SECONDS * 1000);
   }
 
   async getRecentReleases(limit: number = 20): Promise<IGDBGame[]> {
     if (!(await this.ensureConfigured())) return [];
 
-    const thirtyDaysAgo = Math.floor((Date.now() - 30 * 24 * 60 * 60 * 1000) / 1000);
-    const now = Math.floor(Date.now() / 1000);
+    // Round timestamps to the nearest hour so the query string (and thus the cache key)
+    // stays identical for all calls within the same hour, enabling effective caching.
+    const nowHour = this.currentHourTimestamp();
+    const thirtyDaysAgo = nowHour - 30 * 24 * HOUR_IN_SECONDS;
 
     const igdbQuery = `
-      fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url, involved_companies.company.name, involved_companies.developer, involved_companies.publisher;
-      where first_release_date >= ${thirtyDaysAgo} & first_release_date <= ${now};
+      fields ${IGDB_GAME_FIELDS};
+      where first_release_date >= ${thirtyDaysAgo} & first_release_date <= ${nowHour};
       sort first_release_date desc;
       limit ${limit};
     `;
 
-    // ⚡ Bolt: Cache recent releases for 1 hour.
-    return this.makeRequest<IGDBGame[]>("games", igdbQuery, 60 * 60 * 1000);
+    return this.makeRequest<IGDBGame[]>("games", igdbQuery, HOUR_IN_SECONDS * 1000);
   }
 
   async getUpcomingReleases(limit: number = 20): Promise<IGDBGame[]> {
     if (!(await this.ensureConfigured())) return [];
 
-    const now = Math.floor(Date.now() / 1000);
-    const sixMonthsFromNow = Math.floor((Date.now() + 6 * 30 * 24 * 60 * 60 * 1000) / 1000);
+    // Round timestamps to the nearest hour for stable cache keys.
+    const nowHour = this.currentHourTimestamp();
+    const sixMonthsFromNow = nowHour + 6 * 30 * 24 * HOUR_IN_SECONDS;
 
     const igdbQuery = `
-      fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url, involved_companies.company.name, involved_companies.developer, involved_companies.publisher;
-      where first_release_date >= ${now} & first_release_date <= ${sixMonthsFromNow};
+      fields ${IGDB_GAME_FIELDS};
+      where first_release_date >= ${nowHour} & first_release_date <= ${sixMonthsFromNow};
       sort first_release_date asc;
       limit ${limit};
     `;
 
-    // ⚡ Bolt: Cache upcoming releases for 1 hour.
-    return this.makeRequest<IGDBGame[]>("games", igdbQuery, 60 * 60 * 1000);
+    return this.makeRequest<IGDBGame[]>("games", igdbQuery, HOUR_IN_SECONDS * 1000);
   }
 
   async getGamesByGenres(
@@ -662,7 +723,7 @@ class IGDBClient {
     const excludeCondition = excludeIds.length > 0 ? ` & id != (${excludeIds.join(",")})` : "";
 
     const igdbQuery = `
-      fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url, involved_companies.company.name, involved_companies.developer, involved_companies.publisher;
+      fields ${IGDB_GAME_FIELDS};
       where (${genreCondition}) & rating > ${HIGH_RATING_THRESHOLD} & rating_count > ${HIGH_RATING_COUNT}${excludeCondition};
       sort rating desc;
       limit ${limit};
@@ -670,7 +731,7 @@ class IGDBClient {
 
     try {
       // ⚡ Bolt: Cache genre-based searches for 1 hour.
-      return await this.makeRequest<IGDBGame[]>("games", igdbQuery, 60 * 60 * 1000);
+      return await this.makeRequest<IGDBGame[]>("games", igdbQuery, HOUR_IN_SECONDS * 1000);
     } catch {
       igdbLogger.warn({ genres }, `genre search failed`);
       return [];
@@ -716,7 +777,7 @@ class IGDBClient {
     const excludeCondition = excludeIds.length > 0 ? ` & id != (${excludeIds.join(",")})` : "";
 
     const igdbQuery = `
-      fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url, involved_companies.company.name, involved_companies.developer, involved_companies.publisher;
+      fields ${IGDB_GAME_FIELDS};
       where (${platformCondition}) & rating > ${HIGH_RATING_THRESHOLD} & rating_count > ${HIGH_RATING_COUNT}${excludeCondition};
       sort rating desc;
       limit ${limit};
@@ -724,7 +785,7 @@ class IGDBClient {
 
     try {
       // ⚡ Bolt: Cache platform-based searches for 1 hour.
-      return await this.makeRequest<IGDBGame[]>("games", igdbQuery, 60 * 60 * 1000);
+      return await this.makeRequest<IGDBGame[]>("games", igdbQuery, HOUR_IN_SECONDS * 1000);
     } catch (error) {
       igdbLogger.warn({ platforms, error }, `platform search failed`);
       return [];
@@ -823,7 +884,7 @@ class IGDBClient {
     const validOffset = Math.min(Math.max(0, offset), MAX_OFFSET);
 
     const igdbQuery = `
-      fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url, involved_companies.company.name, involved_companies.developer, involved_companies.publisher;
+      fields ${IGDB_GAME_FIELDS};
       where genres.name ~ *"${cleanGenre}"* & rating > ${MIN_RATING_THRESHOLD} & rating_count > ${MIN_RATING_COUNT};
       sort rating desc;
       limit ${validLimit};
@@ -832,7 +893,7 @@ class IGDBClient {
 
     try {
       // ⚡ Bolt: Cache genre search results for 1 hour.
-      return await this.makeRequest<IGDBGame[]>("games", igdbQuery, 60 * 60 * 1000);
+      return await this.makeRequest<IGDBGame[]>("games", igdbQuery, HOUR_IN_SECONDS * 1000);
     } catch (error) {
       console.warn(`IGDB genre search failed for genre: ${genre}`, error);
       return [];
@@ -855,7 +916,7 @@ class IGDBClient {
     const validOffset = Math.min(Math.max(0, offset), MAX_OFFSET);
 
     const igdbQuery = `
-      fields name, summary, cover.url, first_release_date, rating, platforms.name, genres.name, screenshots.url, involved_companies.company.name, involved_companies.developer, involved_companies.publisher;
+      fields ${IGDB_GAME_FIELDS};
       where platforms.name ~ *"${cleanPlatform}"* & rating > ${MIN_RATING_THRESHOLD} & rating_count > ${MIN_RATING_COUNT};
       sort rating desc;
       limit ${validLimit};
@@ -864,7 +925,7 @@ class IGDBClient {
 
     try {
       // ⚡ Bolt: Cache platform search results for 1 hour.
-      return await this.makeRequest<IGDBGame[]>("games", igdbQuery, 60 * 60 * 1000);
+      return await this.makeRequest<IGDBGame[]>("games", igdbQuery, HOUR_IN_SECONDS * 1000);
     } catch (error) {
       console.warn(`IGDB platform search failed for platform: ${platform}`, error);
       return [];
@@ -970,7 +1031,7 @@ class IGDBClient {
         ? `https:${igdbGame.cover.url.replace("t_thumb", "t_cover_big")}`
         : "",
       releaseDate: releaseDate ? releaseDate.toISOString().split("T")[0] : "",
-      rating: igdbGame.rating ? Math.round(igdbGame.rating) / 10 : 0,
+      rating: igdbGame.rating ? Math.round(igdbGame.rating) / 10 : null,
       platforms: igdbGame.platforms?.map((p) => p.name) || [],
       genres: igdbGame.genres?.map((g) => g.name) || [],
       publishers:
@@ -980,10 +1041,18 @@ class IGDBClient {
       screenshots:
         igdbGame.screenshots?.map((s) => `https:${s.url.replace("t_thumb", "t_screenshot_big")}`) ||
         [],
+      igdbWebsites: igdbWebsiteSchema
+        .array()
+        .catch([])
+        .parse(igdbGame.websites ?? []),
+      aggregatedRating: igdbGame.aggregated_rating
+        ? Math.round(igdbGame.aggregated_rating) / 10
+        : undefined,
       // For Discovery games, don't set a status since they're not in collection yet
       status: null,
       isReleased,
       releaseYear: releaseDate ? releaseDate.getFullYear() : null,
+      earlyAccess: igdbGame.status === 4,
     };
   }
 }

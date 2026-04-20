@@ -14,6 +14,7 @@ import {
   Rss,
   PieChart,
 } from "lucide-react";
+import { useMemo } from "react";
 import {
   Sidebar,
   SidebarContent,
@@ -119,11 +120,21 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: Readonly<Ap
     refetchInterval: 5000,
   });
 
-  const libraryCount = games.filter((g) =>
-    ["owned", "completed", "downloading"].includes(g.status)
-  ).length;
-  const wishlistCount = games.filter((g) => g.status === "wanted").length;
-  const activeDownloadsCount = downloadsData?.downloads?.length || 0;
+  const { libraryCount, wishlistCount } = useMemo(() => {
+    return games.reduce(
+      (counts, g) => {
+        if (["owned", "completed", "downloading"].includes(g.status)) {
+          counts.libraryCount++;
+        } else if (g.status === "wanted") {
+          counts.wishlistCount++;
+        }
+        return counts;
+      },
+      { libraryCount: 0, wishlistCount: 0 }
+    );
+  }, [games]);
+  const activeDownloadsCount =
+    downloadsData?.downloads?.filter((d) => d.status === "downloading").length || 0;
 
   const navigation = staticNavigation.map((item) => {
     let badge: string | undefined;

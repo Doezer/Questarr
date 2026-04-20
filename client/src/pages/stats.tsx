@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { type Game } from "@shared/schema";
 import StatsCard from "@/components/StatsCard";
@@ -14,17 +14,30 @@ import {
   CheckCircle2,
   BarChart3,
   LayoutGrid,
+  Share2,
 } from "lucide-react";
 import { calculateLibraryStats } from "@/lib/stats";
 import { apiRequest } from "@/lib/queryClient";
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import ShareDiscordDialog from "@/components/ShareDiscordDialog";
 
 export default function StatsPage() {
+  const [shareOpen, setShareOpen] = useState(false);
+
   const { data: games = [], isLoading } = useQuery<Game[]>({
     queryKey: ["/api/games", "", true], // Empty search, include hidden
     queryFn: async () => {
       const response = await apiRequest("GET", "/api/games?includeHidden=true");
+      return response.json();
+    },
+  });
+
+  const { data: discordConfig } = useQuery<{ configured: boolean }>({
+    queryKey: ["/api/settings/discord"],
+    queryFn: async () => {
+      const response = await apiRequest("GET", "/api/settings/discord");
       return response.json();
     },
   });
@@ -57,12 +70,26 @@ export default function StatsPage() {
 
   return (
     <div className="h-full overflow-auto p-6 space-y-8">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight mb-2">Library Statistics</h1>
-        <p className="text-muted-foreground">
-          Detailed insights into your collection of {stats.totalGames} games.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Statistics</h1>
+          <p className="text-muted-foreground text-sm mt-0.5">
+            Detailed insights into your collection of {stats.totalGames} games.
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => setShareOpen(true)}>
+          <Share2 className="w-4 h-4 mr-2" />
+          {discordConfig?.configured ? "Share to Discord" : "Share"}
+        </Button>
       </div>
+
+      <ShareDiscordDialog
+        open={shareOpen}
+        onOpenChange={setShareOpen}
+        stats={stats}
+        date={new Date()}
+        discordConfigured={discordConfig?.configured}
+      />
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatsCard
@@ -92,7 +119,7 @@ export default function StatsPage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-        <Card className="col-span-4 transition-all hover:shadow-md">
+        <Card className="col-span-4">
           <CardHeader>
             <CardTitle className="text-lg font-medium flex items-center gap-2">
               <BarChart3 className="w-5 h-5 text-primary" />
@@ -133,69 +160,59 @@ export default function StatsPage() {
           </CardContent>
         </Card>
 
-        <Card className="col-span-3 transition-all hover:shadow-md">
+        <Card className="col-span-3">
           <CardHeader>
             <CardTitle className="text-lg font-medium flex items-center gap-2">
               <LayoutGrid className="w-5 h-5 text-primary" />
               Quick Info
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="grid grid-cols-1 gap-4">
-              <div className="flex items-center gap-3 p-3 rounded-lg border bg-card/50">
-                <div className="p-2 bg-primary/10 rounded-md">
-                  <Tags className="w-4 h-4 text-primary" />
-                </div>
+          <CardContent>
+            <div className="divide-y">
+              <div className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
+                <Tags className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                 <div>
-                  <p className="text-sm text-muted-foreground uppercase font-semibold text-[10px] tracking-wider">
+                  <p className="text-xs text-muted-foreground uppercase font-semibold tracking-wider">
                     Top Genre
                   </p>
                   <p className="font-medium">{stats.topGenre?.name || "N/A"}</p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-3 p-3 rounded-lg border bg-card/50">
-                <div className="p-2 bg-primary/10 rounded-md">
-                  <Gamepad2 className="w-4 h-4 text-primary" />
-                </div>
+              <div className="flex items-center gap-3 py-3">
+                <Gamepad2 className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                 <div>
-                  <p className="text-sm text-muted-foreground uppercase font-semibold text-[10px] tracking-wider">
+                  <p className="text-xs text-muted-foreground uppercase font-semibold tracking-wider">
                     Top Platform
                   </p>
                   <p className="font-medium">{stats.topPlatform?.name || "N/A"}</p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-3 p-3 rounded-lg border bg-card/50">
-                <div className="p-2 bg-primary/10 rounded-md">
-                  <Building2 className="w-4 h-4 text-primary" />
-                </div>
+              <div className="flex items-center gap-3 py-3">
+                <Building2 className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                 <div>
-                  <p className="text-sm text-muted-foreground uppercase font-semibold text-[10px] tracking-wider">
+                  <p className="text-xs text-muted-foreground uppercase font-semibold tracking-wider">
                     Top Publisher
                   </p>
                   <p className="font-medium">{stats.topPublisher?.name || "N/A"}</p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-3 p-3 rounded-lg border bg-card/50">
-                <div className="p-2 bg-primary/10 rounded-md">
-                  <Code2 className="w-4 h-4 text-primary" />
-                </div>
+              <div className="flex items-center gap-3 py-3">
+                <Code2 className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                 <div>
-                  <p className="text-sm text-muted-foreground uppercase font-semibold text-[10px] tracking-wider">
+                  <p className="text-xs text-muted-foreground uppercase font-semibold tracking-wider">
                     Unique Developers
                   </p>
                   <p className="font-medium">{stats.uniqueDevelopers}</p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-3 p-3 rounded-lg border bg-card/50">
-                <div className="p-2 bg-primary/10 rounded-md">
-                  <Calendar className="w-4 h-4 text-primary" />
-                </div>
+              <div className="flex items-center gap-3 py-3 last:pb-0">
+                <Calendar className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                 <div>
-                  <p className="text-sm text-muted-foreground uppercase font-semibold text-[10px] tracking-wider">
+                  <p className="text-xs text-muted-foreground uppercase font-semibold tracking-wider">
                     Avg. Release Year
                   </p>
                   <p className="font-medium">{stats.avgReleaseYear}</p>

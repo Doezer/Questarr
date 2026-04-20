@@ -18,6 +18,7 @@ vi.mock("../igdb.js", () => ({
   igdbClient: {
     getGamesByIds: vi.fn(),
   },
+  IGDB_EARLY_ACCESS_STATUS: 4,
 }));
 
 vi.mock("../logger.js", () => ({
@@ -154,6 +155,29 @@ describe("checkGameUpdates", () => {
     expect(game1Update?.data.originalReleaseDate).toBe("2023-05-01");
     expect(game2Update?.data.originalReleaseDate).toBe("2023-08-01");
     expect(game2Update?.data.releaseDate).toBe("2023-08-01");
+  });
+
+  it("should update earlyAccess flag for games without a release date", async () => {
+    const mockGames: Partial<Game>[] = [
+      {
+        id: "game-ea",
+        title: "Early Access Game",
+        igdbId: 2001,
+        earlyAccess: false,
+        releaseDate: null as never,
+        originalReleaseDate: null as never,
+      },
+    ];
+    vi.mocked(storage.getAllGames).mockResolvedValue(mockGames as Game[]);
+    // No first_release_date — game is in early access with no known release date
+    vi.mocked(igdbClient.getGamesByIds).mockResolvedValue([{ id: 2001, status: 4 }] as never);
+
+    await checkGameUpdates();
+
+    const batchCalls = vi.mocked(storage.updateGamesBatch).mock.calls;
+    expect(batchCalls.length).toBe(1);
+    const update = batchCalls[0][0].find((u) => u.id === "game-ea");
+    expect(update?.data.earlyAccess).toBe(true);
   });
 
   it("should handle network errors from IGDB gracefully", async () => {

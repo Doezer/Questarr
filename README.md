@@ -35,11 +35,12 @@
 
 ## Features
 
-- **🎮 Game Discovery**: Browse popular games, new releases, and upcoming titles via IGDB integration and xREL.to.
-- **📚 Library Management**: Track your game collection with status indicators (Wanted, Owned, Playing, Completed).
-<!--- **☁️ Steam Integration**: Sync your Steam wishlist and import your library automatically. -->
+- **🎮 Game Discovery**: Browse popular games, new releases, and upcoming titles via IGDB integration and xREL.to. Sync your Steam wishlist.
+- **📚 Library Management**: Track your game collection with status indicators (Wanted, Owned, Playing, Completed), user ratings, and Early Access badges.
 - **⬇️ Download Management**: Integrate with indexers (Prowlarr/Torznab/Newsznab), torrent/usenet downloaders (qBittorrent, Transmission, rTorrent / sabnzbd, nzbget), and optionally enable auto-download to get them right when they're there.
-- **🔍 Search & Filter**: Find games by genre, platform, and search terms. Automatically search for added games until available on your indexers.
+- **🔍 Search & Filter**: Find games by genre, platform, and search terms. Automatically search for added games until available on your indexers. Blacklist unwanted releases and set preferred release groups and platforms.
+- **🗂️ Rich Metadata**: Game details enriched with IGDB, Steam, HowLongToBeat, PCGamingWiki links, and NexusMods pages, as well as trending mods (if applicable).
+- **📊 Stats Page**: Visualize your collection statistics, with Discord sharing support.
 - **📰 RSS Feeds**: Monitor releases from your favorite groups directly within the app.
 - **🔒 Privacy Focused**: No external dependencies (even google fonts are locally hosted) and hardened security (CSP, SSRF protection), as well as SSL support.
 - **✨ Clean Interface**: UI optimized for browsing game covers and metadata, with light/dark mode.
@@ -52,8 +53,13 @@
 ### Dashboard
 
 Your central hub for recent activity, collection overview and downloading available games.
-[![Dashboard](images/Screenshots/dashboard.png)](images/Screenshots/dashboard.png)
-[![Search and download](images/Screenshots/download_modal.png)](images/Screenshots/download_modal.png)
+
+<a href="images/Screenshots/dashboard.png"><img src="images/Screenshots/dashboard.png" /></a>
+
+<p float="left">
+  <a href="images/Screenshots/game_details.png"><img src="images/Screenshots/game_details.png" width="49%" /></a>
+  <a href="images/Screenshots/download_modal.png"><img src="images/Screenshots/download_modal.png" width="49%" /></a> 
+</p>
 
 ### Discover Games
 
@@ -76,12 +82,28 @@ Manage your wanted and owned games.
 ### Calendar
 
 Keep track of upcoming releases.
-[![Calendar](images/Screenshots/calendar.png)](images/Screenshots/calendar.png)
+<a href="images/Screenshots/calendar.png"><img src="images/Screenshots/calendar.png" /></a>
 
-### Downloads Queue (WIP)
+### Downloads Queue
 
 Monitor your downloaders' active downloads and history.
-[![Downloads](images/Screenshots/downloads.png)](images/Screenshots/downloads.png)
+
+<a href="images/Screenshots/downloads.png"><img src="images/Screenshots/downloads.png" /></a>
+
+### Statistics
+
+Check out your library statistics.
+
+<a href="images/Screenshots/stats.png"><img src="images/Screenshots/stats.png" /></a>
+
+### RSS & xRel.to feeds
+
+Custom RSS feeds and xRel.to flux matched to IGDB games directly into the app
+
+<p float="left">
+  <a href="images/Screenshots/rss.png"><img src="images/Screenshots/rss.png" width="49%" /></a>
+  <a href="images/Screenshots/xrelto.png"><img src="images/Screenshots/xrelto.png" width="49%" /></a> 
+</p>
 
 ### Settings
 
@@ -92,7 +114,7 @@ Configure indexers, downloaders, and application preferences.
   <a href="images/Screenshots/downloaders.png"><img src="images/Screenshots/downloaders.png" width="49%" /></a> 
 </p>
 
-[![Settings](images/Screenshots/settings.png)](images/Screenshots/settings.png)
+<a href="images/Screenshots/settings.png"><img src="images/Screenshots/settings.png" /></a>
 
 </details>
 
@@ -112,8 +134,11 @@ Configure indexers, downloaders, and application preferences.
 - **Frontend**: React 18, TypeScript, Vite, Tailwind CSS, shadcn/ui
 - **Backend**: Node.js, Express, TypeScript
 - **Database**: SQLite with Drizzle ORM
-- **APIs**: IGDB (game metadata), Torznab (indexer search)<!-- v1.2.0 only - , Steam API (user library sync)-->
-- **AIs**: Claude Sonnet 4.5, Gemini 3, Google Jules, GitHub Copilot
+- **APIs**: IGDB (game metadata), Torznab/Newznab (indexer search), HowLongToBeat, PCGamingWiki, NexusMods, xREL.to
+- **AIs usage**:
+  - Claude and Github Copilot are used for AI-Assisted coding, internal code reviews, PR cleanup (Gemini previously). Eventually automated coding and troubleshooting for small tasks.
+  - Gemini & Codex are used for automated code reviews, and brainstorming from time to time.
+  - Google Jules was previously used for light periodical refactoring
 
 ## Installation
 
@@ -191,7 +216,6 @@ See [docs/MIGRATION.md](docs/MIGRATION.md) for more details.
 
 - Create your admin account
 - Configure the IGDB credentials
-- Connect your Steam account (Optional)
 
 Once logged-in:
 

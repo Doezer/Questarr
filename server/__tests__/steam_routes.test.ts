@@ -39,9 +39,9 @@ describe("steamRoutes", () => {
     app.use(steamRoutes);
   });
 
-  describe("PUT /api/user/steam-id", () => {
+  describe("PATCH /api/user/steam-id", () => {
     it("returns 400 when steamId is missing", async () => {
-      const response = await request(app).put("/api/user/steam-id").send({});
+      const response = await request(app).patch("/api/user/steam-id").send({});
 
       expect(response.status).toBe(400);
       expect(response.body).toEqual({ error: "Steam ID is required" });
@@ -50,7 +50,7 @@ describe("steamRoutes", () => {
     it("returns 400 when steamId format is invalid", async () => {
       vi.mocked(steamService.validateSteamId).mockReturnValue(false);
 
-      const response = await request(app).put("/api/user/steam-id").send({ steamId: "123" });
+      const response = await request(app).patch("/api/user/steam-id").send({ steamId: "123" });
 
       expect(response.status).toBe(400);
       expect(response.body.error).toContain("Invalid Steam ID format");
@@ -62,7 +62,7 @@ describe("steamRoutes", () => {
       vi.mocked(storage.updateUserSteamId).mockResolvedValue(undefined);
 
       const steamId = "76561198000000000";
-      const response = await request(app).put("/api/user/steam-id").send({ steamId });
+      const response = await request(app).patch("/api/user/steam-id").send({ steamId });
 
       expect(response.status).toBe(200);
       expect(response.body).toEqual({ success: true, steamId });
@@ -74,18 +74,7 @@ describe("steamRoutes", () => {
       vi.mocked(storage.updateUserSteamId).mockRejectedValue(new Error("db failure"));
 
       const response = await request(app)
-        .put("/api/user/steam-id")
-        .send({ steamId: "76561198000000000" });
-
-      expect(response.status).toBe(500);
-      expect(response.body).toEqual({ error: "Failed to set Steam ID" });
-    });
-
-    it("should return 500 when updateUserSteamId throws", async () => {
-      vi.mocked(storage.updateUserSteamId).mockRejectedValue(new Error("DB error"));
-
-      const response = await request(app)
-        .put("/api/user/steam-id")
+        .patch("/api/user/steam-id")
         .send({ steamId: "76561198000000000" });
 
       expect(response.status).toBe(500);

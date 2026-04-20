@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import GameGrid from "@/components/GameGrid";
@@ -6,39 +6,42 @@ import { type Game } from "@shared/schema";
 import { type GameStatus } from "@/components/StatusBadge";
 import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { useToast } from "@/hooks/use-toast";
-import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 import EmptyState from "@/components/EmptyState";
-import { Gamepad2, LayoutGrid, List } from "lucide-react";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { Button } from "@/components/ui/button";
-import { Settings2 } from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import GameFilterPills from "@/components/GameFilterPills";
+import { Gamepad2 } from "lucide-react";
+import { useViewControls } from "@/hooks/use-view-controls";
+import PageToolbar from "@/components/PageToolbar";
+import { useDownloadSummary } from "@/hooks/use-download-summary";
 
 export default function LibraryPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [viewMode, setViewMode] = useLocalStorageState(
-    "libraryViewMode",
-    "grid" as "grid" | "list"
-  );
-  const [listDensity, setListDensity] = useLocalStorageState(
-    "libraryListDensity",
-    "comfortable" as "comfortable" | "compact" | "ultra-compact"
-  );
+  const { viewMode, setViewMode, listDensity, setListDensity } = useViewControls("library");
+  const [showDownloadsOnly, setShowDownloadsOnly] = useState(false);
+  const downloadSummaries = useDownloadSummary();
+  const [showSearchResultsOnly, setShowSearchResultsOnly] = useState(false);
+  const [showUpdateAvailableOnly, setShowUpdateAvailableOnly] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const { data: games = [], isLoading } = useQuery<Game[]>({
     queryKey: ["/api/games", "?status=owned,completed,downloading"],
   });
 
-  // Library typically contains owned, completed, or actively downloading games
-  const libraryGames = games;
+  const libraryGames = useMemo(() => {
+    let result = games;
+    if (showSearchResultsOnly) result = result.filter((g) => g.searchResultsAvailable);
+    return result;
+  }, [games, showSearchResultsOnly]);
+
+  const displayedGames = useMemo(() => {
+    let result = libraryGames;
+    if (showDownloadsOnly) result = result.filter((g) => downloadSummaries[g.id]);
+    if (showUpdateAvailableOnly)
+      result = result.filter((g) => downloadSummaries[g.id]?.hasUpdateDownload);
+    if (searchQuery)
+      result = result.filter((g) => g.title.toLowerCase().includes(searchQuery.toLowerCase()));
+    return result;
+  }, [libraryGames, showDownloadsOnly, showUpdateAvailableOnly, downloadSummaries, searchQuery]);
 
   const statusMutation = useMutation({
     mutationFn: async ({ gameId, status }: { gameId: string; status: GameStatus }) => {
@@ -62,74 +65,69 @@ export default function LibraryPage() {
 
   return (
     <div className="h-full overflow-auto p-6">
-      <div className="flex justify-between items-center mb-6">
+      <div className="space-y-3">
         <div>
-          <h1 className="text-3xl font-bold">Library</h1>
-          <p className="text-muted-foreground">Your collection of games</p>
-        </div>
-        <div className="flex items-center gap-2">
-          {viewMode === "list" && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="h-8 gap-1">
-                  <Settings2 className="h-3.5 w-3.5" />
-                  <span className="sr-only sm:not-sr-only sm:inline-block">
-                    {listDensity === "comfortable"
-                      ? "Comfortable"
-                      : listDensity === "compact"
-                        ? "Compact"
-                        : "Ultra-compact"}
-                  </span>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuLabel>Row Density</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => setListDensity("comfortable")}>
-                  Comfortable
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setListDensity("compact")}>
-                  Compact
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setListDensity("ultra-compact")}>
-                  Ultra-compact
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+          <h1 className="text-2xl font-bold tracking-tight">Library</h1>
+          {games.length > 0 && (
+            <p className="text-sm text-muted-foreground mt-0.5">
+              <span className="font-medium text-foreground">{games.length}</span> game
+              {games.length !== 1 ? "s" : ""} collected
+            </p>
           )}
-          <ToggleGroup
-            type="single"
-            value={viewMode}
-            onValueChange={(value) => value && setViewMode(value as "grid" | "list")}
-          >
-            <ToggleGroupItem value="grid" aria-label="Grid View">
-              <LayoutGrid className="h-4 w-4" />
-            </ToggleGroupItem>
-            <ToggleGroupItem value="list" aria-label="List View">
-              <List className="h-4 w-4" />
-            </ToggleGroupItem>
-          </ToggleGroup>
         </div>
-      </div>
 
-      {libraryGames.length === 0 && !isLoading ? (
-        <EmptyState
-          icon={Gamepad2}
-          title="No games in library"
-          description="Your library is looking a bit empty. Track games you own or want to play from the Discover page."
-          actionLabel="Discover Games"
-          actionLink="/discover"
+        <PageToolbar
+          search={searchQuery}
+          onSearchChange={setSearchQuery}
+          searchPlaceholder="Filter library..."
+          filterPills={
+            <GameFilterPills
+              showSearchResultsOnly={showSearchResultsOnly}
+              setShowSearchResultsOnly={setShowSearchResultsOnly}
+              showDownloadsOnly={showDownloadsOnly}
+              setShowDownloadsOnly={setShowDownloadsOnly}
+              showUpdateAvailableOnly={showUpdateAvailableOnly}
+              setShowUpdateAvailableOnly={setShowUpdateAvailableOnly}
+            />
+          }
+          viewControls={{
+            viewMode,
+            onViewModeChange: setViewMode,
+            listDensity,
+            onListDensityChange: setListDensity,
+          }}
         />
-      ) : (
-        <GameGrid
-          games={libraryGames}
-          onStatusChange={(id, status) => statusMutation.mutate({ gameId: id, status })}
-          onToggleHidden={(id, hidden) => hiddenMutation.mutate({ gameId: id, hidden })}
-          isLoading={isLoading}
-          viewMode={viewMode}
-          density={listDensity}
-        />
-      )}
+
+        {games.length === 0 && !isLoading ? (
+          <EmptyState
+            icon={Gamepad2}
+            title="No games in library"
+            description="Your library is looking a bit empty. Track games you own or want to play from the Discover page."
+            actionLabel="Discover Games"
+            actionLink="/discover"
+          />
+        ) : displayedGames.length === 0 && !isLoading ? (
+          <EmptyState
+            icon={Gamepad2}
+            title={searchQuery ? "No games match your search" : "No games match your filters"}
+            description={
+              searchQuery
+                ? `No library games found for "${searchQuery}".`
+                : "Try adjusting your filters."
+            }
+          />
+        ) : (
+          <GameGrid
+            games={displayedGames}
+            onStatusChange={(id, status) => statusMutation.mutate({ gameId: id, status })}
+            onToggleHidden={(id, hidden) => hiddenMutation.mutate({ gameId: id, hidden })}
+            isLoading={isLoading}
+            viewMode={viewMode}
+            density={listDensity}
+            downloadSummaries={downloadSummaries}
+          />
+        )}
+      </div>
     </div>
   );
 }

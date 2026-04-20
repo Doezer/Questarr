@@ -1,0 +1,70 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>Questarr</Name>
+  <Repository>ghcr.io/doezer/questarr:latest</Repository>
+  <Registry>https://github.com/Doezer/Questarr/pkgs/container/questarr</Registry>
+  <Network>bridge</Network>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/Doezer/Questarr/issues</Support>
+  <Project>https://github.com/Doezer/Questarr</Project>
+  <Overview>Questarr - A companion app for the *arr media stack.</Overview>
+  <Category>MediaApp:</Category>
+  <WebUI>http://[IP]:[PORT:5000]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/Doezer/Questarr/main/unraid/questarr.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/Doezer/Questarr/images/Questarr_icon.png</Icon>
+  <ExtraParams>--restart=unless-stopped --health-cmd="node -e \"require('http').get('http://localhost:5000/api/health', (r) =&gt; process.exit(r.statusCode === 200 ? 0 : 1))\"" --health-interval=30s --health-timeout=10s --health-retries=3 --health-start-period=40s</ExtraParams>
+  <Description>Questarr is a video game management application inspired by the -Arr apps (Sonarr, Radarr, Prowlarr...) and GamezServer. Track and organize your video game collection with automated discovery and download management.</Description>
+  <Networking>
+    <Mode>bridge</Mode>
+    <Publish>
+      <Port>
+        <HostPort>5000</HostPort>
+        <ContainerPort>5000</ContainerPort>
+        <Protocol>tcp</Protocol>
+      </Port>
+      <Port>
+        <HostPort>9898</HostPort>
+        <ContainerPort>9898</ContainerPort>
+        <Protocol>tcp</Protocol>
+      </Port>
+    </Publish>
+  </Networking>
+  <Data>
+    <Volume>
+      <HostDir>/mnt/user/appdata/questarr</HostDir>
+      <ContainerDir>/app/data</ContainerDir>
+      <Mode>rw</Mode>
+    </Volume>
+  </Data>
+  <Environment>
+    <Variable>
+      <Value>1000</Value>
+      <Name>PUID</Name>
+      <Mode/>
+    </Variable>
+    <Variable>
+      <Value>1000</Value>
+      <Name>PGID</Name>
+      <Mode/>
+    </Variable>
+    <Variable>
+      <Value>/app/data/sqlite.db</Value>
+      <Name>SQLITE_DB_PATH</Name>
+      <Mode/>
+    </Variable>
+    <Variable>
+      <Value>9898</Value>
+      <Name>SSL_PORT</Name>
+      <Mode/>
+    </Variable>
+  </Environment>
+  <Labels/>
+  <Config Name="HTTP Port" Target="5000" Default="5000" Mode="tcp" Description="Web UI HTTP port." Type="Port" Display="always" Required="true" Mask="false">5000</Config>
+  <Config Name="HTTPS/SSL Port" Target="9898" Default="9898" Mode="tcp" Description="Web UI HTTPS/SSL port." Type="Port" Display="always" Required="false" Mask="false">9898</Config>
+  <Config Name="Data Path" Target="/app/data" Default="/mnt/user/appdata/questarr" Mode="rw" Description="Path to store Questarr data including the SQLite database." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/questarr</Config>
+  <Config Name="PUID" Target="PUID" Default="1000" Mode="" Description="User ID for file permissions." Type="Variable" Display="always" Required="true" Mask="false">1000</Config>
+  <Config Name="PGID" Target="PGID" Default="1000" Mode="" Description="Group ID for file permissions." Type="Variable" Display="always" Required="true" Mask="false">1000</Config>
+  <Config Name="SQLite DB Path" Target="SQLITE_DB_PATH" Default="/app/data/sqlite.db" Mode="" Description="Full path to the SQLite database file inside the container." Type="Variable" Display="advanced" Required="false" Mask="false">/app/data/sqlite.db</Config>
+  <Config Name="SSL Port" Target="SSL_PORT" Default="9898" Mode="" Description="SSL port used internally by the app. Must match the HTTPS/SSL port mapping above." Type="Variable" Display="advanced" Required="false" Mask="false">9898</Config>
+</Container>

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
-import { users, type InsertGame } from "../../shared/schema";
+import { users, downloaders, type InsertGame } from "../../shared/schema";
 import { randomUUID } from "crypto";
 import type { DatabaseStorage } from "../storage";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
@@ -84,7 +84,9 @@ describe("DatabaseStorage Integration", () => {
     // 4. Test filtering: multiple statuses
     const activeGames = await storage.getUserGames(userId, false, ["owned", "completed"]);
     expect(activeGames).toHaveLength(2);
-    const statuses = activeGames.map((g: { status: string | null }) => g.status).sort();
+    const statuses = activeGames
+      .map((g: { status: string | null }) => g.status)
+      .sort((a, b) => (a ?? "").localeCompare(b ?? ""));
     expect(statuses).toEqual(["completed", "owned"]);
 
     // 5. Test filtering: no status filter (should return all)
@@ -98,5 +100,101 @@ describe("DatabaseStorage Integration", () => {
     // So if empty array, it returns all.
     const emptyFilterGames = await storage.getUserGames(userId, false, []);
     expect(emptyFilterGames).toHaveLength(3);
+  });
+
+  it("getDownloadSummaryByGame should aggregate downloads in the database layer", async () => {
+    // Insert required parent records to satisfy FK constraints
+    const userId = randomUUID();
+    await db.insert(users).values({ id: userId, username: "dl_test_user", passwordHash: "hash" });
+
+    const gameA = await storage.addGame({
+      title: "Game A",
+      status: "wanted",
+      userId,
+      hidden: false,
+    });
+    const gameB = await storage.addGame({
+      title: "Game B",
+      status: "wanted",
+      userId,
+      hidden: false,
+    });
+
+    const downloaderId = randomUUID();
+    await db
+      .insert(downloaders)
+      .values({ id: downloaderId, name: "Test Client", type: "torrent", url: "http://localhost" });
+
+    // Two downloads for game-a (different statuses and types)
+    await storage.addGameDownload({
+      gameId: gameA.id,
+      downloaderId,
+      downloadType: "torrent",
+      downloadHash: randomUUID(),
+      downloadTitle: "Game.A-GROUP",
+      status: "downloading",
+    });
+    await storage.addGameDownload({
+      gameId: gameA.id,
+      downloaderId,
+      downloadType: "usenet",
+      downloadHash: randomUUID(),
+      downloadTitle: "Game.A-GROUP",
+      status: "completed",
+    });
+    // One download for game-b
+    await storage.addGameDownload({
+      gameId: gameB.id,
+      downloaderId,
+      downloadType: "torrent",
+      downloadHash: randomUUID(),
+      downloadTitle: "Game.B-GROUP",
+      status: "failed",
+    });
+
+    const summary = await storage.getDownloadSummaryByGame(userId);
+
+    expect(Object.keys(summary)).toHaveLength(2);
+
+    // game-a: downloading has higher priority than completed
+    expect(summary[gameA.id].count).toBe(2);
+    expect(summary[gameA.id].topStatus).toBe("downloading");
+    expect(summary[gameA.id].downloadTypes).toContain("torrent");
+    expect(summary[gameA.id].downloadTypes).toContain("usenet");
+
+    // game-b: single failed download
+    expect(summary[gameB.id].count).toBe(1);
+    expect(summary[gameB.id].topStatus).toBe("failed");
+    expect(summary[gameB.id].downloadTypes).toContain("torrent");
+  });
+
+  it("getTrackedDownloadKeys returns downloaderId:downloadHash keys for all game downloads", async () => {
+    const userId = randomUUID();
+    await db.insert(users).values({ id: userId, username: "user_" + userId, passwordHash: "hash" });
+
+    const game = await storage.addGame({
+      title: "Tracked Game",
+      status: "wanted",
+      userId,
+      hidden: false,
+    } as InsertGame);
+
+    const downloaderId = randomUUID();
+    await db
+      .insert(downloaders)
+      .values({ id: downloaderId, name: "Client", type: "torrent", url: "http://localhost" });
+
+    await storage.addGameDownload({
+      gameId: game.id,
+      downloaderId,
+      downloadType: "torrent",
+      downloadHash: "hash-x",
+      downloadTitle: "Tracked Game-GROUP",
+      status: "downloading",
+    });
+
+    const keys = await storage.getTrackedDownloadKeys();
+    expect(keys.has(`${downloaderId}:hash-x`)).toBe(true);
+    expect(keys.size).toBe(1);
   });
 });

@@ -12,7 +12,9 @@ import type {
   InsertUser,
   InsertIndexer,
   InsertDownloader,
+  InsertGameDownload,
   InsertUserSettings,
+  InsertReleaseBlacklist,
 } from "../../shared/schema";
 import type { MemStorage as MemStorageType } from "../storage.js";
 
@@ -199,6 +201,43 @@ describe("MemStorage", () => {
       const removed = await storage.removeGame("fake-id");
       expect(removed).toBe(false);
     });
+
+    it("should set and update user rating", async () => {
+      const game = await storage.addGame({
+        title: "Rated Game",
+        igdbId: 99,
+        status: "owned",
+        userId: "user-1",
+        hidden: false,
+      });
+
+      const withRating = await storage.updateGameUserRating(game.id, "user-1", 8);
+      expect(withRating?.userRating).toBe(8);
+
+      const withHalf = await storage.updateGameUserRating(game.id, "user-1", 7.5);
+      expect(withHalf?.userRating).toBe(7.5);
+
+      const retrieved = await storage.getGame(game.id);
+      expect(retrieved?.userRating).toBe(7.5);
+    });
+
+    it("should clear user rating with null", async () => {
+      const game = await storage.addGame({
+        title: "Clear Rating Game",
+        igdbId: 100,
+        status: "owned",
+        userId: "user-1",
+        hidden: false,
+      });
+      await storage.updateGameUserRating(game.id, "user-1", 6);
+      const cleared = await storage.updateGameUserRating(game.id, "user-1", null);
+      expect(cleared?.userRating).toBeNull();
+    });
+
+    it("should return undefined when updating user rating for non-existent game", async () => {
+      const result = await storage.updateGameUserRating("no-such-id", "user-1", 5);
+      expect(result).toBeUndefined();
+    });
   });
 
   describe("Indexer Management", () => {
@@ -304,15 +343,320 @@ describe("MemStorage", () => {
       expect(settings.autoSearchUnreleased).toBe(false); // Default is false
       expect(settings.autoSearchEnabled).toBe(true); // Default is true
     });
+
+    it("should persist and retrieve preferredPlatform", async () => {
+      const user = await storage.createUser({
+        username: "platformuser",
+        passwordHash: "hash",
+      });
+
+      const settings = await storage.createUserSettings({
+        userId: user.id,
+        preferredPlatform: "PS5",
+      });
+
+      expect(settings.preferredPlatform).toBe("PS5");
+
+      const updated = await storage.updateUserSettings(user.id, { preferredPlatform: "Switch" });
+      expect(updated?.preferredPlatform).toBe("Switch");
+
+      const cleared = await storage.updateUserSettings(user.id, { preferredPlatform: null });
+      expect(cleared?.preferredPlatform).toBeNull();
+    });
   });
 
-  describe("Import And Mapping Helpers", () => {
-    it("should return scoped import and RomM config values", async () => {
-      const userA = await storage.createUser({ username: "userA", passwordHash: "hash-a" });
-      const userB = await storage.createUser({ username: "userB", passwordHash: "hash-b" });
+  describe("Release Blacklist Management", () => {
+    const userId = "bl-user-1";
+    let gameId: string;
 
-      await storage.createUserSettings({
-        userId: userA.id,
+    beforeEach(async () => {
+      const game = await storage.addGame({
+        title: "Blacklist Game",
+        igdbId: 9001,
+        status: "wanted",
+        hidden: null,
+        userId,
+      } as InsertGame);
+      gameId = game.id;
+    });
+
+    it("should add a release to the blacklist", async () => {
+      const entry = await storage.addReleaseBlacklist({ gameId, releaseTitle: "Game-SKIDROW" });
+      expect(entry.gameId).toBe(gameId);
+      expect(entry.releaseTitle).toBe("Game-SKIDROW");
+      expect(entry.id).toBeDefined();
+    });
+
+    it("should return existing entry on duplicate add", async () => {
+      const first = await storage.addReleaseBlacklist({ gameId, releaseTitle: "Game-SKIDROW" });
+      const second = await storage.addReleaseBlacklist({ gameId, releaseTitle: "Game-SKIDROW" });
+      expect(second.id).toBe(first.id);
+    });
+
+    it("should list blacklist entries for a game", async () => {
+      await storage.addReleaseBlacklist({ gameId, releaseTitle: "Game-SKIDROW" });
+      await storage.addReleaseBlacklist({ gameId, releaseTitle: "Game-CODEX" });
+      const entries = await storage.getReleaseBlacklist(gameId);
+      expect(entries).toHaveLength(2);
+      expect(entries.map((e) => e.releaseTitle)).toContain("Game-SKIDROW");
+      expect(entries.map((e) => e.releaseTitle)).toContain("Game-CODEX");
+    });
+
+    it("should return all blacklist entries with game titles for a user", async () => {
+      await storage.addReleaseBlacklist({ gameId, releaseTitle: "Game-SKIDROW" });
+      const all = await storage.getAllReleaseBlacklists(userId);
+      expect(all).toHaveLength(1);
+      expect(all[0].gameTitle).toBe("Blacklist Game");
+      expect(all[0].releaseTitle).toBe("Game-SKIDROW");
+    });
+
+    it("should not return entries from other users' games", async () => {
+      await storage.addReleaseBlacklist({ gameId, releaseTitle: "Game-SKIDROW" });
+      const others = await storage.getAllReleaseBlacklists("other-user");
+      expect(others).toHaveLength(0);
+    });
+
+    it("should remove a blacklist entry and return true", async () => {
+      const entry = await storage.addReleaseBlacklist({ gameId, releaseTitle: "Game-SKIDROW" });
+      const removed = await storage.removeReleaseBlacklist(entry.id, gameId);
+      expect(removed).toBe(true);
+      const remaining = await storage.getReleaseBlacklist(gameId);
+      expect(remaining).toHaveLength(0);
+    });
+
+    it("should return false when removing a non-existent entry", async () => {
+      const result = await storage.removeReleaseBlacklist("nonexistent-id", gameId);
+      expect(result).toBe(false);
+    });
+
+    it("should return a Set of release titles for a game", async () => {
+      await storage.addReleaseBlacklist({ gameId, releaseTitle: "Game-SKIDROW" });
+      await storage.addReleaseBlacklist({ gameId, releaseTitle: "Game-CODEX" });
+      const set = await storage.getReleaseBlacklistSet(gameId);
+      expect(set).toBeInstanceOf(Set);
+      expect(set.has("Game-SKIDROW")).toBe(true);
+      expect(set.has("Game-CODEX")).toBe(true);
+      expect(set.size).toBe(2);
+    });
+
+    it("should return an empty Set for a game with no blacklist entries", async () => {
+      const set = await storage.getReleaseBlacklistSet(gameId);
+      expect(set).toBeInstanceOf(Set);
+      expect(set.size).toBe(0);
+    });
+
+    it("should store and return indexerName when provided", async () => {
+      const entry = await storage.addReleaseBlacklist({
+        gameId,
+        releaseTitle: "Game-SKIDROW",
+        indexerName: "1337x",
+      });
+      expect(entry.indexerName).toBe("1337x");
+    });
+
+    it("should sort getAllReleaseBlacklists by gameTitle then newest first", async () => {
+      const gameB = await storage.addGame({
+        title: "Zebra Game",
+        igdbId: 9002,
+        status: "wanted",
+        hidden: null,
+        userId,
+      } as InsertGame);
+
+      await storage.addReleaseBlacklist({ gameId, releaseTitle: "Blacklist-1" });
+      await storage.addReleaseBlacklist({ gameId, releaseTitle: "Blacklist-2" });
+      await storage.addReleaseBlacklist({ gameId: gameB.id, releaseTitle: "Zebra-1" });
+
+      const all = await storage.getAllReleaseBlacklists(userId);
+      expect(all).toHaveLength(3);
+      // "Blacklist Game" entries precede "Zebra Game" (alphabetical)
+      expect(all[0].gameTitle).toBe("Blacklist Game");
+      expect(all[1].gameTitle).toBe("Blacklist Game");
+      expect(all[2].gameTitle).toBe("Zebra Game");
+      // Both "Blacklist Game" entries are present (order within same title is stable by creation)
+      const blTitles = [all[0].releaseTitle, all[1].releaseTitle];
+      expect(blTitles).toContain("Blacklist-1");
+      expect(blTitles).toContain("Blacklist-2");
+    });
+  });
+
+  describe("getDownloadsByGameId", () => {
+    let userId: string;
+    let gameId: string;
+    let downloaderId: string;
+
+    beforeEach(async () => {
+      const user = await storage.registerSetupUser({
+        username: "dluser",
+        passwordHash: "hash",
+      });
+      userId = user.id;
+
+      const game = await storage.addGame({
+        title: "Download Game",
+        igdbId: 5000,
+        status: "wanted",
+        hidden: false,
+        userId,
+      } as InsertGame);
+      gameId = game.id;
+
+      const downloader = await storage.addDownloader({
+        name: "qBit",
+        type: "qbittorrent",
+        url: "http://localhost:8080",
+        apiKey: "",
+        enabled: true,
+        priority: 1,
+      } as InsertDownloader);
+      downloaderId = downloader.id;
+    });
+
+    it("returns empty array when game has no downloads", async () => {
+      const downloads = await storage.getDownloadsByGameId(gameId);
+      expect(downloads).toEqual([]);
+    });
+
+    it("returns downloads for the given game with downloaderName joined", async () => {
+      await storage.addGameDownload({
+        gameId,
+        downloaderId,
+        downloadHash: "abc123",
+        downloadTitle: "Download Game-SKIDROW",
+        status: "downloading",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+
+      const downloads = await storage.getDownloadsByGameId(gameId);
+      expect(downloads).toHaveLength(1);
+      expect(downloads[0].gameId).toBe(gameId);
+      expect(downloads[0].downloaderName).toBe("qBit");
+    });
+
+    it("only returns downloads belonging to the specified game", async () => {
+      const otherGame = await storage.addGame({
+        title: "Other Game",
+        igdbId: 5001,
+        status: "wanted",
+        hidden: false,
+        userId,
+      } as InsertGame);
+
+      await storage.addGameDownload({
+        gameId,
+        downloaderId,
+        downloadHash: "hash-target",
+        downloadTitle: "Target-GROUP",
+        status: "downloading",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+      await storage.addGameDownload({
+        gameId: otherGame.id,
+        downloaderId,
+        downloadHash: "hash-other",
+        downloadTitle: "Other-GROUP",
+        status: "downloading",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+
+      const downloads = await storage.getDownloadsByGameId(gameId);
+      expect(downloads).toHaveLength(1);
+      expect(downloads[0].downloadHash).toBe("hash-target");
+    });
+
+    it("sets downloaderName to null when downloader no longer exists", async () => {
+      await storage.addGameDownload({
+        gameId,
+        downloaderId: "nonexistent-downloader",
+        downloadHash: "xyz",
+        downloadTitle: "Orphan-GROUP",
+        status: "downloading",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+
+      const downloads = await storage.getDownloadsByGameId(gameId);
+      expect(downloads).toHaveLength(1);
+      expect(downloads[0].downloaderName).toBeNull();
+    });
+
+    describe("getTrackedDownloadKeys", () => {
+      it("returns an empty set when there are no game downloads", async () => {
+        const keys = await storage.getTrackedDownloadKeys();
+        expect(keys.size).toBe(0);
+      });
+
+      it("returns a key for each game download as downloaderId:downloadHash", async () => {
+        await storage.addGameDownload({
+          gameId,
+          downloaderId,
+          downloadHash: "hash-a",
+          downloadTitle: "Game A-GROUP",
+          status: "downloading",
+          downloadType: "torrent",
+          fileSize: null,
+        } as InsertGameDownload);
+        await storage.addGameDownload({
+          gameId,
+          downloaderId,
+          downloadHash: "hash-b",
+          downloadTitle: "Game B-GROUP",
+          status: "completed",
+          downloadType: "torrent",
+          fileSize: null,
+        } as InsertGameDownload);
+
+        const keys = await storage.getTrackedDownloadKeys();
+        expect(keys.has(`${downloaderId}:hash-a`)).toBe(true);
+        expect(keys.has(`${downloaderId}:hash-b`)).toBe(true);
+        expect(keys.size).toBe(2);
+      });
+    });
+  });
+});
+
+describe("Import And Mapping Helpers", () => {
+  it("should return scoped import and RomM config values", async () => {
+    const userA = await storage.createUser({ username: "userA", passwordHash: "hash-a" });
+    const userB = await storage.createUser({ username: "userB", passwordHash: "hash-b" });
+
+    await storage.createUserSettings({
+      userId: userA.id,
+      enablePostProcessing: true,
+      autoUnpack: true,
+      overwriteExisting: true,
+      transferMode: "copy",
+      importPlatformIds: [6],
+      ignoredExtensions: [".nfo"],
+      minFileSize: 12,
+      libraryRoot: "/library/a",
+      rommEnabled: true,
+      rommLibraryRoot: "/library/a/romm",
+      rommPlatformRoutingMode: "binding-map",
+      rommPlatformBindings: { ps2: "Sony PlayStation 2" },
+      rommMoveMode: "copy",
+      rommConflictPolicy: "overwrite",
+      rommFolderNamingTemplate: "{title}",
+      rommSingleFilePlacement: "subfolder",
+      rommMultiFilePlacement: "subfolder",
+      rommIncludeRegionLanguageTags: true,
+      rommAllowedSlugs: ["ps2"],
+      rommBindingMissingBehavior: "error",
+    });
+
+    await storage.createUserSettings({
+      userId: userB.id,
+      enablePostProcessing: false,
+      autoUnpack: false,
+      libraryRoot: "/library/b",
+    });
+
+    const importConfigA = await storage.getImportConfig(userA.id);
+    expect(importConfigA).toEqual(
+      expect.objectContaining({
         enablePostProcessing: true,
         autoUnpack: true,
         overwriteExisting: true,
@@ -321,281 +665,248 @@ describe("MemStorage", () => {
         ignoredExtensions: [".nfo"],
         minFileSize: 12,
         libraryRoot: "/library/a",
-        rommEnabled: true,
-        rommLibraryRoot: "/library/a/romm",
-        rommPlatformRoutingMode: "binding-map",
-        rommPlatformBindings: { ps2: "Sony PlayStation 2" },
-        rommMoveMode: "copy",
-        rommConflictPolicy: "overwrite",
-        rommFolderNamingTemplate: "{title}",
-        rommSingleFilePlacement: "subfolder",
-        rommMultiFilePlacement: "subfolder",
-        rommIncludeRegionLanguageTags: true,
-        rommAllowedSlugs: ["ps2"],
-        rommBindingMissingBehavior: "error",
-      });
+      })
+    );
 
-      await storage.createUserSettings({
-        userId: userB.id,
+    const importConfigB = await storage.getImportConfig(userB.id);
+    expect(importConfigB).toEqual(
+      expect.objectContaining({
         enablePostProcessing: false,
         autoUnpack: false,
         libraryRoot: "/library/b",
-      });
+      })
+    );
 
-      const importConfigA = await storage.getImportConfig(userA.id);
-      expect(importConfigA).toEqual(
-        expect.objectContaining({
-          enablePostProcessing: true,
-          autoUnpack: true,
-          overwriteExisting: true,
-          transferMode: "copy",
-          importPlatformIds: [6],
-          ignoredExtensions: [".nfo"],
-          minFileSize: 12,
-          libraryRoot: "/library/a",
-        })
-      );
+    const rommConfigA = await storage.getRomMConfig(userA.id);
+    expect(rommConfigA).toEqual({
+      enabled: true,
+      libraryRoot: "/library/a/romm",
+      platformRoutingMode: "binding-map",
+      platformBindings: { ps2: "Sony PlayStation 2" },
+      moveMode: "copy",
+      conflictPolicy: "overwrite",
+      folderNamingTemplate: "{title}",
+      singleFilePlacement: "subfolder",
+      multiFilePlacement: "subfolder",
+      includeRegionLanguageTags: true,
+      allowedSlugs: ["ps2"],
+      bindingMissingBehavior: "error",
+    });
+  });
 
-      const importConfigB = await storage.getImportConfig(userB.id);
-      expect(importConfigB).toEqual(
-        expect.objectContaining({
-          enablePostProcessing: false,
-          autoUnpack: false,
-          libraryRoot: "/library/b",
-        })
-      );
-
-      const rommConfigA = await storage.getRomMConfig(userA.id);
-      expect(rommConfigA).toEqual({
-        enabled: true,
-        libraryRoot: "/library/a/romm",
-        platformRoutingMode: "binding-map",
-        platformBindings: { ps2: "Sony PlayStation 2" },
-        moveMode: "copy",
-        conflictPolicy: "overwrite",
-        folderNamingTemplate: "{title}",
-        singleFilePlacement: "subfolder",
-        multiFilePlacement: "subfolder",
-        includeRegionLanguageTags: true,
-        allowedSlugs: ["ps2"],
-        bindingMissingBehavior: "error",
-      });
+  it("should apply defaults when no matching scoped settings exist", async () => {
+    const importConfig = await storage.getImportConfig("missing-user");
+    expect(importConfig).toEqual({
+      enablePostProcessing: false,
+      autoUnpack: false,
+      renamePattern: "{Title} ({Region})",
+      overwriteExisting: false,
+      transferMode: "hardlink",
+      importPlatformIds: [],
+      ignoredExtensions: [],
+      minFileSize: 0,
+      libraryRoot: "/data",
     });
 
-    it("should apply defaults when no matching scoped settings exist", async () => {
-      const importConfig = await storage.getImportConfig("missing-user");
-      expect(importConfig).toEqual({
-        enablePostProcessing: false,
-        autoUnpack: false,
-        renamePattern: "{Title} ({Region})",
-        overwriteExisting: false,
-        transferMode: "hardlink",
-        importPlatformIds: [],
-        ignoredExtensions: [],
-        minFileSize: 0,
-        libraryRoot: "/data",
-      });
+    const rommConfig = await storage.getRomMConfig("missing-user");
+    expect(rommConfig).toEqual({
+      enabled: false,
+      libraryRoot: "/data",
+      platformRoutingMode: "slug-subfolder",
+      platformBindings: {},
+      moveMode: "move",
+      conflictPolicy: "rename",
+      folderNamingTemplate: "{title}",
+      singleFilePlacement: "root",
+      multiFilePlacement: "subfolder",
+      includeRegionLanguageTags: false,
+      allowedSlugs: undefined,
+      bindingMissingBehavior: "fallback",
+    });
+  });
 
-      const rommConfig = await storage.getRomMConfig("missing-user");
-      expect(rommConfig).toEqual({
+  it("getRomMConfig() defaults — fresh user with no romm settings", async () => {
+    const user = await storage.createUser({ username: "freshuser", passwordHash: "hash" });
+    await storage.createUserSettings({ userId: user.id });
+
+    const config = await storage.getRomMConfig(user.id);
+    expect(config.enabled).toBe(false);
+    expect(config.libraryRoot).toBe("/data");
+    expect(config.platformRoutingMode).toBe("slug-subfolder");
+    expect(config.platformBindings).toEqual({});
+  });
+
+  it("updateUserSettings() rommEnabled persists to getRomMConfig()", async () => {
+    const user = await storage.createUser({ username: "rommuser1", passwordHash: "hash" });
+    await storage.createUserSettings({ userId: user.id });
+
+    await storage.updateUserSettings(user.id, { rommEnabled: true });
+    const config = await storage.getRomMConfig(user.id);
+    expect(config.enabled).toBe(true);
+  });
+
+  it("updateUserSettings() rommLibraryRoot persists to getRomMConfig()", async () => {
+    const user = await storage.createUser({ username: "rommuser2", passwordHash: "hash" });
+    await storage.createUserSettings({ userId: user.id });
+
+    await storage.updateUserSettings(user.id, { rommLibraryRoot: "/media/romm" });
+    const config = await storage.getRomMConfig(user.id);
+    expect(config.libraryRoot).toBe("/media/romm");
+  });
+
+  it("updateUserSettings() rommPlatformRoutingMode persists to getRomMConfig()", async () => {
+    const user = await storage.createUser({ username: "rommuser3", passwordHash: "hash" });
+    await storage.createUserSettings({ userId: user.id });
+
+    await storage.updateUserSettings(user.id, { rommPlatformRoutingMode: "binding-map" });
+    const config = await storage.getRomMConfig(user.id);
+    expect(config.platformRoutingMode).toBe("binding-map");
+  });
+
+  it("updateUserSettings() rommMoveMode persists to getRomMConfig()", async () => {
+    const user = await storage.createUser({ username: "rommuser4", passwordHash: "hash" });
+    await storage.createUserSettings({ userId: user.id });
+
+    await storage.updateUserSettings(user.id, { rommMoveMode: "move" });
+    const config = await storage.getRomMConfig(user.id);
+    expect(config.moveMode).toBe("move");
+  });
+
+  it("getRomMConfig() missing user returns default config without throwing", async () => {
+    const config = await storage.getRomMConfig("nonexistent-user-id");
+    expect(config).toEqual(
+      expect.objectContaining({
         enabled: false,
         libraryRoot: "/data",
         platformRoutingMode: "slug-subfolder",
         platformBindings: {},
-        moveMode: "move",
-        conflictPolicy: "rename",
-        folderNamingTemplate: "{title}",
-        singleFilePlacement: "root",
-        multiFilePlacement: "subfolder",
-        includeRegionLanguageTags: false,
-        allowedSlugs: undefined,
-        bindingMissingBehavior: "fallback",
-      });
+      })
+    );
+  });
+
+  it("should CRUD path and platform mappings", async () => {
+    const pathMapping = await storage.addPathMapping({
+      localPath: "/local",
+      remotePath: "/remote",
     });
 
-    it("getRomMConfig() defaults — fresh user with no romm settings", async () => {
-      const user = await storage.createUser({ username: "freshuser", passwordHash: "hash" });
-      await storage.createUserSettings({ userId: user.id });
+    expect(pathMapping.remoteHost).toBeNull();
+    expect(await storage.getPathMapping(pathMapping.id)).toEqual(pathMapping);
+    expect((await storage.getPathMappings()).map((m) => m.id)).toContain(pathMapping.id);
 
-      const config = await storage.getRomMConfig(user.id);
-      expect(config.enabled).toBe(false);
-      expect(config.libraryRoot).toBe("/data");
-      expect(config.platformRoutingMode).toBe("slug-subfolder");
-      expect(config.platformBindings).toEqual({});
+    const updatedPath = await storage.updatePathMapping(pathMapping.id, {
+      localPath: "/local/updated",
+      remoteHost: "host-a",
     });
-
-    it("updateUserSettings() rommEnabled persists to getRomMConfig()", async () => {
-      const user = await storage.createUser({ username: "rommuser1", passwordHash: "hash" });
-      await storage.createUserSettings({ userId: user.id });
-
-      await storage.updateUserSettings(user.id, { rommEnabled: true });
-      const config = await storage.getRomMConfig(user.id);
-      expect(config.enabled).toBe(true);
-    });
-
-    it("updateUserSettings() rommLibraryRoot persists to getRomMConfig()", async () => {
-      const user = await storage.createUser({ username: "rommuser2", passwordHash: "hash" });
-      await storage.createUserSettings({ userId: user.id });
-
-      await storage.updateUserSettings(user.id, { rommLibraryRoot: "/media/romm" });
-      const config = await storage.getRomMConfig(user.id);
-      expect(config.libraryRoot).toBe("/media/romm");
-    });
-
-    it("updateUserSettings() rommPlatformRoutingMode persists to getRomMConfig()", async () => {
-      const user = await storage.createUser({ username: "rommuser3", passwordHash: "hash" });
-      await storage.createUserSettings({ userId: user.id });
-
-      await storage.updateUserSettings(user.id, { rommPlatformRoutingMode: "binding-map" });
-      const config = await storage.getRomMConfig(user.id);
-      expect(config.platformRoutingMode).toBe("binding-map");
-    });
-
-    it("updateUserSettings() rommMoveMode persists to getRomMConfig()", async () => {
-      const user = await storage.createUser({ username: "rommuser4", passwordHash: "hash" });
-      await storage.createUserSettings({ userId: user.id });
-
-      await storage.updateUserSettings(user.id, { rommMoveMode: "move" });
-      const config = await storage.getRomMConfig(user.id);
-      expect(config.moveMode).toBe("move");
-    });
-
-    it("getRomMConfig() missing user returns default config without throwing", async () => {
-      const config = await storage.getRomMConfig("nonexistent-user-id");
-      expect(config).toEqual(
-        expect.objectContaining({
-          enabled: false,
-          libraryRoot: "/data",
-          platformRoutingMode: "slug-subfolder",
-          platformBindings: {},
-        })
-      );
-    });
-
-    it("should CRUD path and platform mappings", async () => {
-      const pathMapping = await storage.addPathMapping({
-        localPath: "/local",
-        remotePath: "/remote",
-      });
-
-      expect(pathMapping.remoteHost).toBeNull();
-      expect(await storage.getPathMapping(pathMapping.id)).toEqual(pathMapping);
-      expect((await storage.getPathMappings()).map((m) => m.id)).toContain(pathMapping.id);
-
-      const updatedPath = await storage.updatePathMapping(pathMapping.id, {
+    expect(updatedPath).toEqual(
+      expect.objectContaining({
         localPath: "/local/updated",
         remoteHost: "host-a",
-      });
-      expect(updatedPath).toEqual(
-        expect.objectContaining({
-          localPath: "/local/updated",
-          remoteHost: "host-a",
-        })
-      );
-      expect(await storage.removePathMapping(pathMapping.id)).toBe(true);
-      expect(await storage.getPathMapping(pathMapping.id)).toBeUndefined();
+      })
+    );
+    expect(await storage.removePathMapping(pathMapping.id)).toBe(true);
+    expect(await storage.getPathMapping(pathMapping.id)).toBeUndefined();
 
-      const platformMapping = await storage.addPlatformMapping({
-        igdbPlatformId: 6,
-        rommPlatformSlug: "n64",
-      });
-      expect(await storage.getPlatformMapping(6)).toEqual(platformMapping);
+    const platformMapping = await storage.addPlatformMapping({
+      igdbPlatformId: 6,
+      rommPlatformSlug: "n64",
+    });
+    expect(await storage.getPlatformMapping(6)).toEqual(platformMapping);
 
-      const updatedPlatform = await storage.updatePlatformMapping(platformMapping.id, {
-        rommPlatformSlug: "nintendo-64",
-      });
-      expect(updatedPlatform?.rommPlatformSlug).toBe("nintendo-64");
-      expect((await storage.getPlatformMappings()).map((m) => m.id)).toContain(platformMapping.id);
-      expect(await storage.removePlatformMapping(platformMapping.id)).toBe(true);
-      expect(await storage.getPlatformMapping(6)).toBeUndefined();
+    const updatedPlatform = await storage.updatePlatformMapping(platformMapping.id, {
+      rommPlatformSlug: "nintendo-64",
+    });
+    expect(updatedPlatform?.rommPlatformSlug).toBe("nintendo-64");
+    expect((await storage.getPlatformMappings()).map((m) => m.id)).toContain(platformMapping.id);
+    expect(await storage.removePlatformMapping(platformMapping.id)).toBe(true);
+    expect(await storage.getPlatformMapping(6)).toBeUndefined();
+  });
+
+  it("seedPlatformMappingsIfEmpty() is idempotent — calling twice does not create duplicates", async () => {
+    const seed = [
+      { igdbPlatformId: 100, rommPlatformSlug: "snes" },
+      { igdbPlatformId: 101, rommPlatformSlug: "nes" },
+    ];
+
+    const first = await storage.seedPlatformMappingsIfEmpty(seed);
+    expect(first.seeded).toBe(true);
+    expect(first.count).toBe(2);
+
+    const second = await storage.seedPlatformMappingsIfEmpty(seed);
+    expect(second.seeded).toBe(false);
+
+    const all = await storage.getPlatformMappings();
+    expect(all).toHaveLength(2);
+  });
+
+  it("getRomMConfig() with rommEnabled=true but no libraryRoot set returns default libraryRoot '/data'", async () => {
+    const user = await storage.createUser({ username: "rommdefault", passwordHash: "hash" });
+    await storage.createUserSettings({
+      userId: user.id,
+      rommEnabled: true,
+      // rommLibraryRoot deliberately omitted
     });
 
-    it("seedPlatformMappingsIfEmpty() is idempotent — calling twice does not create duplicates", async () => {
-      const seed = [
-        { igdbPlatformId: 100, rommPlatformSlug: "snes" },
-        { igdbPlatformId: 101, rommPlatformSlug: "nes" },
-      ];
+    const config = await storage.getRomMConfig(user.id);
+    expect(config.enabled).toBe(true);
+    expect(config.libraryRoot).toBe("/data");
+  });
 
-      const first = await storage.seedPlatformMappingsIfEmpty(seed);
-      expect(first.seeded).toBe(true);
-      expect(first.count).toBe(2);
+  it("updateUserSettings() with rommAllowedSlugs array persists and is reflected in getUserSettings", async () => {
+    const user = await storage.createUser({ username: "sluguser", passwordHash: "hash" });
+    await storage.createUserSettings({ userId: user.id });
 
-      const second = await storage.seedPlatformMappingsIfEmpty(seed);
-      expect(second.seeded).toBe(false);
+    await storage.updateUserSettings(user.id, { rommAllowedSlugs: ["ps2", "n64", "gba"] });
 
-      const all = await storage.getPlatformMappings();
-      expect(all).toHaveLength(2);
+    const settings = await storage.getUserSettings(user.id);
+    expect(settings?.rommAllowedSlugs).toEqual(["ps2", "n64", "gba"]);
+  });
+
+  it("updateUserSettings() partial update of rommEnabled does not reset rommLibraryRoot", async () => {
+    const user = await storage.createUser({ username: "partialupdate", passwordHash: "hash" });
+    await storage.createUserSettings({
+      userId: user.id,
+      rommLibraryRoot: "/media/games/romm",
     });
 
-    it("getRomMConfig() with rommEnabled=true but no libraryRoot set returns default libraryRoot '/data'", async () => {
-      const user = await storage.createUser({ username: "rommdefault", passwordHash: "hash" });
-      await storage.createUserSettings({
-        userId: user.id,
-        rommEnabled: true,
-        // rommLibraryRoot deliberately omitted
-      });
+    await storage.updateUserSettings(user.id, { rommEnabled: true });
 
-      const config = await storage.getRomMConfig(user.id);
-      expect(config.enabled).toBe(true);
-      expect(config.libraryRoot).toBe("/data");
+    const settings = await storage.getUserSettings(user.id);
+    expect(settings?.rommEnabled).toBe(true);
+    expect(settings?.rommLibraryRoot).toBe("/media/games/romm");
+  });
+
+  it("should expose getGameDownload and filter active downloads", async () => {
+    const downloading = await storage.addGameDownload({
+      gameId: "game-1",
+      downloaderId: "dl-1",
+      downloadHash: "hash-1",
+      downloadTitle: "Downloading",
+      status: "downloading",
     });
 
-    it("updateUserSettings() with rommAllowedSlugs array persists and is reflected in getUserSettings", async () => {
-      const user = await storage.createUser({ username: "sluguser", passwordHash: "hash" });
-      await storage.createUserSettings({ userId: user.id });
-
-      await storage.updateUserSettings(user.id, { rommAllowedSlugs: ["ps2", "n64", "gba"] });
-
-      const settings = await storage.getUserSettings(user.id);
-      expect(settings?.rommAllowedSlugs).toEqual(["ps2", "n64", "gba"]);
+    await storage.addGameDownload({
+      gameId: "game-2",
+      downloaderId: "dl-1",
+      downloadHash: "hash-2",
+      downloadTitle: "Completed",
+      status: "completed",
     });
 
-    it("updateUserSettings() partial update of rommEnabled does not reset rommLibraryRoot", async () => {
-      const user = await storage.createUser({ username: "partialupdate", passwordHash: "hash" });
-      await storage.createUserSettings({
-        userId: user.id,
-        rommLibraryRoot: "/media/games/romm",
-      });
-
-      await storage.updateUserSettings(user.id, { rommEnabled: true });
-
-      const settings = await storage.getUserSettings(user.id);
-      expect(settings?.rommEnabled).toBe(true);
-      expect(settings?.rommLibraryRoot).toBe("/media/games/romm");
+    await storage.addGameDownload({
+      gameId: "game-3",
+      downloaderId: "dl-1",
+      downloadHash: "hash-3",
+      downloadTitle: "Error",
+      status: "error",
     });
 
-    it("should expose getGameDownload and filter active downloads", async () => {
-      const downloading = await storage.addGameDownload({
-        gameId: "game-1",
-        downloaderId: "dl-1",
-        downloadHash: "hash-1",
-        downloadTitle: "Downloading",
-        status: "downloading",
-      });
+    const activeDownloads = await storage.getDownloadingGameDownloads();
+    expect(activeDownloads).toHaveLength(1);
+    expect(activeDownloads[0].id).toBe(downloading.id);
 
-      await storage.addGameDownload({
-        gameId: "game-2",
-        downloaderId: "dl-1",
-        downloadHash: "hash-2",
-        downloadTitle: "Completed",
-        status: "completed",
-      });
-
-      await storage.addGameDownload({
-        gameId: "game-3",
-        downloaderId: "dl-1",
-        downloadHash: "hash-3",
-        downloadTitle: "Error",
-        status: "error",
-      });
-
-      const activeDownloads = await storage.getDownloadingGameDownloads();
-      expect(activeDownloads).toHaveLength(1);
-      expect(activeDownloads[0].id).toBe(downloading.id);
-
-      expect(await storage.getGameDownload(downloading.id)).toEqual(downloading);
-      expect(await storage.getGameDownload("missing-download")).toBeUndefined();
-    });
+    expect(await storage.getGameDownload(downloading.id)).toEqual(downloading);
+    expect(await storage.getGameDownload("missing-download")).toBeUndefined();
   });
 });
 

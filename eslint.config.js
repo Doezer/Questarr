@@ -10,6 +10,8 @@ export default tseslint.config(
       "**/dist/**",
       "**/node_modules/**",
       "**/.git/**",
+      "**/.omc/**",
+      "**/.claude/**",
       "**/coverage/**",
       "**/__tests__/**",
       "**/tests/**",

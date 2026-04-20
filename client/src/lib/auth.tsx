@@ -74,6 +74,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (res.status === 401 || res.status === 403) {
         localStorage.removeItem("token");
         setToken(null);
+        queryClient.clear();
         return null;
       }
 

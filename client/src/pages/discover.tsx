@@ -63,6 +63,11 @@ const DEFAULT_PLATFORMS: Platform[] = [
 // Cache duration for relatively static data (1 hour)
 const STATIC_DATA_STALE_TIME = 1000 * 60 * 60;
 
+// Client-side stale time for discovery carousel sections.
+// Aligned to the server-side Cache-Control max-age (3600s = 1 hour) so refetches
+// don't happen before the server cache can serve fresh data.
+const DISCOVERY_STALE_TIME = STATIC_DATA_STALE_TIME;
+
 // 🎨 Palette: Custom SelectTrigger that shows a loading spinner.
 const SelectTriggerWithSpinner = ({
   loading,
@@ -492,18 +497,20 @@ export default function DiscoverPage() {
         <Tabs defaultValue="igdb" className="space-y-6">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
-              <h1 className="text-2xl font-bold mb-2">Discover Games</h1>
-              <p className="text-muted-foreground">
+              <h1 className="text-2xl font-bold tracking-tight">Discover</h1>
+              <p className="text-muted-foreground text-sm mt-0.5">
                 Explore popular games, new releases, and find your next adventure
               </p>
             </div>
 
-            <TabsList>
-              <TabsTrigger value="igdb">IGDB Discovery</TabsTrigger>
-              <TabsTrigger value="rss" className="gap-2">
-                <Rss className="h-4 w-4" /> RSS Feeds
-              </TabsTrigger>
-            </TabsList>
+            <div className="flex items-center gap-3 shrink-0">
+              <TabsList>
+                <TabsTrigger value="igdb">IGDB</TabsTrigger>
+                <TabsTrigger value="rss" className="gap-2">
+                  <Rss className="h-4 w-4" /> RSS
+                </TabsTrigger>
+              </TabsList>
+            </div>
           </div>
 
           <TabsContent value="igdb" className="space-y-8">
@@ -535,6 +542,7 @@ export default function DiscoverPage() {
               title="Popular Games"
               queryKey={["/api/igdb/popular", hiddenIgdbIds.size, hideOwned, hideWanted]}
               queryFn={fetchPopularGames}
+              staleTime={DISCOVERY_STALE_TIME}
               onStatusChange={handleStatusChange}
               onTrackGame={handleTrackGame}
               onToggleHidden={handleToggleHidden}
@@ -546,6 +554,7 @@ export default function DiscoverPage() {
               title="Recent Releases"
               queryKey={["/api/igdb/recent", hiddenIgdbIds.size, hideOwned, hideWanted]}
               queryFn={fetchRecentGames}
+              staleTime={DISCOVERY_STALE_TIME}
               onStatusChange={handleStatusChange}
               onTrackGame={handleTrackGame}
               onToggleHidden={handleToggleHidden}
@@ -557,6 +566,7 @@ export default function DiscoverPage() {
               title="Coming Soon"
               queryKey={["/api/igdb/upcoming", hiddenIgdbIds.size, hideOwned, hideWanted]}
               queryFn={fetchUpcomingGames}
+              staleTime={DISCOVERY_STALE_TIME}
               onStatusChange={handleStatusChange}
               onTrackGame={handleTrackGame}
               onToggleHidden={handleToggleHidden}
@@ -594,6 +604,7 @@ export default function DiscoverPage() {
                   hideWanted,
                 ]}
                 queryFn={fetchGamesByGenre}
+                staleTime={DISCOVERY_STALE_TIME}
                 onStatusChange={handleStatusChange}
                 onTrackGame={handleTrackGame}
                 onToggleHidden={handleToggleHidden}
@@ -632,6 +643,7 @@ export default function DiscoverPage() {
                   hideWanted,
                 ]}
                 queryFn={fetchGamesByPlatform}
+                staleTime={DISCOVERY_STALE_TIME}
                 onStatusChange={handleStatusChange}
                 onTrackGame={handleTrackGame}
                 onToggleHidden={handleToggleHidden}

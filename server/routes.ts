@@ -6,14 +6,18 @@ import { db } from "./db.js";
 import { sql } from "drizzle-orm";
 import {
   insertGameSchema,
+  insertGameDownloadSchema,
   updateGameStatusSchema,
   updateGameHiddenSchema,
+  updateGameUserRatingSchema,
   insertIndexerSchema,
   insertDownloaderSchema,
   insertNotificationSchema,
   updateUserSettingsSchema,
   updatePasswordSchema,
   insertRssFeedSchema,
+  insertReleaseBlacklistSchema,
+  claimDownloadRequestSchema,
   type Config,
   type Game,
   type Indexer,
@@ -31,6 +35,7 @@ import {
   validateRequest,
   sanitizeSearchQuery,
   sanitizeGameId,
+  sanitizeDownloadId,
   sanitizeIgdbId,
   sanitizeGameStatus,
   sanitizeGameData,
@@ -45,7 +50,15 @@ import { config as appConfig } from "./config.js";
 import { configLoader } from "./config-loader.js";
 import { prowlarrClient } from "./prowlarr.js";
 import { isSafeUrl, safeFetch } from "./ssrf.js";
-import { hashPassword, comparePassword, generateToken, authenticateToken } from "./auth.js";
+import {
+  hashPassword,
+  comparePassword,
+  generateToken,
+  authenticateToken,
+  optionalAuthenticateToken,
+} from "./auth.js";
+import { hltbClient } from "./hltb.js";
+import { nexusmodsClient } from "./nexusmods.js";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -60,14 +73,26 @@ const upload = multer({
     fileSize: 5 * 1024 * 1024, // 5MB limit
   },
 });
-import { searchAllIndexers } from "./search.js";
+import { searchAllIndexers, filterBlacklistedReleases } from "./search.js";
 import { xrelClient, DEFAULT_XREL_BASE, ALLOWED_XREL_DOMAINS } from "./xrel.js";
-import { normalizeTitle, cleanReleaseName } from "../shared/title-utils.js";
+import {
+  normalizeTitle,
+  cleanReleaseName,
+  releaseMatchesGame,
+  parseReleaseMetadata,
+  matchesPlatformFilter,
+} from "../shared/title-utils.js";
+import { categorizeDownload } from "../shared/download-categorizer.js";
 import archiver from "archiver";
 import helmet from "helmet";
 import { steamRoutes } from "./steam-routes.js";
 import { importRouter } from "./routes/import.js";
 import { systemRouter } from "./routes/system.js";
+import { pcgamingwikiRouter } from "./pcgamingwiki-router.js";
+
+// Cache-Control header values for IGDB discovery endpoints
+const CC_IGDB_GAME_LIST = "public, max-age=3600, stale-while-revalidate=600";
+const CC_IGDB_METADATA = "public, max-age=86400, stale-while-revalidate=3600";
 
 // ⚡ Bolt: Simple in-memory cache implementation to avoid external dependencies
 // Caches storage info for 30 seconds to prevent spamming downloaders
@@ -123,10 +148,44 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
       offset,
     });
 
+    // Filter out blacklisted releases when a gameId context is provided
+    const gameId = req.query.gameId as string | undefined;
+    let filteredItems = items;
+    let blacklistedCount = 0;
+    if (gameId && req.user) {
+      const game = await storage.getGame(gameId);
+      if (game && game.userId === req.user.id) {
+        const [blacklisted, userSettings] = await Promise.all([
+          storage.getReleaseBlacklistSet(gameId),
+          storage.getUserSettings(req.user.id),
+        ]);
+        filteredItems = filterBlacklistedReleases(items, blacklisted);
+        blacklistedCount = items.length - filteredItems.length;
+
+        // Update the "has results" flag only for canonical game-title searches so that
+        // partial/custom user-typed queries in the download dialog don't flip the badge
+        // based on a transient, narrow result set. Runs async to avoid blocking the response.
+        const isCanonicalSearch = normalizeTitle(query.trim()) === normalizeTitle(game.title);
+        if (isCanonicalSearch) {
+          const preferredPlatform = userSettings?.preferredPlatform ?? null;
+          const platformFiltered = preferredPlatform
+            ? filteredItems.filter((item) => {
+                const { platform } = parseReleaseMetadata(item.title);
+                return matchesPlatformFilter(platform, preferredPlatform);
+              })
+            : filteredItems;
+          storage
+            .updateGameSearchResultsAvailable(game.id, platformFiltered.length > 0)
+            .catch((err) => routesLogger.warn({ err }, "Failed to update searchResultsAvailable"));
+        }
+      }
+    }
+
     res.json({
-      items,
+      items: filteredItems,
       total,
       offset,
+      ...(blacklistedCount > 0 ? { blacklistedCount } : {}),
       errors: errors.length > 0 ? errors : undefined,
     });
   } catch (error) {
@@ -171,7 +230,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
             Iterable<string> | null
           >),
           "script-src": scriptSrc,
-          "img-src": ["'self'", "data:", "https://images.igdb.com"],
+          "img-src": [
+            "'self'",
+            "data:",
+            "https://images.igdb.com",
+            "https://staticdelivery.nexusmods.com",
+          ],
           "connect-src": connectSrc,
           "upgrade-insecure-requests": isSslEnabled ? [] : null,
         },
@@ -182,6 +246,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   );
   // Use Steam Routes
   app.use(steamRoutes);
+  // Use PCGamingWiki Routes
+  app.use(pcgamingwikiRouter);
 
   // Auth Routes
   app.get("/api/auth/status", async (_req, res) => {
@@ -213,25 +279,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Username and password must be strings" });
       }
 
-      if (username.length < 3) {
+      const trimmedUsername = username.trim();
+      const trimmedPassword = password.trim();
+
+      if (trimmedUsername.length < 3) {
         return res.status(400).json({ error: "Username must be at least 3 characters" });
       }
 
-      if (password.length < 6) {
+      if (trimmedPassword.length < 6) {
         return res.status(400).json({ error: "Password must be at least 6 characters" });
       }
 
-      if (username.length > 50) {
+      if (trimmedUsername.length > 50) {
         return res.status(400).json({ error: "Username must be at most 50 characters" });
       }
 
       // Create first user
       // Create first user atomically
-      const passwordHash = await hashPassword(password);
+      const passwordHash = await hashPassword(trimmedPassword);
 
       let user;
       try {
-        user = await storage.registerSetupUser({ username, passwordHash });
+        user = await storage.registerSetupUser({ username: trimmedUsername, passwordHash });
       } catch (error) {
         if (error instanceof Error && error.message === "Setup already completed") {
           return res.status(403).json({ error: "Setup already completed" });
@@ -255,7 +324,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      routesLogger.info({ username }, "Initial setup completed");
+      routesLogger.info({ username: trimmedUsername }, "Initial setup completed");
       res.json({ token, user: { id: user.id, username: user.username } });
     } catch (error) {
       routesLogger.error(
@@ -272,9 +341,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/auth/login", authRateLimiter, async (req, res) => {
     const { username, password } = req.body;
-    const user = await storage.getUserByUsername(username);
 
-    if (!user || !(await comparePassword(password, user.passwordHash))) {
+    if (typeof username !== "string" || typeof password !== "string") {
+      return res
+        .status(400)
+        .json({ error: "Username and password are required and must be strings" });
+    }
+
+    const trimmedUsername = username.trim();
+    const trimmedPassword = password.trim();
+    const user = await storage.getUserByUsername(trimmedUsername);
+
+    // Backward-compatible check: try the raw password first (for accounts created before
+    // trimming was introduced), then fall back to the trimmed value.
+    let passwordMatches = false;
+    if (user) {
+      passwordMatches = await comparePassword(password, user.passwordHash);
+      if (!passwordMatches && trimmedPassword !== password) {
+        passwordMatches = await comparePassword(trimmedPassword, user.passwordHash);
+      }
+    }
+
+    if (!user || !passwordMatches) {
       return res.status(401).json({ error: "Invalid username or password" });
     }
 
@@ -735,8 +823,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/system", authenticateToken, systemRouter);
 
   // Sync indexers from Prowlarr
-
-  // Sync indexers from Prowlarr
   app.post("/api/indexers/prowlarr/sync", sensitiveEndpointLimiter, async (req, res, next) => {
     try {
       const { url, apiKey } = req.body;
@@ -882,7 +968,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const gameData = insertGameSchema.parse({ ...req.body, userId });
 
         const userGames = await storage.getUserGames(userId, true); // Check against all games including hidden
-        const existingGame = userGames.find((g) => g.igdbId === gameData.igdbId);
+        const existingGame = userGames.find((g) =>
+          gameData.igdbId != null
+            ? g.igdbId === gameData.igdbId
+            : g.title.toLowerCase() === gameData.title.toLowerCase()
+        );
 
         if (existingGame) {
           return res.status(409).json({ error: "Game already in collection", game: existingGame });
@@ -957,8 +1047,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   );
 
+  // Update personal user rating (0.5–10 in 0.5 increments, or null to clear)
+  app.patch(
+    "/api/games/:id/user-rating",
+    sensitiveEndpointLimiter,
+    sanitizeGameId,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const { id } = req.params;
+        const userId = req.user!.id;
+        const { userRating } = updateGameUserRatingSchema.parse(req.body);
+
+        const updatedGame = await storage.updateGameUserRating(id, userId, userRating);
+        if (!updatedGame) {
+          return res.status(404).json({ error: "Game not found" });
+        }
+
+        res.json(updatedGame);
+      } catch (error) {
+        if (error instanceof z.ZodError) {
+          return res.status(400).json({ error: "Invalid user rating data", details: error.errors });
+        }
+        routesLogger.error({ error }, "error updating game user rating");
+        res.status(500).json({ error: "Failed to update user rating" });
+      }
+    }
+  );
+
   // Refresh metadata for all games
-  app.post("/api/games/refresh-metadata", async (req, res) => {
+  app.post("/api/games/refresh-metadata", igdbRateLimiter, async (req, res) => {
     try {
       const userId = req.user!.id;
       const userGames = await storage.getUserGames(userId, true);
@@ -998,12 +1116,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   publishers: updatedData.publishers as string[],
                   developers: updatedData.developers as string[],
                   summary: updatedData.summary as string,
-                  rating: updatedData.rating as number,
+                  rating: updatedData.rating as number | null,
                   genres: updatedData.genres as string[],
                   platforms: updatedData.platforms as string[],
                   coverUrl: updatedData.coverUrl as string,
                   screenshots: updatedData.screenshots as string[],
                   releaseDate: updatedData.releaseDate as string,
+                  earlyAccess: updatedData.earlyAccess as boolean,
+                  igdbWebsites: z
+                    .array(z.object({ url: z.string(), category: z.number() }))
+                    .catch([])
+                    .parse(updatedData.igdbWebsites),
+                  aggregatedRating: updatedData.aggregatedRating as number | undefined,
                 },
               });
             }
@@ -1064,6 +1188,127 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   );
 
+  // Get downloads for a specific game
+  app.get(
+    "/api/games/:id/downloads",
+    sanitizeGameId,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const userId = req.user!.id;
+        const game = await resolveOwnedGame(req.params.id, userId, res);
+        if (!game) return;
+        const downloads = await storage.getDownloadsByGameId(req.params.id);
+        res.json(downloads);
+      } catch (error) {
+        routesLogger.error({ error }, "error fetching game downloads");
+        res.status(500).json({ error: "Failed to fetch game downloads" });
+      }
+    }
+  );
+
+  // ── Release Blacklist routes ──
+
+  /** Resolves a game by id and verifies ownership; sends 404/403 and returns null on failure. */
+  async function resolveOwnedGame(
+    gameId: string,
+    userId: string,
+    res: Response
+  ): Promise<Awaited<ReturnType<typeof storage.getGame>> | null> {
+    const game = await storage.getGame(gameId);
+    if (!game) {
+      res.status(404).json({ error: "Game not found" });
+      return null;
+    }
+    if (game.userId !== userId) {
+      res.status(403).json({ error: "Forbidden" });
+      return null;
+    }
+    return game;
+  }
+
+  // Add release to blacklist for a specific game
+  app.post(
+    "/api/games/:gameId/blacklist",
+    authenticateToken,
+    async (req: Request, res: Response) => {
+      try {
+        const { gameId } = req.params;
+        const userId = req.user!.id;
+
+        if (!(await resolveOwnedGame(gameId, userId, res))) return;
+
+        const parsed = insertReleaseBlacklistSchema.safeParse({ ...req.body, gameId });
+        if (!parsed.success) {
+          return res.status(400).json({ error: "Invalid data", details: parsed.error.issues });
+        }
+        const { releaseTitle } = parsed.data;
+        if (!releaseTitle || releaseTitle.length > 500) {
+          return res.status(400).json({ error: "releaseTitle required (max 500 chars)" });
+        }
+
+        const entry = await storage.addReleaseBlacklist(parsed.data);
+        res.status(201).json(entry);
+      } catch (error) {
+        routesLogger.error({ error }, "error adding to blacklist");
+        res.status(500).json({ error: "Failed to add to blacklist" });
+      }
+    }
+  );
+
+  // List blacklisted releases for a game
+  app.get(
+    "/api/games/:gameId/blacklist",
+    authenticateToken,
+    async (req: Request, res: Response) => {
+      try {
+        const { gameId } = req.params;
+        const userId = req.user!.id;
+
+        if (!(await resolveOwnedGame(gameId, userId, res))) return;
+
+        const entries = await storage.getReleaseBlacklist(gameId);
+        res.json(entries);
+      } catch (error) {
+        routesLogger.error({ error }, "error listing blacklist");
+        res.status(500).json({ error: "Failed to list blacklist" });
+      }
+    }
+  );
+
+  // Remove a blacklist entry
+  app.delete(
+    "/api/games/:gameId/blacklist/:id",
+    authenticateToken,
+    async (req: Request, res: Response) => {
+      try {
+        const { gameId, id } = req.params;
+        const userId = req.user!.id;
+
+        if (!(await resolveOwnedGame(gameId, userId, res))) return;
+
+        const deleted = await storage.removeReleaseBlacklist(id, gameId);
+        if (!deleted) return res.status(404).json({ error: "Blacklist entry not found" });
+        res.status(204).send();
+      } catch (error) {
+        routesLogger.error({ error }, "error removing from blacklist");
+        res.status(500).json({ error: "Failed to remove from blacklist" });
+      }
+    }
+  );
+
+  // List all blacklisted releases across all user's games (for Settings page)
+  app.get("/api/blacklist", authenticateToken, async (req: Request, res: Response) => {
+    try {
+      const userId = req.user!.id;
+      const entries = await storage.getAllReleaseBlacklists(userId);
+      res.json(entries);
+    } catch (error) {
+      routesLogger.error({ error }, "error listing all blacklists");
+      res.status(500).json({ error: "Failed to list blacklists" });
+    }
+  });
+
   // IGDB discovery routes
 
   // Search IGDB for games
@@ -1095,9 +1340,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/games/discover", igdbRateLimiter, async (req, res) => {
     try {
       const limit = req.query.limit ? parseInt(req.query.limit as string) : 20;
+      const userId = req.user!.id;
 
       // Get user's current games for recommendations
-      const userGames = await storage.getAllGames();
+      const userGames = await storage.getUserGames(userId, true);
 
       // Get recommendations from IGDB
       const igdbGames = await igdbClient.getRecommendations(
@@ -1126,6 +1372,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const igdbGames = await igdbClient.getPopularGames(limitNum);
       const formattedGames = igdbGames.map((game) => igdbClient.formatGameData(game));
 
+      res.set("Cache-Control", CC_IGDB_GAME_LIST);
       res.json(formattedGames);
     } catch (error) {
       routesLogger.error({ error }, "error fetching popular games");
@@ -1142,6 +1389,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const igdbGames = await igdbClient.getRecentReleases(limitNum);
       const formattedGames = igdbGames.map((game) => igdbClient.formatGameData(game));
 
+      res.set("Cache-Control", CC_IGDB_GAME_LIST);
       res.json(formattedGames);
     } catch (error) {
       routesLogger.error({ error }, "error fetching recent releases");
@@ -1158,6 +1406,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const igdbGames = await igdbClient.getUpcomingReleases(limitNum);
       const formattedGames = igdbGames.map((game) => igdbClient.formatGameData(game));
 
+      res.set("Cache-Control", CC_IGDB_GAME_LIST);
       res.json(formattedGames);
     } catch (error) {
       routesLogger.error({ error }, "error fetching upcoming releases");
@@ -1181,6 +1430,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const igdbGames = await igdbClient.getGamesByGenre(genre, limit, offset);
       const formattedGames = igdbGames.map((game) => igdbClient.formatGameData(game));
 
+      res.set("Cache-Control", CC_IGDB_GAME_LIST);
       res.json(formattedGames);
     } catch (error) {
       console.error("Error fetching games by genre:", error);
@@ -1204,6 +1454,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const igdbGames = await igdbClient.getGamesByPlatform(platform, limit, offset);
       const formattedGames = igdbGames.map((game) => igdbClient.formatGameData(game));
 
+      res.set("Cache-Control", CC_IGDB_GAME_LIST);
       res.json(formattedGames);
     } catch (error) {
       console.error("Error fetching games by platform:", error);
@@ -1215,6 +1466,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/igdb/genres", igdbRateLimiter, async (req, res) => {
     try {
       const genres = await igdbClient.getGenres();
+      res.set("Cache-Control", CC_IGDB_METADATA);
       res.json(genres);
     } catch (error) {
       console.error("Error fetching genres:", error);
@@ -1226,6 +1478,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/igdb/platforms", igdbRateLimiter, async (req, res) => {
     try {
       const platforms = await igdbClient.getPlatforms();
+      res.set("Cache-Control", CC_IGDB_METADATA);
       res.json(platforms);
     } catch (error) {
       console.error("Error fetching platforms:", error);
@@ -1289,6 +1542,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Aggregated search across all enabled indexers
   app.get(
     "/api/indexers/search",
+    optionalAuthenticateToken,
     sanitizeIndexerSearchQuery,
     validateRequest,
     handleAggregatedIndexerSearch
@@ -1543,6 +1797,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Search for games using configured indexers (alias for /api/indexers/search)
   app.get(
     "/api/search",
+    optionalAuthenticateToken,
     sanitizeIndexerSearchQuery,
     validateRequest,
     handleAggregatedIndexerSearch
@@ -1916,6 +2171,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/downloads", async (req, res) => {
     try {
       const enabledDownloaders = await storage.getEnabledDownloaders();
+      const trackedKeys = await storage.getTrackedDownloadKeys();
       // ⚡ Bolt: Fetch downloads from all downloaders in parallel to reduce latency.
       const results = await Promise.all(
         enabledDownloaders.map(async (downloader) => {
@@ -1927,6 +2183,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 ...download,
                 downloaderId: downloader.id,
                 downloaderName: downloader.name,
+                trackedByQuestarr:
+                  trackedKeys.has(`${downloader.id}:${download.id}`) ||
+                  trackedKeys.has(`${downloader.id}:${download.id.toLowerCase()}`),
+                downloaderCategory: downloader.category ?? undefined,
               })),
             };
           } catch (error) {
@@ -1961,6 +2221,273 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: "Failed to get downloads" });
     }
   });
+
+  app.get("/api/downloads/summary", authenticateToken, async (req, res) => {
+    try {
+      const summary = await storage.getDownloadSummaryByGame(req.user!.id);
+      res.json(summary);
+    } catch (error) {
+      routesLogger.error({ module: "routes", error }, "Failed to get download summary");
+      res.status(500).json({ error: "Failed to get download summary" });
+    }
+  });
+
+  // Scan all downloads and return those not yet linked to any game, grouped by base title with library matches
+  app.get("/api/downloads/scan", authenticateToken, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const enabledDownloaders = await storage.getEnabledDownloaders();
+      const rawTrackedKeys = await storage.getTrackedDownloadKeys();
+      // Normalise to lowercase so case differences in stored vs. live hashes never cause false "untracked" results
+      const trackedKeys = new Set(Array.from(rawTrackedKeys).map((k) => k.toLowerCase()));
+
+      // Fetch downloads from all downloaders in parallel
+      const allDownloads: Array<{
+        downloaderId: string;
+        downloaderName: string;
+        downloadId: string;
+        downloadHash: string;
+        downloadTitle: string;
+        status: string;
+        downloadType: "torrent" | "usenet";
+      }> = [];
+
+      await Promise.all(
+        enabledDownloaders.map(async (downloader) => {
+          try {
+            const downloads = await DownloaderManager.getAllDownloads(downloader);
+            for (const d of downloads) {
+              const key = `${downloader.id}:${d.id.toLowerCase()}`;
+              if (!trackedKeys.has(key)) {
+                allDownloads.push({
+                  downloaderId: downloader.id,
+                  downloaderName: downloader.name,
+                  downloadId: d.id,
+                  downloadHash: d.id.toLowerCase(),
+                  downloadTitle: d.name,
+                  status: d.status,
+                  downloadType: d.downloadType ?? "torrent",
+                });
+              }
+            }
+          } catch (error) {
+            routesLogger.warn(
+              { error, downloaderName: downloader.name },
+              "Failed to fetch downloads from downloader during scan, skipping."
+            );
+          }
+        })
+      );
+
+      // Categorize and group by normalized base title
+      type DownloadScanItem = (typeof allDownloads)[0] & {
+        category: string;
+        categoryConfidence: number;
+      };
+      const groupMap = new Map<string, { baseTitle: string; downloads: DownloadScanItem[] }>();
+
+      for (const d of allDownloads) {
+        const { category, confidence } = categorizeDownload(d.downloadTitle);
+        const baseTitle = normalizeTitle(cleanReleaseName(d.downloadTitle));
+        const key = baseTitle || normalizeTitle(d.downloadTitle);
+
+        if (!groupMap.has(key)) {
+          groupMap.set(key, { baseTitle: key, downloads: [] });
+        }
+        groupMap.get(key)!.downloads.push({ ...d, category, categoryConfidence: confidence });
+      }
+
+      // Try to match each group against user's library
+      const userGames = await storage.getUserGames(userId, false);
+
+      // Pre-calculate cleaned download titles and normalised game titles to avoid
+      // redundant string operations inside the O(N×M) matching loop.
+      const normalizedGameTitles = userGames.map((game) => ({
+        game,
+        normTitle: normalizeTitle(game.title),
+      }));
+
+      const groups = Array.from(groupMap.values()).map((group) => {
+        const cleanedDlTitles = group.downloads.map((d) => cleanReleaseName(d.downloadTitle));
+
+        // Find best library match using any download in the group
+        let libraryMatch: { game: (typeof userGames)[0]; confidence: number } | null = null;
+
+        outer: for (const { game } of normalizedGameTitles) {
+          for (let i = 0; i < group.downloads.length; i++) {
+            if (releaseMatchesGame(cleanedDlTitles[i], game.title)) {
+              libraryMatch = { game, confidence: 0.9 };
+              break outer;
+            }
+          }
+        }
+
+        return {
+          baseTitle: group.baseTitle,
+          downloads: group.downloads,
+          libraryMatch: libraryMatch
+            ? { game: libraryMatch.game, confidence: libraryMatch.confidence }
+            : null,
+        };
+      });
+
+      res.json({ groups });
+    } catch (error) {
+      routesLogger.error({ error }, "error scanning downloads");
+      res.status(500).json({ error: "Failed to scan downloads" });
+    }
+  });
+
+  // Claim (link) a download client entry to a game in the library
+  app.post("/api/downloads/claim", authenticateToken, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+
+      const parsed = claimDownloadRequestSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
+      }
+      const {
+        downloaderId,
+        downloadHash,
+        downloadTitle,
+        currentStatus,
+        category,
+        gameId,
+        newGame,
+      } = parsed.data;
+
+      if (!gameId && !newGame) {
+        return res.status(400).json({ error: "Provide either gameId or newGame" });
+      }
+
+      // Prevent duplicate: reject if this download is already linked to any game
+      const trackedKeys = await storage.getTrackedDownloadKeys();
+      if (trackedKeys.has(`${downloaderId}:${downloadHash.toLowerCase()}`)) {
+        return res.status(409).json({ error: "This download is already linked to a game" });
+      }
+
+      // Determine download status for gameDownloads record
+      const downloadStatus =
+        currentStatus === "completed" || currentStatus === "seeding"
+          ? "completed"
+          : currentStatus === "downloading"
+            ? "downloading"
+            : currentStatus === "paused"
+              ? "paused"
+              : "downloading";
+
+      let resolvedGameId: string | undefined = undefined;
+
+      if (gameId) {
+        const existing = await storage.getGame(gameId);
+        if (!existing || existing.userId !== userId) {
+          return res.status(404).json({ error: "Game not found" });
+        }
+        resolvedGameId = gameId;
+
+        // Update game status if this is the main download
+        if (category === "main") {
+          const targetStatus = downloadStatus === "completed" ? "owned" : "downloading";
+          if (
+            (targetStatus === "downloading" && existing.status === "wanted") ||
+            (targetStatus === "owned" &&
+              (existing.status === "wanted" || existing.status === "downloading"))
+          ) {
+            await storage.updateGameStatus(existing.id, { status: targetStatus });
+          }
+        }
+      } else {
+        // Avoid duplicates: reuse an existing library entry for the same IGDB game
+        if (newGame!.igdbId != null) {
+          const existing = await storage.getGameByIgdbId(newGame!.igdbId);
+          if (existing && existing.userId === userId) {
+            resolvedGameId = existing.id;
+            if (category === "main") {
+              const targetStatus = downloadStatus === "completed" ? "owned" : "downloading";
+              if (
+                (targetStatus === "downloading" && existing.status === "wanted") ||
+                (targetStatus === "owned" &&
+                  (existing.status === "wanted" || existing.status === "downloading"))
+              ) {
+                await storage.updateGameStatus(existing.id, { status: targetStatus });
+              }
+            }
+          }
+        }
+
+        if (!resolvedGameId) {
+          // Determine initial game status
+          const initialGameStatus =
+            category === "main"
+              ? downloadStatus === "completed"
+                ? "owned"
+                : "downloading"
+              : "wanted";
+
+          const game = await storage.addGame(
+            insertGameSchema.parse({
+              ...newGame,
+              userId,
+              status: initialGameStatus,
+            })
+          );
+          resolvedGameId = game.id;
+        }
+      }
+
+      const downloader = await storage.getDownloader(downloaderId);
+      if (!downloader) {
+        return res.status(404).json({ error: "Downloader not found" });
+      }
+
+      await storage.addGameDownload(
+        insertGameDownloadSchema.parse({
+          gameId: resolvedGameId!,
+          downloaderId,
+          downloadHash: downloadHash.toLowerCase(),
+          downloadTitle,
+          downloadType:
+            downloader.type === "sabnzbd" || downloader.type === "nzbget" ? "usenet" : "torrent",
+          status: downloadStatus,
+        })
+      );
+
+      // Clear stale "search results available" flag now that the game has a linked download
+      await storage.updateGameSearchResultsAvailable(resolvedGameId, false);
+
+      res.json({ success: true, gameId: resolvedGameId });
+    } catch (error) {
+      routesLogger.error({ error }, "error claiming download");
+      res.status(500).json({ error: "Failed to claim download" });
+    }
+  });
+
+  // Remove a linked download record from a game
+  app.delete(
+    "/api/games/:id/downloads/:downloadId",
+    sanitizeGameId,
+    sanitizeDownloadId,
+    validateRequest,
+    authenticateToken,
+    async (req: Request, res: Response) => {
+      try {
+        const userId = req.user!.id;
+        const game = await storage.getGame(req.params.id);
+        if (!game || game.userId !== userId) {
+          return res.status(404).json({ error: "Game not found" });
+        }
+        const removed = await storage.removeGameDownload(req.params.downloadId, req.params.id);
+        if (!removed) {
+          return res.status(404).json({ error: "Download record not found" });
+        }
+        res.json({ success: true });
+      } catch (error) {
+        routesLogger.error({ error }, "error removing game download");
+        res.status(500).json({ error: "Failed to remove download" });
+      }
+    }
+  );
 
   // Add download to best available downloader
   app.post(
@@ -2009,6 +2536,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             });
 
             await storage.updateGameStatus(gameId, { status: "downloading" });
+            await storage.updateGameSearchResultsAvailable(gameId, false);
           } catch (error) {
             routesLogger.error({ error, gameId }, "Failed to link download to game");
             // We don't fail the whole request since the download was added successfully
@@ -2081,10 +2609,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Notification routes
-  app.get("/api/notifications", async (req, res) => {
+  app.get("/api/notifications", authenticateToken, async (req, res) => {
     try {
       const limit = req.query.limit ? parseInt(req.query.limit as string) : 50;
-      const notifications = await storage.getNotifications(limit);
+      const notifications = await storage.getNotifications(req.user!.id, limit);
       res.json(notifications);
     } catch (error) {
       routesLogger.error({ error }, "error fetching notifications");
@@ -2092,9 +2620,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/notifications/unread-count", async (req, res) => {
+  app.get("/api/notifications/unread-count", authenticateToken, async (req, res) => {
     try {
-      const count = await storage.getUnreadNotificationsCount();
+      const count = await storage.getUnreadNotificationsCount(req.user!.id);
       res.json({ count });
     } catch (error) {
       routesLogger.error({ error }, "error fetching unread count");
@@ -2102,7 +2630,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/notifications", validateRequest, async (req, res) => {
+  app.post("/api/notifications", authenticateToken, validateRequest, async (req, res) => {
     try {
       const notificationData = insertNotificationSchema.parse(req.body);
       const notification = await storage.addNotification(notificationData);
@@ -2124,7 +2652,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/notifications/:id/read", async (req, res) => {
+  app.put("/api/notifications/:id/read", authenticateToken, async (req, res) => {
     try {
       const { id } = req.params;
       const notification = await storage.markNotificationAsRead(id);
@@ -2138,9 +2666,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/notifications/read-all", async (req, res) => {
+  app.put("/api/notifications/read-all", authenticateToken, async (req, res) => {
     try {
-      await storage.markAllNotificationsAsRead();
+      await storage.markAllNotificationsAsRead(req.user!.id);
       res.json({ success: true });
     } catch (error) {
       routesLogger.error({ error }, "error marking all notifications as read");
@@ -2148,9 +2676,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/notifications", async (req, res) => {
+  app.delete("/api/notifications", authenticateToken, async (req, res) => {
     try {
-      await storage.clearAllNotifications();
+      await storage.deleteReadNotifications(req.user!.id);
       res.status(204).send();
     } catch (error) {
       routesLogger.error({ error }, "error clearing notifications");
@@ -2216,6 +2744,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       routesLogger.error({ error }, "Failed to update IGDB credentials");
       res.status(500).json({ error: "Failed to update IGDB credentials" });
+    }
+  });
+
+  app.get("/api/settings/discord", async (req, res) => {
+    try {
+      const webhookUrl = await storage.getSystemConfig("discord.webhookUrl");
+      res.json({
+        configured: !!(webhookUrl && webhookUrl.length > 0),
+        webhookUrl: webhookUrl || undefined,
+      });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to fetch Discord settings");
+      res.status(500).json({ error: "Failed to fetch Discord settings" });
+    }
+  });
+
+  app.post("/api/settings/discord", async (req, res) => {
+    try {
+      const { webhookUrl } = req.body as { webhookUrl?: string };
+      if (
+        webhookUrl &&
+        !webhookUrl.startsWith("https://discord.com/api/webhooks/") &&
+        !webhookUrl.startsWith("https://discordapp.com/api/webhooks/")
+      ) {
+        return res.status(400).json({ error: "Invalid Discord webhook URL" });
+      }
+      await storage.setSystemConfig("discord.webhookUrl", webhookUrl?.trim() ?? "");
+      res.json({ success: true });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to update Discord settings");
+      res.status(500).json({ error: "Failed to update Discord settings" });
     }
   });
 
@@ -2544,7 +3103,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Check for existing
       const userGames = await storage.getUserGames(userId, true);
-      const existingGame = userGames.find((g) => g.igdbId === gameData.igdbId);
+      const existingGame = userGames.find((g) =>
+        gameData.igdbId != null
+          ? g.igdbId === gameData.igdbId
+          : g.title.toLowerCase() === gameData.title.toLowerCase()
+      );
 
       if (existingGame) {
         return res.status(409).json({ error: "Game already in collection", game: existingGame });
@@ -2631,7 +3194,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!success) {
         return res.status(404).json({ error: "Feed not found" });
       }
-      res.json({ success: true });
+      res.status(204).send();
     } catch (error) {
       routesLogger.error({ error }, "Failed to delete RSS feed");
       res.status(500).json({ error: "Failed to delete RSS feed" });
@@ -2656,6 +3219,146 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       routesLogger.error({ error }, "Failed to refresh RSS feeds");
       res.status(500).json({ error: "Failed to refresh RSS feeds" });
+    }
+  });
+
+  app.post("/api/stats/discord-share", async (req, res) => {
+    try {
+      const webhookUrl = await storage.getSystemConfig("discord.webhookUrl");
+      if (!webhookUrl) {
+        return res.status(400).json({
+          error: "Discord webhook not configured. Go to Settings → Services to set it up.",
+        });
+      }
+
+      if (
+        !webhookUrl.startsWith("https://discord.com/api/webhooks/") &&
+        !webhookUrl.startsWith("https://discordapp.com/api/webhooks/")
+      ) {
+        routesLogger.error(
+          { webhookUrl },
+          "Attempted to use an invalid Discord webhook URL for sharing."
+        );
+        return res.status(400).json({ error: "Invalid Discord webhook URL configured." });
+      }
+
+      const { image, message } = req.body as { image?: string; message?: string };
+      if (!image) return res.status(400).json({ error: "No image data provided" });
+
+      if (!/^data:image\/(png|jpeg|gif|webp);base64,/.test(image)) {
+        return res
+          .status(400)
+          .json({ error: "Invalid image format. Only PNG, JPEG, GIF, and WebP are supported." });
+      }
+
+      const base64Data = image.split(",")[1];
+      if (!base64Data) return res.status(400).json({ error: "Invalid image data" });
+
+      const imageBuffer = Buffer.from(base64Data, "base64");
+      const formData = new FormData();
+      if (message) formData.append("content", message);
+      formData.append("file", new Blob([imageBuffer], { type: "image/png" }), "questarr-stats.png");
+
+      const discordRes = await fetch(webhookUrl, { method: "POST", body: formData });
+      if (!discordRes.ok) {
+        const errorText = await discordRes.text().catch(() => "Unknown Discord error");
+        routesLogger.error(
+          { status: discordRes.status, error: errorText },
+          "Discord webhook request failed"
+        );
+        return res.status(502).json({ error: "Failed to post to Discord" });
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to share stats to Discord");
+      res.status(500).json({ error: "Failed to share stats to Discord" });
+    }
+  });
+
+  // ── NexusMods settings ───────────────────────────────────────────────────────
+
+  app.get("/api/settings/nexusmods", sensitiveEndpointLimiter, async (_req, res) => {
+    try {
+      const dbKey = await storage.getSystemConfig("nexusmods.apiKey");
+      const configured = !!(dbKey && dbKey.length > 0) || nexusmodsClient.isConfigured();
+      let source: "env" | "database" | undefined;
+      if (dbKey && dbKey.length > 0) {
+        source = "database";
+      } else if (process.env.NEXUSMODS_API_KEY) {
+        source = "env";
+      }
+      res.json({ configured, source });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to fetch NexusMods settings");
+      res.status(500).json({ error: "Failed to fetch NexusMods settings" });
+    }
+  });
+
+  app.post("/api/settings/nexusmods", sensitiveEndpointLimiter, async (req, res) => {
+    try {
+      const { apiKey } = req.body as { apiKey?: string };
+      if (!apiKey || apiKey.trim().length === 0) {
+        return res.status(400).json({ error: "API key is required" });
+      }
+      await storage.setSystemConfig("nexusmods.apiKey", apiKey.trim());
+      nexusmodsClient.configure(apiKey.trim());
+      routesLogger.info("NexusMods API key updated via settings");
+      res.json({ success: true });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to update NexusMods settings");
+      res.status(500).json({ error: "Failed to update NexusMods settings" });
+    }
+  });
+
+  // ── NexusMods game lookup ─────────────────────────────────────────────────────
+
+  app.get("/api/nexusmods/game-domain", async (req, res) => {
+    try {
+      const title = typeof req.query.title === "string" ? req.query.title.trim() : "";
+      if (!title) {
+        return res.status(400).json({ error: "title query parameter is required" });
+      }
+      if (!nexusmodsClient.isConfigured()) {
+        return res.json({ configured: false, domain: null });
+      }
+      const domain = await nexusmodsClient.findGameDomain(title);
+      res.json({ configured: true, domain });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to look up NexusMods game domain");
+      res.status(500).json({ error: "Failed to look up NexusMods game domain" });
+    }
+  });
+
+  app.get("/api/nexusmods/trending-mods", async (req, res) => {
+    try {
+      const domain = typeof req.query.domain === "string" ? req.query.domain.trim() : "";
+      if (!domain) {
+        return res.status(400).json({ error: "domain query parameter is required" });
+      }
+      const limitRaw = typeof req.query.limit === "string" ? parseInt(req.query.limit, 10) : 10;
+      const limit = Number.isNaN(limitRaw) || limitRaw < 1 ? 10 : Math.min(limitRaw, 20);
+      const mods = await nexusmodsClient.getTrendingMods(domain, limit);
+      res.json(mods);
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to fetch NexusMods trending mods");
+      res.status(500).json({ error: "Failed to fetch NexusMods trending mods" });
+    }
+  });
+
+  // ── HowLongToBeat lookup ──────────────────────────────────────────────────────
+
+  app.get("/api/hltb/lookup", authenticateToken, async (req, res) => {
+    try {
+      const title = typeof req.query.title === "string" ? req.query.title.trim() : "";
+      if (!title) {
+        return res.status(400).json({ error: "title query parameter is required" });
+      }
+      const data = await hltbClient.lookup(title);
+      res.json({ data });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to look up HLTB data");
+      res.status(500).json({ error: "Failed to look up HLTB data" });
     }
   });
 

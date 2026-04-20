@@ -89,6 +89,17 @@ vi.mock("../auth.js", () => ({
     };
     next();
   },
+  optionalAuthenticateToken: (
+    _req: express.Request,
+    _res: express.Response,
+    next: express.NextFunction
+  ) => {
+    next();
+  },
+}));
+
+vi.mock("../steam-routes.js", () => ({
+  steamRoutes: (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
 
 vi.mock("../steam-routes.js", () => ({

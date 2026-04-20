@@ -118,6 +118,28 @@ describe("CompactGameCard", () => {
     expect(onViewDetails).toHaveBeenCalledWith("1");
   });
 
+  describe("dynamic aria-labels for status button", () => {
+    it.each([
+      { status: "wanted" as const, expectedLabel: "Owned", expectedNext: "owned" },
+      { status: "owned" as const, expectedLabel: "Completed", expectedNext: "completed" },
+      { status: "completed" as const, expectedLabel: "Wanted", expectedNext: "wanted" },
+    ])(
+      "shows aria-label 'Mark $title as $expectedLabel' when status is $status",
+      ({ status, expectedLabel, expectedNext }) => {
+        const onStatusChange = vi.fn();
+        renderWithProviders(
+          <CompactGameCard game={{ ...mockGame, status }} onStatusChange={onStatusChange} />
+        );
+
+        const btn = screen.getByLabelText(`Mark ${mockGame.title} as ${expectedLabel}`);
+        expect(btn).toBeInTheDocument();
+
+        fireEvent.click(btn);
+        expect(onStatusChange).toHaveBeenCalledWith(mockGame.id, expectedNext);
+      }
+    );
+  });
+
   it("shows a loading fallback when opening details", async () => {
     renderWithProviders(<CompactGameCard game={mockGame} />);
 

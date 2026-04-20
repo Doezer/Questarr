@@ -1,431 +1,200 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const mockStorage = {
-  getDownloadingGameDownloads: vi.fn(),
-  getDownloader: vi.fn(),
-  updateGameDownloadStatus: vi.fn(),
-  updateGameStatus: vi.fn(),
-  addNotification: vi.fn(),
-  getGame: vi.fn(),
-};
+// --- Mocks ---
+const createMockLogger = () => ({
+  info: vi.fn(),
+  debug: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+});
 
-const mockDownloaderManager = {
-  getAllDownloads: vi.fn(),
-  getDownloadDetails: vi.fn(),
-};
+vi.mock("../logger.js", () => ({
+  logger: { child: vi.fn().mockReturnThis() },
+  igdbLogger: createMockLogger(),
+  searchLogger: createMockLogger(),
+  torznabLogger: createMockLogger(),
+  routesLogger: createMockLogger(),
+  expressLogger: createMockLogger(),
+  downloadersLogger: createMockLogger(),
+}));
 
-const mockImportManager = {
-  processImport: vi.fn(),
-};
-
-const mockNotifyUser = vi.fn();
+const mockGetDownloadingGameDownloads = vi.fn();
+const mockGetDownloader = vi.fn();
+const mockUpdateGameDownloadStatus = vi.fn();
+const mockUpdateGameStatus = vi.fn();
+const mockGetGame = vi.fn();
+const mockAddNotification = vi.fn();
 
 vi.mock("../storage.js", () => ({
-  storage: mockStorage,
+  storage: {
+    getDownloadingGameDownloads: mockGetDownloadingGameDownloads,
+    getDownloader: mockGetDownloader,
+    updateGameDownloadStatus: mockUpdateGameDownloadStatus,
+    updateGameStatus: mockUpdateGameStatus,
+    getGame: mockGetGame,
+    addNotification: mockAddNotification,
+  },
 }));
+
+const mockGetAllDownloads = vi.fn();
+const mockGetDownloadStatus = vi.fn();
 
 vi.mock("../downloaders.js", () => ({
-  DownloaderManager: mockDownloaderManager,
-}));
-
-vi.mock("../services/index.js", () => ({
-  importManager: mockImportManager,
+  DownloaderManager: {
+    getAllDownloads: mockGetAllDownloads,
+    getDownloadStatus: mockGetDownloadStatus,
+  },
 }));
 
 vi.mock("../socket.js", () => ({
-  notifyUser: mockNotifyUser,
-}));
-
-vi.mock("../logger.js", () => ({
-  logger: {
-    child: vi.fn().mockReturnThis(),
-    info: vi.fn(),
-    debug: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  },
-  igdbLogger: {
-    info: vi.fn(),
-    debug: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  },
+  notifyUser: vi.fn(),
 }));
 
 vi.mock("../igdb.js", () => ({
-  igdbClient: {
-    getGamesByIds: vi.fn(),
-    getGameIdsBySteamAppIds: vi.fn(),
-    formatGameData: vi.fn(),
-  },
+  igdbClient: { getGamesByIds: vi.fn() },
 }));
 
 vi.mock("../search.js", () => ({
   searchAllIndexers: vi.fn(),
+  filterBlacklistedReleases: vi.fn(),
 }));
 
 vi.mock("../xrel.js", () => ({
-  xrelClient: {
-    getLatestReleases: vi.fn(),
-  },
-  DEFAULT_XREL_BASE: "https://xrel.example",
+  xrelClient: { getLatestReleases: vi.fn() },
+  DEFAULT_XREL_BASE: "http://example.com",
 }));
 
-vi.mock("../steam.js", () => ({
-  steamService: {
-    getWishlist: vi.fn(),
-  },
-}));
+const { checkDownloadStatus } = await import("../cron.js");
 
-describe("checkDownloadStatus", { timeout: 15000 }, () => {
+const baseDownloader = {
+  id: "dl-sabnzbd",
+  name: "SABnzbd",
+  type: "sabnzbd" as const,
+  url: "http://localhost:8080",
+  enabled: true,
+  priority: 1,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+  port: null,
+  useSsl: null,
+  urlPath: null,
+  username: "apikey",
+  password: null,
+  downloadPath: null,
+  category: null,
+  label: null,
+  addStopped: null,
+  removeCompleted: null,
+  postImportCategory: null,
+  settings: null,
+};
+
+const baseDownload = {
+  id: "dlrecord-1",
+  gameId: "game-1",
+  downloaderId: "dl-sabnzbd",
+  downloadHash: "SABnzbd_nzo_abc123",
+  downloadTitle: "Test Game",
+  status: "downloading" as const,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+  downloadType: "usenet" as const,
+};
+
+describe("Cron - checkDownloadStatus", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-
-    mockStorage.getDownloadingGameDownloads.mockResolvedValue([]);
-    mockStorage.getDownloader.mockResolvedValue({ id: "dl-1", enabled: true });
-    mockStorage.addNotification.mockResolvedValue({ id: "notif-1" });
-    mockStorage.getGame.mockResolvedValue({ id: "game-1", title: "Game One" });
-
-    mockDownloaderManager.getAllDownloads.mockResolvedValue([]);
-    mockDownloaderManager.getDownloadDetails.mockResolvedValue(null);
+    mockGetGame.mockResolvedValue({ id: "game-1", title: "Test Game", status: "downloading" });
+    mockAddNotification.mockResolvedValue({ id: "notif-1" });
+    mockUpdateGameDownloadStatus.mockResolvedValue(undefined);
+    mockUpdateGameStatus.mockResolvedValue(undefined);
   });
 
-  it("delegates completed downloads to importManager when details are available", async () => {
-    const { checkDownloadStatus } = await import("../cron.js");
+  it("should find a download via the bulk map when it is in the queue", async () => {
+    mockGetDownloadingGameDownloads.mockResolvedValue([baseDownload]);
+    mockGetDownloader.mockResolvedValue(baseDownloader);
 
-    mockStorage.getDownloadingGameDownloads.mockResolvedValue([
+    // Bulk getAllDownloads returns the download (it's still in queue)
+    mockGetAllDownloads.mockResolvedValue([
       {
-        id: "gd-1",
-        gameId: "game-1",
-        downloaderId: "dl-1",
-        downloadHash: "HASH-ABC",
-        downloadTitle: "Game One",
+        id: "SABnzbd_nzo_abc123",
+        name: "Test Game",
         status: "downloading",
+        progress: 50,
+        downloadType: "usenet",
       },
     ]);
 
-    mockDownloaderManager.getAllDownloads.mockResolvedValue([
-      {
-        id: "hash-abc",
-        status: "seeding",
-        progress: 100,
-      },
-    ]);
+    await checkDownloadStatus();
 
-    mockDownloaderManager.getDownloadDetails.mockResolvedValue({
-      downloadDir: "/downloads",
-      name: "Game One",
+    // Should NOT fall back to individual status check
+    expect(mockGetDownloadStatus).not.toHaveBeenCalled();
+    // Should NOT mark as completed yet (still at 50%)
+    expect(mockUpdateGameDownloadStatus).not.toHaveBeenCalledWith(baseDownload.id, "completed");
+    // Status unchanged (already "downloading" in DB), so no update call
+    expect(mockUpdateGameDownloadStatus).not.toHaveBeenCalled();
+  });
+
+  it("should fall back to getDownloadStatus when a download is absent from getAllDownloads", async () => {
+    mockGetDownloadingGameDownloads.mockResolvedValue([baseDownload]);
+    mockGetDownloader.mockResolvedValue(baseDownloader);
+
+    // Bulk getAllDownloads returns empty (download moved to SABnzbd history)
+    mockGetAllDownloads.mockResolvedValue([]);
+
+    // Individual getDownloadStatus finds it in history as completed
+    mockGetDownloadStatus.mockResolvedValue({
+      id: "SABnzbd_nzo_abc123",
+      name: "Test Game",
+      status: "completed",
+      progress: 100,
+      downloadType: "usenet",
     });
 
     await checkDownloadStatus();
 
-    expect(mockImportManager.processImport).toHaveBeenCalledWith("gd-1", "/downloads/Game One");
-    expect(mockStorage.updateGameDownloadStatus).not.toHaveBeenCalledWith("gd-1", "completed");
-    expect(mockStorage.addNotification).toHaveBeenCalledWith(
-      expect.objectContaining({
-        title: "Download Completed",
-        message: "Download finished for Game One",
-      })
-    );
-    expect(mockNotifyUser).toHaveBeenCalledWith("notification", { id: "notif-1" });
+    expect(mockGetDownloadStatus).toHaveBeenCalledWith(baseDownloader, baseDownload.downloadHash);
+    // Should mark as completed via the normal completion path
+    expect(mockUpdateGameDownloadStatus).toHaveBeenCalledWith(baseDownload.id, "completed");
+    expect(mockUpdateGameStatus).toHaveBeenCalledWith(baseDownload.gameId, { status: "owned" });
   });
 
-  it("flags download as manual_review_required when completed download has no path details", async () => {
-    const { checkDownloadStatus } = await import("../cron.js");
+  it("should mark as completed via error path when both bulk and individual checks return null", async () => {
+    mockGetDownloadingGameDownloads.mockResolvedValue([baseDownload]);
+    mockGetDownloader.mockResolvedValue(baseDownloader);
 
-    mockStorage.getDownloadingGameDownloads.mockResolvedValue([
-      {
-        id: "gd-2",
-        gameId: "game-2",
-        downloaderId: "dl-1",
-        downloadHash: "HASH-XYZ",
-        downloadTitle: "Game Two",
-        status: "downloading",
-      },
-    ]);
+    // Both bulk and individual checks return nothing
+    mockGetAllDownloads.mockResolvedValue([]);
+    mockGetDownloadStatus.mockResolvedValue(null);
 
-    mockDownloaderManager.getAllDownloads.mockResolvedValue([
+    // DOWNLOAD_MISS_THRESHOLD = 3: must miss 3 consecutive times before completing
+    await checkDownloadStatus();
+    await checkDownloadStatus();
+    await checkDownloadStatus();
+
+    expect(mockGetDownloadStatus).toHaveBeenCalledWith(baseDownloader, baseDownload.downloadHash);
+    // Falls through to the "missing" path after threshold is reached
+    expect(mockUpdateGameDownloadStatus).toHaveBeenCalledWith(baseDownload.id, "completed");
+    expect(mockUpdateGameStatus).toHaveBeenCalledWith(baseDownload.gameId, { status: "owned" });
+  });
+
+  it("should not call getDownloadStatus when the bulk map already contains the download", async () => {
+    mockGetDownloadingGameDownloads.mockResolvedValue([baseDownload]);
+    mockGetDownloader.mockResolvedValue(baseDownloader);
+
+    mockGetAllDownloads.mockResolvedValue([
       {
-        id: "hash-xyz",
+        id: "SABnzbd_nzo_abc123",
+        name: "Test Game",
         status: "completed",
         progress: 100,
+        downloadType: "usenet",
       },
     ]);
-
-    mockDownloaderManager.getDownloadDetails.mockResolvedValue(null);
 
     await checkDownloadStatus();
 
-    expect(mockImportManager.processImport).not.toHaveBeenCalled();
-    expect(mockStorage.updateGameDownloadStatus).toHaveBeenCalledWith(
-      "gd-2",
-      "manual_review_required"
-    );
-    expect(mockStorage.updateGameStatus).not.toHaveBeenCalled();
-  });
-
-  it("flags download as manual_review_required when details exist but downloadDir is empty", async () => {
-    const { checkDownloadStatus } = await import("../cron.js");
-
-    mockStorage.getDownloadingGameDownloads.mockResolvedValue([
-      {
-        id: "gd-3",
-        gameId: "game-3",
-        downloaderId: "dl-1",
-        downloadHash: "HASH-NODIR",
-        downloadTitle: "Game Three",
-        status: "downloading",
-      },
-    ]);
-
-    mockDownloaderManager.getAllDownloads.mockResolvedValue([
-      {
-        id: "hash-nodir",
-        status: "completed",
-        progress: 100,
-      },
-    ]);
-
-    // Details returned but downloadDir is an empty string
-    mockDownloaderManager.getDownloadDetails.mockResolvedValue({
-      downloadDir: "",
-      name: "Game Three",
-    });
-
-    await checkDownloadStatus();
-
-    expect(mockImportManager.processImport).not.toHaveBeenCalled();
-    expect(mockStorage.updateGameDownloadStatus).toHaveBeenCalledWith(
-      "gd-3",
-      "manual_review_required"
-    );
-    expect(mockStorage.updateGameStatus).not.toHaveBeenCalled();
-  });
-
-  it("does not set completed status itself when processImport handles it (importEnabled=false path)", async () => {
-    const { checkDownloadStatus } = await import("../cron.js");
-
-    // processImport resolves successfully (as it would when it sets "completed" internally
-    // due to enablePostProcessing=false); the cron must not double-set the status
-    mockImportManager.processImport.mockResolvedValue(undefined);
-
-    mockStorage.getDownloadingGameDownloads.mockResolvedValue([
-      {
-        id: "gd-4",
-        gameId: "game-4",
-        downloaderId: "dl-1",
-        downloadHash: "HASH-NOIMPORT",
-        downloadTitle: "Game Four",
-        status: "downloading",
-      },
-    ]);
-
-    mockDownloaderManager.getAllDownloads.mockResolvedValue([
-      {
-        id: "hash-noimport",
-        status: "completed",
-        progress: 100,
-      },
-    ]);
-
-    mockDownloaderManager.getDownloadDetails.mockResolvedValue({
-      downloadDir: "/downloads",
-      name: "Game Four",
-    });
-
-    await checkDownloadStatus();
-
-    expect(mockImportManager.processImport).toHaveBeenCalledWith("gd-4", "/downloads/Game Four");
-    // Cron must not call updateGameDownloadStatus("completed") — processImport owns that
-    expect(mockStorage.updateGameDownloadStatus).not.toHaveBeenCalledWith("gd-4", "completed");
-  });
-
-  it("swallows processImport errors per-downloader without crashing the cron run", async () => {
-    const { checkDownloadStatus } = await import("../cron.js");
-
-    mockImportManager.processImport.mockRejectedValue(new Error("import exploded"));
-
-    mockStorage.getDownloadingGameDownloads.mockResolvedValue([
-      {
-        id: "gd-5",
-        gameId: "game-5",
-        downloaderId: "dl-1",
-        downloadHash: "HASH-ERR",
-        downloadTitle: "Game Five",
-        status: "downloading",
-      },
-    ]);
-
-    mockDownloaderManager.getAllDownloads.mockResolvedValue([
-      {
-        id: "hash-err",
-        status: "seeding",
-        progress: 100,
-      },
-    ]);
-
-    mockDownloaderManager.getDownloadDetails.mockResolvedValue({
-      downloadDir: "/downloads",
-      name: "Game Five",
-    });
-
-    // Must not throw — checkDownloadStatus catches per-downloader errors
-    await expect(checkDownloadStatus()).resolves.toBeUndefined();
-
-    // The cron itself must not set a status after the throw; ImportManager owns error status
-    expect(mockStorage.updateGameDownloadStatus).not.toHaveBeenCalledWith("gd-5", "completed");
-    expect(mockStorage.updateGameDownloadStatus).not.toHaveBeenCalledWith("gd-5", "error");
-  });
-
-  it("re-triggers processImport for a download already in 'importing' status (no skip guard in cron)", async () => {
-    const { checkDownloadStatus } = await import("../cron.js");
-
-    mockImportManager.processImport.mockResolvedValue(undefined);
-
-    // DB record has status="importing" — still returned by getDownloadingGameDownloads
-    mockStorage.getDownloadingGameDownloads.mockResolvedValue([
-      {
-        id: "gd-imp",
-        gameId: "game-imp",
-        downloaderId: "dl-1",
-        downloadHash: "HASH-IMP",
-        downloadTitle: "Game Importing",
-        status: "importing",
-      },
-    ]);
-
-    mockDownloaderManager.getAllDownloads.mockResolvedValue([
-      { id: "hash-imp", status: "seeding", progress: 100 },
-    ]);
-
-    mockDownloaderManager.getDownloadDetails.mockResolvedValue({
-      downloadDir: "/downloads",
-      name: "Game Importing",
-    });
-
-    await checkDownloadStatus();
-
-    // Cron has no "importing" guard — processImport is invoked again
-    expect(mockImportManager.processImport).toHaveBeenCalledWith(
-      "gd-imp",
-      "/downloads/Game Importing"
-    );
-  });
-
-  it("marks download 'completed' and skips processImport when import config has enablePostProcessing=false (simulated via processImport stub)", async () => {
-    const { checkDownloadStatus } = await import("../cron.js");
-
-    // processImport internally sets "completed" when enablePostProcessing=false and returns
-    mockImportManager.processImport.mockResolvedValue(undefined);
-
-    mockStorage.getDownloadingGameDownloads.mockResolvedValue([
-      {
-        id: "gd-noproc",
-        gameId: "game-noproc",
-        downloaderId: "dl-1",
-        downloadHash: "HASH-NOPROC",
-        downloadTitle: "Game NoProc",
-        status: "downloading",
-      },
-    ]);
-
-    mockDownloaderManager.getAllDownloads.mockResolvedValue([
-      { id: "hash-noproc", status: "completed", progress: 100 },
-    ]);
-
-    mockDownloaderManager.getDownloadDetails.mockResolvedValue({
-      downloadDir: "/downloads",
-      name: "Game NoProc",
-    });
-
-    await checkDownloadStatus();
-
-    // Cron delegates to processImport; status ownership belongs to processImport, not cron
-    expect(mockImportManager.processImport).toHaveBeenCalledWith(
-      "gd-noproc",
-      "/downloads/Game NoProc"
-    );
-    // Cron itself must not set "completed" — that is processImport's responsibility
-    expect(mockStorage.updateGameDownloadStatus).not.toHaveBeenCalledWith("gd-noproc", "completed");
-    // Game status is also not set directly by the cron after a successful processImport call
-    expect(mockStorage.updateGameStatus).not.toHaveBeenCalledWith("gd-noproc", "owned");
-  });
-
-  it("download ends in terminal state after successful processImport (not stuck in downloading)", async () => {
-    const { checkDownloadStatus } = await import("../cron.js");
-
-    // processImport resolves — ownership of terminal status transitions belongs to it
-    mockImportManager.processImport.mockResolvedValue(undefined);
-
-    mockStorage.getDownloadingGameDownloads.mockResolvedValue([
-      {
-        id: "gd-term",
-        gameId: "game-term",
-        downloaderId: "dl-1",
-        downloadHash: "HASH-TERM",
-        downloadTitle: "Game Terminal",
-        status: "downloading",
-      },
-    ]);
-
-    mockDownloaderManager.getAllDownloads.mockResolvedValue([
-      { id: "hash-term", status: "seeding", progress: 100 },
-    ]);
-
-    mockDownloaderManager.getDownloadDetails.mockResolvedValue({
-      downloadDir: "/downloads",
-      name: "Game Terminal",
-    });
-
-    await checkDownloadStatus();
-
-    // processImport was called — it owns the status transition
-    expect(mockImportManager.processImport).toHaveBeenCalledWith(
-      "gd-term",
-      "/downloads/Game Terminal"
-    );
-    // Cron must NOT set "downloading" again after handing off to processImport
-    expect(mockStorage.updateGameDownloadStatus).not.toHaveBeenCalledWith("gd-term", "downloading");
-  });
-
-  it("processes all completed downloads in a single cron run, not just the first", async () => {
-    const { checkDownloadStatus } = await import("../cron.js");
-
-    mockImportManager.processImport.mockResolvedValue(undefined);
-
-    mockStorage.getDownloadingGameDownloads.mockResolvedValue([
-      {
-        id: "gd-6",
-        gameId: "game-6",
-        downloaderId: "dl-1",
-        downloadHash: "HASH-A",
-        downloadTitle: "Game Six",
-        status: "downloading",
-      },
-      {
-        id: "gd-7",
-        gameId: "game-7",
-        downloaderId: "dl-1",
-        downloadHash: "HASH-B",
-        downloadTitle: "Game Seven",
-        status: "downloading",
-      },
-    ]);
-
-    mockDownloaderManager.getAllDownloads.mockResolvedValue([
-      { id: "hash-a", status: "seeding", progress: 100 },
-      { id: "hash-b", status: "completed", progress: 100 },
-    ]);
-
-    mockDownloaderManager.getDownloadDetails.mockResolvedValue({
-      downloadDir: "/downloads",
-      name: "AGame",
-    });
-
-    await checkDownloadStatus();
-
-    expect(mockImportManager.processImport).toHaveBeenCalledTimes(2);
-    expect(mockImportManager.processImport).toHaveBeenCalledWith("gd-6", "/downloads/AGame");
-    expect(mockImportManager.processImport).toHaveBeenCalledWith("gd-7", "/downloads/AGame");
+    expect(mockGetDownloadStatus).not.toHaveBeenCalled();
+    expect(mockUpdateGameDownloadStatus).toHaveBeenCalledWith(baseDownload.id, "completed");
   });
 });

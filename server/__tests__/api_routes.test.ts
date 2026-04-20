@@ -3,11 +3,14 @@ import express, { type Request, type Response, type NextFunction } from "express
 import request from "supertest";
 import { registerRoutes, parseCategories } from "../routes.js";
 import { storage } from "../storage.js";
+import { searchAllIndexers } from "../search.js";
 import { igdbClient, type IGDBGame } from "../igdb.js";
 import { type Game, type User, type Indexer, type Downloader } from "../../shared/schema.js";
 import { DownloaderManager } from "../downloaders.js";
 import { torznabClient } from "../torznab.js";
 import { rssService } from "../rss.js";
+import { comparePassword } from "../auth.js";
+import { db } from "../db.js";
 import { prowlarrClient } from "../prowlarr.js";
 
 // Use vi.hoisted to create the mock object
@@ -60,6 +63,8 @@ vi.mock("../storage.js", () => ({
     updateUserSettings: vi.fn().mockResolvedValue({}),
     updateGameStatus: vi.fn(),
     updateGameHidden: vi.fn(),
+    updateGameUserRating: vi.fn(),
+    updateGameSearchResultsAvailable: vi.fn().mockResolvedValue(undefined),
     updateUserPassword: vi.fn(),
     updateGamesBatch: vi.fn(),
     getAllGames: vi.fn().mockResolvedValue([]),
@@ -80,15 +85,24 @@ vi.mock("../storage.js", () => ({
     addNotification: vi.fn(),
     markNotificationAsRead: vi.fn(),
     markAllNotificationsAsRead: vi.fn(),
-    clearAllNotifications: vi.fn(),
+    deleteReadNotifications: vi.fn().mockResolvedValue(undefined),
     syncIndexers: vi.fn().mockResolvedValue({ added: 0, updated: 0 }),
     addGameDownload: vi.fn(),
+    getDownloadsByGameId: vi.fn().mockResolvedValue([]),
+    getDownloadSummaryByGame: vi.fn().mockResolvedValue({}),
+    getTrackedDownloadKeys: vi.fn().mockResolvedValue(new Set()),
     getAllRssFeeds: vi.fn().mockResolvedValue([]),
     addRssFeed: vi.fn(),
     updateRssFeed: vi.fn(),
     removeRssFeed: vi.fn(),
     getAllRssFeedItems: vi.fn().mockResolvedValue([]),
     updateUserSteamId: vi.fn(),
+    getGame: vi.fn(),
+    addReleaseBlacklist: vi.fn(),
+    getReleaseBlacklist: vi.fn().mockResolvedValue([]),
+    getAllReleaseBlacklists: vi.fn().mockResolvedValue([]),
+    removeReleaseBlacklist: vi.fn(),
+    getReleaseBlacklistSet: vi.fn().mockResolvedValue(new Set()),
   },
 }));
 
@@ -143,6 +157,12 @@ vi.mock("../logger.js", () => ({
   },
   logger: {
     info: vi.fn(),
+    error: vi.fn(),
+    child: vi.fn().mockReturnThis(),
+  },
+  expressLogger: {
+    info: vi.fn(),
+    warn: vi.fn(),
     error: vi.fn(),
     child: vi.fn().mockReturnThis(),
   },
@@ -209,6 +229,8 @@ vi.mock("../steam-routes.js", () => ({
 
 vi.mock("../search.js", () => ({
   searchAllIndexers: vi.fn().mockResolvedValue({ items: [], total: 0, errors: [] }),
+  filterBlacklistedReleases: (items: { title: string }[], blacklisted: Set<string>) =>
+    blacklisted.size > 0 ? items.filter((item) => !blacklisted.has(item.title)) : items,
 }));
 
 vi.mock("../config.js", () => ({
@@ -269,6 +291,17 @@ describe("API Routes - Extended Coverage", () => {
   });
 
   // ─── Auth routes ───
+  const mockUserHashed = {
+    id: "user-1",
+    username: "testuser",
+    passwordHash: "hashed",
+  } as unknown as User;
+  const mockUserOldHash = {
+    id: "user-1",
+    username: "testuser",
+    passwordHash: "old-hash",
+  } as unknown as User;
+
   describe("Auth routes", () => {
     describe("GET /api/auth/status", () => {
       it("should return hasUsers true when users exist", async () => {
@@ -390,12 +423,143 @@ describe("API Routes - Extended Coverage", () => {
       });
     });
 
+    describe("POST /api/auth/login", () => {
+      it("should return 401 for invalid credentials", async () => {
+        vi.mocked(storage.getUserByUsername).mockResolvedValue(mockUserHashed);
+        vi.mocked(comparePassword).mockResolvedValue(false);
+
+        const res = await request(app)
+          .post("/api/auth/login")
+          .send({ username: "testuser", password: "wrongpassword" });
+        expect(res.status).toBe(401);
+      });
+
+      it("should return 400 when username is missing", async () => {
+        const res = await request(app).post("/api/auth/login").send({ password: "password123" });
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBe("Username and password are required and must be strings");
+      });
+
+      it("should return 400 when password is missing", async () => {
+        const res = await request(app).post("/api/auth/login").send({ username: "testuser" });
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBe("Username and password are required and must be strings");
+      });
+
+      it("should return 400 for non-string username", async () => {
+        const res = await request(app)
+          .post("/api/auth/login")
+          .send({ username: 123, password: "password123" });
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBe("Username and password are required and must be strings");
+      });
+
+      it("should trim username and password before authentication", async () => {
+        vi.mocked(storage.getUserByUsername).mockResolvedValue(mockUserHashed);
+        vi.mocked(storage.assignOrphanGamesToUser).mockResolvedValue(undefined);
+        // Raw password fails (no stored hash with whitespace); trimmed password succeeds.
+        vi.mocked(comparePassword)
+          .mockResolvedValueOnce(false) // raw "  password123  "
+          .mockResolvedValueOnce(true); // trimmed "password123"
+
+        const res = await request(app)
+          .post("/api/auth/login")
+          .send({ username: "  testuser  ", password: "  password123  " });
+        expect(res.status).toBe(200);
+        expect(storage.getUserByUsername).toHaveBeenCalledWith("testuser");
+        expect(comparePassword).toHaveBeenCalledWith("  password123  ", "hashed");
+        expect(comparePassword).toHaveBeenCalledWith("password123", "hashed");
+      });
+    });
+
     describe("GET /api/auth/me", () => {
       it("should return current user info", async () => {
         const res = await request(app).get("/api/auth/me");
         expect(res.status).toBe(200);
         expect(res.body.id).toBe("user-1");
         expect(res.body.username).toBe("testuser");
+      });
+    });
+
+    describe("PATCH /api/auth/password", () => {
+      it("should update password successfully", async () => {
+        vi.mocked(storage.getUser).mockResolvedValue(mockUserOldHash);
+        vi.mocked(comparePassword).mockResolvedValue(true);
+        vi.mocked(storage.updateUserPassword).mockResolvedValue(undefined);
+
+        const res = await request(app).patch("/api/auth/password").send({
+          currentPassword: "oldpass1",
+          newPassword: "newpass1",
+          confirmPassword: "newpass1",
+        });
+        expect(res.status).toBe(200);
+        expect(res.body.success).toBe(true);
+      });
+
+      it("should return 404 when user not found", async () => {
+        vi.mocked(storage.getUser).mockResolvedValue(null as unknown as User);
+
+        const res = await request(app).patch("/api/auth/password").send({
+          currentPassword: "oldpass1",
+          newPassword: "newpass1",
+          confirmPassword: "newpass1",
+        });
+        expect(res.status).toBe(404);
+      });
+
+      it("should return 401 for incorrect current password", async () => {
+        vi.mocked(storage.getUser).mockResolvedValue(mockUserOldHash);
+        vi.mocked(comparePassword).mockResolvedValue(false);
+
+        const res = await request(app).patch("/api/auth/password").send({
+          currentPassword: "wrongpass",
+          newPassword: "newpass1",
+          confirmPassword: "newpass1",
+        });
+        expect(res.status).toBe(401);
+      });
+
+      it("should return 400 for new password too short", async () => {
+        const res = await request(app).patch("/api/auth/password").send({
+          currentPassword: "oldpass1",
+          newPassword: "abc",
+          confirmPassword: "abc",
+        });
+        expect(res.status).toBe(400);
+      });
+
+      it("should return 400 when passwords do not match", async () => {
+        const res = await request(app).patch("/api/auth/password").send({
+          currentPassword: "oldpass1",
+          newPassword: "newpass1",
+          confirmPassword: "differentpass",
+        });
+        expect(res.status).toBe(400);
+      });
+
+      it("should trim whitespace from passwords before validation", async () => {
+        vi.mocked(storage.getUser).mockResolvedValue(mockUserOldHash);
+        vi.mocked(comparePassword).mockResolvedValue(true);
+        vi.mocked(storage.updateUserPassword).mockResolvedValue(undefined);
+
+        const res = await request(app).patch("/api/auth/password").send({
+          currentPassword: "  oldpass1  ",
+          newPassword: "  newpass1  ",
+          confirmPassword: "  newpass1  ",
+        });
+        expect(res.status).toBe(200);
+        expect(comparePassword).toHaveBeenCalledWith("oldpass1", "old-hash");
+      });
+
+      it("should return 500 on unexpected error", async () => {
+        vi.mocked(storage.getUser).mockRejectedValue(new Error("DB error"));
+
+        const res = await request(app).patch("/api/auth/password").send({
+          currentPassword: "oldpass1",
+          newPassword: "newpass1",
+          confirmPassword: "newpass1",
+        });
+        expect(res.status).toBe(500);
       });
     });
   });
@@ -406,6 +570,36 @@ describe("API Routes - Extended Coverage", () => {
       const res = await request(app).get("/api/health");
       expect(res.status).toBe(200);
       expect(res.body.status).toBe("ok");
+    });
+  });
+
+  // ─── Ready check ───
+  describe("GET /api/ready", () => {
+    it("should return 200 when db and igdb are healthy", async () => {
+      vi.mocked(db.get).mockResolvedValue({ result: 1 });
+      vi.mocked(igdbClient.getPopularGames).mockResolvedValue([]);
+
+      const res = await request(app).get("/api/ready");
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe("ok");
+    });
+
+    it("should return 503 when db check fails", async () => {
+      vi.mocked(db.get).mockRejectedValue(new Error("DB connection failed"));
+      vi.mocked(igdbClient.getPopularGames).mockResolvedValue([]);
+
+      const res = await request(app).get("/api/ready");
+      expect(res.status).toBe(503);
+      expect(res.body.status).toBe("error");
+    });
+
+    it("should return 503 when igdb check fails", async () => {
+      vi.mocked(db.get).mockResolvedValue({ result: 1 });
+      vi.mocked(igdbClient.getPopularGames).mockRejectedValue(new Error("IGDB error"));
+
+      const res = await request(app).get("/api/ready");
+      expect(res.status).toBe(503);
+      expect(res.body.status).toBe("error");
     });
   });
 
@@ -515,6 +709,80 @@ describe("API Routes - Extended Coverage", () => {
         .patch(`/api/games/${gameId}/hidden`)
         .send({ hidden: true });
       expect(response.status).toBe(200);
+    });
+  });
+
+  describe("PATCH /api/games/:id/user-rating", () => {
+    const gameId = "123e4567-e89b-12d3-a456-426614174000";
+
+    it("should set a valid rating scoped to the authenticated user", async () => {
+      const updatedGame = { id: gameId, userRating: 8 };
+      vi.mocked(storage.updateGameUserRating).mockResolvedValue(updatedGame as unknown as Game);
+
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/user-rating`)
+        .send({ userRating: 8 });
+      expect(response.status).toBe(200);
+      expect(response.body.userRating).toBe(8);
+      expect(vi.mocked(storage.updateGameUserRating)).toHaveBeenCalledWith(gameId, "user-1", 8);
+    });
+
+    it("should accept a half-step rating (0.5 increment)", async () => {
+      const updatedGame = { id: gameId, userRating: 7.5 };
+      vi.mocked(storage.updateGameUserRating).mockResolvedValue(updatedGame as unknown as Game);
+
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/user-rating`)
+        .send({ userRating: 7.5 });
+      expect(response.status).toBe(200);
+    });
+
+    it("should clear the rating with null", async () => {
+      const updatedGame = { id: gameId, userRating: null };
+      vi.mocked(storage.updateGameUserRating).mockResolvedValue(updatedGame as unknown as Game);
+
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/user-rating`)
+        .send({ userRating: null });
+      expect(response.status).toBe(200);
+      expect(response.body.userRating).toBeNull();
+    });
+
+    it("should return 400 for rating above 10", async () => {
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/user-rating`)
+        .send({ userRating: 11 });
+      expect(response.status).toBe(400);
+    });
+
+    it("should return 400 for rating below 0", async () => {
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/user-rating`)
+        .send({ userRating: -1 });
+      expect(response.status).toBe(400);
+    });
+
+    it("should return 400 for rating of 0 (minimum is 0.5)", async () => {
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/user-rating`)
+        .send({ userRating: 0 });
+      expect(response.status).toBe(400);
+    });
+
+    it("should return 400 for non-0.5-increment rating", async () => {
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/user-rating`)
+        .send({ userRating: 7.3 });
+      expect(response.status).toBe(400);
+    });
+
+    it("should return 404 if game not found (including cross-user access)", async () => {
+      vi.mocked(storage.updateGameUserRating).mockResolvedValue(undefined);
+
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/user-rating`)
+        .send({ userRating: 5 });
+      expect(response.status).toBe(404);
     });
   });
 
@@ -941,6 +1209,74 @@ describe("API Routes - Extended Coverage", () => {
         mockConfig.server.isProduction = false;
       }
     });
+
+    it("should mark downloads as trackedByQuestarr when hash matches with case-insensitive comparison", async () => {
+      vi.mocked(storage.getEnabledDownloaders).mockResolvedValue([
+        { id: "dl-1", name: "My rTorrent", category: "games" } as unknown as Downloader,
+      ]);
+      // Stored key uses lowercase (as saved by addDownload)
+      vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(new Set(["dl-1:abc123"]));
+      // rTorrent returns hashes in UPPERCASE
+      vi.mocked(DownloaderManager.getAllDownloads).mockResolvedValue([
+        { id: "ABC123", name: "Game A", status: "downloading", progress: 50 } as never,
+      ]);
+
+      const response = await request(app).get("/api/downloads");
+
+      expect(response.status).toBe(200);
+      expect(response.body.downloads[0].trackedByQuestarr).toBe(true);
+    });
+
+    it("should mark downloads as trackedByQuestarr when hash matches a game download", async () => {
+      vi.mocked(storage.getEnabledDownloaders).mockResolvedValue([
+        { id: "dl-1", name: "My qBit", category: "games" } as unknown as Downloader,
+      ]);
+      vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(new Set(["dl-1:abc123"]));
+      vi.mocked(DownloaderManager.getAllDownloads).mockResolvedValue([
+        { id: "abc123", name: "Game A", status: "downloading", progress: 50 } as never,
+        { id: "xyz789", name: "Game B", status: "downloading", progress: 20 } as never,
+      ]);
+
+      const response = await request(app).get("/api/downloads");
+
+      expect(response.status).toBe(200);
+      const downloads = response.body.downloads;
+      expect(downloads).toHaveLength(2);
+      expect(downloads.find((d: { id: string }) => d.id === "abc123").trackedByQuestarr).toBe(true);
+      expect(downloads.find((d: { id: string }) => d.id === "xyz789").trackedByQuestarr).toBe(
+        false
+      );
+    });
+
+    it("should include downloaderCategory from the downloader settings", async () => {
+      vi.mocked(storage.getEnabledDownloaders).mockResolvedValue([
+        { id: "dl-1", name: "My qBit", category: "games" } as unknown as Downloader,
+      ]);
+      vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(new Set());
+      vi.mocked(DownloaderManager.getAllDownloads).mockResolvedValue([
+        { id: "abc123", name: "Game A", status: "downloading", progress: 50 } as never,
+      ]);
+
+      const response = await request(app).get("/api/downloads");
+
+      expect(response.status).toBe(200);
+      expect(response.body.downloads[0].downloaderCategory).toBe("games");
+    });
+
+    it("should omit downloaderCategory when the downloader has no category configured", async () => {
+      vi.mocked(storage.getEnabledDownloaders).mockResolvedValue([
+        { id: "dl-1", name: "My DL" } as unknown as Downloader,
+      ]);
+      vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(new Set());
+      vi.mocked(DownloaderManager.getAllDownloads).mockResolvedValue([
+        { id: "abc123", name: "Game A", status: "downloading", progress: 50 } as never,
+      ]);
+
+      const response = await request(app).get("/api/downloads");
+
+      expect(response.status).toBe(200);
+      expect(response.body.downloads[0].downloaderCategory).toBeUndefined();
+    });
   });
 
   // ─── Notification routes ───
@@ -1136,7 +1472,7 @@ describe("API Routes - Extended Coverage", () => {
       it("should delete RSS feed", async () => {
         vi.mocked(storage.removeRssFeed).mockResolvedValue(true);
         const response = await request(app).delete("/api/rss/feeds/feed-1");
-        expect(response.status).toBe(200);
+        expect(response.status).toBe(204);
       });
 
       it("should return 404 for missing feed", async () => {
@@ -1215,6 +1551,629 @@ describe("API Routes - Extended Coverage", () => {
     it("should return 400 for missing url/apiKey", async () => {
       const response = await request(app).post("/api/indexers/prowlarr/sync").send({});
       expect(response.status).toBe(400);
+    });
+  });
+
+  // ─── Release Blacklist routes ───
+  describe("Release Blacklist routes", () => {
+    const gameId = "123e4567-e89b-12d3-a456-426614174000";
+    const mockGame = { id: gameId, userId: "user-1", title: "Test Game" };
+    const blacklistEntry = {
+      id: "bl-1",
+      gameId,
+      releaseTitle: "Test Game-SKIDROW",
+      createdAt: new Date().toISOString(),
+    };
+
+    describe("POST /api/games/:gameId/blacklist", () => {
+      it("should add a release to the blacklist", async () => {
+        vi.mocked(storage.getGame).mockResolvedValue(mockGame as any);
+        vi.mocked(storage.addReleaseBlacklist).mockResolvedValue(blacklistEntry as any);
+
+        const response = await request(app)
+          .post(`/api/games/${gameId}/blacklist`)
+          .send({ releaseTitle: "Test Game-SKIDROW" });
+
+        expect(response.status).toBe(201);
+        expect(response.body).toMatchObject({ releaseTitle: "Test Game-SKIDROW" });
+      });
+
+      it("should return 400 for missing releaseTitle", async () => {
+        vi.mocked(storage.getGame).mockResolvedValue(mockGame as any);
+
+        const response = await request(app).post(`/api/games/${gameId}/blacklist`).send({});
+
+        expect(response.status).toBe(400);
+      });
+
+      it("should return 403 when game belongs to another user", async () => {
+        vi.mocked(storage.getGame).mockResolvedValue({ ...mockGame, userId: "other-user" } as any);
+
+        const response = await request(app)
+          .post(`/api/games/${gameId}/blacklist`)
+          .send({ releaseTitle: "Test Game-SKIDROW" });
+
+        expect(response.status).toBe(403);
+      });
+
+      it("should return 404 when game not found", async () => {
+        vi.mocked(storage.getGame).mockResolvedValue(undefined as any);
+
+        const response = await request(app)
+          .post(`/api/games/${gameId}/blacklist`)
+          .send({ releaseTitle: "Test Game-SKIDROW" });
+
+        expect(response.status).toBe(404);
+      });
+
+      it("should return 400 when releaseTitle exceeds 500 characters", async () => {
+        vi.mocked(storage.getGame).mockResolvedValue(mockGame as any);
+        const response = await request(app)
+          .post(`/api/games/${gameId}/blacklist`)
+          .send({ releaseTitle: "a".repeat(501) });
+        expect(response.status).toBe(400);
+      });
+
+      it("should return 500 on storage error", async () => {
+        vi.mocked(storage.getGame).mockResolvedValue(mockGame as any);
+        vi.mocked(storage.addReleaseBlacklist).mockRejectedValue(new Error("DB error"));
+        const response = await request(app)
+          .post(`/api/games/${gameId}/blacklist`)
+          .send({ releaseTitle: "Test Game-SKIDROW" });
+        expect(response.status).toBe(500);
+      });
+    });
+
+    describe("GET /api/games/:gameId/blacklist", () => {
+      it("should return blacklist entries for a game", async () => {
+        vi.mocked(storage.getGame).mockResolvedValue(mockGame as any);
+        vi.mocked(storage.getReleaseBlacklist).mockResolvedValue([blacklistEntry] as any);
+
+        const response = await request(app).get(`/api/games/${gameId}/blacklist`);
+
+        expect(response.status).toBe(200);
+        expect(response.body).toHaveLength(1);
+        expect(response.body[0].releaseTitle).toBe("Test Game-SKIDROW");
+      });
+
+      it("should return 403 when game belongs to another user", async () => {
+        vi.mocked(storage.getGame).mockResolvedValue({ ...mockGame, userId: "other-user" } as any);
+
+        const response = await request(app).get(`/api/games/${gameId}/blacklist`);
+
+        expect(response.status).toBe(403);
+      });
+
+      it("should return 404 when game not found", async () => {
+        vi.mocked(storage.getGame).mockResolvedValue(undefined as any);
+        const response = await request(app).get(`/api/games/${gameId}/blacklist`);
+        expect(response.status).toBe(404);
+      });
+
+      it("should return 500 on storage error", async () => {
+        vi.mocked(storage.getGame).mockResolvedValue(mockGame as any);
+        vi.mocked(storage.getReleaseBlacklist).mockRejectedValue(new Error("DB error"));
+        const response = await request(app).get(`/api/games/${gameId}/blacklist`);
+        expect(response.status).toBe(500);
+      });
+    });
+
+    describe("DELETE /api/games/:gameId/blacklist/:id", () => {
+      it("should remove a blacklist entry", async () => {
+        vi.mocked(storage.getGame).mockResolvedValue(mockGame as any);
+        vi.mocked(storage.removeReleaseBlacklist).mockResolvedValue(true);
+
+        const response = await request(app).delete(`/api/games/${gameId}/blacklist/bl-1`);
+
+        expect(response.status).toBe(204);
+      });
+
+      it("should return 404 when entry not found", async () => {
+        vi.mocked(storage.getGame).mockResolvedValue(mockGame as any);
+        vi.mocked(storage.removeReleaseBlacklist).mockResolvedValue(false);
+
+        const response = await request(app).delete(`/api/games/${gameId}/blacklist/nonexistent`);
+
+        expect(response.status).toBe(404);
+      });
+
+      it("should return 403 when game belongs to another user", async () => {
+        vi.mocked(storage.getGame).mockResolvedValue({ ...mockGame, userId: "other-user" } as any);
+
+        const response = await request(app).delete(`/api/games/${gameId}/blacklist/bl-1`);
+
+        expect(response.status).toBe(403);
+      });
+
+      it("should return 404 when game not found", async () => {
+        vi.mocked(storage.getGame).mockResolvedValue(undefined as any);
+        const response = await request(app).delete(`/api/games/${gameId}/blacklist/bl-1`);
+        expect(response.status).toBe(404);
+      });
+
+      it("should return 500 on storage error", async () => {
+        vi.mocked(storage.getGame).mockResolvedValue(mockGame as any);
+        vi.mocked(storage.removeReleaseBlacklist).mockRejectedValue(new Error("DB error"));
+        const response = await request(app).delete(`/api/games/${gameId}/blacklist/bl-1`);
+        expect(response.status).toBe(500);
+      });
+    });
+
+    describe("GET /api/blacklist", () => {
+      it("should return all blacklist entries for the user", async () => {
+        const entries = [{ ...blacklistEntry, gameTitle: "Test Game" }];
+        vi.mocked(storage.getAllReleaseBlacklists).mockResolvedValue(entries as any);
+
+        const response = await request(app).get("/api/blacklist");
+
+        expect(response.status).toBe(200);
+        expect(response.body).toHaveLength(1);
+        expect(response.body[0].gameTitle).toBe("Test Game");
+      });
+
+      it("should return empty array when no entries", async () => {
+        vi.mocked(storage.getAllReleaseBlacklists).mockResolvedValue([]);
+
+        const response = await request(app).get("/api/blacklist");
+
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual([]);
+      });
+
+      it("should return 500 on storage error", async () => {
+        vi.mocked(storage.getAllReleaseBlacklists).mockRejectedValue(new Error("DB error"));
+        const response = await request(app).get("/api/blacklist");
+        expect(response.status).toBe(500);
+      });
+    });
+  });
+
+  // ─── Search with blacklist filtering ───
+  describe("GET /api/search - blacklist filtering", () => {
+    it("should filter blacklisted releases when gameId belongs to user", async () => {
+      const mockGame = { id: "game-1", userId: "user-1", title: "Test Game" };
+      vi.mocked(storage.getGame).mockResolvedValue(mockGame as any);
+      vi.mocked(storage.getReleaseBlacklistSet).mockResolvedValue(new Set(["Test Game-SKIDROW"]));
+      vi.mocked(searchAllIndexers).mockResolvedValue({
+        items: [
+          {
+            title: "Test Game-SKIDROW",
+            link: "http://example.com/1",
+            downloadType: "torrent" as const,
+          },
+          {
+            title: "Test Game-CODEX",
+            link: "http://example.com/2",
+            downloadType: "torrent" as const,
+          },
+        ],
+        total: 2,
+        errors: [],
+      });
+
+      const response = await request(app).get("/api/search?query=Test+Game&gameId=game-1");
+
+      expect(response.status).toBe(200);
+      expect(response.body.items).toHaveLength(1);
+      expect(response.body.items[0].title).toBe("Test Game-CODEX");
+      expect(storage.getReleaseBlacklistSet).toHaveBeenCalledWith("game-1");
+    });
+
+    it("should include blacklistedCount in response when items are blacklisted", async () => {
+      const mockGame = { id: "game-1", userId: "user-1", title: "Test Game" };
+      vi.mocked(storage.getGame).mockResolvedValue(mockGame as any);
+      vi.mocked(storage.getReleaseBlacklistSet).mockResolvedValue(
+        new Set(["Test Game-SKIDROW", "Test Game-PLAZA"])
+      );
+      vi.mocked(searchAllIndexers).mockResolvedValue({
+        items: [
+          {
+            title: "Test Game-SKIDROW",
+            link: "http://example.com/1",
+            downloadType: "torrent" as const,
+          },
+          {
+            title: "Test Game-PLAZA",
+            link: "http://example.com/2",
+            downloadType: "torrent" as const,
+          },
+          {
+            title: "Test Game-CODEX",
+            link: "http://example.com/3",
+            downloadType: "torrent" as const,
+          },
+        ],
+        total: 3,
+        errors: [],
+      });
+
+      const response = await request(app).get("/api/search?query=Test+Game&gameId=game-1");
+
+      expect(response.status).toBe(200);
+      expect(response.body.items).toHaveLength(1);
+      expect(response.body.blacklistedCount).toBe(2);
+    });
+
+    it("should not filter when game belongs to another user", async () => {
+      vi.mocked(storage.getGame).mockResolvedValue({
+        id: "game-1",
+        userId: "other-user",
+        title: "Test Game",
+      } as any);
+      vi.mocked(searchAllIndexers).mockResolvedValue({
+        items: [
+          {
+            title: "Test Game-SKIDROW",
+            link: "http://example.com/1",
+            downloadType: "torrent" as const,
+          },
+        ],
+        total: 1,
+        errors: [],
+      });
+
+      const response = await request(app).get("/api/search?query=Test+Game&gameId=game-1");
+
+      expect(response.status).toBe(200);
+      expect(response.body.items).toHaveLength(1);
+      expect(storage.getReleaseBlacklistSet).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── Discord Settings ───
+  describe("Discord settings", () => {
+    describe("GET /api/settings/discord", () => {
+      it("should return configured: true when webhook URL is set", async () => {
+        vi.mocked(storage.getSystemConfig).mockResolvedValue(
+          "https://discord.com/api/webhooks/123/abc"
+        );
+        const response = await request(app).get("/api/settings/discord");
+        expect(response.status).toBe(200);
+        expect(response.body).toMatchObject({
+          configured: true,
+          webhookUrl: "https://discord.com/api/webhooks/123/abc",
+        });
+      });
+
+      it("should return configured: false when webhook URL is empty", async () => {
+        vi.mocked(storage.getSystemConfig).mockResolvedValue("");
+        const response = await request(app).get("/api/settings/discord");
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({ configured: false });
+      });
+
+      it("should return configured: false when webhook URL is null", async () => {
+        vi.mocked(storage.getSystemConfig).mockResolvedValue(null);
+        const response = await request(app).get("/api/settings/discord");
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({ configured: false });
+      });
+
+      it("should return 500 on storage error", async () => {
+        vi.mocked(storage.getSystemConfig).mockRejectedValue(new Error("DB error"));
+        const response = await request(app).get("/api/settings/discord");
+        expect(response.status).toBe(500);
+      });
+    });
+
+    describe("POST /api/settings/discord", () => {
+      it("should save a valid discord.com webhook URL", async () => {
+        vi.mocked(storage.setSystemConfig).mockResolvedValue(undefined);
+        const response = await request(app)
+          .post("/api/settings/discord")
+          .send({ webhookUrl: "https://discord.com/api/webhooks/123/abc" });
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({ success: true });
+        expect(storage.setSystemConfig).toHaveBeenCalledWith(
+          "discord.webhookUrl",
+          "https://discord.com/api/webhooks/123/abc"
+        );
+      });
+
+      it("should save a valid discordapp.com webhook URL", async () => {
+        vi.mocked(storage.setSystemConfig).mockResolvedValue(undefined);
+        const response = await request(app)
+          .post("/api/settings/discord")
+          .send({ webhookUrl: "https://discordapp.com/api/webhooks/123/abc" });
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({ success: true });
+      });
+
+      it("should return 400 for an invalid webhook URL", async () => {
+        const response = await request(app)
+          .post("/api/settings/discord")
+          .send({ webhookUrl: "https://evil.com/steal" });
+        expect(response.status).toBe(400);
+        expect(response.body.error).toMatch(/invalid/i);
+        expect(storage.setSystemConfig).not.toHaveBeenCalled();
+      });
+
+      it("should clear the webhook URL when empty string is sent", async () => {
+        vi.mocked(storage.setSystemConfig).mockResolvedValue(undefined);
+        const response = await request(app).post("/api/settings/discord").send({ webhookUrl: "" });
+        expect(response.status).toBe(200);
+        expect(storage.setSystemConfig).toHaveBeenCalledWith("discord.webhookUrl", "");
+      });
+
+      it("should return 500 on storage error", async () => {
+        vi.mocked(storage.setSystemConfig).mockRejectedValue(new Error("DB error"));
+        const response = await request(app)
+          .post("/api/settings/discord")
+          .send({ webhookUrl: "https://discord.com/api/webhooks/123/abc" });
+        expect(response.status).toBe(500);
+      });
+    });
+  });
+
+  // ─── Discord Share ───
+  describe("POST /api/stats/discord-share", () => {
+    const validImageDataUrl =
+      "data:image/png;base64," + Buffer.from("fake-png-data").toString("base64");
+
+    beforeEach(() => {
+      vi.stubGlobal("fetch", vi.fn());
+    });
+
+    it("should return 400 when no webhook is configured", async () => {
+      vi.mocked(storage.getSystemConfig).mockResolvedValue(null);
+      const response = await request(app)
+        .post("/api/stats/discord-share")
+        .send({ image: validImageDataUrl });
+      expect(response.status).toBe(400);
+      expect(response.body.error).toMatch(/not configured/i);
+    });
+
+    it("should return 400 when webhook URL is invalid in DB", async () => {
+      vi.mocked(storage.getSystemConfig).mockResolvedValue("https://evil.com/webhook");
+      const response = await request(app)
+        .post("/api/stats/discord-share")
+        .send({ image: validImageDataUrl });
+      expect(response.status).toBe(400);
+      expect(response.body.error).toMatch(/invalid/i);
+    });
+
+    it("should return 400 when no image is provided", async () => {
+      vi.mocked(storage.getSystemConfig).mockResolvedValue(
+        "https://discord.com/api/webhooks/123/abc"
+      );
+      const response = await request(app).post("/api/stats/discord-share").send({});
+      expect(response.status).toBe(400);
+      expect(response.body.error).toMatch(/no image/i);
+    });
+
+    it("should return 400 for malformed image data", async () => {
+      vi.mocked(storage.getSystemConfig).mockResolvedValue(
+        "https://discord.com/api/webhooks/123/abc"
+      );
+      const response = await request(app)
+        .post("/api/stats/discord-share")
+        .send({ image: "not-a-valid-data-url" });
+      expect(response.status).toBe(400);
+      expect(response.body.error).toMatch(/invalid image/i);
+    });
+
+    it("should post to Discord and return success", async () => {
+      vi.mocked(storage.getSystemConfig).mockResolvedValue(
+        "https://discord.com/api/webhooks/123/abc"
+      );
+      vi.mocked(fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ok: true,
+      });
+      const response = await request(app)
+        .post("/api/stats/discord-share")
+        .send({ image: validImageDataUrl, message: "My stats" });
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ success: true });
+      expect(fetch).toHaveBeenCalledWith(
+        "https://discord.com/api/webhooks/123/abc",
+        expect.objectContaining({ method: "POST" })
+      );
+    });
+
+    it("should return 502 when Discord rejects the request", async () => {
+      vi.mocked(storage.getSystemConfig).mockResolvedValue(
+        "https://discord.com/api/webhooks/123/abc"
+      );
+      vi.mocked(fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ok: false,
+        status: 400,
+        text: vi.fn().mockResolvedValue("Bad Request"),
+      });
+      const response = await request(app)
+        .post("/api/stats/discord-share")
+        .send({ image: validImageDataUrl });
+      expect(response.status).toBe(502);
+      expect(response.body.error).toMatch(/discord/i);
+    });
+
+    it("should return 500 on unexpected error", async () => {
+      vi.mocked(storage.getSystemConfig).mockRejectedValue(new Error("DB error"));
+      const response = await request(app)
+        .post("/api/stats/discord-share")
+        .send({ image: validImageDataUrl });
+      expect(response.status).toBe(500);
+    });
+  });
+  // ─── Release Blacklist routes ───
+  describe("Release Blacklist routes", () => {
+    const gameId = "123e4567-e89b-12d3-a456-426614174000";
+    const mockGame = { id: gameId, userId: "user-1", title: "Test Game" };
+    const blacklistEntry = {
+      id: "bl-1",
+      gameId,
+      releaseTitle: "Test Game-SKIDROW",
+      createdAt: new Date().toISOString(),
+    };
+
+    describe("POST /api/games/:gameId/blacklist", () => {
+      it("should add a release to the blacklist", async () => {
+        vi.mocked(storage.getGame).mockResolvedValue(mockGame as any);
+        vi.mocked(storage.addReleaseBlacklist).mockResolvedValue(blacklistEntry as any);
+
+        const response = await request(app)
+          .post(`/api/games/${gameId}/blacklist`)
+          .send({ releaseTitle: "Test Game-SKIDROW" });
+
+        expect(response.status).toBe(201);
+        expect(response.body).toMatchObject({ releaseTitle: "Test Game-SKIDROW" });
+      });
+
+      it("should return 400 for missing releaseTitle", async () => {
+        vi.mocked(storage.getGame).mockResolvedValue(mockGame as any);
+
+        const response = await request(app).post(`/api/games/${gameId}/blacklist`).send({});
+
+        expect(response.status).toBe(400);
+      });
+
+      it("should return 403 when game belongs to another user", async () => {
+        vi.mocked(storage.getGame).mockResolvedValue({ ...mockGame, userId: "other-user" } as any);
+
+        const response = await request(app)
+          .post(`/api/games/${gameId}/blacklist`)
+          .send({ releaseTitle: "Test Game-SKIDROW" });
+
+        expect(response.status).toBe(403);
+      });
+
+      it("should return 404 when game not found", async () => {
+        vi.mocked(storage.getGame).mockResolvedValue(undefined as any);
+
+        const response = await request(app)
+          .post(`/api/games/${gameId}/blacklist`)
+          .send({ releaseTitle: "Test Game-SKIDROW" });
+
+        expect(response.status).toBe(404);
+      });
+    });
+
+    describe("GET /api/games/:gameId/blacklist", () => {
+      it("should return blacklist entries for a game", async () => {
+        vi.mocked(storage.getGame).mockResolvedValue(mockGame as any);
+        vi.mocked(storage.getReleaseBlacklist).mockResolvedValue([blacklistEntry] as any);
+
+        const response = await request(app).get(`/api/games/${gameId}/blacklist`);
+
+        expect(response.status).toBe(200);
+        expect(response.body).toHaveLength(1);
+        expect(response.body[0].releaseTitle).toBe("Test Game-SKIDROW");
+      });
+
+      it("should return 403 when game belongs to another user", async () => {
+        vi.mocked(storage.getGame).mockResolvedValue({ ...mockGame, userId: "other-user" } as any);
+
+        const response = await request(app).get(`/api/games/${gameId}/blacklist`);
+
+        expect(response.status).toBe(403);
+      });
+    });
+
+    describe("DELETE /api/games/:gameId/blacklist/:id", () => {
+      it("should remove a blacklist entry", async () => {
+        vi.mocked(storage.getGame).mockResolvedValue(mockGame as any);
+        vi.mocked(storage.removeReleaseBlacklist).mockResolvedValue(true);
+
+        const response = await request(app).delete(`/api/games/${gameId}/blacklist/bl-1`);
+
+        expect(response.status).toBe(204);
+      });
+
+      it("should return 404 when entry not found", async () => {
+        vi.mocked(storage.getGame).mockResolvedValue(mockGame as any);
+        vi.mocked(storage.removeReleaseBlacklist).mockResolvedValue(false);
+
+        const response = await request(app).delete(`/api/games/${gameId}/blacklist/nonexistent`);
+
+        expect(response.status).toBe(404);
+      });
+
+      it("should return 403 when game belongs to another user", async () => {
+        vi.mocked(storage.getGame).mockResolvedValue({ ...mockGame, userId: "other-user" } as any);
+
+        const response = await request(app).delete(`/api/games/${gameId}/blacklist/bl-1`);
+
+        expect(response.status).toBe(403);
+      });
+    });
+
+    describe("GET /api/blacklist", () => {
+      it("should return all blacklist entries for the user", async () => {
+        const entries = [{ ...blacklistEntry, gameTitle: "Test Game" }];
+        vi.mocked(storage.getAllReleaseBlacklists).mockResolvedValue(entries as any);
+
+        const response = await request(app).get("/api/blacklist");
+
+        expect(response.status).toBe(200);
+        expect(response.body).toHaveLength(1);
+        expect(response.body[0].gameTitle).toBe("Test Game");
+      });
+
+      it("should return empty array when no entries", async () => {
+        vi.mocked(storage.getAllReleaseBlacklists).mockResolvedValue([]);
+
+        const response = await request(app).get("/api/blacklist");
+
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual([]);
+      });
+    });
+  });
+
+  // ─── GET /api/games/:id/downloads ───
+  describe("GET /api/games/:id/downloads", () => {
+    const gameId = "123e4567-e89b-12d3-a456-426614174000";
+    const mockGame = { id: gameId, userId: "user-1", title: "Test Game" };
+
+    it("should return downloads for a game", async () => {
+      const mockDownloads = [
+        {
+          id: "dl-1",
+          gameId,
+          downloaderId: "d-1",
+          downloaderName: "qBit",
+          downloadHash: "abc",
+          downloadTitle: "Game-SKIDROW",
+          status: "downloading",
+          downloadType: "torrent",
+          fileSize: null,
+          addedAt: new Date(),
+          completedAt: null,
+        },
+      ];
+      vi.mocked(storage.getGame).mockResolvedValue(mockGame as any);
+      vi.mocked(storage.getDownloadsByGameId).mockResolvedValue(mockDownloads as any);
+
+      const response = await request(app).get(`/api/games/${gameId}/downloads`);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveLength(1);
+      expect(response.body[0].downloaderName).toBe("qBit");
+      expect(storage.getDownloadsByGameId).toHaveBeenCalledWith(gameId);
+    });
+
+    it("should return empty array when game has no downloads", async () => {
+      vi.mocked(storage.getGame).mockResolvedValue(mockGame as any);
+      vi.mocked(storage.getDownloadsByGameId).mockResolvedValue([]);
+
+      const response = await request(app).get(`/api/games/${gameId}/downloads`);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual([]);
+    });
+
+    it("should return 400 for an invalid (non-UUID) game id", async () => {
+      const response = await request(app).get("/api/games/not-a-valid-id/downloads");
+      expect(response.status).toBe(400);
+    });
+
+    it("should return 500 when storage throws", async () => {
+      vi.mocked(storage.getGame).mockResolvedValue(mockGame as any);
+      vi.mocked(storage.getDownloadsByGameId).mockRejectedValue(new Error("DB error"));
+
+      const response = await request(app).get(`/api/games/${gameId}/downloads`);
+
+      expect(response.status).toBe(500);
+      expect(response.body.error).toMatch(/failed to fetch game downloads/i);
     });
   });
 });

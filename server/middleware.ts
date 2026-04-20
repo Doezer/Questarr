@@ -38,10 +38,10 @@ export const sensitiveEndpointLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// Rate limiter for authentication/login endpoints (if needed in future)
+// Rate limiter for authentication/login endpoints
 export const authRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // limit each IP to 5 requests per 15 minutes
+  max: 20, // limit each IP to 20 requests per 15 minutes
   message: "Too many authentication attempts, please try again later",
   standardHeaders: true,
   legacyHeaders: false,
@@ -60,9 +60,14 @@ export const generalApiLimiter = rateLimit({
 export const validateRequest = (req: Request, res: Response, next: NextFunction) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
+    const details = errors.array();
+    expressLogger.warn(
+      { path: req.path, method: req.method, validationErrors: details },
+      "Validation failed"
+    );
     return res.status(400).json({
       error: "Validation failed",
-      details: errors.array(),
+      details,
     });
   }
   next();
@@ -94,6 +99,14 @@ export const sanitizeGameId = [
     .withMessage("Invalid game ID format"),
 ];
 
+// Sanitization rules for download record ID parameters
+export const sanitizeDownloadId = [
+  param("downloadId")
+    .trim()
+    .matches(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
+    .withMessage("Invalid download ID format"),
+];
+
 // Sanitization rules for IGDB ID parameters
 export const sanitizeIgdbId = [
   param("id").trim().isInt({ min: 1 }).withMessage("Invalid IGDB ID").toInt(),
@@ -113,20 +126,24 @@ export const sanitizeGameData = [
     .trim()
     .isLength({ min: 1, max: 500 })
     .withMessage("Title must be between 1 and 500 characters"),
-  body("igdbId").optional().isInt({ min: 1 }).withMessage("Invalid IGDB ID").toInt(),
+  body("igdbId")
+    .optional({ nullable: true })
+    .isInt({ min: 1 })
+    .withMessage("Invalid IGDB ID")
+    .toInt(),
   body("summary")
     .optional()
     .trim()
     .isLength({ max: 5000 })
     .withMessage("Summary must be at most 5000 characters"),
-  body("coverUrl").optional().trim().isURL().withMessage("Invalid cover URL"),
+  body("coverUrl").optional({ checkFalsy: true }).trim().isURL().withMessage("Invalid cover URL"),
   body("releaseDate")
     .optional({ nullable: true, checkFalsy: true })
     .trim()
     .matches(/^\d{4}-\d{2}-\d{2}$/)
     .withMessage("Invalid date format, use YYYY-MM-DD"),
   body("rating")
-    .optional()
+    .optional({ nullable: true })
     .isFloat({ min: 0, max: 10 })
     .withMessage("Rating must be between 0 and 10")
     .toFloat(),
@@ -287,6 +304,11 @@ export const sanitizeDownloaderData = [
     .trim()
     .isLength({ max: 100 })
     .withMessage("Label must be at most 100 characters"),
+  body("urlPath")
+    .optional()
+    .trim()
+    .isLength({ max: 200 })
+    .withMessage("URL path must be at most 200 characters"),
 ];
 
 // Sanitization rules for partial downloader updates (PATCH)
@@ -360,6 +382,11 @@ export const sanitizeDownloaderUpdateData = [
     .trim()
     .isLength({ max: 100 })
     .withMessage("Label must be at most 100 characters"),
+  body("urlPath")
+    .optional()
+    .trim()
+    .isLength({ max: 200 })
+    .withMessage("URL path must be at most 200 characters"),
 ];
 
 // Sanitization rules for download add requests

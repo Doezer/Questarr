@@ -5,6 +5,7 @@ import express from "express";
 import { registerRoutes } from "../routes.js";
 import { storage } from "../storage.js";
 import { rssService } from "../rss.js";
+import { isSafeUrl } from "../ssrf.js";
 
 // Mock dependencies
 vi.mock("../storage.js");
@@ -18,9 +19,17 @@ vi.mock("../steam-routes.js", () => ({
   steamRoutes: (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
 
+vi.mock("../ssrf.js", () => ({
+  isSafeUrl: vi.fn(),
+  safeFetch: vi.fn(),
+}));
+
 vi.mock("../auth.js", () => ({
   authenticateToken: (req: any, res: any, next: any) => {
     req.user = { id: 1, username: "testuser" };
+    next();
+  },
+  optionalAuthenticateToken: (_req: any, _res: any, next: any) => {
     next();
   },
   hashPassword: vi.fn(),
@@ -63,6 +72,7 @@ vi.mock("../middleware.js", () => ({
   sanitizeSearchQuery: [],
   sanitizeGameId: [],
   sanitizeIgdbId: [],
+  sanitizeDownloadId: [],
   sanitizeGameStatus: [],
   sanitizeGameData: [],
   sanitizeIndexerData: [],
@@ -78,6 +88,7 @@ describe("RSS Routes", () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    vi.mocked(isSafeUrl).mockResolvedValue(true);
     app = express();
     app.use(express.json());
     await registerRoutes(app);
@@ -138,6 +149,22 @@ describe("RSS Routes", () => {
       expect(res.status).toBe(400);
       // Verify verification rejection without strict body check due to serialization issues
     });
+
+    it("should reject unsafe URLs with 400", async () => {
+      vi.mocked(isSafeUrl).mockResolvedValue(false);
+
+      const feed = {
+        name: "Evil Feed",
+        url: "http://169.254.169.254/latest/meta-data",
+        type: "custom",
+        enabled: true,
+      };
+      const res = await request(app).post("/api/rss/feeds").send(feed);
+
+      expect(res.status).toBe(400);
+      expect(res.body).toHaveProperty("error", "Invalid or unsafe URL");
+      expect(storage.addRssFeed).not.toHaveBeenCalled();
+    });
   });
 
   describe("PUT /api/rss/feeds/:id", () => {
@@ -161,6 +188,28 @@ describe("RSS Routes", () => {
 
       expect(res.status).toBe(404);
     });
+
+    it("should reject unsafe URLs with 400", async () => {
+      vi.mocked(isSafeUrl).mockResolvedValue(false);
+
+      const res = await request(app)
+        .put("/api/rss/feeds/1")
+        .send({ url: "http://192.168.1.1/admin" });
+
+      expect(res.status).toBe(400);
+      expect(res.body).toHaveProperty("error", "Invalid or unsafe URL");
+      expect(storage.updateRssFeed).not.toHaveBeenCalled();
+    });
+
+    it("should not call isSafeUrl when URL is not being updated", async () => {
+      const updatedFeed = { id: "1", name: "Renamed", url: "http://existing.com/rss" };
+      vi.mocked(storage.updateRssFeed).mockResolvedValue(updatedFeed as any);
+
+      const res = await request(app).put("/api/rss/feeds/1").send({ name: "Renamed" });
+
+      expect(res.status).toBe(200);
+      expect(isSafeUrl).not.toHaveBeenCalled();
+    });
   });
 
   describe("DELETE /api/rss/feeds/:id", () => {
@@ -169,8 +218,8 @@ describe("RSS Routes", () => {
 
       const res = await request(app).delete("/api/rss/feeds/1");
 
-      expect(res.status).toBe(200);
-      expect(res.body).toEqual({ success: true });
+      expect(res.status).toBe(204);
+      expect(res.body).toEqual({});
       expect(storage.removeRssFeed).toHaveBeenCalledWith("1");
     });
 

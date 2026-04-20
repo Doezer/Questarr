@@ -14,6 +14,8 @@ import { startCronJobs } from "./cron.js";
 import { setupSocketIO } from "./socket.js";
 import { ensureDatabase } from "./migrate.js";
 import { rssService } from "./rss.js";
+import { nexusmodsClient } from "./nexusmods.js";
+import { storage } from "./storage.js";
 
 const app = express();
 if (config.server.isProduction) {
@@ -25,7 +27,7 @@ app.use(
     credentials: true,
   })
 );
-app.use(express.json());
+app.use(express.json({ limit: "5mb" }));
 app.use(express.urlencoded({ extended: false }));
 
 // Apply general rate limiting to all API routes
@@ -140,6 +142,13 @@ app.use((req, res, next) => {
     // Initialize RSS service (seeding default feeds)
     await rssService.initialize();
 
+    // Initialize NexusMods client from DB (env var already applied at module load)
+    const dbNexusKey = await storage.getSystemConfig("nexusmods.apiKey");
+    if (dbNexusKey && dbNexusKey.length > 0) {
+      nexusmodsClient.configure(dbNexusKey);
+      log("NexusMods API key loaded from database");
+    }
+
     const server = await registerRoutes(app);
 
     setupSocketIO(server);
@@ -198,7 +207,9 @@ app.use((req, res, next) => {
               }
               if (!req.secure) {
                 const host = req.hostname || "localhost";
-                return res.redirect(`https://${host}:${ssl.port}${req.url}`);
+                // Use req.path (Express-normalized, no host component) to prevent
+                // open redirect via user-controlled req.url (e.g. //evil.com/path).
+                return res.redirect(`https://${host}:${ssl.port}${req.path}`);
               }
               next();
             });

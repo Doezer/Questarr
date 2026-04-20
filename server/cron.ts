@@ -1,19 +1,31 @@
 import { storage } from "./storage.js";
-import { igdbClient } from "./igdb.js";
+import { igdbClient, IGDB_EARLY_ACCESS_STATUS } from "./igdb.js";
 import { igdbLogger } from "./logger.js";
 import { notifyUser } from "./socket.js";
 import { DownloaderManager } from "./downloaders.js";
 import { importManager } from "./services/index.js";
-import { searchAllIndexers } from "./search.js";
+import { searchAllIndexers, filterBlacklistedReleases } from "./search.js";
 import { xrelClient, DEFAULT_XREL_BASE } from "./xrel.js";
 import { steamService } from "./steam.js";
 import { downloadRulesSchema, type Game, type InsertNotification } from "../shared/schema.js";
 import { categorizeDownload } from "../shared/download-categorizer.js";
-import { releaseMatchesGame, normalizeTitle, cleanReleaseName } from "../shared/title-utils.js";
+import {
+  releaseMatchesGame,
+  normalizeTitle,
+  cleanReleaseName,
+  parseJsonStringArray,
+  parseReleaseMetadata,
+  matchesPlatformFilter,
+} from "../shared/title-utils.js";
 
 const DELAY_THRESHOLD_DAYS = 7;
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const DOWNLOAD_CHECK_INTERVAL_MS = 60 * 1000; // 1 minute
+
+// Track consecutive "not found" counts per download to avoid prematurely marking
+// downloads as owned during the brief SABnzbd queue→history transition window.
+const downloadMissCount = new Map<string, number>();
+const DOWNLOAD_MISS_THRESHOLD = 3;
 const AUTO_SEARCH_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const XREL_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours (xREL search rate limit: 2/5s)
 const OWNED_STATUSES = new Set(["owned", "completed", "downloading"]);
@@ -86,8 +98,36 @@ function categorizeSearchItems(
   );
 }
 
+function applyPreferredGroupsFilter(
+  items: Awaited<ReturnType<typeof searchAllIndexers>>["items"],
+  preferredGroups: string[]
+): Awaited<ReturnType<typeof searchAllIndexers>>["items"] {
+  if (preferredGroups.length === 0) return items;
+  const filtered = items.filter(
+    (item) =>
+      item.group && preferredGroups.some((g) => g.toLowerCase() === item.group!.toLowerCase())
+  );
+  return filtered.length > 0 ? filtered : items;
+}
+
+/**
+ * Applies a strict preferred platform filter to search items.
+ * PC is special: matches releases with no detected platform as well as explicit PC detections.
+ * Returns the input unchanged when no preferred platform is configured.
+ */
+function applyPreferredPlatformFilter(
+  items: Awaited<ReturnType<typeof searchAllIndexers>>["items"],
+  preferredPlatform: string | null | undefined
+): Awaited<ReturnType<typeof searchAllIndexers>>["items"] {
+  if (!preferredPlatform) return items;
+  return items.filter((item) => {
+    const { platform } = parseReleaseMetadata(item.title);
+    return matchesPlatformFilter(platform, preferredPlatform);
+  });
+}
+
 async function searchAndCategorizeItemsForGame(
-  game: Pick<Game, "title">,
+  game: Pick<Game, "id" | "title">,
   downloadRules: string | null
 ): Promise<AutoSearchCategorizedItems | null> {
   const { items, errors } = await searchAllIndexers({
@@ -132,6 +172,18 @@ async function searchAndCategorizeItemsForGame(
     return null;
   }
 
+  // Filter out blacklisted releases
+  const blacklisted = await storage.getReleaseBlacklistSet(game.id);
+  const nonBlacklisted = filterBlacklistedReleases(matchedItems, blacklisted);
+
+  if (nonBlacklisted.length === 0) {
+    igdbLogger.debug(
+      { gameTitle: game.title, matchedCount: matchedItems.length },
+      "All matched items were blacklisted"
+    );
+    return null;
+  }
+
   let rules: AutoSearchRules;
   try {
     rules = getAutoSearchRules(downloadRules);
@@ -140,7 +192,7 @@ async function searchAndCategorizeItemsForGame(
     rules = getAutoSearchRules(null);
   }
 
-  return categorizeSearchItems(matchedItems, rules);
+  return categorizeSearchItems(nonBlacklisted, rules);
 }
 
 export function startCronJobs() {
@@ -226,7 +278,21 @@ export async function checkGameUpdates() {
   for (const game of gamesToCheck) {
     const igdbGame = igdbGameMap.get(game.igdbId!);
 
-    if (!igdbGame || !igdbGame.first_release_date) continue;
+    if (!igdbGame) continue;
+
+    // Helper to queue update
+    const queueUpdate = (updates: Partial<Game>) => {
+      const existing = updatesMap.get(game.id) || {};
+      updatesMap.set(game.id, { ...existing, ...updates });
+    };
+
+    // Update early access flag regardless of whether a release date is known
+    const newEarlyAccess = igdbGame.status === IGDB_EARLY_ACCESS_STATUS;
+    if (game.earlyAccess !== newEarlyAccess) {
+      queueUpdate({ earlyAccess: newEarlyAccess });
+    }
+
+    if (!igdbGame.first_release_date) continue;
 
     const currentReleaseDate = new Date(igdbGame.first_release_date * 1000);
     const currentReleaseDateStr = currentReleaseDate.toISOString().split("T")[0];
@@ -283,7 +349,7 @@ export async function checkGameUpdates() {
       });
     }
 
-    // If things changed, update DB
+    // If release date or status changed, update DB
     if (game.releaseDate !== currentReleaseDateStr || game.releaseStatus !== newReleaseStatus) {
       igdbLogger.info(
         {
@@ -339,208 +405,6 @@ export async function checkGameUpdates() {
   );
 }
 
-async function handleCompletedDownload(
-  download: Awaited<ReturnType<typeof storage.getDownloadingGameDownloads>>[number],
-  downloader: NonNullable<Awaited<ReturnType<typeof storage.getDownloader>>>,
-  remoteDownload: { status: string; progress: number }
-) {
-  igdbLogger.info(
-    {
-      item: download.downloadTitle,
-      status: remoteDownload.status,
-      progress: remoteDownload.progress,
-    },
-    "Download completed - triggering import processing"
-  );
-
-  // Fetch full details to get the path
-  // detailed info is needed for the path (downloadDir)
-  const details = await DownloaderManager.getDownloadDetails(downloader, download.downloadHash);
-
-  if (details && details.downloadDir) {
-    const remotePath = `${details.downloadDir}/${details.name}`;
-
-    // Delegate to ImportManager
-    await importManager.processImport(download.id, remotePath);
-  } else {
-    igdbLogger.warn(
-      { downloadId: download.id, hash: download.downloadHash },
-      "Could not fetch download details or path is missing. Flagging for manual review."
-    );
-    await storage.updateGameDownloadStatus(download.id, "manual_review_required");
-  }
-
-  // Send notification
-  const message = `Download finished for ${download.downloadTitle}`;
-  const notification = await storage.addNotification({
-    type: "success",
-    title: "Download Completed",
-    message,
-    link: "/library",
-  });
-  notifyUser("notification", notification);
-}
-
-function resolveDownloadStatuses(remoteStatus: string) {
-  let newDownloadStatus: "downloading" | "paused" | "failed" | "completed" = "downloading";
-  let newGameStatus: "wanted" | "downloading" | "owned" = "downloading";
-
-  if (remoteStatus === "error") {
-    newDownloadStatus = "failed";
-    newGameStatus = "wanted"; // Reset to wanted on error
-  } else if (remoteStatus === "paused") {
-    newDownloadStatus = "paused";
-    newGameStatus = "downloading"; // Still consider it downloading (user can resume)
-  } else if (remoteStatus === "downloading") {
-    newDownloadStatus = "downloading";
-    newGameStatus = "downloading";
-  }
-
-  return { newDownloadStatus, newGameStatus };
-}
-
-async function handleInProgressDownload(
-  download: Awaited<ReturnType<typeof storage.getDownloadingGameDownloads>>[number],
-  remoteDownload: { status: string; progress: number; error?: string }
-) {
-  // Sync download status with actual status from downloader
-  const { newDownloadStatus, newGameStatus } = resolveDownloadStatuses(remoteDownload.status);
-
-  if (remoteDownload.status === "error") {
-    igdbLogger.warn(
-      { title: download.downloadTitle, error: remoteDownload.error },
-      "Download error detected"
-    );
-  }
-
-  // Only update if status changed
-  if (download.status !== newDownloadStatus) {
-    await storage.updateGameDownloadStatus(download.id, newDownloadStatus);
-    igdbLogger.debug(
-      {
-        title: download.downloadTitle,
-        oldStatus: download.status,
-        newStatus: newDownloadStatus,
-      },
-      "Updated download status"
-    );
-  }
-
-  // Update game status
-  const game = await storage.getGame(download.gameId);
-  if (game && game.status !== newGameStatus) {
-    await storage.updateGameStatus(download.gameId, { status: newGameStatus });
-    igdbLogger.debug(
-      { gameId: download.gameId, oldStatus: game.status, newStatus: newGameStatus },
-      "Updated game status"
-    );
-  }
-}
-
-async function handleMissingDownload(
-  download: Awaited<ReturnType<typeof storage.getDownloadingGameDownloads>>[number]
-) {
-  // Download missing from downloader
-  // NOTE: This could happen for several reasons:
-  // 1. Download completed and was removed by the user
-  // 2. Download failed and was manually removed
-  // 3. Download was cancelled by the user
-  // 4. Downloader was cleared/reset
-  // Currently, we assume completion, but this may not always be correct.
-  // TODO: Consider adding a user preference to handle this scenario differently
-  // (e.g., reset to "wanted" status, or require manual confirmation)
-
-  // Fetch game info for better logging and notification
-  const game = await storage.getGame(download.gameId);
-  const gameTitle = game ? game.title : download.downloadTitle;
-
-  igdbLogger.warn(
-    {
-      gameId: download.gameId,
-      downloadId: download.id,
-      downloadTitle: download.downloadTitle,
-      gameTitle,
-      downloadHash: download.downloadHash,
-    },
-    "Download not found in downloader - assuming completion and marking as owned. " +
-      "This could indicate the download was manually removed."
-  );
-
-  // Mark download as completed (assumption)
-  await storage.updateGameDownloadStatus(download.id, "completed");
-
-  // Update game status to owned (assumption)
-  await storage.updateGameStatus(download.gameId, { status: "owned" });
-
-  // Send notification to user about this automatic status change
-  const notification = await storage.addNotification({
-    type: "info",
-    title: "Download Status Changed",
-    message: `Download for "${gameTitle}" was not found in the downloader and has been marked as completed. If this was removed due to an error, you may need to re-download it.`,
-    link: "/library",
-  });
-  notifyUser("notification", notification);
-
-  igdbLogger.info(
-    { gameId: download.gameId, gameTitle },
-    "Automatically updated game status to 'owned' after download not found in downloader"
-  );
-}
-
-async function processDownloaderDownloads(
-  downloaderId: string,
-  downloads: Awaited<ReturnType<typeof storage.getDownloadingGameDownloads>>
-) {
-  const downloader = await storage.getDownloader(downloaderId);
-  if (!downloader || !downloader.enabled) return;
-
-  const activeDownloads = await DownloaderManager.getAllDownloads(downloader);
-  const activeDownloadMap = new Map(activeDownloads.map((t) => [t.id.toLowerCase(), t]));
-
-  igdbLogger.debug(
-    {
-      downloaderId,
-      activeDownloadCount: activeDownloads.length,
-      trackingCount: downloads.length,
-    },
-    "Checking downloads for downloader"
-  );
-
-  for (const download of downloads) {
-    // Match by hash/ID (handle case sensitivity just in case)
-    const remoteDownload = activeDownloadMap.get(download.downloadHash.toLowerCase());
-
-    if (!remoteDownload) {
-      await handleMissingDownload(download);
-      continue;
-    }
-
-    igdbLogger.debug(
-      {
-        item: download.downloadTitle,
-        status: remoteDownload.status,
-        progress: remoteDownload.progress,
-        dbStatus: download.status,
-        dbHash: download.downloadHash,
-        found: true,
-      },
-      "Checking download status"
-    );
-
-    // Check for completion
-    const isComplete =
-      remoteDownload.status === "completed" ||
-      remoteDownload.status === "seeding" ||
-      remoteDownload.progress >= 100;
-
-    if (isComplete) {
-      await handleCompletedDownload(download, downloader, remoteDownload);
-    } else {
-      await handleInProgressDownload(download, remoteDownload);
-    }
-  }
-}
-
 export async function checkDownloadStatus() {
   const downloadingDownloads = await storage.getDownloadingGameDownloads();
 
@@ -561,7 +425,242 @@ export async function checkDownloadStatus() {
   const entries = Array.from(downloadsByDownloader.entries());
   for (const [downloaderId, downloads] of entries) {
     try {
-      await processDownloaderDownloads(downloaderId, downloads);
+      const downloader = await storage.getDownloader(downloaderId);
+      if (!downloader || !downloader.enabled) continue;
+
+      const activeDownloads = await DownloaderManager.getAllDownloads(downloader);
+      const activeDownloadMap = new Map(activeDownloads.map((t) => [t.id.toLowerCase(), t]));
+
+      igdbLogger.debug(
+        {
+          downloaderId,
+          activeDownloadCount: activeDownloads.length,
+          trackingCount: downloads.length,
+        },
+        "Checking downloads for downloader"
+      );
+
+      for (const download of downloads) {
+        // Match by hash/ID (handle case sensitivity just in case)
+        let remoteDownload = activeDownloadMap.get(download.downloadHash.toLowerCase());
+
+        // For Usenet clients (SABnzbd, NZBGet), getAllDownloads() only returns
+        // queue items. Once a download finishes it moves to history and disappears
+        // from the queue. Fall back to a direct per-item check so history items
+        // are found before declaring the download missing.
+        if (!remoteDownload) {
+          const individualStatus = await DownloaderManager.getDownloadStatus(
+            downloader,
+            download.downloadHash
+          );
+          if (individualStatus) {
+            remoteDownload = individualStatus;
+          }
+        }
+
+        if (remoteDownload) {
+          // Clear any previous miss count — download is alive.
+          downloadMissCount.delete(download.id);
+
+          igdbLogger.debug(
+            {
+              item: download.downloadTitle,
+              status: remoteDownload.status,
+              progress: remoteDownload.progress,
+              dbStatus: download.status,
+              dbHash: download.downloadHash,
+              found: true,
+            },
+            "Checking download status"
+          );
+
+          // Check for completion
+          const isComplete =
+            remoteDownload.status === "completed" ||
+            remoteDownload.status === "seeding" ||
+            remoteDownload.progress >= 100;
+
+          if (isComplete) {
+            igdbLogger.info(
+              {
+                item: download.downloadTitle,
+                status: remoteDownload.status,
+                progress: remoteDownload.progress,
+              },
+              "Download completed"
+            );
+
+            // Update DB - mark as completed
+            await storage.updateGameDownloadStatus(download.id, "completed");
+
+            // Update Game status to 'owned' (which means we have the files)
+            await storage.updateGameStatus(download.gameId, { status: "owned" });
+
+            igdbLogger.info(
+              { gameId: download.gameId, downloadId: download.id },
+              "Updated game status to 'owned' after completion"
+            );
+
+            // Notify frontend to refresh downloads for this game.
+            // TODO: scope this to a per-user socket room once multi-user socket auth is wired up.
+            notifyUser("downloadUpdate", download.gameId);
+
+            // Fetch game title for notification
+            const game = await storage.getGame(download.gameId);
+            const gameTitle = game ? game.title : download.downloadTitle;
+
+            // Send notification
+            const message = `Download finished for ${gameTitle}`;
+            const notification = await storage.addNotification({
+              type: "success",
+              title: "Download Completed",
+              message,
+              link: "/library",
+            });
+            notifyUser("notification", notification);
+          } else {
+            // Sync download status with actual status from downloader
+            let newDownloadStatus: "downloading" | "paused" | "failed" | "completed" =
+              "downloading";
+            let newGameStatus: "wanted" | "downloading" | "owned" = "downloading";
+
+            if (remoteDownload.status === "error") {
+              newDownloadStatus = "failed";
+              newGameStatus = "wanted"; // Reset to wanted on error
+              igdbLogger.warn(
+                { title: download.downloadTitle, error: remoteDownload.error },
+                "Download error detected"
+              );
+            } else if (remoteDownload.status === "paused") {
+              newDownloadStatus = "paused";
+              newGameStatus = "downloading"; // Still consider it downloading (user can resume)
+            } else if (remoteDownload.status === "downloading") {
+              newDownloadStatus = "downloading";
+              newGameStatus = "downloading";
+            }
+
+            // Only update if status changed
+            if (download.status !== newDownloadStatus) {
+              await storage.updateGameDownloadStatus(download.id, newDownloadStatus);
+              igdbLogger.debug(
+                {
+                  title: download.downloadTitle,
+                  oldStatus: download.status,
+                  newStatus: newDownloadStatus,
+                },
+                "Updated download status"
+              );
+              // Notify frontend to refresh downloads for this game.
+              // TODO: scope this to a per-user socket room once multi-user socket auth is wired up.
+              notifyUser("downloadUpdate", download.gameId);
+            }
+
+            // Update game status
+            // If we're about to reset to "wanted" (error case), check whether any
+            // sibling download for the same game is still actively downloading.
+            // If so, leave the game status as-is to avoid a false regression.
+            let skipGameStatusUpdate = false;
+            if (newGameStatus === "wanted") {
+              const siblings = await storage.getDownloadsByGameId(download.gameId);
+              const hasActiveDownload = siblings.some(
+                (s) => s.id !== download.id && s.status === "downloading"
+              );
+              if (hasActiveDownload) {
+                skipGameStatusUpdate = true;
+              }
+            }
+
+            const game = await storage.getGame(download.gameId);
+            if (!skipGameStatusUpdate && game && game.status !== newGameStatus) {
+              await storage.updateGameStatus(download.gameId, { status: newGameStatus });
+              igdbLogger.debug(
+                { gameId: download.gameId, oldStatus: game.status, newStatus: newGameStatus },
+                "Updated game status"
+              );
+            }
+          }
+        } else {
+          // Download missing from downloader
+          // NOTE: This could happen for several reasons:
+          // 1. Download completed and was removed by the user
+          // 2. Download failed and was manually removed
+          // 3. Download was cancelled by the user
+          // 4. Downloader was cleared/reset
+          // 5. SABnzbd/usenet: brief transition window between queue and history
+          // Currently, we assume completion, but this may not always be correct.
+          // TODO: Consider adding a user preference to handle this scenario differently
+          // (e.g., reset to "wanted" status, or require manual confirmation)
+
+          // Guard against false "not found" during brief queue→history transitions
+          // (common with SABnzbd post-processing). Only act after several consecutive misses.
+          const misses = (downloadMissCount.get(download.id) ?? 0) + 1;
+          downloadMissCount.set(download.id, misses);
+
+          igdbLogger.debug(
+            {
+              downloadId: download.id,
+              downloadHash: download.downloadHash,
+              misses,
+              threshold: DOWNLOAD_MISS_THRESHOLD,
+            },
+            "SABnzbd: download miss count"
+          );
+
+          if (misses < DOWNLOAD_MISS_THRESHOLD) {
+            igdbLogger.warn(
+              {
+                gameId: download.gameId,
+                downloadId: download.id,
+                downloadTitle: download.downloadTitle,
+                downloadHash: download.downloadHash,
+                misses,
+                threshold: DOWNLOAD_MISS_THRESHOLD,
+              },
+              "Download not found in downloader - will retry before marking as completed"
+            );
+            continue;
+          }
+
+          // Threshold reached — proceed with assumption of completion.
+          downloadMissCount.delete(download.id);
+
+          // Fetch game info for better logging and notification
+          const game = await storage.getGame(download.gameId);
+          const gameTitle = game ? game.title : download.downloadTitle;
+
+          igdbLogger.warn(
+            {
+              gameId: download.gameId,
+              downloadId: download.id,
+              downloadTitle: download.downloadTitle,
+              gameTitle,
+              downloadHash: download.downloadHash,
+            },
+            "Download not found in downloader - assuming completion and marking as owned. " +
+              "This could indicate the download was manually removed."
+          );
+
+          // Mark download as completed (assumption)
+          await storage.updateGameDownloadStatus(download.id, "completed");
+
+          // Update game status to owned (assumption)
+          await storage.updateGameStatus(download.gameId, { status: "owned" });
+
+          // Send notification to user about this automatic status change
+          const notification = await storage.addNotification({
+            type: "info",
+            title: "Download Status Changed",
+            message: `Download for "${gameTitle}" was not found in the downloader and has been marked as completed. If this was removed due to an error, you may need to re-download it.`,
+            link: "/library",
+          });
+          notifyUser("notification", notification);
+
+          igdbLogger.info(
+            { gameId: download.gameId, gameTitle },
+            "Automatically updated game status to 'owned' after download not found in downloader"
+          );
+        }
+      }
     } catch (error) {
       igdbLogger.error({ error, downloaderId }, "Error checking downloader status");
     }
@@ -614,6 +713,9 @@ export async function checkAutoSearch() {
 
         let gamesWithResults = 0;
 
+        const preferredGroups = parseJsonStringArray(settings.preferredReleaseGroups);
+        const preferredPlatform = settings.preferredPlatform ?? null;
+
         for (const game of wantedGames) {
           try {
             // Skip unreleased games if configured to do so
@@ -630,17 +732,28 @@ export async function checkAutoSearch() {
               settings.downloadRules
             );
             if (!searchResult) {
+              // No results at all (zero results or all blacklisted) — clear the badge
+              await storage.updateGameSearchResultsAvailable(game.id, false);
+              continue;
+            }
+
+            // Apply platform filter first (strict), then preferred groups (soft preference)
+            const platformFilteredMain = applyPreferredPlatformFilter(
+              searchResult.mainItems,
+              preferredPlatform
+            );
+            const mainItems = applyPreferredGroupsFilter(platformFilteredMain, preferredGroups);
+
+            // Handle main items
+            if (mainItems.length === 0) {
+              // Results found by indexers but none survive user's filters — clear the flag
+              await storage.updateGameSearchResultsAvailable(game.id, false);
               continue;
             }
 
             gamesWithResults++;
-
-            const { mainItems } = searchResult;
-
-            // Handle main items
-            if (mainItems.length === 0) {
-              continue;
-            }
+            // Always mark as available when filtered results exist
+            await storage.updateGameSearchResultsAvailable(game.id, true);
 
             if (mainItems.length === 1) {
               // Single result found
@@ -671,11 +784,12 @@ export async function checkAutoSearch() {
                       await storage.updateGameStatus(game.id, { status: "downloading" });
 
                       // Notify success
+                      const groupSuffix = item.group ? ` [${item.group}]` : "";
                       const notification = await storage.addNotification({
                         userId,
                         type: "success",
                         title: "Download Started",
-                        message: `Started downloading ${game.title} via ${item.downloadType === "usenet" ? "Usenet" : "Torrent"}`,
+                        message: `Started downloading ${game.title}${groupSuffix} via ${item.downloadType === "usenet" ? "Usenet" : "Torrent"}`,
                         link: "/library",
                       });
                       notifyUser("notification", notification);
@@ -729,10 +843,17 @@ export async function checkAutoSearch() {
               settings.downloadRules
             );
             if (!searchResult) {
+              await storage.updateGameSearchResultsAvailable(game.id, false);
               continue;
             }
 
-            const { updateItems } = searchResult;
+            const platformFilteredUpdate = applyPreferredPlatformFilter(
+              searchResult.updateItems,
+              preferredPlatform
+            );
+            const updateItems = applyPreferredGroupsFilter(platformFilteredUpdate, preferredGroups);
+
+            await storage.updateGameSearchResultsAvailable(game.id, updateItems.length > 0);
 
             if (updateItems.length > 0 && settings.notifyUpdates) {
               const notification = await storage.addNotification({
@@ -795,7 +916,7 @@ export async function checkXrelReleases() {
       const dirNorm = normalizeTitle(dirCleaned);
       const extRegex =
         extTitleNorm && extTitleNorm.length >= 5
-          ? new RegExp(`\\b${extTitleNorm.replace(/[.*+?^${}()|[\\]/g, "\\$&")}\\b`, "i")
+          ? new RegExp(`\\b${extTitleNorm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i")
           : null;
       return {
         rel,
@@ -891,6 +1012,92 @@ export async function checkSteamWishlist() {
 
 const MAX_STEAM_SYNC_FAILURES = 3;
 
+interface SteamSyncGameSet {
+  currentGames: Game[];
+  ownedIgdbIds: Set<number>;
+  ownedSteamAppIds: Set<number>;
+}
+
+/** Link existing games that match by IGDB ID but are missing their Steam App ID. */
+async function linkExistingGamesToSteam(
+  pendingSteamAppIds: number[],
+  steamToIgdbMap: Map<number, number>,
+  { currentGames, ownedIgdbIds }: SteamSyncGameSet
+): Promise<Set<number>> {
+  const newIgdbIdsToFetch = new Set<number>();
+  const currentGamesByIgdbId = new Map(
+    currentGames.filter((g) => g.igdbId != null).map((g) => [g.igdbId as number, g])
+  );
+
+  for (const steamAppId of pendingSteamAppIds) {
+    const igdbId = steamToIgdbMap.get(steamAppId);
+    if (igdbId == null) {
+      igdbLogger.debug({ steamAppId }, "No IGDB ID found for Steam App ID");
+      continue;
+    }
+
+    if (ownedIgdbIds.has(igdbId)) {
+      const existing = currentGamesByIgdbId.get(igdbId);
+      if (existing && !existing.steamAppId) {
+        await storage.updateGame(existing.id, { steamAppId });
+      }
+    } else {
+      newIgdbIdsToFetch.add(igdbId);
+    }
+  }
+
+  return newIgdbIdsToFetch;
+}
+
+/** Fetch details from IGDB and add new games to the user's library. */
+async function addNewSteamWishlistGames(
+  userId: string,
+  pendingSteamAppIds: number[],
+  steamToIgdbMap: Map<number, number>,
+  newIgdbIds: Set<number>,
+  ownedIgdbIds: Set<number>
+) {
+  const addedGames: { title: string; igdbId: number; steamAppId: number }[] = [];
+
+  const gameDetailsList = await igdbClient.getGamesByIds(Array.from(newIgdbIds));
+  const gameDetailsMap = new Map(gameDetailsList.map((g) => [g.id, g]));
+
+  for (const steamAppId of pendingSteamAppIds) {
+    const igdbId = steamToIgdbMap.get(steamAppId);
+    if (igdbId == null || ownedIgdbIds.has(igdbId)) continue;
+
+    const gameDetails = gameDetailsMap.get(igdbId);
+    if (!gameDetails) continue;
+
+    const formatted = igdbClient.formatGameData(gameDetails);
+    await storage.addGame({
+      userId,
+      title: formatted.title as string,
+      igdbId: formatted.igdbId as number,
+      steamAppId: steamAppId,
+      status: "wanted",
+      coverUrl: formatted.coverUrl as string,
+      summary: formatted.summary as string,
+      releaseDate: formatted.releaseDate as string,
+      rating: formatted.rating as number | null,
+      platforms: formatted.platforms as string[],
+      genres: formatted.genres as string[],
+      developers: formatted.developers as string[],
+      publishers: formatted.publishers as string[],
+      screenshots: formatted.screenshots as string[],
+      source: "steam",
+      hidden: false,
+    });
+    addedGames.push({
+      title: formatted.title as string,
+      igdbId: formatted.igdbId as number,
+      steamAppId,
+    });
+  }
+
+  return addedGames;
+}
+
 export async function syncUserSteamWishlist(userId: string) {
   let steamSyncFailures = 0;
 
@@ -917,100 +1124,53 @@ export async function syncUserSteamWishlist(userId: string) {
       await storage.updateUserSettings(userId, { steamSyncFailures: 0 });
     }
 
-    let addedCount = 0;
-    const addedGames: { title: string; igdbId: number; steamAppId: number }[] = [];
-
-    // We need to fetch current wanted games to avoid duplicates
     const currentGames = await storage.getUserGames(userId, true);
-    const ownedIgdbIds = new Set(currentGames.filter((g) => g.igdbId).map((g) => g.igdbId));
-    const ownedSteamAppIds = new Set(
-      currentGames.filter((g) => g.steamAppId).map((g) => g.steamAppId)
-    );
+    const gameSet: SteamSyncGameSet = {
+      currentGames,
+      ownedIgdbIds: new Set(
+        currentGames.filter((g) => g.igdbId != null).map((g) => g.igdbId as number)
+      ),
+      ownedSteamAppIds: new Set(
+        currentGames.filter((g) => g.steamAppId != null).map((g) => g.steamAppId as number)
+      ),
+    };
 
-    // Identify games that need processing (not already linked by Steam App ID)
     const pendingSteamAppIds = wishlistGames
-      .filter((sg) => !ownedSteamAppIds.has(sg.steamAppId))
+      .filter((sg) => !gameSet.ownedSteamAppIds.has(sg.steamAppId))
       .map((sg) => sg.steamAppId);
 
+    let addedGames: { title: string; igdbId: number; steamAppId: number }[] = [];
+
     if (pendingSteamAppIds.length > 0) {
-      // 1. Batch lookup matches from Steam App ID to IGDB ID
       const steamToIgdbMap = await igdbClient.getGameIdsBySteamAppIds(pendingSteamAppIds);
+      const newIgdbIds = await linkExistingGamesToSteam(
+        pendingSteamAppIds,
+        steamToIgdbMap,
+        gameSet
+      );
 
-      // 2. Identify which matched games are new vs existing
-      const newIgdbIdsToFetch = new Set<number>();
-
-      for (const steamAppId of pendingSteamAppIds) {
-        const igdbId = steamToIgdbMap.get(steamAppId);
-        if (!igdbId) {
-          igdbLogger.debug({ steamAppId }, "No IGDB ID found for Steam App ID");
-          continue;
-        }
-
-        if (ownedIgdbIds.has(igdbId)) {
-          // We have the IGDB ID but not the Steam App ID on the game? Update it.
-          // This updates existing local games to link them to Steam
-          const existing = currentGames.find((g) => g.igdbId === igdbId);
-          if (existing && !existing.steamAppId) {
-            await storage.updateGame(existing.id, { steamAppId });
-          }
-        } else {
-          // New game to add
-          newIgdbIdsToFetch.add(igdbId);
-        }
-      }
-
-      // 3. Batch fetch details for completely new games
-      if (newIgdbIdsToFetch.size > 0) {
-        const gameDetailsList = await igdbClient.getGamesByIds(Array.from(newIgdbIdsToFetch));
-        const gameDetailsMap = new Map(gameDetailsList.map((g) => [g.id, g]));
-
-        // 4. Add the new games
-        for (const steamAppId of pendingSteamAppIds) {
-          const igdbId = steamToIgdbMap.get(steamAppId);
-          if (!igdbId || ownedIgdbIds.has(igdbId)) continue;
-
-          const gameDetails = gameDetailsMap.get(igdbId);
-          if (gameDetails) {
-            const formatted = igdbClient.formatGameData(gameDetails);
-            await storage.addGame({
-              userId,
-              title: formatted.title as string,
-              igdbId: formatted.igdbId as number,
-              steamAppId: steamAppId,
-              status: "wanted",
-              coverUrl: formatted.coverUrl as string,
-              summary: formatted.summary as string,
-              releaseDate: formatted.releaseDate as string,
-              rating: formatted.rating as number,
-              platforms: formatted.platforms as string[],
-              genres: formatted.genres as string[],
-              developers: formatted.developers as string[],
-              publishers: formatted.publishers as string[],
-              screenshots: formatted.screenshots as string[],
-              hidden: false, // Explicitly set default
-            });
-            addedCount++;
-            addedGames.push({
-              title: formatted.title as string,
-              igdbId: formatted.igdbId as number,
-              steamAppId,
-            });
-          }
-        }
+      if (newIgdbIds.size > 0) {
+        addedGames = await addNewSteamWishlistGames(
+          userId,
+          pendingSteamAppIds,
+          steamToIgdbMap,
+          newIgdbIds,
+          gameSet.ownedIgdbIds
+        );
       }
     }
 
-    if (addedCount > 0) {
+    if (addedGames.length > 0) {
       const notification = await storage.addNotification({
         userId,
         type: "success",
         title: "Steam Wishlist Synced",
-        message: `Successfully added ${addedCount} games from your Steam Wishlist.`,
+        message: `Successfully added ${addedGames.length} games from your Steam Wishlist.`,
       });
       notifyUser("notification", notification);
     }
 
-    return { success: true, addedCount, games: addedGames };
+    return { success: true, addedCount: addedGames.length, games: addedGames };
   } catch (error) {
     const nextSteamSyncFailures = steamSyncFailures + 1;
     await storage.updateUserSettings(userId, { steamSyncFailures: nextSteamSyncFailures });

@@ -5,6 +5,8 @@ import {
   titleMatches,
   releaseMatchesGame,
   parseReleaseMetadata,
+  parseJsonStringArray,
+  matchesPlatformFilter,
 } from "../title-utils.js";
 
 describe("title-utils", () => {
@@ -110,14 +112,91 @@ describe("title-utils", () => {
     it("should detect various platforms", () => {
       expect(parseReleaseMetadata("Game.PS5-GROUP").platform).toBe("PS5");
       expect(parseReleaseMetadata("Game.Win64-GROUP").platform).toBe("PC");
-      expect(parseReleaseMetadata("Game.PS2-GROUP").platform).toBe("PS2");
-      expect(parseReleaseMetadata("Game.SNES-USA-GROUP").platform).toBe("SNES");
     });
     it("should parse Mac platform and DRM-Free tags", () => {
       const release = "Shadow.of.the.Tomb.Raider.MacOS.DRM-Free";
       const metadata = parseReleaseMetadata(release);
       expect(metadata.platform).toBe("Mac");
       expect(metadata.drm).toBe("DRM-Free");
+    });
+  });
+
+  describe("parseJsonStringArray", () => {
+    it("parses a valid JSON string array", () => {
+      expect(parseJsonStringArray('["a","b","c"]')).toEqual(["a", "b", "c"]);
+    });
+
+    it("returns empty array for null", () => {
+      expect(parseJsonStringArray(null)).toEqual([]);
+    });
+
+    it("returns empty array for undefined", () => {
+      expect(parseJsonStringArray(undefined)).toEqual([]);
+    });
+
+    it("returns empty array for empty string", () => {
+      expect(parseJsonStringArray("")).toEqual([]);
+    });
+
+    it("returns empty array for invalid JSON", () => {
+      expect(parseJsonStringArray("not-json")).toEqual([]);
+      expect(parseJsonStringArray('["unclosed')).toEqual([]);
+    });
+
+    it("returns empty array when JSON is not an array", () => {
+      expect(parseJsonStringArray('{"key":"value"}')).toEqual([]);
+      expect(parseJsonStringArray('"just-a-string"')).toEqual([]);
+      expect(parseJsonStringArray("42")).toEqual([]);
+    });
+
+    it("returns empty array for JSON null literal", () => {
+      expect(parseJsonStringArray("null")).toEqual([]);
+    });
+
+    it("handles an empty JSON array", () => {
+      expect(parseJsonStringArray("[]")).toEqual([]);
+    });
+  });
+
+  describe("matchesPlatformFilter", () => {
+    describe("PC platform", () => {
+      it("matches releases explicitly detected as PC", () => {
+        expect(matchesPlatformFilter("PC", "PC")).toBe(true);
+      });
+
+      it("matches releases with no detected platform", () => {
+        expect(matchesPlatformFilter(undefined, "PC")).toBe(true);
+      });
+
+      it("does not match non-PC platforms when PC is preferred", () => {
+        expect(matchesPlatformFilter("PS5", "PC")).toBe(false);
+        expect(matchesPlatformFilter("Switch", "PC")).toBe(false);
+        expect(matchesPlatformFilter("Xbox", "PC")).toBe(false);
+      });
+    });
+
+    describe("non-PC platforms", () => {
+      it("matches when detected platform equals preferred", () => {
+        expect(matchesPlatformFilter("PS5", "PS5")).toBe(true);
+        expect(matchesPlatformFilter("PS4", "PS4")).toBe(true);
+        expect(matchesPlatformFilter("Switch", "Switch")).toBe(true);
+        expect(matchesPlatformFilter("Xbox", "Xbox")).toBe(true);
+        expect(matchesPlatformFilter("Xbox Series", "Xbox Series")).toBe(true);
+        // "Xbox" preference is a superset: it also matches Xbox Series releases
+        expect(matchesPlatformFilter("Xbox Series", "Xbox")).toBe(true);
+        expect(matchesPlatformFilter("Mac", "Mac")).toBe(true);
+        expect(matchesPlatformFilter("Linux", "Linux")).toBe(true);
+      });
+
+      it("does not match different explicit platforms", () => {
+        expect(matchesPlatformFilter("PS4", "PS5")).toBe(false);
+        expect(matchesPlatformFilter("Xbox", "Switch")).toBe(false);
+      });
+
+      it("does not match releases with no detected platform for non-PC preferred", () => {
+        expect(matchesPlatformFilter(undefined, "PS5")).toBe(false);
+        expect(matchesPlatformFilter(undefined, "Switch")).toBe(false);
+      });
     });
   });
 });

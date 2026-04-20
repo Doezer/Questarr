@@ -152,12 +152,16 @@ export function NotificationCenter() {
     <>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
-          <Button variant="ghost" size="icon" className="relative">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="relative"
+            aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : "Notifications"}
+          >
             <Bell className="h-5 w-5" />
             {unreadCount > 0 && (
               <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-red-600 animate-pulse" />
             )}
-            <span className="sr-only">Notifications</span>
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-[640px] p-0" align="end">

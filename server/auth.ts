@@ -81,6 +81,26 @@ export async function generateToken(user: User) {
   });
 }
 
+/**
+ * Optional authentication middleware. Sets req.user when a valid JWT is present
+ * but never blocks the request — unauthenticated callers simply get no req.user.
+ */
+export async function optionalAuthenticateToken(req: Request, _res: Response, next: NextFunction) {
+  const authHeader = req.headers["authorization"];
+  const token = authHeader && authHeader.split(" ")[1];
+  if (token) {
+    try {
+      const secret = await getJwtSecret();
+      const payload = jwt.verify(token, secret) as { id: string; username: string };
+      const user = await storage.getUser(payload.id);
+      if (user) req.user = user;
+    } catch {
+      // Invalid token — continue without user context
+    }
+  }
+  next();
+}
+
 export async function authenticateToken(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers["authorization"];
   const token = authHeader && authHeader.split(" ")[1];

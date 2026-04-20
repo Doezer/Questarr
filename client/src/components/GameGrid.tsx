@@ -1,7 +1,7 @@
 import React, { useMemo } from "react";
 import GameCard from "./GameCard";
 import CompactGameCard from "./CompactGameCard";
-import { type Game } from "@shared/schema";
+import { type Game, type DownloadSummary } from "@shared/schema";
 import { type GameStatus } from "./StatusBadge";
 import { cn } from "@/lib/utils";
 
@@ -17,6 +17,7 @@ interface GameGridProps {
   columns?: number;
   viewMode?: "grid" | "list";
   density?: "comfortable" | "compact" | "ultra-compact";
+  downloadSummaries?: Record<string, DownloadSummary>;
 }
 
 export default function GameGrid({
@@ -31,6 +32,7 @@ export default function GameGrid({
   columns = 5,
   viewMode = "grid",
   density = "comfortable",
+  downloadSummaries,
 }: GameGridProps) {
   // Map column count to tailwind classes
   const gridColsClass = useMemo(() => {
@@ -113,6 +115,7 @@ export default function GameGrid({
             onToggleHidden={onToggleHidden}
             isDiscovery={isDiscovery}
             density={density}
+            downloadSummary={downloadSummaries?.[game.id]}
           />
         ) : (
           <GameCard
@@ -123,6 +126,7 @@ export default function GameGrid({
             onTrackGame={onTrackGame}
             onToggleHidden={onToggleHidden}
             isDiscovery={isDiscovery}
+            downloadSummary={downloadSummaries?.[game.id]}
           />
         )
       )}

@@ -12,3 +12,13 @@
 
 **Learning:** Performing multiple inserts/updates in a loop without a transaction causes significant I/O overhead due to repeated fsyncs.
 **Action:** Encapsulate bulk synchronization logic (like syncing indexers) within a single `db.transaction` in the storage layer, and pre-fetch existing records to avoid N+1 read queries.
+
+## 2024-03-18 - Missing memoization in frequently rendered components
+
+**Learning:** Found that multiple components like `AppSidebar`, `library.tsx`, and `wishlist.tsx` were performing O(n) array filtering (`games.filter(...)`) on every render. Because `AppSidebar` renders on every page and updates frequently (e.g. from active downloads polling), these unmemoized calculations could cause noticeable jank as the library grows.
+**Action:** Always check if derived array data (like filtering or sorting) in top-level or frequently updated components is properly wrapped in `useMemo`, especially when the source array comes from a global query cache like React Query.
+
+## 2025-05-23 - Unmemoized React Query array data transformations
+
+**Learning:** React Query frequently triggers re-renders on components. Any heavy transformation derived from query results (e.g. filtering, O(N log N) sorting, date parsing) directly inside the component body will fire on every re-render and degrade performance.
+**Action:** Extract list transformations or sorting using results from React Query into `useMemo`, ensuring `searchResults?.items` or equivalent array paths are added to the dependency array.

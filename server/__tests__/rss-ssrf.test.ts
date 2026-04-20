@@ -4,6 +4,7 @@ import express from "express";
 import { registerRoutes } from "../routes.js";
 import { storage } from "../storage.js";
 import { rssService } from "../rss.js";
+import { isSafeUrl } from "../ssrf.js";
 
 // Mock dependencies
 vi.mock("../storage.js");
@@ -13,6 +14,10 @@ vi.mock("../db.js");
 vi.mock("../torznab.js");
 vi.mock("../downloaders.js");
 vi.mock("../prowlarr.js");
+vi.mock("../ssrf.js", () => ({
+  isSafeUrl: vi.fn(),
+  safeFetch: vi.fn(),
+}));
 vi.mock("../steam-routes.js", () => ({
   steamRoutes: (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
@@ -24,6 +29,13 @@ vi.mock("../auth.js", () => ({
     next: import("express").NextFunction
   ) => {
     req.user = { id: 1, username: "testuser" };
+    next();
+  },
+  optionalAuthenticateToken: (
+    _req: import("express").Request,
+    _res: import("express").Response,
+    next: import("express").NextFunction
+  ) => {
     next();
   },
   hashPassword: vi.fn(),
@@ -82,6 +94,7 @@ vi.mock("../middleware.js", () => ({
   sanitizeSearchQuery: [],
   sanitizeGameId: [],
   sanitizeIgdbId: [],
+  sanitizeDownloadId: [],
   sanitizeGameStatus: [],
   sanitizeGameData: [],
   sanitizeIndexerData: [],
@@ -99,6 +112,10 @@ describe("RSS Routes SSRF", () => {
     vi.clearAllMocks();
     app = express();
     app.use(express.json());
+
+    // Default: isSafeUrl blocks everything unless overridden per-test
+    vi.mocked(isSafeUrl).mockResolvedValue(false);
+
     await registerRoutes(app);
   });
 
@@ -111,6 +128,9 @@ describe("RSS Routes SSRF", () => {
       type: "custom",
       enabled: true,
     };
+
+    // isSafeUrl returns false for metadata IPs (default mock behavior)
+    vi.mocked(isSafeUrl).mockResolvedValue(false);
 
     // Mock storage success to ensure route handler is the one blocking
     vi.mocked(storage.addRssFeed).mockResolvedValue({
@@ -133,6 +153,9 @@ describe("RSS Routes SSRF", () => {
       enabled: true,
     };
 
+    // isSafeUrl returns true for safe public URLs
+    vi.mocked(isSafeUrl).mockResolvedValue(true);
+
     vi.mocked(storage.addRssFeed).mockResolvedValue({
       ...safeFeed,
       id: "3",
@@ -149,6 +172,9 @@ describe("RSS Routes SSRF", () => {
       url: "http://169.254.169.254/latest/meta-data/",
       enabled: true,
     };
+
+    // isSafeUrl returns false for metadata IPs (default mock behavior)
+    vi.mocked(isSafeUrl).mockResolvedValue(false);
 
     // Note: mock for storage.updateRssFeed should be established if it's used
     vi.mocked(storage.updateRssFeed).mockResolvedValue({
@@ -172,6 +198,9 @@ describe("RSS Routes SSRF", () => {
       url: "http://example.com/rss/new",
       enabled: true,
     };
+
+    // isSafeUrl returns true for safe public URLs
+    vi.mocked(isSafeUrl).mockResolvedValue(true);
 
     vi.mocked(storage.updateRssFeed).mockResolvedValue({
       id: "3",

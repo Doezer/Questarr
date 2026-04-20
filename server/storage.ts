@@ -10,6 +10,7 @@ import {
   type InsertDownloader,
   type GameDownload,
   type InsertGameDownload,
+  type DownloadSummary,
   type Notification,
   type InsertNotification,
   type UserSettings,
@@ -21,6 +22,8 @@ import {
   type InsertRssFeed,
   type RssFeedItem,
   type InsertRssFeedItem,
+  type ReleaseBlacklist,
+  type InsertReleaseBlacklist,
   users,
   games,
   indexers,
@@ -44,10 +47,29 @@ import {
   importConfigSchema,
   rommConfigSchema,
   ROMM_MULTI_FILE_PLACEMENT,
+  releaseBlacklist,
 } from "../shared/schema.js";
 import { randomUUID } from "crypto";
 import { db } from "./db.js";
-import { eq, like, or, desc, and, not, inArray, sql } from "drizzle-orm";
+import { eq, like, or, sql, desc, and, not, inArray, type SQL } from "drizzle-orm";
+import { categorizeDownload } from "../shared/download-categorizer.js";
+
+const isUpdateDownload = (title: string): boolean =>
+  categorizeDownload(title).category === "update";
+
+const STATUS_PRIORITY: Record<string, number> = {
+  failed: 4,
+  downloading: 3,
+  paused: 2,
+  completed: 1,
+};
+
+function resolveTopStatus(
+  a: DownloadSummary["topStatus"],
+  b: DownloadSummary["topStatus"]
+): DownloadSummary["topStatus"] {
+  return (STATUS_PRIORITY[a] ?? 0) >= (STATUS_PRIORITY[b] ?? 0) ? a : b;
+}
 
 function normalizeSlugArray(value: unknown): string[] | null | undefined {
   if (value === undefined) return undefined;
@@ -172,13 +194,17 @@ export interface IStorage {
   getGameByIgdbId(igdbId: number): Promise<Game | undefined>;
   getUserGames(userId: string, includeHidden?: boolean, statuses?: string[]): Promise<Game[]>;
   getAllGames(): Promise<Game[]>; // Keep for admin/debug or global search? Or maybe deprecated.
-  getGamesByStatus(status: string): Promise<Game[]>; // Should be user scoped too
   getUserGamesByStatus(userId: string, status: string, includeHidden?: boolean): Promise<Game[]>;
   searchUserGames(userId: string, query: string, includeHidden?: boolean): Promise<Game[]>;
-  searchGames(query: string): Promise<Game[]>; // Deprecated?
   addGame(game: InsertGame): Promise<Game>;
   updateGameStatus(id: string, statusUpdate: UpdateGameStatus): Promise<Game | undefined>;
   updateGameHidden(id: string, hidden: boolean): Promise<Game | undefined>;
+  updateGameUserRating(
+    id: string,
+    userId: string,
+    userRating: number | null
+  ): Promise<Game | undefined>;
+  updateGameSearchResultsAvailable(gameId: string, available: boolean): Promise<void>;
   updateGame(id: string, updates: Partial<Game>): Promise<Game | undefined>;
   updateGamesBatch(updates: { id: string; data: Partial<Game> }[]): Promise<void>;
   removeGame(id: string): Promise<boolean>;
@@ -207,16 +233,23 @@ export interface IStorage {
   getDownloadingGameDownloads(): Promise<GameDownload[]>;
   getPendingImportReviews(): Promise<GameDownload[]>;
   getGameDownload(id: string, userId?: string): Promise<GameDownload | undefined>;
+  getDownloadsByGameId(
+    gameId: string
+  ): Promise<(GameDownload & { downloaderName: string | null })[]>;
   updateGameDownloadStatus(id: string, status: string): Promise<void>;
   addGameDownload(gameDownload: InsertGameDownload): Promise<GameDownload>;
+  removeGameDownload(id: string, gameId: string): Promise<boolean>;
+  getDownloadSummaryByGame(userId: string): Promise<Record<string, DownloadSummary>>;
+  getTrackedDownloadKeys(): Promise<Set<string>>;
 
   // Notification methods
-  getNotifications(limit?: number): Promise<Notification[]>;
-  getUnreadNotificationsCount(): Promise<number>;
+  getNotifications(userId: string, limit?: number): Promise<Notification[]>;
+  getUnreadNotificationsCount(userId: string): Promise<number>;
   addNotification(notification: InsertNotification): Promise<Notification>;
   addNotificationsBatch(notifications: InsertNotification[]): Promise<Notification[]>;
   markNotificationAsRead(id: string): Promise<Notification | undefined>;
-  markAllNotificationsAsRead(): Promise<void>;
+  markAllNotificationsAsRead(userId: string): Promise<void>;
+  deleteReadNotifications(userId: string): Promise<void>;
   // RSS Feed methods
   getAllRssFeeds(): Promise<RssFeed[]>;
   getRssFeed(id: string): Promise<RssFeed | undefined>;
@@ -273,6 +306,13 @@ export interface IStorage {
   // Config Accessors (Helper methods)
   getImportConfig(userId?: string): Promise<ImportConfig>;
   getRomMConfig(userId?: string): Promise<RomMConfig>;
+
+  // Release blacklist methods
+  addReleaseBlacklist(entry: InsertReleaseBlacklist): Promise<ReleaseBlacklist>;
+  getReleaseBlacklist(gameId: string): Promise<ReleaseBlacklist[]>;
+  getAllReleaseBlacklists(userId: string): Promise<(ReleaseBlacklist & { gameTitle: string })[]>;
+  removeReleaseBlacklist(id: string, gameId: string): Promise<boolean>;
+  getReleaseBlacklistSet(gameId: string): Promise<Set<string>>;
 }
 
 export class MemStorage implements IStorage {
@@ -289,6 +329,7 @@ export class MemStorage implements IStorage {
   private rssFeedItems: Map<string, RssFeedItem>;
   private pathMappings: Map<string, PathMapping>;
   private platformMappings: Map<string, PlatformMapping>;
+  private releaseBlacklists: Map<string, ReleaseBlacklist>;
 
   constructor() {
     this.users = new Map();
@@ -304,6 +345,7 @@ export class MemStorage implements IStorage {
     this.rssFeedItems = new Map();
     this.pathMappings = new Map();
     this.platformMappings = new Map();
+    this.releaseBlacklists = new Map();
   }
 
   // System Config methods
@@ -391,12 +433,6 @@ export class MemStorage implements IStorage {
     );
   }
 
-  async getGamesByStatus(status: string): Promise<Game[]> {
-    return Array.from(this.games.values())
-      .filter((game) => game.status === status)
-      .sort((a, b) => new Date(b.addedAt || 0).getTime() - new Date(a.addedAt || 0).getTime());
-  }
-
   async getUserGamesByStatus(
     userId: string,
     status: string,
@@ -406,18 +442,6 @@ export class MemStorage implements IStorage {
       .filter(
         (game) =>
           game.userId === userId && game.status === status && (includeHidden || !game.hidden)
-      )
-      .sort((a, b) => new Date(b.addedAt || 0).getTime() - new Date(a.addedAt || 0).getTime());
-  }
-
-  async searchGames(query: string): Promise<Game[]> {
-    const lowercaseQuery = query.toLowerCase();
-    return Array.from(this.games.values())
-      .filter(
-        (game) =>
-          game.title.toLowerCase().includes(lowercaseQuery) ||
-          game.genres?.some((genre) => genre.toLowerCase().includes(lowercaseQuery)) ||
-          game.platforms?.some((platform) => platform.toLowerCase().includes(lowercaseQuery))
       )
       .sort((a, b) => new Date(b.addedAt || 0).getTime() - new Date(a.addedAt || 0).getTime());
   }
@@ -455,8 +479,14 @@ export class MemStorage implements IStorage {
       screenshots: insertGame.screenshots || null,
       igdbId: insertGame.igdbId || null,
       steamAppId: insertGame.steamAppId || null,
+      source: insertGame.source ?? null,
+      igdbWebsites: insertGame.igdbWebsites || null,
+      aggregatedRating: insertGame.aggregatedRating ?? null,
       originalReleaseDate: insertGame.originalReleaseDate || null,
       releaseStatus: insertGame.releaseStatus || "upcoming",
+      earlyAccess: insertGame.earlyAccess ?? false,
+      searchResultsAvailable: false,
+      userRating: null,
       addedAt: new Date(),
       completedAt: null,
     };
@@ -489,6 +519,27 @@ export class MemStorage implements IStorage {
 
     this.games.set(id, updatedGame);
     return updatedGame;
+  }
+
+  async updateGameUserRating(
+    id: string,
+    userId: string,
+    userRating: number | null
+  ): Promise<Game | undefined> {
+    const game = this.games.get(id);
+    if (!game || game.userId !== userId) return undefined;
+
+    const updatedGame: Game = { ...game, userRating };
+    this.games.set(id, updatedGame);
+    return updatedGame;
+  }
+
+  async updateGameSearchResultsAvailable(gameId: string, available: boolean): Promise<void> {
+    const game = this.games.get(gameId);
+    if (game) {
+      game.searchResultsAvailable = available;
+      this.games.set(gameId, game);
+    }
   }
 
   async updateGame(id: string, updates: Partial<Game>): Promise<Game | undefined> {
@@ -744,6 +795,17 @@ export class MemStorage implements IStorage {
     return download;
   }
 
+  async getDownloadsByGameId(
+    gameId: string
+  ): Promise<(GameDownload & { downloaderName: string | null })[]> {
+    return Array.from(this.gameDownloads.values())
+      .filter((gd) => gd.gameId === gameId)
+      .map((gd) => ({
+        ...gd,
+        downloaderName: this.downloaders.get(gd.downloaderId)?.name ?? null,
+      }));
+  }
+
   async updateGameDownloadStatus(id: string, status: string): Promise<void> {
     const gd = this.gameDownloads.get(id);
     if (gd) {
@@ -759,6 +821,7 @@ export class MemStorage implements IStorage {
       id,
       status: insertGameDownload.status || "downloading",
       downloadType: insertGameDownload.downloadType || "torrent",
+      fileSize: insertGameDownload.fileSize ?? null,
       addedAt: new Date(),
       completedAt: null,
     };
@@ -766,15 +829,63 @@ export class MemStorage implements IStorage {
     return gameDownload;
   }
 
+  async removeGameDownload(id: string, gameId: string): Promise<boolean> {
+    const gd = this.gameDownloads.get(id);
+    if (!gd || gd.gameId !== gameId) return false;
+    return this.gameDownloads.delete(id);
+  }
+
+  async getTrackedDownloadKeys(): Promise<Set<string>> {
+    const keys = new Set<string>();
+    for (const gd of Array.from(this.gameDownloads.values())) {
+      keys.add(`${gd.downloaderId}:${gd.downloadHash}`);
+    }
+    return keys;
+  }
+
+  async getDownloadSummaryByGame(userId: string): Promise<Record<string, DownloadSummary>> {
+    const userGameIds = new Set(
+      Array.from(this.games.values())
+        .filter((g) => g.userId === userId)
+        .map((g) => g.id)
+    );
+    const result: Record<string, DownloadSummary> = {};
+    for (const gd of Array.from(this.gameDownloads.values())) {
+      const gameId = gd.gameId;
+      if (!userGameIds.has(gameId)) continue;
+      const status = gd.status as DownloadSummary["topStatus"];
+      const downloadType = (gd.downloadType ?? "torrent") as "torrent" | "usenet";
+      const isUpdate = isUpdateDownload(gd.downloadTitle);
+      if (!result[gameId]) {
+        result[gameId] = {
+          topStatus: status,
+          count: 1,
+          downloadTypes: [downloadType],
+          hasUpdateDownload: isUpdate,
+        };
+      } else {
+        result[gameId].topStatus = resolveTopStatus(result[gameId].topStatus, status);
+        result[gameId].count += 1;
+        if (!result[gameId].downloadTypes.includes(downloadType)) {
+          result[gameId].downloadTypes.push(downloadType);
+        }
+        if (isUpdate) result[gameId].hasUpdateDownload = true;
+      }
+    }
+    return result;
+  }
+
   // Notification methods
-  async getNotifications(limit: number = 50): Promise<Notification[]> {
+  async getNotifications(userId: string, limit: number = 50): Promise<Notification[]> {
     return Array.from(this.notifications.values())
+      .filter((n) => n.userId === userId)
       .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
       .slice(0, limit);
   }
 
-  async getUnreadNotificationsCount(): Promise<number> {
-    return Array.from(this.notifications.values()).filter((n) => !n.read).length;
+  async getUnreadNotificationsCount(userId: string): Promise<number> {
+    return Array.from(this.notifications.values()).filter((n) => n.userId === userId && !n.read)
+      .length;
   }
 
   async addNotification(insertNotification: InsertNotification): Promise<Notification> {
@@ -813,16 +924,20 @@ export class MemStorage implements IStorage {
     return updatedNotification;
   }
 
-  async markAllNotificationsAsRead(): Promise<void> {
+  async markAllNotificationsAsRead(userId: string): Promise<void> {
     Array.from(this.notifications.entries()).forEach(([id, notification]) => {
-      if (!notification.read) {
+      if (notification.userId === userId && !notification.read) {
         this.notifications.set(id, { ...notification, read: true });
       }
     });
   }
 
-  async clearAllNotifications(): Promise<void> {
-    this.notifications.clear();
+  async deleteReadNotifications(userId: string): Promise<void> {
+    Array.from(this.notifications.entries()).forEach(([id, notification]) => {
+      if (notification.userId === userId && notification.read) {
+        this.notifications.delete(id);
+      }
+    });
   }
 
   // RSS Feed methods
@@ -962,6 +1077,9 @@ export class MemStorage implements IStorage {
       rommBindingMissingBehavior: insertSettings.rommBindingMissingBehavior ?? "fallback",
       rommAllowAbsoluteBindings: insertSettings.rommAllowAbsoluteBindings ?? false,
 
+      preferredReleaseGroups: insertSettings.preferredReleaseGroups ?? null,
+      filterByPreferredGroups: insertSettings.filterByPreferredGroups ?? false,
+      preferredPlatform: insertSettings.preferredPlatform ?? null,
       updatedAt: new Date(),
     };
     this.userSettings.set(id, settings);
@@ -1104,6 +1222,59 @@ export class MemStorage implements IStorage {
       ? Array.from(this.userSettings.values()).find((s) => s.userId === userId)
       : this.userSettings.values().next().value;
     return buildRomMConfigFromSettings(scopedSettings);
+  }
+
+  async addReleaseBlacklist(entry: InsertReleaseBlacklist): Promise<ReleaseBlacklist> {
+    const existing = Array.from(this.releaseBlacklists.values()).find(
+      (r) => r.gameId === entry.gameId && r.releaseTitle === entry.releaseTitle
+    );
+    if (existing) return existing;
+    const id = randomUUID();
+    const record: ReleaseBlacklist = {
+      id,
+      gameId: entry.gameId,
+      releaseTitle: entry.releaseTitle,
+      indexerName: entry.indexerName ?? null,
+      createdAt: new Date(),
+    };
+    this.releaseBlacklists.set(id, record);
+    return record;
+  }
+
+  async getReleaseBlacklist(gameId: string): Promise<ReleaseBlacklist[]> {
+    return Array.from(this.releaseBlacklists.values())
+      .filter((r) => r.gameId === gameId)
+      .sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0));
+  }
+
+  async getAllReleaseBlacklists(
+    userId: string
+  ): Promise<(ReleaseBlacklist & { gameTitle: string })[]> {
+    const userGames = Array.from(this.games.values()).filter((g) => g.userId === userId);
+    const gameMap = new Map(userGames.map((g) => [g.id, g.title]));
+    return Array.from(this.releaseBlacklists.values())
+      .filter((r) => gameMap.has(r.gameId))
+      .map((r) => ({ ...r, gameTitle: gameMap.get(r.gameId)! }))
+      .sort((a, b) => {
+        const titleCmp = a.gameTitle.localeCompare(b.gameTitle);
+        return titleCmp !== 0
+          ? titleCmp
+          : (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0);
+      });
+  }
+
+  async removeReleaseBlacklist(id: string, gameId: string): Promise<boolean> {
+    const entry = this.releaseBlacklists.get(id);
+    if (!entry || entry.gameId !== gameId) return false;
+    this.releaseBlacklists.delete(id);
+    return true;
+  }
+
+  async getReleaseBlacklistSet(gameId: string): Promise<Set<string>> {
+    const titles = Array.from(this.releaseBlacklists.values())
+      .filter((r) => r.gameId === gameId)
+      .map((r) => r.releaseTitle);
+    return new Set(titles);
   }
 }
 
@@ -1346,17 +1517,6 @@ export class DatabaseStorage implements IStorage {
       .orderBy(sql`${games.addedAt} DESC`);
   }
 
-  async getGamesByStatus(status: string): Promise<Game[]> {
-    return (
-      db
-        .select()
-        .from(games)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .where(eq(games.status, status as any))
-        .orderBy(sql`${games.addedAt} DESC`)
-    );
-  }
-
   async getUserGamesByStatus(
     userId: string,
     status: string,
@@ -1371,23 +1531,6 @@ export class DatabaseStorage implements IStorage {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           eq(games.status, status as any),
           includeHidden ? undefined : eq(games.hidden, false)
-        )
-      )
-      .orderBy(sql`${games.addedAt} DESC`);
-  }
-
-  async searchGames(query: string): Promise<Game[]> {
-    const searchTerm = `%${query.toLowerCase()}%`;
-    return db
-      .select()
-      .from(games)
-      .where(
-        or(
-          like(sql`lower(${games.title})`, searchTerm),
-          // SQLite JSON array search workaround or explicit JSON handling
-          // Using LIKE for simple array search since platforms/genres are JSON arrays of strings
-          like(sql`lower(${games.genres})`, searchTerm),
-          like(sql`lower(${games.platforms})`, searchTerm)
         )
       )
       .orderBy(sql`${games.addedAt} DESC`);
@@ -1427,10 +1570,15 @@ export class DatabaseStorage implements IStorage {
       publishers: insertGame.publishers ?? null,
       developers: insertGame.developers ?? null,
       screenshots: insertGame.screenshots ?? null,
+      steamAppId: insertGame.steamAppId ?? null,
+      source: insertGame.source ?? null,
+      igdbWebsites: insertGame.igdbWebsites ?? null,
+      aggregatedRating: insertGame.aggregatedRating ?? null,
       status: insertGame.status ?? "wanted",
       hidden: insertGame.hidden ?? false,
       originalReleaseDate: insertGame.originalReleaseDate ?? null,
       releaseStatus: insertGame.releaseStatus ?? "upcoming",
+      earlyAccess: insertGame.earlyAccess ?? false,
       addedAt: new Date(),
     };
 
@@ -1458,6 +1606,23 @@ export class DatabaseStorage implements IStorage {
       .where(eq(games.id, id))
       .returning();
     return updatedGame || undefined;
+  }
+
+  async updateGameUserRating(
+    id: string,
+    userId: string,
+    userRating: number | null
+  ): Promise<Game | undefined> {
+    const [updatedGame] = await db
+      .update(games)
+      .set({ userRating })
+      .where(and(eq(games.id, id), eq(games.userId, userId)))
+      .returning();
+    return updatedGame || undefined;
+  }
+
+  async updateGameSearchResultsAvailable(gameId: string, available: boolean): Promise<void> {
+    await db.update(games).set({ searchResultsAvailable: available }).where(eq(games.id, gameId));
   }
 
   async updateGame(id: string, updates: Partial<Game>): Promise<Game | undefined> {
@@ -1704,6 +1869,30 @@ export class DatabaseStorage implements IStorage {
     return download;
   }
 
+  async getDownloadsByGameId(
+    gameId: string
+  ): Promise<(GameDownload & { downloaderName: string | null })[]> {
+    const rows = await db
+      .select({
+        id: gameDownloads.id,
+        gameId: gameDownloads.gameId,
+        downloaderId: gameDownloads.downloaderId,
+        downloadType: gameDownloads.downloadType,
+        downloadHash: gameDownloads.downloadHash,
+        downloadTitle: gameDownloads.downloadTitle,
+        status: gameDownloads.status,
+        fileSize: gameDownloads.fileSize,
+        addedAt: gameDownloads.addedAt,
+        completedAt: gameDownloads.completedAt,
+        downloaderName: downloaders.name,
+      })
+      .from(gameDownloads)
+      .leftJoin(downloaders, eq(gameDownloads.downloaderId, downloaders.id))
+      .where(eq(gameDownloads.gameId, gameId))
+      .orderBy(desc(gameDownloads.addedAt));
+    return rows;
+  }
+
   async updateGameDownloadStatus(id: string, status: string): Promise<void> {
     await db
       .update(gameDownloads)
@@ -1723,16 +1912,84 @@ export class DatabaseStorage implements IStorage {
     return gameDownload;
   }
 
-  // Notification methods
-  async getNotifications(limit: number = 50): Promise<Notification[]> {
-    return db.select().from(notifications).orderBy(desc(notifications.createdAt)).limit(limit);
+  async removeGameDownload(id: string, gameId: string): Promise<boolean> {
+    const result = await db
+      .delete(gameDownloads)
+      .where(and(eq(gameDownloads.id, id), eq(gameDownloads.gameId, gameId)))
+      .returning();
+    return result.length > 0;
   }
 
-  async getUnreadNotificationsCount(): Promise<number> {
+  async getTrackedDownloadKeys(): Promise<Set<string>> {
+    const rows = await db
+      .select({
+        downloaderId: gameDownloads.downloaderId,
+        downloadHash: gameDownloads.downloadHash,
+      })
+      .from(gameDownloads);
+    return new Set(rows.map((r) => `${r.downloaderId}:${r.downloadHash}`));
+  }
+
+  async getDownloadSummaryByGame(userId: string): Promise<Record<string, DownloadSummary>> {
+    const rows = await db
+      .select({
+        gameId: gameDownloads.gameId,
+        count: sql<number>`count(*)`,
+        topStatus: sql<string>`
+          CASE
+            WHEN sum(CASE WHEN ${gameDownloads.status} = 'failed' THEN 1 ELSE 0 END) > 0 THEN 'failed'
+            WHEN sum(CASE WHEN ${gameDownloads.status} = 'downloading' THEN 1 ELSE 0 END) > 0 THEN 'downloading'
+            WHEN sum(CASE WHEN ${gameDownloads.status} = 'paused' THEN 1 ELSE 0 END) > 0 THEN 'paused'
+            ELSE 'completed'
+          END
+        `,
+        downloadTypes: sql<string>`group_concat(DISTINCT ${gameDownloads.downloadType})`,
+        hasUpdateDownload: sql<number>`max(CASE
+          WHEN ${gameDownloads.downloadTitle} LIKE '%update%'
+            OR ${gameDownloads.downloadTitle} LIKE '%patch%'
+            OR ${gameDownloads.downloadTitle} LIKE '%hotfix%'
+            OR ${gameDownloads.downloadTitle} LIKE '%crackfix%'
+            OR ${gameDownloads.downloadTitle} LIKE '%fix%'
+          THEN 1 ELSE 0 END)`,
+      })
+      .from(gameDownloads)
+      .innerJoin(games, eq(gameDownloads.gameId, games.id))
+      .where(eq(games.userId, userId))
+      .groupBy(gameDownloads.gameId);
+
+    return Object.fromEntries(
+      rows.map((row) => {
+        return [
+          row.gameId,
+          {
+            topStatus: row.topStatus as DownloadSummary["topStatus"],
+            count: row.count,
+            downloadTypes: (row.downloadTypes ?? "torrent").split(",").filter(Boolean) as (
+              | "torrent"
+              | "usenet"
+            )[],
+            hasUpdateDownload: row.hasUpdateDownload > 0,
+          },
+        ];
+      })
+    );
+  }
+
+  // Notification methods
+  async getNotifications(userId: string, limit: number = 50): Promise<Notification[]> {
+    return db
+      .select()
+      .from(notifications)
+      .where(eq(notifications.userId, userId))
+      .orderBy(desc(notifications.createdAt))
+      .limit(limit);
+  }
+
+  async getUnreadNotificationsCount(userId: string): Promise<number> {
     const [result] = await db
       .select({ count: sql<number>`count(*)` })
       .from(notifications)
-      .where(eq(notifications.read, false));
+      .where(and(eq(notifications.userId, userId), eq(notifications.read, false)));
     return result.count;
   }
 
@@ -1763,12 +2020,17 @@ export class DatabaseStorage implements IStorage {
     return updatedNotification || undefined;
   }
 
-  async markAllNotificationsAsRead(): Promise<void> {
-    await db.update(notifications).set({ read: true }).where(eq(notifications.read, false));
+  async markAllNotificationsAsRead(userId: string): Promise<void> {
+    await db
+      .update(notifications)
+      .set({ read: true })
+      .where(and(eq(notifications.userId, userId), eq(notifications.read, false)));
   }
 
-  async clearAllNotifications(): Promise<void> {
-    await db.delete(notifications);
+  async deleteReadNotifications(userId: string): Promise<void> {
+    await db
+      .delete(notifications)
+      .where(and(eq(notifications.userId, userId), eq(notifications.read, true)));
   }
 
   // RSS Feed methods
@@ -1918,6 +2180,75 @@ export class DatabaseStorage implements IStorage {
       .selectDistinct({ gameId: xrelNotifiedReleases.gameId })
       .from(xrelNotifiedReleases);
     return rows.map((r) => r.gameId);
+  }
+
+  async addReleaseBlacklist(entry: InsertReleaseBlacklist): Promise<ReleaseBlacklist> {
+    const id = randomUUID();
+    const [row] = await db
+      .insert(releaseBlacklist)
+      .values({
+        id,
+        gameId: entry.gameId,
+        releaseTitle: entry.releaseTitle,
+        indexerName: entry.indexerName ?? null,
+        createdAt: new Date(),
+      })
+      .onConflictDoNothing()
+      .returning();
+    if (!row) {
+      const [existing] = await db
+        .select()
+        .from(releaseBlacklist)
+        .where(
+          and(
+            eq(releaseBlacklist.gameId, entry.gameId),
+            eq(releaseBlacklist.releaseTitle, entry.releaseTitle)
+          )
+        );
+      return existing;
+    }
+    return row;
+  }
+
+  async getReleaseBlacklist(gameId: string): Promise<ReleaseBlacklist[]> {
+    return db
+      .select()
+      .from(releaseBlacklist)
+      .where(eq(releaseBlacklist.gameId, gameId))
+      .orderBy(desc(releaseBlacklist.createdAt));
+  }
+
+  async getAllReleaseBlacklists(
+    userId: string
+  ): Promise<(ReleaseBlacklist & { gameTitle: string })[]> {
+    return db
+      .select({
+        id: releaseBlacklist.id,
+        gameId: releaseBlacklist.gameId,
+        releaseTitle: releaseBlacklist.releaseTitle,
+        indexerName: releaseBlacklist.indexerName,
+        createdAt: releaseBlacklist.createdAt,
+        gameTitle: games.title,
+      })
+      .from(releaseBlacklist)
+      .innerJoin(games, eq(releaseBlacklist.gameId, games.id))
+      .where(eq(games.userId, userId))
+      .orderBy(games.title, desc(releaseBlacklist.createdAt));
+  }
+
+  async removeReleaseBlacklist(id: string, gameId: string): Promise<boolean> {
+    const result = await db
+      .delete(releaseBlacklist)
+      .where(and(eq(releaseBlacklist.id, id), eq(releaseBlacklist.gameId, gameId)));
+    return result.changes > 0;
+  }
+
+  async getReleaseBlacklistSet(gameId: string): Promise<Set<string>> {
+    const rows = await db
+      .select({ releaseTitle: releaseBlacklist.releaseTitle })
+      .from(releaseBlacklist)
+      .where(eq(releaseBlacklist.gameId, gameId));
+    return new Set(rows.map((r) => r.releaseTitle));
   }
 }
 

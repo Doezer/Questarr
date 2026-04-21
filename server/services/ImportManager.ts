@@ -13,6 +13,7 @@ import { DownloaderManager } from "../downloaders.js";
 import fs from "fs-extra";
 import path from "node:path";
 import { parseReleaseMetadata } from "../../shared/title-utils.js";
+import { logger } from "../logger.js";
 
 const RELEASE_PLATFORM_TO_IGDB_ID: Record<string, number> = {
   nes: 18,
@@ -442,7 +443,9 @@ export class ImportManager {
     configRoot: string,
     rommRoot: string
   ): void {
-    if (!proposedPath) return;
+    if (!proposedPath) {
+      throw new Error("Proposed path is required for import validation");
+    }
 
     const root = strategyType === "romm" ? rommRoot : configRoot;
     const resolvedRoot = path.resolve(root);
@@ -524,7 +527,7 @@ export class ImportManager {
 
       await this.finalizeImport(downloadId, game);
     } catch (err) {
-      console.error(`[ImportManager] confirmImport failed for ${downloadId}`, err);
+      logger.error({ err, downloadId }, "[ImportManager] confirmImport failed");
       try {
         await this.storage.updateGameDownloadStatus(downloadId, "error");
       } catch (statusErr) {

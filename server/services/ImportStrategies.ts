@@ -3,6 +3,7 @@ import fs from "fs-extra";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { resolveRommPlatformDir, sanitizeFsName } from "./RommRouting.js";
+import { igdbLogger } from "../logger.js";
 
 export interface ImportResult {
   platformSlug?: string;
@@ -404,6 +405,24 @@ export class RomMImportStrategy implements ImportStrategy {
       this.onImportComplete?.(result);
       return result;
     } catch (error) {
+      if (modeUsed === "move") {
+        // Attempt to restore source files from staging before cleanup
+        try {
+          for (const file of sourceFiles) {
+            const relative = path.relative(sourceRoot, file);
+            const stageFile = path.join(stagingPath, relative);
+            if (await fs.pathExists(stageFile)) {
+              await fs.move(stageFile, file, { overwrite: false });
+            }
+          }
+        } catch (restoreErr) {
+          // Log but don't mask the original error
+          igdbLogger.warn(
+            { restoreErr, stagingPath },
+            "Failed to restore source files from staging after import error"
+          );
+        }
+      }
       await fs.remove(stagingPath).catch(() => undefined);
       throw error;
     }

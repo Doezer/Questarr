@@ -60,6 +60,13 @@ export function PathMappingSettings() {
       toast({ title: "Mapping Deleted", description: "Path mapping has been removed." });
       queryClient.invalidateQueries({ queryKey: ["/api/imports/mappings/paths"] });
     },
+    onError: (error: Error) => {
+      toast({
+        title: "Delete Failed",
+        description: error.message || "Failed to delete path mapping.",
+        variant: "destructive",
+      });
+    },
   });
 
   const handleCreate = () => {

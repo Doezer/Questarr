@@ -96,94 +96,95 @@ export default function ImportReviewModal({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Review Import</DialogTitle>
-          <DialogDescription>
-            Manually configure the import for <strong>{downloadTitle}</strong>.
-          </DialogDescription>
-        </DialogHeader>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Review Import</DialogTitle>
+            <DialogDescription>
+              Manually configure the import for <strong>{downloadTitle}</strong>.
+            </DialogDescription>
+          </DialogHeader>
 
-        <div className="space-y-4 py-4">
-          {/* Strategy Selection */}
-          <div className="space-y-2">
-            <Label>Import Strategy</Label>
-            <RadioGroup value={strategy} onValueChange={(v) => setStrategy(v as "pc" | "romm")}>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="pc" id="pc" />
-                <Label htmlFor="pc">Generic / PC</Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="romm" id="romm" />
-                <Label htmlFor="romm">RomM (Organize for Rom Manager)</Label>
-              </div>
-            </RadioGroup>
-          </div>
+          <div className="space-y-4 py-4">
+            {/* Strategy Selection */}
+            <div className="space-y-2">
+              <Label>Import Strategy</Label>
+              <RadioGroup value={strategy} onValueChange={(v) => setStrategy(v as "pc" | "romm")}>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="pc" id="pc" />
+                  <Label htmlFor="pc">Generic / PC</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="romm" id="romm" />
+                  <Label htmlFor="romm">RomM (Organize for Rom Manager)</Label>
+                </div>
+              </RadioGroup>
+            </div>
 
-          {/* Destination Path */}
-          <div className="space-y-2">
-            <Label>Destination Path</Label>
-            <div className="flex gap-2">
-              <Input
-                value={destinationPath}
-                onChange={(e) => setDestinationPath(e.target.value)}
-                placeholder="/path/to/library"
-              />
-              <Button variant="outline" size="icon" onClick={() => setIsFileBrowserOpen(true)}>
-                <FolderOpen className="h-4 w-4" />
-              </Button>
+            {/* Destination Path */}
+            <div className="space-y-2">
+              <Label>Destination Path</Label>
+              <div className="flex gap-2">
+                <Input
+                  value={destinationPath}
+                  onChange={(e) => setDestinationPath(e.target.value)}
+                  placeholder="/path/to/library"
+                />
+                <Button variant="outline" size="icon" onClick={() => setIsFileBrowserOpen(true)}>
+                  <FolderOpen className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Transfer Mode</Label>
+              <Select
+                value={transferMode}
+                onValueChange={(value) =>
+                  setTransferMode(value as "move" | "copy" | "hardlink" | "symlink")
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="move">Move</SelectItem>
+                  <SelectItem value="copy">Copy</SelectItem>
+                  <SelectItem value="hardlink">Hardlink</SelectItem>
+                  <SelectItem value="symlink">Symlink</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label>Unpack Archive</Label>
+                <p className="text-xs text-muted-foreground">
+                  Extract .zip, .rar, .7z before placing files.
+                </p>
+              </div>
+              <Switch checked={unpackArchive} onCheckedChange={setUnpackArchive} />
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label>Transfer Mode</Label>
-            <Select
-              value={transferMode}
-              onValueChange={(value) =>
-                setTransferMode(value as "move" | "copy" | "hardlink" | "symlink")
-              }
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="move">Move</SelectItem>
-                <SelectItem value="copy">Copy</SelectItem>
-                <SelectItem value="hardlink">Hardlink</SelectItem>
-                <SelectItem value="symlink">Symlink</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label>Unpack Archive</Label>
-              <p className="text-xs text-muted-foreground">
-                Extract .zip, .rar, .7z before placing files.
-              </p>
-            </div>
-            <Switch checked={unpackArchive} onCheckedChange={setUnpackArchive} />
-          </div>
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button onClick={handleConfirm} disabled={confirmMutation.isPending}>
-            {confirmMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Confirm Import
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-
+          <DialogFooter>
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleConfirm} disabled={confirmMutation.isPending}>
+              {confirmMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Confirm Import
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <FileBrowser
         open={isFileBrowserOpen}
         onOpenChange={setIsFileBrowserOpen}
         onSelect={(path) => setDestinationPath(path)}
         title="Select Destination"
       />
-    </Dialog>
+    </>
   );
 }

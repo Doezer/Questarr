@@ -46,32 +46,31 @@ export function FileBrowser({
   const [data, setData] = useState<BrowseResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [fallbackAttempted, setFallbackAttempted] = useState(false);
-
   const loadPath = useCallback(
     async (p: string, attemptFallback: boolean = true) => {
       setLoading(true);
       setError(null);
       try {
-        const rootParam = root === undefined ? "" : `&root=${encodeURIComponent(root)}`;
-        const res = await apiRequest(
-          "GET",
-          `/api/system/browse?path=${encodeURIComponent(p)}${rootParam}`
-        );
-        if (!res.ok) {
-          // If custom root fails and we haven't tried fallback yet, retry without root
-          if (attemptFallback && root !== undefined) {
-            console.warn(`Failed to browse path with root="${root}", falling back to library root`);
-            setFallbackAttempted(true);
-            return loadPath(p, false);
-          }
-          throw new Error("Failed to load directory");
-        }
-        setFallbackAttempted(false);
-        const json = await res.json();
-        setData(json);
+        const url =
+          root !== undefined
+            ? `/api/system/browse?path=${encodeURIComponent(p)}&root=${encodeURIComponent(root)}`
+            : `/api/system/browse?path=${encodeURIComponent(p)}`;
+        const res = await apiRequest("GET", url);
+        const data = await res.json();
+        setData(data);
       } catch (err) {
-        console.error("FileBrowser error:", err);
+        if (attemptFallback && root !== undefined) {
+          // Fall back to browsing without the explicit root (uses library root)
+          try {
+            const fallbackUrl = `/api/system/browse?path=${encodeURIComponent(p)}`;
+            const res = await apiRequest("GET", fallbackUrl);
+            const data = await res.json();
+            setData(data);
+            return;
+          } catch {
+            // fallback also failed — fall through to error state
+          }
+        }
         setError("Failed to load directory");
       } finally {
         setLoading(false);
@@ -82,7 +81,12 @@ export function FileBrowser({
 
   useEffect(() => {
     if (open) {
-      setFallbackAttempted(false);
+      setCurrentPath(initialPath);
+    }
+  }, [open, initialPath]);
+
+  useEffect(() => {
+    if (open) {
       loadPath(currentPath);
     }
   }, [open, currentPath, loadPath]);

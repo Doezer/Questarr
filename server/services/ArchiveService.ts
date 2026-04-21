@@ -3,6 +3,7 @@ const { extractFull } = node7z;
 import pathTo7zip from "7zip-bin";
 import fs from "fs-extra";
 import path from "path";
+import { logger } from "../logger.js";
 
 const sevenZipPath = pathTo7zip.path7za;
 
@@ -14,7 +15,7 @@ export class ArchiveService {
    * @returns Paths of files reported as extracted by 7zip (constructed from event data).
    */
   async extract(filePath: string, outputDir: string): Promise<string[]> {
-    console.log(`[ArchiveService] Extracting ${filePath} to ${outputDir}...`);
+    logger.debug({ filePath, outputDir }, "Extracting archive");
 
     await fs.ensureDir(outputDir);
 
@@ -35,14 +36,12 @@ export class ArchiveService {
       });
 
       stream.on("end", () => {
-        console.log(
-          `[ArchiveService] Extraction complete. ${extractedFiles.length} files extracted.`
-        );
+        logger.debug({ count: extractedFiles.length }, "Extraction complete");
         resolve(extractedFiles);
       });
 
       stream.on("error", (err: Error) => {
-        console.error(`[ArchiveService] Extraction failed:`, err);
+        logger.error({ err }, "Extraction failed");
         reject(err);
       });
     });

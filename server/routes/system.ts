@@ -58,6 +58,16 @@ systemRouter.get("/browse", async (req, res) => {
       return res.status(400).json({ error: "Invalid path: traversal detected" });
     }
 
+    const SENSITIVE_PATH_PREFIXES = ["/proc", "/sys", "/dev", "/run/secrets"];
+    const normalizedValid = validPath.replace(/\\/g, "/");
+    if (
+      SENSITIVE_PATH_PREFIXES.some(
+        (prefix) => normalizedValid === prefix || normalizedValid.startsWith(prefix + "/")
+      )
+    ) {
+      return res.status(403).json({ error: "Access to this path is not allowed" });
+    }
+
     // Ensure the chosen root is within FILE_BROWSER_ROOT for security
     const fileBrowserPrefix = FILE_BROWSER_ROOT.endsWith(path.sep)
       ? FILE_BROWSER_ROOT

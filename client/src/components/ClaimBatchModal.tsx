@@ -184,6 +184,12 @@ export default function ClaimBatchModal({ open, onOpenChange }: ClaimBatchModalP
               "/api/downloads/claim",
               buildBody(first, undefined)
             );
+            if (!firstResponse.ok) {
+              const errBody = (await firstResponse.json().catch(() => ({}))) as {
+                error?: string;
+              };
+              throw new Error(errBody.error ?? `Claim failed with status ${firstResponse.status}`);
+            }
             const firstResult = (await firstResponse.json()) as { gameId: string };
             resolvedGroupGameId = firstResult?.gameId;
 

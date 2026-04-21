@@ -49,11 +49,15 @@ function getAutoSearchRules(downloadRules: string | null): AutoSearchRules {
   let visibleCategoriesSet = new Set(["main", "update", "dlc", "extra"]);
 
   if (downloadRules) {
-    const parsed = JSON.parse(downloadRules);
-    const rules = downloadRulesSchema.parse(parsed);
-    minSeeders = rules.minSeeders;
-    sortBy = rules.sortBy;
-    visibleCategoriesSet = new Set(rules.visibleCategories);
+    try {
+      const parsed = JSON.parse(downloadRules);
+      const rules = downloadRulesSchema.parse(parsed);
+      minSeeders = rules.minSeeders;
+      sortBy = rules.sortBy;
+      visibleCategoriesSet = new Set(rules.visibleCategories);
+    } catch {
+      // malformed rules — use defaults
+    }
   }
 
   return { minSeeders, sortBy, visibleCategoriesSet };
@@ -340,6 +344,7 @@ export async function checkGameUpdates() {
         title: "Game Released",
         message,
         link: "/library",
+        userId: game.userId,
       });
     }
 
@@ -370,6 +375,7 @@ export async function checkGameUpdates() {
           title: "Game Delayed",
           message,
           link: "/wishlist",
+          userId: game.userId,
         });
       }
     }
@@ -406,6 +412,14 @@ export async function checkDownloadStatus() {
 
   if (downloadingDownloads.length === 0) {
     return;
+  }
+
+  // Prune stale entries from downloadMissCount (e.g. downloads removed from DB while still downloading)
+  const activeDownloadIds = new Set(downloadingDownloads.map((d) => d.id));
+  for (const key of Array.from(downloadMissCount.keys())) {
+    if (!activeDownloadIds.has(key)) {
+      downloadMissCount.delete(key);
+    }
   }
 
   // Group by downloader
@@ -510,6 +524,7 @@ export async function checkDownloadStatus() {
               title: "Download Completed",
               message,
               link: "/library",
+              userId: game?.userId ?? undefined,
             });
             notifyUser("notification", notification);
           } else {
@@ -646,6 +661,7 @@ export async function checkDownloadStatus() {
             title: "Download Status Changed",
             message: `Download for "${gameTitle}" was not found in the downloader and has been marked as completed. If this was removed due to an error, you may need to re-download it.`,
             link: "/library",
+            userId: game?.userId ?? undefined,
           });
           notifyUser("notification", notification);
 
@@ -657,6 +673,9 @@ export async function checkDownloadStatus() {
       }
     } catch (error) {
       igdbLogger.error({ error, downloaderId }, "Error checking downloader status");
+      for (const dl of downloads) {
+        downloadMissCount.delete(dl.id);
+      }
     }
   }
 }

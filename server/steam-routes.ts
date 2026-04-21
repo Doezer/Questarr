@@ -4,6 +4,7 @@ import { steamService } from "./steam.js";
 import { syncUserSteamWishlist } from "./cron.js";
 import { authenticateToken } from "./auth.js";
 import { type User } from "@shared/schema";
+import { routesLogger } from "./logger.js";
 
 const router = Router();
 
@@ -27,7 +28,7 @@ router.patch("/api/user/steam-id", authenticateToken, async (req, res) => {
 
     res.json({ success: true, steamId });
   } catch (error) {
-    console.error("Error setting Steam ID:", error);
+    routesLogger.error({ error }, "Error setting Steam ID");
     res.status(500).json({ error: "Failed to set Steam ID" });
   }
 });
@@ -49,7 +50,7 @@ router.post("/api/steam/wishlist/sync", authenticateToken, async (req, res) => {
 
     res.json(result);
   } catch (error) {
-    console.error("Sync error:", error);
+    routesLogger.error({ error }, "Sync error");
     res.status(500).json({ error: "Sync failed" });
   }
 });

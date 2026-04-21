@@ -3,6 +3,7 @@ import { igdbClient, IGDB_EARLY_ACCESS_STATUS } from "./igdb.js";
 import { igdbLogger } from "./logger.js";
 import { notifyUser } from "./socket.js";
 import { DownloaderManager } from "./downloaders.js";
+import { importManager } from "./services/index.js";
 import { searchAllIndexers, filterBlacklistedReleases } from "./search.js";
 import { xrelClient, DEFAULT_XREL_BASE } from "./xrel.js";
 import { steamService } from "./steam.js";
@@ -306,6 +307,11 @@ export async function checkGameUpdates() {
           releaseDate: currentReleaseDateStr,
           originalReleaseDate: currentReleaseDateStr,
         });
+        // We need to update local object if we were to continue using it,
+        // but the original code did 'continue'.
+        // However, 'continue' skips the rest of the loop logic (status check).
+        // If we just initialized, do we want to skip status check?
+        // Original code: yes.
         continue;
       }
     }
@@ -334,7 +340,6 @@ export async function checkGameUpdates() {
         title: "Game Released",
         message,
         link: "/library",
-        userId: game.userId!,
       });
     }
 
@@ -365,7 +370,6 @@ export async function checkGameUpdates() {
           title: "Game Delayed",
           message,
           link: "/wishlist",
-          userId: game.userId!,
         });
       }
     }
@@ -404,6 +408,14 @@ export async function checkDownloadStatus() {
     return;
   }
 
+  // Prune stale entries from downloadMissCount (e.g. downloads removed from DB while still downloading)
+  const activeDownloadIds = new Set(downloadingDownloads.map((d) => d.id));
+  for (const key of Array.from(downloadMissCount.keys())) {
+    if (!activeDownloadIds.has(key)) {
+      downloadMissCount.delete(key);
+    }
+  }
+
   // Group by downloader
   const downloadsByDownloader = new Map<string, typeof downloadingDownloads>();
   for (const d of downloadingDownloads) {
@@ -414,10 +426,10 @@ export async function checkDownloadStatus() {
 
   const entries = Array.from(downloadsByDownloader.entries());
   for (const [downloaderId, downloads] of entries) {
-    const downloader = await storage.getDownloader(downloaderId);
-    if (!downloader || !downloader.enabled) continue;
-
     try {
+      const downloader = await storage.getDownloader(downloaderId);
+      if (!downloader || !downloader.enabled) continue;
+
       const activeDownloads = await DownloaderManager.getAllDownloads(downloader);
       const activeDownloadMap = new Map(activeDownloads.map((t) => [t.id.toLowerCase(), t]));
 
@@ -653,6 +665,9 @@ export async function checkDownloadStatus() {
       }
     } catch (error) {
       igdbLogger.error({ error, downloaderId }, "Error checking downloader status");
+      for (const dl of downloads) {
+        downloadMissCount.delete(dl.id);
+      }
     }
   }
 }

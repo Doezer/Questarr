@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { storage } from "../storage.js";
 import { importManager, platformMappingService } from "../services/index.js";
+import { routesLogger as logger } from "../logger.js";
 
 import z from "zod";
 import {
@@ -218,7 +219,7 @@ importRouter.get("/mappings/platforms", async (req, res) => {
     const mappings = await storage.getPlatformMappings();
     res.json(mappings);
   } catch (error) {
-    console.error("Error fetching platform mappings:", error);
+    logger.error({ error }, "Error fetching platform mappings");
     res.status(500).json({ error: "Failed to fetch platform mappings" });
   }
 });
@@ -254,7 +255,7 @@ importRouter.delete("/mappings/platforms/:id", async (req, res) => {
     if (success) res.json({ success: true });
     else res.status(404).json({ error: "Mapping not found" });
   } catch (error) {
-    console.error("Error deleting platform mapping:", error);
+    logger.error({ error }, "Error deleting platform mapping");
     res.status(500).json({ error: "Failed to delete platform mapping" });
   }
 });
@@ -265,7 +266,7 @@ importRouter.post("/mappings/platforms/init", async (req, res) => {
     const mappings = await storage.getPlatformMappings();
     res.json({ success: true, count: mappings.length, mappings });
   } catch (error) {
-    console.error("Error initializing platform mapping defaults:", error);
+    logger.error({ error }, "Error initializing platform mapping defaults");
     res.status(500).json({ error: "Failed to initialize defaults" });
   }
 });
@@ -276,7 +277,7 @@ importRouter.get("/mappings/paths", async (req, res) => {
     const mappings = await storage.getPathMappings();
     res.json(mappings);
   } catch (error) {
-    console.error("Error fetching path mappings:", error);
+    logger.error({ error }, "Error fetching path mappings");
     res.status(500).json({ error: "Failed to fetch path mappings" });
   }
 });
@@ -299,7 +300,7 @@ importRouter.delete("/mappings/paths/:id", async (req, res) => {
     if (success) res.json({ success: true });
     else res.status(404).json({ error: "Mapping not found" });
   } catch (error) {
-    console.error("Error deleting path mapping:", error);
+    logger.error({ error }, "Error deleting path mapping");
     res.status(500).json({ error: "Failed to delete path mapping" });
   }
 });
@@ -312,7 +313,7 @@ importRouter.get("/config", async (req, res) => {
     const config = await storage.getImportConfig(userId);
     res.json(config);
   } catch (error) {
-    console.error("Error fetching import config:", error);
+    logger.error({ error }, "Error fetching import config");
     res.status(500).json({ error: "Failed to fetch import config" });
   }
 });
@@ -356,7 +357,7 @@ importRouter.get("/romm", async (req, res) => {
     const config = await storage.getRomMConfig(userId);
     res.json(config);
   } catch (error) {
-    console.error("Error fetching RomM config:", error);
+    logger.error({ error }, "Error fetching RomM config");
     res.status(500).json({ error: "Failed to fetch RomM config" });
   }
 });
@@ -498,7 +499,7 @@ importRouter.get("/hardlink/check", async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Error checking hardlink capability:", error);
+    logger.error({ error }, "Error checking hardlink capability");
     res.status(500).json({ error: "Failed to check hardlink capability" });
   }
 });
@@ -524,7 +525,7 @@ importRouter.get("/pending", async (req, res) => {
 
     res.json(results);
   } catch (error) {
-    console.error("Error fetching pending imports:", error);
+    logger.error({ error }, "Error fetching pending imports");
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -578,7 +579,7 @@ importRouter.post("/:id/confirm", async (req, res) => {
         return res.status(404).json({ error: error.message });
       }
     }
-    console.error("Error confirming import:", error);
+    logger.error({ error }, "Error confirming import");
     res.status(500).json({ error: "Internal server error" });
   }
 });

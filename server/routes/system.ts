@@ -2,6 +2,7 @@ import { Router } from "express";
 import fs from "fs-extra";
 import path from "node:path";
 import { storage } from "../storage.js";
+import { routesLogger as logger } from "../logger.js";
 
 // Allow browsing the entire container filesystem
 // Security is maintained by container isolation and explicit volume mounts
@@ -108,7 +109,7 @@ systemRouter.get("/browse", async (req, res) => {
       items,
     });
   } catch (error) {
-    console.error("File browser error:", error);
+    logger.error({ error }, "File browser error");
     res.status(500).json({ error: "Internal server error" });
   }
 });

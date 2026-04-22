@@ -172,52 +172,76 @@ export default function Dashboard() {
     const totalGames = games.length;
     if (totalGames === 0) return [];
 
-    // Avg Rating
-    const ratedGames = games.filter((g) => g.rating !== null);
-    const avgRating =
-      ratedGames.length > 0
-        ? (ratedGames.reduce((acc, g) => acc + (g.rating || 0), 0) / ratedGames.length).toFixed(1)
-        : "N/A";
+    // ⚡ Bolt: Consolidated multiple array traversals (filter, map, reduce, flatMap)
+    // into a single O(n) pass over the `games` array to reduce redundant iterations.
 
-    // Top Genre
+    let ratingSum = 0;
+    let ratedCount = 0;
+    let releaseYearSum = 0;
+    let datedCount = 0;
+    let completeCount = 0;
+
     const genreCounts: Record<string, number> = {};
-    games
-      .flatMap((g) => g.genres || [])
-      .forEach((g) => (genreCounts[g] = (genreCounts[g] || 0) + 1));
-    const topGenre = Object.entries(genreCounts).sort((a, b) => b[1] - a[1])[0];
-
-    // Top Platform
     const platformCounts: Record<string, number> = {};
-    games
-      .flatMap((g) => g.platforms || [])
-      .forEach((p) => (platformCounts[p] = (platformCounts[p] || 0) + 1));
-    const topPlatform = Object.entries(platformCounts).sort((a, b) => b[1] - a[1])[0];
-
-    // Avg Release Year
-    const datedGames = games.filter((g) => g.releaseDate);
-    const avgYear =
-      datedGames.length > 0
-        ? Math.round(
-            datedGames.reduce((acc, g) => acc + new Date(g.releaseDate!).getFullYear(), 0) /
-              datedGames.length
-          )
-        : "N/A";
-
-    // Top Publisher
     const publisherCounts: Record<string, number> = {};
-    games
-      .flatMap((g) => g.publishers || [])
-      .forEach((p) => (publisherCounts[p] = (publisherCounts[p] || 0) + 1));
+    const uniqueDevelopers = new Set<string>();
+
+    for (let i = 0; i < totalGames; i++) {
+      const g = games[i];
+
+      if (g.rating !== null && g.rating !== undefined) {
+        ratingSum += g.rating;
+        ratedCount++;
+      }
+
+      if (g.releaseDate) {
+        const year = new Date(g.releaseDate).getFullYear();
+        if (!isNaN(year)) {
+          releaseYearSum += year;
+          datedCount++;
+        }
+      }
+
+      if (g.genres) {
+        for (let j = 0; j < g.genres.length; j++) {
+          const genre = g.genres[j];
+          genreCounts[genre] = (genreCounts[genre] || 0) + 1;
+        }
+      }
+
+      if (g.platforms) {
+        for (let j = 0; j < g.platforms.length; j++) {
+          const platform = g.platforms[j];
+          platformCounts[platform] = (platformCounts[platform] || 0) + 1;
+        }
+      }
+
+      if (g.publishers) {
+        for (let j = 0; j < g.publishers.length; j++) {
+          const publisher = g.publishers[j];
+          publisherCounts[publisher] = (publisherCounts[publisher] || 0) + 1;
+        }
+      }
+
+      if (g.developers) {
+        for (let j = 0; j < g.developers.length; j++) {
+          uniqueDevelopers.add(g.developers[j]);
+        }
+      }
+
+      if (g.title && g.summary && g.coverUrl && g.releaseDate && g.rating !== null && g.rating !== undefined) {
+        completeCount++;
+      }
+    }
+
+    const avgRating = ratedCount > 0 ? (ratingSum / ratedCount).toFixed(1) : "N/A";
+    const avgYear = datedCount > 0 ? Math.round(releaseYearSum / datedCount) : "N/A";
+    const metadataCompleteness = Math.round((completeCount / totalGames) * 100);
+
+    // O(k log k) sort for top items (k is number of unique items, typically small)
+    const topGenre = Object.entries(genreCounts).sort((a, b) => b[1] - a[1])[0];
+    const topPlatform = Object.entries(platformCounts).sort((a, b) => b[1] - a[1])[0];
     const topPublisher = Object.entries(publisherCounts).sort((a, b) => b[1] - a[1])[0];
-
-    // Developer Count
-    const uniqueDevelopers = new Set(games.flatMap((g) => g.developers || []));
-
-    // Metadata Completeness (simple check: title, summary, cover, releaseDate, rating)
-    const completeGames = games.filter(
-      (g) => g.title && g.summary && g.coverUrl && g.releaseDate && g.rating
-    );
-    const metadataCompleteness = Math.round((completeGames.length / totalGames) * 100);
 
     return [
       {

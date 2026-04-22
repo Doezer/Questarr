@@ -17,3 +17,7 @@
 ## 2025-05-23 - Unmemoized React Query array data transformations
 **Learning:** React Query frequently triggers re-renders on components. Any heavy transformation derived from query results (e.g. filtering, O(N log N) sorting, date parsing) directly inside the component body will fire on every re-render and degrade performance.
 **Action:** Extract list transformations or sorting using results from React Query into `useMemo`, ensuring `searchResults?.items` or equivalent array paths are added to the dependency array.
+
+## 2024-04-22 - Dashboard Stats Computation Optimization
+**Learning:** Found multiple O(n) array traversals (filter, map, reduce, flatMap) within a React useMemo hook processing game statistics. Replacing these multiple array methods with a single manual loop significantly improves performance on the hot path (re-evaluating stats) by reducing redundant iterations and object allocations.
+**Action:** Always scrutinize React useMemo hooks operating on collections for unnecessary or repeated iterations, and consider combining loops.

@@ -174,6 +174,7 @@ export default function RssSettings() {
                       size="icon"
                       onClick={() => deleteFeedMutation.mutate(feed.id)}
                       className="text-destructive"
+                      aria-label={`Delete feed ${feed.name}`}
                     >
                       <Trash className="h-4 w-4" />
                     </Button>

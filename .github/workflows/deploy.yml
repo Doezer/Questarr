@@ -119,7 +119,7 @@ jobs:
             org.opencontainers.image.vendor=Doezer
 
       - name: Build and push Docker image
-        uses: step-security/docker-build-push-action@a8c3d08b23f8be6aeed43eb1a14ce6fe51284438 # v6.18.0
+        uses: docker/build-push-action@a8c3d08b23f8be6aeed43eb1a14ce6fe51284438 # v6.18.0
         with:
           context: .
           platforms: ${{ (env.ENVIRONMENT == 'production' && inputs.build_arm64 != false) && 'linux/amd64,linux/arm64' || 'linux/amd64' }}

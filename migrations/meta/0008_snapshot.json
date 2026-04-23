@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "9c1fdfcb-a3f8-45bd-b446-49ae63b87c5f",
-  "prevId": "4e009fa3-d587-4b79-91e4-b4bea160142e",
+  "id": "ebf114ba-df00-4611-8e4c-cce8f2aa633f",
+  "prevId": "d9557af8-2d02-4312-96a5-4b14630425df",
   "tables": {
     "downloaders": {
       "name": "downloaders",
@@ -390,14 +390,6 @@
           "autoincrement": false,
           "default": false
         },
-        "search_results_available": {
-          "name": "search_results_available",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
-        },
         "added_at": {
           "name": "added_at",
           "type": "integer",
@@ -610,8 +602,8 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "release_blacklist": {
-      "name": "release_blacklist",
+    "path_mappings": {
+      "name": "path_mappings",
       "columns": {
         "id": {
           "name": "id",
@@ -620,54 +612,61 @@
           "notNull": true,
           "autoincrement": false
         },
-        "game_id": {
-          "name": "game_id",
+        "remote_path": {
+          "name": "remote_path",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "release_title": {
-          "name": "release_title",
+        "local_path": {
+          "name": "local_path",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "indexer_name": {
-          "name": "indexer_name",
+        "remote_host": {
+          "name": "remote_host",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "platform_mappings": {
+      "name": "platform_mappings",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
         },
-        "created_at": {
-          "name": "created_at",
+        "igdb_platform_id": {
+          "name": "igdb_platform_id",
           "type": "integer",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false,
-          "default": "(strftime('%s', 'now') * 1000)"
+          "notNull": true,
+          "autoincrement": false
+        },
+        "romm_platform_name": {
+          "name": "romm_platform_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
         }
       },
-      "indexes": {
-        "release_blacklist_game_title_idx": {
-          "name": "release_blacklist_game_title_idx",
-          "columns": ["game_id", "release_title"],
-          "isUnique": true
-        }
-      },
-      "foreignKeys": {
-        "release_blacklist_game_id_games_id_fk": {
-          "name": "release_blacklist_game_id_games_id_fk",
-          "tableFrom": "release_blacklist",
-          "tableTo": "games",
-          "columnsFrom": ["game_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
+      "indexes": {},
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
@@ -1004,6 +1003,203 @@
           "notNull": true,
           "autoincrement": false,
           "default": 0
+        },
+        "enable_post_processing": {
+          "name": "enable_post_processing",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "auto_unpack": {
+          "name": "auto_unpack",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "rename_pattern": {
+          "name": "rename_pattern",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'{Title} ({Region})'"
+        },
+        "overwrite_existing": {
+          "name": "overwrite_existing",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "transfer_mode": {
+          "name": "transfer_mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'hardlink'"
+        },
+        "import_platform_ids": {
+          "name": "import_platform_ids",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "ignored_extensions": {
+          "name": "ignored_extensions",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "min_file_size": {
+          "name": "min_file_size",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "library_root": {
+          "name": "library_root",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'/data'"
+        },
+        "romm_enabled": {
+          "name": "romm_enabled",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "romm_url": {
+          "name": "romm_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "romm_api_key": {
+          "name": "romm_api_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "romm_library_root": {
+          "name": "romm_library_root",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'/data'"
+        },
+        "romm_platform_routing_mode": {
+          "name": "romm_platform_routing_mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'slug-subfolder'"
+        },
+        "romm_platform_bindings": {
+          "name": "romm_platform_bindings",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false,
+          "default": "'{}'"
+        },
+        "romm_platform_aliases": {
+          "name": "romm_platform_aliases",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false,
+          "default": "'{}'"
+        },
+        "romm_move_mode": {
+          "name": "romm_move_mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'move'"
+        },
+        "romm_conflict_policy": {
+          "name": "romm_conflict_policy",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'rename'"
+        },
+        "romm_folder_naming_template": {
+          "name": "romm_folder_naming_template",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'{title}'"
+        },
+        "romm_single_file_placement": {
+          "name": "romm_single_file_placement",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'root'"
+        },
+        "romm_multi_file_placement": {
+          "name": "romm_multi_file_placement",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'subfolder'"
+        },
+        "romm_include_region_language_tags": {
+          "name": "romm_include_region_language_tags",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "romm_allowed_slugs": {
+          "name": "romm_allowed_slugs",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "romm_allow_absolute_bindings": {
+          "name": "romm_allow_absolute_bindings",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "romm_binding_missing_behavior": {
+          "name": "romm_binding_missing_behavior",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'fallback'"
         },
         "updated_at": {
           "name": "updated_at",

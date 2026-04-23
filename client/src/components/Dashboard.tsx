@@ -38,6 +38,7 @@ import { Switch } from "@/components/ui/switch";
 import { useViewControls } from "@/hooks/use-view-controls";
 import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 import { setAddGamePendingQuery, clearAddGamePendingQuery } from "@/lib/add-game-store";
+import PendingImportsCard from "./PendingImportsCard";
 
 export default function Dashboard() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -222,6 +223,8 @@ export default function Dashboard() {
             </div>
           )}
         </div>
+
+        <PendingImportsCard />
 
         {/* Toolbar: search + view controls + filter toggle + grid settings */}
         <PageToolbar

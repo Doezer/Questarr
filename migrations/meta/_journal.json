@@ -27,14 +27,14 @@
       "idx": 3,
       "version": "6",
       "when": 1770123406692,
-      "tag": "0003_free_centennial",
+      "tag": "0003_add_link_to_notifications",
       "breakpoints": true
     },
     {
       "idx": 4,
       "version": "6",
       "when": 1771060272911,
-      "tag": "0004_thin_wendigo",
+      "tag": "0004_add_auto_search_unreleased",
       "breakpoints": true
     },
     {
@@ -54,54 +54,68 @@
     {
       "idx": 7,
       "version": "6",
+      "when": 1771914096263,
+      "tag": "0007_add_post_processing_and_romm",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1774072743771,
+      "tag": "0008_drop_delete_source",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
       "when": 1774639971136,
       "tag": "0007_broad_hannibal_king",
       "breakpoints": true
     },
     {
-      "idx": 8,
+      "idx": 10,
       "version": "6",
       "when": 1774730644852,
       "tag": "0008_ambiguous_tomorrow_man",
       "breakpoints": true
     },
     {
-      "idx": 9,
+      "idx": 11,
       "version": "6",
       "when": 1775338283241,
       "tag": "0009_worthless_ikaris",
       "breakpoints": true
     },
     {
-      "idx": 10,
+      "idx": 12,
       "version": "6",
       "when": 1774730644853,
       "tag": "0010_game_metadata_fields",
       "breakpoints": true
     },
     {
-      "idx": 11,
+      "idx": 13,
       "version": "6",
       "when": 1774730644854,
       "tag": "0011_preferred_release_groups",
       "breakpoints": true
     },
     {
-      "idx": 12,
+      "idx": 14,
       "version": "6",
       "when": 1775461016503,
       "tag": "0012_user_rating",
       "breakpoints": true
     },
     {
-      "idx": 13,
+      "idx": 15,
       "version": "6",
       "when": 1744130000000,
       "tag": "0013_preferred_platform",
       "breakpoints": true
     },
     {
-      "idx": 14,
+      "idx": 16,
       "version": "6",
       "when": 1775762231796,
       "tag": "0014_sync_snapshot",

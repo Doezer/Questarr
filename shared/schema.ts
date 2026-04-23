@@ -10,6 +10,19 @@ export const users = sqliteTable("users", {
   steamId64: text("steam_id_64"),
 });
 
+export const pathMappings = sqliteTable("path_mappings", {
+  id: text("id").primaryKey(),
+  remotePath: text("remote_path").notNull(),
+  localPath: text("local_path").notNull(),
+  remoteHost: text("remote_host"),
+});
+
+export const platformMappings = sqliteTable("platform_mappings", {
+  id: text("id").primaryKey(),
+  igdbPlatformId: integer("igdb_platform_id").notNull(),
+  rommPlatformName: text("romm_platform_name").notNull(),
+});
+
 export const userSettings = sqliteTable("user_settings", {
   id: text("id").primaryKey(),
   userId: text("user_id")
@@ -39,10 +52,145 @@ export const userSettings = sqliteTable("user_settings", {
     .notNull()
     .default(false),
   preferredPlatform: text("preferred_platform"),
+  // Import Engine Settings
+  enablePostProcessing: integer("enable_post_processing", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  autoUnpack: integer("auto_unpack", { mode: "boolean" }).notNull().default(false),
+  renamePattern: text("rename_pattern").notNull().default("{Title} ({Region})"),
+  overwriteExisting: integer("overwrite_existing", { mode: "boolean" }).notNull().default(false),
+  transferMode: text("transfer_mode").notNull().default("hardlink"),
+  importPlatformIds: text("import_platform_ids", { mode: "json" }).$type<number[]>().default([]),
+  ignoredExtensions: text("ignored_extensions", { mode: "json" }).$type<string[]>().default([]),
+  minFileSize: integer("min_file_size").notNull().default(0),
+  libraryRoot: text("library_root").notNull().default("/data"),
+  // RomM Settings
+  rommEnabled: integer("romm_enabled", { mode: "boolean" }).notNull().default(false),
+  rommLibraryRoot: text("romm_library_root").notNull().default("/data"),
+  rommPlatformRoutingMode: text("romm_platform_routing_mode").notNull().default("slug-subfolder"),
+  rommPlatformBindings: text("romm_platform_bindings", { mode: "json" })
+    .$type<Record<string, string>>()
+    .default({}),
+  rommPlatformAliases: text("romm_platform_aliases", { mode: "json" })
+    .$type<Record<string, string>>()
+    .default({}),
+  rommMoveMode: text("romm_move_mode").notNull().default("move"),
+  rommConflictPolicy: text("romm_conflict_policy").notNull().default("rename"),
+  rommFolderNamingTemplate: text("romm_folder_naming_template").notNull().default("{title}"),
+  rommSingleFilePlacement: text("romm_single_file_placement").notNull().default("root"),
+  rommMultiFilePlacement: text("romm_multi_file_placement").notNull().default("subfolder"),
+  rommIncludeRegionLanguageTags: integer("romm_include_region_language_tags", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  rommAllowedSlugs: text("romm_allowed_slugs", { mode: "json" }).$type<string[] | null>(),
+  rommAllowAbsoluteBindings: integer("romm_allow_absolute_bindings", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  rommBindingMissingBehavior: text("romm_binding_missing_behavior").notNull().default("fallback"),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),
 });
+
+// ... existing code ...
+
+export const insertPathMappingSchema = createInsertSchema(pathMappings).omit({
+  id: true,
+});
+
+export const insertPlatformMappingSchema = createInsertSchema(platformMappings).omit({
+  id: true,
+});
+
+export type PathMapping = typeof pathMappings.$inferSelect;
+export type InsertPathMapping = (typeof insertPathMappingSchema)["_output"];
+
+export type PlatformMapping = typeof platformMappings.$inferSelect;
+export type InsertPlatformMapping = (typeof insertPlatformMappingSchema)["_output"];
+
+// ... existing code ...
+
+export interface ImportConfig {
+  enablePostProcessing: boolean;
+  autoUnpack: boolean;
+  renamePattern: string;
+  overwriteExisting: boolean;
+  transferMode: ImportTransferMode;
+  importPlatformIds: number[];
+  ignoredExtensions: string[];
+  minFileSize: number;
+  libraryRoot: string;
+}
+
+export const IMPORT_TRANSFER_MODES = ["move", "copy", "hardlink"] as const;
+export const ROMM_PLATFORM_ROUTING_MODES = ["slug-subfolder", "binding-map"] as const;
+export const ROMM_MOVE_MODES = ["copy", "move", "hardlink", "symlink"] as const;
+export const ROMM_CONFLICT_POLICIES = ["skip", "overwrite", "rename", "fail"] as const;
+export const ROMM_SINGLE_FILE_PLACEMENTS = ["root", "subfolder"] as const;
+export const ROMM_BINDING_MISSING_BEHAVIORS = ["fallback", "error"] as const;
+export const ROMM_MULTI_FILE_PLACEMENT = "subfolder" as const;
+
+export type ImportTransferMode = (typeof IMPORT_TRANSFER_MODES)[number];
+export type RomMPlatformRoutingMode = (typeof ROMM_PLATFORM_ROUTING_MODES)[number];
+export type RomMMoveMode = (typeof ROMM_MOVE_MODES)[number];
+export type RomMConflictPolicy = (typeof ROMM_CONFLICT_POLICIES)[number];
+export type RomMSingleFilePlacement = (typeof ROMM_SINGLE_FILE_PLACEMENTS)[number];
+export type RomMMultiFilePlacement = typeof ROMM_MULTI_FILE_PLACEMENT;
+export type RomMBindingMissingBehavior = (typeof ROMM_BINDING_MISSING_BEHAVIORS)[number];
+
+export const importTransferModeSchema = z.enum(IMPORT_TRANSFER_MODES);
+export const rommPlatformRoutingModeSchema = z.enum(ROMM_PLATFORM_ROUTING_MODES);
+export const rommMoveModeSchema = z.enum(ROMM_MOVE_MODES);
+export const rommConflictPolicySchema = z.enum(ROMM_CONFLICT_POLICIES);
+export const rommSingleFilePlacementSchema = z.enum(ROMM_SINGLE_FILE_PLACEMENTS);
+export const rommBindingMissingBehaviorSchema = z.enum(ROMM_BINDING_MISSING_BEHAVIORS);
+
+const rommConfigBaseSchema = z.object({
+  libraryRoot: z.string().min(1),
+  platformRoutingMode: rommPlatformRoutingModeSchema,
+  platformBindings: z.record(z.string(), z.string()),
+  moveMode: rommMoveModeSchema,
+  conflictPolicy: rommConflictPolicySchema,
+  folderNamingTemplate: z.string().min(1),
+  singleFilePlacement: rommSingleFilePlacementSchema,
+  multiFilePlacement: z.literal(ROMM_MULTI_FILE_PLACEMENT),
+  includeRegionLanguageTags: z.boolean(),
+  allowedSlugs: z.array(z.string().trim().min(1)).optional(),
+  bindingMissingBehavior: rommBindingMissingBehaviorSchema,
+});
+
+export const importConfigSchema = z.object({
+  enablePostProcessing: z.boolean(),
+  autoUnpack: z.boolean(),
+  renamePattern: z.string().min(1),
+  overwriteExisting: z.boolean(),
+  transferMode: importTransferModeSchema,
+  importPlatformIds: z.array(z.number().int().min(1)),
+  ignoredExtensions: z.array(z.string()),
+  minFileSize: z.number().int().min(0),
+  libraryRoot: z.string().min(1),
+});
+
+export const rommConfigSchema = rommConfigBaseSchema.extend({
+  enabled: z.boolean(),
+});
+
+export type RomMConfig = z.infer<typeof rommConfigSchema>;
+
+export interface RomMConfigInput {
+  enabled: boolean;
+  libraryRoot: string;
+  platformRoutingMode: RomMPlatformRoutingMode;
+  platformBindings: Record<string, string>;
+  moveMode: RomMMoveMode;
+  conflictPolicy: RomMConflictPolicy;
+  folderNamingTemplate: string;
+  singleFilePlacement: RomMSingleFilePlacement;
+  multiFilePlacement: RomMMultiFilePlacement;
+  includeRegionLanguageTags: boolean;
+  allowedSlugs?: string[];
+  bindingMissingBehavior: RomMBindingMissingBehavior;
+}
 
 export const systemConfig = sqliteTable("system_config", {
   key: text("key").primaryKey(),
@@ -324,6 +472,86 @@ export const insertXrelNotifiedReleaseSchema = createInsertSchema(xrelNotifiedRe
   createdAt: true,
 });
 
+function validateUserSettingsEnums(
+  value: Record<string, unknown>,
+  ctx: {
+    addIssue: (issue: { code: "custom"; path: string[]; message: string }) => void;
+  }
+) {
+  if (
+    value.transferMode &&
+    !IMPORT_TRANSFER_MODES.includes(value.transferMode as ImportTransferMode)
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["transferMode"],
+      message: "Invalid transfer mode",
+    });
+  }
+
+  if (
+    value.rommPlatformRoutingMode &&
+    !ROMM_PLATFORM_ROUTING_MODES.includes(value.rommPlatformRoutingMode as RomMPlatformRoutingMode)
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["rommPlatformRoutingMode"],
+      message: "Invalid RomM platform routing mode",
+    });
+  }
+
+  if (value.rommMoveMode && !ROMM_MOVE_MODES.includes(value.rommMoveMode as RomMMoveMode)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["rommMoveMode"],
+      message: "Invalid RomM move mode",
+    });
+  }
+
+  if (
+    value.rommConflictPolicy &&
+    !ROMM_CONFLICT_POLICIES.includes(value.rommConflictPolicy as RomMConflictPolicy)
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["rommConflictPolicy"],
+      message: "Invalid RomM conflict policy",
+    });
+  }
+
+  if (
+    value.rommSingleFilePlacement &&
+    !ROMM_SINGLE_FILE_PLACEMENTS.includes(value.rommSingleFilePlacement as RomMSingleFilePlacement)
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["rommSingleFilePlacement"],
+      message: "Invalid RomM single-file placement",
+    });
+  }
+
+  if (value.rommMultiFilePlacement && value.rommMultiFilePlacement !== ROMM_MULTI_FILE_PLACEMENT) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["rommMultiFilePlacement"],
+      message: "Invalid RomM multi-file placement",
+    });
+  }
+
+  if (
+    value.rommBindingMissingBehavior &&
+    !ROMM_BINDING_MISSING_BEHAVIORS.includes(
+      value.rommBindingMissingBehavior as RomMBindingMissingBehavior
+    )
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["rommBindingMissingBehavior"],
+      message: "Invalid RomM binding missing behavior",
+    });
+  }
+}
+
 export const insertReleaseBlacklistSchema = createInsertSchema(releaseBlacklist).omit({
   id: true,
   createdAt: true,
@@ -331,10 +559,12 @@ export const insertReleaseBlacklistSchema = createInsertSchema(releaseBlacklist)
 export type InsertReleaseBlacklist = (typeof insertReleaseBlacklistSchema)["_output"];
 export type ReleaseBlacklist = typeof releaseBlacklist.$inferSelect;
 
-export const insertUserSettingsSchema = createInsertSchema(userSettings).omit({
-  id: true,
-  updatedAt: true,
-});
+export const insertUserSettingsSchema = createInsertSchema(userSettings)
+  .omit({
+    id: true,
+    updatedAt: true,
+  })
+  .superRefine(validateUserSettingsEnums);
 
 export const updateUserSettingsSchema = createInsertSchema(userSettings)
   .omit({
@@ -342,7 +572,8 @@ export const updateUserSettingsSchema = createInsertSchema(userSettings)
     userId: true,
     updatedAt: true,
   })
-  .partial();
+  .partial()
+  .superRefine(validateUserSettingsEnums);
 
 export const updatePasswordSchema = z
   .object({
@@ -440,7 +671,17 @@ export interface DownloadStatus {
   id: string;
   name: string;
   downloadType?: "torrent" | "usenet"; // Type of download
-  status: "downloading" | "seeding" | "completed" | "paused" | "error" | "repairing" | "unpacking";
+  status:
+    | "downloading"
+    | "seeding"
+    | "completed"
+    | "paused"
+    | "error"
+    | "repairing"
+    | "unpacking"
+    | "completed_pending_import"
+    | "manual_review_required"
+    | "imported";
   progress: number; // 0-100
   downloadSpeed?: number; // bytes per second
   uploadSpeed?: number; // bytes per second (torrents only)

@@ -48,6 +48,7 @@ import type { Config, UserSettings, DownloadRules, ReleaseBlacklist } from "@sha
 import { downloadRulesSchema } from "@shared/schema";
 import { parseJsonStringArray, CANONICAL_PLATFORMS } from "@shared/title-utils";
 import { useState, useEffect, useRef, useMemo } from "react";
+import ImportSettings from "@/components/ImportSettings";
 
 interface CertInfo {
   subject: string;
@@ -663,6 +664,7 @@ export default function SettingsPage() {
             <TabsTrigger value="general">General</TabsTrigger>
             <TabsTrigger value="rules">Rules</TabsTrigger>
             <TabsTrigger value="services">Services</TabsTrigger>
+            <TabsTrigger value="import">Import</TabsTrigger>
             <TabsTrigger value="account">Account</TabsTrigger>
             <TabsTrigger value="security">Security</TabsTrigger>
             <TabsTrigger value="system">System</TabsTrigger>
@@ -1363,6 +1365,10 @@ export default function SettingsPage() {
 
           <TabsContent value="account" className="space-y-6">
             <PasswordSettings />
+          </TabsContent>
+
+          <TabsContent value="import" className="space-y-6">
+            <ImportSettings />
           </TabsContent>
 
           <TabsContent value="system" className="space-y-6">

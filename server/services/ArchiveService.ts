@@ -1,0 +1,54 @@
+import node7z from "node-7z";
+const { extractFull } = node7z;
+import pathTo7zip from "7zip-bin";
+import fs from "fs-extra";
+import path from "path";
+import { logger } from "../logger.js";
+
+const sevenZipPath = pathTo7zip.path7za;
+
+export class ArchiveService {
+  /**
+   * Extracts an archive to a specified output directory.
+   * @param filePath Full path to the archive file.
+   * @param outputDir Directory where contents should be extracted.
+   * @returns Paths of files reported as extracted by 7zip (constructed from event data).
+   */
+  async extract(filePath: string, outputDir: string): Promise<string[]> {
+    logger.debug({ filePath, outputDir }, "Extracting archive");
+
+    await fs.ensureDir(outputDir);
+
+    return new Promise((resolve, reject) => {
+      const extractedFiles: string[] = [];
+
+      const stream = extractFull(filePath, outputDir, {
+        $bin: sevenZipPath,
+        $progress: true,
+        recursive: true,
+      });
+
+      stream.on("data", (data: { status: string; file?: string }) => {
+        // data.file is the relative path of the file being extracted
+        if (data.status === "extracted" && data.file) {
+          extractedFiles.push(path.join(outputDir, data.file));
+        }
+      });
+
+      stream.on("end", () => {
+        logger.debug({ count: extractedFiles.length }, "Extraction complete");
+        resolve(extractedFiles);
+      });
+
+      stream.on("error", (err: Error) => {
+        logger.error({ err }, "Extraction failed");
+        reject(err);
+      });
+    });
+  }
+
+  isArchive(filePath: string): boolean {
+    const ext = path.extname(filePath).toLowerCase();
+    return [".zip", ".7z", ".rar", ".gz", ".tar", ".iso", ".bz2"].includes(ext);
+  }
+}

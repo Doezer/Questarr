@@ -48,11 +48,15 @@ function getAutoSearchRules(downloadRules: string | null): AutoSearchRules {
   let visibleCategoriesSet = new Set(["main", "update", "dlc", "extra"]);
 
   if (downloadRules) {
-    const parsed = JSON.parse(downloadRules);
-    const rules = downloadRulesSchema.parse(parsed);
-    minSeeders = rules.minSeeders;
-    sortBy = rules.sortBy;
-    visibleCategoriesSet = new Set(rules.visibleCategories);
+    try {
+      const parsed = JSON.parse(downloadRules);
+      const rules = downloadRulesSchema.parse(parsed);
+      minSeeders = rules.minSeeders;
+      sortBy = rules.sortBy;
+      visibleCategoriesSet = new Set(rules.visibleCategories);
+    } catch {
+      // malformed rules — use defaults
+    }
   }
 
   return { minSeeders, sortBy, visibleCategoriesSet };
@@ -337,6 +341,11 @@ export async function checkGameUpdates() {
           releaseDate: currentReleaseDateStr,
           originalReleaseDate: currentReleaseDateStr,
         });
+        // We need to update local object if we were to continue using it,
+        // but the original code did 'continue'.
+        // However, 'continue' skips the rest of the loop logic (status check).
+        // If we just initialized, do we want to skip status check?
+        // Original code: yes.
         continue;
       }
     }
@@ -545,6 +554,7 @@ export async function checkDownloadStatus() {
               title: "Download Completed",
               message,
               link: "/library",
+              userId: game?.userId ?? undefined,
             });
             notifyUser("notification", notification);
           } else {
@@ -681,6 +691,7 @@ export async function checkDownloadStatus() {
             title: "Download Status Changed",
             message: `Download for "${gameTitle}" was not found in the downloader and has been marked as completed. If this was removed due to an error, you may need to re-download it.`,
             link: "/library",
+            userId: game?.userId ?? undefined,
           });
           notifyUser("notification", notification);
 

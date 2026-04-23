@@ -48,11 +48,15 @@ function getAutoSearchRules(downloadRules: string | null): AutoSearchRules {
   let visibleCategoriesSet = new Set(["main", "update", "dlc", "extra"]);
 
   if (downloadRules) {
-    const parsed = JSON.parse(downloadRules);
-    const rules = downloadRulesSchema.parse(parsed);
-    minSeeders = rules.minSeeders;
-    sortBy = rules.sortBy;
-    visibleCategoriesSet = new Set(rules.visibleCategories);
+    try {
+      const parsed = JSON.parse(downloadRules);
+      const rules = downloadRulesSchema.parse(parsed);
+      minSeeders = rules.minSeeders;
+      sortBy = rules.sortBy;
+      visibleCategoriesSet = new Set(rules.visibleCategories);
+    } catch {
+      // malformed rules — use defaults
+    }
   }
 
   return { minSeeders, sortBy, visibleCategoriesSet };
@@ -306,6 +310,11 @@ export async function checkGameUpdates() {
           releaseDate: currentReleaseDateStr,
           originalReleaseDate: currentReleaseDateStr,
         });
+        // We need to update local object if we were to continue using it,
+        // but the original code did 'continue'.
+        // However, 'continue' skips the rest of the loop logic (status check).
+        // If we just initialized, do we want to skip status check?
+        // Original code: yes.
         continue;
       }
     }
@@ -404,6 +413,14 @@ export async function checkDownloadStatus() {
     return;
   }
 
+  // Prune stale entries from downloadMissCount (e.g. downloads removed from DB while still downloading)
+  const activeDownloadIds = new Set(downloadingDownloads.map((d) => d.id));
+  for (const key of Array.from(downloadMissCount.keys())) {
+    if (!activeDownloadIds.has(key)) {
+      downloadMissCount.delete(key);
+    }
+  }
+
   // Group by downloader
   const downloadsByDownloader = new Map<string, typeof downloadingDownloads>();
   for (const d of downloadingDownloads) {
@@ -414,10 +431,10 @@ export async function checkDownloadStatus() {
 
   const entries = Array.from(downloadsByDownloader.entries());
   for (const [downloaderId, downloads] of entries) {
-    const downloader = await storage.getDownloader(downloaderId);
-    if (!downloader || !downloader.enabled) continue;
-
     try {
+      const downloader = await storage.getDownloader(downloaderId);
+      if (!downloader || !downloader.enabled) continue;
+
       const activeDownloads = await DownloaderManager.getAllDownloads(downloader);
       const activeDownloadMap = new Map(activeDownloads.map((t) => [t.id.toLowerCase(), t]));
 
@@ -506,6 +523,7 @@ export async function checkDownloadStatus() {
               title: "Download Completed",
               message,
               link: "/library",
+              userId: game?.userId ?? undefined,
             });
             notifyUser("notification", notification);
           } else {
@@ -642,6 +660,7 @@ export async function checkDownloadStatus() {
             title: "Download Status Changed",
             message: `Download for "${gameTitle}" was not found in the downloader and has been marked as completed. If this was removed due to an error, you may need to re-download it.`,
             link: "/library",
+            userId: game?.userId ?? undefined,
           });
           notifyUser("notification", notification);
 
@@ -653,6 +672,9 @@ export async function checkDownloadStatus() {
       }
     } catch (error) {
       igdbLogger.error({ error, downloaderId }, "Error checking downloader status");
+      for (const dl of downloads) {
+        downloadMissCount.delete(dl.id);
+      }
     }
   }
 }

@@ -155,6 +155,9 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   // Tracks whether platform preselection has been applied this dialog session to prevent
   // re-applying it (and overriding the user's manual choice) if userSettings refetches.
   const platformPreselectedRef = useRef(false);
+  // Tracks whether the /api/games invalidation has already fired for this dialog session
+  // to avoid re-invalidating (and re-rendering the full library) on every new search result.
+  const hasInvalidatedRef = useRef(false);
 
   const setDefaults = useCallback(() => {
     setSearchQuery("");
@@ -171,6 +174,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     setSelectedGroups([]);
     setSelectedPlatforms([]);
     platformPreselectedRef.current = false;
+    hasInvalidatedRef.current = false;
   }, []);
 
   const { data: userSettings } = useQuery<UserSettings>({
@@ -239,10 +243,13 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
 
   // When a canonical search (game title = search query) returns results, refresh the games list
   // so the "Has results" badge reflects the updated searchResultsAvailable flag from the server.
+  // Only invalidate once per dialog session to avoid re-rendering the full library on every result.
   useEffect(() => {
     if (!searchResults || !game) return;
     if (searchResults.items.length === 0) return;
+    if (hasInvalidatedRef.current) return;
     if (normalizeTitle(debouncedSearchQuery) !== normalizeTitle(game.title)) return;
+    hasInvalidatedRef.current = true;
     queryClient.invalidateQueries({ queryKey: ["/api/games"] });
   }, [searchResults, game, debouncedSearchQuery, queryClient]);
 

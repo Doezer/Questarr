@@ -42,16 +42,12 @@ import {
   type PlatformMapping,
   type InsertPlatformMapping,
   type ImportConfig,
-  type RomMConfig,
-  type RomMConfigInput,
   importConfigSchema,
-  rommConfigSchema,
-  ROMM_MULTI_FILE_PLACEMENT,
   releaseBlacklist,
 } from "../shared/schema.js";
 import { randomUUID } from "crypto";
 import { db } from "./db.js";
-import { eq, like, or, sql, desc, and, not, inArray, type SQL } from "drizzle-orm";
+import { eq, like, or, sql, desc, and, not, inArray } from "drizzle-orm";
 import { categorizeDownload } from "../shared/download-categorizer.js";
 
 const isUpdateDownload = (title: string): boolean =>
@@ -69,13 +65,6 @@ function resolveTopStatus(
   b: DownloadSummary["topStatus"]
 ): DownloadSummary["topStatus"] {
   return (STATUS_PRIORITY[a] ?? 0) >= (STATUS_PRIORITY[b] ?? 0) ? a : b;
-}
-
-function normalizeSlugArray(value: unknown): string[] | null | undefined {
-  if (value === undefined) return undefined;
-  if (value === null) return null;
-  if (!Array.isArray(value)) return undefined;
-  return value.map((entry) => String(entry ?? "").trim()).filter((entry) => entry.length > 0);
 }
 
 function buildImportConfigFromSettings(
@@ -116,61 +105,6 @@ function buildImportConfigFromSettings(
     ignoredExtensions: settings?.ignoredExtensions ?? [],
     minFileSize: settings?.minFileSize ?? 0,
     libraryRoot: settings?.libraryRoot ?? "/data",
-  };
-}
-
-function buildRomMConfigFromSettings(
-  settings?: Pick<
-    UserSettings,
-    | "rommEnabled"
-    | "rommLibraryRoot"
-    | "rommPlatformRoutingMode"
-    | "rommPlatformBindings"
-    | "rommMoveMode"
-    | "rommConflictPolicy"
-    | "rommFolderNamingTemplate"
-    | "rommSingleFilePlacement"
-    | "rommIncludeRegionLanguageTags"
-    | "rommAllowedSlugs"
-    | "rommBindingMissingBehavior"
-  >
-): RomMConfig {
-  const candidate: RomMConfigInput = {
-    enabled: Boolean(settings?.rommEnabled),
-    libraryRoot: settings?.rommLibraryRoot ?? "/data",
-    platformRoutingMode:
-      (settings?.rommPlatformRoutingMode as RomMConfigInput["platformRoutingMode"]) ??
-      "slug-subfolder",
-    platformBindings: settings?.rommPlatformBindings ?? {},
-    moveMode: (settings?.rommMoveMode as RomMConfigInput["moveMode"]) ?? "move",
-    conflictPolicy: (settings?.rommConflictPolicy as RomMConfigInput["conflictPolicy"]) ?? "rename",
-    folderNamingTemplate: settings?.rommFolderNamingTemplate ?? "{title}",
-    singleFilePlacement:
-      (settings?.rommSingleFilePlacement as RomMConfigInput["singleFilePlacement"]) ?? "root",
-    multiFilePlacement: ROMM_MULTI_FILE_PLACEMENT,
-    includeRegionLanguageTags: settings?.rommIncludeRegionLanguageTags ?? false,
-    allowedSlugs: settings?.rommAllowedSlugs ?? undefined,
-    bindingMissingBehavior:
-      (settings?.rommBindingMissingBehavior as RomMConfigInput["bindingMissingBehavior"]) ??
-      "fallback",
-  };
-
-  const parsed = rommConfigSchema.safeParse(candidate);
-  if (parsed.success) return parsed.data;
-
-  return {
-    enabled: false,
-    libraryRoot: settings?.rommLibraryRoot ?? "/data",
-    platformRoutingMode: "slug-subfolder",
-    platformBindings: settings?.rommPlatformBindings ?? {},
-    moveMode: "move",
-    conflictPolicy: "rename",
-    folderNamingTemplate: settings?.rommFolderNamingTemplate ?? "{title}",
-    singleFilePlacement: "root",
-    multiFilePlacement: ROMM_MULTI_FILE_PLACEMENT,
-    includeRegionLanguageTags: settings?.rommIncludeRegionLanguageTags ?? false,
-    allowedSlugs: settings?.rommAllowedSlugs ?? undefined,
-    bindingMissingBehavior: "fallback",
   };
 }
 
@@ -305,7 +239,6 @@ export interface IStorage {
 
   // Config Accessors (Helper methods)
   getImportConfig(userId?: string): Promise<ImportConfig>;
-  getRomMConfig(userId?: string): Promise<RomMConfig>;
 
   // Release blacklist methods
   addReleaseBlacklist(entry: InsertReleaseBlacklist): Promise<ReleaseBlacklist>;
@@ -1033,7 +966,6 @@ export class MemStorage implements IStorage {
 
   async createUserSettings(insertSettings: InsertUserSettings): Promise<UserSettings> {
     const id = randomUUID();
-    const normalizedAllowedSlugs = normalizeSlugArray(insertSettings.rommAllowedSlugs);
     const settings: UserSettings = {
       id,
       userId: insertSettings.userId,
@@ -1061,22 +993,6 @@ export class MemStorage implements IStorage {
       minFileSize: insertSettings.minFileSize ?? 0,
       libraryRoot: insertSettings.libraryRoot ?? "/data",
 
-      // RomM Defaults
-      rommEnabled: insertSettings.rommEnabled ?? false,
-      rommLibraryRoot: insertSettings.rommLibraryRoot ?? "/data",
-      rommPlatformRoutingMode: insertSettings.rommPlatformRoutingMode ?? "slug-subfolder",
-      rommPlatformBindings: insertSettings.rommPlatformBindings ?? {},
-      rommPlatformAliases: insertSettings.rommPlatformAliases ?? {},
-      rommMoveMode: insertSettings.rommMoveMode ?? "move",
-      rommConflictPolicy: insertSettings.rommConflictPolicy ?? "rename",
-      rommFolderNamingTemplate: insertSettings.rommFolderNamingTemplate ?? "{title}",
-      rommSingleFilePlacement: insertSettings.rommSingleFilePlacement ?? "root",
-      rommMultiFilePlacement: insertSettings.rommMultiFilePlacement ?? "subfolder",
-      rommIncludeRegionLanguageTags: insertSettings.rommIncludeRegionLanguageTags ?? false,
-      rommAllowedSlugs: normalizedAllowedSlugs ?? null,
-      rommBindingMissingBehavior: insertSettings.rommBindingMissingBehavior ?? "fallback",
-      rommAllowAbsoluteBindings: insertSettings.rommAllowAbsoluteBindings ?? false,
-
       preferredReleaseGroups: insertSettings.preferredReleaseGroups ?? null,
       filterByPreferredGroups: insertSettings.filterByPreferredGroups ?? false,
       preferredPlatform: insertSettings.preferredPlatform ?? null,
@@ -1093,12 +1009,9 @@ export class MemStorage implements IStorage {
     const existing = await this.getUserSettings(userId);
     if (!existing) return undefined;
 
-    const { rommAllowedSlugs: _rawAllowedSlugs, ...restUpdates } = updates;
-    const normalizedAllowedSlugs = normalizeSlugArray(updates.rommAllowedSlugs);
     const updated: UserSettings = {
       ...existing,
-      ...restUpdates,
-      ...(normalizedAllowedSlugs !== undefined ? { rommAllowedSlugs: normalizedAllowedSlugs } : {}),
+      ...updates,
       updatedAt: new Date(),
     };
     this.userSettings.set(existing.id, updated);
@@ -1215,13 +1128,6 @@ export class MemStorage implements IStorage {
       ? Array.from(this.userSettings.values()).find((s) => s.userId === userId)
       : this.userSettings.values().next().value;
     return buildImportConfigFromSettings(scopedSettings);
-  }
-
-  async getRomMConfig(userId?: string): Promise<RomMConfig> {
-    const scopedSettings = userId
-      ? Array.from(this.userSettings.values()).find((s) => s.userId === userId)
-      : this.userSettings.values().next().value;
-    return buildRomMConfigFromSettings(scopedSettings);
   }
 
   async addReleaseBlacklist(entry: InsertReleaseBlacklist): Promise<ReleaseBlacklist> {
@@ -1405,13 +1311,6 @@ export class DatabaseStorage implements IStorage {
       ? await db.select().from(userSettings).where(eq(userSettings.userId, userId)).limit(1)
       : await db.select().from(userSettings).limit(1);
     return buildImportConfigFromSettings(settings);
-  }
-
-  async getRomMConfig(userId?: string): Promise<RomMConfig> {
-    const [settings] = userId
-      ? await db.select().from(userSettings).where(eq(userSettings.userId, userId)).limit(1)
-      : await db.select().from(userSettings).limit(1);
-    return buildRomMConfigFromSettings(settings);
   }
 
   // User methods
@@ -2117,16 +2016,11 @@ export class DatabaseStorage implements IStorage {
 
   async createUserSettings(insertSettings: InsertUserSettings): Promise<UserSettings> {
     const id = randomUUID();
-    const { rommAllowedSlugs: _rawAllowedSlugs, ...restInsertSettings } = insertSettings;
-    const normalizedAllowedSlugs = normalizeSlugArray(insertSettings.rommAllowedSlugs);
     const [settings] = await db
       .insert(userSettings)
       .values({
-        ...restInsertSettings,
+        ...insertSettings,
         enablePostProcessing: insertSettings.enablePostProcessing ?? false,
-        ...(normalizedAllowedSlugs !== undefined
-          ? { rommAllowedSlugs: normalizedAllowedSlugs }
-          : {}),
         id,
       })
       .returning();
@@ -2137,15 +2031,10 @@ export class DatabaseStorage implements IStorage {
     userId: string,
     updates: UpdateUserSettings
   ): Promise<UserSettings | undefined> {
-    const { rommAllowedSlugs: _rawAllowedSlugs, ...restUpdates } = updates;
-    const normalizedAllowedSlugs = normalizeSlugArray(updates.rommAllowedSlugs);
     const [updated] = await db
       .update(userSettings)
       .set({
-        ...restUpdates,
-        ...(normalizedAllowedSlugs !== undefined
-          ? { rommAllowedSlugs: normalizedAllowedSlugs }
-          : {}),
+        ...updates,
         updatedAt: new Date(),
       })
       .where(eq(userSettings.userId, userId))

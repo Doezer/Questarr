@@ -113,13 +113,6 @@
       "when": 1776958941578,
       "tag": "0015_fluffy_black_queen",
       "breakpoints": true
-    },
-    {
-      "idx": 16,
-      "version": "6",
-      "when": 1776958941579,
-      "tag": "0016_romm_settings",
-      "breakpoints": true
     }
   ]
 }

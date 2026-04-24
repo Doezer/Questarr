@@ -8,13 +8,7 @@ import {
   insertPathMappingSchema,
   insertPlatformMappingSchema,
   importTransferModeSchema,
-  rommPlatformRoutingModeSchema,
-  rommMoveModeSchema,
-  rommConflictPolicySchema,
-  rommSingleFilePlacementSchema,
-  rommBindingMissingBehaviorSchema,
-  ROMM_MULTI_FILE_PLACEMENT,
-  ROMM_MOVE_MODES,
+  IMPORT_TRANSFER_MODES,
 } from "../../shared/schema.js";
 import path from "path";
 import fs from "fs-extra";
@@ -43,23 +37,6 @@ const importConfigPatchSchema = z
     ignoredExtensions: z.array(z.string().min(1)).optional(),
     minFileSize: z.number().int().min(0).optional(),
     libraryRoot: z.string().min(1).max(1024).optional(),
-  })
-  .strict();
-
-const rommConfigPatchSchema = z
-  .object({
-    enabled: z.boolean().optional(),
-    libraryRoot: z.string().min(1).max(1024).optional(),
-    platformRoutingMode: rommPlatformRoutingModeSchema.optional(),
-    platformBindings: z.record(z.string(), z.string()).optional(),
-    moveMode: rommMoveModeSchema.optional(),
-    conflictPolicy: rommConflictPolicySchema.optional(),
-    folderNamingTemplate: z.string().min(1).max(200).optional(),
-    singleFilePlacement: rommSingleFilePlacementSchema.optional(),
-    multiFilePlacement: z.string().optional(),
-    includeRegionLanguageTags: z.boolean().optional(),
-    allowedSlugs: z.array(z.string().trim().min(1)).optional(),
-    bindingMissingBehavior: rommBindingMissingBehaviorSchema.optional(),
   })
   .strict();
 
@@ -351,80 +328,12 @@ importRouter.patch("/config", async (req, res) => {
   }
 });
 
-importRouter.get("/romm", async (req, res) => {
-  try {
-    const userId = res.locals.userId as string;
-    const config = await storage.getRomMConfig(userId);
-    res.json(config);
-  } catch (error) {
-    logger.error({ error }, "Error fetching RomM config");
-    res.status(500).json({ error: "Failed to fetch RomM config" });
-  }
-});
-
-function buildRommPatchResponse(
-  updates: z.infer<typeof rommConfigPatchSchema>,
-  settings: NonNullable<Awaited<ReturnType<typeof storage.getUserSettings>>>
-) {
-  return {
-    enabled: updates.enabled ?? settings.rommEnabled,
-    libraryRoot: updates.libraryRoot ?? settings.rommLibraryRoot ?? "/data",
-    platformRoutingMode:
-      updates.platformRoutingMode ?? settings.rommPlatformRoutingMode ?? "slug-subfolder",
-    platformBindings: updates.platformBindings ?? settings.rommPlatformBindings ?? {},
-    moveMode: updates.moveMode ?? settings.rommMoveMode ?? "move",
-    conflictPolicy: updates.conflictPolicy ?? settings.rommConflictPolicy ?? "rename",
-    folderNamingTemplate:
-      updates.folderNamingTemplate ?? settings.rommFolderNamingTemplate ?? "{title}",
-    singleFilePlacement: updates.singleFilePlacement ?? settings.rommSingleFilePlacement ?? "root",
-    multiFilePlacement: ROMM_MULTI_FILE_PLACEMENT,
-    includeRegionLanguageTags:
-      updates.includeRegionLanguageTags ?? settings.rommIncludeRegionLanguageTags ?? false,
-    allowedSlugs: updates.allowedSlugs ?? settings.rommAllowedSlugs ?? undefined,
-    bindingMissingBehavior:
-      updates.bindingMissingBehavior ?? settings.rommBindingMissingBehavior ?? "fallback",
-  };
-}
-
-importRouter.patch("/romm", async (req, res) => {
-  try {
-    const updates = rommConfigPatchSchema.parse(req.body);
-    const userId = res.locals.userId as string;
-
-    const settings = await storage.getUserSettings(userId);
-    if (!settings) {
-      return res.status(404).json({ error: "Settings not found" });
-    }
-
-    const updated = await storage.updateUserSettings(userId, {
-      rommEnabled: updates.enabled,
-      rommLibraryRoot: updates.libraryRoot,
-      rommPlatformRoutingMode: updates.platformRoutingMode,
-      rommPlatformBindings: updates.platformBindings,
-      rommMoveMode: updates.moveMode,
-      rommConflictPolicy: updates.conflictPolicy,
-      rommFolderNamingTemplate: updates.folderNamingTemplate,
-      rommSingleFilePlacement: updates.singleFilePlacement,
-      rommIncludeRegionLanguageTags: updates.includeRegionLanguageTags,
-      rommAllowedSlugs: updates.allowedSlugs,
-      rommBindingMissingBehavior: updates.bindingMissingBehavior,
-    });
-    if (!updated) return res.status(404).json({ error: "Settings not found" });
-    res.json(buildRommPatchResponse(updates, settings));
-  } catch (error) {
-    if (error instanceof z.ZodError)
-      return res.status(400).json({ error: error.errors.map((e) => e.message).join(", ") });
-    res.status(500).json({ error: "Failed to update RomM config" });
-  }
-});
-
 importRouter.get("/hardlink/check", async (req, res) => {
   try {
     const userId = res.locals.userId as string;
 
-    const [config, rommConfig, downloaders, mappings] = await Promise.all([
+    const [config, downloaders, mappings] = await Promise.all([
       storage.getImportConfig(userId),
-      storage.getRomMConfig(userId),
       storage.getEnabledDownloaders(),
       storage.getPathMappings(),
     ]);
@@ -450,23 +359,12 @@ importRouter.get("/hardlink/check", async (req, res) => {
           checkedSources: [],
           reason: "No downloader download paths are configured.",
         },
-        romm: {
-          targetRoot: rommConfig.libraryRoot,
-          supportedForAll: null,
-          checkedSources: [],
-          reason: "No downloader download paths are configured.",
-        },
       });
     }
 
-    const [genericChecks, rommChecks] = await Promise.all([
-      Promise.all(
-        sourceRoots.map((sourcePath) => checkHardlinkPair(sourcePath, config.libraryRoot))
-      ),
-      Promise.all(
-        sourceRoots.map((sourcePath) => checkHardlinkPair(sourcePath, rommConfig.libraryRoot))
-      ),
-    ]);
+    const genericChecks = await Promise.all(
+      sourceRoots.map((sourcePath) => checkHardlinkPair(sourcePath, config.libraryRoot))
+    );
 
     const summarize = (
       checks: Array<{
@@ -492,10 +390,6 @@ importRouter.get("/hardlink/check", async (req, res) => {
       generic: {
         targetRoot: config.libraryRoot,
         ...summarize(genericChecks),
-      },
-      romm: {
-        targetRoot: rommConfig.libraryRoot,
-        ...summarize(rommChecks),
       },
     });
   } catch (error) {
@@ -536,16 +430,15 @@ importRouter.post("/:id/confirm", async (req, res) => {
     const userId = res.locals.userId as string;
 
     const schema = z.object({
-      strategy: z.enum(["pc", "romm"]),
+      strategy: z.enum(["pc"] as const),
       proposedPath: z.string(),
-      transferMode: z.enum(ROMM_MOVE_MODES).optional(),
+      transferMode: z.enum(IMPORT_TRANSFER_MODES).optional(),
       unpack: z.boolean().optional(),
     });
 
     const body = schema.parse(req.body);
     const config = await storage.getImportConfig(userId);
-    const rommConfig = await storage.getRomMConfig(userId);
-    const targetRoot = body.strategy === "romm" ? rommConfig.libraryRoot : config.libraryRoot;
+    const targetRoot = config.libraryRoot;
     const safeProposedPath = resolveProposedPathWithinRoot(targetRoot, body.proposedPath);
 
     await importManager.confirmImport(

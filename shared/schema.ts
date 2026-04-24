@@ -99,7 +99,7 @@ export interface ImportConfig {
   libraryRoot: string;
 }
 
-export const IMPORT_TRANSFER_MODES = ["move", "copy", "hardlink"] as const;
+export const IMPORT_TRANSFER_MODES = ["move", "copy", "hardlink", "symlink"] as const;
 
 export type ImportTransferMode = (typeof IMPORT_TRANSFER_MODES)[number];
 

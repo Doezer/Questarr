@@ -165,7 +165,7 @@ export interface IStorage {
 
   // GameDownload methods
   getDownloadingGameDownloads(): Promise<GameDownload[]>;
-  getPendingImportReviews(): Promise<GameDownload[]>;
+  getPendingImportReviews(userId: string): Promise<GameDownload[]>;
   getGameDownload(id: string, userId?: string): Promise<GameDownload | undefined>;
   getDownloadsByGameId(
     gameId: string
@@ -713,10 +713,12 @@ export class MemStorage implements IStorage {
     );
   }
 
-  async getPendingImportReviews(): Promise<GameDownload[]> {
-    return Array.from(this.gameDownloads.values()).filter(
-      (d) => d.status === "manual_review_required"
-    );
+  async getPendingImportReviews(userId: string): Promise<GameDownload[]> {
+    return Array.from(this.gameDownloads.values()).filter((d) => {
+      if (d.status !== "manual_review_required") return false;
+      const game = this.games.get(d.gameId);
+      return game?.userId === userId;
+    });
   }
 
   async getGameDownload(id: string, userId?: string): Promise<GameDownload | undefined> {
@@ -1748,11 +1750,13 @@ export class DatabaseStorage implements IStorage {
       );
   }
 
-  async getPendingImportReviews(): Promise<GameDownload[]> {
-    return db
-      .select()
+  async getPendingImportReviews(userId: string): Promise<GameDownload[]> {
+    const rows = await db
+      .select({ gameDownloads })
       .from(gameDownloads)
-      .where(eq(gameDownloads.status, "manual_review_required"));
+      .innerJoin(games, eq(gameDownloads.gameId, games.id))
+      .where(and(eq(gameDownloads.status, "manual_review_required"), eq(games.userId, userId)));
+    return rows.map((r) => r.gameDownloads);
   }
 
   async getGameDownload(id: string, userId?: string): Promise<GameDownload | undefined> {

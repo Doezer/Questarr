@@ -1,9 +1,10 @@
-import { Game, ImportConfig, RomMConfig } from "../../shared/schema.js";
+import { Game, ImportConfig } from "../../shared/schema.js";
 import fs from "fs-extra";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
-import { resolveRommPlatformDir, sanitizeFsName } from "./RommRouting.js";
-import { igdbLogger } from "../logger.js";
+function sanitizeFsName(name: string | null | undefined): string {
+  // eslint-disable-next-line no-control-regex
+  return (name ?? "").replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").trim();
+}
 
 export interface ImportResult {
   platformSlug?: string;
@@ -19,7 +20,7 @@ export interface ImportReview {
   reviewReason?: string;
   originalPath: string;
   proposedPath: string;
-  strategy: "pc" | "romm";
+  strategy: "pc";
   ignoredExtensions?: string[];
   importResult?: ImportResult;
 }
@@ -29,13 +30,11 @@ export interface ImportStrategy {
     sourcePath: string,
     game: Game,
     targetRoot: string,
-    config: ImportConfig,
-    rommConfig?: RomMConfig
+    config: ImportConfig
   ): Promise<ImportReview>;
   executeImport(
     review: ImportReview,
-    transferMode: "move" | "copy" | "hardlink" | "symlink",
-    rommConfig?: RomMConfig
+    transferMode: "move" | "copy" | "hardlink" | "symlink"
   ): Promise<ImportResult>;
 }
 
@@ -110,31 +109,6 @@ async function gatherFiles(rootPath: string): Promise<string[]> {
   return collected;
 }
 
-async function findAvailablePath(basePath: string): Promise<string> {
-  if (!(await fs.pathExists(basePath))) return basePath;
-
-  for (let i = 1; i <= 5000; i += 1) {
-    const candidate = `${basePath} (${i})`;
-    if (!(await fs.pathExists(candidate))) return candidate;
-  }
-
-  return `${basePath}-${randomUUID().slice(0, 8)}`;
-}
-
-function applyTemplate(template: string, game: Game, platformSlug: string): string {
-  const filled = template
-    .replaceAll("{title}", game.title ?? "")
-    .replaceAll("{Title}", game.title ?? "")
-    .replaceAll("{platformSlug}", platformSlug)
-    .replaceAll("{releaseId}", String(game.igdbId ?? game.id ?? ""));
-  return sanitizeFsName(filled) || sanitizeFsName(game.title) || `game-${game.id}`;
-}
-
-function isIgnored(filePath: string, ignoredExtensions: string[]): boolean {
-  const ext = path.extname(filePath).toLowerCase();
-  return ignoredExtensions.includes(ext);
-}
-
 export class PCImportStrategy implements ImportStrategy {
   async planImport(
     sourcePath: string,
@@ -170,261 +144,5 @@ export class PCImportStrategy implements ImportStrategy {
       modeUsed,
       conflictsResolved: [],
     };
-  }
-}
-
-export class RomMImportStrategy implements ImportStrategy {
-  constructor(
-    private platformSlug: string,
-    private onImportComplete?: (result: ImportResult) => void
-  ) {}
-
-  async planImport(
-    sourcePath: string,
-    game: Game,
-    targetRoot: string,
-    config: ImportConfig,
-    rommConfig?: RomMConfig
-  ): Promise<ImportReview> {
-    if (!rommConfig) {
-      return {
-        needsReview: true,
-        reviewReason: "RomM config is required for RomM imports",
-        originalPath: sourcePath,
-        proposedPath: "",
-        strategy: "romm",
-      };
-    }
-
-    const files = (await gatherFiles(sourcePath)).filter(
-      (f) => !isIgnored(f, config.ignoredExtensions ?? [])
-    );
-
-    if (files.length === 0) {
-      return {
-        needsReview: true,
-        reviewReason: "No valid ROM files found",
-        originalPath: sourcePath,
-        proposedPath: "",
-        strategy: "romm",
-      };
-    }
-
-    const platformDir = resolveRommPlatformDir({
-      libraryRoot: rommConfig.libraryRoot || targetRoot,
-      fsSlug: this.platformSlug,
-      routingMode: rommConfig.platformRoutingMode,
-      bindings: rommConfig.platformBindings,
-      bindingMissingBehavior: rommConfig.bindingMissingBehavior,
-    });
-
-    const folderName = applyTemplate(
-      rommConfig.folderNamingTemplate || "{title}",
-      game,
-      this.platformSlug
-    );
-
-    const isMultiFileGame = files.length > 1;
-    let destDir = platformDir;
-
-    if (isMultiFileGame) {
-      destDir = path.join(platformDir, folderName);
-    } else if (rommConfig.singleFilePlacement === "subfolder") {
-      destDir = path.join(platformDir, folderName);
-    }
-
-    return {
-      needsReview: false,
-      originalPath: sourcePath,
-      proposedPath: destDir,
-      strategy: "romm",
-      ignoredExtensions: config.ignoredExtensions ?? [],
-      importResult: {
-        platformSlug: this.platformSlug,
-        platformDir,
-        destDir,
-        filesPlaced: [],
-        modeUsed: rommConfig.moveMode,
-        conflictsResolved: [],
-      },
-    };
-  }
-
-  /**
-   * Resolves destination conflicts according to the configured conflict policy.
-   * Returns the resolved destination path, resolved conflicts list, or a skip result.
-   */
-  private async resolveConflict(
-    destinationPath: string,
-    conflictPolicy: string,
-    transferMode: "move" | "copy" | "hardlink" | "symlink",
-    review: ImportReview
-  ): Promise<
-    | { kind: "skip"; result: ImportResult }
-    | { kind: "resolved"; destinationPath: string; conflictsResolved: string[] }
-  > {
-    if (!(await fs.pathExists(destinationPath))) {
-      return { kind: "resolved", destinationPath, conflictsResolved: [] };
-    }
-
-    if (conflictPolicy === "skip") {
-      return {
-        kind: "skip",
-        result: {
-          ...(review.importResult ?? {
-            platformSlug: this.platformSlug,
-            platformDir: path.dirname(destinationPath),
-            destDir: destinationPath,
-            filesPlaced: [],
-            modeUsed: transferMode,
-            conflictsResolved: [],
-          }),
-          filesPlaced: [],
-          modeUsed: transferMode,
-          conflictsResolved: ["skip"],
-        },
-      };
-    }
-
-    if (conflictPolicy === "fail") {
-      throw new Error(`Destination already exists: ${destinationPath}`);
-    }
-
-    const conflictsResolved: string[] = [];
-    let resolved = destinationPath;
-
-    if (conflictPolicy === "rename") {
-      const renamed = await findAvailablePath(destinationPath);
-      conflictsResolved.push(`rename:${path.basename(destinationPath)}=>${path.basename(renamed)}`);
-      resolved = renamed;
-    }
-
-    if (conflictPolicy === "overwrite") {
-      await fs.remove(destinationPath);
-      conflictsResolved.push("overwrite");
-    }
-
-    return { kind: "resolved", destinationPath: resolved, conflictsResolved };
-  }
-
-  /**
-   * Places files from staging into the final destination directory.
-   */
-  private async placeFiles(
-    sourceStats: { isDirectory(): boolean },
-    sourceFiles: string[],
-    stagingPath: string,
-    destinationPath: string,
-    conflictPolicy: string
-  ): Promise<string[]> {
-    const filesPlaced: string[] = [];
-
-    if (sourceStats.isDirectory() || sourceFiles.length > 1) {
-      await fs.move(stagingPath, destinationPath, { overwrite: false });
-      const placed = await gatherFiles(destinationPath);
-      filesPlaced.push(...placed);
-    } else {
-      const onlyFile = sourceFiles[0];
-      const stageFile = path.join(stagingPath, path.basename(onlyFile));
-      const singleTarget =
-        path.extname(destinationPath) === ""
-          ? path.join(destinationPath, path.basename(onlyFile))
-          : destinationPath;
-      await ensureParentDir(singleTarget);
-      await fs.move(stageFile, singleTarget, {
-        overwrite: conflictPolicy === "overwrite",
-      });
-      filesPlaced.push(singleTarget);
-      await fs.remove(stagingPath);
-    }
-
-    return filesPlaced;
-  }
-
-  async executeImport(
-    review: ImportReview,
-    transferMode: "move" | "copy" | "hardlink" | "symlink",
-    rommConfig?: RomMConfig
-  ): Promise<ImportResult> {
-    if (!rommConfig) throw new Error("RomM config is required for RomM imports");
-
-    const sourceStats = await fs.stat(review.originalPath);
-    const sourceRoot = sourceStats.isDirectory()
-      ? review.originalPath
-      : path.dirname(review.originalPath);
-    const sourceFiles = (await gatherFiles(review.originalPath)).filter(
-      (f) => !isIgnored(f, review.ignoredExtensions ?? [])
-    );
-
-    const conflictResolution = await this.resolveConflict(
-      review.proposedPath,
-      rommConfig.conflictPolicy,
-      transferMode,
-      review
-    );
-    if (conflictResolution.kind === "skip") {
-      return conflictResolution.result;
-    }
-
-    const { destinationPath, conflictsResolved } = conflictResolution;
-
-    await fs.ensureDir(path.dirname(destinationPath));
-    const stagingPath = path.join(
-      path.dirname(destinationPath),
-      `.questarr-staging-${randomUUID().slice(0, 8)}`
-    );
-    await fs.ensureDir(stagingPath);
-
-    let modeUsed: "copy" | "move" | "hardlink" | "symlink" = transferMode;
-
-    try {
-      for (const file of sourceFiles) {
-        const relative = path.relative(sourceRoot, file);
-        const stageFile = path.join(stagingPath, relative);
-        const used = await transferFile(file, stageFile, transferMode);
-        modeUsed = used;
-      }
-
-      const filesPlaced = await this.placeFiles(
-        sourceStats,
-        sourceFiles,
-        stagingPath,
-        destinationPath,
-        rommConfig.conflictPolicy
-      );
-
-      const result: ImportResult = {
-        platformSlug: review.importResult?.platformSlug ?? this.platformSlug,
-        platformDir: review.importResult?.platformDir,
-        destDir: destinationPath,
-        filesPlaced,
-        modeUsed,
-        conflictsResolved,
-      };
-
-      this.onImportComplete?.(result);
-      return result;
-    } catch (error) {
-      if (modeUsed === "move") {
-        // Attempt to restore source files from staging before cleanup
-        try {
-          for (const file of sourceFiles) {
-            const relative = path.relative(sourceRoot, file);
-            const stageFile = path.join(stagingPath, relative);
-            if (await fs.pathExists(stageFile)) {
-              await fs.move(stageFile, file, { overwrite: false });
-            }
-          }
-        } catch (restoreErr) {
-          // Log but don't mask the original error
-          igdbLogger.warn(
-            { restoreErr, stagingPath },
-            "Failed to restore source files from staging after import error"
-          );
-        }
-      }
-      await fs.remove(stagingPath).catch(() => undefined);
-      throw error;
-    }
   }
 }

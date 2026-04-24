@@ -12,7 +12,6 @@ const { mockStorage, mockImportManager, mockPlatformMappingService, fsMock } = v
     removePathMapping: vi.fn(),
     getUserSettings: vi.fn(),
     updateUserSettings: vi.fn(),
-    getRomMConfig: vi.fn(),
   },
   mockImportManager: {
     confirmImport: vi.fn(),
@@ -42,20 +41,13 @@ vi.mock("fs-extra", () => ({
 }));
 
 import { importRouter } from "../routes/import.js";
-import {
-  makeImportConfig,
-  makeRommConfig,
-  createImportTestApp,
-} from "./helpers/import-test-helpers.js";
+import { makeImportConfig, createImportTestApp } from "./helpers/import-test-helpers.js";
 
 describe("importRouter additional coverage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockStorage.getEnabledDownloaders.mockResolvedValue([]);
     mockStorage.getImportConfig.mockResolvedValue(makeImportConfig({ overwriteExisting: true }));
-    mockStorage.getRomMConfig.mockResolvedValue(
-      makeRommConfig({ enabled: false, moveMode: "hardlink" })
-    );
     mockStorage.getPathMappings.mockResolvedValue([]);
   });
 
@@ -124,14 +116,12 @@ describe("importRouter additional coverage", () => {
 
     expect(response.status).toBe(200);
     expect(response.body.generic.supportedForAll).toBeNull();
-    expect(response.body.romm.supportedForAll).toBeNull();
   });
 
   it("updates import config using authenticated userId", async () => {
     mockStorage.getUserSettings.mockResolvedValue({
       id: "settings-1",
       userId: "user-1",
-      rommEnabled: false,
     });
     mockStorage.updateUserSettings.mockResolvedValue({ id: "settings-1", userId: "user-1" });
 
@@ -145,55 +135,6 @@ describe("importRouter additional coverage", () => {
       "user-1",
       expect.objectContaining({ renamePattern: "{Title} - {Platform}" })
     );
-  });
-
-  it("updates romm config using authenticated userId", async () => {
-    mockStorage.getUserSettings.mockResolvedValue({
-      id: "settings-1",
-      userId: "user-1",
-      rommEnabled: false,
-    });
-    mockStorage.updateUserSettings.mockResolvedValue({ id: "settings-1", userId: "user-1" });
-
-    const app = createApp();
-    const response = await request(app).patch("/api/imports/romm").send({
-      enabled: true,
-      libraryRoot: "/data/romm",
-    });
-
-    expect(response.status).toBe(200);
-    expect(mockStorage.updateUserSettings).toHaveBeenCalledWith(
-      "user-1",
-      expect.objectContaining({
-        rommEnabled: true,
-        rommLibraryRoot: "/data/romm",
-      })
-    );
-  });
-
-  // --- GET /api/imports/romm ---
-
-  it("GET /romm returns current RomM config for the user", async () => {
-    const config = makeRommConfig({ enabled: true, libraryRoot: "/mnt/romm" });
-    mockStorage.getRomMConfig.mockResolvedValue(config);
-
-    const app = createApp();
-    const response = await request(app).get("/api/imports/romm");
-
-    expect(response.status).toBe(200);
-    expect(response.body).toEqual(
-      expect.objectContaining({ enabled: true, libraryRoot: "/mnt/romm" })
-    );
-    expect(mockStorage.getRomMConfig).toHaveBeenCalledWith("user-1");
-  });
-
-  it("GET /romm returns 500 on storage error", async () => {
-    mockStorage.getRomMConfig.mockRejectedValue(new Error("db error"));
-
-    const app = createApp();
-    const response = await request(app).get("/api/imports/romm");
-
-    expect(response.status).toBe(500);
   });
 
   // --- GET /api/imports/config happy path ---
@@ -213,40 +154,10 @@ describe("importRouter additional coverage", () => {
     expect(mockStorage.getImportConfig).toHaveBeenCalledWith("user-1");
   });
 
-  // --- PATCH /api/imports/romm validation ---
-
-  it("PATCH /romm returns 400 for invalid platformRoutingMode", async () => {
-    const app = createApp();
-    const response = await request(app).patch("/api/imports/romm").send({
-      platformRoutingMode: "invalid-mode",
-    });
-
-    expect(response.status).toBe(400);
-  });
-
-  it("PATCH /romm returns 400 for empty libraryRoot", async () => {
-    const app = createApp();
-    const response = await request(app).patch("/api/imports/romm").send({
-      libraryRoot: "",
-    });
-
-    expect(response.status).toBe(400);
-  });
-
-  it("PATCH /romm returns 400 for invalid moveMode value", async () => {
-    const app = createApp();
-    const response = await request(app).patch("/api/imports/romm").send({
-      moveMode: "teleport",
-    });
-
-    expect(response.status).toBe(400);
-  });
-
   // --- POST /:id/confirm — path traversal and Windows absolute path ---
 
   it("POST /:id/confirm returns 400 for path traversal in proposedPath", async () => {
     mockStorage.getImportConfig.mockResolvedValue(makeImportConfig({ libraryRoot: "/data" }));
-    mockStorage.getRomMConfig.mockResolvedValue(makeRommConfig({ libraryRoot: "/data/romm" }));
 
     const app = createApp();
     const response = await request(app).post("/api/imports/dl-1/confirm").send({
@@ -260,7 +171,6 @@ describe("importRouter additional coverage", () => {
 
   it("POST /:id/confirm returns 400 for Windows absolute path in proposedPath", async () => {
     mockStorage.getImportConfig.mockResolvedValue(makeImportConfig({ libraryRoot: "/data" }));
-    mockStorage.getRomMConfig.mockResolvedValue(makeRommConfig({ libraryRoot: "/data/romm" }));
 
     const app = createApp();
     const response = await request(app).post("/api/imports/dl-2/confirm").send({
@@ -292,7 +202,6 @@ describe("importRouter additional coverage", () => {
     ]);
     mockStorage.getPathMappings.mockResolvedValue([]);
 
-    // Both stat calls return the same device number
     const sharedStat = { dev: 42, isDirectory: () => true };
     fsMock.stat.mockResolvedValue(sharedStat);
     fsMock.writeFile.mockResolvedValue(undefined);
@@ -306,7 +215,6 @@ describe("importRouter additional coverage", () => {
     expect(response.body.generic.supportedForAll).toBe(true);
     expect(response.body.generic.checkedSources).toHaveLength(1);
     expect(response.body.generic.checkedSources[0].sameDevice).toBe(true);
-    expect(response.body.romm.supportedForAll).toBe(true);
   });
 
   it("GET /hardlink/check returns sameDevice:false when paths are on different devices", async () => {
@@ -315,7 +223,6 @@ describe("importRouter additional coverage", () => {
     ]);
     mockStorage.getPathMappings.mockResolvedValue([]);
 
-    // Source path (downloads) gets dev:1, library target paths get dev:2 — different devices
     fsMock.stat.mockImplementation((p: string) => {
       if (p.endsWith("downloads") || p.includes("downloads")) {
         return Promise.resolve({ dev: 1, isDirectory: () => true });
@@ -330,8 +237,6 @@ describe("importRouter additional coverage", () => {
     expect(response.body.generic.supportedForAll).toBe(false);
     expect(response.body.generic.checkedSources[0].sameDevice).toBe(false);
     expect(response.body.generic.checkedSources[0].reason).toMatch(/different filesystems/i);
-    expect(response.body.romm.supportedForAll).toBe(false);
-    expect(response.body.romm.checkedSources[0].sameDevice).toBe(false);
   });
 
   it("GET /hardlink/check returns 500 when getEnabledDownloaders rejects", async () => {

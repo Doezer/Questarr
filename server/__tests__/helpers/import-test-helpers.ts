@@ -1,6 +1,6 @@
 import express from "express";
 import type { Router } from "express";
-import type { Game, ImportConfig, RomMConfig } from "../../../shared/schema.js";
+import type { Game, ImportConfig } from "../../../shared/schema.js";
 
 export function makeGame(overrides: Partial<Game> = {}): Game {
   return {
@@ -45,23 +45,6 @@ export function makeImportConfig(overrides: Partial<ImportConfig> = {}): ImportC
     ignoredExtensions: [],
     minFileSize: 0,
     libraryRoot: "/data",
-    ...overrides,
-  };
-}
-
-export function makeRommConfig(overrides: Partial<RomMConfig> = {}): RomMConfig {
-  return {
-    enabled: true,
-    libraryRoot: "/data/romm",
-    platformRoutingMode: "slug-subfolder",
-    platformBindings: {},
-    moveMode: "copy",
-    conflictPolicy: "rename",
-    folderNamingTemplate: "{title}",
-    singleFilePlacement: "root",
-    multiFilePlacement: "subfolder",
-    includeRegionLanguageTags: false,
-    bindingMissingBehavior: "fallback",
     ...overrides,
   };
 }

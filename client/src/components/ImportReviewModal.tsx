@@ -12,7 +12,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Select,
   SelectContent,
@@ -42,7 +41,7 @@ export default function ImportReviewModal({
   const queryClient = useQueryClient();
 
   // State
-  const [strategy, setStrategy] = useState<"pc" | "romm">("pc");
+  const [strategy] = useState<"pc">("pc");
   const [destinationPath, setDestinationPath] = useState("");
   const [transferMode, setTransferMode] = useState<"move" | "copy" | "hardlink" | "symlink">(
     "move"
@@ -53,7 +52,6 @@ export default function ImportReviewModal({
   // Reset state on open
   useEffect(() => {
     if (open) {
-      setStrategy("pc");
       setDestinationPath("");
       setTransferMode("move");
       setUnpackArchive(false);
@@ -107,21 +105,6 @@ export default function ImportReviewModal({
           </DialogHeader>
 
           <div className="space-y-4 py-4">
-            {/* Strategy Selection */}
-            <div className="space-y-2">
-              <Label>Import Strategy</Label>
-              <RadioGroup value={strategy} onValueChange={(v) => setStrategy(v as "pc" | "romm")}>
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="pc" id="pc" />
-                  <Label htmlFor="pc">Generic / PC</Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem value="romm" id="romm" />
-                  <Label htmlFor="romm">RomM (Organize for Rom Manager)</Label>
-                </div>
-              </RadioGroup>
-            </div>
-
             {/* Destination Path */}
             <div className="space-y-2">
               <Label>Destination Path</Label>

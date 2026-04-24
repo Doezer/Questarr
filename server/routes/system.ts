@@ -36,6 +36,9 @@ systemRouter.get("/browse", async (req, res) => {
       if (rawRoot.startsWith("\\\\") || /^[a-zA-Z]:[\\/]/.test(rawRoot)) {
         return res.status(400).json({ error: "Invalid root: absolute host paths are not allowed" });
       }
+      if (rawRoot.split(/[\\/]+/).includes("..")) {
+        return res.status(400).json({ error: "Invalid root: traversal detected" });
+      }
       // Resolve against FILE_BROWSER_ROOT to constrain browsing
       root = path.resolve(FILE_BROWSER_ROOT, rawRoot === "/" ? "." : rawRoot.replace(/^\/+/, ""));
     }
@@ -58,7 +61,7 @@ systemRouter.get("/browse", async (req, res) => {
       return res.status(400).json({ error: "Invalid path: traversal detected" });
     }
 
-    const SENSITIVE_PATH_PREFIXES = ["/proc", "/sys", "/dev", "/run/secrets"];
+    const SENSITIVE_PATH_PREFIXES = ["/proc", "/sys", "/dev", "/run/secrets", "/etc", "/root"];
     const normalizedValid = validPath.replace(/\\/g, "/");
     if (
       SENSITIVE_PATH_PREFIXES.some(

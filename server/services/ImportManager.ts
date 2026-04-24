@@ -134,7 +134,7 @@ export class ImportManager {
     game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>
   ): Promise<void> {
     await this.storage.updateGameDownloadStatus(downloadId, "imported");
-    if (game.status !== "completed") {
+    if (game.status !== "owned") {
       await this.storage.updateGameStatus(game.id, { status: "owned" });
     }
   }

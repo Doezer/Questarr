@@ -37,7 +37,10 @@ export class PathMappingService {
     });
 
     for (const mapping of candidates) {
-      if (remotePath.startsWith(mapping.remotePath)) {
+      const prefix = mapping.remotePath.endsWith("/")
+        ? mapping.remotePath
+        : mapping.remotePath + "/";
+      if (remotePath === mapping.remotePath || remotePath.startsWith(prefix)) {
         if (!bestMatch || mapping.remotePath.length > bestMatch.remotePath.length) {
           bestMatch = mapping;
         }

@@ -94,11 +94,10 @@ async function gatherFiles(rootPath: string): Promise<string[]> {
 
   while (stack.length > 0) {
     const current = stack.pop() as string;
-    const entries = await fs.readdir(current);
+    const entries = await fs.readdir(current, { withFileTypes: true });
     for (const entry of entries) {
-      const fullPath = path.join(current, entry);
-      const entryStats = await fs.stat(fullPath);
-      if (entryStats.isDirectory()) {
+      const fullPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
         stack.push(fullPath);
       } else {
         collected.push(fullPath);
@@ -116,8 +115,10 @@ export class PCImportStrategy implements ImportStrategy {
     targetRoot: string,
     config: ImportConfig
   ): Promise<ImportReview> {
+    const stats = await fs.stat(sourcePath);
     const cleanTitle = sanitizeFsName(game.title);
-    const destination = path.join(targetRoot, "PC", cleanTitle);
+    const ext = stats.isDirectory() ? "" : path.extname(sourcePath);
+    const destination = path.join(targetRoot, "PC", cleanTitle + ext);
 
     const destinationExists = await fs.pathExists(destination);
     const needsReview = destinationExists && !config.overwriteExisting;

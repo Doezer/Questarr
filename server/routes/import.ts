@@ -92,7 +92,8 @@ function translatePathWithMappings(
   });
 
   for (const mapping of candidates) {
-    if (remotePath.startsWith(mapping.remotePath)) {
+    const prefix = mapping.remotePath.endsWith("/") ? mapping.remotePath : mapping.remotePath + "/";
+    if (remotePath === mapping.remotePath || remotePath.startsWith(prefix)) {
       if (!bestMatch || mapping.remotePath.length > bestMatch.remotePath.length) {
         bestMatch = mapping;
       }
@@ -401,7 +402,8 @@ importRouter.get("/hardlink/check", async (req, res) => {
 // --- Operations ---
 importRouter.get("/pending", async (req, res) => {
   try {
-    const pending = await storage.getPendingImportReviews();
+    const userId = res.locals.userId as string;
+    const pending = await storage.getPendingImportReviews(userId);
 
     const results = await Promise.all(
       pending.map(async (d) => {

@@ -160,15 +160,16 @@ describe("ImportStrategies", () => {
       expect(plan.needsReview).toBe(false);
       expect(plan.strategy).toBe("pc");
       expect(plan.proposedPath).toContain("My Game");
+      expect(plan.proposedPath).toMatch(/My Game\.exe$/);
     });
 
     it("needsReview true when destination exists and overwriteExisting is false", async () => {
       const root = tempDir();
       const source = path.join(root, "downloads", "game.exe");
-      const existing = path.join(root, "library", "PC", "My Game");
+      const existing = path.join(root, "library", "PC", "My Game.exe");
       await fs.ensureDir(path.dirname(source));
       await fs.writeFile(source, "exe-bytes");
-      await fs.ensureDir(existing);
+      await fs.ensureFile(existing);
 
       const strategy = new PCImportStrategy();
       const plan = await strategy.planImport(

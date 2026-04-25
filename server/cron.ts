@@ -3,7 +3,6 @@ import { igdbClient, IGDB_EARLY_ACCESS_STATUS } from "./igdb.js";
 import { igdbLogger } from "./logger.js";
 import { notifyUser } from "./socket.js";
 import { DownloaderManager } from "./downloaders.js";
-import { importManager } from "./services/index.js";
 import { searchAllIndexers, filterBlacklistedReleases } from "./search.js";
 import { xrelClient, DEFAULT_XREL_BASE } from "./xrel.js";
 import { steamService } from "./steam.js";
@@ -307,11 +306,6 @@ export async function checkGameUpdates() {
           releaseDate: currentReleaseDateStr,
           originalReleaseDate: currentReleaseDateStr,
         });
-        // We need to update local object if we were to continue using it,
-        // but the original code did 'continue'.
-        // However, 'continue' skips the rest of the loop logic (status check).
-        // If we just initialized, do we want to skip status check?
-        // Original code: yes.
         continue;
       }
     }
@@ -340,6 +334,7 @@ export async function checkGameUpdates() {
         title: "Game Released",
         message,
         link: "/library",
+        userId: game.userId!,
       });
     }
 
@@ -370,6 +365,7 @@ export async function checkGameUpdates() {
           title: "Game Delayed",
           message,
           link: "/wishlist",
+          userId: game.userId!,
         });
       }
     }

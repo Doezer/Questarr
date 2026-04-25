@@ -4118,7 +4118,7 @@ export class NZBGetClient implements DownloaderClient {
     }
   }
 
-  private async getFromHistory(id: string): Promise<DownloadStatus | null> {
+  private async getFromHistory(id: string): Promise<DownloadDetails | null> {
     try {
       const history = (await this.makeXMLRPCRequest("history")) as NZBGetHistoryResult[];
       const item = history.find((h) => h.NZBID.toString() === id);
@@ -4154,6 +4154,9 @@ export class NZBGetClient implements DownloaderClient {
         category: item.Category,
         repairStatus,
         unpackStatus,
+        downloadDir: item.DestDir || undefined,
+        files: [],
+        trackers: [],
       };
     } catch (error) {
       downloadersLogger.error({ error }, "Failed to get NZBGet history");

@@ -10,6 +10,19 @@ export const users = sqliteTable("users", {
   steamId64: text("steam_id_64"),
 });
 
+export const pathMappings = sqliteTable("path_mappings", {
+  id: text("id").primaryKey(),
+  remotePath: text("remote_path").notNull(),
+  localPath: text("local_path").notNull(),
+  remoteHost: text("remote_host"),
+});
+
+export const platformMappings = sqliteTable("platform_mappings", {
+  id: text("id").primaryKey(),
+  igdbPlatformId: integer("igdb_platform_id").notNull(),
+  sourcePlatformName: text("source_platform_name").notNull(),
+});
+
 export const userSettings = sqliteTable("user_settings", {
   id: text("id").primaryKey(),
   userId: text("user_id")
@@ -39,9 +52,69 @@ export const userSettings = sqliteTable("user_settings", {
     .notNull()
     .default(false),
   preferredPlatform: text("preferred_platform"),
+  // Import Engine Settings
+  enablePostProcessing: integer("enable_post_processing", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  autoUnpack: integer("auto_unpack", { mode: "boolean" }).notNull().default(false),
+  renamePattern: text("rename_pattern").notNull().default("{Title} ({Region})"),
+  overwriteExisting: integer("overwrite_existing", { mode: "boolean" }).notNull().default(false),
+  transferMode: text("transfer_mode").notNull().default("hardlink"),
+  importPlatformIds: text("import_platform_ids", { mode: "json" }).$type<number[]>().default([]),
+  ignoredExtensions: text("ignored_extensions", { mode: "json" }).$type<string[]>().default([]),
+  minFileSize: integer("min_file_size").notNull().default(0),
+  libraryRoot: text("library_root").notNull().default("/data"),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),
+});
+
+// ... existing code ...
+
+export const insertPathMappingSchema = createInsertSchema(pathMappings).omit({
+  id: true,
+});
+
+export const insertPlatformMappingSchema = createInsertSchema(platformMappings).omit({
+  id: true,
+});
+
+export type PathMapping = typeof pathMappings.$inferSelect;
+export type InsertPathMapping = (typeof insertPathMappingSchema)["_output"];
+
+export type PlatformMapping = typeof platformMappings.$inferSelect;
+export type InsertPlatformMapping = (typeof insertPlatformMappingSchema)["_output"];
+
+// ... existing code ...
+
+export interface ImportConfig {
+  enablePostProcessing: boolean;
+  autoUnpack: boolean;
+  renamePattern: string;
+  overwriteExisting: boolean;
+  transferMode: ImportTransferMode;
+  importPlatformIds: number[];
+  ignoredExtensions: string[];
+  minFileSize: number;
+  libraryRoot: string;
+}
+
+export const IMPORT_TRANSFER_MODES = ["move", "copy", "hardlink", "symlink"] as const;
+
+export type ImportTransferMode = (typeof IMPORT_TRANSFER_MODES)[number];
+
+export const importTransferModeSchema = z.enum(IMPORT_TRANSFER_MODES);
+
+export const importConfigSchema = z.object({
+  enablePostProcessing: z.boolean(),
+  autoUnpack: z.boolean(),
+  renamePattern: z.string().min(1),
+  overwriteExisting: z.boolean(),
+  transferMode: importTransferModeSchema,
+  importPlatformIds: z.array(z.number().int().min(1)),
+  ignoredExtensions: z.array(z.string()),
+  minFileSize: z.number().int().min(0),
+  libraryRoot: z.string().min(1),
 });
 
 export const systemConfig = sqliteTable("system_config", {
@@ -324,6 +397,24 @@ export const insertXrelNotifiedReleaseSchema = createInsertSchema(xrelNotifiedRe
   createdAt: true,
 });
 
+function validateUserSettingsEnums(
+  value: Record<string, unknown>,
+  ctx: {
+    addIssue: (issue: { code: "custom"; path: string[]; message: string }) => void;
+  }
+) {
+  if (
+    value.transferMode &&
+    !IMPORT_TRANSFER_MODES.includes(value.transferMode as ImportTransferMode)
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["transferMode"],
+      message: "Invalid transfer mode",
+    });
+  }
+}
+
 export const insertReleaseBlacklistSchema = createInsertSchema(releaseBlacklist).omit({
   id: true,
   createdAt: true,
@@ -331,10 +422,12 @@ export const insertReleaseBlacklistSchema = createInsertSchema(releaseBlacklist)
 export type InsertReleaseBlacklist = (typeof insertReleaseBlacklistSchema)["_output"];
 export type ReleaseBlacklist = typeof releaseBlacklist.$inferSelect;
 
-export const insertUserSettingsSchema = createInsertSchema(userSettings).omit({
-  id: true,
-  updatedAt: true,
-});
+export const insertUserSettingsSchema = createInsertSchema(userSettings)
+  .omit({
+    id: true,
+    updatedAt: true,
+  })
+  .superRefine(validateUserSettingsEnums);
 
 export const updateUserSettingsSchema = createInsertSchema(userSettings)
   .omit({
@@ -342,7 +435,8 @@ export const updateUserSettingsSchema = createInsertSchema(userSettings)
     userId: true,
     updatedAt: true,
   })
-  .partial();
+  .partial()
+  .superRefine(validateUserSettingsEnums);
 
 export const updatePasswordSchema = z
   .object({
@@ -440,7 +534,17 @@ export interface DownloadStatus {
   id: string;
   name: string;
   downloadType?: "torrent" | "usenet"; // Type of download
-  status: "downloading" | "seeding" | "completed" | "paused" | "error" | "repairing" | "unpacking";
+  status:
+    | "downloading"
+    | "seeding"
+    | "completed"
+    | "paused"
+    | "error"
+    | "repairing"
+    | "unpacking"
+    | "completed_pending_import"
+    | "manual_review_required"
+    | "imported";
   progress: number; // 0-100
   downloadSpeed?: number; // bytes per second
   uploadSpeed?: number; // bytes per second (torrents only)

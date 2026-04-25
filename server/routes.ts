@@ -86,6 +86,8 @@ import { categorizeDownload } from "../shared/download-categorizer.js";
 import archiver from "archiver";
 import helmet from "helmet";
 import { steamRoutes } from "./steam-routes.js";
+import { importRouter } from "./routes/import.js";
+import { systemRouter } from "./routes/system.js";
 import { pcgamingwikiRouter } from "./pcgamingwiki-router.js";
 
 // Cache-Control header values for IGDB discovery endpoints
@@ -815,6 +817,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Just applying authenticateToken middleware
     authenticateToken(req, res, next);
   });
+
+  // Mount Feature Routers (explicitly protected)
+  app.use("/api/imports", authenticateToken, importRouter);
+  app.use("/api/system", authenticateToken, systemRouter);
 
   // Sync indexers from Prowlarr
   app.post("/api/indexers/prowlarr/sync", sensitiveEndpointLimiter, async (req, res, next) => {

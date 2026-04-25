@@ -617,3 +617,161 @@ describe("MemStorage", () => {
     });
   });
 });
+
+describe("Import And Mapping Helpers", () => {
+  let storage: MemStorageType;
+
+  beforeEach(() => {
+    storage = new MemStorage();
+  });
+
+  it("should return scoped import config values per user", async () => {
+    const userA = await storage.createUser({ username: "userA", passwordHash: "hash-a" });
+    const userB = await storage.createUser({ username: "userB", passwordHash: "hash-b" });
+
+    await storage.createUserSettings({
+      userId: userA.id,
+      enablePostProcessing: true,
+      autoUnpack: true,
+      overwriteExisting: true,
+      transferMode: "copy",
+      importPlatformIds: [6],
+      ignoredExtensions: [".nfo"],
+      minFileSize: 12,
+      libraryRoot: "/library/a",
+    });
+
+    await storage.createUserSettings({
+      userId: userB.id,
+      enablePostProcessing: false,
+      autoUnpack: false,
+      libraryRoot: "/library/b",
+    });
+
+    const importConfigA = await storage.getImportConfig(userA.id);
+    expect(importConfigA).toEqual(
+      expect.objectContaining({
+        enablePostProcessing: true,
+        autoUnpack: true,
+        overwriteExisting: true,
+        transferMode: "copy",
+        importPlatformIds: [6],
+        ignoredExtensions: [".nfo"],
+        minFileSize: 12,
+        libraryRoot: "/library/a",
+      })
+    );
+
+    const importConfigB = await storage.getImportConfig(userB.id);
+    expect(importConfigB).toEqual(
+      expect.objectContaining({
+        enablePostProcessing: false,
+        autoUnpack: false,
+        libraryRoot: "/library/b",
+      })
+    );
+  });
+
+  it("should apply defaults when no matching scoped settings exist", async () => {
+    const importConfig = await storage.getImportConfig("missing-user");
+    expect(importConfig).toEqual({
+      enablePostProcessing: false,
+      autoUnpack: false,
+      renamePattern: "{Title} ({Region})",
+      overwriteExisting: false,
+      transferMode: "hardlink",
+      importPlatformIds: [],
+      ignoredExtensions: [],
+      minFileSize: 0,
+      libraryRoot: "/data",
+    });
+  });
+
+  it("should CRUD path and platform mappings", async () => {
+    const pathMapping = await storage.addPathMapping({
+      localPath: "/local",
+      remotePath: "/remote",
+    });
+
+    expect(pathMapping.remoteHost).toBeNull();
+    expect(await storage.getPathMapping(pathMapping.id)).toEqual(pathMapping);
+    expect((await storage.getPathMappings()).map((m) => m.id)).toContain(pathMapping.id);
+
+    const updatedPath = await storage.updatePathMapping(pathMapping.id, {
+      localPath: "/local/updated",
+      remoteHost: "host-a",
+    });
+    expect(updatedPath).toEqual(
+      expect.objectContaining({
+        localPath: "/local/updated",
+        remoteHost: "host-a",
+      })
+    );
+    expect(await storage.removePathMapping(pathMapping.id)).toBe(true);
+    expect(await storage.getPathMapping(pathMapping.id)).toBeUndefined();
+
+    const platformMapping = await storage.addPlatformMapping({
+      igdbPlatformId: 6,
+      rommPlatformSlug: "n64",
+    });
+    expect(await storage.getPlatformMapping(6)).toEqual(platformMapping);
+
+    const updatedPlatform = await storage.updatePlatformMapping(platformMapping.id, {
+      rommPlatformSlug: "nintendo-64",
+    });
+    expect(updatedPlatform?.rommPlatformSlug).toBe("nintendo-64");
+    expect((await storage.getPlatformMappings()).map((m) => m.id)).toContain(platformMapping.id);
+    expect(await storage.removePlatformMapping(platformMapping.id)).toBe(true);
+    expect(await storage.getPlatformMapping(6)).toBeUndefined();
+  });
+
+  it("seedPlatformMappingsIfEmpty() is idempotent — calling twice does not create duplicates", async () => {
+    const seed = [
+      { igdbPlatformId: 100, rommPlatformSlug: "snes" },
+      { igdbPlatformId: 101, rommPlatformSlug: "nes" },
+    ];
+
+    const first = await storage.seedPlatformMappingsIfEmpty(seed);
+    expect(first.seeded).toBe(true);
+    expect(first.count).toBe(2);
+
+    const second = await storage.seedPlatformMappingsIfEmpty(seed);
+    expect(second.seeded).toBe(false);
+
+    const all = await storage.getPlatformMappings();
+    expect(all).toHaveLength(2);
+  });
+
+  it("should expose getGameDownload and filter active downloads", async () => {
+    const downloading = await storage.addGameDownload({
+      gameId: "game-1",
+      downloaderId: "dl-1",
+      downloadHash: "hash-1",
+      downloadTitle: "Downloading",
+      status: "downloading",
+    });
+
+    await storage.addGameDownload({
+      gameId: "game-2",
+      downloaderId: "dl-1",
+      downloadHash: "hash-2",
+      downloadTitle: "Completed",
+      status: "completed",
+    });
+
+    await storage.addGameDownload({
+      gameId: "game-3",
+      downloaderId: "dl-1",
+      downloadHash: "hash-3",
+      downloadTitle: "Error",
+      status: "error",
+    });
+
+    const activeDownloads = await storage.getDownloadingGameDownloads();
+    expect(activeDownloads).toHaveLength(1);
+    expect(activeDownloads[0].id).toBe(downloading.id);
+
+    expect(await storage.getGameDownload(downloading.id)).toEqual(downloading);
+    expect(await storage.getGameDownload("missing-download")).toBeUndefined();
+  });
+});

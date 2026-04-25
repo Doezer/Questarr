@@ -25,6 +25,7 @@ import {
   FormDescription,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { RequiredFormLabel } from "@/components/ui/required-form-label";
 import {
   Select,
   SelectContent,
@@ -581,14 +582,20 @@ export default function IndexersPage() {
           </DialogHeader>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+              <p className="text-sm text-muted-foreground">Fields marked * are required.</p>
               <FormField
                 control={form.control}
                 name="name"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Name</FormLabel>
+                    <RequiredFormLabel required>Name</RequiredFormLabel>
                     <FormControl>
-                      <Input placeholder="Jackett" {...field} data-testid="input-indexer-name" />
+                      <Input
+                        placeholder="Jackett"
+                        required
+                        {...field}
+                        data-testid="input-indexer-name"
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -599,10 +606,10 @@ export default function IndexersPage() {
                 name="protocol"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Protocol</FormLabel>
+                    <RequiredFormLabel required>Protocol</RequiredFormLabel>
                     <Select onValueChange={field.onChange} value={field.value || "torznab"}>
                       <FormControl>
-                        <SelectTrigger data-testid="select-indexer-protocol">
+                        <SelectTrigger aria-required="true" data-testid="select-indexer-protocol">
                           <SelectValue placeholder="Select protocol" />
                         </SelectTrigger>
                       </FormControl>
@@ -623,9 +630,9 @@ export default function IndexersPage() {
                 name="url"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>
+                    <RequiredFormLabel required>
                       {form.watch("protocol") === "newznab" ? "Newznab URL" : "Torznab URL"}
-                    </FormLabel>
+                    </RequiredFormLabel>
                     <FormControl>
                       <Input
                         placeholder={
@@ -633,6 +640,7 @@ export default function IndexersPage() {
                             ? "http://localhost:8080/api"
                             : "http://localhost:9117/api/v2.0/indexers/all/results/torznab/"
                         }
+                        required
                         {...field}
                         data-testid="input-indexer-url"
                       />
@@ -646,11 +654,12 @@ export default function IndexersPage() {
                 name="apiKey"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>API Key</FormLabel>
+                    <RequiredFormLabel required>API Key</RequiredFormLabel>
                     <FormControl>
                       <Input
                         type="password"
                         placeholder="Enter API key"
+                        required
                         {...field}
                         data-testid="input-indexer-apikey"
                       />
@@ -725,9 +734,13 @@ export default function IndexersPage() {
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => {
+                  onClick={async () => {
+                    const isValid = await form.trigger();
+                    if (!isValid) {
+                      return;
+                    }
+
                     const formData = form.getValues();
-                    // Always test with form data to ensure we test the current inputs
                     testConnectionMutation.mutate({ formData });
                   }}
                   disabled={testingIndexerId !== null}

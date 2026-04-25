@@ -242,9 +242,9 @@ export const updateGameUserRatingSchema = z.object({
 });
 
 export const insertIndexerSchema = createInsertSchema(indexers, {
-  name: (schema) => schema.trim(),
-  url: (schema) => schema.trim(),
-  apiKey: (schema) => schema.trim(),
+  name: (schema) => schema.trim().min(1, "Name is required"),
+  url: (schema) => schema.trim().min(1, "URL is required"),
+  apiKey: (schema) => schema.trim().min(1, "API key is required"),
 }).omit({
   id: true,
   createdAt: true,
@@ -255,17 +255,28 @@ export const insertIndexerSchema = createInsertSchema(indexers, {
 const trimIfString = <T>(v: T): T => (typeof v === "string" ? (v.trim() as T) : v);
 
 export const insertDownloaderSchema = createInsertSchema(downloaders, {
-  name: (schema) => schema.trim(),
-  url: (schema) => schema.trim(),
+  name: (schema) => schema.trim().min(1, "Name is required"),
+  type: (schema) => schema.trim().min(1, "Type is required"),
+  url: (schema) => schema.trim().min(1, "Host is required"),
   username: (schema) => schema.transform(trimIfString),
   password: (schema) => schema.transform(trimIfString),
   urlPath: (schema) => schema.transform(trimIfString),
   downloadPath: (schema) => schema.transform(trimIfString),
-}).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
+})
+  .omit({
+    id: true,
+    createdAt: true,
+    updatedAt: true,
+  })
+  .superRefine((data, ctx) => {
+    if (data.type === "sabnzbd" && !data.username) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["username"],
+        message: "API key is required for SABnzbd",
+      });
+    }
+  });
 
 export const insertGameDownloadSchema = createInsertSchema(gameDownloads).omit({
   id: true,

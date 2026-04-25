@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
+import { RequiredFormLabel } from "@/components/ui/required-form-label";
 import {
   Select,
   SelectContent,
@@ -529,18 +530,20 @@ export default function DownloadersPage() {
               className="flex flex-col gap-4 overflow-hidden"
             >
               <div className="overflow-y-auto px-1 space-y-3 max-h-[calc(90vh-12rem)]">
+                <p className="text-sm text-muted-foreground">Fields marked * are required.</p>
                 <FormField
                   control={form.control}
                   name="name"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Name</FormLabel>
+                      <RequiredFormLabel required>Name</RequiredFormLabel>
                       <FormControl>
                         <Input
                           placeholder={
                             downloaderTypes.find((t) => t.value === form.watch("type"))?.label ??
                             "Downloader"
                           }
+                          required
                           {...field}
                           data-testid="input-downloader-name"
                         />
@@ -554,10 +557,10 @@ export default function DownloadersPage() {
                   name="type"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Type</FormLabel>
+                      <RequiredFormLabel required>Type</RequiredFormLabel>
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
-                          <SelectTrigger data-testid="select-downloader-type">
+                          <SelectTrigger aria-required="true" data-testid="select-downloader-type">
                             <SelectValue placeholder="Select client type" />
                           </SelectTrigger>
                         </FormControl>
@@ -578,10 +581,11 @@ export default function DownloadersPage() {
                   name="url"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Host</FormLabel>
+                      <RequiredFormLabel required>Host</RequiredFormLabel>
                       <FormControl>
                         <Input
                           placeholder="http://localhost or https://192.168.1.100"
+                          required
                           {...field}
                           data-testid="input-downloader-url"
                         />
@@ -686,7 +690,7 @@ export default function DownloadersPage() {
                   name="username"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>
+                      <RequiredFormLabel required={form.watch("type") === "sabnzbd"}>
                         {form.watch("type") === "sabnzbd"
                           ? "API Key"
                           : form.watch("type") === "qbittorrent" ||
@@ -694,7 +698,7 @@ export default function DownloadersPage() {
                               form.watch("type") === "nzbget"
                             ? "Username"
                             : "Username (Optional)"}
-                      </FormLabel>
+                      </RequiredFormLabel>
                       <FormControl>
                         <Input
                           placeholder={
@@ -702,6 +706,7 @@ export default function DownloadersPage() {
                               ? "Enter SABnzbd API key"
                               : "Enter username"
                           }
+                          required={form.watch("type") === "sabnzbd"}
                           {...field}
                           value={field.value || ""}
                           data-testid="input-downloader-username"
@@ -709,7 +714,14 @@ export default function DownloadersPage() {
                       </FormControl>
                       {form.watch("type") === "sabnzbd" && (
                         <FormDescription className="text-xs">
-                          Found in SABnzbd Config → General → API Key
+                          Required. Found in SABnzbd Config → General → API Key.
+                        </FormDescription>
+                      )}
+                      {(form.watch("type") === "qbittorrent" ||
+                        form.watch("type") === "transmission" ||
+                        form.watch("type") === "nzbget") && (
+                        <FormDescription className="text-xs">
+                          Only required if this client&apos;s web UI uses authentication.
                         </FormDescription>
                       )}
                       <FormMessage />
@@ -721,13 +733,13 @@ export default function DownloadersPage() {
                   name="password"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>
+                      <RequiredFormLabel>
                         {form.watch("type") === "qbittorrent" ||
                         form.watch("type") === "transmission" ||
                         form.watch("type") === "nzbget"
                           ? "Password"
                           : "Password (Optional)"}
-                      </FormLabel>
+                      </RequiredFormLabel>
                       <FormControl>
                         <Input
                           type="password"
@@ -737,6 +749,13 @@ export default function DownloadersPage() {
                           data-testid="input-downloader-password"
                         />
                       </FormControl>
+                      {(form.watch("type") === "qbittorrent" ||
+                        form.watch("type") === "transmission" ||
+                        form.watch("type") === "nzbget") && (
+                        <FormDescription className="text-xs">
+                          Only required if this client&apos;s web UI uses authentication.
+                        </FormDescription>
+                      )}
                       <FormMessage />
                     </FormItem>
                   )}
@@ -980,16 +999,14 @@ export default function DownloadersPage() {
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => {
-                    const formData = form.getValues();
-
-                    if (editingDownloader) {
-                      // Test existing downloader
-                      testConnectionMutation.mutate({ id: editingDownloader.id });
-                    } else {
-                      // Test with form data for new downloader
-                      testConnectionMutation.mutate({ formData });
+                  onClick={async () => {
+                    const isValid = await form.trigger();
+                    if (!isValid) {
+                      return;
                     }
+
+                    const formData = form.getValues();
+                    testConnectionMutation.mutate({ formData });
                   }}
                   disabled={testingDownloaderId !== null}
                   data-testid="button-test-connection-dialog"

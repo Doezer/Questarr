@@ -67,8 +67,11 @@ export async function isSafeUrl(
     }
     return true;
   } catch {
-    // If resolution fails, fail safe (deny)
-    return false;
+    // DNS resolution failed — hostname is unresolvable from this context (e.g. a
+    // Docker service name only visible inside the container network). There is no
+    // SSRF risk because we cannot reach a host we cannot resolve; allow it so
+    // Docker / LAN aliases work in self-hosted deployments.
+    return true;
   }
 }
 

@@ -33,7 +33,7 @@ describe("ImportManager", () => {
   };
 
   const platformService = {
-    getRomMPlatform: vi.fn(),
+    getSourcePlatform: vi.fn(),
   };
 
   const archiveService = {

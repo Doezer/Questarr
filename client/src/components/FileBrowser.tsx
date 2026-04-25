@@ -56,6 +56,7 @@ export function FileBrowser({
             ? `/api/system/browse?path=${encodeURIComponent(p)}&root=${encodeURIComponent(root)}`
             : `/api/system/browse?path=${encodeURIComponent(p)}`;
         const res = await apiRequest("GET", url);
+        if (!res.ok) throw new Error(`Server error: ${res.status}`);
         const data = await res.json();
         setData(data);
       } catch (err) {
@@ -64,6 +65,7 @@ export function FileBrowser({
           try {
             const fallbackUrl = `/api/system/browse?path=${encodeURIComponent(p)}`;
             const res = await apiRequest("GET", fallbackUrl);
+            if (!res.ok) throw new Error(`Server error: ${res.status}`);
             const data = await res.json();
             setData(data);
             return;

@@ -44,8 +44,8 @@ describe("PlatformMappingService", () => {
     const service = new PlatformMappingService(storage as never);
 
     await expect(service.getAllMappings()).resolves.toEqual([mapping]);
-    await expect(service.getRomMPlatform(19)).resolves.toBe("snes");
-    await expect(service.getRomMPlatform(1234)).resolves.toBeNull();
+    await expect(service.getSourcePlatform(19)).resolves.toBe("snes");
+    await expect(service.getSourcePlatform(1234)).resolves.toBeNull();
     await expect(service.addMapping(mapping)).resolves.toEqual(mapping);
     await expect(service.updateMapping("m1", { sourcePlatformName: "sfc" })).resolves.toEqual({
       ...mapping,
@@ -98,7 +98,7 @@ describe("PlatformMappingService", () => {
     expect(storage.seedPlatformMappingsIfEmpty).toHaveBeenCalledTimes(2);
   });
 
-  it("getRomMPlatform returns the mapped slug for a known IGDB platform ID", async () => {
+  it("getSourcePlatform returns the mapped slug for a known IGDB platform ID", async () => {
     storage.getPlatformMapping.mockResolvedValue({
       id: "m1",
       igdbPlatformId: 7,
@@ -106,22 +106,22 @@ describe("PlatformMappingService", () => {
     });
 
     const service = new PlatformMappingService(storage as never);
-    const slug = await service.getRomMPlatform(7);
+    const slug = await service.getSourcePlatform(7);
 
     expect(slug).toBe("psx");
     expect(storage.getPlatformMapping).toHaveBeenCalledWith(7);
   });
 
-  it("getRomMPlatform returns null for an IGDB platform ID with no mapping", async () => {
+  it("getSourcePlatform returns null for an IGDB platform ID with no mapping", async () => {
     storage.getPlatformMapping.mockResolvedValue(undefined);
 
     const service = new PlatformMappingService(storage as never);
-    const slug = await service.getRomMPlatform(9999);
+    const slug = await service.getSourcePlatform(9999);
 
     expect(slug).toBeNull();
   });
 
-  it("updateMapping persists changes and getRomMPlatform reflects the new slug", async () => {
+  it("updateMapping persists changes and getSourcePlatform reflects the new slug", async () => {
     const original = { id: "m3", igdbPlatformId: 8, sourcePlatformName: "ps2" };
     const updated = { ...original, sourcePlatformName: "playstation2" };
 
@@ -136,7 +136,7 @@ describe("PlatformMappingService", () => {
       sourcePlatformName: "playstation2",
     });
 
-    const slug = await service.getRomMPlatform(8);
+    const slug = await service.getSourcePlatform(8);
     expect(slug).toBe("playstation2");
   });
 });

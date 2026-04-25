@@ -304,24 +304,25 @@ importRouter.patch("/config", async (req, res) => {
     const current = await storage.getImportConfig(userId);
     const newConfig = { ...current, ...updates };
 
-    const settings = await storage.getUserSettings(userId);
-    if (settings) {
-      const updated = await storage.updateUserSettings(userId, {
-        enablePostProcessing: newConfig.enablePostProcessing,
-        autoUnpack: newConfig.autoUnpack,
-        renamePattern: newConfig.renamePattern,
-        overwriteExisting: newConfig.overwriteExisting,
-        transferMode: newConfig.transferMode,
-        importPlatformIds: newConfig.importPlatformIds,
-        ignoredExtensions: newConfig.ignoredExtensions,
-        minFileSize: newConfig.minFileSize,
-        libraryRoot: newConfig.libraryRoot,
-      });
-      if (!updated) return res.status(404).json({ error: "User settings not found" });
-      res.json(newConfig);
+    const settingsPatch = {
+      enablePostProcessing: newConfig.enablePostProcessing,
+      autoUnpack: newConfig.autoUnpack,
+      renamePattern: newConfig.renamePattern,
+      overwriteExisting: newConfig.overwriteExisting,
+      transferMode: newConfig.transferMode,
+      importPlatformIds: newConfig.importPlatformIds,
+      ignoredExtensions: newConfig.ignoredExtensions,
+      minFileSize: newConfig.minFileSize,
+      libraryRoot: newConfig.libraryRoot,
+    };
+
+    const existing = await storage.getUserSettings(userId);
+    if (existing) {
+      await storage.updateUserSettings(userId, settingsPatch);
     } else {
-      res.status(404).json({ error: "User settings not found" });
+      await storage.createUserSettings({ userId, ...settingsPatch });
     }
+    res.json(newConfig);
   } catch (error) {
     if (error instanceof z.ZodError)
       return res.status(400).json({ error: error.errors.map((e) => e.message).join(", ") });

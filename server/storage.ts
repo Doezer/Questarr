@@ -708,9 +708,7 @@ export class MemStorage implements IStorage {
 
   // GameDownload methods
   async getDownloadingGameDownloads(): Promise<GameDownload[]> {
-    return Array.from(this.gameDownloads.values()).filter(
-      (d) => !["completed", "error", "imported", "manual_review_required"].includes(d.status)
-    );
+    return Array.from(this.gameDownloads.values()).filter((d) => d.status === "downloading");
   }
 
   async getPendingImportReviews(userId: string): Promise<GameDownload[]> {

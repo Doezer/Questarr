@@ -84,6 +84,14 @@ export default function ImportSettings() {
       queryClient.invalidateQueries({ queryKey: ["/api/imports/config"] });
       queryClient.invalidateQueries({ queryKey: ["/api/imports/hardlink/check"] });
     },
+    onError: () => {
+      if (config) setLocalConfig(config);
+      toast({
+        title: "Save Failed",
+        description: "Could not update import settings.",
+        variant: "destructive",
+      });
+    },
   });
 
   if (configLoading) {
@@ -198,8 +206,7 @@ export default function ImportSettings() {
                           }
                         />
                         <p className="text-xs text-muted-foreground">
-                          Where files are placed after import — used for PC games and any download
-                          not handled by the RomM provider.
+                          Where files are placed after import.
                         </p>
                       </div>
                       <div className="space-y-1.5">
@@ -375,7 +382,7 @@ export default function ImportSettings() {
                     ],
                     [
                       "Strategy selection",
-                      "Questarr inspects the game's platform. If RomM is enabled and the platform maps to a known RomM slug, the file goes to your RomM library. Otherwise it goes to the General Config library root.",
+                      "Questarr inspects the game's platform and routes the file to the configured library root.",
                     ],
                     [
                       "File transfer",
@@ -432,9 +439,9 @@ export default function ImportSettings() {
                     },
                     {
                       icon: <ArrowRight className="h-4 w-4 text-purple-500 shrink-0 mt-0.5" />,
-                      name: "Symlink (RomM only)",
-                      desc: "Creates a symbolic link in your RomM library pointing back to the original file in your download folder. The file is not duplicated or moved.",
-                      when: "Use with RomM when you want your library to reflect downloads in real time without copying files. The torrent keeps seeding. Note: RomM must be able to follow the symlink from its container.",
+                      name: "Symlink",
+                      desc: "Creates a symbolic link at the destination pointing back to the original file in your download folder. The file is not duplicated or moved.",
+                      when: "Use when you want your library to reflect downloads without copying files. The torrent keeps seeding.",
                     },
                   ].map(({ icon, name, desc, when }) => (
                     <div key={name} className="rounded-md border p-3 space-y-1">
@@ -467,7 +474,7 @@ export default function ImportSettings() {
                     },
                     {
                       name: "Library Root",
-                      desc: "Destination folder for PC games and any game that is not handled by the RomM provider (e.g. because RomM is disabled or the platform is not recognised). Example: /data/library or D:\\Games.",
+                      desc: "Destination folder for imported games. Example: /data/library or D:\\Games.",
                     },
                     {
                       name: "Transfer Mode",
@@ -475,65 +482,11 @@ export default function ImportSettings() {
                     },
                     {
                       name: "Platform Filter",
-                      desc: "Limits PC imports to only the selected platforms. If no platforms are checked, all platforms are imported. This filter only applies to the PC (non-RomM) path — RomM imports use the Allowed Slugs filter instead.",
+                      desc: "Limits imports to only the selected platforms. If no platforms are checked, all platforms are eligible.",
                     },
                     {
                       name: "Rename Pattern",
                       desc: "Controls the file name after import. Tokens: {Title} = game title, {Region} = region tag from the release name, {Platform} = platform name, {Year} = release year. Example: {Title} ({Year}) ({Platform}).",
-                    },
-                  ].map(({ name, desc }) => (
-                    <div key={name}>
-                      <p className="font-medium text-foreground">{name}</p>
-                      <p className="text-muted-foreground">{desc}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <Separator />
-
-              {/* ── RomM settings ── */}
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-                  RomM settings
-                </p>
-                <div className="space-y-3">
-                  {[
-                    {
-                      name: "Enable RomM Provider",
-                      desc: "When enabled, games whose platform maps to a recognised RomM slug are imported into your RomM library instead of the general library. PC games always go to the general library regardless of this switch.",
-                    },
-                    {
-                      name: "Library Root",
-                      desc: "The library/roms/ folder that RomM manages. Platform subfolders (e.g. ps2/, ngc/) are created automatically under this path. This must be the same path that RomM itself sees — if RomM is in Docker, use the path inside that container.",
-                    },
-                    {
-                      name: "Routing Mode — Slug subfolder",
-                      desc: "Default. Files are placed in <Library Root>/<slug>/ where <slug> is the RomM platform identifier (e.g. ps2, ngc). This matches RomM's default layout and is correct for most setups.",
-                    },
-                    {
-                      name: "Routing Mode — Binding map",
-                      desc: "Lets you override the destination path per slug. Useful if you have organised your RomM library into custom folders that do not match the default slugs. Any slug not in the map falls back to slug subfolder behaviour (or errors, depending on Missing Binding setting).",
-                    },
-                    {
-                      name: "Allowed Slugs",
-                      desc: "Comma-separated list of slugs that are eligible for RomM import. Leave empty to allow all recognised platforms. Use this to prevent, for example, PC releases from being accidentally routed to RomM.",
-                    },
-                    {
-                      name: "On Conflict",
-                      desc: "What happens when a file with the same name already exists at the destination. Rename keeps both (adds a numeric suffix). Skip leaves the existing file untouched. Overwrite replaces it. Fail aborts the import and flags it for manual review.",
-                    },
-                    {
-                      name: "Folder Naming Template",
-                      desc: "For multi-file games, a subfolder is created inside the platform folder. This template controls its name. Token: {title} = normalised game title.",
-                    },
-                    {
-                      name: "Single-File Placement",
-                      desc: "Controls where a single-file game (e.g. a single .iso) lands. Root places it directly in the platform folder. Subfolder wraps it in a named subfolder the same way multi-file games are handled — useful for consistency.",
-                    },
-                    {
-                      name: "Include Region / Language Tags",
-                      desc: "When enabled, region and language codes extracted from the release name (e.g. (USA), (En,Fr)) are appended to the imported file name.",
                     },
                   ].map(({ name, desc }) => (
                     <div key={name}>
@@ -590,7 +543,7 @@ export default function ImportSettings() {
                 <div className="space-y-4">
                   {[
                     {
-                      title: "All-in-one (single host, no RomM)",
+                      title: "All-in-one (single host)",
                       steps: [
                         "Enable Post-Processing.",
                         "Set Library Root to where you want games stored (e.g. /data/library).",
@@ -599,22 +552,12 @@ export default function ImportSettings() {
                       ],
                     },
                     {
-                      title: "Questarr + RomM in separate Docker containers",
+                      title: "Separate containers (Questarr + download client)",
                       steps: [
-                        "Enable Post-Processing and Enable RomM Provider.",
-                        "Set RomM Library Root to the path Questarr uses to reach RomM's library/roms/ folder (the Questarr-side mount, e.g. /mnt/romm/library/roms).",
-                        "Add a Path Mapping so the download client's path is translated to a path Questarr can read.",
+                        "Enable Post-Processing.",
+                        "Set Library Root to the path Questarr uses to reach the library folder.",
+                        "Add a Path Mapping so the download client's reported path is translated to a path Questarr can read.",
                         "Set Transfer Mode to Hardlink (if all volumes are on the same device) or Copy.",
-                        "After import, trigger a library scan in the RomM UI — Questarr does not do this automatically.",
-                      ],
-                    },
-                    {
-                      title: "Mixed library (RomM for retro, general folder for PC)",
-                      steps: [
-                        "Enable both Post-Processing and RomM Provider.",
-                        "Set Allowed Slugs to the retro platform slugs you use (e.g. ps2, snes, n64). Leave PC out of this list.",
-                        "Set the General Config Library Root for PC games.",
-                        "PC downloads will route to the general library; everything in Allowed Slugs goes to RomM.",
                       ],
                     },
                   ].map(({ title, steps }) => (

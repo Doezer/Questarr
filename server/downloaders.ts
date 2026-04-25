@@ -66,10 +66,9 @@ interface TransmissionTorrent {
     lastAnnounceTime: number;
     nextAnnounceTime?: number;
   }>;
+  labels?: string[];
   [key: string]: unknown;
 }
-
-// RTorrentTorrent is not directly used, but serves as documentation for the rTorrent API response structure
 
 interface QBittorrentTorrent {
   hash: string;
@@ -121,18 +120,112 @@ interface DownloadRequest {
   downloadType?: "torrent" | "usenet";
 }
 
+interface DownloaderActionResult {
+  success: boolean;
+  message: string;
+}
+
+interface DownloadResult extends DownloaderActionResult {
+  id?: string;
+}
+
 interface DownloaderClient {
-  testConnection(): Promise<{ success: boolean; message: string }>;
-  addDownload(
-    request: DownloadRequest
-  ): Promise<{ success: boolean; id?: string; message: string }>;
+  testConnection(): Promise<DownloaderActionResult>;
+  addDownload(request: DownloadRequest): Promise<DownloadResult>;
   getDownloadStatus(id: string): Promise<DownloadStatus | null>;
   getDownloadDetails(id: string): Promise<DownloadDetails | null>;
   getAllDownloads(): Promise<DownloadStatus[]>;
-  pauseDownload(id: string): Promise<{ success: boolean; message: string }>;
-  resumeDownload(id: string): Promise<{ success: boolean; message: string }>;
-  removeDownload(id: string, deleteFiles?: boolean): Promise<{ success: boolean; message: string }>;
+  pauseDownload(id: string): Promise<DownloaderActionResult>;
+  resumeDownload(id: string): Promise<DownloaderActionResult>;
+  removeDownload(id: string, deleteFiles?: boolean): Promise<DownloaderActionResult>;
   getFreeSpace(): Promise<number>;
+}
+
+/**
+ * Fetches a URL while manually following redirects to detect magnet link redirects.
+ * Standard fetch follows HTTP redirects automatically but silently fails when the chain
+ * includes a protocol change (HTTP → magnet:), losing the magnet URI.
+ * This helper intercepts each redirect and returns the magnet link if detected.
+ */
+async function fetchWithMagnetDetection(
+  url: string,
+  maxRedirects = 5
+): Promise<{ response?: Response; magnetLink?: string }> {
+  let currentUrl = url;
+  let redirects = 0;
+
+  const fetchUrl = async (targetUrl: string) => {
+    if (!(await isSafeUrl(targetUrl))) {
+      throw new Error(`Unsafe URL blocked: ${targetUrl}`);
+    }
+    return safeFetch(targetUrl, {
+      method: "GET",
+      headers: {
+        "User-Agent": DOWNLOAD_CLIENT_USER_AGENT,
+        Accept: "application/x-bittorrent, */*",
+      },
+      redirect: "manual",
+      signal: AbortSignal.timeout(30000),
+    });
+  };
+
+  while (redirects < maxRedirects) {
+    let response = await fetchUrl(currentUrl);
+
+    // Simple retry for 400 Bad Request with '+' in URL (some indexers encode spaces as '+')
+    if (!response.ok && response.status === 400 && currentUrl.includes("+")) {
+      try {
+        const urlObj = new URL(currentUrl);
+        const originalSearch = urlObj.search;
+        const fixedSearch = originalSearch.replace(/\+/g, "%20");
+        if (fixedSearch !== originalSearch) {
+          urlObj.search = fixedSearch;
+          const fixedUrl = urlObj.toString();
+          downloadersLogger.warn(
+            { original: currentUrl, fixed: fixedUrl },
+            "Retrying download with %20 instead of + in query string"
+          );
+          response = await fetchUrl(fixedUrl);
+        }
+      } catch (parseError) {
+        downloadersLogger.warn(
+          { url: currentUrl, error: parseError },
+          "Failed to parse URL when attempting '+' to '%20' retry"
+        );
+      }
+    }
+
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location");
+      if (!location) {
+        return { response };
+      }
+
+      downloadersLogger.debug(
+        { currentUrl, location, status: response.status },
+        "Download URL returned redirect"
+      );
+
+      if (location.startsWith("magnet:")) {
+        downloadersLogger.info("Download URL redirected to a magnet link");
+        return { magnetLink: location };
+      }
+
+      try {
+        currentUrl = new URL(location, currentUrl).toString();
+      } catch (error) {
+        downloadersLogger.warn({ location, error }, "Failed to parse redirect URL");
+        return { response };
+      }
+
+      redirects++;
+      continue;
+    }
+
+    return { response };
+  }
+
+  throw new Error(`Too many redirects (max ${maxRedirects})`);
 }
 
 export class TransmissionClient implements DownloaderClient {
@@ -207,9 +300,8 @@ export class TransmissionClient implements DownloaderClient {
       const isMagnet = request.url.startsWith("magnet:");
 
       if (isMagnet) {
-        if (!(await isSafeUrl(request.url))) {
-          return { success: false, message: `Unsafe URL blocked: ${request.url}` };
-        }
+        // Magnet URIs have no hostname — isSafeUrl would always fail on them.
+        // The BitTorrent client handles tracker URL validation internally.
         args.filename = request.url;
       } else {
         // Check URL safety before attempting download or fallback
@@ -217,52 +309,44 @@ export class TransmissionClient implements DownloaderClient {
           return { success: false, message: `Unsafe URL blocked: ${request.url}` };
         }
 
-        // Download the file locally first
-        // This is necessary because Transmission might not have access to the indexer (e.g. private trackers)
+        // Download the torrent file locally; uses manual redirect-following to detect
+        // magnet link redirects that standard fetch cannot handle (HTTP → magnet: protocol change).
         try {
           downloadersLogger.debug(
             { url: request.url },
             "Downloading file locally for Transmission"
           );
 
-          const fetchTorrent = async (url: string) => {
-            // URL already checked above, but check again if it changes (e.g. redirects handled by fetch)
-            // standard fetch follows redirects, so we can't easily check intermediate URLs here unless we assume fetchUrl behavior
-            // But here we just use fetch.
-            // We already checked request.url.
-            return safeFetch(url, {
-              headers: {
-                "User-Agent": DOWNLOAD_CLIENT_USER_AGENT,
-                Accept: "application/x-bittorrent, */*",
-              },
-            });
-          };
+          let fetchResult = await fetchWithMagnetDetection(request.url);
 
-          let response = await fetchTorrent(request.url);
-
-          if (!response.ok) {
-            // Retry logic similar to rTorrent client
-            if (response.status === 400 && request.url.includes("+")) {
-              const fixedUrl = request.url.replace(/\+/g, "%20");
-              response = await fetchTorrent(fixedUrl);
-
-              if (!response.ok && request.url.includes("&file=")) {
-                const urlNoFile = request.url.split("&file=")[0];
-                response = await fetchTorrent(urlNoFile);
-              }
-            }
+          // Some indexers reject the request when a &file= param is present — retry without it
+          if (
+            !fetchResult.magnetLink &&
+            !fetchResult.response?.ok &&
+            request.url.includes("&file=")
+          ) {
+            const urlNoFile = request.url.split("&file=")[0];
+            downloadersLogger.warn(
+              { original: request.url, fixed: urlNoFile },
+              "Retrying download without &file= parameter"
+            );
+            fetchResult = await fetchWithMagnetDetection(urlNoFile);
           }
 
-          if (response.ok) {
-            const arrayBuffer = await response.arrayBuffer();
+          if (fetchResult.magnetLink) {
+            // Indexer redirected to a magnet URI — pass it directly to Transmission
+            downloadersLogger.info(
+              { magnetLink: fetchResult.magnetLink },
+              "Detected magnet redirect, passing to Transmission"
+            );
+            args.filename = fetchResult.magnetLink;
+          } else if (fetchResult.response?.ok) {
+            const arrayBuffer = await fetchResult.response.arrayBuffer();
             const buffer = Buffer.from(arrayBuffer);
 
-            // Try to parse hash for immediate return
             try {
               const parsed = await parseTorrent(buffer);
               if (parsed && parsed.infoHash) {
-                // We can't set ID on the return object directly here as Transmission returns it
-                // but we can verify it matches later if needed
                 downloadersLogger.debug({ hash: parsed.infoHash }, "Parsed download hash locally");
               }
             } catch {
@@ -277,7 +361,10 @@ export class TransmissionClient implements DownloaderClient {
             args.filename = request.url;
           }
         } catch (error) {
-          downloadersLogger.error({ error }, "Error downloading file, passing URL to Transmission");
+          downloadersLogger.error(
+            { err: error },
+            "Error downloading file, passing URL to Transmission"
+          );
           args.filename = request.url;
         }
       }
@@ -344,9 +431,15 @@ export class TransmissionClient implements DownloaderClient {
           message: "Download already exists (Transmission)",
         };
       } else {
+        const transmissionError =
+          response.result && typeof response.result === "string" && response.result !== "success"
+            ? response.result
+            : null;
         return {
           success: false,
-          message: "Failed to add download",
+          message: transmissionError
+            ? `Failed to add download: ${transmissionError}`
+            : "Failed to add download",
         };
       }
     } catch (error) {
@@ -449,6 +542,7 @@ export class TransmissionClient implements DownloaderClient {
         "uploadRatio",
         "errorString",
         "hashString", // Required for matching downloads by hash
+        "labels", // Transmission 2.8+: used as category identifier
       ],
     });
 
@@ -567,6 +661,7 @@ export class TransmissionClient implements DownloaderClient {
       leechers: torrent.peersGettingFromUs,
       ratio: torrent.uploadRatio,
       error: torrent.errorString || undefined,
+      category: torrent.labels?.[0],
     };
   }
 
@@ -696,7 +791,7 @@ export class TransmissionClient implements DownloaderClient {
       headers["Authorization"] = `Basic ${auth}`;
     }
 
-    const response = await safeFetch(url, {
+    const response = await fetch(url, {
       method: "POST",
       headers,
       body: JSON.stringify(body),
@@ -713,7 +808,7 @@ export class TransmissionClient implements DownloaderClient {
         downloadersLogger.debug({ method, url }, "Retrying Transmission request with session ID");
 
         // Retry with session ID
-        const retryResponse = await safeFetch(url, {
+        const retryResponse = await fetch(url, {
           method: "POST",
           headers,
           body: JSON.stringify(body),
@@ -844,116 +939,90 @@ export class RTorrentClient implements DownloaderClient {
   ): Promise<{ success: boolean; id?: string; message: string }> {
     try {
       if (!request.url) {
-        return {
-          success: false,
-          message: "Download URL is required",
-        };
+        return { success: false, message: "Download URL is required" };
       }
 
       if (!(await isSafeUrl(request.url))) {
         return { success: false, message: `Unsafe URL blocked: ${request.url}` };
       }
 
-      // Helper to fetch with standard headers
-      const fetchTorrent = async (url: string) => {
-        downloadersLogger.debug({ url }, "Downloading file locally");
-        return safeFetch(url, {
-          headers: {
-            "User-Agent": DOWNLOAD_CLIENT_USER_AGENT,
-            Accept: "application/x-bittorrent, */*",
-          },
-        });
+      const isMagnet = request.url.startsWith("magnet:");
+      const category = request.category || this.downloader.category;
+      // rTorrent supports categories natively via d.custom1.set, so the download path
+      // must not have the category appended — that would cause double-nesting like /path/cat/cat.
+      const downloadPath = request.downloadPath || this.downloader.downloadPath;
+
+      // Add a magnet link directly via load.start / load.normal
+      const addMagnetLink = async (
+        magnetUri: string
+      ): Promise<{ success: boolean; id?: string; message: string }> => {
+        const infoHash = extractHashFromUrl(magnetUri) ?? "unknown";
+        const addMethod = this.downloader.addStopped ? "load.normal" : "load.start";
+        downloadersLogger.debug(
+          { method: addMethod, hash: infoHash },
+          "Adding magnet link to rTorrent"
+        );
+        // Pass directory and category as inline commands so they are applied atomically
+        const commands: string[] = [];
+        if (category) commands.push(`d.custom1.set=${category}`);
+        if (downloadPath) commands.push(`d.directory.set=${downloadPath}`);
+        const result = await this.makeXMLRPCRequest(addMethod, ["", magnetUri, ...commands]);
+        if (result === 0) {
+          return {
+            success: true,
+            id: infoHash,
+            message: `Download added successfully${this.downloader.addStopped ? " (stopped)" : ""}`,
+          };
+        }
+        return {
+          success: false,
+          message: `Failed to add download (rTorrent returned code: ${result})`,
+        };
       };
 
-      let response = await fetchTorrent(request.url);
-
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => "No body");
-        downloadersLogger.error(
-          {
-            status: response.status,
-            statusText: response.statusText,
-            url: request.url,
-            headers: Object.fromEntries(response.headers.entries()),
-            errorBody: errorText,
-          },
-          "Failed to download file from indexer"
-        );
-
-        // Retry with %20 replacement for + if 400 Bad Request
-        if (response.status === 400 && request.url.includes("+")) {
-          const fixedUrl = request.url.replace(/\+/g, "%20");
-          downloadersLogger.warn(
-            { original: request.url, fixed: fixedUrl },
-            "Retrying download with %20 instead of +"
-          );
-          response = await fetchTorrent(fixedUrl);
-
-          if (!response.ok) {
-            const retryErrorText = await response.text().catch(() => "No body");
-            downloadersLogger.error(
-              {
-                status: response.status,
-                url: fixedUrl,
-                errorBody: retryErrorText,
-              },
-              "Retry with %20 failed"
-            );
-
-            // Retry 2: Remove 'file' parameter entirely (it's often just for naming)
-            if (request.url.includes("&file=")) {
-              const urlNoFile = request.url.split("&file=")[0];
-              downloadersLogger.warn(
-                { original: request.url, fixed: urlNoFile },
-                "Retrying download without file parameter"
-              );
-              response = await fetchTorrent(urlNoFile);
-
-              if (!response.ok) {
-                return {
-                  success: false,
-                  message: `Failed to download file (retry without file param failed): ${response.statusText}`,
-                };
-              }
-            } else {
-              return {
-                success: false,
-                message: `Failed to download file (retry failed): ${response.statusText}`,
-              };
-            }
-          }
-        } else {
-          // Also try removing file param if we didn't try %20 (e.g. no + in URL but still 400)
-          if (response.status === 400 && request.url.includes("&file=")) {
-            const urlNoFile = request.url.split("&file=")[0];
-            downloadersLogger.warn(
-              { original: request.url, fixed: urlNoFile },
-              "Retrying download without file parameter"
-            );
-            response = await fetchTorrent(urlNoFile);
-
-            if (!response.ok) {
-              return {
-                success: false,
-                message: `Failed to download file (retry without file param failed): ${response.statusText}`,
-              };
-            }
-          } else {
-            return {
-              success: false,
-              message: `Failed to download file from indexer: ${response.statusText}`,
-            };
-          }
-        }
+      if (isMagnet) {
+        return await addMagnetLink(request.url);
       }
 
-      const arrayBuffer = await response.arrayBuffer();
+      // Non-magnet: fetch the torrent file with redirect-to-magnet detection
+      downloadersLogger.debug({ url: request.url }, "Downloading file locally for rTorrent");
+
+      let fetchResult = await fetchWithMagnetDetection(request.url);
+
+      // Some indexers reject the request when a &file= param is present — retry without it
+      if (!fetchResult.magnetLink && !fetchResult.response?.ok && request.url.includes("&file=")) {
+        const urlNoFile = request.url.split("&file=")[0];
+        downloadersLogger.warn(
+          { original: request.url, fixed: urlNoFile },
+          "Retrying download without &file= parameter"
+        );
+        fetchResult = await fetchWithMagnetDetection(urlNoFile);
+      }
+
+      if (fetchResult.magnetLink) {
+        downloadersLogger.info(
+          { magnetLink: fetchResult.magnetLink },
+          "Detected magnet redirect, adding to rTorrent"
+        );
+        return await addMagnetLink(fetchResult.magnetLink);
+      }
+
+      if (!fetchResult.response?.ok) {
+        const status = fetchResult.response?.status ?? "unknown";
+        const statusText = fetchResult.response?.statusText ?? "No response";
+        downloadersLogger.error(
+          { status, url: request.url },
+          "Failed to download file from indexer"
+        );
+        return { success: false, message: `Failed to download file from indexer: ${statusText}` };
+      }
+
+      const arrayBuffer = await fetchResult.response.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
 
-      // 2. Parse it to get the hash
+      // Parse the torrent to extract the info hash for subsequent property-setting calls
       let infoHash = "unknown";
       try {
-        // parse-torrent can handle buffer input
         const parsed = await parseTorrent(buffer);
         if (parsed && parsed.infoHash) {
           infoHash = parsed.infoHash.toLowerCase();
@@ -962,50 +1031,30 @@ export class RTorrentClient implements DownloaderClient {
         downloadersLogger.warn({ error: _e }, "Failed to parse file for hash");
       }
 
-      // 3. Send raw file to rTorrent
-      // Determine which method to use based on addStopped setting
       const addMethod = this.downloader.addStopped ? "load.raw" : "load.raw_start";
-
       downloadersLogger.debug(
         { method: addMethod, size: buffer.length, hash: infoHash },
         "Uploading raw file to rTorrent"
       );
 
-      // rTorrent expects the raw data as the first argument (after empty target)
-      // load.raw_start("", buffer)
-      const result = await this.makeXMLRPCRequest(addMethod, ["", buffer]);
+      // Pass directory and category as inline commands so they are applied atomically
+      const rawCommands: string[] = [];
+      if (category) rawCommands.push(`d.custom1.set=${category}`);
+      if (downloadPath) rawCommands.push(`d.directory.set=${downloadPath}`);
+      const result = await this.makeXMLRPCRequest(addMethod, ["", buffer, ...rawCommands]);
 
-      // Result is usually 0 on success
       if (result === 0) {
-        // Set category/label if specified
-        const category = request.category || this.downloader.category;
-        if (category && infoHash !== "unknown") {
-          try {
-            // Give rTorrent a moment to register the download before setting properties
-            // though with XML-RPC it should be sequential
-            await this.makeXMLRPCRequest("d.custom1.set", [infoHash, category]);
-          } catch (error) {
-            downloadersLogger.warn(
-              { error, hash: infoHash, category },
-              "Failed to set category on download"
-            );
-          }
-        }
-
         return {
           success: true,
           id: infoHash,
           message: `Download added successfully${this.downloader.addStopped ? " (stopped)" : ""}`,
         };
-      } else {
-        // Check if result is 0 (success) even if type check failed or something else
-        // Some rTorrent versions might return empty string or other success indicators
-        // But standard XML-RPC returns 0 for success on load commands
-        return {
-          success: false,
-          message: `Failed to add download (rTorrent returned code: ${result})`,
-        };
       }
+
+      return {
+        success: false,
+        message: `Failed to add download (rTorrent returned code: ${result})`,
+      };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       downloadersLogger.error({ error, url: request.url }, "Failed to add download");
@@ -1510,7 +1559,7 @@ export class RTorrentClient implements DownloaderClient {
       headers["Authorization"] = `Basic ${auth}`;
     }
 
-    const response = await safeFetch(url, {
+    const response = await fetch(url, {
       method: "POST",
       headers,
       body: xmlBody,
@@ -1543,7 +1592,7 @@ export class RTorrentClient implements DownloaderClient {
 
             downloadersLogger.debug({ url }, "Retrying rTorrent request with Digest Auth");
 
-            const retryResponse = await safeFetch(url, {
+            const retryResponse = await fetch(url, {
               method: "POST",
               headers,
               body: xmlBody,
@@ -2078,7 +2127,7 @@ export class QBittorrentClient implements DownloaderClient {
       let parsedInfoHash: string | null = null;
 
       try {
-        const { response: torrentResponse, magnetLink } = await this.fetchWithMagnetDetection(
+        const { response: torrentResponse, magnetLink } = await fetchWithMagnetDetection(
           request.url
         );
 
@@ -2748,7 +2797,7 @@ export class QBittorrentClient implements DownloaderClient {
     formData.append("password", this.downloader.password);
 
     try {
-      const response = await safeFetch(url, {
+      const response = await fetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
@@ -2896,7 +2945,7 @@ export class QBittorrentClient implements DownloaderClient {
       "Making qBittorrent request"
     );
 
-    let response = await safeFetch(url, {
+    let response = await fetch(url, {
       method,
       headers,
       body: requestBody,
@@ -2915,7 +2964,7 @@ export class QBittorrentClient implements DownloaderClient {
         retryHeaders["Cookie"] = this.cookie;
       }
 
-      response = await safeFetch(url, {
+      response = await fetch(url, {
         method,
         headers: retryHeaders,
         body: requestBody,
@@ -2939,100 +2988,6 @@ export class QBittorrentClient implements DownloaderClient {
 
     return response;
   }
-
-  /**
-   * Helper to fetch a URL while manually handling redirects to detect magnet links.
-   * Standard fetch follows HTTP redirects but fails on protocol changes (HTTP -> magnet).
-   */
-  private async fetchWithMagnetDetection(
-    url: string,
-    maxRedirects = 5
-  ): Promise<{ response?: Response; magnetLink?: string }> {
-    let currentUrl = url;
-    let redirects = 0;
-
-    /**
-     * fetch function to use.
-     * Use a consistent User-Agent as some indexers block unknown or bot-like User-Agents
-     */
-    const fetchUrl = async (targetUrl: string) => {
-      if (!(await isSafeUrl(targetUrl))) {
-        throw new Error(`Unsafe URL blocked: ${targetUrl}`);
-      }
-      return safeFetch(targetUrl, {
-        method: "GET",
-        headers: {
-          "User-Agent": DOWNLOAD_CLIENT_USER_AGENT,
-          Accept: "application/x-bittorrent, */*",
-        },
-        redirect: "manual",
-        signal: AbortSignal.timeout(30000),
-      });
-    };
-
-    while (redirects < maxRedirects) {
-      let response = await fetchUrl(currentUrl);
-
-      // Simple retry logic for 400 Bad Request with '+' in URL
-      // Some trackers/indexers don't handle '+' correctly in query params
-      if (!response.ok && response.status === 400 && currentUrl.includes("+")) {
-        try {
-          const urlObj = new URL(currentUrl);
-          const originalSearch = urlObj.search;
-          const fixedSearch = originalSearch.replace(/\+/g, "%20");
-          if (fixedSearch !== originalSearch) {
-            urlObj.search = fixedSearch;
-            const fixedUrl = urlObj.toString();
-            downloadersLogger.warn(
-              { original: currentUrl, fixed: fixedUrl },
-              "Retrying download with %20 instead of + in query string"
-            );
-            response = await fetchUrl(fixedUrl);
-          }
-        } catch (parseError) {
-          downloadersLogger.warn(
-            { url: currentUrl, error: parseError },
-            "Failed to parse URL when attempting '+' to '%20' retry"
-          );
-        }
-      }
-
-      if (response.status >= 300 && response.status < 400) {
-        const location = response.headers.get("location");
-        if (!location) {
-          // Redirect without location, pass through so caller sees the 3xx response or handles it
-          return { response };
-        }
-
-        downloadersLogger.debug(
-          { currentUrl, location, status: response.status },
-          "Download URL returned redirect"
-        );
-
-        if (location.startsWith("magnet:")) {
-          downloadersLogger.info("Download URL redirected to a magnet link");
-          return { magnetLink: location };
-        }
-
-        // Handle relative URLs
-        try {
-          // If we have a base URL, use it
-          currentUrl = new URL(location, currentUrl).toString();
-        } catch (error) {
-          // Fallback if URL construction fails
-          downloadersLogger.warn({ location, error }, "Failed to parse redirect URL");
-          return { response };
-        }
-
-        redirects++;
-        continue;
-      }
-
-      return { response };
-    }
-
-    throw new Error(`Too many redirects (max ${maxRedirects})`);
-  }
 }
 
 export class DownloaderManager {
@@ -3053,9 +3008,7 @@ export class DownloaderManager {
     }
   }
 
-  static async testDownloader(
-    downloader: Downloader
-  ): Promise<{ success: boolean; message: string }> {
+  static async testDownloader(downloader: Downloader): Promise<DownloaderActionResult> {
     try {
       const client = this.createClient(downloader);
       return await client.testConnection();
@@ -3068,7 +3021,7 @@ export class DownloaderManager {
   static async addDownload(
     downloader: Downloader,
     request: DownloadRequest
-  ): Promise<{ success: boolean; id?: string; message: string }> {
+  ): Promise<DownloadResult> {
     try {
       const client = this.createClient(downloader);
       return await client.addDownload(request);
@@ -3086,19 +3039,10 @@ export class DownloaderManager {
     if (downloader.category) {
       const filterCategory = downloader.category.toLowerCase();
       return downloads.filter((t) => {
-        // Strict category match if available
         if (t.category) {
           return t.category.toLowerCase() === filterCategory;
         }
-
-        // If category is missing in the download status:
-        // For clients that support categories (rTorrent, qBittorrent, Usenet), missing category means "Uncategorized",
-        // so we exclude it if a filter is active.
-        // For Transmission, we haven't implemented category mapping yet, so we include everything to avoid hiding all downloads.
-        if (downloader.type === "transmission") {
-          return true;
-        }
-
+        // No category on the download item means it is uncategorised — exclude when a filter is active.
         return false;
       });
     }
@@ -3462,8 +3406,11 @@ export class SABnzbdClient implements DownloaderClient {
       return { success: false, message: `Unsafe URL blocked: ${request.url}` };
     }
 
+    // Strip &file= parameter that some indexers append (causes fetch failures on some indexers)
+    const nzbUrl = request.url.includes("&file=") ? request.url.split("&file=")[0] : request.url;
+
     const url = this.getApiUrl("addurl", {
-      name: request.url,
+      name: nzbUrl,
       nzbname: request.title,
       cat: request.category || "games",
       priority: (request.priority || 0).toString(),
@@ -3533,6 +3480,10 @@ export class SABnzbdClient implements DownloaderClient {
       const item = queue.slots.find((slot) => slot.nzo_id === id);
       if (!item) {
         // Check history if not in queue
+        downloadersLogger.debug(
+          { id, queueSize: queue.slots.length },
+          "SABnzbd: item not in queue, checking history"
+        );
         return await this.getFromHistory(id);
       }
 
@@ -3605,49 +3556,73 @@ export class SABnzbdClient implements DownloaderClient {
   }
 
   private async getFromHistory(id: string): Promise<DownloadStatus | null> {
-    try {
-      const url = this.getApiUrl("history");
-      const response = await fetch(url);
-      const data = await response.json();
-      const history: SABnzbdHistory = data.history;
+    // Try with nzo_ids filter first (optimization). Some SABnzbd versions ignore
+    // this parameter and return all history, or return empty slots — in that case
+    // fall back to fetching the full history and searching locally.
+    for (const useFilter of [true, false]) {
+      try {
+        const params: Record<string, string> = useFilter ? { nzo_ids: id } : {};
+        const url = this.getApiUrl("history", params);
+        downloadersLogger.debug({ id, useFilter }, "SABnzbd: fetching history");
+        const response = await this.fetchWithFallback(url);
+        const data = await response.json();
+        const history: SABnzbdHistory = data.history;
 
-      const item = history.slots.find((slot) => slot.nzo_id === id);
-      if (!item) {
+        if (!history?.slots) {
+          downloadersLogger.debug({ id, useFilter }, "SABnzbd: history response missing slots");
+          return null;
+        }
+
+        const item = history.slots.find((slot) => slot.nzo_id === id);
+        downloadersLogger.debug(
+          { id, useFilter, slotCount: history.slots.length, found: !!item },
+          "SABnzbd: history result"
+        );
+
+        if (!item) {
+          // If we used the nzo_ids filter and got no results, the filter may not be
+          // supported — retry with a full history scan.
+          if (useFilter) continue;
+          return null;
+        }
+
+        let status: DownloadStatus["status"];
+        let repairStatus: DownloadStatus["repairStatus"];
+        let unpackStatus: DownloadStatus["unpackStatus"];
+
+        if (item.status === "Completed") {
+          status = "completed";
+          repairStatus = "good";
+          unpackStatus = "completed";
+        } else if (item.status === "Failed") {
+          status = "error";
+          repairStatus = "failed";
+        } else {
+          status = "paused";
+        }
+
+        return {
+          id: item.nzo_id,
+          name: item.name,
+          downloadType: "usenet",
+          status,
+          progress: status === "completed" ? 100 : 0,
+          size: item.bytes,
+          downloaded: item.bytes,
+          category: item.category,
+          error: status === "error" ? item.fail_message : undefined,
+          repairStatus,
+          unpackStatus,
+        };
+      } catch (error) {
+        downloadersLogger.error(
+          { error, id, useFilter: useFilter },
+          "Failed to get SABnzbd history"
+        );
         return null;
       }
-
-      let status: DownloadStatus["status"];
-      let repairStatus: DownloadStatus["repairStatus"];
-      let unpackStatus: DownloadStatus["unpackStatus"];
-
-      if (item.status === "Completed") {
-        status = "completed";
-        repairStatus = "good";
-        unpackStatus = "completed";
-      } else if (item.status === "Failed") {
-        status = "error";
-        repairStatus = "failed";
-      } else {
-        status = "paused";
-      }
-
-      return {
-        id: item.nzo_id,
-        name: item.name,
-        downloadType: "usenet",
-        status,
-        progress: status === "completed" ? 100 : 0,
-        size: item.bytes,
-        downloaded: item.bytes,
-        category: item.category,
-        error: status === "error" ? item.fail_message : undefined,
-        repairStatus,
-        unpackStatus,
-      };
-    } catch (error) {
-      downloadersLogger.error({ error }, "Failed to get SABnzbd history");
-      return null;
     }
+    return null;
   }
 
   async getDownloadDetails(id: string): Promise<DownloadDetails | null> {
@@ -3752,23 +3727,10 @@ export class SABnzbdClient implements DownloaderClient {
       const response = await this.fetchWithFallback(url);
       const data = await response.json();
 
-      if (data.queue?.diskspace1_norm) {
-        // Parse disk space (format: "123.45 GB")
-        const match = data.queue.diskspace1_norm.match(/([0-9.]+)\s*([KMGT]?B)/i);
-        if (match) {
-          const value = parseFloat(match[1]);
-          const unit = match[2].toUpperCase();
-
-          const multipliers: Record<string, number> = {
-            B: 1,
-            KB: 1024,
-            MB: 1024 * 1024,
-            GB: 1024 * 1024 * 1024,
-            TB: 1024 * 1024 * 1024 * 1024,
-          };
-
-          return value * (multipliers[unit] || 1);
-        }
+      // diskspace1 is free disk space in GB (float)
+      const gb = parseFloat(data.queue?.diskspace1);
+      if (!isNaN(gb)) {
+        return gb * 1024 * 1024 * 1024;
       }
 
       return 0;
@@ -3972,7 +3934,7 @@ export class NZBGetClient implements DownloaderClient {
 
     downloadersLogger.debug({ url, method, params: logParams }, "Making NZBGet XML-RPC request");
 
-    const response = await safeFetch(url, {
+    const response = await fetch(url, {
       method: "POST",
       headers,
       body: xmlBody,
@@ -4042,7 +4004,9 @@ export class NZBGetClient implements DownloaderClient {
         return { success: false, message: `Unsafe URL blocked: ${request.url}` };
       }
 
-      const nzbResponse = await safeFetch(request.url);
+      // Strip &file= parameter that some indexers append (causes fetch failures on some indexers)
+      const nzbUrl = request.url.includes("&file=") ? request.url.split("&file=")[0] : request.url;
+      const nzbResponse = await safeFetch(nzbUrl);
       if (!nzbResponse.ok) {
         return { success: false, message: `Failed to fetch NZB: ${nzbResponse.statusText}` };
       }

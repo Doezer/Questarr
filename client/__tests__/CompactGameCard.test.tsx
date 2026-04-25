@@ -57,7 +57,7 @@ vi.mock("lucide-react", async (importOriginal) => {
 });
 
 describe("CompactGameCard", () => {
-  const mockGame: Game = {
+  const mockGame = {
     id: "1",
     title: "Test Game",
     coverUrl: "http://example.com/cover.jpg",
@@ -71,7 +71,7 @@ describe("CompactGameCard", () => {
     folderName: "Test Game",
     createdAt: new Date(),
     updatedAt: new Date(),
-  };
+  } as unknown as Game;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -138,5 +138,14 @@ describe("CompactGameCard", () => {
         expect(onStatusChange).toHaveBeenCalledWith(mockGame.id, expectedNext);
       }
     );
+  });
+
+  it("shows a loading fallback when opening details", async () => {
+    renderWithProviders(<CompactGameCard game={mockGame} />);
+
+    const infoButton = screen.getByLabelText(`View details for ${mockGame.title}`);
+    fireEvent.click(infoButton);
+
+    expect(await screen.findByText("Loading game details...")).toBeInTheDocument();
   });
 });

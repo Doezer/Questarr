@@ -252,6 +252,14 @@ export class TorznabClient {
       const parsed = this.parser.parse(xmlData);
 
       if (!parsed.rss || !parsed.rss.channel) {
+        // Some indexers return a Torznab <error> element instead of an RSS feed
+        if (parsed.error) {
+          const description =
+            parsed.error["@_description"] ||
+            parsed.error.description ||
+            `Error code ${parsed.error["@_code"] ?? "unknown"}`;
+          throw new Error(description);
+        }
         throw new Error("Invalid Torznab response format");
       }
 
@@ -315,15 +323,33 @@ export class TorznabClient {
         if (linkUrl.protocol === "http:" || linkUrl.protocol === "https:") {
           const indexerUrlObj = new URL(indexerUrl);
 
-          // If the link uses a different port or host than the configured indexer,
-          // but shares the same path structure (heuristic), we force the configured URL.
-          // We assume that the path part returned by the indexer is correct relative to the base.
-
-          linkUrl.protocol = indexerUrlObj.protocol;
-          linkUrl.host = indexerUrlObj.host; // overrides port too
-
-          // Use the modified URL
-          torznabItem.link = linkUrl.toString();
+          if (linkUrl.host !== indexerUrlObj.host) {
+            // Check if this is a Prowlarr indexer URL (pattern: /{numericId}/api).
+            // When Prowlarr returns a raw external download URL (e.g. from a Cloudflare-protected
+            // indexer), a naive host swap would produce an invalid path on Prowlarr. Instead,
+            // construct a proper Prowlarr download proxy URL so the request goes through
+            // Prowlarr — which has FlareSolverr configured to bypass Cloudflare.
+            const prowlarrMatch = indexerUrlObj.pathname.match(/^\/(\d+)\/api\/?$/i);
+            if (prowlarrMatch && indexer?.apiKey) {
+              const prowlarrUrl = new URL(`${indexerUrlObj.protocol}//${indexerUrlObj.host}`);
+              prowlarrUrl.pathname = `/${prowlarrMatch[1]}/download`;
+              prowlarrUrl.searchParams.set("file", torznabItem.title || "download");
+              prowlarrUrl.searchParams.set(
+                "link",
+                Buffer.from(torznabItem.link).toString("base64")
+              );
+              prowlarrUrl.searchParams.set("apikey", indexer.apiKey);
+              torznabItem.link = prowlarrUrl.toString();
+            } else {
+              // Standard host rewrite for reverse-proxy / seedbox setups where the indexer
+              // returns its internal address but should be reached via the configured URL.
+              linkUrl.protocol = indexerUrlObj.protocol;
+              linkUrl.host = indexerUrlObj.host;
+              torznabItem.link = linkUrl.toString();
+            }
+          }
+          // If hosts already match the configured indexer (e.g. Prowlarr already returned its
+          // own proxy URL), leave the link unchanged.
         }
       } catch {
         // Ignore invalid URLs or parsing errors

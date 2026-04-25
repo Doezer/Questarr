@@ -16,7 +16,7 @@ let cachedJwtSecret: string | null = null;
  * Get the JWT secret.
  * Priority:
  * 1. In-memory cache
- * 2. Environment variable (if not default)
+ * 2. Environment variable
  * 3. Database system config
  * 4. Generate new secret and store in DB
  */
@@ -25,8 +25,8 @@ async function getJwtSecret(): Promise<string> {
     return cachedJwtSecret;
   }
 
-  // If env var is set and NOT the default, use it (override)
-  if (config.auth.jwtSecret && config.auth.jwtSecret !== "questarr-default-secret-change-me") {
+  // If env var is set, use it (override).
+  if (config.auth.jwtSecret) {
     logger.info("Using JWT secret from environment variable");
     cachedJwtSecret = config.auth.jwtSecret;
     return cachedJwtSecret;
@@ -56,7 +56,7 @@ async function getJwtSecret(): Promise<string> {
 
   cachedJwtSecret = newSecret;
 
-  if (!config.auth.jwtSecret || config.auth.jwtSecret === "questarr-default-secret-change-me") {
+  if (!config.auth.jwtSecret) {
     logger.warn("⚠️  Using generated JWT secret.");
     logger.warn(
       "⚠️  Set JWT_SECRET in your .env file to use a persistent secret across database resets."
@@ -79,6 +79,26 @@ export async function generateToken(user: User) {
   return jwt.sign({ id: user.id, username: user.username }, secret, {
     expiresIn: "7d",
   });
+}
+
+/**
+ * Optional authentication middleware. Sets req.user when a valid JWT is present
+ * but never blocks the request — unauthenticated callers simply get no req.user.
+ */
+export async function optionalAuthenticateToken(req: Request, _res: Response, next: NextFunction) {
+  const authHeader = req.headers["authorization"];
+  const token = authHeader && authHeader.split(" ")[1];
+  if (token) {
+    try {
+      const secret = await getJwtSecret();
+      const payload = jwt.verify(token, secret) as { id: string; username: string };
+      const user = await storage.getUser(payload.id);
+      if (user) req.user = user;
+    } catch {
+      // Invalid token — continue without user context
+    }
+  }
+  next();
 }
 
 export async function authenticateToken(req: Request, res: Response, next: NextFunction) {

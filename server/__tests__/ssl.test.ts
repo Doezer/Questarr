@@ -38,6 +38,7 @@ describe("SSL Module", () => {
     vi.resetModules();
     vi.restoreAllMocks();
     vi.clearAllMocks();
+    vi.restoreAllMocks();
 
     // Default successful mocks
     mocks.mkdir.mockImplementation(async (...args) => {

@@ -1,6 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Settings as SettingsIcon,
   Server,
   Key,
   RefreshCw,
@@ -17,7 +16,12 @@ import {
   ShieldCheck,
   ShieldAlert,
   Upload,
+  Gamepad2,
+  Webhook,
+  Ban,
+  Trash2,
 } from "lucide-react";
+import { SiNexusmods } from "react-icons/si";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -36,12 +40,14 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, clearSearchCache } from "@/lib/queryClient";
 import AutoDownloadRulesSettings from "@/components/AutoDownloadRulesSettings";
+import PreferredReleaseGroupsSettings from "@/components/PreferredReleaseGroupsSettings";
 import PasswordSettings from "@/components/PasswordSettings";
-import type { Config, UserSettings, DownloadRules } from "@shared/schema";
+import type { Config, UserSettings, DownloadRules, ReleaseBlacklist } from "@shared/schema";
 import { downloadRulesSchema } from "@shared/schema";
-import { useState, useEffect, useRef } from "react";
+import { parseJsonStringArray, CANONICAL_PLATFORMS } from "@shared/title-utils";
+import { useState, useEffect, useRef, useMemo } from "react";
 
 interface CertInfo {
   subject: string;
@@ -63,6 +69,15 @@ export default function SettingsPage() {
     queryKey: ["/api/config"],
   });
 
+  const { data: igdbSettings } = useQuery<{
+    configured: boolean;
+    source?: "env" | "database";
+    clientId?: string;
+  }>({
+    queryKey: ["/api/settings/igdb"],
+    queryFn: () => apiRequest("GET", "/api/settings/igdb").then((res) => res.json()),
+  });
+
   const {
     data: userSettings,
     isLoading: settingsLoading,
@@ -72,27 +87,73 @@ export default function SettingsPage() {
     retry: 3, // Retry up to 3 times as migrations might be running
   });
 
+  const { data: user } = useQuery<{ id: string; username: string; steamId64?: string }>({
+    queryKey: ["/api/auth/me"],
+  });
+
+  const { data: blacklistEntries, isLoading: blacklistLoading } = useQuery<
+    (ReleaseBlacklist & { gameTitle: string })[]
+  >({
+    queryKey: ["/api/blacklist"],
+  });
+
+  const removeBlacklistMutation = useMutation({
+    mutationFn: async ({ gameId, id }: { gameId: string; id: string }) => {
+      await apiRequest("DELETE", `/api/games/${gameId}/blacklist/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/blacklist"] });
+      toast({ description: "Release removed from blacklist" });
+    },
+    onError: () => {
+      toast({ variant: "destructive", description: "Failed to remove from blacklist" });
+    },
+  });
+
+  const blacklistByGame = useMemo(() => {
+    if (!blacklistEntries) return {};
+    return blacklistEntries.reduce<Record<string, (ReleaseBlacklist & { gameTitle: string })[]>>(
+      (acc, entry) => {
+        (acc[entry.gameTitle] ??= []).push(entry);
+        return acc;
+      },
+      {}
+    );
+  }, [blacklistEntries]);
+
   // Local state for form
   const [autoSearchEnabled, setAutoSearchEnabled] = useState(true);
+  const [autoSearchUnreleased, setAutoSearchUnreleased] = useState(false);
   const [autoDownloadEnabled, setAutoDownloadEnabled] = useState(false);
   const [notifyMultipleDownloads, setNotifyMultipleDownloads] = useState(true);
   const [notifyUpdates, setNotifyUpdates] = useState(true);
   const [searchIntervalHours, setSearchIntervalHours] = useState(6);
   const [igdbRateLimitPerSecond, setIgdbRateLimitPerSecond] = useState(3);
 
-  // Local state for IGDB form
+  // Local state for Steam form
+  const [steamIdInput, setSteamIdInput] = useState("");
+
+  // Local state for forms
   const [igdbClientId, setIgdbClientId] = useState("");
   const [igdbClientSecret, setIgdbClientSecret] = useState("");
   const [showClientSecret, setShowClientSecret] = useState(false);
   const [downloadRules, setDownloadRules] = useState<DownloadRules | null>(null);
+  const [preferredReleaseGroups, setPreferredReleaseGroups] = useState<string[]>([]);
+  const [filterByPreferredGroups, setFilterByPreferredGroups] = useState(false);
+  const [preferredPlatform, setPreferredPlatform] = useState<string>("");
   const [xrelSceneReleases, setXrelSceneReleases] = useState(true);
   const [xrelP2pReleases, setXrelP2pReleases] = useState(false);
   const [xrelApiBase, setXrelApiBase] = useState("");
+  const [discordWebhookUrl, setDiscordWebhookUrl] = useState("");
+  const [showDiscordWebhook, setShowDiscordWebhook] = useState(false);
+  const [nexusApiKey, setNexusApiKey] = useState("");
+  const [showNexusApiKey, setShowNexusApiKey] = useState(false);
 
   // Sync with fetched settings
   useEffect(() => {
     if (userSettings) {
       setAutoSearchEnabled(userSettings.autoSearchEnabled);
+      setAutoSearchUnreleased(userSettings.autoSearchUnreleased ?? false);
       setAutoDownloadEnabled(userSettings.autoDownloadEnabled);
       setNotifyMultipleDownloads(userSettings.notifyMultipleDownloads);
       setNotifyUpdates(userSettings.notifyUpdates);
@@ -112,20 +173,26 @@ export default function SettingsPage() {
       } else {
         setDownloadRules(null);
       }
+      setPreferredReleaseGroups(parseJsonStringArray(userSettings.preferredReleaseGroups));
+      setFilterByPreferredGroups(userSettings.filterByPreferredGroups ?? false);
+      setPreferredPlatform(userSettings.preferredPlatform ?? "");
       setXrelSceneReleases(userSettings.xrelSceneReleases ?? true);
       setXrelP2pReleases(userSettings.xrelP2pReleases ?? false);
     }
-    if (config?.xrel) {
-      setXrelApiBase(config.xrel.apiBase ?? "");
+    if (config?.xrel?.apiBase !== undefined) {
+      setXrelApiBase(config.xrel.apiBase);
     }
 
-    if (config?.igdb.clientId) {
-      setIgdbClientId(config.igdb.clientId);
+    if (igdbSettings?.clientId) {
+      setIgdbClientId(igdbSettings.clientId);
     }
-    if (config?.igdb.configured) {
+    if (igdbSettings?.configured) {
       setIgdbClientSecret("");
     }
-  }, [userSettings, config]);
+    if (user?.steamId64) {
+      setSteamIdInput(user.steamId64);
+    }
+  }, [userSettings, config, igdbSettings, user]);
 
   // SSL Settings State
   const [sslEnabled, setSslEnabled] = useState(false);
@@ -141,6 +208,60 @@ export default function SettingsPage() {
       return res.json();
     },
   });
+
+  const { data: discordSettings } = useQuery<{ configured: boolean; webhookUrl?: string }>({
+    queryKey: ["/api/settings/discord"],
+    queryFn: () => apiRequest("GET", "/api/settings/discord").then((r) => r.json()),
+  });
+
+  // Populate Discord webhook input with the stored URL when it loads
+  useEffect(() => {
+    if (discordSettings?.webhookUrl) {
+      setDiscordWebhookUrl(discordSettings.webhookUrl);
+    }
+  }, [discordSettings?.webhookUrl]);
+
+  const { data: nexusmodsSettings } = useQuery<{
+    configured: boolean;
+    source?: "env" | "database";
+  }>({
+    queryKey: ["/api/settings/nexusmods"],
+    queryFn: () => apiRequest("GET", "/api/settings/nexusmods").then((r) => r.json()),
+  });
+
+  const updateDiscordMutation = useMutation({
+    mutationFn: async (webhookUrl: string) => {
+      const res = await apiRequest("POST", "/api/settings/discord", { webhookUrl });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings/discord"] });
+      toast({ title: "Discord webhook saved" });
+    },
+    onError: () => {
+      toast({ title: "Failed to save Discord webhook", variant: "destructive" });
+    },
+  });
+
+  const updateNexusMutation = useMutation({
+    mutationFn: async (apiKey: string) => {
+      const res = await apiRequest("POST", "/api/settings/nexusmods", { apiKey });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings/nexusmods"] });
+      setNexusApiKey("");
+      toast({ title: "Nexus Mods API key saved" });
+    },
+    onError: () => {
+      toast({ title: "Failed to save Nexus Mods API key", variant: "destructive" });
+    },
+  });
+
+  const handleSaveNexus = () => {
+    if (!nexusApiKey.trim()) return;
+    updateNexusMutation.mutate(nexusApiKey.trim());
+  };
 
   const [certInfo, setCertInfo] = useState<CertInfo | null>(null); // State for cert info
   const [isCertBrowserOpen, setIsCertBrowserOpen] = useState(false);
@@ -301,12 +422,56 @@ export default function SettingsPage() {
     },
   });
 
+  const updateAdvancedSettingsMutation = useMutation({
+    mutationFn: async ({
+      updates,
+      successMessage,
+    }: {
+      updates: Partial<UserSettings>;
+      successMessage: string;
+    }) => {
+      const res = await apiRequest("PATCH", "/api/settings", updates);
+
+      // Check if response is HTML (which means the route wasn't found and Vite served index.html)
+      const contentType = res.headers.get("content-type");
+      if (contentType && contentType.includes("text/html")) {
+        throw new Error("API route not found. Please restart the server to apply changes.");
+      }
+
+      return { data: await res.json(), successMessage };
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Settings Updated",
+        description: data.successMessage,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+    },
+    onError: (error: Error) => {
+      console.error("Settings update error:", error);
+
+      let message = error.message;
+      if (message.includes("Unexpected token") || message.includes("JSON")) {
+        message = "Server response invalid. Please restart the server.";
+      }
+
+      toast({
+        title: "Update Failed",
+        description: message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const updateIgdbMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/settings/igdb", {
+      const payload: { clientId: string; clientSecret?: string } = {
         clientId: igdbClientId,
-        clientSecret: igdbClientSecret,
-      });
+      };
+      if (igdbClientSecret) {
+        payload.clientSecret = igdbClientSecret;
+      }
+      const res = await apiRequest("POST", "/api/settings/igdb", payload);
       return res.json();
     },
     onSuccess: () => {
@@ -315,6 +480,7 @@ export default function SettingsPage() {
         description: "Your IGDB credentials have been saved.",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/config"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/settings/igdb"] });
     },
     onError: (error: Error) => {
       toast({
@@ -353,17 +519,19 @@ export default function SettingsPage() {
     updateSettingsMutation.mutate({
       updates: {
         autoSearchEnabled,
+        autoSearchUnreleased,
         autoDownloadEnabled,
         notifyMultipleDownloads,
         notifyUpdates,
         searchIntervalHours,
+        preferredPlatform: preferredPlatform || null,
       },
       successMessage: "Your auto-search preferences have been saved.",
     });
   };
 
   const handleSaveAdvanced = () => {
-    updateSettingsMutation.mutate({
+    updateAdvancedSettingsMutation.mutate({
       updates: {
         igdbRateLimitPerSecond,
       },
@@ -402,7 +570,11 @@ export default function SettingsPage() {
   };
 
   const handleSaveIgdb = () => {
-    if (!igdbClientId || !igdbClientSecret) {
+    const isAlreadyConfigured = igdbSettings?.configured === true;
+    const bothCredentialsProvided = !!(igdbClientId && igdbClientSecret);
+    const partialUpdateAllowed = isAlreadyConfigured && !!(igdbClientId || igdbClientSecret);
+    const canSave = bothCredentialsProvided || partialUpdateAllowed;
+    if (!canSave) {
       toast({
         title: "Missing Credentials",
         description: "Please provide both Client ID and Client Secret.",
@@ -413,9 +585,35 @@ export default function SettingsPage() {
     updateIgdbMutation.mutate();
   };
 
+  const updateSteamIdMutation = useMutation({
+    mutationFn: async (steamId: string) => {
+      const res = await apiRequest("PUT", "/api/user/steam-id", { steamId });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Steam ID Updated",
+        description: "Your Steam ID has been saved.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Update Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleSaveSteamId = () => {
+    if (!steamIdInput) return;
+    updateSteamIdMutation.mutate(steamIdInput);
+  };
+
   if (isLoading) {
     return (
-      <div className="p-8">
+      <div className="p-6">
         <div className="flex items-center space-x-2">
           <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
           <span>Loading configuration...</span>
@@ -426,7 +624,7 @@ export default function SettingsPage() {
 
   if (error) {
     return (
-      <div className="p-8">
+      <div className="p-6">
         <Card>
           <CardHeader>
             <CardTitle>Error Loading Configuration</CardTitle>
@@ -438,16 +636,15 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="h-full overflow-auto p-8">
-      <div className="flex items-center mb-8">
-        <SettingsIcon className="h-8 w-8 mr-3" />
-        <div>
-          <h1 className="text-3xl font-bold">Settings</h1>
-          <p className="text-muted-foreground">Configure your preferences and system settings</p>
-        </div>
+    <div className="h-full overflow-auto p-6">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
+        <p className="text-muted-foreground text-sm mt-0.5">
+          Configure your preferences and system settings
+        </p>
       </div>
 
-      <div className="max-w-4xl space-y-6">
+      <div className="w-full space-y-6">
         {/* Database Migration Alert */}
         {settingsError && (
           <Alert variant="destructive">
@@ -462,13 +659,14 @@ export default function SettingsPage() {
         )}
 
         <Tabs defaultValue="general" className="w-full">
-          <TabsList className="grid w-full grid-cols-6 mb-8">
+          <TabsList className="mb-8 flex w-full flex-nowrap overflow-x-auto [&>*]:shrink-0">
             <TabsTrigger value="general">General</TabsTrigger>
             <TabsTrigger value="rules">Rules</TabsTrigger>
             <TabsTrigger value="services">Services</TabsTrigger>
             <TabsTrigger value="account">Account</TabsTrigger>
             <TabsTrigger value="security">Security</TabsTrigger>
             <TabsTrigger value="system">System</TabsTrigger>
+            <TabsTrigger value="blacklist">Blacklist</TabsTrigger>
           </TabsList>
 
           <TabsContent value="general" className="space-y-6">
@@ -520,6 +718,25 @@ export default function SettingsPage() {
                       <p className="text-xs text-muted-foreground">
                         How often to search for new releases (1-168 hours)
                       </p>
+                    </div>
+                  )}
+
+                  {/* Auto Search Unreleased Toggle */}
+                  {autoSearchEnabled && (
+                    <div className="flex items-center justify-between pl-4 border-l-2">
+                      <div className="space-y-0.5">
+                        <Label htmlFor="auto-search-unreleased" className="text-sm font-medium">
+                          Search Unreleased Games
+                        </Label>
+                        <p className="text-xs text-muted-foreground">
+                          Include unreleased (upcoming/delayed) games in search
+                        </p>
+                      </div>
+                      <Switch
+                        id="auto-search-unreleased"
+                        checked={autoSearchUnreleased}
+                        onCheckedChange={setAutoSearchUnreleased}
+                      />
                     </div>
                   )}
 
@@ -581,6 +798,33 @@ export default function SettingsPage() {
                   )}
                 </div>
 
+                {/* Preferred Platform */}
+                <div className="space-y-2 pt-4 border-t">
+                  <Label htmlFor="preferred-platform" className="text-sm font-medium">
+                    Preferred Platform
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Pre-filter results to this platform in the download dialog and auto-search. PC
+                    also matches releases with no explicit platform tag.
+                  </p>
+                  <Select
+                    value={preferredPlatform || "__none__"}
+                    onValueChange={(v) => setPreferredPlatform(v === "__none__" ? "" : v)}
+                  >
+                    <SelectTrigger id="preferred-platform" className="w-48">
+                      <SelectValue placeholder="No preference" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">No preference</SelectItem>
+                      {CANONICAL_PLATFORMS.map((p) => (
+                        <SelectItem key={p} value={p}>
+                          {p}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
                 <div className="flex justify-end pt-4 border-t">
                   <Button
                     onClick={handleSaveAutoSearch}
@@ -610,9 +854,156 @@ export default function SettingsPage() {
               onChange={setDownloadRules}
               onReset={() => setDownloadRules(null)}
             />
+            <PreferredReleaseGroupsSettings
+              preferredGroups={preferredReleaseGroups}
+              filterByPreferredGroups={filterByPreferredGroups}
+              onGroupsChange={setPreferredReleaseGroups}
+              onFilterChange={setFilterByPreferredGroups}
+            />
           </TabsContent>
 
           <TabsContent value="services" className="space-y-6">
+            {/* Steam Integration Card */}
+            <Card id="steam-config">
+              <CardHeader>
+                <div className="flex items-center space-x-3">
+                  <Gamepad2 className="h-5 w-5 text-muted-foreground" />
+                  <CardTitle className="text-lg">Steam Integration</CardTitle>
+                </div>
+                <CardDescription>Sync your Steam Wishlist with Questarr.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex flex-col space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="steam-id">Steam ID (64-bit)</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="steam-id"
+                        placeholder="76561198..."
+                        value={steamIdInput}
+                        onChange={(e) => setSteamIdInput(e.target.value)}
+                      />
+                      <Button
+                        onClick={handleSaveSteamId}
+                        disabled={updateSteamIdMutation.isPending}
+                      >
+                        {updateSteamIdMutation.isPending ? "Saving..." : "Save ID"}
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Enter your SteamID64 to sync your wishlist. You can find it on{" "}
+                      <a
+                        href="https://steamid.io"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="underline"
+                      >
+                        steamid.io
+                      </a>
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Nexus Mods Card */}
+            <Card id="nexusmods-config">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    <SiNexusmods className="h-5 w-5 text-amber-500" />
+                    <CardTitle className="text-lg">Nexus Mods</CardTitle>
+                  </div>
+                  {nexusmodsSettings?.configured ? (
+                    <Badge
+                      variant={nexusmodsSettings.source === "database" ? "default" : "secondary"}
+                    >
+                      {nexusmodsSettings.source === "database"
+                        ? "Database (Active)"
+                        : "Environment Variable"}
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline">Not Configured</Badge>
+                  )}
+                </div>
+                <CardDescription>
+                  Display trending mods and verify if your games have a Nexus Mods section.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="nexus-api-key">Personal API Key</Label>
+                  <div className="relative">
+                    <Input
+                      id="nexus-api-key"
+                      type={showNexusApiKey ? "text" : "password"}
+                      placeholder={
+                        nexusmodsSettings?.configured
+                          ? "Enter a new key to override the current one"
+                          : "Enter your Nexus Mods API key"
+                      }
+                      value={nexusApiKey}
+                      onChange={(e) => setNexusApiKey(e.target.value)}
+                      className="pr-10"
+                    />
+                    {nexusApiKey && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                        onClick={() => setShowNexusApiKey(!showNexusApiKey)}
+                        aria-label={showNexusApiKey ? "Hide API key" : "Show API key"}
+                      >
+                        {showNexusApiKey ? (
+                          <EyeOff className="h-4 w-4 text-muted-foreground" />
+                        ) : (
+                          <Eye className="h-4 w-4 text-muted-foreground" />
+                        )}
+                      </Button>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Get your personal API key on the{" "}
+                    <a
+                      href="https://www.nexusmods.com/users/myaccount?tab=api"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline"
+                    >
+                      Nexus Mods account page
+                    </a>
+                    . Rate limits: 500 req/hour, 20,000 req/day.
+                    {nexusmodsSettings?.source === "env" && (
+                      <span className="block mt-1">
+                        A key is configured via the <code>NEXUSMODS_API_KEY</code> environment
+                        variable. Saving a key here will override it.
+                      </span>
+                    )}
+                  </p>
+                </div>
+                <div className="flex justify-end pt-2 border-t">
+                  <Button
+                    onClick={handleSaveNexus}
+                    disabled={updateNexusMutation.isPending || !nexusApiKey.trim()}
+                    className="gap-2"
+                  >
+                    {updateNexusMutation.isPending ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Key className="h-4 w-4" />
+                        Save API Key
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
             {/* IGDB Card */}
             <Card id="igdb-config">
               <CardHeader>
@@ -883,10 +1274,10 @@ export default function SettingsPage() {
                 <div className="flex justify-end pt-4 border-t">
                   <Button
                     onClick={handleSaveAdvanced}
-                    disabled={updateSettingsMutation.isPending}
+                    disabled={updateAdvancedSettingsMutation.isPending}
                     className="gap-2"
                   >
-                    {updateSettingsMutation.isPending ? (
+                    {updateAdvancedSettingsMutation.isPending ? (
                       <>
                         <RefreshCw className="h-4 w-4 animate-spin" />
                         Saving...
@@ -898,6 +1289,73 @@ export default function SettingsPage() {
                       </>
                     )}
                   </Button>
+                </div>
+              </CardContent>
+            </Card>
+            {/* Discord Webhook Card */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    <Webhook className="h-5 w-5 text-muted-foreground" />
+                    <CardTitle className="text-lg">Discord Webhook</CardTitle>
+                  </div>
+                  {discordSettings?.configured ? (
+                    <Badge
+                      variant="default"
+                      className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
+                    >
+                      Configured
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline">Not configured</Badge>
+                  )}
+                </div>
+                <CardDescription>
+                  Set a Discord webhook URL to share library stats directly to a Discord channel.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="discord-webhook">Webhook URL</Label>
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <Input
+                        id="discord-webhook"
+                        type={showDiscordWebhook ? "text" : "password"}
+                        placeholder={
+                          discordSettings?.configured
+                            ? "Enter new URL to replace existing webhook"
+                            : "https://discord.com/api/webhooks/..."
+                        }
+                        value={discordWebhookUrl}
+                        onChange={(e) => setDiscordWebhookUrl(e.target.value)}
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        aria-label={showDiscordWebhook ? "Hide webhook URL" : "Show webhook URL"}
+                        className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
+                        onClick={() => setShowDiscordWebhook((v) => !v)}
+                      >
+                        {showDiscordWebhook ? (
+                          <EyeOff className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
+                    <Button
+                      onClick={() => updateDiscordMutation.mutate(discordWebhookUrl)}
+                      disabled={updateDiscordMutation.isPending || !discordWebhookUrl.trim()}
+                    >
+                      {updateDiscordMutation.isPending ? "Saving..." : "Save"}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Create a webhook in your Discord server under Channel Settings → Integrations.
+                  </p>
                 </div>
               </CardContent>
             </Card>
@@ -918,6 +1376,33 @@ export default function SettingsPage() {
                 <CardDescription>Application maintenance and data management tasks</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
+                <div className="flex flex-col space-y-2">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <p className="text-sm font-medium">Clear Downloads Cache</p>
+                      <p className="text-xs text-muted-foreground">
+                        Clear cached torrent/NZB search results so the next search fetches fresh
+                        data from all configured indexers.
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        clearSearchCache();
+                        toast({
+                          title: "Downloads Cache Cleared",
+                          description:
+                            "Search results cache has been cleared. New searches will fetch fresh data.",
+                        });
+                      }}
+                      className="gap-2"
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                      Clear Cache
+                    </Button>
+                  </div>
+                </div>
                 <div className="flex flex-col space-y-2">
                   <div className="flex justify-between items-center">
                     <div>
@@ -1156,7 +1641,7 @@ export default function SettingsPage() {
                                     : "Generate Self-Signed Certificate"}
                                 </Button>
                                 {!!certInfo && !certInfo.selfSigned && (
-                                  <p className="text-[10px] text-muted-foreground mt-1">
+                                  <p className="text-xs text-muted-foreground mt-1">
                                     Certificate generation disabled because a non-self-signed
                                     certificate is detected.
                                   </p>
@@ -1229,6 +1714,68 @@ export default function SettingsPage() {
                       </Button>
                     </div>
                   </>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="blacklist" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Ban className="h-5 w-5" />
+                  Blacklisted Releases
+                </CardTitle>
+                <CardDescription>
+                  Releases hidden from search results. They will not appear in game download
+                  searches or be auto-downloaded.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {blacklistLoading ? (
+                  <div className="text-sm text-muted-foreground">Loading...</div>
+                ) : !blacklistEntries || blacklistEntries.length === 0 ? (
+                  <div className="text-sm text-muted-foreground">No blacklisted releases.</div>
+                ) : (
+                  <div className="space-y-4">
+                    {Object.entries(blacklistByGame).map(([gameTitle, entries]) => (
+                      <div key={gameTitle}>
+                        <h4 className="text-sm font-semibold mb-2">{gameTitle}</h4>
+                        <div className="space-y-2">
+                          {entries.map((entry) => (
+                            <div
+                              key={entry.id}
+                              className="flex items-center justify-between rounded-md border p-3"
+                            >
+                              <div className="space-y-1">
+                                <p className="text-sm font-medium leading-none">
+                                  {entry.releaseTitle}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {entry.indexerName ? `${entry.indexerName} · ` : ""}
+                                  {entry.createdAt
+                                    ? new Date(entry.createdAt).toISOString().split("T")[0]
+                                    : ""}
+                                </p>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() =>
+                                  removeBlacklistMutation.mutate({
+                                    gameId: entry.gameId,
+                                    id: entry.id,
+                                  })
+                                }
+                              >
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </CardContent>
             </Card>

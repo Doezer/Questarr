@@ -12,6 +12,7 @@ import {
   User,
   Newspaper,
   Rss,
+  PieChart,
 } from "lucide-react";
 import { useMemo } from "react";
 import {
@@ -29,12 +30,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { useQuery } from "@tanstack/react-query";
 import { type Game, type DownloadStatus } from "@shared/schema";
-import { FaGithub } from "react-icons/fa";
-import pkg from "../../../package.json";
-import semver from "semver";
-import { FaArrowUp } from "react-icons/fa";
-import { useLatestQuestarrVersion } from "@/hooks/use-latest-questarr-version";
 import { useAuth } from "@/lib/auth";
+import { GitHubVersionLink } from "@/components/GitHubVersionLink";
 
 const staticNavigation = [
   {
@@ -77,6 +74,11 @@ const staticNavigation = [
     url: "/rss",
     icon: Rss,
   },
+  {
+    title: "Stats",
+    url: "/stats",
+    icon: PieChart,
+  },
 ];
 
 const management = [
@@ -102,10 +104,7 @@ interface AppSidebarProps {
   onNavigate?: (url: string) => void;
 }
 
-export default function AppSidebar({ activeItem = "/", onNavigate }: AppSidebarProps) {
-  const latestVersion = useLatestQuestarrVersion();
-  const hasNewerVersion =
-    latestVersion && semver.valid(latestVersion) && semver.gt(latestVersion, pkg.version);
+export default function AppSidebar({ activeItem = "/", onNavigate }: Readonly<AppSidebarProps>) {
   const { logout, user } = useAuth();
 
   const handleNavigation = (url: string) => {
@@ -134,7 +133,8 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: AppSidebarP
       { libraryCount: 0, wishlistCount: 0 }
     );
   }, [games]);
-  const activeDownloadsCount = downloadsData?.downloads?.length || 0;
+  const activeDownloadsCount =
+    downloadsData?.downloads?.filter((d) => d.status === "downloading").length || 0;
 
   const navigation = staticNavigation.map((item) => {
     let badge: string | undefined;
@@ -232,26 +232,8 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: AppSidebarP
         {/* Divider above GitHub link */}
         <div className="border-t border-[#374151]/40 mx-2 mb-2" />
         {/* GitHub link and version info at the bottom */}
-        <div className="flex items-center justify-center gap-2 pb-2 text-xs transition-opacity hover:opacity-70 cursor-pointer">
-          <a
-            href="https://github.com/Doezer/Questarr"
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="View on GitHub"
-            className="flex items-center gap-1 text-gray-400 hover:opacity-80 transition-colors"
-          >
-            <span className="flex flex-col justify-center items-center">
-              <FaGithub size={16} />
-              <span className="flex items-center gap-1">
-                <span>Questarr v.{pkg.version}</span>
-              </span>
-              {hasNewerVersion && (
-                <span className="ml-1 text-emerald-500/70">
-                  v{latestVersion} <FaArrowUp className="inline" size={12} />
-                </span>
-              )}
-            </span>
-          </a>
+        <div className="flex items-center justify-center pb-2">
+          <GitHubVersionLink />
         </div>
       </SidebarContent>
 

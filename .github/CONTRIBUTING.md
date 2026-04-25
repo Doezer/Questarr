@@ -12,7 +12,7 @@ Thank you for your interest in contributing to Questarr! We welcome contribution
 6. Commit with clear messages: `git commit -m "Add feature: description"`
 7. Push to your fork: `git push origin feature/your-feature-name`
 8. Open a Pull Request
-Note: do not merge into your own branch if you intend to do a PR
+   Note: do not merge into your own branch if you intend to do a PR
 
 ## Development Guidelines
 
@@ -32,6 +32,7 @@ npm run lint
 # Format code
 npm run format
 ```
+
 ### Code Style
 
 - Follow the existing TypeScript and React patterns in the codebase
@@ -60,13 +61,12 @@ npm run format
 
 ### Installation
 
-
 ## Project Structure
 
 - `/client` - React frontend application
 - `/server` - Express backend application
 - `/shared` - Shared types and schemas
-- 
+-
 
 ## Need Help?
 

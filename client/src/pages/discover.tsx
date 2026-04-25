@@ -5,9 +5,11 @@ import { Loader2, Settings2, AlertCircle } from "lucide-react";
 import GameCarouselSection from "@/components/GameCarouselSection";
 import { type Game, type Config } from "@shared/schema";
 import { type GameStatus } from "@/components/StatusBadge";
+import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { useToast } from "@/hooks/use-toast";
 import { mapGameToInsertGame } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
+import { hideDiscoveryGame } from "@/lib/discover-hidden-mutation";
 import {
   Select,
   SelectContent,
@@ -22,6 +24,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import RssFeedList from "@/components/RssFeedList";
 import RssSettings from "@/components/RssSettings";
 import { Rss } from "lucide-react";
+import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 
 interface Genre {
   id: number;
@@ -60,6 +63,11 @@ const DEFAULT_PLATFORMS: Platform[] = [
 // Cache duration for relatively static data (1 hour)
 const STATIC_DATA_STALE_TIME = 1000 * 60 * 60;
 
+// Client-side stale time for discovery carousel sections.
+// Aligned to the server-side Cache-Control max-age (3600s = 1 hour) so refetches
+// don't happen before the server cache can serve fresh data.
+const DISCOVERY_STALE_TIME = STATIC_DATA_STALE_TIME;
+
 // 🎨 Palette: Custom SelectTrigger that shows a loading spinner.
 const SelectTriggerWithSpinner = ({
   loading,
@@ -78,12 +86,8 @@ export default function DiscoverPage() {
   const [selectedGenre, setSelectedGenre] = useState<string>("Adventure");
   const [selectedPlatform, setSelectedPlatform] = useState<string>("PC");
   const [showSettings, setShowSettings] = useState(false);
-  const [hideOwned, setHideOwned] = useState<boolean>(() => {
-    return localStorage.getItem("discoverHideOwned") === "true";
-  });
-  const [hideWanted, setHideWanted] = useState<boolean>(() => {
-    return localStorage.getItem("discoverHideWanted") === "true";
-  });
+  const [hideOwned, setHideOwned] = useLocalStorageState("discoverHideOwned", false);
+  const [hideWanted, setHideWanted] = useLocalStorageState("discoverHideWanted", false);
 
   // ⚡ Bolt: Using the useDebounce hook to limit the frequency of API calls
   const debouncedGenre = useDebounce(selectedGenre, 300);
@@ -94,14 +98,6 @@ export default function DiscoverPage() {
   const { data: config } = useQuery<Config>({
     queryKey: ["/api/config"],
   });
-
-  useEffect(() => {
-    localStorage.setItem("discoverHideOwned", hideOwned.toString());
-  }, [hideOwned]);
-
-  useEffect(() => {
-    localStorage.setItem("discoverHideWanted", hideWanted.toString());
-  }, [hideWanted]);
 
   // Fetch local games to filter hidden ones
   const { data: localGames = [] } = useQuery<Game[]>({
@@ -267,50 +263,14 @@ export default function DiscoverPage() {
 
   // Hide game mutation
 
-  const hideGameMutation = useMutation({
+  const hideGameMutation = useHiddenMutation<Game>({
     mutationFn: async (game: Game) => {
-      // Check if game exists locally first (use our map for consistency)
-
       const localId = game.igdbId ? igdbToLocalIdMap.get(game.igdbId) : undefined;
-
-      if (localId) {
-        // Update existing game
-
-        const response = await apiRequest("PATCH", `/api/games/${localId}/hidden`, {
-          hidden: true,
-        });
-
-        return response.json();
-      } else {
-        // Add new hidden game
-
-        const gameData = mapGameToInsertGame(game);
-
-        const response = await apiRequest("POST", "/api/games", {
-          ...gameData,
-
-          status: "wanted", // Default status, but hidden
-
-          hidden: true,
-        });
-
-        return response.json();
-      }
+      return hideDiscoveryGame(game, localId);
     },
-
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
-
-      toast({ description: "Game hidden from discovery" });
-    },
-
-    onError: () => {
-      toast({
-        description: "Failed to hide game",
-
-        variant: "destructive",
-      });
-    },
+    hiddenSuccessMessage: "Game hidden from discovery",
+    unhiddenSuccessMessage: "Game unhidden",
+    errorMessage: "Failed to hide game",
   });
 
   // Add game mutation (for status changes on Discovery games)
@@ -537,18 +497,20 @@ export default function DiscoverPage() {
         <Tabs defaultValue="igdb" className="space-y-6">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
-              <h1 className="text-2xl font-bold mb-2">Discover Games</h1>
-              <p className="text-muted-foreground">
+              <h1 className="text-2xl font-bold tracking-tight">Discover</h1>
+              <p className="text-muted-foreground text-sm mt-0.5">
                 Explore popular games, new releases, and find your next adventure
               </p>
             </div>
 
-            <TabsList>
-              <TabsTrigger value="igdb">IGDB Discovery</TabsTrigger>
-              <TabsTrigger value="rss" className="gap-2">
-                <Rss className="h-4 w-4" /> RSS Feeds
-              </TabsTrigger>
-            </TabsList>
+            <div className="flex items-center gap-3 shrink-0">
+              <TabsList>
+                <TabsTrigger value="igdb">IGDB</TabsTrigger>
+                <TabsTrigger value="rss" className="gap-2">
+                  <Rss className="h-4 w-4" /> RSS
+                </TabsTrigger>
+              </TabsList>
+            </div>
           </div>
 
           <TabsContent value="igdb" className="space-y-8">
@@ -580,6 +542,7 @@ export default function DiscoverPage() {
               title="Popular Games"
               queryKey={["/api/igdb/popular", hiddenIgdbIds.size, hideOwned, hideWanted]}
               queryFn={fetchPopularGames}
+              staleTime={DISCOVERY_STALE_TIME}
               onStatusChange={handleStatusChange}
               onTrackGame={handleTrackGame}
               onToggleHidden={handleToggleHidden}
@@ -591,6 +554,7 @@ export default function DiscoverPage() {
               title="Recent Releases"
               queryKey={["/api/igdb/recent", hiddenIgdbIds.size, hideOwned, hideWanted]}
               queryFn={fetchRecentGames}
+              staleTime={DISCOVERY_STALE_TIME}
               onStatusChange={handleStatusChange}
               onTrackGame={handleTrackGame}
               onToggleHidden={handleToggleHidden}
@@ -602,6 +566,7 @@ export default function DiscoverPage() {
               title="Coming Soon"
               queryKey={["/api/igdb/upcoming", hiddenIgdbIds.size, hideOwned, hideWanted]}
               queryFn={fetchUpcomingGames}
+              staleTime={DISCOVERY_STALE_TIME}
               onStatusChange={handleStatusChange}
               onTrackGame={handleTrackGame}
               onToggleHidden={handleToggleHidden}
@@ -639,6 +604,7 @@ export default function DiscoverPage() {
                   hideWanted,
                 ]}
                 queryFn={fetchGamesByGenre}
+                staleTime={DISCOVERY_STALE_TIME}
                 onStatusChange={handleStatusChange}
                 onTrackGame={handleTrackGame}
                 onToggleHidden={handleToggleHidden}
@@ -677,6 +643,7 @@ export default function DiscoverPage() {
                   hideWanted,
                 ]}
                 queryFn={fetchGamesByPlatform}
+                staleTime={DISCOVERY_STALE_TIME}
                 onStatusChange={handleStatusChange}
                 onTrackGame={handleTrackGame}
                 onToggleHidden={handleToggleHidden}

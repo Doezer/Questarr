@@ -140,14 +140,14 @@ class NewznabClient {
 
         for (const item of items) {
           // Extract Newznab attributes
-          const attrs = item["newznab:attr"] || [];
+          // fast-xml-parser returns a single element as an object, multiple as an array
+          const attrsRaw = item["newznab:attr"];
+          const attrsArray = Array.isArray(attrsRaw) ? attrsRaw : attrsRaw ? [attrsRaw] : [];
           const attrMap = new Map<string, string>();
 
-          if (Array.isArray(attrs)) {
-            for (const attr of attrs) {
-              if (attr["@_name"] && attr["@_value"]) {
-                attrMap.set(attr["@_name"], attr["@_value"]);
-              }
+          for (const attr of attrsArray) {
+            if (attr["@_name"] && attr["@_value"]) {
+              attrMap.set(attr["@_name"], attr["@_value"]);
             }
           }
 

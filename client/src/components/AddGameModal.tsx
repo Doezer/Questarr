@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import React, { useState, useEffect } from "react";
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import {
   Dialog,
   DialogContent,
@@ -12,12 +12,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { Search, Plus, Star, AlertCircle } from "lucide-react";
+import { Search, Plus, Star, AlertCircle, Calendar } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { type Game, type InsertGame, type Config } from "@shared/schema";
 import { mapGameToInsertGame } from "@/lib/utils";
 import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
+import { getAddGamePendingQuery, clearAddGamePendingQuery } from "@/lib/add-game-store";
 
 interface SearchResult extends Game {
   inCollection?: boolean;
@@ -25,9 +26,10 @@ interface SearchResult extends Game {
 
 interface AddGameModalProps {
   children: React.ReactNode;
+  initialQuery?: string;
 }
 
-export default function AddGameModal({ children }: AddGameModalProps) {
+export default function AddGameModal({ children, initialQuery }: AddGameModalProps) {
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -47,6 +49,22 @@ export default function AddGameModal({ children }: AddGameModalProps) {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
+  // Pre-fill search when modal opens (from prop or from the dashboard store)
+  useEffect(() => {
+    if (open) {
+      const fromStore = getAddGamePendingQuery();
+      const queryToUse = initialQuery ?? (fromStore || "");
+      if (queryToUse) {
+        setSearchQuery(queryToUse);
+        setDebouncedQuery(queryToUse);
+        clearAddGamePendingQuery();
+      }
+    } else {
+      setSearchQuery("");
+      setDebouncedQuery("");
+    }
+  }, [open, initialQuery]);
+
   // Search IGDB for games
   const { data: searchResults = [], isLoading: isSearching } = useQuery({
     queryKey: ["/api/igdb/search", debouncedQuery],
@@ -65,6 +83,7 @@ export default function AddGameModal({ children }: AddGameModalProps) {
       return response.json();
     },
     enabled: debouncedQuery.trim().length > 2 && !!config?.igdb.configured,
+    placeholderData: keepPreviousData,
   });
 
   // Get user's collection to check if games are already added
@@ -167,7 +186,7 @@ export default function AddGameModal({ children }: AddGameModalProps) {
               </Button>
             </form>
 
-            <div className="space-y-4">
+            <div className="space-y-4" aria-live="polite">
               {isSearching && (
                 <div className="text-center py-8 text-muted-foreground">Searching games...</div>
               )}
@@ -200,6 +219,18 @@ export default function AddGameModal({ children }: AddGameModalProps) {
                             {game.title}
                           </h3>
                           <div className="flex items-center gap-2 flex-shrink-0">
+                            {game.releaseDate && (
+                              <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                                <Calendar className="w-3 h-3" />
+                                {game.releaseDate.endsWith("-12-31")
+                                  ? new Date(game.releaseDate).getFullYear()
+                                  : new Date(game.releaseDate).toLocaleDateString(undefined, {
+                                      year: "numeric",
+                                      month: "short",
+                                      day: "numeric",
+                                    })}
+                              </div>
+                            )}
                             {game.rating && (
                               <div className="flex items-center gap-1 text-sm text-muted-foreground">
                                 <Star className="w-3 h-3 text-accent" />
@@ -242,6 +273,7 @@ export default function AddGameModal({ children }: AddGameModalProps) {
                               onClick={() => handleAddGame(game)}
                               disabled={addGameMutation.isPending}
                               data-testid={`button-add-${game.id}`}
+                              aria-label={`Add ${game.title} to collection`}
                             >
                               <Plus className="w-4 h-4 mr-1" />
                               Add

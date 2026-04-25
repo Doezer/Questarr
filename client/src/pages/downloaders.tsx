@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { asZodType, cn, compareEnabledPriorityName } from "@/lib/utils";
@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
+import { RequiredFormLabel } from "@/components/ui/required-form-label";
 import {
   Select,
   SelectContent,
@@ -51,6 +52,61 @@ const downloaderTypes = [
  */
 function isUsenetDownloader(type: string): boolean {
   return ["sabnzbd", "nzbget"].includes(type);
+}
+
+function PriorityControl({
+  id,
+  priority,
+  onSave,
+}: {
+  id: string;
+  priority: number;
+  onSave: (id: string, priority: number) => void;
+}) {
+  const [value, setValue] = useState(priority);
+
+  useEffect(() => {
+    setValue(priority);
+  }, [priority]);
+
+  const save = (next: number) => {
+    const clamped = Math.max(1, Math.min(100, next));
+    if (clamped !== priority) onSave(id, clamped);
+    setValue(clamped);
+  };
+
+  return (
+    <div className="flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold">
+      <span className="text-muted-foreground">Priority</span>
+      <button
+        type="button"
+        className="text-muted-foreground hover:text-foreground w-3.5 text-center leading-none"
+        onClick={() => save(value - 1)}
+        aria-label="Decrease priority"
+      >
+        −
+      </button>
+      <input
+        type="number"
+        min={1}
+        max={100}
+        value={value}
+        onChange={(e) => setValue(parseInt(e.target.value) || 1)}
+        onBlur={(e) => save(parseInt(e.target.value) || 1)}
+        onKeyDown={(e) => e.key === "Enter" && save(value)}
+        className="w-7 bg-transparent text-center outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+        aria-label="Priority value"
+      />
+      <button
+        type="button"
+        className="text-muted-foreground hover:text-foreground w-3.5 text-center leading-none"
+        onClick={() => save(value + 1)}
+        aria-label="Increase priority"
+      >
+        +
+      </button>
+    </div>
+  );
 }
 
 export default function DownloadersPage() {
@@ -154,6 +210,26 @@ export default function DownloadersPage() {
         body: JSON.stringify({ enabled }),
       });
       if (!response.ok) throw new Error("Failed to toggle downloader");
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/downloaders"] });
+    },
+  });
+
+  const updatePriorityMutation = useMutation({
+    mutationFn: async ({ id, priority }: { id: string; priority: number }) => {
+      const token = localStorage.getItem("token");
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+      const response = await fetch(`/api/downloaders/${id}`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ priority }),
+      });
+      if (!response.ok) throw new Error("Failed to update priority");
       return response.json();
     },
     onSuccess: () => {
@@ -295,7 +371,7 @@ export default function DownloadersPage() {
 
   if (isLoading) {
     return (
-      <div className="p-8">
+      <div className="p-6">
         <div className="flex items-center space-x-2">
           <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
           <span>Loading downloaders...</span>
@@ -305,11 +381,11 @@ export default function DownloadersPage() {
   }
 
   return (
-    <div className="h-full overflow-auto p-8">
-      <div className="flex justify-between items-center mb-8">
+    <div className="h-full overflow-auto p-6">
+      <div className="flex justify-between items-center mb-6">
         <div>
-          <h1 className="text-3xl font-bold">Downloaders</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-2xl font-bold tracking-tight">Downloaders</h1>
+          <p className="text-muted-foreground text-sm mt-0.5">
             Manage download clients for automated downloads. Downloads are sent to enabled clients
             in priority order (lowest number first), with automatic fallback if a client fails.
           </p>
@@ -360,7 +436,11 @@ export default function DownloadersPage() {
                         </>
                       )}
                     </Badge>
-                    <Badge variant="outline">Priority {downloader.priority}</Badge>
+                    <PriorityControl
+                      id={downloader.id}
+                      priority={downloader.priority}
+                      onSave={(id, priority) => updatePriorityMutation.mutate({ id, priority })}
+                    />
                   </div>
                   <div className="flex items-center space-x-2">
                     <Button
@@ -369,6 +449,7 @@ export default function DownloadersPage() {
                       onClick={() => testConnectionMutation.mutate({ id: downloader.id })}
                       disabled={testingDownloaderId === downloader.id}
                       title="Test connection"
+                      aria-label={`Test connection for ${downloader.name}`}
                       data-testid={`button-test-downloader-${downloader.id}`}
                     >
                       <Activity className="h-4 w-4" />
@@ -384,6 +465,7 @@ export default function DownloadersPage() {
                       variant="outline"
                       size="icon"
                       onClick={() => handleEdit(downloader)}
+                      aria-label={`Edit ${downloader.name}`}
                       data-testid={`button-edit-downloader-${downloader.id}`}
                     >
                       <Edit className="h-4 w-4" />
@@ -392,6 +474,7 @@ export default function DownloadersPage() {
                       variant="outline"
                       size="icon"
                       onClick={() => deleteMutation.mutate(downloader.id)}
+                      aria-label={`Delete ${downloader.name}`}
                       data-testid={`button-delete-downloader-${downloader.id}`}
                     >
                       <Trash2 className="h-4 w-4" />
@@ -404,7 +487,7 @@ export default function DownloadersPage() {
               </CardHeader>
               <CardContent>
                 <div className="flex flex-wrap gap-2">
-                  {downloader.downloadPath && (
+                  {!isUsenetDownloader(downloader.type) && downloader.downloadPath && (
                     <Badge variant="outline">Path: {downloader.downloadPath}</Badge>
                   )}
                   {downloader.category && (
@@ -424,6 +507,11 @@ export default function DownloadersPage() {
                 include Transmission, rTorrent, qBittorrent, SABnzbd, and NZBGet.
               </CardDescription>
             </CardHeader>
+            <CardContent>
+              <Button onClick={handleAdd} data-testid="button-add-downloader-empty">
+                Add Downloader
+              </Button>
+            </CardContent>
           </Card>
         )}
       </div>
@@ -442,18 +530,20 @@ export default function DownloadersPage() {
               className="flex flex-col gap-4 overflow-hidden"
             >
               <div className="overflow-y-auto px-1 space-y-3 max-h-[calc(90vh-12rem)]">
+                <p className="text-sm text-muted-foreground">Fields marked * are required.</p>
                 <FormField
                   control={form.control}
                   name="name"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Name</FormLabel>
+                      <RequiredFormLabel required>Name</RequiredFormLabel>
                       <FormControl>
                         <Input
                           placeholder={
                             downloaderTypes.find((t) => t.value === form.watch("type"))?.label ??
                             "Downloader"
                           }
+                          required
                           {...field}
                           data-testid="input-downloader-name"
                         />
@@ -467,10 +557,10 @@ export default function DownloadersPage() {
                   name="type"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Type</FormLabel>
+                      <RequiredFormLabel required>Type</RequiredFormLabel>
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
-                          <SelectTrigger data-testid="select-downloader-type">
+                          <SelectTrigger aria-required="true" data-testid="select-downloader-type">
                             <SelectValue placeholder="Select client type" />
                           </SelectTrigger>
                         </FormControl>
@@ -491,10 +581,11 @@ export default function DownloadersPage() {
                   name="url"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Host</FormLabel>
+                      <RequiredFormLabel required>Host</RequiredFormLabel>
                       <FormControl>
                         <Input
                           placeholder="http://localhost or https://192.168.1.100"
+                          required
                           {...field}
                           data-testid="input-downloader-url"
                         />
@@ -599,7 +690,7 @@ export default function DownloadersPage() {
                   name="username"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>
+                      <RequiredFormLabel required={form.watch("type") === "sabnzbd"}>
                         {form.watch("type") === "sabnzbd"
                           ? "API Key"
                           : form.watch("type") === "qbittorrent" ||
@@ -607,7 +698,7 @@ export default function DownloadersPage() {
                               form.watch("type") === "nzbget"
                             ? "Username"
                             : "Username (Optional)"}
-                      </FormLabel>
+                      </RequiredFormLabel>
                       <FormControl>
                         <Input
                           placeholder={
@@ -615,6 +706,7 @@ export default function DownloadersPage() {
                               ? "Enter SABnzbd API key"
                               : "Enter username"
                           }
+                          required={form.watch("type") === "sabnzbd"}
                           {...field}
                           value={field.value || ""}
                           data-testid="input-downloader-username"
@@ -622,7 +714,14 @@ export default function DownloadersPage() {
                       </FormControl>
                       {form.watch("type") === "sabnzbd" && (
                         <FormDescription className="text-xs">
-                          Found in SABnzbd Config → General → API Key
+                          Required. Found in SABnzbd Config → General → API Key.
+                        </FormDescription>
+                      )}
+                      {(form.watch("type") === "qbittorrent" ||
+                        form.watch("type") === "transmission" ||
+                        form.watch("type") === "nzbget") && (
+                        <FormDescription className="text-xs">
+                          Only required if this client&apos;s web UI uses authentication.
                         </FormDescription>
                       )}
                       <FormMessage />
@@ -634,13 +733,13 @@ export default function DownloadersPage() {
                   name="password"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>
+                      <RequiredFormLabel>
                         {form.watch("type") === "qbittorrent" ||
                         form.watch("type") === "transmission" ||
                         form.watch("type") === "nzbget"
                           ? "Password"
                           : "Password (Optional)"}
-                      </FormLabel>
+                      </RequiredFormLabel>
                       <FormControl>
                         <Input
                           type="password"
@@ -650,28 +749,37 @@ export default function DownloadersPage() {
                           data-testid="input-downloader-password"
                         />
                       </FormControl>
+                      {(form.watch("type") === "qbittorrent" ||
+                        form.watch("type") === "transmission" ||
+                        form.watch("type") === "nzbget") && (
+                        <FormDescription className="text-xs">
+                          Only required if this client&apos;s web UI uses authentication.
+                        </FormDescription>
+                      )}
                       <FormMessage />
                     </FormItem>
                   )}
                 />
-                <FormField
-                  control={form.control}
-                  name="downloadPath"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Download Path (Optional)</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder="/home/downloads/games"
-                          {...field}
-                          value={field.value || ""}
-                          data-testid="input-downloader-path"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                {!isUsenetDownloader(form.watch("type")) && (
+                  <FormField
+                    control={form.control}
+                    name="downloadPath"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Download Path (Optional)</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder="/home/downloads/games"
+                            {...field}
+                            value={field.value || ""}
+                            data-testid="input-downloader-path"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
                 <FormField
                   control={form.control}
                   name="category"
@@ -692,7 +800,7 @@ export default function DownloadersPage() {
                           : form.watch("type") === "transmission"
                             ? "Creates a subdirectory in the output directory. Label for downloads in downloader"
                             : form.watch("type") === "sabnzbd" || form.watch("type") === "nzbget"
-                              ? "Category for NZBs in downloader"
+                              ? "Category for NZBs in downloader (path is managed by category settings)"
                               : "Label for downloads in downloader"}
                       </FormDescription>
                       <FormMessage />
@@ -891,16 +999,14 @@ export default function DownloadersPage() {
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => {
-                    const formData = form.getValues();
-
-                    if (editingDownloader) {
-                      // Test existing downloader
-                      testConnectionMutation.mutate({ id: editingDownloader.id });
-                    } else {
-                      // Test with form data for new downloader
-                      testConnectionMutation.mutate({ formData });
+                  onClick={async () => {
+                    const isValid = await form.trigger();
+                    if (!isValid) {
+                      return;
                     }
+
+                    const formData = form.getValues();
+                    testConnectionMutation.mutate({ formData });
                   }}
                   disabled={testingDownloaderId !== null}
                   data-testid="button-test-connection-dialog"

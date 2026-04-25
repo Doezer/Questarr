@@ -7,7 +7,15 @@ vi.mock("../db.js", () => ({
 }));
 
 // Import after mocking
-import type { InsertGame, InsertUser, InsertIndexer, InsertDownloader } from "../../shared/schema";
+import type {
+  InsertGame,
+  InsertUser,
+  InsertIndexer,
+  InsertDownloader,
+  InsertGameDownload,
+  InsertUserSettings,
+  InsertReleaseBlacklist,
+} from "../../shared/schema";
 import type { MemStorage as MemStorageType } from "../storage.js";
 
 // Mock native modules to prevent loading
@@ -155,12 +163,80 @@ describe("MemStorage", () => {
       expect(retrieved).toBeUndefined();
     });
 
+    it("should filter games by status", async () => {
+      await storage.addGame({
+        title: "G1",
+        status: "wanted",
+        userId: "u1",
+        igdbId: 1,
+        hidden: false,
+      });
+      await storage.addGame({
+        title: "G2",
+        status: "owned",
+        userId: "u1",
+        igdbId: 2,
+        hidden: false,
+      });
+      await storage.addGame({
+        title: "G3",
+        status: "completed",
+        userId: "u1",
+        igdbId: 3,
+        hidden: false,
+      });
+
+      const wanted = await storage.getUserGames("u1", false, ["wanted"]);
+      expect(wanted).toHaveLength(1);
+      expect(wanted[0].status).toBe("wanted");
+
+      const multiple = await storage.getUserGames("u1", false, ["owned", "completed"]);
+      expect(multiple).toHaveLength(2);
+    });
+
     it("should return null/false when updating/removing non-existent game", async () => {
       const updated = await storage.updateGameStatus("fake-id", { status: "downloading" });
       expect(updated).toBeUndefined(); // MemStorage returns undefined for not found
 
       const removed = await storage.removeGame("fake-id");
       expect(removed).toBe(false);
+    });
+
+    it("should set and update user rating", async () => {
+      const game = await storage.addGame({
+        title: "Rated Game",
+        igdbId: 99,
+        status: "owned",
+        userId: "user-1",
+        hidden: false,
+      });
+
+      const withRating = await storage.updateGameUserRating(game.id, "user-1", 8);
+      expect(withRating?.userRating).toBe(8);
+
+      const withHalf = await storage.updateGameUserRating(game.id, "user-1", 7.5);
+      expect(withHalf?.userRating).toBe(7.5);
+
+      const retrieved = await storage.getGame(game.id);
+      expect(retrieved?.userRating).toBe(7.5);
+    });
+
+    it("should clear user rating with null", async () => {
+      const game = await storage.addGame({
+        title: "Clear Rating Game",
+        igdbId: 100,
+        status: "owned",
+        userId: "user-1",
+        hidden: false,
+      });
+      await storage.updateGameUserRating(game.id, "user-1", 6);
+      const cleared = await storage.updateGameUserRating(game.id, "user-1", null);
+      expect(cleared?.userRating).toBeNull();
+    });
+
+    it("should return undefined when updating user rating for non-existent game", async () => {
+      const result = await storage.updateGameUserRating("no-such-id", "user-1", 5);
+      expect(result).toBeUndefined();
     });
   });
 
@@ -223,6 +299,321 @@ describe("MemStorage", () => {
     it("should return undefined for missing config", async () => {
       const value = await storage.getSystemConfig("missing.key");
       expect(value).toBeUndefined();
+    });
+  });
+  describe("User Settings Management", () => {
+    it("should create and update user settings", async () => {
+      // First create a user
+      const user = await storage.createUser({
+        username: "settingsuser",
+        passwordHash: "hash",
+      });
+
+      const settingsData: InsertUserSettings = {
+        userId: user.id,
+        autoSearchEnabled: true,
+        autoSearchUnreleased: true, // Test new field
+      };
+
+      const settings = await storage.createUserSettings(settingsData);
+      expect(settings.userId).toBe(user.id);
+      expect(settings.autoSearchEnabled).toBe(true);
+      expect(settings.autoSearchUnreleased).toBe(true);
+
+      // Test update
+      const updated = await storage.updateUserSettings(user.id, {
+        autoSearchUnreleased: false,
+      });
+
+      expect(updated?.autoSearchUnreleased).toBe(false);
+      expect(updated?.autoSearchEnabled).toBe(true); // Should remain unchanged
+    });
+
+    it("should use default values for new settings", async () => {
+      // First create a user
+      const user = await storage.createUser({
+        username: "defaultuser",
+        passwordHash: "hash",
+      });
+
+      const settings = await storage.createUserSettings({
+        userId: user.id,
+      });
+
+      expect(settings.autoSearchUnreleased).toBe(false); // Default is false
+      expect(settings.autoSearchEnabled).toBe(true); // Default is true
+    });
+
+    it("should persist and retrieve preferredPlatform", async () => {
+      const user = await storage.createUser({
+        username: "platformuser",
+        passwordHash: "hash",
+      });
+
+      const settings = await storage.createUserSettings({
+        userId: user.id,
+        preferredPlatform: "PS5",
+      });
+
+      expect(settings.preferredPlatform).toBe("PS5");
+
+      const updated = await storage.updateUserSettings(user.id, { preferredPlatform: "Switch" });
+      expect(updated?.preferredPlatform).toBe("Switch");
+
+      const cleared = await storage.updateUserSettings(user.id, { preferredPlatform: null });
+      expect(cleared?.preferredPlatform).toBeNull();
+    });
+  });
+
+  describe("Release Blacklist Management", () => {
+    const userId = "bl-user-1";
+    let gameId: string;
+
+    beforeEach(async () => {
+      const game = await storage.addGame({
+        title: "Blacklist Game",
+        igdbId: 9001,
+        status: "wanted",
+        hidden: null,
+        userId,
+      } as InsertGame);
+      gameId = game.id;
+    });
+
+    it("should add a release to the blacklist", async () => {
+      const entry = await storage.addReleaseBlacklist({ gameId, releaseTitle: "Game-SKIDROW" });
+      expect(entry.gameId).toBe(gameId);
+      expect(entry.releaseTitle).toBe("Game-SKIDROW");
+      expect(entry.id).toBeDefined();
+    });
+
+    it("should return existing entry on duplicate add", async () => {
+      const first = await storage.addReleaseBlacklist({ gameId, releaseTitle: "Game-SKIDROW" });
+      const second = await storage.addReleaseBlacklist({ gameId, releaseTitle: "Game-SKIDROW" });
+      expect(second.id).toBe(first.id);
+    });
+
+    it("should list blacklist entries for a game", async () => {
+      await storage.addReleaseBlacklist({ gameId, releaseTitle: "Game-SKIDROW" });
+      await storage.addReleaseBlacklist({ gameId, releaseTitle: "Game-CODEX" });
+      const entries = await storage.getReleaseBlacklist(gameId);
+      expect(entries).toHaveLength(2);
+      expect(entries.map((e) => e.releaseTitle)).toContain("Game-SKIDROW");
+      expect(entries.map((e) => e.releaseTitle)).toContain("Game-CODEX");
+    });
+
+    it("should return all blacklist entries with game titles for a user", async () => {
+      await storage.addReleaseBlacklist({ gameId, releaseTitle: "Game-SKIDROW" });
+      const all = await storage.getAllReleaseBlacklists(userId);
+      expect(all).toHaveLength(1);
+      expect(all[0].gameTitle).toBe("Blacklist Game");
+      expect(all[0].releaseTitle).toBe("Game-SKIDROW");
+    });
+
+    it("should not return entries from other users' games", async () => {
+      await storage.addReleaseBlacklist({ gameId, releaseTitle: "Game-SKIDROW" });
+      const others = await storage.getAllReleaseBlacklists("other-user");
+      expect(others).toHaveLength(0);
+    });
+
+    it("should remove a blacklist entry and return true", async () => {
+      const entry = await storage.addReleaseBlacklist({ gameId, releaseTitle: "Game-SKIDROW" });
+      const removed = await storage.removeReleaseBlacklist(entry.id, gameId);
+      expect(removed).toBe(true);
+      const remaining = await storage.getReleaseBlacklist(gameId);
+      expect(remaining).toHaveLength(0);
+    });
+
+    it("should return false when removing a non-existent entry", async () => {
+      const result = await storage.removeReleaseBlacklist("nonexistent-id", gameId);
+      expect(result).toBe(false);
+    });
+
+    it("should return a Set of release titles for a game", async () => {
+      await storage.addReleaseBlacklist({ gameId, releaseTitle: "Game-SKIDROW" });
+      await storage.addReleaseBlacklist({ gameId, releaseTitle: "Game-CODEX" });
+      const set = await storage.getReleaseBlacklistSet(gameId);
+      expect(set).toBeInstanceOf(Set);
+      expect(set.has("Game-SKIDROW")).toBe(true);
+      expect(set.has("Game-CODEX")).toBe(true);
+      expect(set.size).toBe(2);
+    });
+
+    it("should return an empty Set for a game with no blacklist entries", async () => {
+      const set = await storage.getReleaseBlacklistSet(gameId);
+      expect(set).toBeInstanceOf(Set);
+      expect(set.size).toBe(0);
+    });
+
+    it("should store and return indexerName when provided", async () => {
+      const entry = await storage.addReleaseBlacklist({
+        gameId,
+        releaseTitle: "Game-SKIDROW",
+        indexerName: "1337x",
+      });
+      expect(entry.indexerName).toBe("1337x");
+    });
+
+    it("should sort getAllReleaseBlacklists by gameTitle then newest first", async () => {
+      const gameB = await storage.addGame({
+        title: "Zebra Game",
+        igdbId: 9002,
+        status: "wanted",
+        hidden: null,
+        userId,
+      } as InsertGame);
+
+      await storage.addReleaseBlacklist({ gameId, releaseTitle: "Blacklist-1" });
+      await storage.addReleaseBlacklist({ gameId, releaseTitle: "Blacklist-2" });
+      await storage.addReleaseBlacklist({ gameId: gameB.id, releaseTitle: "Zebra-1" });
+
+      const all = await storage.getAllReleaseBlacklists(userId);
+      expect(all).toHaveLength(3);
+      // "Blacklist Game" entries precede "Zebra Game" (alphabetical)
+      expect(all[0].gameTitle).toBe("Blacklist Game");
+      expect(all[1].gameTitle).toBe("Blacklist Game");
+      expect(all[2].gameTitle).toBe("Zebra Game");
+      // Both "Blacklist Game" entries are present (order within same title is stable by creation)
+      const blTitles = [all[0].releaseTitle, all[1].releaseTitle];
+      expect(blTitles).toContain("Blacklist-1");
+      expect(blTitles).toContain("Blacklist-2");
+    });
+  });
+
+  describe("getDownloadsByGameId", () => {
+    let userId: string;
+    let gameId: string;
+    let downloaderId: string;
+
+    beforeEach(async () => {
+      const user = await storage.registerSetupUser({
+        username: "dluser",
+        passwordHash: "hash",
+      });
+      userId = user.id;
+
+      const game = await storage.addGame({
+        title: "Download Game",
+        igdbId: 5000,
+        status: "wanted",
+        hidden: false,
+        userId,
+      } as InsertGame);
+      gameId = game.id;
+
+      const downloader = await storage.addDownloader({
+        name: "qBit",
+        type: "qbittorrent",
+        url: "http://localhost:8080",
+        apiKey: "",
+        enabled: true,
+        priority: 1,
+      } as InsertDownloader);
+      downloaderId = downloader.id;
+    });
+
+    it("returns empty array when game has no downloads", async () => {
+      const downloads = await storage.getDownloadsByGameId(gameId);
+      expect(downloads).toEqual([]);
+    });
+
+    it("returns downloads for the given game with downloaderName joined", async () => {
+      await storage.addGameDownload({
+        gameId,
+        downloaderId,
+        downloadHash: "abc123",
+        downloadTitle: "Download Game-SKIDROW",
+        status: "downloading",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+
+      const downloads = await storage.getDownloadsByGameId(gameId);
+      expect(downloads).toHaveLength(1);
+      expect(downloads[0].gameId).toBe(gameId);
+      expect(downloads[0].downloaderName).toBe("qBit");
+    });
+
+    it("only returns downloads belonging to the specified game", async () => {
+      const otherGame = await storage.addGame({
+        title: "Other Game",
+        igdbId: 5001,
+        status: "wanted",
+        hidden: false,
+        userId,
+      } as InsertGame);
+
+      await storage.addGameDownload({
+        gameId,
+        downloaderId,
+        downloadHash: "hash-target",
+        downloadTitle: "Target-GROUP",
+        status: "downloading",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+      await storage.addGameDownload({
+        gameId: otherGame.id,
+        downloaderId,
+        downloadHash: "hash-other",
+        downloadTitle: "Other-GROUP",
+        status: "downloading",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+
+      const downloads = await storage.getDownloadsByGameId(gameId);
+      expect(downloads).toHaveLength(1);
+      expect(downloads[0].downloadHash).toBe("hash-target");
+    });
+
+    it("sets downloaderName to null when downloader no longer exists", async () => {
+      await storage.addGameDownload({
+        gameId,
+        downloaderId: "nonexistent-downloader",
+        downloadHash: "xyz",
+        downloadTitle: "Orphan-GROUP",
+        status: "downloading",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+
+      const downloads = await storage.getDownloadsByGameId(gameId);
+      expect(downloads).toHaveLength(1);
+      expect(downloads[0].downloaderName).toBeNull();
+    });
+
+    describe("getTrackedDownloadKeys", () => {
+      it("returns an empty set when there are no game downloads", async () => {
+        const keys = await storage.getTrackedDownloadKeys();
+        expect(keys.size).toBe(0);
+      });
+
+      it("returns a key for each game download as downloaderId:downloadHash", async () => {
+        await storage.addGameDownload({
+          gameId,
+          downloaderId,
+          downloadHash: "hash-a",
+          downloadTitle: "Game A-GROUP",
+          status: "downloading",
+          downloadType: "torrent",
+          fileSize: null,
+        } as InsertGameDownload);
+        await storage.addGameDownload({
+          gameId,
+          downloaderId,
+          downloadHash: "hash-b",
+          downloadTitle: "Game B-GROUP",
+          status: "completed",
+          downloadType: "torrent",
+          fileSize: null,
+        } as InsertGameDownload);
+
+        const keys = await storage.getTrackedDownloadKeys();
+        expect(keys.has(`${downloaderId}:hash-a`)).toBe(true);
+        expect(keys.has(`${downloaderId}:hash-b`)).toBe(true);
+        expect(keys.size).toBe(2);
+      });
     });
   });
 });

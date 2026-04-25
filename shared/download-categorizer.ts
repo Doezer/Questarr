@@ -13,14 +13,7 @@ export interface CategorizedDownload {
 }
 
 // Patterns for different download types
-const UPDATE_PATTERNS = [
-  /\bupdate\b/i,
-  /\bpatch\b/i,
-  /\bhotfix\b/i,
-  /\bv?\d+\.\d+(\.\d+)?\.?\d*\b/i, // Version numbers like v1.2, 1.2.3, etc.
-  /\bcrackfix\b/i,
-  /\bfix\b/i,
-];
+const UPDATE_PATTERNS = [/\bupdate\b/i, /\bpatch\b/i, /\bhotfix\b/i, /\bcrackfix\b/i, /\bfix\b/i];
 
 const DLC_PATTERNS = [
   /\bDLC\b/i,
@@ -114,21 +107,5 @@ export function getCategoryLabel(category: DownloadCategory): string {
       return "DLC & Expansions";
     case "extra":
       return "Extras";
-  }
-}
-
-/**
- * Gets a description for a category
- */
-export function getCategoryDescription(category: DownloadCategory): string {
-  switch (category) {
-    case "main":
-      return "Full game downloads";
-    case "update":
-      return "Game updates, patches, hotfixes, and crackfixes";
-    case "dlc":
-      return "Downloadable content, expansions, and season passes";
-    case "extra":
-      return "Soundtracks, artbooks, and other bonus content";
   }
 }

@@ -99,6 +99,7 @@ describe("/api/downloads endpoint", () => {
               peersGettingFromUs: 5,
               uploadRatio: 1.5,
               errorString: "",
+              labels: ["games"], // matches the downloader's configured category
             },
           ],
         },
@@ -215,6 +216,7 @@ describe("/api/downloads endpoint", () => {
               peersGettingFromUs: 5,
               uploadRatio: 1.5,
               errorString: "",
+              labels: ["games"], // matches the downloader's configured category
             },
           ],
         },

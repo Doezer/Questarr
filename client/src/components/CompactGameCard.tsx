@@ -1,16 +1,23 @@
-import React, { memo, useState, useEffect } from "react";
+import React, { memo, useState, useEffect, lazy, Suspense } from "react";
 import { Button } from "@/components/ui/button";
 import { Download, Info, Star, Calendar, Eye, EyeOff, Loader2 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import StatusBadge, { type GameStatus } from "./StatusBadge";
-import { type Game } from "@shared/schema";
+import { type Game, type DownloadSummary } from "@shared/schema";
+import DownloadIndicator from "./DownloadIndicator";
+import SearchResultsBadge from "./SearchResultsBadge";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import GameDetailsModal from "./GameDetailsModal";
-import GameDownloadDialog from "./GameDownloadDialog";
 import { mapGameToInsertGame, isDiscoveryId, cn } from "@/lib/utils";
 import { apiRequest, ApiError } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import LazyModalFallback from "./LazyModalFallback";
+import { getReleaseStatus } from "@/lib/game-utils";
+
+// ⚡ Bolt: Lazy load heavy modal components to reduce initial bundle size.
+// These are only needed when the user interacts with the card.
+const GameDetailsModal = lazy(() => import("./GameDetailsModal"));
+const GameDownloadDialog = lazy(() => import("./GameDownloadDialog"));
 
 interface CompactGameCardProps {
   game: Game;
@@ -19,32 +26,7 @@ interface CompactGameCardProps {
   onToggleHidden?: (gameId: string, hidden: boolean) => void;
   isDiscovery?: boolean;
   density?: "comfortable" | "compact" | "ultra-compact";
-}
-
-function getReleaseStatus(game: Game): {
-  label: string;
-  variant: "default" | "secondary" | "outline" | "destructive";
-  isReleased: boolean;
-  className?: string;
-} {
-  if (game.releaseStatus === "delayed") {
-    return { label: "Delayed", variant: "destructive", isReleased: false };
-  }
-
-  if (!game.releaseDate) return { label: "TBA", variant: "secondary", isReleased: false };
-
-  const now = new Date();
-  const release = new Date(game.releaseDate);
-
-  if (release > now) {
-    return { label: "Upcoming", variant: "default", isReleased: false };
-  }
-  return {
-    label: "Released",
-    variant: "outline",
-    isReleased: true,
-    className: "bg-green-500 border-green-600 text-white",
-  };
+  downloadSummary?: DownloadSummary;
 }
 
 const getNextStatusInfo = (status: GameStatus): { id: GameStatus; label: string } => {
@@ -60,6 +42,7 @@ const CompactGameCard = ({
   onToggleHidden,
   isDiscovery = false,
   density = "comfortable",
+  downloadSummary,
 }: CompactGameCardProps) => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -188,11 +171,13 @@ const CompactGameCard = ({
             >
               {game.title}
             </h3>
+            <DownloadIndicator summary={downloadSummary} variant="inline" />
             {!isDiscovery && game.status && (
               <div className={density !== "comfortable" ? "scale-90 origin-left" : ""}>
                 <StatusBadge status={game.status} />
               </div>
             )}
+            <SearchResultsBadge visible={game.searchResultsAvailable ?? false} variant="inline" />
           </div>
 
           <div
@@ -217,9 +202,16 @@ const CompactGameCard = ({
             {game.status === "wanted" && (
               <Badge
                 variant={releaseStatus.variant}
-                className={`text-[10px] h-5 px-1.5 ${releaseStatus.className || ""}`}
+                className={`text-xs h-5 px-1.5 ${releaseStatus.className || ""}`}
               >
                 {releaseStatus.label}
+              </Badge>
+            )}
+
+            {/* Early Access Badge */}
+            {game.earlyAccess && (
+              <Badge className="text-xs h-5 px-1.5 bg-amber-500 border-amber-600 text-white">
+                Early Access
               </Badge>
             )}
 
@@ -228,7 +220,7 @@ const CompactGameCard = ({
               <Badge
                 variant="secondary"
                 className={cn(
-                  "text-[10px] h-5 px-1.5 bg-gray-500 text-white",
+                  "text-xs h-5 px-1.5 bg-gray-500 text-white",
                   density !== "comfortable" ? "h-4 px-1 text-[9px]" : ""
                 )}
               >
@@ -258,12 +250,12 @@ const CompactGameCard = ({
             <div className="flex flex-wrap gap-1 mt-1">
               {game.genres && game.genres.length > 0 ? (
                 game.genres.slice(0, 3).map((genre) => (
-                  <span key={genre} className="text-[10px] bg-muted px-1.5 py-0.5 rounded-sm">
+                  <span key={genre} className="text-xs bg-muted px-1.5 py-0.5 rounded-sm">
                     {genre}
                   </span>
                 ))
               ) : (
-                <span className="text-[10px] text-muted-foreground">No genres</span>
+                <span className="text-xs text-muted-foreground">No genres</span>
               )}
             </div>
           )}
@@ -369,15 +361,19 @@ const CompactGameCard = ({
       </div>
 
       {detailsOpen && (
-        <GameDetailsModal game={resolvedGame} open={detailsOpen} onOpenChange={setDetailsOpen} />
+        <Suspense fallback={<LazyModalFallback message="Loading game details..." />}>
+          <GameDetailsModal game={resolvedGame} open={detailsOpen} onOpenChange={setDetailsOpen} />
+        </Suspense>
       )}
 
       {downloadOpen && (
-        <GameDownloadDialog
-          game={resolvedGame}
-          open={downloadOpen}
-          onOpenChange={setDownloadOpen}
-        />
+        <Suspense fallback={<LazyModalFallback message="Loading download dialog..." />}>
+          <GameDownloadDialog
+            game={resolvedGame}
+            open={downloadOpen}
+            onOpenChange={setDownloadOpen}
+          />
+        </Suspense>
       )}
     </>
   );

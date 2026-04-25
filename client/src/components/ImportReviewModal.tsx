@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import type { ImportConfig } from "@shared/schema";
 import {
   Dialog,
   DialogContent,
@@ -40,6 +41,10 @@ export default function ImportReviewModal({
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  const { data: importConfig } = useQuery<ImportConfig>({
+    queryKey: ["/api/imports/config"],
+  });
+
   // State
   const [strategy] = useState<"pc">("pc");
   const [destinationPath, setDestinationPath] = useState("");
@@ -49,14 +54,14 @@ export default function ImportReviewModal({
   const [unpackArchive, setUnpackArchive] = useState(false);
   const [isFileBrowserOpen, setIsFileBrowserOpen] = useState(false);
 
-  // Reset state on open
+  // Reset state on open, defaulting transfer mode to the user's configured setting
   useEffect(() => {
     if (open) {
       setDestinationPath("");
-      setTransferMode("move");
+      setTransferMode((importConfig?.transferMode as typeof transferMode) ?? "move");
       setUnpackArchive(false);
     }
-  }, [open, downloadId]);
+  }, [open, downloadId, importConfig?.transferMode]);
 
   const confirmMutation = useMutation({
     mutationFn: async () => {
@@ -74,6 +79,8 @@ export default function ImportReviewModal({
         description: "The import has been queued for execution.",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/imports/pending"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/downloads"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
       onOpenChange(false);
     },
     onError: (error: Error) => {

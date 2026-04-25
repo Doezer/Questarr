@@ -90,7 +90,7 @@ export class ImportManager {
       const url = new URL(downloaderUrl);
       return url.hostname;
     } catch {
-      console.warn(`[ImportManager] Invalid downloader URL: ${downloaderUrl}`);
+      logger.warn({ downloaderUrl }, "Invalid downloader URL");
       return undefined;
     }
   }
@@ -102,8 +102,9 @@ export class ImportManager {
     const downloader = await this.storage.getDownloader(downloaderId);
     const remoteHost = downloader ? this.extractRemoteHost(downloader.url) : undefined;
     const downloaderName = downloader?.name ?? downloaderId;
-    console.log(
-      `[ImportManager] Resolving path "${remoteDownloadPath}" from downloader "${downloaderName}" (host: ${remoteHost ?? "none"})`
+    logger.debug(
+      { remoteDownloadPath, downloaderName, remoteHost },
+      "[ImportManager] Resolving path"
     );
     const localPath = await this.pathService.translatePath(remoteDownloadPath, remoteHost);
     return { localPath, downloaderName };
@@ -121,8 +122,9 @@ export class ImportManager {
     const effectivePlatformId = releasePlatformId ?? gamePrimaryPlatformId;
 
     if (!this.isPlatformEnabled(effectivePlatformId, importPlatformIds)) {
-      console.log(
-        `[ImportManager] Skipping import for ${game.title} because platform ${effectivePlatformId ?? "unknown"} is not enabled in general import platform filter.`
+      logger.info(
+        { gameTitle: game.title, effectivePlatformId },
+        "[ImportManager] Skipping import: platform not in filter"
       );
       return true;
     }
@@ -142,45 +144,45 @@ export class ImportManager {
   async processImport(downloadId: string, remoteDownloadPath: string): Promise<void> {
     const download = await this.storage.getGameDownload(downloadId);
     if (!download) {
-      console.warn(`[ImportManager] Download ${downloadId} not found.`);
+      logger.warn({ downloadId }, "[ImportManager] Download not found");
       return;
     }
 
     const game = await this.storage.getGame(download.gameId);
     if (!game) {
-      console.error(`[ImportManager] Game not found for download ${downloadId}`);
+      logger.error({ downloadId }, "[ImportManager] Game not found for download");
       await this.storage.updateGameDownloadStatus(downloadId, "error");
       return;
     }
 
     const config = await this.storage.getImportConfig(game.userId ?? undefined);
     if (!config.enablePostProcessing) {
-      console.log(
-        `[ImportManager] Post-processing disabled. Skipping import for download ${downloadId}.`
-      );
+      logger.info({ downloadId }, "[ImportManager] Post-processing disabled, skipping");
       await this.storage.updateGameDownloadStatus(downloadId, "completed");
       return;
     }
 
+    let localPath: string | undefined;
+    let processingPath: string | undefined;
+
     try {
       await this.storage.updateGameDownloadStatus(downloadId, "unpacking");
 
-      const { localPath, downloaderName } = await this.resolveLocalPath(
-        remoteDownloadPath,
-        download.downloaderId
-      );
+      const resolved = await this.resolveLocalPath(remoteDownloadPath, download.downloaderId);
+      localPath = resolved.localPath;
+      const downloaderName = resolved.downloaderName;
 
-      console.log(`[ImportManager] Checking path accessibility: "${localPath}"`);
+      logger.debug({ localPath }, "[ImportManager] Checking path accessibility");
       if (!(await fs.pathExists(localPath))) {
-        console.warn(
-          `[ImportManager] Path not accessible: "${localPath}" (reported by downloader "${downloaderName}" as "${remoteDownloadPath}"). ` +
-            `If Questarr and ${downloaderName} use different volume mounts, configure path mappings under Settings → Path Mappings.`
+        logger.warn(
+          { localPath, downloaderName, remoteDownloadPath },
+          "[ImportManager] Path not accessible — check path mappings under Settings → Path Mappings"
         );
         await this.storage.updateGameDownloadStatus(downloadId, "manual_review_required");
         return;
       }
 
-      const processingPath = config.autoUnpack ? await this.extractIfArchive(localPath) : localPath;
+      processingPath = config.autoUnpack ? await this.extractIfArchive(localPath) : localPath;
 
       const strategy = new PCImportStrategy();
       const libraryRoot = config.libraryRoot || "/data";
@@ -202,8 +204,9 @@ export class ImportManager {
       const plan = await strategy.planImport(processingPath, game, libraryRoot, config);
 
       if (plan.needsReview) {
-        console.log(
-          `[ImportManager] Manual review required for ${game.title}: ${plan.reviewReason}`
+        logger.info(
+          { gameTitle: game.title, reviewReason: plan.reviewReason },
+          "[ImportManager] Manual review required"
         );
         await this.storage.updateGameDownloadStatus(downloadId, "manual_review_required");
         return;
@@ -218,11 +221,14 @@ export class ImportManager {
 
       await this.finalizeImport(downloadId, game);
     } catch (err) {
-      console.error(`[ImportManager] Import failed for ${downloadId}`, err);
+      logger.error({ err, downloadId }, "[ImportManager] Import failed");
+      if (processingPath && localPath && processingPath !== localPath) {
+        await fs.remove(processingPath).catch(() => undefined);
+      }
       try {
         await this.storage.updateGameDownloadStatus(downloadId, "error");
       } catch (statusErr) {
-        console.error(`[ImportManager] Failed to set error status for ${downloadId}`, statusErr);
+        logger.error({ statusErr, downloadId }, "[ImportManager] Failed to set error status");
       }
     }
   }
@@ -311,7 +317,7 @@ export class ImportManager {
       try {
         await this.storage.updateGameDownloadStatus(downloadId, "error");
       } catch (statusErr) {
-        console.error(`[ImportManager] Failed to set error status for ${downloadId}`, statusErr);
+        logger.error({ statusErr, downloadId }, "[ImportManager] Failed to set error status");
       }
       throw err;
     } finally {

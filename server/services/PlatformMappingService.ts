@@ -49,7 +49,7 @@ export class PlatformMappingService {
     return this.storage.getPlatformMappings();
   }
 
-  async getRomMPlatform(igdbId: number): Promise<string | null> {
+  async getSourcePlatform(igdbId: number): Promise<string | null> {
     const mapping = await this.storage.getPlatformMapping(igdbId);
     return mapping ? mapping.sourcePlatformName : null;
   }

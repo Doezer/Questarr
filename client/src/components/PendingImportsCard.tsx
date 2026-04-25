@@ -53,7 +53,12 @@ export default function PendingImportsCard() {
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {item.createdAt &&
-                      formatDistanceToNow(new Date(item.createdAt), { addSuffix: true })}
+                      (() => {
+                        const d = new Date(item.createdAt);
+                        return isNaN(d.getTime())
+                          ? null
+                          : formatDistanceToNow(d, { addSuffix: true });
+                      })()}
                   </p>
                 </div>
                 <Button size="sm" onClick={() => setSelectedImport(item)}>

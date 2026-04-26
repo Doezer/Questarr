@@ -3408,17 +3408,29 @@ export class SABnzbdClient implements DownloaderClient {
       return { success: false, message: `Unsafe URL blocked: ${request.url}` };
     }
 
-    // Strip &file= parameter that some indexers append (causes fetch failures on some indexers)
-    const nzbUrl = request.url.includes("&file=") ? request.url.split("&file=")[0] : request.url;
-
-    const url = this.getApiUrl("addurl", {
-      name: nzbUrl,
-      nzbname: request.title,
-      cat: request.category || "games",
-      priority: (request.priority || 0).toString(),
-    });
-
     try {
+      // Fetch the NZB in Questarr and upload via addfile so SABnzbd never needs
+      // direct indexer access. Keep &file= intact — Prowlarr uses it for link validation.
+      const nzbUrl = fixNzbUrlEncoding(request.url);
+      const nzbResponse = await safeFetch(nzbUrl);
+      if (!nzbResponse.ok) {
+        return { success: false, message: `Failed to fetch NZB: ${nzbResponse.statusText}` };
+      }
+      const nzbContent = await nzbResponse.arrayBuffer();
+
+      const url = this.getApiUrl("addfile", {
+        nzbname: request.title,
+        cat: request.category || "games",
+        priority: (request.priority || 0).toString(),
+      });
+
+      const formData = new FormData();
+      formData.append(
+        "name",
+        new Blob([nzbContent], { type: "application/x-nzb" }),
+        `${request.title}.nzb`
+      );
+
       const response = await this.fetchWithFallback(url, {
         method: "GET",
         signal: AbortSignal.timeout(30000),

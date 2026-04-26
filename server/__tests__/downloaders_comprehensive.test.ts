@@ -21,6 +21,13 @@ vi.mock("../ssrf.js", () => ({
 const fetchMock = vi.fn();
 global.fetch = fetchMock;
 
+function mockNzbFetch(content = "nzb content") {
+  fetchMock.mockResolvedValueOnce({
+    ok: true,
+    arrayBuffer: async () => new TextEncoder().encode(content).buffer,
+  });
+}
+
 describe("Downloader Comprehensive Tests", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -363,6 +370,7 @@ describe("Downloader Comprehensive Tests", () => {
     };
 
     it("should add NZB successfully", async () => {
+      mockNzbFetch();
       fetchMock.mockResolvedValueOnce({
         ok: true,
         json: async () => ({ status: true, nzo_ids: ["nzo123"] }),
@@ -379,6 +387,7 @@ describe("Downloader Comprehensive Tests", () => {
     });
 
     it("should handle duplicate NZB as success", async () => {
+      mockNzbFetch();
       fetchMock.mockResolvedValueOnce({
         ok: true,
         json: async () => ({ status: false, error: "Duplicate NZB" }),

@@ -21,6 +21,13 @@ vi.mock("../ssrf.js", () => ({
 const fetchMock = vi.fn();
 global.fetch = fetchMock;
 
+function mockNzbFetch(content = "nzb content") {
+  fetchMock.mockResolvedValueOnce({
+    ok: true,
+    arrayBuffer: async () => new TextEncoder().encode(content).buffer,
+  });
+}
+
 describe("Downloader Duplicates Handling", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -202,6 +209,11 @@ describe("Downloader Duplicates Handling", () => {
 
     fetchMock.mockResolvedValueOnce({
       ok: true,
+      arrayBuffer: async () => new TextEncoder().encode("nzb content").buffer,
+    });
+
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
       json: async () => duplicateResponse,
     });
 
@@ -243,6 +255,8 @@ describe("Downloader Duplicates Handling", () => {
       status: true,
       nzo_ids: [],
     };
+
+    mockNzbFetch();
 
     fetchMock.mockResolvedValueOnce({
       ok: true,

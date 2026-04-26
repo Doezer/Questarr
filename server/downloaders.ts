@@ -3426,29 +3426,29 @@ export class SABnzbdClient implements DownloaderClient {
       return { success: false, message: `Unsafe URL blocked: ${request.url}` };
     }
 
-    // Fetch the NZB in Questarr and upload via addfile so SABnzbd never needs
-    // direct indexer access. Keep &file= intact — Prowlarr uses it for link validation.
-    const nzbUrl = fixNzbUrlEncoding(request.url);
-    const nzbResponse = await safeFetch(nzbUrl);
-    if (!nzbResponse.ok) {
-      return { success: false, message: `Failed to fetch NZB: ${nzbResponse.statusText}` };
-    }
-    const nzbContent = await nzbResponse.arrayBuffer();
-
-    const url = this.getApiUrl("addfile", {
-      nzbname: request.title,
-      cat: request.category || "games",
-      priority: (request.priority || 0).toString(),
-    });
-
-    const formData = new FormData();
-    formData.append(
-      "name",
-      new Blob([nzbContent], { type: "application/x-nzb" }),
-      `${request.title}.nzb`
-    );
-
     try {
+      // Fetch the NZB in Questarr and upload via addfile so SABnzbd never needs
+      // direct indexer access. Keep &file= intact — Prowlarr uses it for link validation.
+      const nzbUrl = fixNzbUrlEncoding(request.url);
+      const nzbResponse = await safeFetch(nzbUrl);
+      if (!nzbResponse.ok) {
+        return { success: false, message: `Failed to fetch NZB: ${nzbResponse.statusText}` };
+      }
+      const nzbContent = await nzbResponse.arrayBuffer();
+
+      const url = this.getApiUrl("addfile", {
+        nzbname: request.title,
+        cat: request.category || "games",
+        priority: (request.priority || 0).toString(),
+      });
+
+      const formData = new FormData();
+      formData.append(
+        "name",
+        new Blob([nzbContent], { type: "application/x-nzb" }),
+        `${request.title}.nzb`
+      );
+
       const response = await this.fetchWithFallback(url, {
         method: "POST",
         body: formData,

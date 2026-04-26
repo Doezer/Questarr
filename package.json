@@ -172,11 +172,11 @@
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx}": [
-      "eslint --fix",
-      "prettier --write"
+      "eslint --fix --cache --cache-strategy content --cache-location node_modules/.cache/eslint",
+      "prettier --cache --cache-strategy content --cache-location node_modules/.cache/prettier/.prettier-cache --write"
     ],
     "*.{json,css,md}": [
-      "prettier --write"
+      "prettier --cache --cache-strategy content --cache-location node_modules/.cache/prettier/.prettier-cache --write"
     ]
   },
   "engines": {

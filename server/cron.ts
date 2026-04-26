@@ -6,6 +6,7 @@ import { DownloaderManager } from "./downloaders.js";
 import { searchAllIndexers, filterBlacklistedReleases } from "./search.js";
 import { xrelClient, DEFAULT_XREL_BASE } from "./xrel.js";
 import { steamService } from "./steam.js";
+import { importManager } from "./services/index.js";
 import { downloadRulesSchema, type Game, type InsertNotification } from "../shared/schema.js";
 import { categorizeDownload } from "../shared/download-categorizer.js";
 import {
@@ -28,6 +29,16 @@ const DOWNLOAD_MISS_THRESHOLD = 3;
 const AUTO_SEARCH_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const XREL_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours (xREL search rate limit: 2/5s)
 const OWNED_STATUSES = new Set(["owned", "completed", "downloading"]);
+
+function buildRemoteImportPath(downloadDir: string, name: string): string {
+  const normalizedDir = downloadDir.replace(/[\\/]+$/, "");
+  const normalizedName = name.replace(/^[\\/]+/, "");
+  const lastSegment = normalizedDir.split(/[\\/]/).pop()?.toLowerCase();
+  if (lastSegment && lastSegment === normalizedName.toLowerCase()) {
+    return normalizedDir;
+  }
+  return `${normalizedDir}/${normalizedName}`;
+}
 
 type DownloadSortBy = "seeders" | "date" | "size";
 
@@ -498,6 +509,25 @@ export async function checkDownloadStatus() {
               { gameId: download.gameId, downloadId: download.id },
               "Updated game status to 'owned' after completion"
             );
+
+            const details = await DownloaderManager.getDownloadDetails(
+              downloader,
+              download.downloadHash
+            );
+            if (details?.downloadDir) {
+              const remoteImportPath = buildRemoteImportPath(details.downloadDir, details.name);
+              void importManager.processImport(download.id, remoteImportPath).catch((error) => {
+                igdbLogger.error(
+                  { error, downloadId: download.id, remoteImportPath },
+                  "Failed to start import pipeline after download completion"
+                );
+              });
+            } else {
+              igdbLogger.warn(
+                { downloadId: download.id, downloadHash: download.downloadHash, downloaderId },
+                "Download completed but no remote path was available for import"
+              );
+            }
 
             // Notify frontend to refresh downloads for this game.
             // TODO: scope this to a per-user socket room once multi-user socket auth is wired up.

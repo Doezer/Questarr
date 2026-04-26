@@ -3661,6 +3661,42 @@ export class SABnzbdClient implements DownloaderClient {
   }
 
   private async getFromHistory(id: string): Promise<DownloadStatus | null> {
+    const item = await this.getHistoryItem(id);
+    if (!item) {
+      return null;
+    }
+
+    let status: DownloadStatus["status"];
+    let repairStatus: DownloadStatus["repairStatus"];
+    let unpackStatus: DownloadStatus["unpackStatus"];
+
+    if (item.status === "Completed") {
+      status = "completed";
+      repairStatus = "good";
+      unpackStatus = "completed";
+    } else if (item.status === "Failed") {
+      status = "error";
+      repairStatus = "failed";
+    } else {
+      status = "paused";
+    }
+
+    return {
+      id: item.nzo_id,
+      name: item.name,
+      downloadType: "usenet",
+      status,
+      progress: status === "completed" ? 100 : 0,
+      size: item.bytes,
+      downloaded: item.bytes,
+      category: item.category,
+      error: status === "error" ? item.fail_message : undefined,
+      repairStatus,
+      unpackStatus,
+    };
+  }
+
+  private async getHistoryItem(id: string): Promise<SABnzbdHistory["slots"][number] | null> {
     // Try with nzo_ids filter first (optimization). Some SABnzbd versions ignore
     // this parameter and return all history, or return empty slots — in that case
     // fall back to fetching the full history and searching locally.
@@ -3691,35 +3727,7 @@ export class SABnzbdClient implements DownloaderClient {
           if (useFilter) continue;
           return null;
         }
-
-        let status: DownloadStatus["status"];
-        let repairStatus: DownloadStatus["repairStatus"];
-        let unpackStatus: DownloadStatus["unpackStatus"];
-
-        if (item.status === "Completed") {
-          status = "completed";
-          repairStatus = "good";
-          unpackStatus = "completed";
-        } else if (item.status === "Failed") {
-          status = "error";
-          repairStatus = "failed";
-        } else {
-          status = "paused";
-        }
-
-        return {
-          id: item.nzo_id,
-          name: item.name,
-          downloadType: "usenet",
-          status,
-          progress: status === "completed" ? 100 : 0,
-          size: item.bytes,
-          downloaded: item.bytes,
-          category: item.category,
-          error: status === "error" ? item.fail_message : undefined,
-          repairStatus,
-          unpackStatus,
-        };
+        return item;
       } catch (error) {
         downloadersLogger.error(
           { error, id, useFilter: useFilter },
@@ -3735,11 +3743,13 @@ export class SABnzbdClient implements DownloaderClient {
   async getDownloadDetails(id: string): Promise<DownloadDetails | null> {
     const status = await this.getDownloadStatus(id);
     if (!status) return null;
+    const historyItem = await this.getHistoryItem(id);
 
     // SABnzbd doesn't provide detailed file information in the same way
     // Return minimal details based on status
     return {
       ...status,
+      downloadDir: historyItem?.path || undefined,
       files: [],
       trackers: [],
     };

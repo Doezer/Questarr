@@ -38,11 +38,21 @@ vi.mock("../storage.js", () => ({
 
 const mockGetAllDownloads = vi.fn();
 const mockGetDownloadStatus = vi.fn();
+const mockGetDownloadDetails = vi.fn();
 
 vi.mock("../downloaders.js", () => ({
   DownloaderManager: {
     getAllDownloads: mockGetAllDownloads,
     getDownloadStatus: mockGetDownloadStatus,
+    getDownloadDetails: mockGetDownloadDetails,
+  },
+}));
+
+const mockProcessImport = vi.fn();
+
+vi.mock("../services/index.js", () => ({
+  importManager: {
+    processImport: mockProcessImport,
   },
 }));
 
@@ -108,6 +118,8 @@ describe("Cron - checkDownloadStatus", () => {
     mockAddNotification.mockResolvedValue({ id: "notif-1" });
     mockUpdateGameDownloadStatus.mockResolvedValue(undefined);
     mockUpdateGameStatus.mockResolvedValue(undefined);
+    mockGetDownloadDetails.mockResolvedValue(null);
+    mockProcessImport.mockResolvedValue(undefined);
   });
 
   it("should find a download via the bulk map when it is in the queue", async () => {
@@ -150,6 +162,16 @@ describe("Cron - checkDownloadStatus", () => {
       progress: 100,
       downloadType: "usenet",
     });
+    mockGetDownloadDetails.mockResolvedValue({
+      id: "SABnzbd_nzo_abc123",
+      name: "Test Game",
+      status: "completed",
+      progress: 100,
+      downloadType: "usenet",
+      downloadDir: "/downloads/complete",
+      files: [],
+      trackers: [],
+    });
 
     await checkDownloadStatus();
 
@@ -157,6 +179,11 @@ describe("Cron - checkDownloadStatus", () => {
     // Should mark as completed via the normal completion path
     expect(mockUpdateGameDownloadStatus).toHaveBeenCalledWith(baseDownload.id, "completed");
     expect(mockUpdateGameStatus).toHaveBeenCalledWith(baseDownload.gameId, { status: "owned" });
+    expect(mockGetDownloadDetails).toHaveBeenCalledWith(baseDownloader, baseDownload.downloadHash);
+    expect(mockProcessImport).toHaveBeenCalledWith(
+      baseDownload.id,
+      "/downloads/complete/Test Game"
+    );
   });
 
   it("should mark as completed via error path when both bulk and individual checks return null", async () => {
@@ -191,10 +218,82 @@ describe("Cron - checkDownloadStatus", () => {
         downloadType: "usenet",
       },
     ]);
+    mockGetDownloadDetails.mockResolvedValue({
+      id: "SABnzbd_nzo_abc123",
+      name: "Test Game",
+      status: "completed",
+      progress: 100,
+      downloadType: "usenet",
+      downloadDir: "/downloads/complete",
+      files: [],
+      trackers: [],
+    });
 
     await checkDownloadStatus();
 
     expect(mockGetDownloadStatus).not.toHaveBeenCalled();
     expect(mockUpdateGameDownloadStatus).toHaveBeenCalledWith(baseDownload.id, "completed");
+    expect(mockProcessImport).toHaveBeenCalledWith(
+      baseDownload.id,
+      "/downloads/complete/Test Game"
+    );
+  });
+
+  it("should skip import when the downloader cannot provide a completed download path", async () => {
+    mockGetDownloadingGameDownloads.mockResolvedValue([baseDownload]);
+    mockGetDownloader.mockResolvedValue(baseDownloader);
+    mockGetAllDownloads.mockResolvedValue([
+      {
+        id: "SABnzbd_nzo_abc123",
+        name: "Test Game",
+        status: "completed",
+        progress: 100,
+        downloadType: "usenet",
+      },
+    ]);
+    mockGetDownloadDetails.mockResolvedValue({
+      id: "SABnzbd_nzo_abc123",
+      name: "Test Game",
+      status: "completed",
+      progress: 100,
+      downloadType: "usenet",
+      files: [],
+      trackers: [],
+    });
+
+    await checkDownloadStatus();
+
+    expect(mockProcessImport).not.toHaveBeenCalled();
+  });
+
+  it("should not duplicate the release name when the downloader path already points at it", async () => {
+    mockGetDownloadingGameDownloads.mockResolvedValue([baseDownload]);
+    mockGetDownloader.mockResolvedValue(baseDownloader);
+    mockGetAllDownloads.mockResolvedValue([
+      {
+        id: "SABnzbd_nzo_abc123",
+        name: "Test Game",
+        status: "completed",
+        progress: 100,
+        downloadType: "usenet",
+      },
+    ]);
+    mockGetDownloadDetails.mockResolvedValue({
+      id: "SABnzbd_nzo_abc123",
+      name: "Test Game",
+      status: "completed",
+      progress: 100,
+      downloadType: "usenet",
+      downloadDir: "/downloads/complete/Test Game",
+      files: [],
+      trackers: [],
+    });
+
+    await checkDownloadStatus();
+
+    expect(mockProcessImport).toHaveBeenCalledWith(
+      baseDownload.id,
+      "/downloads/complete/Test Game"
+    );
   });
 });

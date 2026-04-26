@@ -57,17 +57,16 @@ describe("Downloader SSRF Protection", () => {
   });
 
   describe("TransmissionClient", () => {
-    it("should block unsafe URL in addDownload (magnet)", async () => {
+    it("should bypass isSafeUrl for magnet links (no hostname to validate)", async () => {
+      // Magnet URIs have no hostname, so isSafeUrl is intentionally skipped for them.
+      // The BitTorrent client handles tracker URL validation internally.
       const client = new TransmissionClient({ ...mockDownloader, type: "transmission" });
-      const result = await client.addDownload({
-        url: "magnet:?xt=urn:btih:unsafe",
-        title: "Unsafe Magnet",
+      await client.addDownload({
+        url: "magnet:?xt=urn:btih:abc123",
+        title: "Magnet Link",
       });
 
-      expect(isSafeUrl).toHaveBeenCalledWith("magnet:?xt=urn:btih:unsafe");
-      // The addDownload catches the error and returns success: false
-      expect(result.success).toBe(false);
-      expect(result.message).toContain("Unsafe URL blocked");
+      expect(isSafeUrl).not.toHaveBeenCalledWith("magnet:?xt=urn:btih:abc123");
     });
 
     it("should block unsafe URL in addDownload (http)", async () => {

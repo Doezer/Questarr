@@ -1,27 +1,33 @@
 // Force restart trigger
 import "dotenv/config";
-import express, { type Request, Response, NextFunction } from "express";
+import express from "express";
 import https from "https";
 import fs from "fs";
 import cors from "cors";
 
 import { registerRoutes } from "./routes.js";
 import { setupVite, serveStatic, log } from "./vite.js";
-import { generalApiLimiter } from "./middleware.js";
+import { generalApiLimiter, errorHandler } from "./middleware.js";
 import { config } from "./config.js";
 import { expressLogger } from "./logger.js";
 import { startCronJobs } from "./cron.js";
 import { setupSocketIO } from "./socket.js";
 import { ensureDatabase } from "./migrate.js";
 import { rssService } from "./rss.js";
+import { nexusmodsClient } from "./nexusmods.js";
+import { storage } from "./storage.js";
 
 const app = express();
+if (config.server.isProduction) {
+  app.set("trust proxy", 1);
+}
 app.use(
   cors({
     origin: config.server.allowedOrigins,
+    credentials: true,
   })
 );
-app.use(express.json());
+app.use(express.json({ limit: "5mb" }));
 app.use(express.urlencoded({ extended: false }));
 
 // Apply general rate limiting to all API routes
@@ -136,26 +142,20 @@ app.use((req, res, next) => {
     // Initialize RSS service (seeding default feeds)
     await rssService.initialize();
 
+    // Initialize NexusMods client from DB (env var already applied at module load)
+    const dbNexusKey = await storage.getSystemConfig("nexusmods.apiKey");
+    if (dbNexusKey && dbNexusKey.length > 0) {
+      nexusmodsClient.configure(dbNexusKey);
+      log("NexusMods API key loaded from database");
+    }
+
     const server = await registerRoutes(app);
 
     setupSocketIO(server);
 
     // Error handler must handle various error shapes
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-      const status = err.status || err.statusCode || 500;
-      const error = err.message || "Internal Server Error";
-
-      // Include details if available (e.g., validation errors)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const response: { error: string; details?: any } = { error };
-      if (err.details) {
-        response.details = err.details;
-      }
-
-      res.status(status).json(response);
-      throw err;
-    });
+    // 🛡️ Sentinel: Use standardized error handler to prevent info leaks
+    app.use(errorHandler);
 
     // importantly only setup vite in development and after
     // setting up all the other routes so the catch-all route
@@ -206,8 +206,13 @@ app.use((req, res, next) => {
                 return next();
               }
               if (!req.secure) {
-                const host = req.hostname || "localhost";
-                return res.redirect(`https://${host}:${ssl.port}${req.url}`);
+                // Validate hostname to prevent open redirect via a crafted Host header.
+                // req.path is already Express-normalized (no host component).
+                const rawHostname = req.hostname;
+                const safeHostname = /^[a-zA-Z0-9.\-[\]]+$/.test(rawHostname)
+                  ? rawHostname
+                  : "localhost";
+                return res.redirect(`https://${safeHostname}:${ssl.port}${req.path}`);
               }
               next();
             });

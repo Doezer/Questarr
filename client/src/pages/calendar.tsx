@@ -9,6 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import PageToolbar from "@/components/PageToolbar";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { type Game, type Config } from "@shared/schema";
@@ -28,13 +29,14 @@ function formatDate(date: Date): string {
 }
 
 function getMonthName(month: number): string {
-  return new Date(2000, month, 1).toLocaleDateString("en-US", { month: "long" });
+  return new Date(2000, month, 1).toLocaleDateString(undefined, { month: "long" });
 }
 
 function getWeekDays(date: Date): Date[] {
   const day = date.getDay();
   const diff = date.getDate() - day + (day === 0 ? -6 : 1); // Adjust when day is sunday
-  const monday = new Date(date.setDate(diff));
+  const monday = new Date(date);
+  monday.setDate(diff);
   return Array.from({ length: 7 }, (_, i) => {
     const d = new Date(monday);
     d.setDate(monday.getDate() + i);
@@ -75,6 +77,7 @@ export default function CalendarPage() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
   const [downloadDialogOpen, setDownloadDialogOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const handleGameClick = (game: Game) => {
     setSelectedGame(game);
@@ -91,10 +94,30 @@ export default function CalendarPage() {
     enabled: !!config?.igdb.configured,
   });
 
-  // Filter wanted games with release dates
+  // Games with year-only release dates use YYYY-12-31 as a placeholder
+  const isYearOnlyDate = (releaseDate: string) => releaseDate.endsWith("-12-31");
+
+  // Filter wanted games with a known specific release date
   const wantedGames = useMemo(() => {
-    return games.filter((g) => g.status === "wanted" && g.releaseDate);
-  }, [games]);
+    return games.filter(
+      (g) =>
+        g.status === "wanted" &&
+        g.releaseDate &&
+        !isYearOnlyDate(g.releaseDate) &&
+        (!searchQuery || g.title.toLowerCase().includes(searchQuery.toLowerCase()))
+    );
+  }, [games, searchQuery]);
+
+  // Games with only a year-level release date (IGDB placeholder: YYYY-12-31)
+  const undatedGames = useMemo(() => {
+    return games.filter(
+      (g) =>
+        g.status === "wanted" &&
+        g.releaseDate &&
+        isYearOnlyDate(g.releaseDate) &&
+        (!searchQuery || g.title.toLowerCase().includes(searchQuery.toLowerCase()))
+    );
+  }, [games, searchQuery]);
 
   // Group games by date
   const gamesByDate = useMemo(() => {
@@ -167,68 +190,91 @@ export default function CalendarPage() {
 
   return (
     <div className="h-full overflow-auto p-6">
-      <div className="flex justify-between items-center mb-6">
+      <div className="space-y-3 mb-6">
         <div>
-          <h1 className="text-3xl font-bold">Release Calendar</h1>
-          <p className="text-muted-foreground">Track upcoming game releases</p>
+          <h1 className="text-2xl font-bold tracking-tight">Release Calendar</h1>
+          <p className="text-muted-foreground text-sm mt-0.5">Track upcoming game releases</p>
         </div>
-        <div className="flex items-center gap-3">
-          <Button variant="outline" size="sm" onClick={goToToday}>
-            Today
-          </Button>
-          <Select value={viewMode} onValueChange={(v) => setViewMode(v as ViewMode)}>
-            <SelectTrigger className="w-[120px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="year">Year</SelectItem>
-              <SelectItem value="month">Month</SelectItem>
-              <SelectItem value="week">Week</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-
-      <div className="flex items-center justify-between mb-6">
-        <Button variant="ghost" size="icon" onClick={navigatePrevious} aria-label="Previous period">
-          <ChevronLeft className="h-5 w-5" />
-        </Button>
-        <h2 className="text-2xl font-semibold">{getTitle()}</h2>
-        <Button variant="ghost" size="icon" onClick={navigateNext} aria-label="Next period">
-          <ChevronRight className="h-5 w-5" />
-        </Button>
+        <PageToolbar
+          search={searchQuery}
+          onSearchChange={setSearchQuery}
+          searchPlaceholder="Filter games..."
+          filterPills={<span className="text-base font-semibold">{getTitle()}</span>}
+          actions={
+            <>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={navigatePrevious}
+                aria-label="Previous period"
+              >
+                <ChevronLeft className="h-5 w-5" />
+              </Button>
+              <Button variant="ghost" size="icon" onClick={navigateNext} aria-label="Next period">
+                <ChevronRight className="h-5 w-5" />
+              </Button>
+              <div className="w-px h-5 bg-border" />
+              <Button variant="outline" size="sm" onClick={goToToday}>
+                Today
+              </Button>
+              <Select value={viewMode} onValueChange={(v) => setViewMode(v as ViewMode)}>
+                <SelectTrigger className="w-[110px] h-8 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="year">Year</SelectItem>
+                  <SelectItem value="month">Month</SelectItem>
+                  <SelectItem value="week">Week</SelectItem>
+                </SelectContent>
+              </Select>
+            </>
+          }
+        />
       </div>
 
       {isLoading ? (
         <div className="text-center py-12 text-muted-foreground">Loading calendar...</div>
-      ) : wantedGames.length === 0 ? (
+      ) : wantedGames.length === 0 && undatedGames.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground">
           No games in your wishlist. Add games to track their release dates.
         </div>
       ) : (
-        <>
+        <div className="space-y-6">
+          {wantedGames.length > 0 && (
+            <>
+              {viewMode === "year" && (
+                <YearView
+                  currentDate={currentDate}
+                  gamesByDate={gamesByDate}
+                  onGameClick={handleGameClick}
+                />
+              )}
+              {viewMode === "month" && (
+                <MonthView
+                  currentDate={currentDate}
+                  gamesByDate={gamesByDate}
+                  onGameClick={handleGameClick}
+                />
+              )}
+              {viewMode === "week" && (
+                <WeekView
+                  currentDate={currentDate}
+                  gamesByDate={gamesByDate}
+                  onGameClick={handleGameClick}
+                />
+              )}
+            </>
+          )}
           {viewMode === "year" && (
-            <YearView
-              currentDate={currentDate}
-              gamesByDate={gamesByDate}
+            <UndatedSection
+              year={currentDate.getFullYear()}
+              games={undatedGames.filter(
+                (g) => new Date(g.releaseDate!).getFullYear() === currentDate.getFullYear()
+              )}
               onGameClick={handleGameClick}
             />
           )}
-          {viewMode === "month" && (
-            <MonthView
-              currentDate={currentDate}
-              gamesByDate={gamesByDate}
-              onGameClick={handleGameClick}
-            />
-          )}
-          {viewMode === "week" && (
-            <WeekView
-              currentDate={currentDate}
-              gamesByDate={gamesByDate}
-              onGameClick={handleGameClick}
-            />
-          )}
-        </>
+        </div>
       )}
 
       <GameDownloadDialog
@@ -278,7 +324,7 @@ function YearView({
                 gamesInMonth.map(([date, games]) => (
                   <div key={date} className="text-sm">
                     <div className="text-muted-foreground mb-1">
-                      {new Date(date).toLocaleDateString("en-US", {
+                      {new Date(date).toLocaleDateString(undefined, {
                         month: "short",
                         day: "numeric",
                       })}
@@ -378,7 +424,7 @@ function WeekView({
           const dateKey = formatDate(day);
           const gamesOnDay = gamesByDate[dateKey] || [];
           const isToday = formatDate(new Date()) === dateKey;
-          const dayName = day.toLocaleDateString("en-US", { weekday: "short" });
+          const dayName = day.toLocaleDateString(undefined, { weekday: "short" });
 
           return (
             <div
@@ -391,7 +437,7 @@ function WeekView({
                   {day.getDate()}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {day.toLocaleDateString("en-US", { month: "short" })}
+                  {day.toLocaleDateString(undefined, { month: "short" })}
                 </div>
               </div>
               <div className="space-y-2">
@@ -411,13 +457,44 @@ function WeekView({
   );
 }
 
+function UndatedSection({
+  year,
+  games,
+  onGameClick,
+}: {
+  year: number;
+  games: Game[];
+  onGameClick: (game: Game) => void;
+}) {
+  if (games.length === 0) return null;
+
+  return (
+    <div>
+      <div className="flex items-center gap-3 mb-3">
+        <h2 className="text-base font-semibold text-muted-foreground">No Release Date — {year}</h2>
+        <Badge variant="secondary" className="text-xs">
+          {games.length}
+        </Badge>
+        <div className="flex-1 h-px bg-border" />
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
+        {games.map((game) => (
+          <GameBadge key={game.id} game={game} hideDate onClick={() => onGameClick(game)} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function GameBadge({
   game,
   compact = false,
+  hideDate = false,
   onClick,
 }: {
   game: Game;
   compact?: boolean;
+  hideDate?: boolean;
   onClick?: () => void;
 }) {
   const isDelayed = game.releaseStatus === "delayed";
@@ -426,10 +503,11 @@ function GameBadge({
     return (
       <Tooltip>
         <TooltipTrigger asChild>
-          <div
+          <button
+            type="button"
             onClick={onClick}
             className={cn(
-              "flex items-center gap-1 p-1 rounded hover:opacity-80 cursor-pointer transition-opacity",
+              "flex items-center gap-1 p-1 rounded hover:opacity-80 transition-opacity w-full text-left",
               isDelayed ? "bg-destructive/20 border border-destructive/30" : "bg-muted"
             )}
           >
@@ -444,28 +522,28 @@ function GameBadge({
               {game.title}
               {isDelayed && " (Delayed)"}
             </span>
-          </div>
+          </button>
         </TooltipTrigger>
         <TooltipContent>
           <div className="max-w-xs">
             <p className="font-semibold">{game.title}</p>
             {isDelayed && (
-              <Badge variant="destructive" className="mt-1 text-[10px] h-4">
+              <Badge variant="destructive" className="mt-1 text-xs h-4">
                 Delayed
               </Badge>
             )}
             <p className="text-xs text-muted-foreground mt-1">
               {game.releaseDate &&
-                new Date(game.releaseDate).toLocaleDateString("en-US", {
+                new Date(game.releaseDate).toLocaleDateString(undefined, {
                   year: "numeric",
                   month: "long",
                   day: "numeric",
                 })}
             </p>
             {isDelayed && game.originalReleaseDate && (
-              <p className="text-[10px] text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 Original:{" "}
-                {new Date(game.originalReleaseDate).toLocaleDateString("en-US", {
+                {new Date(game.originalReleaseDate).toLocaleDateString(undefined, {
                   month: "short",
                   day: "numeric",
                 })}
@@ -480,10 +558,11 @@ function GameBadge({
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <div
+        <button
+          type="button"
           onClick={onClick}
           className={cn(
-            "flex items-center gap-2 p-2 rounded hover:opacity-80 cursor-pointer transition-all",
+            "flex items-center gap-2 p-2 rounded hover:opacity-80 transition-all w-full text-left",
             isDelayed ? "bg-destructive/10 border border-destructive/20" : "bg-muted"
           )}
         >
@@ -498,34 +577,47 @@ function GameBadge({
                 {game.title}
               </p>
               {isDelayed && (
-                <Badge variant="destructive" className="text-[10px] h-4 px-1">
+                <Badge variant="destructive" className="text-xs h-4 px-1">
                   Delayed
                 </Badge>
               )}
             </div>
-            <p className="text-xs text-muted-foreground">
-              {game.releaseDate &&
-                new Date(game.releaseDate).toLocaleDateString("en-US", {
-                  month: "short",
-                  day: "numeric",
-                  year: "numeric",
-                })}
-            </p>
+            {!hideDate && (
+              <p className="text-xs text-muted-foreground">
+                {game.releaseDate &&
+                  new Date(game.releaseDate).toLocaleDateString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  })}
+              </p>
+            )}
           </div>
-        </div>
+        </button>
       </TooltipTrigger>
       <TooltipContent>
         <div className="max-w-xs">
           <p className="font-semibold">{game.title}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {hideDate
+              ? "Release date TBD"
+              : game.releaseDate
+                ? new Date(game.releaseDate).toLocaleDateString(undefined, {
+                    month: "long",
+                    day: "numeric",
+                    year: "numeric",
+                  })
+                : null}
+          </p>
           {isDelayed && (
             <div className="flex flex-col gap-0.5 mt-1">
-              <Badge variant="destructive" className="w-fit text-[10px] h-4">
+              <Badge variant="destructive" className="w-fit text-xs h-4">
                 Delayed
               </Badge>
               {game.originalReleaseDate && (
-                <p className="text-[10px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   Was originally scheduled for:{" "}
-                  {new Date(game.originalReleaseDate).toLocaleDateString("en-US", {
+                  {new Date(game.originalReleaseDate).toLocaleDateString(undefined, {
                     month: "long",
                     day: "numeric",
                     year: "numeric",

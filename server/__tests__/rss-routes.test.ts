@@ -15,6 +15,9 @@ vi.mock("../db.js");
 vi.mock("../torznab.js");
 vi.mock("../downloaders.js");
 vi.mock("../prowlarr.js");
+vi.mock("../steam-routes.js", () => ({
+  steamRoutes: (_req: unknown, _res: unknown, next: () => void) => next(),
+}));
 
 vi.mock("../ssrf.js", () => ({
   isSafeUrl: vi.fn(),
@@ -24,6 +27,9 @@ vi.mock("../ssrf.js", () => ({
 vi.mock("../auth.js", () => ({
   authenticateToken: (req: any, res: any, next: any) => {
     req.user = { id: 1, username: "testuser" };
+    next();
+  },
+  optionalAuthenticateToken: (_req: any, _res: any, next: any) => {
     next();
   },
   hashPassword: vi.fn(),
@@ -66,6 +72,7 @@ vi.mock("../middleware.js", () => ({
   sanitizeSearchQuery: [],
   sanitizeGameId: [],
   sanitizeIgdbId: [],
+  sanitizeDownloadId: [],
   sanitizeGameStatus: [],
   sanitizeGameData: [],
   sanitizeIndexerData: [],
@@ -211,8 +218,8 @@ describe("RSS Routes", () => {
 
       const res = await request(app).delete("/api/rss/feeds/1");
 
-      expect(res.status).toBe(200);
-      expect(res.body).toEqual({ success: true });
+      expect(res.status).toBe(204);
+      expect(res.body).toEqual({});
       expect(storage.removeRssFeed).toHaveBeenCalledWith("1");
     });
 

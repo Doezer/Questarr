@@ -1,32 +1,28 @@
-import { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import GameGrid from "@/components/GameGrid";
 import { type Game } from "@shared/schema";
 import { type GameStatus } from "@/components/StatusBadge";
+import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { useToast } from "@/hooks/use-toast";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
+import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 import EmptyState from "@/components/EmptyState";
-import { Star, LayoutGrid, List, Settings2 } from "lucide-react";
+import GameFilterPills from "@/components/GameFilterPills";
+import { Star, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { useViewControls } from "@/hooks/use-view-controls";
+import PageToolbar from "@/components/PageToolbar";
+import { useDownloadSummary } from "@/hooks/use-download-summary";
 
 type SortOption = "release-asc" | "release-desc" | "added-desc" | "title-asc";
+
+const SORT_OPTIONS = [
+  { value: "release-desc", label: "Release (Newest)" },
+  { value: "release-asc", label: "Release (Oldest)" },
+  { value: "added-desc", label: "Recently Added" },
+  { value: "title-asc", label: "Title (A–Z)" },
+];
 
 // ⚡ Bolt: Move sortGames outside of the component to prevent it from being recreated
 // on every render, which would break the `useMemo` dependencies below if it were
@@ -66,46 +62,39 @@ export default function WishlistPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [sortBy, setSortBy] = useState<SortOption>("release-desc");
-  const [viewMode, setViewMode] = useState<"grid" | "list">(() => {
-    return (localStorage.getItem("wishlistViewMode") as "grid" | "list") || "grid";
-  });
-
-  useEffect(() => {
-    localStorage.setItem("wishlistViewMode", viewMode);
-  }, [viewMode]);
-
-  const [listDensity, setListDensity] = useState<"comfortable" | "compact" | "ultra-compact">(
-    () => {
-      return (
-        (localStorage.getItem("wishlistListDensity") as
-          | "comfortable"
-          | "compact"
-          | "ultra-compact") || "comfortable"
-      );
-    }
-  );
-
-  useEffect(() => {
-    localStorage.setItem("wishlistListDensity", listDensity);
-  }, [listDensity]);
+  const { viewMode, setViewMode, listDensity, setListDensity } = useViewControls("wishlist");
+  const [showUnreleased, setShowUnreleased] = useLocalStorageState("wishlistShowUnreleased", true);
+  const [showDownloadsOnly, setShowDownloadsOnly] = useState(false);
+  const downloadSummaries = useDownloadSummary();
+  const [showSearchResultsOnly, setShowSearchResultsOnly] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const { data: games = [], isLoading } = useQuery<Game[]>({
-    queryKey: ["/api/games"],
+    queryKey: ["/api/games", "?status=wanted"],
   });
 
-  // Wishlist contains 'wanted' games
   const wishlistGames = useMemo(() => {
-    return games.filter((g) => g.status === "wanted");
-  }, [games]);
+    let result = games;
+    if (showSearchResultsOnly) result = result.filter((g) => g.searchResultsAvailable);
+    return result;
+  }, [games, showSearchResultsOnly]);
 
-  // Separate released and unreleased games
+  const filteredGames = useMemo(() => {
+    let result = showDownloadsOnly
+      ? wishlistGames.filter((g) => downloadSummaries[g.id])
+      : wishlistGames;
+    if (searchQuery)
+      result = result.filter((g) => g.title.toLowerCase().includes(searchQuery.toLowerCase()));
+    return result;
+  }, [wishlistGames, showDownloadsOnly, downloadSummaries, searchQuery]);
+
   const { releasedGames, upcomingGames, tbaGames } = useMemo(() => {
     const now = new Date();
     const released: Game[] = [];
     const upcoming: Game[] = [];
     const tba: Game[] = [];
 
-    wishlistGames.forEach((game) => {
+    filteredGames.forEach((game) => {
       if (!game.releaseDate) {
         tba.push(game);
       } else {
@@ -119,10 +108,9 @@ export default function WishlistPage() {
     });
 
     return { releasedGames: released, upcomingGames: upcoming, tbaGames: tba };
-  }, [wishlistGames]);
+  }, [filteredGames]);
 
   // ⚡ Bolt: Memoize the sorted arrays to prevent re-sorting on every render
-  // previously, `sortGames()` was called directly in the JSX render function
   const sortedUpcomingGames = useMemo(() => {
     return sortGames(upcomingGames, sortBy);
   }, [upcomingGames, sortBy]);
@@ -137,17 +125,7 @@ export default function WishlistPage() {
 
   const statusMutation = useMutation({
     mutationFn: async ({ gameId, status }: { gameId: string; status: GameStatus }) => {
-      const token = localStorage.getItem("token");
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
-      const response = await fetch(`/api/games/${gameId}/status`, {
-        method: "PATCH",
-        headers,
-        body: JSON.stringify({ status }),
-      });
-      if (!response.ok) throw new Error("Failed to update status");
+      const response = await apiRequest("PATCH", `/api/games/${gameId}/status`, { status });
       return response.json();
     },
     onSuccess: () => {
@@ -159,140 +137,160 @@ export default function WishlistPage() {
     },
   });
 
+  const hiddenMutation = useHiddenMutation({
+    hiddenSuccessMessage: "Game hidden from wishlist",
+    unhiddenSuccessMessage: "Game unhidden",
+    errorMessage: "Failed to update game visibility",
+  });
+
   return (
     <div className="h-full overflow-auto p-6">
-      <div className="flex justify-between items-center mb-6">
+      <div className="space-y-3">
         <div>
-          <h1 className="text-3xl font-bold">Wishlist</h1>
-          <p className="text-muted-foreground">Games you want to play</p>
+          <h1 className="text-2xl font-bold tracking-tight">Wishlist</h1>
+          {games.length > 0 && (
+            <p className="text-sm text-muted-foreground mt-0.5">
+              <span className="font-medium text-foreground">{games.length}</span> game
+              {games.length !== 1 ? "s" : ""} wanted
+            </p>
+          )}
         </div>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            {viewMode === "list" && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm" className="h-8 gap-1">
-                    <Settings2 className="h-3.5 w-3.5" />
-                    <span className="sr-only sm:not-sr-only sm:inline-block">
-                      {listDensity === "comfortable"
-                        ? "Comfortable"
-                        : listDensity === "compact"
-                          ? "Compact"
-                          : "Ultra-compact"}
-                    </span>
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuLabel>Row Density</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => setListDensity("comfortable")}>
-                    Comfortable
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setListDensity("compact")}>
-                    Compact
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setListDensity("ultra-compact")}>
-                    Ultra-compact
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-            <ToggleGroup
-              type="single"
-              value={viewMode}
-              onValueChange={(value) => value && setViewMode(value as "grid" | "list")}
-            >
-              <ToggleGroupItem value="grid" aria-label="Grid View">
-                <LayoutGrid className="h-4 w-4" />
-              </ToggleGroupItem>
-              <ToggleGroupItem value="list" aria-label="List View">
-                <List className="h-4 w-4" />
-              </ToggleGroupItem>
-            </ToggleGroup>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground hidden sm:inline">Sort by:</span>
-            <Select value={sortBy} onValueChange={(value) => setSortBy(value as SortOption)}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="release-desc">Release Date (Newest)</SelectItem>
-                <SelectItem value="release-asc">Release Date (Oldest)</SelectItem>
-                <SelectItem value="added-desc">Recently Added</SelectItem>
-                <SelectItem value="title-asc">Title (A-Z)</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-      </div>
 
-      {wishlistGames.length === 0 && !isLoading ? (
-        <EmptyState
-          icon={Star}
-          title="Your wishlist is empty"
-          description="Keep track of games you want to play. Add them from the Discover page to get notified about releases and updates."
-          actionLabel="Find Games"
-          actionLink="/discover"
+        <PageToolbar
+          search={searchQuery}
+          onSearchChange={setSearchQuery}
+          searchPlaceholder="Filter wishlist..."
+          filterPills={
+            <>
+              <Button
+                variant={showUnreleased ? "secondary" : "outline"}
+                size="sm"
+                className="h-7 gap-1.5 text-xs"
+                onClick={() => setShowUnreleased(!showUnreleased)}
+              >
+                {showUnreleased ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
+                Unreleased
+              </Button>
+              <GameFilterPills
+                showSearchResultsOnly={showSearchResultsOnly}
+                setShowSearchResultsOnly={setShowSearchResultsOnly}
+                showDownloadsOnly={showDownloadsOnly}
+                setShowDownloadsOnly={setShowDownloadsOnly}
+              />
+              {showSearchResultsOnly && showDownloadsOnly && (
+                <p className="text-xs text-muted-foreground">Multiple filters active</p>
+              )}
+            </>
+          }
+          sortValue={sortBy}
+          onSortChange={(v) => setSortBy(v as SortOption)}
+          sortOptions={SORT_OPTIONS}
+          viewControls={{
+            viewMode,
+            onViewModeChange: setViewMode,
+            listDensity,
+            onListDensityChange: setListDensity,
+          }}
         />
-      ) : (
-        <div className="space-y-8">
-          {/* Upcoming Section */}
-          {upcomingGames.length > 0 && (
-            <section>
-              <div className="flex items-center gap-3 mb-4">
-                <h2 className="text-2xl font-semibold">Upcoming</h2>
-                <Badge variant="default">{upcomingGames.length}</Badge>
-              </div>
-              <GameGrid
-                games={sortedUpcomingGames}
-                onStatusChange={(id, status) => statusMutation.mutate({ gameId: id, status })}
-                isLoading={isLoading}
-                viewMode={viewMode}
-                density={listDensity}
-              />
-              <Separator className="mt-8" />
-            </section>
-          )}
 
-          {/* Released Section */}
-          {releasedGames.length > 0 && (
-            <section>
-              <div className="flex items-center gap-3 mb-4">
-                <h2 className="text-2xl font-semibold">Released</h2>
-                <Badge variant="outline" className="bg-green-500 border-green-600 text-white">
-                  {releasedGames.length}
-                </Badge>
-              </div>
-              <GameGrid
-                games={sortedReleasedGames}
-                onStatusChange={(id, status) => statusMutation.mutate({ gameId: id, status })}
-                isLoading={isLoading}
-                viewMode={viewMode}
-                density={listDensity}
-              />
-              <Separator className="mt-8" />
-            </section>
-          )}
+        {!isLoading && games.length === 0 ? (
+          <EmptyState
+            icon={Star}
+            title="Your wishlist is empty"
+            description="Keep track of games you want to play. Add them from the Discover page to get notified about releases and updates."
+            actionLabel="Find Games"
+            actionLink="/discover"
+          />
+        ) : !isLoading && filteredGames.length === 0 ? (
+          <EmptyState
+            icon={Star}
+            title={
+              searchQuery
+                ? "No games match your search"
+                : showDownloadsOnly && showSearchResultsOnly
+                  ? "No games match your filters"
+                  : showDownloadsOnly
+                    ? "No games with active downloads"
+                    : showSearchResultsOnly
+                      ? "No games with search results"
+                      : !showUnreleased
+                        ? "No released games in your wishlist"
+                        : "No games match your filters"
+            }
+            description={
+              searchQuery
+                ? `No wishlist games found for "${searchQuery}".`
+                : showDownloadsOnly || showSearchResultsOnly
+                  ? "Try disabling one or more filters to see more games."
+                  : !showUnreleased
+                    ? "All your wishlist games are upcoming or unannounced. Enable 'Unreleased' to see them."
+                    : "Try adjusting your filters."
+            }
+          />
+        ) : (
+          <div className="space-y-12">
+            {releasedGames.length > 0 && (
+              <section>
+                <div className="flex items-baseline gap-2 mb-3">
+                  <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                    Released
+                  </h2>
+                  <span className="text-xs text-muted-foreground/60">{releasedGames.length}</span>
+                </div>
+                <GameGrid
+                  games={sortedReleasedGames}
+                  onStatusChange={(id, status) => statusMutation.mutate({ gameId: id, status })}
+                  onToggleHidden={(id, hidden) => hiddenMutation.mutate({ gameId: id, hidden })}
+                  isLoading={isLoading}
+                  viewMode={viewMode}
+                  density={listDensity}
+                  downloadSummaries={downloadSummaries}
+                />
+              </section>
+            )}
 
-          {/* TBA Section */}
-          {tbaGames.length > 0 && (
-            <section>
-              <div className="flex items-center gap-3 mb-4">
-                <h2 className="text-2xl font-semibold">To Be Announced</h2>
-                <Badge variant="secondary">{tbaGames.length}</Badge>
-              </div>
-              <GameGrid
-                games={sortedTbaGames}
-                onStatusChange={(id, status) => statusMutation.mutate({ gameId: id, status })}
-                isLoading={isLoading}
-                viewMode={viewMode}
-                density={listDensity}
-              />
-            </section>
-          )}
-        </div>
-      )}
+            {showUnreleased && upcomingGames.length > 0 && (
+              <section>
+                <div className="flex items-baseline gap-2 mb-3">
+                  <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                    Upcoming
+                  </h2>
+                  <span className="text-xs text-muted-foreground/60">{upcomingGames.length}</span>
+                </div>
+                <GameGrid
+                  games={sortedUpcomingGames}
+                  onStatusChange={(id, status) => statusMutation.mutate({ gameId: id, status })}
+                  onToggleHidden={(id, hidden) => hiddenMutation.mutate({ gameId: id, hidden })}
+                  isLoading={isLoading}
+                  viewMode={viewMode}
+                  density={listDensity}
+                  downloadSummaries={downloadSummaries}
+                />
+              </section>
+            )}
+
+            {showUnreleased && tbaGames.length > 0 && (
+              <section>
+                <div className="flex items-baseline gap-2 mb-3">
+                  <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                    To Be Announced
+                  </h2>
+                  <span className="text-xs text-muted-foreground/60">{tbaGames.length}</span>
+                </div>
+                <GameGrid
+                  games={sortedTbaGames}
+                  onStatusChange={(id, status) => statusMutation.mutate({ gameId: id, status })}
+                  onToggleHidden={(id, hidden) => hiddenMutation.mutate({ gameId: id, hidden })}
+                  isLoading={isLoading}
+                  viewMode={viewMode}
+                  density={listDensity}
+                  downloadSummaries={downloadSummaries}
+                />
+              </section>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

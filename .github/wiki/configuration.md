@@ -23,14 +23,16 @@ Questarr uses the IGDB API (via Twitch) for game metadata. You need to register 
 IGDB credentials are mandatory. You can configure them in two ways:
 
 ### 1. UI Configuration (Recommended)
-*   **Where:** Settings Page → IGDB API
-*   **Behavior:** Credentials entered here are stored securely in the database.
-*   **Precedence:** Settings configured in the UI **override** any environment variables. This allows you to update keys without restarting the container.
+
+- **Where:** Settings Page → IGDB API
+- **Behavior:** Credentials entered here are stored securely in the database.
+- **Precedence:** Settings configured in the UI **override** any environment variables. This allows you to update keys without restarting the container.
 
 ### 2. Environment Variables (not recommended)
-*   **Where:** `.env` file or Docker environment variables (`IGDB_CLIENT_ID`, `IGDB_CLIENT_SECRET`).
-*   **Behavior:** Used as a fallback if no credentials are configured in the database.
-*   **Status:** The Settings page will show a blue "Environment Variable" badge if these are active.
+
+- **Where:** `.env` file or Docker environment variables (`IGDB_CLIENT_ID`, `IGDB_CLIENT_SECRET`).
+- **Behavior:** Used as a fallback if no credentials are configured in the database.
+- **Status:** The Settings page will show a blue "Environment Variable" badge if these are active.
 
 ---
 
@@ -39,6 +41,7 @@ IGDB credentials are mandatory. You can configure them in two ways:
 Connect clients to automate downloads.
 
 **Supported Clients:**
+
 - qBittorrent
 - Transmission
 - rTorrent
@@ -60,11 +63,13 @@ Connect clients to automate downloads.
 5. Save
 
 **qBittorrent Setup:**
+
 - Enable Web UI in Tools → Options → Web UI
 - Set username and password
 - Note the port (default 8080)
 
 **Transmission Setup:**
+
 - Enable RPC in settings
 - Set RPC port (default 9091)
 - Enable authentication if desired
@@ -74,6 +79,7 @@ Connect clients to automate downloads.
 Indexers search for game torrents across configured sites.
 
 **Option 1: Prowlarr Sync (Recommended)**
+
 1. Install [Prowlarr](https://prowlarr.com/) separately
 2. Configure your indexers in Prowlarr
 3. In Questarr, go to Settings → Indexers
@@ -81,6 +87,7 @@ Indexers search for game torrents across configured sites.
 5. Enter your Prowlarr URL and API key
 
 **Option 2: Manual Configuration**
+
 1. Go to Settings → Indexers → Add Indexer
 2. Enter:
    - **Name**: Display name for the indexer

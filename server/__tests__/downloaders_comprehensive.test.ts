@@ -353,15 +353,19 @@ describe("Downloader Comprehensive Tests", () => {
       settings: null,
     };
 
-    it("should add NZB successfully", async () => {
-      const addResponse = {
-        status: true,
-        nzo_ids: ["nzo123"],
-      };
+    const emptyQueueResponse = {
+      queue: { slots: [], speed: "0", diskspace1: 100, diskspace1_norm: "100 GB" },
+    };
 
+    const mockQueueThenHistory = (historyData: unknown) => {
+      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => emptyQueueResponse });
+      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => historyData });
+    };
+
+    it("should add NZB successfully", async () => {
       fetchMock.mockResolvedValueOnce({
         ok: true,
-        json: async () => addResponse,
+        json: async () => ({ status: true, nzo_ids: ["nzo123"] }),
       });
 
       const result = await DownloaderManager.addDownload(downloader, {
@@ -375,14 +379,9 @@ describe("Downloader Comprehensive Tests", () => {
     });
 
     it("should handle duplicate NZB as success", async () => {
-      const duplicateResponse = {
-        status: false,
-        error: "Duplicate NZB",
-      };
-
       fetchMock.mockResolvedValueOnce({
         ok: true,
-        json: async () => duplicateResponse,
+        json: async () => ({ status: false, error: "Duplicate NZB" }),
       });
 
       const result = await DownloaderManager.addDownload(downloader, {
@@ -393,6 +392,97 @@ describe("Downloader Comprehensive Tests", () => {
 
       expect(result.success).toBe(true);
       expect(result.message).toContain("NZB already exists");
+    });
+
+    it("should return completed status when download is found in history", async () => {
+      mockQueueThenHistory({
+        history: {
+          slots: [
+            {
+              nzo_id: "nzo123",
+              name: "Test Game",
+              status: "Completed",
+              fail_message: "",
+              path: "/downloads/games/Test Game",
+              bytes: 1073741824,
+              category: "games",
+              download_time: 120,
+              completed: 1700000000,
+            },
+          ],
+        },
+      });
+
+      const result = await DownloaderManager.getDownloadStatus(downloader, "nzo123");
+
+      expect(result).not.toBeNull();
+      expect(result?.status).toBe("completed");
+      expect(result?.progress).toBe(100);
+      expect(result?.repairStatus).toBe("good");
+      expect(result?.unpackStatus).toBe("completed");
+    });
+
+    it("should return error status when history shows a failed download", async () => {
+      mockQueueThenHistory({
+        history: {
+          slots: [
+            {
+              nzo_id: "nzo456",
+              name: "Broken Game",
+              status: "Failed",
+              fail_message: "Repair failed",
+              path: "",
+              bytes: 0,
+              category: "games",
+              download_time: 0,
+              completed: 1700000000,
+            },
+          ],
+        },
+      });
+
+      const result = await DownloaderManager.getDownloadStatus(downloader, "nzo456");
+
+      expect(result).not.toBeNull();
+      expect(result?.status).toBe("error");
+      expect(result?.error).toBe("Repair failed");
+      expect(result?.repairStatus).toBe("failed");
+    });
+
+    it("should return null when download is not in queue or history", async () => {
+      // queue → not found → getFromHistory (2 passes: filtered then full)
+      mockQueueThenHistory({ history: { slots: [] } }); // queue + filtered history (empty → retry)
+      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ history: { slots: [] } }) }); // full history (empty → null)
+
+      const result = await DownloaderManager.getDownloadStatus(downloader, "nzo_unknown");
+
+      expect(result).toBeNull();
+    });
+
+    it("should pass nzo_ids parameter when querying history", async () => {
+      mockQueueThenHistory({
+        history: {
+          slots: [
+            {
+              nzo_id: "nzo_test_id",
+              name: "Test Download",
+              status: "Completed",
+              bytes: 1000000,
+              category: "games",
+              fail_message: "",
+            },
+          ],
+        },
+      });
+
+      await DownloaderManager.getDownloadStatus(downloader, "nzo_test_id");
+
+      const historyCalls = fetchMock.mock.calls.filter((call) => {
+        const url: string = call[0];
+        return url.includes("mode=history");
+      });
+      expect(historyCalls.length).toBe(1);
+      expect(historyCalls[0][0]).toContain("nzo_ids=nzo_test_id");
     });
   });
 

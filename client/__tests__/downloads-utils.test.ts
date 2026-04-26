@@ -3,7 +3,6 @@ import {
   formatBytes,
   formatSpeed,
   formatETA,
-  getStatusColor,
   getStatusBadgeVariant,
   filterDownloadsByStatus,
   shouldShowSpeedBadge,
@@ -12,8 +11,6 @@ import {
   shouldShowSizeBadge,
   shouldShowPeersBadge,
   getDownloadTypeColor,
-  getDownloadTypeBadgeVariant,
-  getDownloadTypeTextExColor,
   formatDownloadType,
   shouldShowTorrentMetrics,
   shouldShowUsenetMetrics,
@@ -84,32 +81,6 @@ describe("formatETA", () => {
     expect(formatETA(3660)).toBe("1h 1m");
     expect(formatETA(7200)).toBe("2h 0m");
     expect(formatETA(5400)).toBe("1h 30m");
-  });
-});
-
-describe("getStatusColor", () => {
-  it("should return correct color for downloading status", () => {
-    expect(getStatusColor("downloading")).toBe("bg-blue-500");
-  });
-
-  it("should return correct color for seeding status", () => {
-    expect(getStatusColor("seeding")).toBe("bg-green-500");
-  });
-
-  it("should return correct color for completed status", () => {
-    expect(getStatusColor("completed")).toBe("bg-green-600");
-  });
-
-  it("should return correct color for paused status", () => {
-    expect(getStatusColor("paused")).toBe("bg-yellow-500");
-  });
-
-  it("should return correct color for error status", () => {
-    expect(getStatusColor("error")).toBe("bg-red-500");
-  });
-
-  it("should return gray for unknown status", () => {
-    expect(getStatusColor("unknown" as DownloadStatusType)).toBe("bg-gray-500");
   });
 });
 
@@ -413,34 +384,6 @@ describe("Usenet Utility Functions", () => {
     });
   });
 
-  describe("getDownloadTypeBadgeVariant", () => {
-    it("should return secondary for usenet", () => {
-      expect(getDownloadTypeBadgeVariant("usenet")).toBe("secondary");
-    });
-
-    it("should return default for torrent", () => {
-      expect(getDownloadTypeBadgeVariant("torrent")).toBe("default");
-    });
-
-    it("should return default when undefined", () => {
-      expect(getDownloadTypeBadgeVariant(undefined)).toBe("default");
-    });
-  });
-
-  describe("getDownloadTypeTextExColor", () => {
-    it("should return amber text for usenet", () => {
-      expect(getDownloadTypeTextExColor("usenet")).toContain("text-amber-600");
-    });
-
-    it("should return violet text for torrent", () => {
-      expect(getDownloadTypeTextExColor("torrent")).toContain("text-violet-600");
-    });
-
-    it("should return violet text when undefined", () => {
-      expect(getDownloadTypeTextExColor(undefined)).toContain("text-violet-600");
-    });
-  });
-
   describe("formatDownloadType", () => {
     it("should return Usenet for usenet type", () => {
       expect(formatDownloadType("usenet")).toBe("Usenet");
@@ -584,6 +527,15 @@ describe("Usenet Utility Functions", () => {
     });
     it("should return false if no identifying fields", () => {
       expect(isUsenetItem({})).toBe(false);
+    });
+    it("returns true when downloadType is 'usenet'", () => {
+      expect(isUsenetItem({ downloadType: "usenet" })).toBe(true);
+    });
+    it("returns false when downloadType is 'torrent'", () => {
+      expect(isUsenetItem({ downloadType: "torrent" })).toBe(false);
+    });
+    it("downloadType takes precedence over grabs/age heuristic", () => {
+      expect(isUsenetItem({ downloadType: "torrent", grabs: 10, age: 5 })).toBe(false);
     });
   });
 });

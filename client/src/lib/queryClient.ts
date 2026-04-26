@@ -22,10 +22,12 @@ async function throwIfResNotOk(res: Response) {
       data = text;
     }
 
-    const message = ((data as Record<string, unknown>)?.error ||
+    const raw =
+      (data as Record<string, unknown>)?.error ||
       (data as Record<string, unknown>)?.message ||
       res.statusText ||
-      String(res.status)) as string;
+      String(res.status);
+    const message = typeof raw === "string" ? raw : JSON.stringify(raw);
     throw new ApiError(res.status, message, data);
   }
 }
@@ -45,6 +47,7 @@ export async function apiRequest(
     method,
     headers,
     body: data ? JSON.stringify(data) : undefined,
+    credentials: "include",
   });
 
   await throwIfResNotOk(res);
@@ -63,6 +66,7 @@ export const getQueryFn: <T>(options: { on401: UnauthorizedBehavior }) => QueryF
 
     const res = await fetch(queryKey.join("/") as string, {
       headers,
+      credentials: "include",
     });
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
@@ -87,3 +91,17 @@ export const queryClient = new QueryClient({
     },
   },
 });
+
+/**
+ * Removes all cached torrent/NZB search results from the query cache.
+ * Should be called whenever the set of configured indexers changes so that
+ * the next download search fetches fresh data from all active indexers.
+ */
+export function clearSearchCache(): void {
+  queryClient.removeQueries({
+    predicate: (query) => {
+      const key = query.queryKey[0];
+      return typeof key === "string" && key.startsWith("/api/search");
+    },
+  });
+}

@@ -107,6 +107,51 @@ describe("TransmissionClient - Advanced Features", () => {
     expect(result.message).toContain("Authentication failed");
   });
 
+  it("should detect magnet redirect and pass magnet URI to Transmission", async () => {
+    // Mock 1: indexer returns a 302 redirect to a magnet link
+    const redirectResponse = {
+      ok: false,
+      status: 302,
+      headers: {
+        get: (name: string) =>
+          name === "location"
+            ? "magnet:?xt=urn:btih:aabbccdd00112233aabbccdd00112233aabbccdd"
+            : null,
+      },
+    };
+
+    // Mock 2: Transmission RPC — torrent-add success
+    const rpcResponse = {
+      ok: true,
+      json: async () => ({
+        arguments: {
+          "torrent-added": {
+            hashString: "aabbccdd00112233aabbccdd00112233aabbccdd",
+            id: 2,
+          },
+        },
+        result: "success",
+      }),
+    };
+
+    fetchMock.mockResolvedValueOnce(redirectResponse).mockResolvedValueOnce(rpcResponse);
+
+    const result = await DownloaderManager.addDownload(testDownloader, {
+      url: "http://indexer.com/download/game.torrent",
+      title: "Redirect Game",
+    });
+
+    expect(result.success).toBe(true);
+
+    // The RPC call should use the magnet URI via 'filename', not 'metainfo'
+    const rpcCall = fetchMock.mock.calls[1];
+    const rpcBody = JSON.parse(rpcCall[1].body);
+    expect(rpcBody.method).toBe("torrent-add");
+    expect(rpcBody.arguments).toHaveProperty("filename");
+    expect(rpcBody.arguments.filename).toContain("magnet:");
+    expect(rpcBody.arguments).not.toHaveProperty("metainfo");
+  });
+
   it("should download file server-side and upload metainfo", async () => {
     // Mock 1: file download
 

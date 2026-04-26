@@ -1,0 +1,1 @@
+ALTER TABLE `games` ADD `early_access` integer DEFAULT false NOT NULL;

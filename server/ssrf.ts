@@ -18,8 +18,14 @@ import { isIP } from "net";
  */
 export async function isSafeUrl(
   urlStr: string,
-  options: { allowPrivate?: boolean } = {}
+  options: { allowPrivate?: boolean } = { allowPrivate: true }
 ): Promise<boolean> {
+  // Magnet links are not HTTP(S) URLs and do not cause any server-side network connection.
+  // They are passed directly to the download client, so they pose no SSRF risk.
+  if (urlStr.startsWith("magnet:")) {
+    return true;
+  }
+
   let url: URL;
   try {
     // Ensure protocol is http or https
@@ -49,8 +55,17 @@ export async function isSafeUrl(
 
   // Resolve hostname
   try {
-    const lookup = await dns.lookup(hostname);
-    return isSafeIp(lookup.address, options.allowPrivate);
+    const addresses = await dns.lookup(hostname, { all: true });
+    if (!addresses || addresses.length === 0) {
+      return false;
+    }
+    // Check all resolved addresses to prevent DNS rebinding attacks
+    for (const { address } of addresses) {
+      if (!isSafeIp(address, options.allowPrivate)) {
+        return false;
+      }
+    }
+    return true;
   } catch {
     // If resolution fails, fail safe (deny)
     return false;
@@ -129,9 +144,6 @@ export function isSafeIp(ip: string, allowPrivate = true): boolean {
     if (
       lowerIp.startsWith("fe8") ||
       lowerIp.startsWith("fe9") ||
-      lowerIp.startsWith("fe10") || // actually fe80-febb
-      lowerIp.startsWith("fe8") ||
-      lowerIp.startsWith("fe9") ||
       lowerIp.startsWith("fea") ||
       lowerIp.startsWith("feb")
     )
@@ -182,16 +194,35 @@ export async function safeFetch(
 
   if (ipVersion === 0) {
     try {
-      const lookup = await dns.lookup(hostname);
-      address = lookup.address;
-      family = lookup.family;
-    } catch {
+      const addresses = await dns.lookup(hostname, { all: true });
+
+      if (!addresses || addresses.length === 0) {
+        throw new Error("Invalid or unsafe URL");
+      }
+
+      // Check all resolved addresses to prevent DNS rebinding attacks
+      for (const { address } of addresses) {
+        if (!isSafeIp(address, allowPrivate)) {
+          throw new Error("Invalid or unsafe URL");
+        }
+      }
+
+      // Use the first resolved address for HTTP pinning
+      if (addresses.length > 0) {
+        address = addresses[0].address;
+        family = addresses[0].family;
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message === "Invalid or unsafe URL") {
+        throw error;
+      }
       throw new Error(`Failed to resolve hostname: ${hostname}`);
     }
-  }
-
-  if (!isSafeIp(address, allowPrivate)) {
-    throw new Error("Invalid or unsafe URL");
+  } else {
+    // Hostname is already an IP, check it directly
+    if (!isSafeIp(address, allowPrivate)) {
+      throw new Error("Invalid or unsafe URL");
+    }
   }
 
   // For HTTPS, we cannot rewrite the URL to use the IP address because

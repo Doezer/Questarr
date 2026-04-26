@@ -65,8 +65,12 @@ export function mapGameToInsertGame(game: Game): InsertGame {
     platforms: game.platforms,
     genres: game.genres,
     screenshots: game.screenshots,
+    igdbWebsites: game.igdbWebsites,
+    aggregatedRating: game.aggregatedRating,
+    source: game.source,
     status: game.status,
     hidden: game.hidden || false,
+    earlyAccess: game.earlyAccess || false,
   };
 }
 
@@ -96,4 +100,28 @@ export function compareEnabledPriorityName<T extends EnabledPriorityNamed>(a: T,
   if (priorityDiff !== 0) return priorityDiff;
 
   return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+}
+
+/**
+ * Ensures a URL is using HTTP or HTTPS protocols to prevent XSS attacks (e.g. via javascript: protocol).
+ * Returns the original URL if safe, otherwise returns "#".
+ */
+export function safeUrl(url: string, fallback = "#"): string {
+  try {
+    const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost";
+    const parsedUrl = new URL(url, origin);
+    if (parsedUrl.protocol === "http:" || parsedUrl.protocol === "https:") {
+      return url;
+    }
+  } catch {
+    // Ignore invalid URLs
+  }
+  return fallback;
+}
+
+/**
+ * Returns the human-readable label for the next status a game can transition to.
+ */
+export function getNextStatusLabel(status: Game["status"]): string {
+  return status === "wanted" ? "Owned" : status === "owned" ? "Completed" : "Wanted";
 }

@@ -329,6 +329,27 @@ describe("Middleware - Input Sanitization", () => {
 
       expect(res.status).toHaveBeenCalledWith(400);
     });
+
+    it("should trim url, name, and apiKey fields", async () => {
+      const req = createMockRequest({
+        body: {
+          name: "  Test Indexer  ",
+          url: "  https://example.com/indexer  ",
+          apiKey: "  my-api-key  ",
+          enabled: true,
+        },
+      });
+      const res = createMockResponse();
+      const next = createMockNext();
+
+      for (const validator of sanitizeIndexerData) {
+        await validator(req as Request, res as Response, next);
+      }
+
+      expect(req.body.name).toBe("Test Indexer");
+      expect(req.body.url).toBe("https://example.com/indexer");
+      expect(req.body.apiKey).toBe("my-api-key");
+    });
   });
 
   describe("sanitizeDownloaderData", () => {
@@ -374,6 +395,32 @@ describe("Middleware - Input Sanitization", () => {
       validateRequest(req as Request, res as Response, next);
 
       expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it("should trim url, username, password, and urlPath fields", async () => {
+      const req = createMockRequest({
+        body: {
+          name: "  My Downloader  ",
+          type: "qbittorrent",
+          url: "  192.168.1.1  ",
+          username: "  admin  ",
+          password: "  secret  ",
+          urlPath: "  /api  ",
+          enabled: true,
+        },
+      });
+      const res = createMockResponse();
+      const next = createMockNext();
+
+      for (const validator of sanitizeDownloaderData) {
+        await validator(req as Request, res as Response, next);
+      }
+
+      expect(req.body.name).toBe("My Downloader");
+      expect(req.body.url).toBe("192.168.1.1"); // NOSONAR — private IP is intentional test data
+      expect(req.body.username).toBe("admin");
+      expect(req.body.password).toBe("secret");
+      expect(req.body.urlPath).toBe("/api");
     });
   });
 

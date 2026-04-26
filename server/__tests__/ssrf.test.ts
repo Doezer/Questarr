@@ -158,6 +158,26 @@ describe("safeFetch", () => {
     await expect(safeFetch("https://evil.example.com/")).rejects.toThrow("Invalid or unsafe URL");
   });
 
+  it("should revalidate redirect targets before following them", async () => {
+    vi.mocked(dns.lookup as unknown as import("dns").LookupAddress[]).mockResolvedValueOnce([
+      { address: "142.250.185.46", family: 4 },
+    ]);
+    vi.mocked(dns.lookup as unknown as import("dns").LookupAddress[]).mockResolvedValueOnce([
+      { address: "169.254.169.254", family: 4 },
+    ]);
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(null, {
+        status: 302,
+        headers: { location: "https://metadata-redirect.example.com/" },
+      })
+    );
+
+    await expect(safeFetch("https://example.com/download")).rejects.toThrow(
+      "Invalid or unsafe URL"
+    );
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("should reject URLs that fail DNS resolution", async () => {
     // Mock DNS lookup to fail
     vi.mocked(dns.lookup as unknown as import("dns").LookupAddress[]).mockRejectedValueOnce(

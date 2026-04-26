@@ -1,6 +1,142 @@
 import dns from "dns/promises";
 import { isIP } from "net";
 
+const DEFAULT_SAFE_FETCH_TIMEOUT_MS = 30000;
+const DEFAULT_SAFE_FETCH_MAX_REDIRECTS = 5;
+
+type SafeFetchOptions = RequestInit & {
+  allowPrivate?: boolean;
+  timeoutMs?: number;
+  maxRedirects?: number;
+};
+
+interface SafeFetchTarget {
+  address: string;
+  family: number;
+  hostname: string;
+  isHttps: boolean;
+}
+
+function normalizeHostname(hostname: string): string {
+  if (hostname.startsWith("[") && hostname.endsWith("]")) {
+    return hostname.slice(1, -1);
+  }
+  return hostname;
+}
+
+function buildFetchSignal(
+  signal: AbortSignal | null | undefined,
+  timeoutMs: number | undefined
+): AbortSignal | undefined {
+  if (timeoutMs === undefined || timeoutMs <= 0) {
+    return signal ?? undefined;
+  }
+
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  if (!signal) {
+    return timeoutSignal;
+  }
+
+  if (typeof AbortSignal.any === "function") {
+    return AbortSignal.any([signal, timeoutSignal]);
+  }
+
+  return signal;
+}
+
+function isRedirectStatus(status: number): boolean {
+  return status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
+}
+
+function getRedirectOptions(fetchOptions: RequestInit, status: number): RequestInit {
+  const method = (fetchOptions.method || "GET").toUpperCase();
+  const shouldSwitchToGet =
+    status === 303 || ((status === 301 || status === 302) && method !== "GET" && method !== "HEAD");
+
+  if (!shouldSwitchToGet) {
+    return fetchOptions;
+  }
+
+  const headers = new Headers(fetchOptions.headers ?? {});
+  headers.delete("content-length");
+  headers.delete("content-type");
+
+  return {
+    ...fetchOptions,
+    method: "GET",
+    body: undefined,
+    headers,
+  };
+}
+
+async function resolveSafeFetchTarget(url: URL, allowPrivate = true): Promise<SafeFetchTarget> {
+  const hostname = normalizeHostname(url.hostname);
+  const isHttps = url.protocol === "https:";
+  const ipVersion = isIP(hostname);
+
+  if (ipVersion !== 0) {
+    if (!isSafeIp(hostname, allowPrivate)) {
+      throw new Error("Invalid or unsafe URL");
+    }
+
+    return {
+      address: hostname,
+      family: ipVersion,
+      hostname,
+      isHttps,
+    };
+  }
+
+  try {
+    const addresses = await dns.lookup(hostname, { all: true });
+
+    if (!addresses || addresses.length === 0) {
+      throw new Error("Invalid or unsafe URL");
+    }
+
+    for (const { address } of addresses) {
+      if (!isSafeIp(address, allowPrivate)) {
+        throw new Error("Invalid or unsafe URL");
+      }
+    }
+
+    return {
+      address: addresses[0].address,
+      family: addresses[0].family,
+      hostname,
+      isHttps,
+    };
+  } catch (error) {
+    if (error instanceof Error && error.message === "Invalid or unsafe URL") {
+      throw error;
+    }
+    throw new Error(`Failed to resolve hostname: ${hostname}`);
+  }
+}
+
+async function fetchValidatedOnce(
+  url: URL,
+  fetchOptions: RequestInit,
+  allowPrivate = true
+): Promise<Response> {
+  const target = await resolveSafeFetchTarget(url, allowPrivate);
+
+  if (target.isHttps) {
+    return fetch(url.toString(), fetchOptions);
+  }
+
+  const safeUrl = new URL(url.toString());
+  safeUrl.hostname = target.family === 6 ? `[${target.address}]` : target.address;
+
+  const headers = new Headers(fetchOptions.headers ?? {});
+  headers.set("Host", target.hostname);
+
+  return fetch(safeUrl.toString(), {
+    ...fetchOptions,
+    headers,
+  });
+}
+
 /**
  * Validates if a URL is safe to connect to, preventing SSRF attacks against
  * cloud metadata services and other sensitive internal endpoints.
@@ -181,72 +317,48 @@ export function isSafeIp(ip: string, allowPrivate = true): boolean {
  * hostnames, not IP addresses. The DNS resolution still validates the target IP
  * is safe before making the request.
  */
-export async function safeFetch(
-  urlStr: string,
-  options: RequestInit & { allowPrivate?: boolean } = {}
-): Promise<Response> {
-  const url = new URL(urlStr);
-  const hostname = url.hostname;
-  const isHttps = url.protocol === "https:";
-  const { allowPrivate, ...fetchOptions } = options;
+export async function safeFetch(urlStr: string, options: SafeFetchOptions = {}): Promise<Response> {
+  const {
+    allowPrivate,
+    maxRedirects = DEFAULT_SAFE_FETCH_MAX_REDIRECTS,
+    redirect = "follow",
+    signal,
+    timeoutMs = DEFAULT_SAFE_FETCH_TIMEOUT_MS,
+    ...fetchOptions
+  } = options;
 
-  // If hostname is already an IP, just validate it
-  const ipVersion = isIP(hostname);
-  let address = hostname;
-  let family = ipVersion;
-
-  if (ipVersion === 0) {
-    try {
-      const addresses = await dns.lookup(hostname, { all: true });
-
-      if (!addresses || addresses.length === 0) {
-        throw new Error("Invalid or unsafe URL");
-      }
-
-      // Check all resolved addresses to prevent DNS rebinding attacks
-      for (const { address } of addresses) {
-        if (!isSafeIp(address, allowPrivate)) {
-          throw new Error("Invalid or unsafe URL");
-        }
-      }
-
-      // Use the first resolved address for HTTP pinning
-      if (addresses.length > 0) {
-        address = addresses[0].address;
-        family = addresses[0].family;
-      }
-    } catch (error) {
-      if (error instanceof Error && error.message === "Invalid or unsafe URL") {
-        throw error;
-      }
-      throw new Error(`Failed to resolve hostname: ${hostname}`);
-    }
-  } else {
-    // Hostname is already an IP, check it directly
-    if (!isSafeIp(address, allowPrivate)) {
-      throw new Error("Invalid or unsafe URL");
-    }
-  }
-
-  // For HTTPS, we cannot rewrite the URL to use the IP address because
-  // SSL/TLS certificates are issued for hostnames, not IP addresses.
-  // The certificate validation would fail with a hostname mismatch error.
-  // Instead, we've already validated the resolved IP is safe above,
-  // and we proceed with the original URL.
-  if (isHttps) {
-    return fetch(urlStr, fetchOptions);
-  }
-
-  // For HTTP, rewrite URL to use IP address to prevent DNS rebinding
-  const safeUrl = new URL(urlStr);
-  safeUrl.hostname = family === 6 ? `[${address}]` : address;
-
-  // Clone headers and set Host to original hostname
-  const headers = new Headers(fetchOptions.headers || {});
-  headers.set("Host", hostname);
-
-  return fetch(safeUrl.toString(), {
+  let currentUrl = new URL(urlStr);
+  let currentOptions: RequestInit = {
     ...fetchOptions,
-    headers,
-  });
+    signal: buildFetchSignal(signal, timeoutMs),
+  };
+  let redirectCount = 0;
+
+  while (true) {
+    const response = await fetchValidatedOnce(
+      currentUrl,
+      {
+        ...currentOptions,
+        redirect: redirect === "follow" ? "manual" : redirect,
+      },
+      allowPrivate
+    );
+
+    if (redirect !== "follow" || !isRedirectStatus(response.status)) {
+      return response;
+    }
+
+    const location = response.headers.get("location");
+    if (!location) {
+      return response;
+    }
+
+    if (redirectCount >= maxRedirects) {
+      throw new Error(`Too many redirects (max ${maxRedirects})`);
+    }
+
+    currentUrl = new URL(location, currentUrl);
+    currentOptions = getRedirectOptions(currentOptions, response.status);
+    redirectCount++;
+  }
 }

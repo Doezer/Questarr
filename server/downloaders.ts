@@ -14,6 +14,8 @@ import { isSafeUrl, safeFetch } from "./ssrf.js";
 
 const DOWNLOAD_CLIENT_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
+const DEFAULT_DOWNLOADER_TIMEOUT_MS = 30000;
+const DEFAULT_USENET_CATEGORY = "games";
 
 // Prowlarr (and some Newznab indexers) use standard base64 in the `link` query
 // parameter, which can contain `+`. HTTP servers like ASP.NET Core decode `+`
@@ -33,6 +35,50 @@ function fixNzbUrlEncoding(rawUrl: string): string {
     })
     .join("&");
   return base + fixedQuery;
+}
+
+function withDefaultTimeout(options: RequestInit = {}): RequestInit {
+  if (options.signal) {
+    return {
+      ...options,
+      signal:
+        typeof AbortSignal.any === "function"
+          ? AbortSignal.any([options.signal, AbortSignal.timeout(DEFAULT_DOWNLOADER_TIMEOUT_MS)])
+          : options.signal,
+    };
+  }
+
+  return {
+    ...options,
+    signal: AbortSignal.timeout(DEFAULT_DOWNLOADER_TIMEOUT_MS),
+  };
+}
+
+async function fetchNzbContent(rawUrl: string): Promise<ArrayBuffer> {
+  const nzbUrl = fixNzbUrlEncoding(rawUrl);
+  const nzbResponse = await safeFetch(nzbUrl, { timeoutMs: DEFAULT_DOWNLOADER_TIMEOUT_MS });
+  if (!nzbResponse.ok) {
+    throw new Error(`Failed to fetch NZB: ${nzbResponse.statusText}`);
+  }
+
+  return nzbResponse.arrayBuffer();
+}
+
+function resolveUsenetCategory(
+  requestCategory?: string | null,
+  downloaderCategory?: string | null
+): string {
+  const normalizedRequestCategory = requestCategory?.trim();
+  if (normalizedRequestCategory) {
+    return normalizedRequestCategory;
+  }
+
+  const normalizedDownloaderCategory = downloaderCategory?.trim();
+  if (normalizedDownloaderCategory) {
+    return normalizedDownloaderCategory;
+  }
+
+  return DEFAULT_USENET_CATEGORY;
 }
 
 // Type definitions for API responses
@@ -283,6 +329,11 @@ export class TransmissionClient implements DownloaderClient {
     }
   }
 
+  private normalizeTransmissionId(id: string): string | number {
+    const normalizedId = id.trim();
+    return /^\d+$/.test(normalizedId) ? parseInt(normalizedId, 10) : normalizedId;
+  }
+
   async testConnection(): Promise<{ success: boolean; message: string }> {
     try {
       const _response = await this.makeRequest("session-get", {});
@@ -471,7 +522,7 @@ export class TransmissionClient implements DownloaderClient {
   async getDownloadStatus(id: string): Promise<DownloadStatus | null> {
     try {
       const response = await this.makeRequest("torrent-get", {
-        ids: [parseInt(id)],
+        ids: [this.normalizeTransmissionId(id)],
         fields: [
           "id",
           "name",
@@ -486,6 +537,7 @@ export class TransmissionClient implements DownloaderClient {
           "peersGettingFromUs",
           "uploadRatio",
           "errorString",
+          "hashString",
         ],
       });
 
@@ -504,7 +556,7 @@ export class TransmissionClient implements DownloaderClient {
   async getDownloadDetails(id: string): Promise<DownloadDetails | null> {
     try {
       const response = await this.makeRequest("torrent-get", {
-        ids: [parseInt(id)],
+        ids: [this.normalizeTransmissionId(id)],
         fields: [
           "id",
           "name",
@@ -577,7 +629,7 @@ export class TransmissionClient implements DownloaderClient {
 
   async pauseDownload(id: string): Promise<{ success: boolean; message: string }> {
     try {
-      await this.makeRequest("torrent-stop", { ids: [parseInt(id)] });
+      await this.makeRequest("torrent-stop", { ids: [this.normalizeTransmissionId(id)] });
       return { success: true, message: "Download paused successfully" };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
@@ -587,7 +639,7 @@ export class TransmissionClient implements DownloaderClient {
 
   async resumeDownload(id: string): Promise<{ success: boolean; message: string }> {
     try {
-      await this.makeRequest("torrent-start", { ids: [parseInt(id)] });
+      await this.makeRequest("torrent-start", { ids: [this.normalizeTransmissionId(id)] });
       return { success: true, message: "Download resumed successfully" };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
@@ -601,7 +653,7 @@ export class TransmissionClient implements DownloaderClient {
   ): Promise<{ success: boolean; message: string }> {
     try {
       await this.makeRequest("torrent-remove", {
-        ids: [parseInt(id)],
+        ids: [this.normalizeTransmissionId(id)],
         "delete-local-data": deleteFiles,
       });
       return { success: true, message: "Download removed successfully" };
@@ -3318,8 +3370,10 @@ export class SABnzbdClient implements DownloaderClient {
   }
 
   private async fetchWithFallback(url: string, options: RequestInit = {}): Promise<Response> {
+    const requestOptions = withDefaultTimeout(options);
+
     try {
-      return await fetch(url, options);
+      return await fetch(url, requestOptions);
     } catch (error) {
       const isSslError =
         error instanceof Error &&
@@ -3334,7 +3388,7 @@ export class SABnzbdClient implements DownloaderClient {
           { url },
           "SSL verification failed, retrying with insecure connection"
         );
-        return this.fetchInsecure(url, options);
+        return this.fetchInsecure(url, requestOptions);
       }
       throw error;
     }
@@ -3342,18 +3396,24 @@ export class SABnzbdClient implements DownloaderClient {
 
   private fetchInsecure(url: string, options: RequestInit): Promise<Response> {
     return new Promise((resolve, reject) => {
+      if (options.signal?.aborted) {
+        reject(options.signal.reason ?? new Error("Request aborted"));
+        return;
+      }
+
       const req = https.request(
         url,
         {
           method: options.method || "GET",
           headers: options.headers as unknown as import("http").OutgoingHttpHeaders,
           rejectUnauthorized: false,
-          timeout: 30000,
+          timeout: DEFAULT_DOWNLOADER_TIMEOUT_MS,
         },
         (res) => {
           const chunks: Buffer[] = [];
           res.on("data", (chunk) => chunks.push(chunk));
           res.on("end", () => {
+            cleanupAbortListener();
             const body = Buffer.concat(chunks).toString();
             resolve({
               ok: !!(res.statusCode && res.statusCode >= 200 && res.statusCode < 300),
@@ -3378,8 +3438,22 @@ export class SABnzbdClient implements DownloaderClient {
         }
       );
 
-      req.on("error", reject);
+      const handleAbort = () => {
+        req.destroy(options.signal?.reason instanceof Error ? options.signal.reason : undefined);
+        reject(options.signal?.reason ?? new Error("Request aborted"));
+      };
+      const cleanupAbortListener = () => {
+        options.signal?.removeEventListener("abort", handleAbort);
+      };
+
+      options.signal?.addEventListener("abort", handleAbort, { once: true });
+
+      req.on("error", (error) => {
+        cleanupAbortListener();
+        reject(error);
+      });
       req.on("timeout", () => {
+        cleanupAbortListener();
         req.destroy();
         reject(new Error("Timeout"));
       });
@@ -3431,16 +3505,12 @@ export class SABnzbdClient implements DownloaderClient {
     try {
       // Fetch the NZB in Questarr and upload via addfile so SABnzbd never needs
       // direct indexer access. Keep &file= intact — Prowlarr uses it for link validation.
-      const nzbUrl = fixNzbUrlEncoding(request.url);
-      const nzbResponse = await safeFetch(nzbUrl);
-      if (!nzbResponse.ok) {
-        return { success: false, message: `Failed to fetch NZB: ${nzbResponse.statusText}` };
-      }
-      const nzbContent = await nzbResponse.arrayBuffer();
+      const nzbContent = await fetchNzbContent(request.url);
+      const category = resolveUsenetCategory(request.category, this.downloader.category);
 
       const url = this.getApiUrl("addfile", {
         nzbname: request.title,
-        cat: request.category || "games",
+        cat: category,
         priority: (request.priority || 0).toString(),
       });
 
@@ -3605,6 +3675,7 @@ export class SABnzbdClient implements DownloaderClient {
 
         if (!history?.slots) {
           downloadersLogger.debug({ id, useFilter }, "SABnzbd: history response missing slots");
+          if (useFilter) continue;
           return null;
         }
 
@@ -3654,6 +3725,7 @@ export class SABnzbdClient implements DownloaderClient {
           { error, id, useFilter: useFilter },
           "Failed to get SABnzbd history"
         );
+        if (useFilter) continue;
         return null;
       }
     }
@@ -4039,20 +4111,14 @@ export class NZBGetClient implements DownloaderClient {
         return { success: false, message: `Unsafe URL blocked: ${request.url}` };
       }
 
-      // Keep &file= intact — Prowlarr uses it for link validation.
-      const nzbUrl = fixNzbUrlEncoding(request.url);
-      const nzbResponse = await safeFetch(nzbUrl);
-      if (!nzbResponse.ok) {
-        return { success: false, message: `Failed to fetch NZB: ${nzbResponse.statusText}` };
-      }
-
-      const nzbContent = await nzbResponse.text();
+      const nzbContent = await fetchNzbContent(request.url);
       const base64Content = Buffer.from(nzbContent).toString("base64");
+      const category = resolveUsenetCategory(request.category, this.downloader.category);
 
       const nzbId = (await this.makeXMLRPCRequest("append", [
         request.title || "download.nzb",
         base64Content,
-        request.category || "",
+        category,
         request.priority || 0,
         false, // AddToTop
         false, // AddPaused

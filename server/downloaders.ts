@@ -15,6 +15,26 @@ import { isSafeUrl, safeFetch } from "./ssrf.js";
 const DOWNLOAD_CLIENT_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
 
+// Prowlarr (and some Newznab indexers) use standard base64 in the `link` query
+// parameter, which can contain `+`. HTTP servers like ASP.NET Core decode `+`
+// as space in query strings, corrupting the base64 and producing "Invalid link"
+// errors. Re-encode literal `+` as `%2B` before fetching.
+function fixNzbUrlEncoding(rawUrl: string): string {
+  const qIdx = rawUrl.indexOf("?");
+  if (qIdx === -1) return rawUrl;
+  const base = rawUrl.slice(0, qIdx + 1);
+  const fixedQuery = rawUrl
+    .slice(qIdx + 1)
+    .split("&")
+    .map((part) => {
+      const eq = part.indexOf("=");
+      if (eq === -1) return part;
+      return part.slice(0, eq + 1) + part.slice(eq + 1).replace(/\+/g, "%2B");
+    })
+    .join("&");
+  return base + fixedQuery;
+}
+
 // Type definitions for API responses
 interface TransmissionTorrent {
   id: number;
@@ -3406,19 +3426,32 @@ export class SABnzbdClient implements DownloaderClient {
       return { success: false, message: `Unsafe URL blocked: ${request.url}` };
     }
 
-    // Strip &file= parameter that some indexers append (causes fetch failures on some indexers)
-    const nzbUrl = request.url.includes("&file=") ? request.url.split("&file=")[0] : request.url;
+    // Fetch the NZB in Questarr and upload via addfile so SABnzbd never needs
+    // direct indexer access. Keep &file= intact — Prowlarr uses it for link validation.
+    const nzbUrl = fixNzbUrlEncoding(request.url);
+    const nzbResponse = await safeFetch(nzbUrl);
+    if (!nzbResponse.ok) {
+      return { success: false, message: `Failed to fetch NZB: ${nzbResponse.statusText}` };
+    }
+    const nzbContent = await nzbResponse.arrayBuffer();
 
-    const url = this.getApiUrl("addurl", {
-      name: nzbUrl,
+    const url = this.getApiUrl("addfile", {
       nzbname: request.title,
       cat: request.category || "games",
       priority: (request.priority || 0).toString(),
     });
 
+    const formData = new FormData();
+    formData.append(
+      "name",
+      new Blob([nzbContent], { type: "application/x-nzb" }),
+      `${request.title}.nzb`
+    );
+
     try {
       const response = await this.fetchWithFallback(url, {
-        method: "GET",
+        method: "POST",
+        body: formData,
         signal: AbortSignal.timeout(30000),
       });
 
@@ -4004,8 +4037,8 @@ export class NZBGetClient implements DownloaderClient {
         return { success: false, message: `Unsafe URL blocked: ${request.url}` };
       }
 
-      // Strip &file= parameter that some indexers append (causes fetch failures on some indexers)
-      const nzbUrl = request.url.includes("&file=") ? request.url.split("&file=")[0] : request.url;
+      // Keep &file= intact — Prowlarr uses it for link validation.
+      const nzbUrl = fixNzbUrlEncoding(request.url);
       const nzbResponse = await safeFetch(nzbUrl);
       if (!nzbResponse.ok) {
         return { success: false, message: `Failed to fetch NZB: ${nzbResponse.statusText}` };

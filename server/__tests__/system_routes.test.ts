@@ -125,6 +125,18 @@ describe("systemRouter /browse", () => {
     expect(response.body.items).toBeDefined();
   });
 
+  it("allows browsing child paths under a Windows drive root when using ?root=/", async () => {
+    fsMock.pathExists.mockResolvedValue(true);
+    fsMock.stat.mockResolvedValue({ isDirectory: () => true });
+    fsMock.readdir.mockResolvedValue([{ name: "Vincent", isDirectory: () => true }]);
+    const app = createApp();
+
+    const response = await request(app).get("/api/system/browse?path=/Users&root=/");
+    expect(response.status).toBe(200);
+    expect(response.body.path).toBe("/Users");
+    expect(response.body.parent).toBe("/");
+  });
+
   it("rejects traversal in ?root parameter via path segment", async () => {
     // The path param itself contains traversal, which is always rejected
     const app = createApp();

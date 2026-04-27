@@ -8,6 +8,11 @@ import { routesLogger as logger } from "../logger.js";
 // Security is maintained by container isolation and explicit volume mounts
 const FILE_BROWSER_ROOT = path.resolve("/");
 
+function isWithinRoot(root: string, candidate: string): boolean {
+  const relative = path.relative(root, candidate);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
 export const systemRouter = Router();
 
 systemRouter.use((req, res, next) => {
@@ -57,7 +62,7 @@ systemRouter.get("/browse", async (req, res) => {
     }
 
     const validPath = path.resolve(root, userPath);
-    if (validPath !== root && !validPath.startsWith(root + path.sep)) {
+    if (!isWithinRoot(root, validPath)) {
       return res.status(400).json({ error: "Invalid path: traversal detected" });
     }
 
@@ -72,10 +77,7 @@ systemRouter.get("/browse", async (req, res) => {
     }
 
     // Ensure the chosen root is within FILE_BROWSER_ROOT for security
-    const fileBrowserPrefix = FILE_BROWSER_ROOT.endsWith(path.sep)
-      ? FILE_BROWSER_ROOT
-      : FILE_BROWSER_ROOT + path.sep;
-    if (root !== FILE_BROWSER_ROOT && !root.startsWith(fileBrowserPrefix)) {
+    if (!isWithinRoot(FILE_BROWSER_ROOT, root)) {
       return res.status(400).json({ error: "Invalid root: outside file browser scope" });
     }
 

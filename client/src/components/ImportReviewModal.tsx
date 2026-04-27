@@ -121,7 +121,12 @@ export default function ImportReviewModal({
                   onChange={(e) => setDestinationPath(e.target.value)}
                   placeholder="/path/to/library"
                 />
-                <Button variant="outline" size="icon" onClick={() => setIsFileBrowserOpen(true)}>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  aria-label="Browse destination directories"
+                  onClick={() => setIsFileBrowserOpen(true)}
+                >
                   <FolderOpen className="h-4 w-4" />
                 </Button>
               </div>
@@ -173,7 +178,9 @@ export default function ImportReviewModal({
         open={isFileBrowserOpen}
         onOpenChange={setIsFileBrowserOpen}
         onSelect={(path) => setDestinationPath(path)}
+        initialPath={destinationPath || "/"}
         title="Select Destination"
+        root="/"
       />
     </>
   );

@@ -1066,7 +1066,12 @@ export class MemStorage implements IStorage {
   ): Promise<PathMapping | undefined> {
     const existing = this.pathMappings.get(id);
     if (!existing) return undefined;
-    const updated = { ...existing, ...updates };
+    const updated: PathMapping = {
+      ...existing,
+      ...updates,
+      remoteHost:
+        updates.remoteHost !== undefined ? (updates.remoteHost ?? null) : existing.remoteHost,
+    };
     this.pathMappings.set(id, updated);
     return updated;
   }

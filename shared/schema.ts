@@ -75,12 +75,19 @@ export const insertPathMappingSchema = createInsertSchema(pathMappings).omit({
   id: true,
 });
 
+export const updatePathMappingSchema = z.object({
+  remotePath: z.string().min(1),
+  localPath: z.string().min(1),
+  remoteHost: z.string().min(1).nullable().optional(),
+});
+
 export const insertPlatformMappingSchema = createInsertSchema(platformMappings).omit({
   id: true,
 });
 
 export type PathMapping = typeof pathMappings.$inferSelect;
 export type InsertPathMapping = (typeof insertPathMappingSchema)["_output"];
+export type UpdatePathMapping = (typeof updatePathMappingSchema)["_output"];
 
 export type PlatformMapping = typeof platformMappings.$inferSelect;
 export type InsertPlatformMapping = (typeof insertPlatformMappingSchema)["_output"];

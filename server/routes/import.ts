@@ -7,6 +7,7 @@ import z from "zod";
 import {
   insertPathMappingSchema,
   insertPlatformMappingSchema,
+  updatePathMappingSchema,
   importTransferModeSchema,
   IMPORT_TRANSFER_MODES,
 } from "../../shared/schema.js";
@@ -269,6 +270,23 @@ importRouter.post("/mappings/paths", async (req, res) => {
     if (error instanceof z.ZodError)
       return res.status(400).json({ error: error.errors.map((e) => e.message).join(", ") });
     res.status(500).json({ error: "Failed to create path mapping" });
+  }
+});
+
+importRouter.patch("/mappings/paths/:id", async (req, res) => {
+  try {
+    const updates = updatePathMappingSchema.parse(req.body);
+    const updated = await storage.updatePathMapping(req.params.id, updates);
+    if (updated) {
+      res.json(updated);
+    } else {
+      res.status(404).json({ error: "Mapping not found" });
+    }
+  } catch (error) {
+    if (error instanceof z.ZodError)
+      return res.status(400).json({ error: error.errors.map((e) => e.message).join(", ") });
+    logger.error({ error }, "Error updating path mapping");
+    res.status(500).json({ error: "Failed to update path mapping" });
   }
 });
 

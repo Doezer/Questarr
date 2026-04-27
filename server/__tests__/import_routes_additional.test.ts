@@ -9,6 +9,7 @@ const { mockStorage, mockImportManager, mockPlatformMappingService, fsMock } = v
     getGame: vi.fn(),
     getPlatformMappings: vi.fn(),
     getPathMappings: vi.fn(),
+    updatePathMapping: vi.fn(),
     removePathMapping: vi.fn(),
     getUserSettings: vi.fn(),
     updateUserSettings: vi.fn(),
@@ -107,6 +108,42 @@ describe("importRouter additional coverage", () => {
     });
 
     expect(response.status).toBe(400);
+  });
+
+  it("updates a path mapping via PATCH /mappings/paths/:id", async () => {
+    mockStorage.updatePathMapping.mockResolvedValue({
+      id: "map-1",
+      remotePath: "/downloads",
+      localPath: "/mnt/downloads",
+      remoteHost: "qb.example",
+    });
+    const app = createApp();
+
+    const response = await request(app).patch("/api/imports/mappings/paths/map-1").send({
+      remotePath: "/downloads",
+      localPath: "/mnt/downloads",
+      remoteHost: "qb.example",
+    });
+
+    expect(response.status).toBe(200);
+    expect(mockStorage.updatePathMapping).toHaveBeenCalledWith("map-1", {
+      remotePath: "/downloads",
+      localPath: "/mnt/downloads",
+      remoteHost: "qb.example",
+    });
+  });
+
+  it("returns 404 when patching a missing path mapping", async () => {
+    mockStorage.updatePathMapping.mockResolvedValue(undefined);
+    const app = createApp();
+
+    const response = await request(app).patch("/api/imports/mappings/paths/missing").send({
+      remotePath: "/downloads",
+      localPath: "/mnt/downloads",
+      remoteHost: null,
+    });
+
+    expect(response.status).toBe(404);
   });
 
   it("returns neutral hardlink check when no downloader paths are configured", async () => {

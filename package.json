@@ -79,7 +79,7 @@
     "drizzle-zod": "^0.8.3",
     "embla-carousel-react": "^8.6.0",
     "express": "^4.22.0",
-    "express-rate-limit": "^8.3.2",
+    "express-rate-limit": "^8.4.1",
     "express-session": "^1.19.0",
     "express-validator": "^7.3.2",
     "fast-xml-parser": "^5.7.1",

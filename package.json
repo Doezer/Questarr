@@ -82,7 +82,7 @@
     "express-rate-limit": "^8.3.2",
     "express-session": "^1.19.0",
     "express-validator": "^7.3.2",
-    "fast-xml-parser": "^5.7.1",
+    "fast-xml-parser": "^5.7.2",
     "framer-motion": "^11.18.2",
     "helmet": "^8.1.0",
     "html-to-image": "^1.11.13",

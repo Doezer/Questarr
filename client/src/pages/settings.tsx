@@ -587,7 +587,7 @@ export default function SettingsPage() {
 
   const updateSteamIdMutation = useMutation({
     mutationFn: async (steamId: string) => {
-      const res = await apiRequest("PUT", "/api/user/steam-id", { steamId });
+      const res = await apiRequest("PATCH", "/api/user/steam-id", { steamId });
       return res.json();
     },
     onSuccess: () => {

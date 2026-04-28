@@ -60,7 +60,7 @@ import {
 } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
-import { cn } from "@/lib/utils";
+import { cn, copyToClipboard } from "@/lib/utils";
 import {
   type Game,
   type Indexer,
@@ -1199,8 +1199,16 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                           <DropdownMenuContent align="end">
                                             <DropdownMenuItem
                                               onClick={() => {
-                                                navigator.clipboard.writeText(download.link);
-                                                toast({ description: "Link copied to clipboard" });
+                                                copyToClipboard(download.link).then((ok) => {
+                                                  if (ok) {
+                                                    toast({ description: "Link copied to clipboard" });
+                                                  } else {
+                                                    toast({
+                                                      description: "Failed to copy link to clipboard",
+                                                      variant: "destructive",
+                                                    });
+                                                  }
+                                                });
                                               }}
                                             >
                                               <Copy className="h-4 w-4 mr-2" />

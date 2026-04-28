@@ -120,6 +120,40 @@ export function safeUrl(url: string, fallback = "#"): string {
 }
 
 /**
+ * Copies text to the clipboard using the Clipboard API when available (requires a secure
+ * context — HTTPS or localhost), and falls back to the legacy `document.execCommand('copy')`
+ * approach for plain-HTTP deployments on a local network.
+ *
+ * @returns A promise that resolves to `true` when the copy succeeded, `false` otherwise.
+ */
+export async function copyToClipboard(text: string): Promise<boolean> {
+  if (navigator.clipboard) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Fall through to the legacy approach
+    }
+  }
+
+  // Legacy fallback: create a temporary textarea, select its content, and execCommand
+  try {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    // Avoid scrolling to the bottom of the page
+    textarea.style.cssText = "position:fixed;top:0;left:0;opacity:0;";
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    const success = document.execCommand("copy");
+    document.body.removeChild(textarea);
+    return success;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Returns the human-readable label for the next status a game can transition to.
  */
 export function getNextStatusLabel(status: Game["status"]): string {

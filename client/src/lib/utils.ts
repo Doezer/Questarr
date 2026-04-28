@@ -131,8 +131,8 @@ export async function copyToClipboard(text: string): Promise<boolean> {
     try {
       await navigator.clipboard.writeText(text);
       return true;
-    } catch {
-      // Fall through to the legacy approach
+    } catch (err) {
+      console.warn("Clipboard API failed, falling back to execCommand:", err);
     }
   }
 
@@ -140,7 +140,8 @@ export async function copyToClipboard(text: string): Promise<boolean> {
   try {
     const textarea = document.createElement("textarea");
     textarea.value = text;
-    // Avoid scrolling to the bottom of the page
+    // Hide from screen readers and avoid scrolling the page
+    textarea.setAttribute("aria-hidden", "true");
     textarea.style.cssText = "position:fixed;top:0;left:0;opacity:0;";
     document.body.appendChild(textarea);
     textarea.focus();
@@ -148,7 +149,8 @@ export async function copyToClipboard(text: string): Promise<boolean> {
     const success = document.execCommand("copy");
     document.body.removeChild(textarea);
     return success;
-  } catch {
+  } catch (err) {
+    console.warn("execCommand clipboard fallback failed:", err);
     return false;
   }
 }

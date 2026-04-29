@@ -298,15 +298,17 @@ function YearView({
   const year = currentDate.getFullYear();
   const months = Array.from({ length: 12 }, (_, i) => i);
 
+  // Pre-calculate entries once outside the render loop
+  const allGamesEntries = useMemo(() => Object.entries(gamesByDate), [gamesByDate]);
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
       {months.map((month) => {
-        const monthStart = new Date(year, month, 1);
-        const monthEnd = new Date(year, month + 1, 0);
-        const gamesInMonth = Object.entries(gamesByDate).filter(([date]) => {
-          const d = new Date(date);
-          return d >= monthStart && d <= monthEnd;
-        });
+        // Use string prefix matching for O(1) date comparison instead of expensive Date parsing
+        const monthStr = (month + 1).toString().padStart(2, "0");
+        const monthPrefix = `${year}-${monthStr}-`;
+
+        const gamesInMonth = allGamesEntries.filter(([date]) => date.startsWith(monthPrefix));
         const gameCount = gamesInMonth.reduce((sum, [, games]) => sum + games.length, 0);
 
         return (

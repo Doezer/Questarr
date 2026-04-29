@@ -22,3 +22,8 @@
 
 **Learning:** React Query frequently triggers re-renders on components. Any heavy transformation derived from query results (e.g. filtering, O(N log N) sorting, date parsing) directly inside the component body will fire on every re-render and degrade performance.
 **Action:** Extract list transformations or sorting using results from React Query into `useMemo`, ensuring `searchResults?.items` or equivalent array paths are added to the dependency array.
+
+## 2025-05-23 - Expensive String-to-Date Conversions in Render Loops
+
+**Learning:** Parsing `YYYY-MM-DD` strings back to `Date` objects inside a component's `.filter()` or `.map()` loop during render is extremely slow and can lead to bugs with timezone offsets. In `YearView`, re-evaluating date objects caused unnecessary memory allocations and degraded calendar rendering performance.
+**Action:** When comparing date strings (e.g. bucketizing games by month), prefer O(1) string prefix matching (like `date.startsWith('2024-05-')`) over parsing the string into a new `Date` object to check its bounds.

@@ -16,7 +16,7 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
   return {
     ...actual,
     useQuery: () => ({
-      data: { transferMode: "move" },
+      data: { transferMode: "move", libraryRoot: "/games/library" },
       isLoading: false,
       error: null,
     }),
@@ -48,7 +48,7 @@ describe("ImportReviewModal", () => {
     vi.clearAllMocks();
   });
 
-  it("opens the destination browser from filesystem root", () => {
+  it("prefills the saved library root and opens the browser there", () => {
     render(
       <ImportReviewModal
         open
@@ -58,12 +58,14 @@ describe("ImportReviewModal", () => {
       />
     );
 
+    expect(screen.getByLabelText("Destination Path")).toHaveValue("/games/library");
+
     fireEvent.click(screen.getByRole("button", { name: "Browse destination directories" }));
 
     const lastCall = mockFileBrowser.mock.calls.at(-1)?.[0];
     expect(lastCall).toMatchObject({
       open: true,
-      initialPath: "/",
+      initialPath: "/games/library",
       root: "/",
       title: "Select Destination",
     });

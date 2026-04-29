@@ -57,11 +57,11 @@ export default function ImportReviewModal({
   // Reset state on open, defaulting transfer mode to the user's configured setting
   useEffect(() => {
     if (open) {
-      setDestinationPath("");
+      setDestinationPath(importConfig?.libraryRoot ?? "");
       setTransferMode((importConfig?.transferMode as typeof transferMode) ?? "move");
       setUnpackArchive(false);
     }
-  }, [open, downloadId, importConfig?.transferMode]);
+  }, [open, downloadId, importConfig?.libraryRoot, importConfig?.transferMode]);
 
   const confirmMutation = useMutation({
     mutationFn: async () => {
@@ -114,9 +114,10 @@ export default function ImportReviewModal({
           <div className="space-y-4 py-4">
             {/* Destination Path */}
             <div className="space-y-2">
-              <Label>Destination Path</Label>
+              <Label htmlFor="import-review-destination-path">Destination Path</Label>
               <div className="flex gap-2">
                 <Input
+                  id="import-review-destination-path"
                   value={destinationPath}
                   onChange={(e) => setDestinationPath(e.target.value)}
                   placeholder="/path/to/library"
@@ -178,7 +179,7 @@ export default function ImportReviewModal({
         open={isFileBrowserOpen}
         onOpenChange={setIsFileBrowserOpen}
         onSelect={(path) => setDestinationPath(path)}
-        initialPath={destinationPath || "/"}
+        initialPath={destinationPath || importConfig?.libraryRoot || "/"}
         title="Select Destination"
         root="/"
       />

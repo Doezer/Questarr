@@ -15,6 +15,7 @@ import path from "path";
 import fs from "fs-extra";
 import { randomUUID } from "crypto";
 import type { Stats } from "fs";
+import { extractHostnameFromUrl } from "../url-utils.js";
 
 export const importRouter = Router();
 
@@ -71,12 +72,7 @@ function resolveProposedPathWithinRoot(libraryRoot: string, rawPath: string): st
 }
 
 function parseHostFromUrl(url?: string | null): string | null {
-  if (!url) return null;
-  try {
-    return new URL(url).hostname;
-  } catch {
-    return null;
-  }
+  return extractHostnameFromUrl(url);
 }
 
 function translatePathWithMappings(
@@ -104,7 +100,7 @@ function translatePathWithMappings(
   if (!bestMatch) return remotePath;
 
   const relative = remotePath.substring(bestMatch.remotePath.length).replace(/^[/\\]+/, "");
-  return path.join(bestMatch.localPath, relative);
+  return path.join(path.resolve(bestMatch.localPath), relative);
 }
 
 async function checkHardlinkPair(

@@ -260,4 +260,24 @@ describe("PathMappingService", () => {
 
     expect(result).toMatch(/local[\\/]roms[\\/]zelda\.rom$/);
   });
+
+  it("resolves POSIX-style local paths to an absolute Windows path on Windows", async () => {
+    storage.getPathMappings.mockResolvedValue([
+      {
+        id: "posix-local",
+        remotePath: "/config",
+        localPath: "/Users/Vincent/Repos",
+        remoteHost: null,
+      },
+    ]);
+
+    const service = new PathMappingService(storage as never);
+    const result = await service.translatePath("/config/Downloads/game");
+
+    if (process.platform === "win32") {
+      expect(result).toMatch(/^[A-Z]:[\\/]Users[\\/]Vincent[\\/]Repos[\\/]Downloads[\\/]game$/i);
+    } else {
+      expect(result).toBe("/Users/Vincent/Repos/Downloads/game");
+    }
+  });
 });

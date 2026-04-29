@@ -3321,6 +3321,16 @@ interface SABnzbdHistory {
   }>;
 }
 
+function normalizeSabCompletedPath(
+  pathValue: string | undefined,
+  status: string
+): string | undefined {
+  if (!pathValue) return pathValue;
+  if (status !== "completed") return pathValue;
+
+  return pathValue.replace(/([\\/])incomplete(?=([\\/]|$))/i, "$1complete");
+}
+
 export class SABnzbdClient implements DownloaderClient {
   private downloader: Downloader;
 
@@ -3749,7 +3759,7 @@ export class SABnzbdClient implements DownloaderClient {
     // Return minimal details based on status
     return {
       ...status,
-      downloadDir: historyItem?.path || undefined,
+      downloadDir: normalizeSabCompletedPath(historyItem?.path || undefined, status.status),
       files: [],
       trackers: [],
     };

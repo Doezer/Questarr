@@ -648,7 +648,7 @@ describe("ImportManager", () => {
     expect(pathService.translatePath).toHaveBeenCalledWith("/downloads/game.zip", "nas.local");
   });
 
-  it("extractRemoteHost: malformed URL (no scheme) → falls back gracefully (host is undefined)", async () => {
+  it("extractRemoteHost: downloader URL without a scheme still yields a host", async () => {
     storage.getGameDownload.mockResolvedValue({
       id: "dl-1",
       gameId: "g1",
@@ -677,7 +677,7 @@ describe("ImportManager", () => {
 
     await manager.processImport("dl-1", "/downloads/game.zip");
 
-    expect(pathService.translatePath).toHaveBeenCalledWith("/downloads/game.zip", undefined);
+    expect(pathService.translatePath).toHaveBeenCalledWith("/downloads/game.zip", "nas.local");
   });
 
   // ─── processImport: path goes through path mapping ──────────────────────────

@@ -8,6 +8,7 @@ import fs from "fs-extra";
 import path from "node:path";
 import { parseReleaseMetadata } from "../../shared/title-utils.js";
 import { logger } from "../logger.js";
+import { extractHostnameFromUrl } from "../url-utils.js";
 
 const RELEASE_PLATFORM_TO_IGDB_ID: Record<string, number> = {
   nes: 18,
@@ -86,13 +87,11 @@ export class ImportManager {
   }
 
   private extractRemoteHost(downloaderUrl: string): string | undefined {
-    try {
-      const url = new URL(downloaderUrl);
-      return url.hostname;
-    } catch {
+    const remoteHost = extractHostnameFromUrl(downloaderUrl);
+    if (!remoteHost) {
       logger.warn({ downloaderUrl }, "Invalid downloader URL");
-      return undefined;
     }
+    return remoteHost ?? undefined;
   }
 
   private async resolveLocalPath(

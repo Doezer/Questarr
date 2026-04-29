@@ -51,7 +51,8 @@ export class PathMappingService {
       // Replace the matched remote prefix with the local path, using OS-native path separators.
       const relative = remotePath.substring(bestMatch.remotePath.length);
       const cleanRelative = relative.replace(/^[/\\]/, "");
-      const localPath = path.join(bestMatch.localPath, cleanRelative);
+      const localBasePath = path.resolve(bestMatch.localPath);
+      const localPath = path.join(localBasePath, cleanRelative);
 
       console.log(
         `[PathMappingService] Mapped "${remotePath}" (host: ${remoteHost ?? "none"}) → "${localPath}" ` +

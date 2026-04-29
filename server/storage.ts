@@ -35,11 +35,19 @@ import {
   xrelNotifiedReleases,
   rssFeeds,
   rssFeedItems,
+  pathMappings,
+  platformMappings,
+  type PathMapping,
+  type InsertPathMapping,
+  type PlatformMapping,
+  type InsertPlatformMapping,
+  type ImportConfig,
+  importConfigSchema,
   releaseBlacklist,
 } from "../shared/schema.js";
 import { randomUUID } from "crypto";
 import { db } from "./db.js";
-import { eq, like, or, sql, desc, and, inArray, type SQL } from "drizzle-orm";
+import { eq, like, or, sql, desc, and, not, inArray } from "drizzle-orm";
 import { categorizeDownload } from "../shared/download-categorizer.js";
 
 const isUpdateDownload = (title: string): boolean =>
@@ -57,6 +65,47 @@ function resolveTopStatus(
   b: DownloadSummary["topStatus"]
 ): DownloadSummary["topStatus"] {
   return (STATUS_PRIORITY[a] ?? 0) >= (STATUS_PRIORITY[b] ?? 0) ? a : b;
+}
+
+function buildImportConfigFromSettings(
+  settings?: Pick<
+    UserSettings,
+    | "enablePostProcessing"
+    | "autoUnpack"
+    | "renamePattern"
+    | "overwriteExisting"
+    | "transferMode"
+    | "importPlatformIds"
+    | "ignoredExtensions"
+    | "minFileSize"
+    | "libraryRoot"
+  >
+): ImportConfig {
+  const parsed = importConfigSchema.safeParse({
+    enablePostProcessing: settings?.enablePostProcessing ?? false,
+    autoUnpack: settings?.autoUnpack ?? false,
+    renamePattern: settings?.renamePattern ?? "{Title} ({Region})",
+    overwriteExisting: settings?.overwriteExisting ?? false,
+    transferMode: settings?.transferMode ?? "hardlink",
+    importPlatformIds: settings?.importPlatformIds ?? [],
+    ignoredExtensions: settings?.ignoredExtensions ?? [],
+    minFileSize: settings?.minFileSize ?? 0,
+    libraryRoot: settings?.libraryRoot ?? "/data",
+  });
+
+  if (parsed.success) return parsed.data;
+
+  return {
+    enablePostProcessing: settings?.enablePostProcessing ?? false,
+    autoUnpack: settings?.autoUnpack ?? false,
+    renamePattern: settings?.renamePattern ?? "{Title} ({Region})",
+    overwriteExisting: settings?.overwriteExisting ?? false,
+    transferMode: "hardlink",
+    importPlatformIds: settings?.importPlatformIds ?? [],
+    ignoredExtensions: settings?.ignoredExtensions ?? [],
+    minFileSize: settings?.minFileSize ?? 0,
+    libraryRoot: settings?.libraryRoot ?? "/data",
+  };
 }
 
 export interface IStorage {
@@ -116,6 +165,8 @@ export interface IStorage {
 
   // GameDownload methods
   getDownloadingGameDownloads(): Promise<GameDownload[]>;
+  getPendingImportReviews(userId: string): Promise<GameDownload[]>;
+  getGameDownload(id: string, userId?: string): Promise<GameDownload | undefined>;
   getDownloadsByGameId(
     gameId: string
   ): Promise<(GameDownload & { downloaderName: string | null })[]>;
@@ -163,6 +214,32 @@ export interface IStorage {
   getGameIdsWithXrelReleases(): Promise<string[]>;
   getWantedGamesGroupedByUser(): Promise<Map<string, Game[]>>;
 
+  // Path Mapping methods
+  getPathMappings(): Promise<PathMapping[]>;
+  getPathMapping(id: string): Promise<PathMapping | undefined>;
+  addPathMapping(mapping: InsertPathMapping): Promise<PathMapping>;
+  updatePathMapping(
+    id: string,
+    updates: Partial<InsertPathMapping>
+  ): Promise<PathMapping | undefined>;
+  removePathMapping(id: string): Promise<boolean>;
+
+  // Platform Mapping methods
+  getPlatformMappings(): Promise<PlatformMapping[]>;
+  getPlatformMapping(igdbPlatformId: number): Promise<PlatformMapping | undefined>;
+  addPlatformMapping(mapping: InsertPlatformMapping): Promise<PlatformMapping>;
+  seedPlatformMappingsIfEmpty(
+    mappings: InsertPlatformMapping[]
+  ): Promise<{ seeded: boolean; count: number }>;
+  updatePlatformMapping(
+    id: string,
+    updates: Partial<InsertPlatformMapping>
+  ): Promise<PlatformMapping | undefined>;
+  removePlatformMapping(id: string): Promise<boolean>;
+
+  // Config Accessors (Helper methods)
+  getImportConfig(userId?: string): Promise<ImportConfig>;
+
   // Release blacklist methods
   addReleaseBlacklist(entry: InsertReleaseBlacklist): Promise<ReleaseBlacklist>;
   getReleaseBlacklist(gameId: string): Promise<ReleaseBlacklist[]>;
@@ -183,6 +260,8 @@ export class MemStorage implements IStorage {
   private xrelNotified: Map<string, XrelNotifiedRelease>;
   private rssFeeds: Map<string, RssFeed>;
   private rssFeedItems: Map<string, RssFeedItem>;
+  private pathMappings: Map<string, PathMapping>;
+  private platformMappings: Map<string, PlatformMapping>;
   private releaseBlacklists: Map<string, ReleaseBlacklist>;
 
   constructor() {
@@ -197,6 +276,8 @@ export class MemStorage implements IStorage {
     this.xrelNotified = new Map();
     this.rssFeeds = new Map();
     this.rssFeedItems = new Map();
+    this.pathMappings = new Map();
+    this.platformMappings = new Map();
     this.releaseBlacklists = new Map();
   }
 
@@ -627,7 +708,24 @@ export class MemStorage implements IStorage {
 
   // GameDownload methods
   async getDownloadingGameDownloads(): Promise<GameDownload[]> {
-    return Array.from(this.gameDownloads.values()).filter((gd) => gd.status === "downloading");
+    return Array.from(this.gameDownloads.values()).filter((d) => d.status === "downloading");
+  }
+
+  async getPendingImportReviews(userId: string): Promise<GameDownload[]> {
+    return Array.from(this.gameDownloads.values()).filter((d) => {
+      if (d.status !== "manual_review_required") return false;
+      const game = this.games.get(d.gameId);
+      return game?.userId === userId;
+    });
+  }
+
+  async getGameDownload(id: string, userId?: string): Promise<GameDownload | undefined> {
+    const download = this.gameDownloads.get(id);
+    if (download && userId !== undefined) {
+      const game = this.games.get(download.gameId);
+      if (!game || game.userId !== userId) return undefined;
+    }
+    return download;
   }
 
   async getDownloadsByGameId(
@@ -883,6 +981,18 @@ export class MemStorage implements IStorage {
       xrelP2pReleases: insertSettings.xrelP2pReleases ?? false,
       autoSearchUnreleased: insertSettings.autoSearchUnreleased ?? false,
       steamSyncFailures: 0,
+
+      // Import Engine Defaults
+      enablePostProcessing: insertSettings.enablePostProcessing ?? false,
+      autoUnpack: insertSettings.autoUnpack ?? false,
+      renamePattern: insertSettings.renamePattern ?? "{Title} ({Region})",
+      overwriteExisting: insertSettings.overwriteExisting ?? false,
+      transferMode: insertSettings.transferMode ?? "hardlink",
+      importPlatformIds: insertSettings.importPlatformIds ?? [],
+      ignoredExtensions: insertSettings.ignoredExtensions ?? [],
+      minFileSize: insertSettings.minFileSize ?? 0,
+      libraryRoot: insertSettings.libraryRoot ?? "/data",
+
       preferredReleaseGroups: insertSettings.preferredReleaseGroups ?? null,
       filterByPreferredGroups: insertSettings.filterByPreferredGroups ?? false,
       preferredPlatform: insertSettings.preferredPlatform ?? null,
@@ -928,6 +1038,101 @@ export class MemStorage implements IStorage {
     const ids = new Set<string>();
     Array.from(this.xrelNotified.values()).forEach((r) => ids.add(r.gameId));
     return Array.from(ids);
+  }
+
+  // Path Mapping methods
+  async getPathMappings(): Promise<PathMapping[]> {
+    return Array.from(this.pathMappings.values());
+  }
+
+  async getPathMapping(id: string): Promise<PathMapping | undefined> {
+    return this.pathMappings.get(id);
+  }
+
+  async addPathMapping(insertMapping: InsertPathMapping): Promise<PathMapping> {
+    const id = randomUUID();
+    const mapping: PathMapping = {
+      ...insertMapping,
+      id,
+      remoteHost: insertMapping.remoteHost ?? null,
+    };
+    this.pathMappings.set(id, mapping);
+    return mapping;
+  }
+
+  async updatePathMapping(
+    id: string,
+    updates: Partial<InsertPathMapping>
+  ): Promise<PathMapping | undefined> {
+    const existing = this.pathMappings.get(id);
+    if (!existing) return undefined;
+    const updated: PathMapping = {
+      ...existing,
+      ...updates,
+      remoteHost:
+        updates.remoteHost !== undefined ? (updates.remoteHost ?? null) : existing.remoteHost,
+    };
+    this.pathMappings.set(id, updated);
+    return updated;
+  }
+
+  async removePathMapping(id: string): Promise<boolean> {
+    return this.pathMappings.delete(id);
+  }
+
+  // Platform Mapping methods
+  async getPlatformMappings(): Promise<PlatformMapping[]> {
+    return Array.from(this.platformMappings.values());
+  }
+
+  async getPlatformMapping(igdbPlatformId: number): Promise<PlatformMapping | undefined> {
+    return Array.from(this.platformMappings.values()).find(
+      (m) => m.igdbPlatformId === igdbPlatformId
+    );
+  }
+
+  async addPlatformMapping(insertMapping: InsertPlatformMapping): Promise<PlatformMapping> {
+    const id = randomUUID();
+    const mapping: PlatformMapping = { ...insertMapping, id };
+    this.platformMappings.set(id, mapping);
+    return mapping;
+  }
+
+  async seedPlatformMappingsIfEmpty(
+    mappings: InsertPlatformMapping[]
+  ): Promise<{ seeded: boolean; count: number }> {
+    if (this.platformMappings.size > 0) {
+      return { seeded: false, count: this.platformMappings.size };
+    }
+
+    for (const mapping of mappings) {
+      await this.addPlatformMapping(mapping);
+    }
+
+    return { seeded: true, count: this.platformMappings.size };
+  }
+
+  async updatePlatformMapping(
+    id: string,
+    updates: Partial<InsertPlatformMapping>
+  ): Promise<PlatformMapping | undefined> {
+    const existing = this.platformMappings.get(id);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...updates };
+    this.platformMappings.set(id, updated);
+    return updated;
+  }
+
+  async removePlatformMapping(id: string): Promise<boolean> {
+    return this.platformMappings.delete(id);
+  }
+
+  // Config Accessors
+  async getImportConfig(userId?: string): Promise<ImportConfig> {
+    const scopedSettings = userId
+      ? Array.from(this.userSettings.values()).find((s) => s.userId === userId)
+      : this.userSettings.values().next().value;
+    return buildImportConfigFromSettings(scopedSettings);
   }
 
   async addReleaseBlacklist(entry: InsertReleaseBlacklist): Promise<ReleaseBlacklist> {
@@ -999,6 +1204,118 @@ export class DatabaseStorage implements IStorage {
         target: systemConfig.key,
         set: { value, updatedAt: new Date() },
       });
+  }
+
+  // Path Mapping methods
+  async getPathMappings(): Promise<PathMapping[]> {
+    return db.select().from(pathMappings);
+  }
+
+  async getPathMapping(id: string): Promise<PathMapping | undefined> {
+    const [mapping] = await db.select().from(pathMappings).where(eq(pathMappings.id, id));
+    return mapping || undefined;
+  }
+
+  async addPathMapping(insertMapping: InsertPathMapping): Promise<PathMapping> {
+    const id = randomUUID();
+    const [mapping] = await db
+      .insert(pathMappings)
+      .values({ ...insertMapping, id })
+      .returning();
+    return mapping;
+  }
+
+  async updatePathMapping(
+    id: string,
+    updates: Partial<InsertPathMapping>
+  ): Promise<PathMapping | undefined> {
+    const [updated] = await db
+      .update(pathMappings)
+      .set(updates)
+      .where(eq(pathMappings.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async removePathMapping(id: string): Promise<boolean> {
+    const deleted = await db.delete(pathMappings).where(eq(pathMappings.id, id)).returning();
+    return deleted.length > 0;
+  }
+
+  // Platform Mapping methods
+  async getPlatformMappings(): Promise<PlatformMapping[]> {
+    return db.select().from(platformMappings);
+  }
+
+  async getPlatformMapping(igdbPlatformId: number): Promise<PlatformMapping | undefined> {
+    const [mapping] = await db
+      .select()
+      .from(platformMappings)
+      .where(eq(platformMappings.igdbPlatformId, igdbPlatformId));
+    return mapping || undefined;
+  }
+
+  async addPlatformMapping(insertMapping: InsertPlatformMapping): Promise<PlatformMapping> {
+    const id = randomUUID();
+    const [mapping] = await db
+      .insert(platformMappings)
+      .values({ ...insertMapping, id })
+      .returning();
+    return mapping;
+  }
+
+  async seedPlatformMappingsIfEmpty(
+    mappings: InsertPlatformMapping[]
+  ): Promise<{ seeded: boolean; count: number }> {
+    return db.transaction((tx) => {
+      const [existing] = tx
+        .select({ count: sql<number>`count(*)` })
+        .from(platformMappings)
+        .all();
+      if (existing.count > 0) {
+        return { seeded: false, count: existing.count };
+      }
+
+      for (const mapping of mappings) {
+        tx.insert(platformMappings)
+          .values({ ...mapping, id: randomUUID() })
+          .run();
+      }
+
+      const [seeded] = tx
+        .select({ count: sql<number>`count(*)` })
+        .from(platformMappings)
+        .all();
+      return { seeded: true, count: seeded.count };
+    });
+  }
+
+  async updatePlatformMapping(
+    id: string,
+    updates: Partial<InsertPlatformMapping>
+  ): Promise<PlatformMapping | undefined> {
+    const [updated] = await db
+      .update(platformMappings)
+      .set(updates)
+      .where(eq(platformMappings.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async removePlatformMapping(id: string): Promise<boolean> {
+    const deleted = await db
+      .delete(platformMappings)
+      .where(eq(platformMappings.id, id))
+      .returning();
+    return deleted.length > 0;
+  }
+
+  // Config Accessors
+  async getImportConfig(userId?: string): Promise<ImportConfig> {
+    const [settings] = userId
+      ? await db.select().from(userSettings).where(eq(userSettings.userId, userId)).limit(1)
+      : await db.select().from(userSettings).limit(1);
+    return buildImportConfigFromSettings(settings);
   }
 
   // User methods
@@ -1425,12 +1742,37 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(gameDownloads)
       .where(
-        or(
-          eq(gameDownloads.status, "downloading"),
-          eq(gameDownloads.status, "paused"),
-          eq(gameDownloads.status, "failed")
-        ) as SQL
+        not(
+          inArray(gameDownloads.status, [
+            "completed",
+            "error",
+            "imported",
+            "manual_review_required",
+          ])
+        )
       );
+  }
+
+  async getPendingImportReviews(userId: string): Promise<GameDownload[]> {
+    const rows = await db
+      .select({ gameDownloads })
+      .from(gameDownloads)
+      .innerJoin(games, eq(gameDownloads.gameId, games.id))
+      .where(and(eq(gameDownloads.status, "manual_review_required"), eq(games.userId, userId)));
+    return rows.map((r) => r.gameDownloads);
+  }
+
+  async getGameDownload(id: string, userId?: string): Promise<GameDownload | undefined> {
+    if (userId !== undefined) {
+      const [download] = await db
+        .select({ gameDownloads })
+        .from(gameDownloads)
+        .innerJoin(games, eq(gameDownloads.gameId, games.id))
+        .where(and(eq(gameDownloads.id, id), eq(games.userId, userId)));
+      return download?.gameDownloads;
+    }
+    const [download] = await db.select().from(gameDownloads).where(eq(gameDownloads.id, id));
+    return download;
   }
 
   async getDownloadsByGameId(
@@ -1460,8 +1802,10 @@ export class DatabaseStorage implements IStorage {
   async updateGameDownloadStatus(id: string, status: string): Promise<void> {
     await db
       .update(gameDownloads)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .set({ status: status as any, completedAt: status === "completed" ? new Date() : null })
+      .set({
+        status: status as InsertGameDownload["status"],
+        completedAt: status === "completed" ? new Date() : null,
+      })
       .where(eq(gameDownloads.id, id));
   }
 
@@ -1681,7 +2025,11 @@ export class DatabaseStorage implements IStorage {
     const id = randomUUID();
     const [settings] = await db
       .insert(userSettings)
-      .values({ ...insertSettings, id })
+      .values({
+        ...insertSettings,
+        enablePostProcessing: insertSettings.enablePostProcessing ?? false,
+        id,
+      })
       .returning();
     return settings;
   }
@@ -1692,7 +2040,10 @@ export class DatabaseStorage implements IStorage {
   ): Promise<UserSettings | undefined> {
     const [updated] = await db
       .update(userSettings)
-      .set({ ...updates, updatedAt: new Date() })
+      .set({
+        ...updates,
+        updatedAt: new Date(),
+      })
       .where(eq(userSettings.userId, userId))
       .returning();
     return updated || undefined;

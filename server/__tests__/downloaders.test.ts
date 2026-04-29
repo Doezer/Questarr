@@ -2,6 +2,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Downloader } from "../../shared/schema";
 import { TransmissionClient, RTorrentClient, QBittorrentClient } from "../downloaders.js";
 
+const { parseTorrentMock } = vi.hoisted(() => ({
+  parseTorrentMock: vi.fn().mockResolvedValue({ infoHash: "abc123def456" }),
+}));
+
+vi.mock("parse-torrent", () => ({
+  default: parseTorrentMock,
+}));
+
 // Mock dependencies
 vi.mock("../logger.js", () => ({
   downloadersLogger: {
@@ -247,6 +255,21 @@ describe("TransmissionClient", () => {
       expect(status?.status).toBe("downloading");
       expect(status?.progress).toBe(50);
       expect(status?.downloadSpeed).toBe(1024);
+    });
+
+    it("should query Transmission using hash IDs without coercing them", async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          result: "success",
+          arguments: { torrents: [] },
+        }),
+      });
+
+      await client.getDownloadStatus("hash123");
+
+      const requestBody = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+      expect(requestBody.arguments.ids).toEqual(["hash123"]);
     });
   });
 });

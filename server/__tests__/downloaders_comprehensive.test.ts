@@ -384,6 +384,7 @@ describe("Downloader Comprehensive Tests", () => {
 
       expect(result.success).toBe(true);
       expect(result.id).toBe("nzo123");
+      expect(fetchMock.mock.calls[1][0]).toContain("cat=games");
     });
 
     it("should handle duplicate NZB as success", async () => {
@@ -429,6 +430,58 @@ describe("Downloader Comprehensive Tests", () => {
       expect(result?.progress).toBe(100);
       expect(result?.repairStatus).toBe("good");
       expect(result?.unpackStatus).toBe("completed");
+    });
+
+    it("should include history path in SABnzbd download details", async () => {
+      const historyResponse = {
+        history: {
+          slots: [
+            {
+              nzo_id: "nzo123",
+              name: "Test Game",
+              status: "Completed",
+              fail_message: "",
+              path: "/downloads/complete/Test Game",
+              bytes: 1073741824,
+              category: "games",
+              download_time: 120,
+              completed: 1700000000,
+            },
+          ],
+        },
+      };
+      mockQueueThenHistory(historyResponse);
+      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => historyResponse });
+
+      const result = await DownloaderManager.getDownloadDetails(downloader, "nzo123");
+
+      expect(result?.downloadDir).toBe("/downloads/complete/Test Game");
+    });
+
+    it("should normalize SABnzbd completed paths from incomplete to complete", async () => {
+      const historyResponse = {
+        history: {
+          slots: [
+            {
+              nzo_id: "nzo123",
+              name: "Test Game",
+              status: "Completed",
+              fail_message: "",
+              path: "/downloads/incomplete/Test Game",
+              bytes: 1073741824,
+              category: "games",
+              download_time: 120,
+              completed: 1700000000,
+            },
+          ],
+        },
+      };
+      mockQueueThenHistory(historyResponse);
+      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => historyResponse });
+
+      const result = await DownloaderManager.getDownloadDetails(downloader, "nzo123");
+
+      expect(result?.downloadDir).toBe("/downloads/complete/Test Game");
     });
 
     it("should return error status when history shows a failed download", async () => {
@@ -493,6 +546,40 @@ describe("Downloader Comprehensive Tests", () => {
       expect(historyCalls.length).toBe(1);
       expect(historyCalls[0][0]).toContain("nzo_ids=nzo_test_id");
     });
+
+    it("should retry full history when the filtered history lookup fails", async () => {
+      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => emptyQueueResponse });
+      fetchMock.mockRejectedValueOnce(new Error("Filtered history failed"));
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          history: {
+            slots: [
+              {
+                nzo_id: "nzo_retry",
+                name: "Retry Download",
+                status: "Completed",
+                fail_message: "",
+                bytes: 2048,
+                category: "games",
+              },
+            ],
+          },
+        }),
+      });
+
+      const result = await DownloaderManager.getDownloadStatus(downloader, "nzo_retry");
+
+      expect(result?.status).toBe("completed");
+
+      const historyCalls = fetchMock.mock.calls.filter((call) => {
+        const url: string = call[0];
+        return url.includes("mode=history");
+      });
+      expect(historyCalls.length).toBe(2);
+      expect(historyCalls[0][0]).toContain("nzo_ids=nzo_retry");
+      expect(historyCalls[1][0]).not.toContain("nzo_ids=");
+    });
   });
 
   // ==================== NZBGet Tests ====================
@@ -524,7 +611,7 @@ describe("Downloader Comprehensive Tests", () => {
       // Mock NZB file download
       fetchMock.mockResolvedValueOnce({
         ok: true,
-        text: async () => "nzb content",
+        arrayBuffer: async () => new TextEncoder().encode("nzb content").buffer,
       });
 
       // Mock XML-RPC append
@@ -548,6 +635,7 @@ describe("Downloader Comprehensive Tests", () => {
 
       expect(result.success).toBe(true);
       expect(result.id).toBe("123");
+      expect(fetchMock.mock.calls[1][1].body).toContain("<string>games</string>");
     });
 
     it("should handle failed NZB fetch", async () => {

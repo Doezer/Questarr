@@ -15,10 +15,11 @@ import { isSafeUrl, safeFetch } from "./ssrf.js";
 const DOWNLOAD_CLIENT_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
 
-// Prowlarr (and some Newznab indexers) use standard base64 in the `link` query
+// Prowlarr (and some Newznab/Torznab indexers) use standard base64 in the `link` query
 // parameter, which can contain `+`. HTTP servers like ASP.NET Core decode `+`
 // as space in query strings, corrupting the base64 and producing "Invalid link"
 // errors. Re-encode literal `+` as `%2B` before fetching.
+// This applies to both NZB (Newznab) and torrent (Torznab) indexer download URLs.
 function fixNzbUrlEncoding(rawUrl: string): string {
   const qIdx = rawUrl.indexOf("?");
   if (qIdx === -1) return rawUrl;
@@ -171,7 +172,9 @@ async function fetchWithMagnetDetection(
   url: string,
   maxRedirects = 5
 ): Promise<{ response?: Response; magnetLink?: string }> {
-  let currentUrl = url;
+  // Fix Prowlarr/indexer URL encoding: `+` in base64 `link` query params must be
+  // re-encoded as `%2B` so ASP.NET Core (Prowlarr backend) decodes them correctly.
+  let currentUrl = fixNzbUrlEncoding(url);
   let redirects = 0;
 
   const fetchUrl = async (targetUrl: string) => {
@@ -2002,14 +2005,21 @@ export class QBittorrentClient implements DownloaderClient {
       //    - Required for magnet links.
       //    - Also supports "normal" torrent URLs when qBittorrent can reach the URL.
       try {
+        // Fix Prowlarr/indexer URL encoding before handing the URL to qBittorrent.
+        // Prowlarr wraps external torrent URLs in a proxy URL whose `link` parameter
+        // is base64-encoded. Literal `+` in that base64 is decoded as space by
+        // ASP.NET Core (Prowlarr's backend), corrupting the value and causing
+        // Prowlarr to redirect to a wrong or broken torrent/magnet.
+        // For magnet links this is a no-op.
+        const urlToAdd = isMagnet ? request.url : fixNzbUrlEncoding(request.url);
         const params = new URLSearchParams();
-        params.set("urls", request.url);
+        params.set("urls", urlToAdd);
         if (savepath) params.set("savepath", savepath);
         if (category) params.set("category", category);
         params.set("paused", pausedValue);
 
         downloadersLogger.info(
-          { url: request.url, isMagnet, savepath, category, paused: pausedValue },
+          { url: urlToAdd, isMagnet, savepath, category, paused: pausedValue },
           "Adding download to qBittorrent via URL"
         );
 

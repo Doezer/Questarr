@@ -25,12 +25,6 @@ const DOWNLOAD_CHECK_INTERVAL_MS = 60 * 1000; // 1 minute
 // downloads as owned during the brief SABnzbd queue→history transition window.
 const downloadMissCount = new Map<string, number>();
 const DOWNLOAD_MISS_THRESHOLD = 3;
-
-// Track consecutive "error" counts per download to avoid prematurely marking
-// downloads as failed due to transient tracker/network errors (e.g. magnet links
-// that need time to resolve peers and announce to trackers).
-const downloadErrorCount = new Map<string, number>();
-const DOWNLOAD_ERROR_THRESHOLD = 3;
 const AUTO_SEARCH_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const XREL_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours (xREL search rate limit: 2/5s)
 const OWNED_STATUSES = new Set(["owned", "completed", "downloading"]);
@@ -401,16 +395,6 @@ export async function checkGameUpdates() {
   );
 }
 
-/**
- * Resets the per-download tracking counters (miss count and error count).
- * Exported for use in tests only — do not call in production code.
- * @internal
- */
-export function resetDownloadCountersForTesting() {
-  downloadMissCount.clear();
-  downloadErrorCount.clear();
-}
-
 export async function checkDownloadStatus() {
   const downloadingDownloads = await storage.getDownloadingGameDownloads();
 
@@ -420,17 +404,11 @@ export async function checkDownloadStatus() {
     return;
   }
 
-  // Prune stale entries from downloadMissCount / downloadErrorCount
-  // (e.g. downloads removed from DB while still tracked).
+  // Prune stale entries from downloadMissCount (e.g. downloads removed from DB while still downloading)
   const activeDownloadIds = new Set(downloadingDownloads.map((d) => d.id));
   for (const key of Array.from(downloadMissCount.keys())) {
     if (!activeDownloadIds.has(key)) {
       downloadMissCount.delete(key);
-    }
-  }
-  for (const key of Array.from(downloadErrorCount.keys())) {
-    if (!activeDownloadIds.has(key)) {
-      downloadErrorCount.delete(key);
     }
   }
 
@@ -494,11 +472,6 @@ export async function checkDownloadStatus() {
             "Checking download status"
           );
 
-          // If the download is no longer in error state, reset the error counter.
-          if (remoteDownload.status !== "error") {
-            downloadErrorCount.delete(download.id);
-          }
-
           // Check for completion
           const isComplete =
             remoteDownload.status === "completed" ||
@@ -550,41 +523,12 @@ export async function checkDownloadStatus() {
             let newGameStatus: "wanted" | "downloading" | "owned" = "downloading";
 
             if (remoteDownload.status === "error") {
-              // Magnet/torrent downloads can transiently enter "error" state while
-              // waiting for trackers or peers (e.g. UDP tracker timeouts, brief
-              // permission checks). Apply a threshold so we don't prematurely fail a
-              // download that will recover on its own.
-              const errors = (downloadErrorCount.get(download.id) ?? 0) + 1;
-              downloadErrorCount.set(download.id, errors);
-
+              newDownloadStatus = "failed";
+              newGameStatus = "wanted"; // Reset to wanted on error
               igdbLogger.warn(
-                {
-                  title: download.downloadTitle,
-                  error: remoteDownload.error,
-                  errors,
-                  threshold: DOWNLOAD_ERROR_THRESHOLD,
-                },
+                { title: download.downloadTitle, error: remoteDownload.error },
                 "Download error detected"
               );
-
-              if (errors < DOWNLOAD_ERROR_THRESHOLD) {
-                igdbLogger.warn(
-                  {
-                    gameId: download.gameId,
-                    downloadId: download.id,
-                    downloadTitle: download.downloadTitle,
-                    errors,
-                    threshold: DOWNLOAD_ERROR_THRESHOLD,
-                  },
-                  "Download in error state - will retry before marking as failed"
-                );
-                continue;
-              }
-
-              // Threshold reached — the error is persistent, mark as failed.
-              downloadErrorCount.delete(download.id);
-              newDownloadStatus = "failed";
-              newGameStatus = "wanted"; // Reset to wanted on persistent error
             } else if (remoteDownload.status === "paused") {
               newDownloadStatus = "paused";
               newGameStatus = "downloading"; // Still consider it downloading (user can resume)

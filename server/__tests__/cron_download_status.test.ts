@@ -66,7 +66,7 @@ vi.mock("../xrel.js", () => ({
   DEFAULT_XREL_BASE: "http://example.com",
 }));
 
-const { checkDownloadStatus, _resetDownloadCountersForTesting } = await import("../cron.js");
+const { checkDownloadStatus, resetDownloadCountersForTesting } = await import("../cron.js");
 
 const baseDownloader = {
   id: "dl-sabnzbd",
@@ -106,7 +106,7 @@ const baseDownload = {
 describe("Cron - checkDownloadStatus", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    _resetDownloadCountersForTesting();
+    resetDownloadCountersForTesting();
     mockGetGame.mockResolvedValue({ id: "game-1", title: "Test Game", status: "downloading" });
     mockAddNotification.mockResolvedValue({ id: "notif-1" });
     mockUpdateGameDownloadStatus.mockResolvedValue(undefined);
@@ -206,7 +206,8 @@ describe("Cron - checkDownloadStatus", () => {
     mockGetDownloadingGameDownloads.mockResolvedValue([baseDownload]);
     mockGetDownloader.mockResolvedValue(baseDownloader);
 
-    // qBittorrent reports "error" (e.g. transient tracker timeout right after magnet add)
+    // Download client reports "error" (e.g. transient tracker timeout right after a magnet link
+    // is added — normal during the initial peer/metadata discovery phase)
     mockGetAllDownloads.mockResolvedValue([
       {
         id: "SABnzbd_nzo_abc123",

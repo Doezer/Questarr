@@ -406,7 +406,7 @@ export async function checkGameUpdates() {
  * Exported for use in tests only — do not call in production code.
  * @internal
  */
-export function _resetDownloadCountersForTesting() {
+export function resetDownloadCountersForTesting() {
   downloadMissCount.clear();
   downloadErrorCount.clear();
 }

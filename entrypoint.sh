@@ -32,8 +32,25 @@ fi
 
 # Ensure the data directory exists and key directories are owned by the correct user
 mkdir -p /app/data
-chown questarr:questarr /app
-chown -R questarr:questarr /app/data
+
+QUESTARR_UID=$(id -u questarr)
+QUESTARR_GID=$(id -g questarr)
+
+# Only chown /app if ownership does not already match (avoids failures on NFS with root squash)
+APP_OWNER_UID=$(stat -c '%u' /app)
+APP_OWNER_GID=$(stat -c '%g' /app)
+if [ "$APP_OWNER_UID" != "$QUESTARR_UID" ] || [ "$APP_OWNER_GID" != "$QUESTARR_GID" ]; then
+  echo "Setting ownership of /app to questarr:questarr"
+  chown questarr:questarr /app
+fi
+
+# Only chown /app/data if ownership does not already match (avoids failures on NFS with root squash)
+DATA_OWNER_UID=$(stat -c '%u' /app/data)
+DATA_OWNER_GID=$(stat -c '%g' /app/data)
+if [ "$DATA_OWNER_UID" != "$QUESTARR_UID" ] || [ "$DATA_OWNER_GID" != "$QUESTARR_GID" ]; then
+  echo "Setting ownership of /app/data to questarr:questarr"
+  chown -R questarr:questarr /app/data
+fi
 
 # Drop root privileges and exec the CMD as questarr
 exec su-exec questarr "$@"

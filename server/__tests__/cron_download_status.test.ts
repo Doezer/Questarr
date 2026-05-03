@@ -24,6 +24,7 @@ const mockUpdateGameDownloadStatus = vi.fn();
 const mockUpdateGameStatus = vi.fn();
 const mockGetGame = vi.fn();
 const mockAddNotification = vi.fn();
+const mockGetDownloadsByGameId = vi.fn();
 
 vi.mock("../storage.js", () => ({
   storage: {
@@ -33,6 +34,7 @@ vi.mock("../storage.js", () => ({
     updateGameStatus: mockUpdateGameStatus,
     getGame: mockGetGame,
     addNotification: mockAddNotification,
+    getDownloadsByGameId: mockGetDownloadsByGameId,
   },
 }));
 
@@ -64,7 +66,7 @@ vi.mock("../xrel.js", () => ({
   DEFAULT_XREL_BASE: "http://example.com",
 }));
 
-const { checkDownloadStatus } = await import("../cron.js");
+const { checkDownloadStatus, _resetDownloadCountersForTesting } = await import("../cron.js");
 
 const baseDownloader = {
   id: "dl-sabnzbd",
@@ -104,10 +106,12 @@ const baseDownload = {
 describe("Cron - checkDownloadStatus", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    _resetDownloadCountersForTesting();
     mockGetGame.mockResolvedValue({ id: "game-1", title: "Test Game", status: "downloading" });
     mockAddNotification.mockResolvedValue({ id: "notif-1" });
     mockUpdateGameDownloadStatus.mockResolvedValue(undefined);
     mockUpdateGameStatus.mockResolvedValue(undefined);
+    mockGetDownloadsByGameId.mockResolvedValue([]);
   });
 
   it("should find a download via the bulk map when it is in the queue", async () => {
@@ -196,5 +200,94 @@ describe("Cron - checkDownloadStatus", () => {
 
     expect(mockGetDownloadStatus).not.toHaveBeenCalled();
     expect(mockUpdateGameDownloadStatus).toHaveBeenCalledWith(baseDownload.id, "completed");
+  });
+
+  it("should not mark a download as failed on the first error (transient tracker error)", async () => {
+    mockGetDownloadingGameDownloads.mockResolvedValue([baseDownload]);
+    mockGetDownloader.mockResolvedValue(baseDownloader);
+
+    // qBittorrent reports "error" (e.g. transient tracker timeout right after magnet add)
+    mockGetAllDownloads.mockResolvedValue([
+      {
+        id: "SABnzbd_nzo_abc123",
+        name: "Test Game",
+        status: "error",
+        progress: 0,
+        error: "Torrent error",
+      },
+    ]);
+
+    await checkDownloadStatus();
+
+    // Should NOT mark as failed yet — below DOWNLOAD_ERROR_THRESHOLD
+    expect(mockUpdateGameDownloadStatus).not.toHaveBeenCalledWith(baseDownload.id, "failed");
+    expect(mockUpdateGameStatus).not.toHaveBeenCalledWith(baseDownload.gameId, {
+      status: "wanted",
+    });
+  });
+
+  it("should mark a download as failed only after DOWNLOAD_ERROR_THRESHOLD consecutive errors", async () => {
+    mockGetDownloadingGameDownloads.mockResolvedValue([baseDownload]);
+    mockGetDownloader.mockResolvedValue(baseDownloader);
+
+    const errorStatus = {
+      id: "SABnzbd_nzo_abc123",
+      name: "Test Game",
+      status: "error",
+      progress: 0,
+      error: "Torrent error",
+    };
+    mockGetAllDownloads.mockResolvedValue([errorStatus]);
+
+    // DOWNLOAD_ERROR_THRESHOLD = 3: must see 3 consecutive errors before failing
+    await checkDownloadStatus(); // errors = 1 → skip
+    await checkDownloadStatus(); // errors = 2 → skip
+    await checkDownloadStatus(); // errors = 3 → mark failed
+
+    expect(mockUpdateGameDownloadStatus).toHaveBeenCalledWith(baseDownload.id, "failed");
+    expect(mockUpdateGameStatus).toHaveBeenCalledWith(baseDownload.gameId, { status: "wanted" });
+  });
+
+  it("should reset the error counter when a download recovers from error state", async () => {
+    mockGetDownloadingGameDownloads.mockResolvedValue([baseDownload]);
+    mockGetDownloader.mockResolvedValue(baseDownloader);
+
+    const errorStatus = {
+      id: "SABnzbd_nzo_abc123",
+      name: "Test Game",
+      status: "error",
+      progress: 0,
+      error: "Torrent error",
+    };
+    const downloadingStatus = {
+      id: "SABnzbd_nzo_abc123",
+      name: "Test Game",
+      status: "downloading",
+      progress: 10,
+    };
+
+    // Two errors, then a recovery
+    mockGetAllDownloads.mockResolvedValueOnce([errorStatus]);
+    await checkDownloadStatus(); // errors = 1
+
+    mockGetAllDownloads.mockResolvedValueOnce([errorStatus]);
+    await checkDownloadStatus(); // errors = 2
+
+    // Recovery — error counter should reset
+    mockGetAllDownloads.mockResolvedValueOnce([downloadingStatus]);
+    await checkDownloadStatus(); // recovers, counter reset to 0
+
+    // Two more errors after recovery — still below threshold
+    mockGetAllDownloads.mockResolvedValueOnce([errorStatus]);
+    await checkDownloadStatus(); // errors = 1 again
+
+    mockGetAllDownloads.mockResolvedValueOnce([errorStatus]);
+    await checkDownloadStatus(); // errors = 2
+
+    // Should NOT have marked as failed (only 2 consecutive errors since recovery)
+    expect(mockUpdateGameDownloadStatus).not.toHaveBeenCalledWith(baseDownload.id, "failed");
+    expect(mockUpdateGameStatus).not.toHaveBeenCalledWith(baseDownload.gameId, {
+      status: "wanted",
+    });
   });
 });

@@ -9,8 +9,6 @@ RUN npm ci
 # Build client and server
 FROM base AS builder
 
-WORKDIR /app
-
 COPY . .
 RUN npm run build
 
@@ -37,20 +35,15 @@ RUN npm prune --omit=dev
 # Copy necessary files from build stage
 COPY --from=builder /app/dist ./dist
 
-# Copy drizzle configuration and migrations for production
-COPY --from=builder /app/drizzle.config.ts ./
 COPY --from=builder /app/migrations ./migrations
 COPY --from=builder /app/shared ./shared
-COPY --from=builder /app/scripts ./scripts
-
-# Copy configuration files...
 COPY --from=builder /app/package.json ./
 
 # Create user, group, data directory, and set ownership
-RUN addgroup questarr
-RUN adduser -G questarr -s /bin/sh -D questarr 
-RUN mkdir -p /app/data
-RUN chown -R questarr:questarr /app
+RUN addgroup questarr && \
+    adduser -G questarr -s /bin/sh -D questarr && \
+    mkdir -p /app/data && \
+    chown -R questarr:questarr /app
 
 # Copy and set up entrypoint script
 COPY entrypoint.sh /entrypoint.sh

@@ -40,10 +40,10 @@ COPY --from=builder /app/shared ./shared
 COPY --from=builder /app/package.json ./
 
 # Create user, group, data directory, and set ownership
-RUN addgroup questarr && \
-    adduser -G questarr -s /bin/sh -D questarr && \
-    mkdir -p /app/data && \
-    chown -R questarr:questarr /app
+RUN addgroup questarr
+RUN adduser -G questarr -s /bin/sh -D questarr 
+RUN mkdir -p /app/data
+RUN chown -R questarr:questarr /app
 
 # Copy and set up entrypoint script
 COPY entrypoint.sh /entrypoint.sh

@@ -1,0 +1,10 @@
+# Force LF for all text files to prevent CRLF issues on Linux containers
+* text=auto eol=lf
+
+# Shell scripts must always be LF
+*.sh text eol=lf
+
+# Windows-specific files can use CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf

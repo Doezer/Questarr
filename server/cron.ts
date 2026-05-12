@@ -48,15 +48,11 @@ function getAutoSearchRules(downloadRules: string | null): AutoSearchRules {
   let visibleCategoriesSet = new Set(["main", "update", "dlc", "extra"]);
 
   if (downloadRules) {
-    try {
-      const parsed = JSON.parse(downloadRules);
-      const rules = downloadRulesSchema.parse(parsed);
-      minSeeders = rules.minSeeders;
-      sortBy = rules.sortBy;
-      visibleCategoriesSet = new Set(rules.visibleCategories);
-    } catch {
-      // malformed rules — use defaults
-    }
+    const parsed = JSON.parse(downloadRules);
+    const rules = downloadRulesSchema.parse(parsed);
+    minSeeders = rules.minSeeders;
+    sortBy = rules.sortBy;
+    visibleCategoriesSet = new Set(rules.visibleCategories);
   }
 
   return { minSeeders, sortBy, visibleCategoriesSet };
@@ -341,11 +337,6 @@ export async function checkGameUpdates() {
           releaseDate: currentReleaseDateStr,
           originalReleaseDate: currentReleaseDateStr,
         });
-        // We need to update local object if we were to continue using it,
-        // but the original code did 'continue'.
-        // However, 'continue' skips the rest of the loop logic (status check).
-        // If we just initialized, do we want to skip status check?
-        // Original code: yes.
         continue;
       }
     }
@@ -446,11 +437,11 @@ export async function checkDownloadStatus() {
 
   // Prune stale entries from downloadMissCount (e.g. downloads removed from DB while still downloading)
   const activeDownloadIds = new Set(downloadingDownloads.map((d) => d.id));
-  for (const key of Array.from(downloadMissCount.keys())) {
+  downloadMissCount.forEach((_, key) => {
     if (!activeDownloadIds.has(key)) {
       downloadMissCount.delete(key);
     }
-  }
+  });
 
   // Group by downloader
   const downloadsByDownloader = new Map<string, typeof downloadingDownloads>();

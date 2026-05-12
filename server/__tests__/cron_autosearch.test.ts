@@ -1080,4 +1080,71 @@ describe("Cron - checkAutoSearch", () => {
       expect(mockAddDownloadWithFallback).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe("Download Rules", () => {
+    const ITEM_LOW_SEEDERS = {
+      title: "Test Game-SKIDROW",
+      link: "https://example.com/low",
+      pubDate: FIXED_PUB_DATE,
+      seeders: 5,
+      size: 10_000,
+    };
+    const ITEM_HIGH_SEEDERS = {
+      title: "Test Game-CODEX",
+      link: "https://example.com/high",
+      pubDate: FIXED_PUB_DATE,
+      seeders: 100,
+      size: 10_000,
+    };
+
+    it("should apply minSeeders from valid downloadRules to filter results", async () => {
+      const game = { ...baseGame, releaseStatus: "released" as const };
+      const settings = {
+        ...baseSettings,
+        downloadRules: JSON.stringify({
+          minSeeders: 50,
+          sortBy: "seeders",
+          visibleCategories: ["main"],
+        }),
+        autoDownloadEnabled: false,
+      };
+
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [game]]]));
+      mockGetUserSettings.mockResolvedValue(settings);
+      mockSearchAllIndexers.mockResolvedValue({
+        items: [ITEM_LOW_SEEDERS, ITEM_HIGH_SEEDERS],
+        errors: [],
+        total: 2,
+      });
+
+      await checkAutoSearch();
+
+      // Only ITEM_HIGH_SEEDERS (100 seeders) passes the minSeeders:50 filter
+      expect(mockUpdateGameSearchResultsAvailable).toHaveBeenCalledWith(game.id, true);
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Game Available" })
+      );
+    });
+
+    it("should fall back to default rules when downloadRules JSON is malformed", async () => {
+      const game = { ...baseGame, releaseStatus: "released" as const };
+      const settings = {
+        ...baseSettings,
+        downloadRules: "{not valid json}",
+        autoDownloadEnabled: false,
+      };
+
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [game]]]));
+      mockGetUserSettings.mockResolvedValue(settings);
+      mockSearchAllIndexers.mockResolvedValue({
+        items: [ITEM_LOW_SEEDERS],
+        errors: [],
+        total: 1,
+      });
+
+      // Should not throw; defaults have minSeeders=0, so the item passes
+      await expect(checkAutoSearch()).resolves.not.toThrow();
+      expect(mockUpdateGameSearchResultsAvailable).toHaveBeenCalledWith(game.id, true);
+    });
+  });
 });

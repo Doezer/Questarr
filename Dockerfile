@@ -9,6 +9,8 @@ RUN npm ci
 # Build client and server
 FROM base AS builder
 
+WORKDIR /app
+
 COPY . .
 RUN npm run build
 
@@ -35,8 +37,13 @@ RUN npm prune --omit=dev
 # Copy necessary files from build stage
 COPY --from=builder /app/dist ./dist
 
+# Copy drizzle configuration and migrations for production
+COPY --from=builder /app/drizzle.config.ts ./
 COPY --from=builder /app/migrations ./migrations
 COPY --from=builder /app/shared ./shared
+COPY --from=builder /app/scripts ./scripts
+
+# Copy configuration files...
 COPY --from=builder /app/package.json ./
 
 # Create user, group, data directory, and set ownership
@@ -59,4 +66,4 @@ LABEL org.opencontainers.image.description="A video game management application 
 LABEL org.opencontainers.image.authors="Doezer"
 LABEL org.opencontainers.image.source="https://github.com/Doezer/questarr"
 LABEL org.opencontainers.image.licenses="GPL-3.0-or-later"
-LABEL org.opencontainers.image.version="1.4.0"
+LABEL org.opencontainers.image.version="1.3.0"

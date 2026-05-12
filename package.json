@@ -1,6 +1,6 @@
 {
   "name": "questarr",
-  "version": "1.4.0",
+  "version": "1.3.0",
   "description": "A video game management application inspired by the -Arr apps. Track and organize your video game collection with automated discovery and download management.",
   "type": "module",
   "packageManager": "npm@11.7.0",
@@ -172,11 +172,11 @@
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx}": [
-      "eslint --fix --cache --cache-strategy content --cache-location node_modules/.cache/eslint",
-      "prettier --cache --cache-strategy content --cache-location node_modules/.cache/prettier/.prettier-cache --write"
+      "eslint --fix",
+      "prettier --write"
     ],
     "*.{json,css,md}": [
-      "prettier --cache --cache-strategy content --cache-location node_modules/.cache/prettier/.prettier-cache --write"
+      "prettier --write"
     ]
   },
   "engines": {

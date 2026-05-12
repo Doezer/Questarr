@@ -1630,14 +1630,12 @@ export class RTorrentClient implements DownloaderClient {
                   url,
                   username: this.downloader.username,
                   method,
-                  authHeader,
                   errorText: retryErrorText,
                 },
                 "rTorrent Digest Authentication failed"
               );
-              const isHttp = url.startsWith("http://");
               throw new Error(
-                `Digest Authentication failed (wrong credentials${isHttp ? ", or server may have switched to HTTPS" : ""})`
+                `Digest Authentication failed: ${retryResponse.status} ${retryResponse.statusText}`
               );
             }
           } catch (error) {

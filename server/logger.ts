@@ -1,5 +1,5 @@
 import pino from "pino";
-import { Writable } from "stream";
+import { Writable } from "node:stream";
 import { consumeLogChunk, flushLogRemainder } from "./log-stream.js";
 import { logEmitter } from "./log-events.js";
 

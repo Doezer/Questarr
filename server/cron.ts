@@ -364,7 +364,7 @@ export async function checkGameUpdates() {
         type: "success",
         title: "Game Released",
         message,
-        link: "/library",
+        link: "/",
         userId: game.userId!,
       });
     }
@@ -544,7 +544,7 @@ export async function checkDownloadStatus() {
               type: "success",
               title: "Download Completed",
               message,
-              link: "/library",
+              link: "/",
               userId: game?.userId ?? undefined,
             });
             notifyUser("notification", notification);
@@ -681,7 +681,7 @@ export async function checkDownloadStatus() {
             type: "info",
             title: "Download Status Changed",
             message: `Download for "${gameTitle}" was not found in the downloader and has been marked as completed. If this was removed due to an error, you may need to re-download it.`,
-            link: "/library",
+            link: "/",
             userId: game?.userId ?? undefined,
           });
           notifyUser("notification", notification);
@@ -835,7 +835,7 @@ export async function checkAutoSearch() {
                         type: "success",
                         title: "Download Started",
                         message: `Started downloading ${game.title}${groupSuffix} via ${item.downloadType === "usenet" ? "Usenet" : "Torrent"}`,
-                        link: "/library",
+                        link: "/",
                       });
                       notifyUser("notification", notification);
 

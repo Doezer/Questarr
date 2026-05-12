@@ -44,10 +44,11 @@ if [ "$APP_OWNER_UID" != "$QUESTARR_UID" ] || [ "$APP_OWNER_GID" != "$QUESTARR_G
   chown questarr:questarr /app
 fi
 
-# Only chown /app/data if ownership does not already match (avoids failures on NFS with root squash)
-DATA_OWNER_UID=$(stat -c '%u' /app/data)
-DATA_OWNER_GID=$(stat -c '%g' /app/data)
-if [ "$DATA_OWNER_UID" != "$QUESTARR_UID" ] || [ "$DATA_OWNER_GID" != "$QUESTARR_GID" ]; then
+# Only chown /app/data if the directory itself or any nested file/dir has wrong ownership.
+# Scanning recursively catches post-restore trees where the top-level inode matches but
+# inner files were created by a different host UID/GID.
+# -print -quit stops at the first mismatch so this is fast even on large trees.
+if find /app/data \( ! -uid "$QUESTARR_UID" -o ! -gid "$QUESTARR_GID" \) -print -quit 2>/dev/null | grep -q .; then
   echo "Setting ownership of /app/data to questarr:questarr"
   chown -R questarr:questarr /app/data
 fi

@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import Dashboard from "../src/components/Dashboard";
+import Library from "../src/components/Library";
 import { TooltipProvider } from "../src/components/ui/tooltip";
 
 // Mock dependencies
@@ -44,6 +44,10 @@ const mockGames = [
   },
 ];
 
+vi.mock("@/hooks/use-download-summary", () => ({
+  useDownloadSummary: () => ({}),
+}));
+
 vi.mock("@tanstack/react-query", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@tanstack/react-query")>();
   return {
@@ -67,7 +71,7 @@ describe("Dashboard Stats Calculation", () => {
     render(
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
-          <Dashboard />
+          <Library />
         </TooltipProvider>
       </QueryClientProvider>
     );

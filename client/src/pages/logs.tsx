@@ -39,6 +39,9 @@ const LEVEL_MAP: Record<number, { label: string; className: string }> = {
 };
 
 const MAX_LINES = 2000;
+const ROW_HEIGHT = 28;
+const OVERSCAN_ROWS = 10;
+const DEFAULT_VIEWPORT_HEIGHT = 400;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -75,17 +78,20 @@ const LogLineRow = memo(function LogLineRow({ line }: Readonly<{ line: ParsedLog
   const timeStr = line.time ? new Date(line.time).toLocaleTimeString() : "";
 
   return (
-    <div className="flex items-start gap-2 py-0.5 hover:bg-white/5 rounded px-1 min-w-0">
+    <div
+      className="grid h-7 min-w-max grid-cols-[5rem_4rem_6.5rem_minmax(0,1fr)] items-center gap-2 rounded px-1 hover:bg-white/5"
+      data-testid="log-line-row"
+    >
       <span className="text-zinc-500 w-20 flex-shrink-0 text-right tabular-nums">{timeStr}</span>
       <span
         className={`text-xs font-bold px-1.5 rounded flex-shrink-0 w-12 text-center leading-5 ${line.levelClass}`}
       >
         {line.levelLabel}
       </span>
-      {line.module && (
-        <span className="text-zinc-400 w-24 flex-shrink-0 truncate">{line.module}</span>
-      )}
-      <span className="text-zinc-100 break-all min-w-0">{line.msg}</span>
+      <span className="text-zinc-400 truncate">{line.module ?? "-"}</span>
+      <span className="text-zinc-100 truncate" title={line.msg}>
+        {line.msg}
+      </span>
     </div>
   );
 });
@@ -99,6 +105,8 @@ export default function LogsPage() {
   const [autoScroll, setAutoScroll] = useState(true);
   const [filterLevel, setFilterLevel] = useState<string>("all");
   const [filterModule, setFilterModule] = useState<string>("all");
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(DEFAULT_VIEWPORT_HEIGHT);
 
   // ── Initial load ──────────────────────────────────────────────────────────
 
@@ -136,10 +144,19 @@ export default function LogsPage() {
   // ── Auto-scroll ───────────────────────────────────────────────────────────
 
   useEffect(() => {
-    if (autoScroll && scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [lines, autoScroll]);
+    const viewport = scrollRef.current;
+    if (!viewport) return;
+
+    const updateViewportHeight = () =>
+      setViewportHeight(viewport.clientHeight || DEFAULT_VIEWPORT_HEIGHT);
+
+    updateViewportHeight();
+
+    const observer = new ResizeObserver(updateViewportHeight);
+    observer.observe(viewport);
+
+    return () => observer.disconnect();
+  }, []);
 
   // ── Derived data ──────────────────────────────────────────────────────────
 
@@ -158,6 +175,48 @@ export default function LogsPage() {
         return true;
       }),
     [lines, minLevel, filterModule]
+  );
+
+  useEffect(() => {
+    if (!autoScroll || !scrollRef.current) return;
+
+    const viewport = scrollRef.current;
+    const frame = window.requestAnimationFrame(() => {
+      viewport.scrollTop = viewport.scrollHeight;
+      setScrollTop(viewport.scrollTop);
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [autoScroll, filteredLines.length]);
+
+  const { startIndex, endIndex, topSpacerHeight, bottomSpacerHeight } = useMemo(() => {
+    if (filteredLines.length === 0) {
+      return { startIndex: 0, endIndex: 0, topSpacerHeight: 0, bottomSpacerHeight: 0 };
+    }
+
+    const maxScrollTop = Math.max(0, filteredLines.length * ROW_HEIGHT - viewportHeight);
+    const clampedScrollTop = Math.min(scrollTop, maxScrollTop);
+    const visibleRows = Math.max(1, Math.ceil(viewportHeight / ROW_HEIGHT));
+    const start = Math.max(0, Math.floor(clampedScrollTop / ROW_HEIGHT) - OVERSCAN_ROWS);
+    const end = Math.min(
+      filteredLines.length,
+      Math.ceil((clampedScrollTop + viewportHeight) / ROW_HEIGHT) + OVERSCAN_ROWS
+    );
+
+    return {
+      startIndex: start,
+      endIndex: Math.max(start + visibleRows, end),
+      topSpacerHeight: start * ROW_HEIGHT,
+      bottomSpacerHeight: Math.max(
+        0,
+        (filteredLines.length - Math.max(start + visibleRows, end)) * ROW_HEIGHT
+      ),
+    };
+  }, [filteredLines.length, scrollTop, viewportHeight]);
+
+  const visibleLines = useMemo(
+    () => filteredLines.slice(startIndex, endIndex),
+    [filteredLines, startIndex, endIndex]
   );
 
   // ── Actions ───────────────────────────────────────────────────────────────
@@ -185,8 +244,9 @@ export default function LogsPage() {
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
+    setScrollTop(el.scrollTop);
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-    if (!atBottom) setAutoScroll(false);
+    setAutoScroll(atBottom);
   };
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -273,18 +333,30 @@ export default function LogsPage() {
       ) : (
         <div
           ref={scrollRef}
-          className="flex-1 overflow-y-auto rounded-lg border border-border bg-zinc-950 font-mono text-xs p-3 space-y-0.5"
+          className="flex-1 overflow-auto rounded-lg border border-border bg-zinc-950 font-mono text-xs"
           onScroll={handleScroll}
           role="log"
           aria-label="Server log output"
           aria-live="polite"
+          aria-relevant="additions text"
+          data-testid="logs-viewport"
         >
           {filteredLines.length === 0 && (
-            <p className="text-zinc-500 text-center pt-8">No log lines to display.</p>
+            <p className="p-3 pt-8 text-center text-zinc-500">No log lines to display.</p>
           )}
-          {filteredLines.map((line) => (
-            <LogLineRow key={line.id} line={line} />
-          ))}
+          {filteredLines.length > 0 && (
+            <div className="min-w-max p-3">
+              {topSpacerHeight > 0 && (
+                <div style={{ height: topSpacerHeight }} aria-hidden="true" />
+              )}
+              {visibleLines.map((line) => (
+                <LogLineRow key={line.id} line={line} />
+              ))}
+              {bottomSpacerHeight > 0 && (
+                <div style={{ height: bottomSpacerHeight }} aria-hidden="true" />
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -165,7 +165,7 @@ export default function LogsPage() {
     return Array.from(set).sort();
   }, [lines]);
 
-  const minLevel = filterLevel === "all" ? 0 : parseInt(filterLevel, 10);
+  const minLevel = filterLevel === "all" ? 0 : Number.parseInt(filterLevel, 10);
 
   const filteredLines = useMemo(
     () =>

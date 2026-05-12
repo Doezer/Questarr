@@ -29,5 +29,6 @@
 **Action:** When comparing date strings (e.g. bucketizing games by month), prefer O(1) string prefix matching (like `date.startsWith('2024-05-')`) over parsing the string into a new `Date` object to check its bounds.
 
 ## 2024-04-22 - Dashboard Stats Computation Optimization
+
 **Learning:** Found multiple O(n) array traversals (filter, map, reduce, flatMap) within a React useMemo hook processing game statistics. Replacing these multiple array methods with a single manual loop significantly improves performance on the hot path (re-evaluating stats) by reducing redundant iterations and object allocations.
 **Action:** Always scrutinize React useMemo hooks operating on collections for unnecessary or repeated iterations, and consider combining loops.

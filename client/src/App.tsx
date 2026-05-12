@@ -14,7 +14,7 @@ import { ThemeProvider } from "next-themes";
 
 // ⚡ Bolt: Code splitting with React.lazy
 // This reduces the initial bundle size by loading pages only when needed.
-const Dashboard = lazy(() => import("@/components/Dashboard"));
+const Library = lazy(() => import("@/components/Library"));
 const DiscoverPage = lazy(() => import("@/pages/discover"));
 const SearchPage = lazy(() => import("@/pages/search"));
 const DownloadsPage = lazy(() => import("@/pages/downloads"));
@@ -22,7 +22,6 @@ const IndexersPage = lazy(() => import("@/pages/indexers"));
 const DownloadersPage = lazy(() => import("@/pages/downloaders"));
 const SettingsPage = lazy(() => import("@/pages/settings"));
 const NotFound = lazy(() => import("@/pages/not-found"));
-const LibraryPage = lazy(() => import("@/pages/library"));
 const CalendarPage = lazy(() => import("@/pages/calendar"));
 const WishlistPage = lazy(() => import("@/pages/wishlist"));
 const XrelReleasesPage = lazy(() => import("@/pages/xrel-releases"));
@@ -38,14 +37,13 @@ function Router() {
       <Switch>
         <Route path="/login" component={LoginPage} />
         <Route path="/setup" component={SetupPage} />
-        <Route path="/" component={Dashboard} />
+        <Route path="/" component={Library} />
         <Route path="/discover" component={DiscoverPage} />
         <Route path="/search" component={SearchPage} />
         <Route path="/downloads" component={DownloadsPage} />
         <Route path="/indexers" component={IndexersPage} />
         <Route path="/downloaders" component={DownloadersPage} />
         <Route path="/settings" component={SettingsPage} />
-        <Route path="/library" component={LibraryPage} />
         <Route path="/calendar" component={CalendarPage} />
         <Route path="/wishlist" component={WishlistPage} />
         <Route path="/xrel" component={XrelReleasesPage} />
@@ -77,7 +75,7 @@ function App() {
   const getPageTitle = (path: string) => {
     switch (path) {
       case "/":
-        return "Dashboard";
+        return "Library";
       case "/discover":
         return "Discover";
       case "/search":
@@ -90,8 +88,6 @@ function App() {
         return "Downloaders";
       case "/settings":
         return "Settings";
-      case "/library":
-        return "Library";
       case "/calendar":
         return "Calendar";
       case "/wishlist":

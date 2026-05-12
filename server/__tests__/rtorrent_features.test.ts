@@ -147,3 +147,72 @@ describe("RTorrentClient - magnet link handling", () => {
     expect(body).toContain("load.normal");
   });
 });
+
+describe("RTorrentClient - Digest Authentication failure", () => {
+  const digestChallenge = 'Digest realm="rTorrent", nonce="abc123", algorithm=MD5';
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    fetchMock.mockReset();
+  });
+
+  it("includes HTTPS hint in error when Digest auth retry fails on http:// endpoint", async () => {
+    const client = new RTorrentClient({ ...testDownloader, username: "user", password: "pass" });
+
+    // First request: 401 Digest challenge
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      text: async () => "Unauthorized",
+      headers: {
+        get: (h: string) => (h.toLowerCase() === "www-authenticate" ? digestChallenge : null),
+      },
+    });
+    // Retry: credentials rejected
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      text: async () => "Unauthorized",
+      headers: { get: () => null },
+    });
+
+    const result = await client.addDownload({
+      url: "magnet:?xt=urn:btih:deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+      title: "Test Game",
+    });
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("or server may have switched to HTTPS");
+  });
+
+  it("omits HTTPS hint in error when Digest auth retry fails on https:// endpoint", async () => {
+    const httpsDownloader: Downloader = {
+      ...testDownloader,
+      url: "https://localhost/RPC2",
+      username: "user",
+      password: "pass",
+    };
+    const client = new RTorrentClient(httpsDownloader);
+
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      text: async () => "Unauthorized",
+      headers: {
+        get: (h: string) => (h.toLowerCase() === "www-authenticate" ? digestChallenge : null),
+      },
+    });
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      text: async () => "Unauthorized",
+      headers: { get: () => null },
+    });
+
+    const result = await client.addDownload({
+      url: "magnet:?xt=urn:btih:deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+      title: "Test Game",
+    });
+    expect(result.success).toBe(false);
+    expect(result.message).toMatch(/wrong credentials\)/);
+  });
+});

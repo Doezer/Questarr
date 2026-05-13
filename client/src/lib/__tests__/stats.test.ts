@@ -9,6 +9,7 @@ describe("calculateLibraryStats", () => {
       title: "Game 1",
       status: "owned",
       rating: 80,
+      userRating: 8,
       genres: ["Action", "RPG"],
       platforms: ["PC"],
       publishers: ["Pub 1"],
@@ -22,6 +23,7 @@ describe("calculateLibraryStats", () => {
       title: "Game 2",
       status: "completed",
       rating: 90,
+      userRating: 7.5,
       genres: ["RPG"],
       platforms: ["PC", "PS5"],
       publishers: ["Pub 1"],
@@ -50,6 +52,7 @@ describe("calculateLibraryStats", () => {
 
     expect(stats.totalGames).toBe(3);
     expect(stats.avgRating).toBe("85.0"); // (80 + 90) / 2
+    expect(stats.avgUserRating).toBe("7.8"); // (8 + 7.5) / 2
     expect(stats.topGenre?.name).toBe("RPG");
 
     expect(stats.topPlatform?.name).toBe("PC");
@@ -67,6 +70,7 @@ describe("calculateLibraryStats", () => {
     const stats = calculateLibraryStats([]);
     expect(stats.totalGames).toBe(0);
     expect(stats.avgRating).toBe("N/A");
+    expect(stats.avgUserRating).toBe("N/A");
     expect(stats.completionRate).toBe(0);
   });
 
@@ -106,6 +110,17 @@ describe("calculateLibraryStats", () => {
     ];
     const stats = calculateLibraryStats(games as Game[]);
     expect(stats.metadataHealth).toBe(50);
+  });
+
+  it("returns N/A for avgUserRating when the library has no user ratings", () => {
+    const games: Partial<Game>[] = [
+      { id: "1", title: "No Rating 1", status: "owned", userRating: null } as Game,
+      { id: "2", title: "No Rating 2", status: "wanted" } as Game,
+    ];
+
+    const stats = calculateLibraryStats(games as Game[]);
+
+    expect(stats.avgUserRating).toBe("N/A");
   });
 
   it("handles invalid release dates in avgReleaseYear", () => {

@@ -3,6 +3,7 @@ import { type Game } from "@shared/schema";
 export interface LibraryStats {
   totalGames: number;
   avgRating: string;
+  avgUserRating: string;
   topGenre: { name: string; count: number } | null;
   topPlatform: { name: string; count: number } | null;
   topPublisher: { name: string; count: number } | null;
@@ -25,6 +26,7 @@ export function calculateLibraryStats(games: Game[]): LibraryStats {
     return {
       totalGames: 0,
       avgRating: "N/A",
+      avgUserRating: "N/A",
       topGenre: null,
       topPlatform: null,
       topPublisher: null,
@@ -46,6 +48,14 @@ export function calculateLibraryStats(games: Game[]): LibraryStats {
   const avgRating =
     ratedGames.length > 0
       ? (ratedGames.reduce((acc, g) => acc + (g.rating || 0), 0) / ratedGames.length).toFixed(1)
+      : "N/A";
+
+  const userRatedGames = games.filter((g) => g.userRating !== null && g.userRating !== undefined);
+  const avgUserRating =
+    userRatedGames.length > 0
+      ? (
+          userRatedGames.reduce((acc, g) => acc + (g.userRating || 0), 0) / userRatedGames.length
+        ).toFixed(1)
       : "N/A";
 
   // Counts Helper
@@ -102,6 +112,7 @@ export function calculateLibraryStats(games: Game[]): LibraryStats {
   return {
     totalGames,
     avgRating,
+    avgUserRating,
     topGenre,
     topPlatform,
     topPublisher,

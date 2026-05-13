@@ -15,6 +15,7 @@ import {
   BarChart3,
   LayoutGrid,
   Share2,
+  UserRound,
 } from "lucide-react";
 import { calculateLibraryStats } from "@/lib/stats";
 import { apiRequest } from "@/lib/queryClient";
@@ -91,7 +92,7 @@ export default function StatsPage() {
         discordConfigured={discordConfig?.configured}
       />
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5 lg:grid-cols-3">
         <StatsCard
           title="Total Games"
           value={stats.totalGames}
@@ -103,6 +104,12 @@ export default function StatsPage() {
           value={stats.avgRating}
           subtitle="average score"
           icon={Star}
+        />
+        <StatsCard
+          title="Avg. User Rating"
+          value={stats.avgUserRating}
+          subtitle="personal score"
+          icon={UserRound}
         />
         <StatsCard
           title="Completion Rate"

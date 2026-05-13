@@ -16,6 +16,7 @@ import { ensureDatabase } from "./migrate.js";
 import { rssService } from "./rss.js";
 import { nexusmodsClient } from "./nexusmods.js";
 import { storage } from "./storage.js";
+import { truncateLogData } from "./log-response.js";
 
 const app = express();
 if (config.server.isProduction) {
@@ -64,45 +65,6 @@ app.use((req, res, next) => {
         path === "/api/igdb/popular" ||
         path === "/api/igdb/upcoming" ||
         path.match(/^\/api\/indexers\/[^/]+\/categories$/);
-
-      // Helper to truncate log data
-      const truncateLogData = (data: unknown, depth = 0): unknown => {
-        if (!data) return data;
-        if (depth > 2) return "[Object/Array]"; // Aggressive depth limit
-
-        if (Array.isArray(data)) {
-          if (data.length > 3) {
-            // Truncate array items with increased depth
-            const truncatedItems = data.slice(0, 3).map((item) => truncateLogData(item, depth + 1));
-            return [...truncatedItems, `... ${data.length - 3} more items`];
-          }
-          return data.map((item) => truncateLogData(item, depth + 1));
-        }
-
-        if (typeof data === "object") {
-          const dict = data as Record<string, unknown>;
-          const newObj: Record<string, unknown> = {};
-          const keys = Object.keys(dict);
-
-          // Limit number of keys shown per object to reduce verbosity
-          const maxKeys = 5;
-          const processingKeys = keys.slice(0, maxKeys);
-
-          for (const key of processingKeys) {
-            newObj[key] = truncateLogData(dict[key], depth + 1);
-          }
-
-          if (keys.length > maxKeys) {
-            newObj["_truncated"] = `... ${keys.length - maxKeys} more keys`;
-          }
-          return newObj;
-        }
-
-        if (typeof data === "string" && data.length > 50) {
-          return data.substring(0, 50) + "...";
-        }
-        return data;
-      };
 
       // Always log metadata at info level
       expressLogger.info(

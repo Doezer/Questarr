@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.1] - 2026-05-13
+
+### Fixed
+
+- Fix NZB URL encoding for Prowlarr and other indexers where `+` characters in base64-encoded links caused "Invalid link" errors — applies to qBittorrent, Transmission, and rTorrent clients.
+- Fix broken indexer URLs when fetching NZBs through clients that relay the request
+- Fix auto-search download rules handling.
+- Fix CRLF line endings in Docker entrypoint script to prevent container start failures on Linux hosts.
+
+### Changed
+
+- Improve rTorrent error message when Digest authentication fails.
+- Added retry algo before marking a download as failed, reducing false-positive failures.
+- Optimize dashboard statistics computation for faster page load.
+- Optimize calendar year view by replacing `Date` parsing with string prefix matching, significantly reducing render time for large libraries.
+- Add missing ARIA label to RSS feed delete button for screen reader accessibility.
+- Updated Docker Compose and Dockerfile configuration.
+- Dependency updates: React, express-rate-limit, fast-xml-parser, @types/express-session, and Docker CI actions.
+
 ## [1.3.0] - 2026-04-11
 
 ### Added

@@ -414,28 +414,40 @@ describe("QBittorrentClient", () => {
   });
 
   describe("authenticate", () => {
-    it("should authenticate and set cookie", async () => {
-      // 1. Mock login success
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        text: async () => "Ok.",
-        headers: {
-          getSetCookie: () => ["SID=abc12345; HttpOnly; Path=/"],
-          get: () => "SID=abc12345; HttpOnly; Path=/",
-        },
-      });
+    it.each([
+      {
+        cookieName: "SID",
+        cookieHeader: "SID=abc12345; HttpOnly; Path=/",
+        expectedCookie: "SID=abc12345",
+        version: "v4.3.9",
+      },
+      {
+        cookieName: "QBT_SID",
+        cookieHeader: "QBT_SID_20080=abc12345; HttpOnly; Path=/",
+        expectedCookie: "QBT_SID_20080=abc12345",
+        version: "v5.2.0",
+      },
+    ])(
+      "should authenticate and set $cookieName cookie",
+      async ({ cookieHeader, expectedCookie, version }) => {
+        fetchMock.mockResolvedValueOnce({
+          ok: true,
+          text: async () => "Ok.",
+          headers: {
+            getSetCookie: () => [cookieHeader],
+            get: () => cookieHeader,
+          },
+        });
 
-      // 2. Mock subsequent request (e.g. testConnection calling app/version)
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        text: async () => "v4.3.9",
-      });
+        fetchMock.mockResolvedValueOnce({
+          ok: true,
+          text: async () => version,
+        });
 
-      const result = await client.testConnection();
-      expect(result.success).toBe(true);
-
-      // Check if cookie was used in second request
-      expect(fetchMock.mock.calls[1][1].headers.Cookie).toContain("SID=abc12345");
-    });
+        const result = await client.testConnection();
+        expect(result.success).toBe(true);
+        expect(fetchMock.mock.calls[1][1].headers.Cookie).toContain(expectedCookie);
+      }
+    );
   });
 });

@@ -4,11 +4,8 @@ services:
     ports:
       - "${PORT:-5000}:5000"
       - "${SSL_PORT:-9898}:${SSL_PORT:-9898}"
-    environment:
-      - PUID=${PUID:-1000}
-      - PGID=${PGID:-1000}
-      - SQLITE_DB_PATH=/app/data/sqlite.db
-      - SSL_PORT=${SSL_PORT:-9898}
+    # environment:
+    #   - SQLITE_DB_PATH=/app/data/sqlite.db  # Default path for sqlite db, uncomment and change if needed
     volumes:
       # Persist SQLite database and other data
       - ./data:/app/data

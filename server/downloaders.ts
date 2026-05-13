@@ -2858,38 +2858,40 @@ export class QBittorrentClient implements DownloaderClient {
       // Extract ALL cookies from response
       // In Node.js fetch, set-cookie can be retrieved differently
       const setCookieHeaders = response.headers.getSetCookie?.() || [];
-      let sidCookie = null;
+      let sessionCookie: string | null = null;
 
       // Try the newer getSetCookie() method first (Node 19.7+)
       if (setCookieHeaders.length > 0) {
         for (const cookie of setCookieHeaders) {
-          const match = cookie.match(/SID=([^;]+)/);
+          const match = cookie.match(/((?:QBT_)?SID(?:_[^=;]+)?)=([^;]+)/);
           if (match) {
-            sidCookie = match[1];
+            sessionCookie = `${match[1]}=${match[2]}`;
             break;
           }
         }
       }
 
       // Fallback to get("set-cookie") for older Node versions
-      if (!sidCookie) {
+      if (!sessionCookie) {
         const setCookie = response.headers.get("set-cookie");
         if (setCookie) {
-          const match = setCookie.match(/SID=([^;]+)/);
+          const match = setCookie.match(/((?:QBT_)?SID(?:_[^=;]+)?)=([^;]+)/);
           if (match) {
-            sidCookie = match[1];
+            sessionCookie = `${match[1]}=${match[2]}`;
           }
         }
       }
 
-      if (sidCookie) {
-        this.cookie = `SID=${sidCookie}`;
+      if (sessionCookie) {
+        this.cookie = sessionCookie;
         downloadersLogger.debug(
           { cookieLength: this.cookie.length },
           "qBittorrent authentication successful with cookie"
         );
       } else {
-        downloadersLogger.warn("qBittorrent authentication returned Ok but no SID cookie found");
+        downloadersLogger.warn(
+          "qBittorrent authentication returned Ok but no SID-compatible cookie found"
+        );
         // Some qBittorrent configs don't require cookies, so this might be okay
         this.cookie = null;
       }
@@ -3397,7 +3399,7 @@ export class SABnzbdClient implements DownloaderClient {
       });
 
       if (options.body) {
-        req.write(options.body as string);
+        req.write(options.body as Buffer | string);
       }
       req.end();
     });
@@ -3456,16 +3458,23 @@ export class SABnzbdClient implements DownloaderClient {
         priority: (request.priority || 0).toString(),
       });
 
-      const formData = new FormData();
-      formData.append(
-        "name",
-        new Blob([nzbContent], { type: "application/x-nzb" }),
-        `${request.title}.nzb`
-      );
+      // Build multipart body manually so fetchInsecure (self-signed HTTPS fallback)
+      // can write it as a Buffer — FormData is not serialisable via req.write().
+      const boundary = `questarr${Date.now().toString(16)}`;
+      const safeName = request.title.replace(/["\\]/g, "_");
+      const nzbBuffer = Buffer.from(nzbContent);
+      const multipartBody = Buffer.concat([
+        Buffer.from(
+          `--${boundary}\r\nContent-Disposition: form-data; name="name"; filename="${safeName}.nzb"\r\nContent-Type: application/x-nzb\r\n\r\n`
+        ),
+        nzbBuffer,
+        Buffer.from(`\r\n--${boundary}--\r\n`),
+      ]);
 
       const response = await this.fetchWithFallback(url, {
         method: "POST",
-        body: formData,
+        body: multipartBody,
+        headers: { "Content-Type": `multipart/form-data; boundary=${boundary}` },
         signal: AbortSignal.timeout(30000),
       });
 

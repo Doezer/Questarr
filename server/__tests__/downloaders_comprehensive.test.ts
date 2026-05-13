@@ -493,6 +493,23 @@ describe("Downloader Comprehensive Tests", () => {
       expect(historyCalls.length).toBe(1);
       expect(historyCalls[0][0]).toContain("nzo_ids=nzo_test_id");
     });
+
+    it("should return success when status is true but no IDs returned (merged/duplicate)", async () => {
+      mockNzbFetch();
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ status: true, nzo_ids: [] }),
+      });
+
+      const result = await DownloaderManager.addDownload(downloader, {
+        url: "http://example.com/file.nzb",
+        title: "Test NZB",
+        downloadType: "usenet",
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.message).toContain("likely duplicate or merged");
+    });
   });
 
   // ==================== NZBGet Tests ====================
@@ -564,6 +581,84 @@ describe("Downloader Comprehensive Tests", () => {
 
       expect(result.success).toBe(false);
       expect(result.message).toContain("Failed to fetch NZB");
+    });
+  });
+
+  // ==================== addDownloadWithFallback Tests ====================
+  describe("addDownloadWithFallback", () => {
+    it("should stop falling back when first downloader returns duplicate (success: true)", async () => {
+      const transmission: Downloader = {
+        id: "dl1",
+        name: "Transmission (Primary)",
+        type: "transmission",
+        url: "http://localhost:9091",
+        enabled: true,
+        priority: 1,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        port: null,
+        useSsl: null,
+        urlPath: null,
+        username: null,
+        password: null,
+        downloadPath: null,
+        category: null,
+        label: null,
+        addStopped: null,
+        removeCompleted: null,
+        postImportCategory: null,
+        settings: null,
+      };
+
+      const qbittorrent: Downloader = {
+        id: "dl2",
+        name: "qBittorrent (Secondary)",
+        type: "qbittorrent",
+        url: "http://localhost:8080",
+        enabled: true,
+        priority: 2,
+        username: "admin",
+        password: "password",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        port: null,
+        useSsl: null,
+        urlPath: null,
+        downloadPath: null,
+        category: null,
+        label: null,
+        addStopped: null,
+        removeCompleted: null,
+        postImportCategory: null,
+        settings: null,
+      };
+
+      fetchMock
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 409,
+          headers: { get: () => "123" },
+          json: async () => ({ result: "success", arguments: { "session-id": "123" } }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            result: "success",
+            arguments: {
+              "torrent-duplicate": { hashString: "hash123", id: 1, name: "Test Game" },
+            },
+          }),
+        });
+
+      const result = await DownloaderManager.addDownloadWithFallback([transmission, qbittorrent], {
+        url: "magnet:?xt=urn:btih:hash123",
+        title: "Test Game",
+        downloadType: "torrent",
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.downloaderName).toBe("Transmission (Primary)");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
     });
   });
 });

@@ -13,6 +13,8 @@ import { apiRequest, ApiError } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import LazyModalFallback from "./LazyModalFallback";
 import { getReleaseStatus } from "@/lib/game-utils";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Slider } from "@/components/ui/slider";
 
 // ⚡ Bolt: Lazy load heavy modal components to reduce initial bundle size.
 // These are only needed when the user interacts with the card.
@@ -28,6 +30,8 @@ interface CompactGameCardProps {
   density?: "comfortable" | "compact" | "ultra-compact";
   downloadSummary?: DownloadSummary;
 }
+
+const DEFAULT_RATING = 5;
 
 const getNextStatusInfo = (status: GameStatus): { id: GameStatus; label: string } => {
   if (status === "wanted") return { id: "owned", label: "Owned" };
@@ -48,6 +52,7 @@ const CompactGameCard = ({
   const queryClient = useQueryClient();
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [downloadOpen, setDownloadOpen] = useState(false);
+  const [popoverRating, setPopoverRating] = useState<number>(game.userRating ?? DEFAULT_RATING);
   const releaseStatus = getReleaseStatus(game);
 
   // Keep track of the resolved game object (either original or newly added)
@@ -57,6 +62,10 @@ const CompactGameCard = ({
   useEffect(() => {
     setResolvedGame(game);
   }, [game]);
+
+  useEffect(() => {
+    setPopoverRating(game.userRating ?? DEFAULT_RATING);
+  }, [game.userRating]);
 
   // For auto-adding games when downloading from Discovery
   const addGameMutation = useMutation<Game, Error, Game>({
@@ -86,6 +95,14 @@ const CompactGameCard = ({
       queryClient.invalidateQueries({ queryKey: ["/api/games"] });
       setResolvedGame(newGame);
     },
+  });
+
+  const userRatingMutation = useMutation({
+    mutationFn: async ({ gameId, userRating }: { gameId: string; userRating: number | null }) => {
+      await apiRequest("PATCH", `/api/games/${gameId}/user-rating`, { userRating });
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/games"] }),
+    onError: () => toast({ description: "Failed to save your rating", variant: "destructive" }),
   });
 
   const handleStatusClick = () => {
@@ -191,6 +208,65 @@ const CompactGameCard = ({
               <Star className="w-3 h-3 text-accent" />
               <span>{game.rating ? `${game.rating}/10` : "N/A"}</span>
             </div>
+
+            {/* User Rating */}
+            {!isDiscovery &&
+              (density === "comfortable" ? (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      className="flex items-center gap-1 hover:text-foreground transition-colors"
+                      onClick={(e) => e.stopPropagation()}
+                      aria-label={
+                        game.userRating != null
+                          ? `My rating: ${game.userRating}/10. Click to change.`
+                          : "Rate this game"
+                      }
+                    >
+                      <Star className="w-3 h-3 fill-primary text-primary" />
+                      <span>{game.userRating != null ? `${game.userRating}/10` : "Rate"}</span>
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    className="w-64 p-4 space-y-3"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">My Rating</span>
+                      <span className="text-sm font-bold">{popoverRating}/10</span>
+                    </div>
+                    <Slider
+                      min={0.5}
+                      max={10}
+                      step={0.5}
+                      value={[popoverRating]}
+                      onValueChange={([val]) => setPopoverRating(val)}
+                      onValueCommit={([val]) =>
+                        userRatingMutation.mutate({ gameId: game.id, userRating: val })
+                      }
+                      aria-label="My rating"
+                    />
+                    {game.userRating != null && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-full h-7 text-xs text-muted-foreground"
+                        onClick={() => {
+                          setPopoverRating(DEFAULT_RATING);
+                          userRatingMutation.mutate({ gameId: game.id, userRating: null });
+                        }}
+                      >
+                        Clear rating
+                      </Button>
+                    )}
+                  </PopoverContent>
+                </Popover>
+              ) : game.userRating != null ? (
+                <div className="flex items-center gap-1">
+                  <Star className="w-3 h-3 fill-primary text-primary" />
+                  <span>{game.userRating}/10</span>
+                </div>
+              ) : null)}
 
             {/* Release Date */}
             <div className="flex items-center gap-1">

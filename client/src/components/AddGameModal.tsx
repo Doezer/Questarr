@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { Switch } from "@/components/ui/switch";
 import { Search, Plus, Star, AlertCircle, Calendar } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { type Game, type InsertGame, type Config } from "@shared/schema";
@@ -33,6 +34,7 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [showUndatedGames, setShowUndatedGames] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -62,12 +64,13 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
     } else {
       setSearchQuery("");
       setDebouncedQuery("");
+      setShowUndatedGames(false);
     }
   }, [open, initialQuery]);
 
   // Search IGDB for games
   const { data: searchResults = [], isLoading: isSearching } = useQuery({
-    queryKey: ["/api/igdb/search", debouncedQuery],
+    queryKey: ["/api/igdb/search", debouncedQuery, showUndatedGames],
     queryFn: async () => {
       if (!debouncedQuery.trim()) return [];
       const token = localStorage.getItem("token");
@@ -76,7 +79,7 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
         headers["Authorization"] = `Bearer ${token}`;
       }
       const response = await fetch(
-        `/api/igdb/search?q=${encodeURIComponent(debouncedQuery)}&limit=10`,
+        `/api/igdb/search?q=${encodeURIComponent(debouncedQuery)}&limit=10&includeUndated=${showUndatedGames}`,
         { headers }
       );
       if (!response.ok) throw new Error("Search failed");
@@ -185,6 +188,16 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
                 <Search className="w-4 h-4" />
               </Button>
             </form>
+
+            <div className="mb-4 flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+              <div className="space-y-1">
+                <p className="text-sm font-medium">Show undated games first</p>
+                <p className="text-xs text-muted-foreground">
+                  Include titles without a release date and place them before dated results.
+                </p>
+              </div>
+              <Switch checked={showUndatedGames} onCheckedChange={setShowUndatedGames} />
+            </div>
 
             <div className="space-y-4" aria-live="polite">
               {isSearching && (

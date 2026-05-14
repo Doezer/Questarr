@@ -89,6 +89,11 @@ export const sanitizeSearchQuery = [
     .isInt({ min: 1, max: 100 })
     .withMessage("Limit must be between 1 and 100")
     .toInt(),
+  query("includeUndated")
+    .optional()
+    .isBoolean()
+    .withMessage("includeUndated must be a boolean")
+    .toBoolean(),
 ];
 
 // Sanitization rules for game ID parameters

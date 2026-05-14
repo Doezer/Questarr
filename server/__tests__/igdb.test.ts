@@ -106,6 +106,63 @@ describe("IGDBClient - Fallback Mechanism", { timeout: 20000 }, () => {
     expect(results[0].rating).toBe(85.5);
   });
 
+  it("sorts dated search results by release date descending and excludes undated games when requested", async () => {
+    const authResponse = {
+      ok: true,
+      json: async () => ({
+        access_token: "test-token",
+        expires_in: 3600,
+        token_type: "bearer",
+      }),
+    };
+
+    const successResponse = {
+      ok: true,
+      json: async () => [
+        { id: 1, name: "Older Game", first_release_date: 946684800 },
+        { id: 2, name: "Undated Game" },
+        { id: 3, name: "Newer Game", first_release_date: 1704067200 },
+      ],
+    };
+
+    fetchMock.mockResolvedValueOnce(authResponse).mockResolvedValueOnce(successResponse);
+
+    const { igdbClient } = await import("../igdb.js");
+    const results = await igdbClient.searchGames("test query", 20, { includeUndated: false });
+
+    expect(results.map((game) => game.name)).toEqual(["Newer Game", "Older Game"]);
+  });
+
+  it("places undated games before dated results when includeUndated and undatedFirst are enabled", async () => {
+    const authResponse = {
+      ok: true,
+      json: async () => ({
+        access_token: "test-token",
+        expires_in: 3600,
+        token_type: "bearer",
+      }),
+    };
+
+    const successResponse = {
+      ok: true,
+      json: async () => [
+        { id: 1, name: "Older Game", first_release_date: 946684800 },
+        { id: 2, name: "Undated Game" },
+        { id: 3, name: "Newer Game", first_release_date: 1704067200 },
+      ],
+    };
+
+    fetchMock.mockResolvedValueOnce(authResponse).mockResolvedValueOnce(successResponse);
+
+    const { igdbClient } = await import("../igdb.js");
+    const results = await igdbClient.searchGames("test query", 20, {
+      includeUndated: true,
+      undatedFirst: true,
+    });
+
+    expect(results.map((game) => game.name)).toEqual(["Undated Game", "Newer Game", "Older Game"]);
+  });
+
   it("should return empty array when all search approaches fail", async () => {
     // Mock authentication response
     const authResponse = {

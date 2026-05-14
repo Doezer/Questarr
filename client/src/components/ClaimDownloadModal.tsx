@@ -18,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Search, Link2, CheckCircle2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { type Game } from "@shared/schema";
@@ -57,6 +58,7 @@ export default function ClaimDownloadModal({
   const [librarySearch, setLibrarySearch] = useState("");
   const [igdbQuery, setIgdbQuery] = useState("");
   const [debouncedIgdbQuery, setDebouncedIgdbQuery] = useState("");
+  const [showUndatedGames, setShowUndatedGames] = useState(false);
   const [selectedGame, setSelectedGame] = useState<{
     id: string;
     title: string;
@@ -73,6 +75,7 @@ export default function ClaimDownloadModal({
       setLibrarySearch("");
       setIgdbQuery("");
       setDebouncedIgdbQuery("");
+      setShowUndatedGames(false);
       setSelectedGame(null);
       claimMutation.reset();
     }
@@ -105,12 +108,12 @@ export default function ClaimDownloadModal({
     isLoading: isSearchingIgdb,
     isError: igdbSearchFailed,
   } = useQuery<IgdbSearchResult[]>({
-    queryKey: ["/api/igdb/search", debouncedIgdbQuery],
+    queryKey: ["/api/igdb/search", debouncedIgdbQuery, showUndatedGames],
     queryFn: async () => {
       if (!debouncedIgdbQuery.trim()) return [];
       const res = await apiRequest(
         "GET",
-        `/api/igdb/search?q=${encodeURIComponent(debouncedIgdbQuery)}&limit=10`
+        `/api/igdb/search?q=${encodeURIComponent(debouncedIgdbQuery)}&limit=10&includeUndated=${showUndatedGames}`
       );
       return res.json();
     },
@@ -251,6 +254,15 @@ export default function ClaimDownloadModal({
                 value={igdbQuery}
                 onChange={(e) => setIgdbQuery(e.target.value)}
               />
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+              <div className="space-y-1">
+                <p className="text-sm font-medium">Show undated games first</p>
+                <p className="text-xs text-muted-foreground">
+                  Include titles without a release date and place them before dated results.
+                </p>
+              </div>
+              <Switch checked={showUndatedGames} onCheckedChange={setShowUndatedGames} />
             </div>
             <div className="overflow-y-auto flex-1 space-y-1 pr-1">
               {isSearchingIgdb ? (

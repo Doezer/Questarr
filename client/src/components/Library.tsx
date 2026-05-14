@@ -50,6 +50,8 @@ export default function Library() {
   const [platformFilter, setPlatformFilter] = useState<string>("all");
   const [showSearchResultsOnly, setShowSearchResultsOnly] = useState(false);
   const [showDownloadsOnly, setShowDownloadsOnly] = useState(false);
+  const [minRating, setMinRating] = useState<number | null>(null);
+  const [showUnratedOnly, setShowUnratedOnly] = useState(false);
 
   const clearAllFilters = useCallback(() => {
     setStatusFilter("all");
@@ -57,6 +59,8 @@ export default function Library() {
     setPlatformFilter("all");
     setShowSearchResultsOnly(false);
     setShowDownloadsOnly(false);
+    setMinRating(null);
+    setShowUnratedOnly(false);
   }, []);
 
   const { viewMode, setViewMode, listDensity, setListDensity } = useViewControls("dashboard");
@@ -124,6 +128,9 @@ export default function Library() {
       if (platformFilter !== "all" && !game.platforms?.includes(platformFilter)) return false;
       if (showSearchResultsOnly && !game.searchResultsAvailable) return false;
       if (showDownloadsOnly && !downloadSummaries[game.id]) return false;
+      if (showUnratedOnly && game.userRating !== null) return false;
+      if (minRating !== null && (game.userRating === null || game.userRating < minRating))
+        return false;
       return true;
     });
   }, [
@@ -134,6 +141,8 @@ export default function Library() {
     showSearchResultsOnly,
     showDownloadsOnly,
     downloadSummaries,
+    minRating,
+    showUnratedOnly,
   ]);
 
   const activeFilters = useMemo(() => {
@@ -154,8 +163,20 @@ export default function Library() {
       });
     if (showDownloadsOnly)
       filters.push({ label: "Has Downloads", onRemove: () => setShowDownloadsOnly(false) });
+    if (minRating !== null)
+      filters.push({ label: `Rating: ≥ ${minRating}`, onRemove: () => setMinRating(null) });
+    if (showUnratedOnly)
+      filters.push({ label: "Unrated only", onRemove: () => setShowUnratedOnly(false) });
     return filters;
-  }, [statusFilter, genreFilter, platformFilter, showSearchResultsOnly, showDownloadsOnly]);
+  }, [
+    statusFilter,
+    genreFilter,
+    platformFilter,
+    showSearchResultsOnly,
+    showDownloadsOnly,
+    minRating,
+    showUnratedOnly,
+  ]);
 
   const libStats = useMemo(() => calculateLibraryStats(games), [games]);
 
@@ -428,6 +449,41 @@ export default function Library() {
                   </Select>
                 </div>
               </div>
+              <div className="flex flex-col sm:flex-row gap-4 items-start border-t pt-4">
+                <div className="flex-1 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Min Rating</Label>
+                    <span className="text-sm text-muted-foreground">
+                      {minRating !== null ? `≥ ${minRating}/10` : "Any"}
+                    </span>
+                  </div>
+                  <Slider
+                    min={0}
+                    max={10}
+                    step={0.5}
+                    value={[minRating ?? 0]}
+                    onValueChange={([val]) => {
+                      setMinRating(val === 0 ? null : val);
+                      if (val > 0) setShowUnratedOnly(false);
+                    }}
+                    disabled={showUnratedOnly}
+                    aria-label="Minimum rating filter"
+                  />
+                </div>
+                <div className="flex items-center gap-2 sm:pt-7">
+                  <Switch
+                    id="filter-unrated-only"
+                    checked={showUnratedOnly}
+                    onCheckedChange={(checked) => {
+                      setShowUnratedOnly(checked);
+                      if (checked) setMinRating(null);
+                    }}
+                  />
+                  <Label htmlFor="filter-unrated-only" className="cursor-pointer">
+                    Unrated only
+                  </Label>
+                </div>
+              </div>
             </CardContent>
           </Card>
         )}
@@ -438,7 +494,9 @@ export default function Library() {
               debouncedSearchQuery.trim() ||
               statusFilter !== "all" ||
               genreFilter !== "all" ||
-              platformFilter !== "all";
+              platformFilter !== "all" ||
+              minRating !== null ||
+              showUnratedOnly;
             return hasActiveFilters ? (
               debouncedSearchQuery.trim() ? (
                 <div className="flex flex-col items-center justify-center py-16 px-4 text-center">

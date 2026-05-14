@@ -128,7 +128,7 @@ export default function Library() {
       if (platformFilter !== "all" && !game.platforms?.includes(platformFilter)) return false;
       if (showSearchResultsOnly && !game.searchResultsAvailable) return false;
       if (showDownloadsOnly && !downloadSummaries[game.id]) return false;
-      if (showUnratedOnly && game.userRating !== null) return false;
+      if (showUnratedOnly) return game.userRating === null;
       if (minRating !== null && (game.userRating === null || game.userRating < minRating))
         return false;
       return true;

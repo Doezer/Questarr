@@ -63,10 +63,6 @@ const CompactGameCard = ({
     setResolvedGame(game);
   }, [game]);
 
-  useEffect(() => {
-    setPopoverRating(game.userRating ?? DEFAULT_RATING);
-  }, [game.userRating]);
-
   // For auto-adding games when downloading from Discovery
   const addGameMutation = useMutation<Game, Error, Game>({
     mutationFn: async (game: Game) => {
@@ -212,7 +208,11 @@ const CompactGameCard = ({
             {/* User Rating */}
             {!isDiscovery &&
               (density === "comfortable" ? (
-                <Popover>
+                <Popover
+                  onOpenChange={(open) => {
+                    if (open) setPopoverRating(game.userRating ?? DEFAULT_RATING);
+                  }}
+                >
                   <PopoverTrigger asChild>
                     <button
                       className="flex items-center gap-1 hover:text-foreground transition-colors"

@@ -137,4 +137,23 @@ describe("AddGameModal", () => {
       { timeout: 4000 }
     );
   });
+
+  it("requests undated IGDB results when the toggle is enabled", async () => {
+    setupFetch([makeSearchResult("Elden Ring", "2022-02-25")]);
+    renderModal({ initialQuery: "Elden Ring" });
+    fireEvent.click(screen.getByTestId("open-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Show undated games first")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("switch"));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining("includeUndated=true"),
+        expect.any(Object)
+      );
+    });
+  });
 });

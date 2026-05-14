@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Switch } from "@/components/ui/switch";
 import { Search, Link2, CheckCircle2, AlertCircle, Loader2, ChevronDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { type Game } from "@shared/schema";
@@ -45,6 +46,7 @@ interface GroupState {
   skip: boolean;
   igdbQuery: string;
   igdbOpen: boolean;
+  showUndatedGames: boolean;
 }
 
 interface ClaimBatchModalProps {
@@ -105,6 +107,7 @@ export default function ClaimBatchModal({ open, onOpenChange }: ClaimBatchModalP
             skip: false,
             igdbQuery: "",
             igdbOpen: false,
+            showUndatedGames: false,
           });
         }
       }
@@ -349,11 +352,11 @@ function GroupRow({
   }, [state.igdbQuery]);
 
   const { data: igdbResults = [], isLoading: searchingIgdb } = useQuery<Game[]>({
-    queryKey: ["/api/igdb/search", igdbDebouncedQuery],
+    queryKey: ["/api/igdb/search", igdbDebouncedQuery, state.showUndatedGames],
     queryFn: () =>
       apiRequest(
         "GET",
-        `/api/igdb/search?q=${encodeURIComponent(igdbDebouncedQuery)}&limit=6`
+        `/api/igdb/search?q=${encodeURIComponent(igdbDebouncedQuery)}&limit=6&includeUndated=${state.showUndatedGames}`
       ).then((r) => r.json()),
     enabled: state.igdbOpen && igdbDebouncedQuery.trim().length > 2,
   });
@@ -445,6 +448,18 @@ function GroupRow({
                   value={state.igdbQuery}
                   onChange={(e) => onUpdate({ igdbQuery: e.target.value })}
                   autoFocus
+                />
+              </div>
+              <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">Show undated games first</p>
+                  <p className="text-xs text-muted-foreground">
+                    Include titles without a release date and place them before dated results.
+                  </p>
+                </div>
+                <Switch
+                  checked={state.showUndatedGames}
+                  onCheckedChange={(showUndatedGames) => onUpdate({ showUndatedGames })}
                 />
               </div>
               <ScrollArea className="max-h-36">

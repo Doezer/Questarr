@@ -813,11 +813,24 @@ describe("API Routes - Extended Coverage", () => {
 
         const response = await request(app).get("/api/igdb/search?q=Zelda");
         expect(response.status).toBe(200);
+        expect(igdbClient.searchGames).toHaveBeenCalledWith("Zelda", 20, {});
       });
 
       it("should require query parameter", async () => {
         const response = await request(app).get("/api/igdb/search");
         expect(response.status).toBe(400);
+      });
+
+      it("should pass includeUndated to IGDB search", async () => {
+        vi.mocked(igdbClient.searchGames).mockResolvedValue([]);
+
+        const response = await request(app).get("/api/igdb/search?q=Zelda&includeUndated=true");
+
+        expect(response.status).toBe(200);
+        expect(igdbClient.searchGames).toHaveBeenCalledWith("Zelda", 20, {
+          includeUndated: true,
+          undatedFirst: true,
+        });
       });
     });
 

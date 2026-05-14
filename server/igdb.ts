@@ -52,6 +52,11 @@ export interface IGDBGame {
   status?: number;
 }
 
+interface SearchGamesOptions {
+  includeUndated?: boolean;
+  undatedFirst?: boolean;
+}
+
 interface IGDBAuthResponse {
   access_token: string;
   expires_in: number;
@@ -134,6 +139,26 @@ class IGDBClient {
   // ⚡ Bolt: Use a Map for in-memory caching to store API responses and reduce redundant calls.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private cache = new Map<string, CacheEntry<any>>();
+
+  private postProcessSearchResults(
+    results: IGDBGame[],
+    limit: number,
+    options: SearchGamesOptions = {}
+  ): IGDBGame[] {
+    const datedResults = results
+      .filter((game) => typeof game.first_release_date === "number")
+      .sort((left, right) => (right.first_release_date ?? 0) - (left.first_release_date ?? 0));
+
+    if (options.includeUndated === false) {
+      return datedResults.slice(0, limit);
+    }
+
+    const undatedResults = results.filter((game) => typeof game.first_release_date !== "number");
+    const orderedResults = options.undatedFirst
+      ? [...undatedResults, ...datedResults]
+      : [...datedResults, ...undatedResults];
+    return orderedResults.slice(0, limit);
+  }
 
   private async getCredentials(): Promise<{
     clientId: string | undefined;
@@ -301,7 +326,11 @@ class IGDBClient {
     });
   }
 
-  async searchGames(query: string, limit: number = 20): Promise<IGDBGame[]> {
+  async searchGames(
+    query: string,
+    limit: number = 20,
+    options: SearchGamesOptions = {}
+  ): Promise<IGDBGame[]> {
     if (!(await this.ensureConfigured())) {
       igdbLogger.warn("IGDB credentials not configured, skipping search");
       return [];
@@ -351,7 +380,7 @@ class IGDBClient {
             { approach: i + 1, query: sanitizedQuery, resultCount: results.length },
             `search approach ${i + 1} found ${results.length} results`
           );
-          return results;
+          return this.postProcessSearchResults(results, limit, options);
         }
       } catch {
         igdbLogger.warn(
@@ -422,7 +451,7 @@ class IGDBClient {
             index === self.findIndex((g) => g.id === game.id)
         );
 
-        return uniqueResults.slice(0, limit);
+        return this.postProcessSearchResults(uniqueResults, limit, options);
       }
     }
 

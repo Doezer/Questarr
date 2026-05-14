@@ -1354,13 +1354,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     validateRequest,
     async (req: Request, res: Response) => {
       try {
-        const { q, limit } = req.query;
+        const { q, limit, includeUndated } = req.query;
         if (!q || typeof q !== "string") {
           return res.status(400).json({ error: "Search query required" });
         }
 
-        const limitNum = limit ? parseInt(limit as string) : 20;
-        const igdbGames = await igdbClient.searchGames(q, limitNum);
+        const limitNum =
+          typeof limit === "number"
+            ? limit
+            : typeof limit === "string"
+              ? Number.parseInt(limit, 10)
+              : 20;
+        const searchOptions =
+          typeof includeUndated === "boolean"
+            ? { includeUndated, undatedFirst: includeUndated }
+            : {};
+        const igdbGames = await igdbClient.searchGames(q, limitNum, searchOptions);
         const formattedGames = igdbGames.map((game) => igdbClient.formatGameData(game));
 
         res.json(formattedGames);

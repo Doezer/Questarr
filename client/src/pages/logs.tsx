@@ -429,6 +429,7 @@ function LogInspector({
 export default function LogsPage() {
   const { toast } = useToast();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const userPausedRef = useRef(false);
   const [lines, setLines] = useState<ParsedLogLine[]>([]);
   const [autoScroll, setAutoScroll] = useState(true);
   const [filterLevel, setFilterLevel] = useState<string>("all");
@@ -577,7 +578,9 @@ export default function LogsPage() {
     const element = event.currentTarget;
     setScrollTop(element.scrollTop);
     const atBottom = element.scrollHeight - element.scrollTop - element.clientHeight < 40;
-    setAutoScroll(atBottom);
+    if (!userPausedRef.current) {
+      setAutoScroll(atBottom);
+    }
   };
 
   return (
@@ -596,7 +599,13 @@ export default function LogsPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setAutoScroll((value) => !value)}
+            onClick={() => {
+              setAutoScroll((prev) => {
+                const next = !prev;
+                userPausedRef.current = !next;
+                return next;
+              });
+            }}
             aria-label={autoScroll ? "Pause auto-scroll" : "Resume auto-scroll"}
           >
             {autoScroll ? (

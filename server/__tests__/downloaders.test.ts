@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Downloader } from "../../shared/schema";
-import { TransmissionClient, RTorrentClient, QBittorrentClient } from "../downloaders.js";
+import { safeFetch } from "../ssrf.js";
+import {
+  TransmissionClient,
+  RTorrentClient,
+  QBittorrentClient,
+  SynologyDownloadStationClient,
+} from "../downloaders.js";
 
 // Mock dependencies
 vi.mock("../logger.js", () => ({
@@ -15,7 +21,7 @@ vi.mock("../logger.js", () => ({
 // Mock ssrf check to allow all URLs in tests
 vi.mock("../ssrf.js", () => ({
   isSafeUrl: vi.fn().mockResolvedValue(true),
-  safeFetch: vi.fn((url, options) => fetch(url, options)),
+  safeFetch: vi.fn(),
 }));
 
 // Mock parse-torrent so rTorrent tests get a deterministic infoHash
@@ -53,6 +59,9 @@ function setupClientTest<T>(createClient: () => T) {
   vi.clearAllMocks();
   const fetchMock = vi.fn();
   global.fetch = fetchMock as unknown as typeof fetch;
+  vi.mocked(safeFetch).mockImplementation((url, options) =>
+    Promise.resolve(fetchMock(url, options) as Awaited<ReturnType<typeof safeFetch>>)
+  );
   return { fetchMock, client: createClient() };
 }
 
@@ -449,5 +458,413 @@ describe("QBittorrentClient", () => {
         expect(fetchMock.mock.calls[1][1].headers.Cookie).toContain(expectedCookie);
       }
     );
+  });
+});
+
+function createJsonResponse(data: unknown) {
+  return {
+    ok: true,
+    status: 200,
+    statusText: "OK",
+    json: async () => data,
+    text: async () => JSON.stringify(data),
+    headers: {
+      get: () => null,
+    },
+  };
+}
+
+function createSynologyApiInfoResponse({
+  dsm7 = false,
+}: {
+  dsm7?: boolean;
+} = {}) {
+  return createJsonResponse({
+    success: true,
+    data: {
+      "SYNO.API.Auth": {
+        path: "auth.cgi",
+        minVersion: 1,
+        maxVersion: 6,
+      },
+      ...(!dsm7
+        ? {
+            "SYNO.DownloadStation.Task": {
+              path: "DownloadStation/task.cgi",
+              minVersion: 1,
+              maxVersion: 3,
+            },
+          }
+        : {}),
+      ...(dsm7
+        ? {
+            "SYNO.DownloadStation2.Task": {
+              path: "DownloadStation/entry.cgi",
+              minVersion: 1,
+              maxVersion: 2,
+            },
+          }
+        : {}),
+      "SYNO.FileStation.Info": {
+        path: "entry.cgi",
+        minVersion: 1,
+        maxVersion: 2,
+      },
+    },
+  });
+}
+
+function createSynologyTaskResponse(taskOverrides: Record<string, unknown> = {}) {
+  return createJsonResponse({
+    success: true,
+    data: {
+      tasks: [
+        {
+          id: "dbid_1",
+          title: "Test Release",
+          size: 1000,
+          status: "downloading",
+          additional: {
+            detail: {
+              destination: "video/downloads",
+              uri: "magnet:?xt=urn:btih:abc123def456abc123def456abc123def456abc1",
+              create_time: 1710000000,
+            },
+            transfer: {
+              size_downloaded: 500,
+              size_uploaded: 50,
+              speed_download: 100,
+              speed_upload: 10,
+            },
+          },
+          ...taskOverrides,
+        },
+      ],
+    },
+  });
+}
+
+describe("SynologyDownloadStationClient", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+  let client: SynologyDownloadStationClient;
+
+  const mockDownloader = createMockDownloader({
+    id: "synology-1",
+    name: "Test Synology",
+    type: "synology",
+    url: "http://synology.local",
+    port: 5000,
+    username: "vincent",
+    password: "secret",
+    downloadPath: "video/downloads",
+  });
+
+  beforeEach(() => {
+    ({ fetchMock, client } = setupClientTest(
+      () => new SynologyDownloadStationClient(mockDownloader)
+    ));
+  });
+
+  describe("testConnection", () => {
+    it("logs in and logs out successfully", async () => {
+      fetchMock
+        .mockResolvedValueOnce(createSynologyApiInfoResponse())
+        .mockResolvedValueOnce(
+          createJsonResponse({
+            success: true,
+            data: { sid: "sid-123" },
+          })
+        )
+        .mockResolvedValueOnce(createJsonResponse({ success: true }));
+
+      const result = await client.testConnection();
+
+      expect(result).toEqual({
+        success: true,
+        message: "Connected successfully to Synology Download Station",
+      });
+      expect(fetchMock.mock.calls[1][0]).toContain("auth.cgi");
+      expect(fetchMock.mock.calls[2][0]).toContain("method=logout");
+    });
+
+    it("surfaces authentication failures", async () => {
+      fetchMock.mockResolvedValueOnce(createSynologyApiInfoResponse()).mockResolvedValueOnce(
+        createJsonResponse({
+          success: false,
+          error: { code: 400 },
+        })
+      );
+
+      const result = await client.testConnection();
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain("Synology authentication failed");
+    });
+
+    it("surfaces network errors", async () => {
+      fetchMock.mockRejectedValueOnce(new Error("connect ECONNREFUSED"));
+
+      const result = await client.testConnection();
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain("connect ECONNREFUSED");
+    });
+  });
+
+  describe("addDownload", () => {
+    it("adds a magnet link through the DSM 6 task API", async () => {
+      fetchMock
+        .mockResolvedValueOnce(createSynologyApiInfoResponse())
+        .mockResolvedValueOnce(
+          createJsonResponse({
+            success: true,
+            data: { sid: "sid-123" },
+          })
+        )
+        .mockResolvedValueOnce(
+          createJsonResponse({
+            success: true,
+            data: { task_id: ["dbid_123"] },
+          })
+        );
+
+      const result = await client.addDownload({
+        url: "magnet:?xt=urn:btih:abc123def456abc123def456abc123def456abc1",
+        title: "Test Release",
+      });
+
+      const createCall = fetchMock.mock.calls[2];
+      expect(createCall[0]).toContain("DownloadStation/task.cgi");
+      expect(createCall[1].body.toString()).toContain("uri=magnet%3A%3Fxt%3Durn%3Abtih");
+      expect(createCall[1].body.toString()).toContain("destination=video%2Fdownloads");
+      expect(result).toEqual({
+        success: true,
+        id: "dbid_123",
+        message: "Download added successfully",
+      });
+    });
+
+    it("uploads torrent content through the DSM 7 entry API", async () => {
+      fetchMock
+        .mockResolvedValueOnce(createSynologyApiInfoResponse({ dsm7: true }))
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          statusText: "OK",
+          arrayBuffer: async () => new ArrayBuffer(8),
+          json: async () => ({
+            success: true,
+            data: { task_id: ["dbid_upload"] },
+          }),
+          text: async () => "",
+          headers: {
+            get: (name: string) =>
+              name === "content-disposition"
+                ? 'attachment; filename="release.torrent"'
+                : name === "content-type"
+                  ? "application/x-bittorrent"
+                  : null,
+          },
+        })
+        .mockResolvedValueOnce(
+          createJsonResponse({
+            success: true,
+            data: { sid: "sid-123" },
+          })
+        )
+        .mockResolvedValueOnce(
+          createJsonResponse({
+            success: true,
+            data: { task_id: ["dbid_upload"] },
+          })
+        );
+
+      const result = await client.addDownload({
+        url: "http://indexer.local/release.torrent",
+        title: "Release Upload",
+      });
+
+      expect(fetchMock.mock.calls.map(([url]) => String(url))).toContain(
+        "http://indexer.local/release.torrent"
+      );
+      expect(result).toEqual(
+        expect.objectContaining({
+          success: true,
+          id: "dbid_upload",
+        })
+      );
+    });
+  });
+
+  describe("status queries", () => {
+    it("maps a found task into Questarr status fields", async () => {
+      fetchMock
+        .mockResolvedValueOnce(createSynologyApiInfoResponse())
+        .mockResolvedValueOnce(
+          createJsonResponse({
+            success: true,
+            data: { sid: "sid-123" },
+          })
+        )
+        .mockResolvedValueOnce(createSynologyTaskResponse());
+
+      const status = await client.getDownloadStatus("dbid_1");
+
+      expect(status).not.toBeNull();
+      expect(status?.status).toBe("downloading");
+      expect(status?.progress).toBe(50);
+      expect(status?.downloadSpeed).toBe(100);
+      expect(status?.ratio).toBe(0.1);
+    });
+
+    it("returns null when a task cannot be found", async () => {
+      fetchMock
+        .mockResolvedValueOnce(createSynologyApiInfoResponse())
+        .mockResolvedValueOnce(
+          createJsonResponse({
+            success: true,
+            data: { sid: "sid-123" },
+          })
+        )
+        .mockResolvedValueOnce(
+          createJsonResponse({
+            success: true,
+            data: { tasks: [] },
+          })
+        );
+
+      const status = await client.getDownloadStatus("missing");
+
+      expect(status).toBeNull();
+    });
+
+    it("maps list results including finished tasks", async () => {
+      fetchMock
+        .mockResolvedValueOnce(createSynologyApiInfoResponse())
+        .mockResolvedValueOnce(
+          createJsonResponse({
+            success: true,
+            data: { sid: "sid-123" },
+          })
+        )
+        .mockResolvedValueOnce(
+          createJsonResponse({
+            success: true,
+            data: {
+              tasks: [
+                {
+                  id: "dbid_1",
+                  title: "Queued-ish",
+                  size: 1000,
+                  status: "waiting",
+                  additional: {
+                    transfer: {
+                      size_downloaded: 100,
+                      speed_download: 25,
+                    },
+                  },
+                },
+                {
+                  id: "dbid_2",
+                  title: "Finished",
+                  size: 1000,
+                  status: "finished",
+                  additional: {
+                    transfer: {
+                      size_downloaded: 1000,
+                    },
+                  },
+                },
+              ],
+            },
+          })
+        );
+
+      const downloads = await client.getAllDownloads();
+
+      expect(downloads).toHaveLength(2);
+      expect(downloads[0]).toMatchObject({ id: "dbid_1", status: "downloading", progress: 10 });
+      expect(downloads[1]).toMatchObject({ id: "dbid_2", status: "completed", progress: 100 });
+    });
+  });
+
+  it("re-authenticates once when the session expires", async () => {
+    fetchMock
+      .mockResolvedValueOnce(createSynologyApiInfoResponse())
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          success: true,
+          data: { sid: "sid-123" },
+        })
+      )
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          success: false,
+          error: { code: 106 },
+        })
+      )
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          success: true,
+          data: { sid: "sid-456" },
+        })
+      )
+      .mockResolvedValueOnce(createSynologyTaskResponse());
+
+    const status = await client.getDownloadStatus("dbid_1");
+
+    expect(status?.id).toBe("dbid_1");
+    expect(fetchMock.mock.calls[3][0]).toContain("method=login");
+    expect(fetchMock.mock.calls[4][0]).toContain("method=getinfo");
+  });
+
+  it("supports pause, resume, and delete actions", async () => {
+    fetchMock
+      .mockResolvedValueOnce(createSynologyApiInfoResponse())
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          success: true,
+          data: { sid: "sid-123" },
+        })
+      )
+      .mockResolvedValueOnce(createJsonResponse({ success: true }))
+      .mockResolvedValueOnce(createJsonResponse({ success: true }))
+      .mockResolvedValueOnce(createJsonResponse({ success: true }));
+
+    const pauseResult = await client.pauseDownload("dbid_1");
+    const resumeResult = await client.resumeDownload("dbid_1");
+    const removeResult = await client.removeDownload("dbid_1", true);
+
+    expect(pauseResult.success).toBe(true);
+    expect(resumeResult.success).toBe(true);
+    expect(removeResult.success).toBe(true);
+    expect(fetchMock.mock.calls[2][0]).toContain("method=pause");
+    expect(fetchMock.mock.calls[3][0]).toContain("method=resume");
+    expect(fetchMock.mock.calls[4][0]).toContain("method=delete");
+    expect(fetchMock.mock.calls[4][0]).toContain("remove=true");
+    expect(fetchMock.mock.calls[4][0]).toContain("force_complete=true");
+  });
+
+  it("retrieves free space from File Station", async () => {
+    fetchMock
+      .mockResolvedValueOnce(createSynologyApiInfoResponse())
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          success: true,
+          data: { sid: "sid-123" },
+        })
+      )
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          success: true,
+          data: { useable_space: 987654321 },
+        })
+      );
+
+    const freeSpace = await client.getFreeSpace();
+
+    expect(freeSpace).toBe(987654321);
+    expect(fetchMock.mock.calls[2][0]).toContain("entry.cgi");
+    expect(fetchMock.mock.calls[2][0]).toContain("SYNO.FileStation.Info");
   });
 });

@@ -36,6 +36,7 @@ import {
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertDownloaderSchema, type Downloader, type InsertDownloader } from "@shared/schema";
+import { isUsenetDownloaderType } from "@shared/downloader-types";
 import { useToast } from "@/hooks/use-toast";
 import { getDownloadTypeColor } from "@/lib/downloads-utils";
 
@@ -43,15 +44,49 @@ const downloaderTypes = [
   { value: "transmission", label: "Transmission", protocol: "torrent" },
   { value: "rtorrent", label: "rTorrent", protocol: "torrent" },
   { value: "qbittorrent", label: "qBittorrent", protocol: "torrent" },
+  { value: "synology", label: "Synology Download Station", protocol: "torrent" },
   { value: "sabnzbd", label: "SABnzbd", protocol: "usenet" },
   { value: "nzbget", label: "NZBGet", protocol: "usenet" },
 ] as const;
 
-/**
- * Check if a downloader type is for Usenet
- */
 function isUsenetDownloader(type: string): boolean {
-  return ["sabnzbd", "nzbget"].includes(type);
+  return isUsenetDownloaderType(type);
+}
+
+function getDefaultDownloaderPort(type: string, useSsl: boolean): number | undefined {
+  switch (type) {
+    case "qbittorrent":
+      return 8080;
+    case "transmission":
+      return 9091;
+    case "sabnzbd":
+      return 8080;
+    case "nzbget":
+      return 6789;
+    case "synology":
+      return useSsl ? 5001 : 5000;
+    default:
+      return undefined;
+  }
+}
+
+function getDownloaderPortPlaceholder(type: string, useSsl: boolean): string {
+  const defaultPort = getDefaultDownloaderPort(type, useSsl);
+  return defaultPort ? String(defaultPort) : "80 or 443";
+}
+
+function parseIntegerInput(value: string): number | undefined {
+  if (value.trim() === "") {
+    return undefined;
+  }
+
+  const parsedValue = Number.parseInt(value, 10);
+  return Number.isNaN(parsedValue) ? undefined : parsedValue;
+}
+
+function parsePriorityInput(value: string, fallback: number): number {
+  const parsedValue = parseIntegerInput(value);
+  return parsedValue ?? fallback;
 }
 
 function PriorityControl({
@@ -91,8 +126,8 @@ function PriorityControl({
         min={1}
         max={100}
         value={value}
-        onChange={(e) => setValue(parseInt(e.target.value) || 1)}
-        onBlur={(e) => save(parseInt(e.target.value) || 1)}
+        onChange={(e) => setValue(parsePriorityInput(e.target.value, 1))}
+        onBlur={(e) => save(parsePriorityInput(e.target.value, 1))}
         onKeyDown={(e) => e.key === "Enter" && save(value)}
         className="w-7 bg-transparent text-center outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
         aria-label="Priority value"
@@ -504,7 +539,8 @@ export default function DownloadersPage() {
               <CardTitle>No Downloaders Configured</CardTitle>
               <CardDescription>
                 Add your first downloader client to enable automated downloads. Supported clients
-                include Transmission, rTorrent, qBittorrent, SABnzbd, and NZBGet.
+                include Transmission, rTorrent, qBittorrent, Synology Download Station, SABnzbd, and
+                NZBGet.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -558,7 +594,28 @@ export default function DownloadersPage() {
                   render={({ field }) => (
                     <FormItem>
                       <RequiredFormLabel required>Type</RequiredFormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
+                      <Select
+                        onValueChange={(nextType) => {
+                          const previousType = field.value;
+                          const useSsl = !!form.getValues("useSsl");
+                          const currentPort = form.getValues("port");
+                          const previousDefaultPort = getDefaultDownloaderPort(
+                            previousType,
+                            useSsl
+                          );
+                          const nextDefaultPort = getDefaultDownloaderPort(nextType, useSsl);
+
+                          field.onChange(nextType);
+
+                          if (
+                            nextDefaultPort !== undefined &&
+                            (currentPort == null || currentPort === previousDefaultPort)
+                          ) {
+                            form.setValue("port", nextDefaultPort);
+                          }
+                        }}
+                        value={field.value}
+                      >
                         <FormControl>
                           <SelectTrigger aria-required="true" data-testid="select-downloader-type">
                             <SelectValue placeholder="Select client type" />
@@ -605,22 +662,13 @@ export default function DownloadersPage() {
                         <FormControl>
                           <Input
                             type="number"
-                            placeholder={
-                              form.watch("type") === "qbittorrent"
-                                ? "8080"
-                                : form.watch("type") === "transmission"
-                                  ? "9091"
-                                  : form.watch("type") === "sabnzbd"
-                                    ? "8080"
-                                    : form.watch("type") === "nzbget"
-                                      ? "6789"
-                                      : "80 or 443"
-                            }
+                            placeholder={getDownloaderPortPlaceholder(
+                              form.watch("type"),
+                              !!form.watch("useSsl")
+                            )}
                             {...field}
                             value={field.value || ""}
-                            onChange={(e) =>
-                              field.onChange(e.target.value ? parseInt(e.target.value) : undefined)
-                            }
+                            onChange={(e) => field.onChange(parseIntegerInput(e.target.value))}
                             data-testid="input-downloader-port"
                           />
                         </FormControl>
@@ -640,17 +688,37 @@ export default function DownloadersPage() {
                               ? "See Options → Web UI → 'Use HTTPS instead of HTTP' in qBittorrent"
                               : form.watch("type") === "transmission"
                                 ? "Enable HTTPS (see Settings → Web in Transmission)"
-                                : form.watch("type") === "sabnzbd"
-                                  ? "Enable HTTPS in SABnzbd (Config → General)"
-                                  : form.watch("type") === "nzbget"
-                                    ? "Enable HTTPS in NZBGet (Settings → Security)"
-                                    : "Enable HTTPS"}
+                                : form.watch("type") === "synology"
+                                  ? "DSM 7 commonly uses HTTPS on port 5001"
+                                  : form.watch("type") === "sabnzbd"
+                                    ? "Enable HTTPS in SABnzbd (Config → General)"
+                                    : form.watch("type") === "nzbget"
+                                      ? "Enable HTTPS in NZBGet (Settings → Security)"
+                                      : "Enable HTTPS"}
                           </FormDescription>
                         </div>
                         <FormControl>
                           <Checkbox
                             checked={!!field.value}
-                            onCheckedChange={field.onChange}
+                            onCheckedChange={(checked) => {
+                              const nextUseSsl = !!checked;
+                              const type = form.getValues("type");
+                              const currentPort = form.getValues("port");
+                              const previousDefaultPort = getDefaultDownloaderPort(
+                                type,
+                                !nextUseSsl
+                              );
+                              const nextDefaultPort = getDefaultDownloaderPort(type, nextUseSsl);
+
+                              field.onChange(checked);
+
+                              if (
+                                nextDefaultPort !== undefined &&
+                                (currentPort == null || currentPort === previousDefaultPort)
+                              ) {
+                                form.setValue("port", nextDefaultPort);
+                              }
+                            }}
                             data-testid="checkbox-downloader-usessl"
                           />
                         </FormControl>
@@ -671,7 +739,9 @@ export default function DownloadersPage() {
                               ? "RPC2"
                               : form.watch("type") === "sabnzbd"
                                 ? "sabnzbd"
-                                : ""
+                                : form.watch("type") === "synology"
+                                  ? "downloadstation"
+                                  : ""
                           }
                           {...field}
                           value={field.value || ""}
@@ -690,12 +760,17 @@ export default function DownloadersPage() {
                   name="username"
                   render={({ field }) => (
                     <FormItem>
-                      <RequiredFormLabel required={form.watch("type") === "sabnzbd"}>
+                      <RequiredFormLabel
+                        required={
+                          form.watch("type") === "sabnzbd" || form.watch("type") === "synology"
+                        }
+                      >
                         {form.watch("type") === "sabnzbd"
                           ? "API Key"
                           : form.watch("type") === "qbittorrent" ||
                               form.watch("type") === "transmission" ||
-                              form.watch("type") === "nzbget"
+                              form.watch("type") === "nzbget" ||
+                              form.watch("type") === "synology"
                             ? "Username"
                             : "Username (Optional)"}
                       </RequiredFormLabel>
@@ -706,7 +781,9 @@ export default function DownloadersPage() {
                               ? "Enter SABnzbd API key"
                               : "Enter username"
                           }
-                          required={form.watch("type") === "sabnzbd"}
+                          required={
+                            form.watch("type") === "sabnzbd" || form.watch("type") === "synology"
+                          }
                           {...field}
                           value={field.value || ""}
                           data-testid="input-downloader-username"
@@ -719,9 +796,12 @@ export default function DownloadersPage() {
                       )}
                       {(form.watch("type") === "qbittorrent" ||
                         form.watch("type") === "transmission" ||
-                        form.watch("type") === "nzbget") && (
+                        form.watch("type") === "nzbget" ||
+                        form.watch("type") === "synology") && (
                         <FormDescription className="text-xs">
-                          Only required if this client&apos;s web UI uses authentication.
+                          {form.watch("type") === "synology"
+                            ? "Required for DSM login."
+                            : "Only required if this client&apos;s web UI uses authentication."}
                         </FormDescription>
                       )}
                       <FormMessage />
@@ -733,10 +813,18 @@ export default function DownloadersPage() {
                   name="password"
                   render={({ field }) => (
                     <FormItem>
-                      <RequiredFormLabel>
+                      <RequiredFormLabel
+                        required={
+                          form.watch("type") === "synology" ||
+                          form.watch("type") === "qbittorrent" ||
+                          form.watch("type") === "transmission" ||
+                          form.watch("type") === "nzbget"
+                        }
+                      >
                         {form.watch("type") === "qbittorrent" ||
                         form.watch("type") === "transmission" ||
-                        form.watch("type") === "nzbget"
+                        form.watch("type") === "nzbget" ||
+                        form.watch("type") === "synology"
                           ? "Password"
                           : "Password (Optional)"}
                       </RequiredFormLabel>
@@ -751,9 +839,12 @@ export default function DownloadersPage() {
                       </FormControl>
                       {(form.watch("type") === "qbittorrent" ||
                         form.watch("type") === "transmission" ||
-                        form.watch("type") === "nzbget") && (
+                        form.watch("type") === "nzbget" ||
+                        form.watch("type") === "synology") && (
                         <FormDescription className="text-xs">
-                          Only required if this client&apos;s web UI uses authentication.
+                          {form.watch("type") === "synology"
+                            ? "Required for DSM login."
+                            : "Only required if this client&apos;s web UI uses authentication."}
                         </FormDescription>
                       )}
                       <FormMessage />
@@ -769,12 +860,23 @@ export default function DownloadersPage() {
                         <FormLabel>Download Path (Optional)</FormLabel>
                         <FormControl>
                           <Input
-                            placeholder="/home/downloads/games"
+                            placeholder={
+                              form.watch("type") === "synology"
+                                ? "video/downloads"
+                                : "/home/downloads/games"
+                            }
                             {...field}
                             value={field.value || ""}
                             data-testid="input-downloader-path"
                           />
                         </FormControl>
+                        {form.watch("type") === "synology" && (
+                          <FormDescription className="text-xs">
+                            Use a shared-folder-relative destination such as{" "}
+                            <code>video/downloads</code>; avoid absolute <code>/volume1/...</code>{" "}
+                            paths.
+                          </FormDescription>
+                        )}
                         <FormMessage />
                       </FormItem>
                     )}
@@ -799,9 +901,11 @@ export default function DownloadersPage() {
                           ? "Adding a category avoids conflicts with unrelated downloads"
                           : form.watch("type") === "transmission"
                             ? "Creates a subdirectory in the output directory. Label for downloads in downloader"
-                            : form.watch("type") === "sabnzbd" || form.watch("type") === "nzbget"
-                              ? "Category for NZBs in downloader (path is managed by category settings)"
-                              : "Label for downloads in downloader"}
+                            : form.watch("type") === "synology"
+                              ? "Optional Questarr label only. Synology stores downloads by destination path."
+                              : form.watch("type") === "sabnzbd" || form.watch("type") === "nzbget"
+                                ? "Category for NZBs in downloader (path is managed by category settings)"
+                                : "Label for downloads in downloader"}
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
@@ -880,7 +984,7 @@ export default function DownloadersPage() {
                           min="1"
                           max="100"
                           {...field}
-                          onChange={(e) => field.onChange(parseInt(e.target.value) || 1)}
+                          onChange={(e) => field.onChange(parsePriorityInput(e.target.value, 1))}
                           data-testid="input-downloader-priority"
                         />
                       </FormControl>

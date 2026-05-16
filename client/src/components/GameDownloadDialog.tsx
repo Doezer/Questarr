@@ -75,6 +75,7 @@ import {
   matchesPlatformFilter,
   normalizeTitle,
 } from "@shared/title-utils";
+import { isTorrentDownloaderType, isUsenetDownloaderType } from "@shared/downloader-types";
 
 interface DownloadItem {
   title: string;
@@ -1211,12 +1212,8 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                               const compatibleDownloaders = downloaders.filter(
                                                 (d) =>
                                                   isUsenet
-                                                    ? ["sabnzbd", "nzbget"].includes(d.type)
-                                                    : [
-                                                        "transmission",
-                                                        "rtorrent",
-                                                        "qbittorrent",
-                                                      ].includes(d.type)
+                                                    ? isUsenetDownloaderType(d.type)
+                                                    : isTorrentDownloaderType(d.type)
                                               );
 
                                               if (compatibleDownloaders.length <= 1) {

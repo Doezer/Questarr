@@ -23,6 +23,7 @@ import {
   type Indexer,
   type Downloader,
 } from "../shared/schema.js";
+import { isUsenetDownloaderType } from "../shared/downloader-types.js";
 import { torznabClient } from "./torznab.js";
 import { rssService } from "./rss.js";
 import { DownloaderManager } from "./downloaders.js";
@@ -2490,8 +2491,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           downloaderId,
           downloadHash: downloadHash.toLowerCase(),
           downloadTitle,
-          downloadType:
-            downloader.type === "sabnzbd" || downloader.type === "nzbget" ? "usenet" : "torrent",
+          downloadType: isUsenetDownloaderType(downloader.type) ? "usenet" : "torrent",
           status: downloadStatus,
         })
       );

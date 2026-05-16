@@ -124,12 +124,11 @@ global.fetch = vi.fn();
 
 /**
  * Creates a fetch mock that routes by URL substring.
- * Defaults: `/api/hltb/lookup` → `{ data: null }`, everything else → `[]`.
+ * Defaults: known API routes return stubbed payloads, everything else → `[]`.
  * Pass overrides to replace or extend defaults for a specific test.
  */
 function makeFetchMock(overrides: Record<string, unknown> = {}) {
   const defaults: Record<string, unknown> = {
-    "/api/hltb/lookup": { data: null },
     "/api/nexusmods/game-domain": { configured: false, domain: null },
   };
   const routes = { ...defaults, ...overrides };
@@ -311,110 +310,6 @@ describe("GameDetailsModal", () => {
     renderComponent();
     expect(screen.getByText("IGDB score")).toBeInTheDocument();
     expect(screen.queryByText("Rating")).not.toBeInTheDocument();
-  });
-
-  describe("HowLongToBeat integration", () => {
-    it("does not show HLTB section when data is null", async () => {
-      renderComponent();
-
-      await waitFor(() => {
-        expect(global.fetch).toHaveBeenCalledWith(
-          expect.stringContaining("/api/hltb/lookup"),
-          expect.anything()
-        );
-      });
-
-      expect(screen.queryByTestId("section-hltb")).not.toBeInTheDocument();
-    });
-
-    it("shows HLTB section with completion times when data is present", async () => {
-      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
-        makeFetchMock({
-          "/api/hltb/lookup": {
-            data: {
-              gameplayMain: 25,
-              gameplayMainExtra: 40,
-              gameplayCompletionist: 65,
-              url: "https://howlongtobeat.com/game/12345",
-            },
-          },
-        })
-      );
-
-      renderComponent();
-
-      const section = await screen.findByTestId("section-hltb");
-      expect(section).toBeInTheDocument();
-      expect(screen.getByText("25h")).toBeInTheDocument();
-      expect(screen.getByText("40h")).toBeInTheDocument();
-      expect(screen.getByText("65h")).toBeInTheDocument();
-    });
-
-    it("shows HowLongToBeat link with direct URL in Overview when data is present", async () => {
-      const hltbUrl = "https://howlongtobeat.com/game/12345";
-      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
-        makeFetchMock({
-          "/api/hltb/lookup": {
-            data: {
-              gameplayMain: 25,
-              gameplayMainExtra: 0,
-              gameplayCompletionist: 0,
-              url: hltbUrl,
-            },
-          },
-        })
-      );
-
-      renderComponent();
-
-      // Wait for HLTB section to appear (ensures hltbData has loaded and all links updated)
-      await screen.findByTestId("section-hltb");
-
-      const links = screen.getAllByRole("link", { name: /howlongtobeat/i });
-      expect(links.length).toBeGreaterThan(0);
-      expect(links.every((el) => el.getAttribute("href") === hltbUrl)).toBe(true);
-    });
-
-    it("shows fallback search link in Links tab when HLTB returns null", async () => {
-      renderComponent();
-      fireEvent.click(screen.getByRole("tab", { name: /links/i }));
-
-      await waitFor(() => {
-        expect(global.fetch).toHaveBeenCalledWith(
-          expect.stringContaining("/api/hltb/lookup"),
-          expect.anything()
-        );
-      });
-
-      const hltbLink = screen.getByRole("link", { name: /howlongtobeat/i });
-      expect(hltbLink.getAttribute("href")).toContain("howlongtobeat.com/?q=");
-    });
-
-    it("hides HLTB section when all completion times are zero", async () => {
-      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
-        makeFetchMock({
-          "/api/hltb/lookup": {
-            data: {
-              gameplayMain: 0,
-              gameplayMainExtra: 0,
-              gameplayCompletionist: 0,
-              url: "https://howlongtobeat.com/game/12345",
-            },
-          },
-        })
-      );
-
-      renderComponent();
-
-      await waitFor(() => {
-        expect(global.fetch).toHaveBeenCalledWith(
-          expect.stringContaining("/api/hltb/lookup"),
-          expect.anything()
-        );
-      });
-
-      expect(screen.queryByTestId("section-hltb")).not.toBeInTheDocument();
-    });
   });
 
   describe("NexusMods integration", () => {

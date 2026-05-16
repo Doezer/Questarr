@@ -39,7 +39,7 @@
 - **📚 Library Management**: Track your game collection with status indicators (Wanted, Owned, Playing, Completed), user ratings, and Early Access badges.
 - **⬇️ Download Management**: Integrate with indexers (Prowlarr/Torznab/Newsznab), torrent/usenet downloaders (qBittorrent, Transmission, rTorrent / sabnzbd, nzbget), and optionally enable auto-download to get them right when they're there.
 - **🔍 Search & Filter**: Find games by genre, platform, and search terms. Automatically search for added games until available on your indexers. Blacklist unwanted releases and set preferred release groups and platforms.
-- **🗂️ Rich Metadata**: Game details enriched with IGDB, Steam, HowLongToBeat, PCGamingWiki links, and NexusMods pages, as well as trending mods (if applicable).
+- **🗂️ Rich Metadata**: Game details enriched with IGDB, Steam, PCGamingWiki links, and NexusMods pages, as well as trending mods (if applicable).
 - **📊 Stats Page**: Visualize your collection statistics, with Discord sharing support.
 - **📰 RSS Feeds**: Monitor releases from your favorite groups directly within the app.
 - **🔒 Privacy Focused**: No external dependencies (even google fonts are locally hosted) and hardened security (CSP, SSRF protection), as well as SSL support.
@@ -134,7 +134,7 @@ Configure indexers, downloaders, and application preferences.
 - **Frontend**: React 18, TypeScript, Vite, Tailwind CSS, shadcn/ui
 - **Backend**: Node.js, Express, TypeScript
 - **Database**: SQLite with Drizzle ORM
-- **APIs**: IGDB (game metadata), Torznab/Newznab (indexer search), HowLongToBeat, PCGamingWiki, NexusMods, xREL.to
+- **APIs**: IGDB (game metadata), Torznab/Newznab (indexer search), PCGamingWiki, NexusMods, xREL.to
 - **AIs usage**:
   - Claude and Github Copilot are used for AI-Assisted coding, internal code reviews, PR cleanup (Gemini previously). Eventually automated coding and troubleshooting for small tasks.
   - Gemini & Codex are used for automated code reviews, and brainstorming from time to time.

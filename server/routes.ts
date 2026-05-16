@@ -10,6 +10,7 @@ import {
   updateGameStatusSchema,
   updateGameHiddenSchema,
   updateGameUserRatingSchema,
+  updateGameNotesSchema,
   insertIndexerSchema,
   insertDownloaderSchema,
   insertNotificationSchema,
@@ -1107,6 +1108,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         routesLogger.error({ error }, "error updating game user rating");
         res.status(500).json({ error: "Failed to update user rating" });
+      }
+    }
+  );
+
+  // Update personal notes (freeform text, max 10,000 chars, or null to clear)
+  app.patch(
+    "/api/games/:id/notes",
+    sensitiveEndpointLimiter,
+    sanitizeGameId,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const { id } = req.params;
+        const userId = req.user!.id;
+        const { notes } = updateGameNotesSchema.parse(req.body);
+
+        const updatedGame = await storage.updateGameNotes(id, userId, notes);
+        if (!updatedGame) {
+          return res.status(404).json({ error: "Game not found" });
+        }
+
+        res.json(updatedGame);
+      } catch (error) {
+        if (error instanceof z.ZodError) {
+          return res.status(400).json({ error: "Invalid notes data", details: error.errors });
+        }
+        routesLogger.error({ error }, "error updating game notes");
+        res.status(500).json({ error: "Failed to update notes" });
       }
     }
   );

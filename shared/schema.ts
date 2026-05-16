@@ -20,10 +20,7 @@ export const userSettings = sqliteTable("user_settings", {
   autoDownloadEnabled: integer("auto_download_enabled", { mode: "boolean" })
     .notNull()
     .default(false),
-  notifyMultipleDownloads: integer("notify_multiple_downloads", { mode: "boolean" })
-    .notNull()
-    .default(true),
-  notifyUpdates: integer("notify_updates", { mode: "boolean" }).notNull().default(true),
+  notificationPreferences: text("notification_preferences"),
   searchIntervalHours: integer("search_interval_hours").notNull().default(6),
   igdbRateLimitPerSecond: integer("igdb_rate_limit_per_second").notNull().default(3),
   downloadRules: text("download_rules"),
@@ -404,6 +401,34 @@ export type InsertNotification = (typeof insertNotificationSchema)["_output"];
 export type UserSettings = typeof userSettings.$inferSelect;
 export type InsertUserSettings = (typeof insertUserSettingsSchema)["_output"];
 export type UpdateUserSettings = (typeof updateUserSettingsSchema)["_output"];
+
+export type NotificationEvent =
+  | "gameReleased"
+  | "gameDelayed"
+  | "downloadCompleted"
+  | "autoDownload"
+  | "gameAvailable"
+  | "multipleResults"
+  | "gameUpdates"
+  | "xrelRelease"
+  | "steamSync";
+
+export type NotificationPreferences = Record<
+  NotificationEvent,
+  { inApp: boolean; apprise: boolean }
+>;
+
+export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
+  gameReleased: { inApp: true, apprise: true },
+  gameDelayed: { inApp: true, apprise: true },
+  downloadCompleted: { inApp: true, apprise: true },
+  autoDownload: { inApp: true, apprise: true },
+  gameAvailable: { inApp: true, apprise: true },
+  multipleResults: { inApp: true, apprise: true },
+  gameUpdates: { inApp: true, apprise: true },
+  xrelRelease: { inApp: true, apprise: true },
+  steamSync: { inApp: true, apprise: false },
+};
 
 export interface DownloadSummary {
   topStatus: "downloading" | "paused" | "failed" | "completed";

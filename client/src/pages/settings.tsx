@@ -20,6 +20,7 @@ import {
   Webhook,
   Ban,
   Trash2,
+  Bell,
 } from "lucide-react";
 import { SiNexusmods } from "react-icons/si";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,6 +30,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { PathBrowser } from "@/components/PathBrowser";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -44,8 +46,15 @@ import { apiRequest, clearSearchCache } from "@/lib/queryClient";
 import AutoDownloadRulesSettings from "@/components/AutoDownloadRulesSettings";
 import PreferredReleaseGroupsSettings from "@/components/PreferredReleaseGroupsSettings";
 import PasswordSettings from "@/components/PasswordSettings";
-import type { Config, UserSettings, DownloadRules, ReleaseBlacklist } from "@shared/schema";
-import { downloadRulesSchema } from "@shared/schema";
+import type {
+  Config,
+  UserSettings,
+  DownloadRules,
+  ReleaseBlacklist,
+  NotificationPreferences,
+  NotificationEvent,
+} from "@shared/schema";
+import { downloadRulesSchema, DEFAULT_NOTIFICATION_PREFERENCES } from "@shared/schema";
 import { parseJsonStringArray, CANONICAL_PLATFORMS } from "@shared/title-utils";
 import { useState, useEffect, useRef, useMemo } from "react";
 
@@ -57,6 +66,18 @@ interface CertInfo {
   selfSigned: boolean;
   valid: boolean;
 }
+const NOTIFICATION_EVENT_ROWS: { key: NotificationEvent; label: string; group: string }[] = [
+  { key: "gameReleased", label: "Game Released", group: "library" },
+  { key: "gameDelayed", label: "Game Delayed", group: "library" },
+  { key: "downloadCompleted", label: "Download Completed", group: "downloads" },
+  { key: "autoDownload", label: "Auto-Download Started", group: "downloads" },
+  { key: "gameAvailable", label: "Game Found on Indexer", group: "downloads" },
+  { key: "multipleResults", label: "Multiple Releases Found", group: "downloads" },
+  { key: "gameUpdates", label: "Game Updates Available", group: "downloads" },
+  { key: "xrelRelease", label: "Scene/P2P Release (xREL)", group: "integrations" },
+  { key: "steamSync", label: "Steam Wishlist Synced", group: "integrations" },
+];
+
 export default function SettingsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -125,10 +146,14 @@ export default function SettingsPage() {
   const [autoSearchEnabled, setAutoSearchEnabled] = useState(true);
   const [autoSearchUnreleased, setAutoSearchUnreleased] = useState(false);
   const [autoDownloadEnabled, setAutoDownloadEnabled] = useState(false);
-  const [notifyMultipleDownloads, setNotifyMultipleDownloads] = useState(true);
-  const [notifyUpdates, setNotifyUpdates] = useState(true);
   const [searchIntervalHours, setSearchIntervalHours] = useState(6);
   const [igdbRateLimitPerSecond, setIgdbRateLimitPerSecond] = useState(3);
+  const [notifPrefs, setNotifPrefs] = useState<NotificationPreferences>(
+    DEFAULT_NOTIFICATION_PREFERENCES
+  );
+  const [appriseApiUrl, setAppriseApiUrl] = useState("");
+  const [appriseKey, setAppriseKey] = useState("");
+  const [appriseUrls, setAppriseUrls] = useState("");
 
   // Local state for Steam form
   const [steamIdInput, setSteamIdInput] = useState("");
@@ -155,10 +180,22 @@ export default function SettingsPage() {
       setAutoSearchEnabled(userSettings.autoSearchEnabled);
       setAutoSearchUnreleased(userSettings.autoSearchUnreleased ?? false);
       setAutoDownloadEnabled(userSettings.autoDownloadEnabled);
-      setNotifyMultipleDownloads(userSettings.notifyMultipleDownloads);
-      setNotifyUpdates(userSettings.notifyUpdates);
       setSearchIntervalHours(userSettings.searchIntervalHours);
       setIgdbRateLimitPerSecond(userSettings.igdbRateLimitPerSecond);
+      if (userSettings.notificationPreferences) {
+        try {
+          setNotifPrefs({
+            ...DEFAULT_NOTIFICATION_PREFERENCES,
+            ...JSON.parse(userSettings.notificationPreferences),
+          });
+        } catch {
+          setNotifPrefs(DEFAULT_NOTIFICATION_PREFERENCES);
+          toast({
+            title: "Notification preferences could not be loaded, reset to defaults",
+            variant: "destructive",
+          });
+        }
+      }
 
       // Parse download rules from JSON string
       if (userSettings.downloadRules) {
@@ -221,6 +258,22 @@ export default function SettingsPage() {
     }
   }, [discordSettings?.webhookUrl]);
 
+  const { data: appriseSettings } = useQuery<{
+    configured: boolean;
+    apiUrl: string | null;
+    key: string | null;
+    urls: string | null;
+  }>({
+    queryKey: ["/api/settings/apprise"],
+    queryFn: () => apiRequest("GET", "/api/settings/apprise").then((r) => r.json()),
+  });
+
+  useEffect(() => {
+    if (appriseSettings?.apiUrl) setAppriseApiUrl(appriseSettings.apiUrl);
+    if (appriseSettings?.key) setAppriseKey(appriseSettings.key);
+    if (appriseSettings?.urls) setAppriseUrls(appriseSettings.urls);
+  }, [appriseSettings]);
+
   const { data: nexusmodsSettings } = useQuery<{
     configured: boolean;
     source?: "env" | "database";
@@ -228,6 +281,53 @@ export default function SettingsPage() {
     queryKey: ["/api/settings/nexusmods"],
     queryFn: () => apiRequest("GET", "/api/settings/nexusmods").then((r) => r.json()),
   });
+
+  const updateAppriseMutation = useMutation({
+    mutationFn: async (data: { apiUrl: string; key: string; urls: string }) => {
+      const res = await apiRequest("POST", "/api/settings/apprise", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings/apprise"] });
+      toast({ title: "Apprise settings saved" });
+    },
+    onError: () => {
+      toast({ title: "Failed to save Apprise settings", variant: "destructive" });
+    },
+  });
+
+  const testAppriseMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/settings/apprise/test");
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { error?: string }).error ?? "Test failed");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Test notification sent successfully" });
+    },
+    onError: (err: Error) => {
+      toast({ title: `Apprise test failed: ${err.message}`, variant: "destructive" });
+    },
+  });
+
+  const handleNotifPrefChange = (
+    key: NotificationEvent,
+    channel: "inApp" | "apprise",
+    checked: boolean
+  ) => {
+    const updated = { ...notifPrefs, [key]: { ...notifPrefs[key], [channel]: checked } };
+    setNotifPrefs(updated);
+    if (notifPrefSaveTimeoutRef.current) clearTimeout(notifPrefSaveTimeoutRef.current);
+    notifPrefSaveTimeoutRef.current = setTimeout(() => {
+      updateSettingsMutation.mutate({
+        updates: { notificationPreferences: JSON.stringify(updated) },
+        successMessage: "",
+      });
+    }, 500);
+  };
 
   const updateDiscordMutation = useMutation({
     mutationFn: async (webhookUrl: string) => {
@@ -282,6 +382,7 @@ export default function SettingsPage() {
   const [selectedKey, setSelectedKey] = useState<File | null>(null);
   const certInputRef = useRef<HTMLInputElement>(null);
   const keyInputRef = useRef<HTMLInputElement>(null);
+  const notifPrefSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const uploadCertMutation = useMutation({
     mutationFn: async () => {
@@ -521,8 +622,6 @@ export default function SettingsPage() {
         autoSearchEnabled,
         autoSearchUnreleased,
         autoDownloadEnabled,
-        notifyMultipleDownloads,
-        notifyUpdates,
         searchIntervalHours,
         preferredPlatform: preferredPlatform || null,
       },
@@ -662,6 +761,7 @@ export default function SettingsPage() {
           <TabsList className="mb-8 flex w-full flex-nowrap overflow-x-auto [&>*]:shrink-0">
             <TabsTrigger value="general">General</TabsTrigger>
             <TabsTrigger value="rules">Rules</TabsTrigger>
+            <TabsTrigger value="notifications">Notifications</TabsTrigger>
             <TabsTrigger value="services">Services</TabsTrigger>
             <TabsTrigger value="account">Account</TabsTrigger>
             <TabsTrigger value="security">Security</TabsTrigger>
@@ -758,44 +858,6 @@ export default function SettingsPage() {
                       />
                     </div>
                   )}
-
-                  {/* Notify Multiple Downloads */}
-                  {autoSearchEnabled && (
-                    <div className="flex items-center justify-between pl-4 border-l-2">
-                      <div className="space-y-0.5">
-                        <Label htmlFor="notify-multiple" className="text-sm font-medium">
-                          Notify on Multiple Releases
-                        </Label>
-                        <p className="text-xs text-muted-foreground">
-                          Get notified when multiple releases are available
-                        </p>
-                      </div>
-                      <Switch
-                        id="notify-multiple"
-                        checked={notifyMultipleDownloads}
-                        onCheckedChange={setNotifyMultipleDownloads}
-                      />
-                    </div>
-                  )}
-
-                  {/* Notify Updates */}
-                  {autoSearchEnabled && (
-                    <div className="flex items-center justify-between pl-4 border-l-2">
-                      <div className="space-y-0.5">
-                        <Label htmlFor="notify-updates" className="text-sm font-medium">
-                          Notify on Game Updates
-                        </Label>
-                        <p className="text-xs text-muted-foreground">
-                          Get notified when updates/patches are found
-                        </p>
-                      </div>
-                      <Switch
-                        id="notify-updates"
-                        checked={notifyUpdates}
-                        onCheckedChange={setNotifyUpdates}
-                      />
-                    </div>
-                  )}
                 </div>
 
                 {/* Preferred Platform */}
@@ -860,6 +922,173 @@ export default function SettingsPage() {
               onGroupsChange={setPreferredReleaseGroups}
               onFilterChange={setFilterByPreferredGroups}
             />
+          </TabsContent>
+
+          <TabsContent value="notifications" className="space-y-6">
+            {/* Apprise Integration Card */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    <Bell className="h-5 w-5 text-muted-foreground" />
+                    <CardTitle className="text-lg">Apprise Push Notifications</CardTitle>
+                  </div>
+                  {appriseSettings?.configured ? (
+                    <Badge
+                      variant="default"
+                      className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
+                    >
+                      Connected
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline">Not configured</Badge>
+                  )}
+                </div>
+                <CardDescription>
+                  Forward notifications to any service via a self-hosted{" "}
+                  <span className="font-medium">Apprise API</span> server — Telegram, Pushover,
+                  Slack, and 100+ others.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="apprise-api-url">
+                    API URL <span className="text-destructive">*</span>
+                  </Label>
+                  <Input
+                    id="apprise-api-url"
+                    type="text"
+                    placeholder="http://apprise:8000"
+                    value={appriseApiUrl}
+                    onChange={(e) => setAppriseApiUrl(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="apprise-key">
+                    Config Key{" "}
+                    <span className="text-xs text-muted-foreground font-normal">(optional)</span>
+                  </Label>
+                  <Input
+                    id="apprise-key"
+                    type="text"
+                    placeholder="my-config-key"
+                    value={appriseKey}
+                    onChange={(e) => setAppriseKey(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Persistent mode: a config key pre-configured in your Apprise API server.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="apprise-urls">
+                    Notification URLs{" "}
+                    <span className="text-xs text-muted-foreground font-normal">(optional)</span>
+                  </Label>
+                  <Textarea
+                    id="apprise-urls"
+                    placeholder={"discord://webhook/...\npushover://token@user/"}
+                    value={appriseUrls}
+                    onChange={(e) => setAppriseUrls(e.target.value)}
+                    className="font-mono text-sm"
+                    rows={4}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Stateless mode: one Apprise notification URL per line. Used when no Config Key
+                    is set.
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    onClick={() =>
+                      updateAppriseMutation.mutate({
+                        apiUrl: appriseApiUrl,
+                        key: appriseKey,
+                        urls: appriseUrls,
+                      })
+                    }
+                    disabled={updateAppriseMutation.isPending || !appriseApiUrl.trim()}
+                  >
+                    {updateAppriseMutation.isPending ? "Saving..." : "Save"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => testAppriseMutation.mutate()}
+                    disabled={testAppriseMutation.isPending || !appriseSettings?.configured}
+                  >
+                    {testAppriseMutation.isPending ? "Sending..." : "Send Test Notification"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Notification Preferences Card */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Notification Preferences</CardTitle>
+                <CardDescription>
+                  Control which events create notifications and where they are sent.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left text-sm font-medium text-muted-foreground pb-3 pr-4">
+                          Event
+                        </th>
+                        <th className="text-center text-sm font-medium text-muted-foreground pb-3 px-6 w-24">
+                          In-App
+                        </th>
+                        <th className="text-center text-sm font-medium text-muted-foreground pb-3 pl-6 w-24">
+                          Apprise
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {NOTIFICATION_EVENT_ROWS.map(({ key, label, group }, idx, arr) => {
+                        const isGroupStart = idx > 0 && arr[idx - 1].group !== group;
+                        return (
+                          <tr
+                            key={key}
+                            className={`border-b last:border-0 ${isGroupStart ? "border-t-2 border-t-muted" : ""}`}
+                          >
+                            <td className="py-3 pr-4 text-sm">{label}</td>
+                            <td className="py-3 px-6 text-center">
+                              <Switch
+                                aria-label={`In-App: ${label}`}
+                                checked={notifPrefs[key].inApp}
+                                onCheckedChange={(checked) =>
+                                  handleNotifPrefChange(key, "inApp", checked)
+                                }
+                              />
+                            </td>
+                            <td className="py-3 pl-6 text-center">
+                              <div
+                                title={
+                                  !appriseSettings?.configured
+                                    ? "Configure Apprise above to enable"
+                                    : undefined
+                                }
+                              >
+                                <Switch
+                                  aria-label={`Apprise: ${label}`}
+                                  checked={notifPrefs[key].apprise}
+                                  onCheckedChange={(checked) =>
+                                    handleNotifPrefChange(key, "apprise", checked)
+                                  }
+                                  disabled={!appriseSettings?.configured}
+                                />
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
           </TabsContent>
 
           <TabsContent value="services" className="space-y-6">

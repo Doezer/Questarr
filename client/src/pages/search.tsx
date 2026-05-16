@@ -3,6 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useDebounce } from "@/hooks/use-debounce";
 import { queryClient } from "@/lib/queryClient";
 import { formatBytes, formatAge, isUsenetItem, getDownloadTypeColor } from "@/lib/downloads-utils";
+import { isTorrentDownloaderType, isUsenetDownloaderType } from "@shared/downloader-types";
 import { cleanReleaseName } from "@shared/title-utils";
 import { Search, Download, Newspaper } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -221,9 +222,7 @@ export default function SearchPage() {
   const handleDownload = (download: DownloadItem) => {
     const isUsenet = isUsenetItem(download);
     const compatibleDownloaders = downloaders.filter((d) =>
-      isUsenet
-        ? ["sabnzbd", "nzbget"].includes(d.type)
-        : ["transmission", "rtorrent", "qbittorrent"].includes(d.type)
+      isUsenet ? isUsenetDownloaderType(d.type) : isTorrentDownloaderType(d.type)
     );
 
     if (compatibleDownloaders.length === 0) {
@@ -255,8 +254,8 @@ export default function SearchPage() {
   const filteredDownloaders = selectedDownload
     ? downloaders.filter((d) =>
         isUsenetItem(selectedDownload)
-          ? ["sabnzbd", "nzbget"].includes(d.type)
-          : ["transmission", "rtorrent", "qbittorrent"].includes(d.type)
+          ? isUsenetDownloaderType(d.type)
+          : isTorrentDownloaderType(d.type)
       )
     : downloaders;
 

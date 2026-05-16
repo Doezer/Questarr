@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.0] - 2026-xx-xx
+
+### Removed
+
+- Removed the HLTB integration from Questarr (no API or stable service).
+
 ## [1.3.1] - 2026-05-13
 
 ### Fixed
@@ -33,7 +39,7 @@ All notable changes to this project will be documented in this file.
   - "Early Access" badge (#519).
 - **Game Details Modal Redesign**:
   - Tabbed UI with IGDB metadata, full download history, game related links.
-  - Game Data Integrations: IGDB and Steam metadata enrichment, HowLongToBeat (#537), PCGamingWiki game URL lookup (#538), and NexusMods integration (#540).
+  - Game Data Integrations: IGDB and Steam metadata enrichment, gameplay-time estimates (#537), PCGamingWiki game URL lookup (#538), and NexusMods integration (#540).
   - User Ratings: Rate games directly from the game details (#530).
 - **Notification on Download**: Notification updated when a download is sent to the download client, to display the downloader's name.
 - **Download Linking**: Per-game and batch linking to games to claim existing downloads (#543).

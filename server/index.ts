@@ -15,6 +15,7 @@ import { setupSocketIO } from "./socket.js";
 import { ensureDatabase } from "./migrate.js";
 import { rssService } from "./rss.js";
 import { nexusmodsClient } from "./nexusmods.js";
+import { appriseClient } from "./apprise.js";
 import { storage } from "./storage.js";
 import { truncateLogData } from "./log-response.js";
 
@@ -109,6 +110,15 @@ app.use((req, res, next) => {
     if (dbNexusKey && dbNexusKey.length > 0) {
       nexusmodsClient.configure(dbNexusKey);
       log("NexusMods API key loaded from database");
+    }
+
+    // Initialize Apprise client from DB config
+    const appriseApiUrl = await storage.getSystemConfig("apprise.apiUrl");
+    if (appriseApiUrl && appriseApiUrl.length > 0) {
+      const appriseKey = await storage.getSystemConfig("apprise.key");
+      const appriseUrls = await storage.getSystemConfig("apprise.urls");
+      appriseClient.configure(appriseApiUrl, appriseKey || null, appriseUrls || null);
+      log("Apprise client configured from database");
     }
 
     const server = await registerRoutes(app);

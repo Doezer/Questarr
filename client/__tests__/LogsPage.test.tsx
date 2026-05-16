@@ -111,7 +111,11 @@ describe("LogsPage", () => {
       </QueryClientProvider>
     );
 
-    const row = await screen.findByRole("button", { name: /Inspect log Log message 1/i });
+    await waitFor(() => {
+      expect(screen.getAllByTestId("log-line-row")).toHaveLength(1);
+    });
+
+    const row = screen.getByRole("button", { name: /Inspect log Log message 1/i });
     fireEvent.click(row);
 
     expect(await screen.findByText("Log details")).toBeInTheDocument();

@@ -9,14 +9,26 @@ import {
 } from "../downloaders.js";
 
 // Mock dependencies
-vi.mock("../logger.js", () => ({
-  downloadersLogger: {
+vi.mock("../logger.js", () => {
+  const mockChildLogger = {
     info: vi.fn(),
     debug: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
-  },
-}));
+  };
+
+  return {
+    logger: {
+      child: vi.fn(() => mockChildLogger),
+    },
+    igdbLogger: mockChildLogger,
+    routesLogger: mockChildLogger,
+    expressLogger: mockChildLogger,
+    downloadersLogger: mockChildLogger,
+    torznabLogger: mockChildLogger,
+    searchLogger: mockChildLogger,
+  };
+});
 
 // Mock ssrf check to allow all URLs in tests
 vi.mock("../ssrf.js", () => ({

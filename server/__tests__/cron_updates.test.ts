@@ -8,6 +8,7 @@ import type { Game } from "../../shared/schema.js";
 vi.mock("../storage.js", () => ({
   storage: {
     getAllGames: vi.fn(),
+    getUserSettings: vi.fn(),
     updateGame: vi.fn(),
     updateGamesBatch: vi.fn(),
     addNotificationsBatch: vi.fn(),
@@ -21,14 +22,26 @@ vi.mock("../igdb.js", () => ({
   IGDB_EARLY_ACCESS_STATUS: 4,
 }));
 
-vi.mock("../logger.js", () => ({
-  igdbLogger: {
+vi.mock("../logger.js", () => {
+  const mockChildLogger = {
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
     debug: vi.fn(),
-  },
-}));
+  };
+
+  return {
+    logger: {
+      child: vi.fn(() => mockChildLogger),
+    },
+    igdbLogger: mockChildLogger,
+    routesLogger: mockChildLogger,
+    expressLogger: mockChildLogger,
+    downloadersLogger: mockChildLogger,
+    torznabLogger: mockChildLogger,
+    searchLogger: mockChildLogger,
+  };
+});
 
 vi.mock("../socket.js", () => ({
   notifyUser: vi.fn(),
@@ -39,6 +52,7 @@ describe("checkGameUpdates", () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2023-06-01T12:00:00Z"));
+    vi.mocked(storage.getUserSettings).mockResolvedValue(null as never);
   });
 
   afterEach(() => {

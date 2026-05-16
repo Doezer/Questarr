@@ -34,7 +34,6 @@ Questarr is a video game management application inspired by the \*Arr ecosystem 
 - **Download Clients**: qBittorrent, Transmission, rTorrent, sabnzbd, nzbget
 - **Steam**: Wishlist import and Steam App ID resolution
 - **xREL.to**: Scene release monitoring
-- **HowLongToBeat**: Gameplay time data with fuzzy title matching (24h cache)
 - **NexusMods**: Mod search and trending mods per game
 - **PCGamingWiki**: Game wiki URL lookup via Steam App ID (CargoQuery API, 24h cache)
 
@@ -62,7 +61,6 @@ Questarr is a video game management application inspired by the \*Arr ecosystem 
   socket.ts          # WebSocket setup (Socket.io)
   torznab.ts         # Torznab protocol client
   newznab.ts         # Newznab protocol client
-  hltb.ts            # HowLongToBeat client (gameplay time data)
   nexusmods.ts       # NexusMods API client (mod search)
   steam.ts           # Steam wishlist import and App ID resolution
   steam-routes.ts    # Express router for Steam endpoints

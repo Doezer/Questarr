@@ -69,7 +69,6 @@ Three-layer TypeScript app with a single `package.json` (not a monorepo):
 | `cron.ts`                | Scheduled jobs (auto-search, download checks, xREL monitoring, game updates)            |
 | `middleware.ts`          | Rate limiters, validators, sanitizers                                                   |
 | `ssrf.ts`                | SSRF URL validation (DNS rebinding, cloud metadata filtering)                           |
-| `hltb.ts`                | HowLongToBeat client — gameplay time lookup with 24h cache and fuzzy title matching     |
 | `nexusmods.ts`           | NexusMods API client — mod search and trending mods per game                            |
 | `steam.ts`               | Steam wishlist import and Steam App ID resolution                                       |
 | `steam-routes.ts`        | Express router for Steam endpoints                                                      |

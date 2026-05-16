@@ -59,6 +59,7 @@ import {
   optionalAuthenticateToken,
 } from "./auth.js";
 import { nexusmodsClient } from "./nexusmods.js";
+import { appriseClient } from "./apprise.js";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -2687,6 +2688,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Ideally notifications are triggered by events, not by API, but this is good for testing.
       const { notifyUser } = await import("./socket.js");
       notifyUser("notification", notification);
+      appriseClient.send(notification);
 
       res.status(201).json(notification);
     } catch (error) {
@@ -2821,6 +2823,66 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       routesLogger.error({ error }, "Failed to update Discord settings");
       res.status(500).json({ error: "Failed to update Discord settings" });
+    }
+  });
+
+  // Apprise settings
+  app.get("/api/settings/apprise", async (_req, res) => {
+    try {
+      const apiUrl = await storage.getSystemConfig("apprise.apiUrl");
+      const key = await storage.getSystemConfig("apprise.key");
+      const urls = await storage.getSystemConfig("apprise.urls");
+      res.json({
+        configured: !!(apiUrl && apiUrl.length > 0),
+        apiUrl: apiUrl || null,
+        key: key || null,
+        urls: urls || null,
+      });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to fetch Apprise settings");
+      res.status(500).json({ error: "Failed to fetch Apprise settings" });
+    }
+  });
+
+  app.post("/api/settings/apprise", async (req, res) => {
+    try {
+      const { apiUrl, key, urls } = req.body as {
+        apiUrl?: string;
+        key?: string;
+        urls?: string;
+      };
+      if (apiUrl) {
+        try {
+          const parsed = new URL(apiUrl.trim());
+          if (!["http:", "https:"].includes(parsed.protocol)) {
+            return res.status(400).json({ error: "API URL must use http:// or https://" });
+          }
+        } catch {
+          return res.status(400).json({ error: "API URL is not a valid URL" });
+        }
+      }
+      await storage.setSystemConfig("apprise.apiUrl", apiUrl?.trim() ?? "");
+      await storage.setSystemConfig("apprise.key", key?.trim() ?? "");
+      await storage.setSystemConfig("apprise.urls", urls?.trim() ?? "");
+      appriseClient.configure(apiUrl?.trim() || null, key?.trim() || null, urls?.trim() || null);
+      res.json({ success: true });
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to update Apprise settings");
+      res.status(500).json({ error: "Failed to update Apprise settings" });
+    }
+  });
+
+  app.post("/api/settings/apprise/test", async (_req, res) => {
+    try {
+      const result = await appriseClient.test();
+      if (result.success) {
+        res.json({ success: true });
+      } else {
+        res.status(502).json({ error: result.error ?? "Failed to reach Apprise server" });
+      }
+    } catch (error) {
+      routesLogger.error({ error }, "Apprise test failed");
+      res.status(500).json({ error: "Apprise test failed" });
     }
   });
 

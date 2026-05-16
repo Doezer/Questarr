@@ -75,6 +75,7 @@ export const games = sqliteTable("games", {
   earlyAccess: integer("early_access", { mode: "boolean" }).notNull().default(false),
   hidden: integer("hidden", { mode: "boolean" }).notNull().default(false),
   userRating: real("user_rating"),
+  notes: text("notes"),
   searchResultsAvailable: integer("search_results_available", { mode: "boolean" })
     .default(false)
     .notNull(),
@@ -236,6 +237,14 @@ export const updateGameUserRatingSchema = z.object({
       message: "userRating must be in 0.5 increments",
     })
     .nullable(),
+});
+
+export const updateGameNotesSchema = z.object({
+  notes: z
+    .string()
+    .max(10000)
+    .nullable()
+    .transform((val) => val?.trim() || null),
 });
 
 export const insertIndexerSchema = createInsertSchema(indexers, {

@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -310,6 +311,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   const [selectedScreenshot, setSelectedScreenshot] = useState<string | null>(null);
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
+  const [notesValue, setNotesValue] = useState<string>("");
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -324,7 +326,8 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
 
   useEffect(() => {
     setIsSummaryExpanded(false);
-  }, [game?.id]);
+    setNotesValue(game?.notes ?? "");
+  }, [game?.id, game?.notes]);
 
   // GDM-2: Subscribe to socket download updates and invalidate the downloads query.
   // io() returns the shared singleton — register/unregister the handler rather than
@@ -412,6 +415,18 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     },
     onError: () => {
       toast({ description: "Failed to save your rating", variant: "destructive" });
+    },
+  });
+
+  const notesMutation = useMutation({
+    mutationFn: async (notes: string | null) => {
+      await apiRequest("PATCH", `/api/games/${game?.id}/notes`, { notes });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+    },
+    onError: () => {
+      toast({ description: "Failed to save notes", variant: "destructive" });
     },
   });
 
@@ -550,6 +565,28 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                     data-testid={`img-cover-${game.id}`}
                   />
                 </div>
+              )}
+            </div>
+
+            {/* Personal notes */}
+            <div className="mt-3">
+              <Textarea
+                value={notesValue}
+                onChange={(e) => setNotesValue(e.target.value)}
+                onBlur={() => {
+                  const trimmed = notesValue.trim() || null;
+                  if (trimmed !== (game.notes ?? null)) {
+                    notesMutation.mutate(trimmed);
+                  }
+                }}
+                placeholder="Personal notes..."
+                className="resize-none min-h-[72px] text-sm"
+                maxLength={10000}
+                aria-label="Personal notes for this game"
+                disabled={notesMutation.isPending}
+              />
+              {notesMutation.isPending && (
+                <p className="text-xs text-muted-foreground mt-1">Saving...</p>
               )}
             </div>
 

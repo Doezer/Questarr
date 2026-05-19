@@ -2786,7 +2786,10 @@ export class QBittorrentClient implements DownloaderClient {
       seeders: torrent.num_seeds,
       leechers: torrent.num_leechs,
       ratio: torrent.ratio,
-      error: torrent.state === "error" ? "Torrent error" : undefined,
+      error:
+        torrent.state === "error"
+          ? (torrent["error_string"] as string) || "Torrent error"
+          : undefined,
       category: torrent.category,
     };
   }

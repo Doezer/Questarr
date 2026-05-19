@@ -15,10 +15,12 @@ import { isSafeUrl, safeFetch } from "./ssrf.js";
 const DOWNLOAD_CLIENT_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
 
-// Prowlarr (and some Newznab indexers) use standard base64 in the `link` query
-// parameter, which can contain `+`. HTTP servers like ASP.NET Core decode `+`
-// as space in query strings, corrupting the base64 and producing "Invalid link"
-// errors. Re-encode literal `+` as `%2B` before fetching.
+// Prowlarr (and some Newznab/Torznab indexers) wrap external download URLs in a proxy
+// URL whose `link` query parameter is a standard base64 value that can contain `+`.
+// ASP.NET Core (Prowlarr's backend) decodes `+` as space in query strings, corrupting
+// the base64 and producing "Invalid link" errors. Re-encode `+` as `%2B` in the `link`
+// parameter only — other parameters may legitimately use `+` to represent a space
+// (e.g. `file=my+game.torrent`), and converting those would break the 400-retry path.
 function fixNzbUrlEncoding(rawUrl: string): string {
   const qIdx = rawUrl.indexOf("?");
   if (qIdx === -1) return rawUrl;
@@ -29,6 +31,7 @@ function fixNzbUrlEncoding(rawUrl: string): string {
     .map((part) => {
       const eq = part.indexOf("=");
       if (eq === -1) return part;
+      if (part.slice(0, eq) !== "link") return part;
       return part.slice(0, eq + 1) + part.slice(eq + 1).replace(/\+/g, "%2B");
     })
     .join("&");
@@ -171,7 +174,9 @@ async function fetchWithMagnetDetection(
   url: string,
   maxRedirects = 5
 ): Promise<{ response?: Response; magnetLink?: string }> {
-  let currentUrl = url;
+  // Fix Prowlarr/indexer URL encoding: `+` in base64 `link` query params must be
+  // re-encoded as `%2B` so ASP.NET Core (Prowlarr backend) decodes them correctly.
+  let currentUrl = fixNzbUrlEncoding(url);
   let redirects = 0;
 
   const fetchUrl = async (targetUrl: string) => {
@@ -2002,14 +2007,21 @@ export class QBittorrentClient implements DownloaderClient {
       //    - Required for magnet links.
       //    - Also supports "normal" torrent URLs when qBittorrent can reach the URL.
       try {
+        // Fix Prowlarr/indexer URL encoding before handing the URL to qBittorrent.
+        // Prowlarr wraps external torrent URLs in a proxy URL whose `link` parameter
+        // is base64-encoded. Literal `+` in that base64 is decoded as space by
+        // ASP.NET Core (Prowlarr's backend), corrupting the value and causing
+        // Prowlarr to redirect to a wrong or broken torrent/magnet.
+        // For magnet links this is a no-op.
+        const urlToAdd = isMagnet ? request.url : fixNzbUrlEncoding(request.url);
         const params = new URLSearchParams();
-        params.set("urls", request.url);
+        params.set("urls", urlToAdd);
         if (savepath) params.set("savepath", savepath);
         if (category) params.set("category", category);
         params.set("paused", pausedValue);
 
         downloadersLogger.info(
-          { url: request.url, isMagnet, savepath, category, paused: pausedValue },
+          { url: urlToAdd, isMagnet, savepath, category, paused: pausedValue },
           "Adding download to qBittorrent via URL"
         );
 
@@ -2844,38 +2856,40 @@ export class QBittorrentClient implements DownloaderClient {
       // Extract ALL cookies from response
       // In Node.js fetch, set-cookie can be retrieved differently
       const setCookieHeaders = response.headers.getSetCookie?.() || [];
-      let sidCookie = null;
+      let sessionCookie: string | null = null;
 
       // Try the newer getSetCookie() method first (Node 19.7+)
       if (setCookieHeaders.length > 0) {
         for (const cookie of setCookieHeaders) {
-          const match = cookie.match(/SID=([^;]+)/);
+          const match = cookie.match(/((?:QBT_)?SID(?:_[^=;]+)?)=([^;]+)/);
           if (match) {
-            sidCookie = match[1];
+            sessionCookie = `${match[1]}=${match[2]}`;
             break;
           }
         }
       }
 
       // Fallback to get("set-cookie") for older Node versions
-      if (!sidCookie) {
+      if (!sessionCookie) {
         const setCookie = response.headers.get("set-cookie");
         if (setCookie) {
-          const match = setCookie.match(/SID=([^;]+)/);
+          const match = setCookie.match(/((?:QBT_)?SID(?:_[^=;]+)?)=([^;]+)/);
           if (match) {
-            sidCookie = match[1];
+            sessionCookie = `${match[1]}=${match[2]}`;
           }
         }
       }
 
-      if (sidCookie) {
-        this.cookie = `SID=${sidCookie}`;
+      if (sessionCookie) {
+        this.cookie = sessionCookie;
         downloadersLogger.debug(
           { cookieLength: this.cookie.length },
           "qBittorrent authentication successful with cookie"
         );
       } else {
-        downloadersLogger.warn("qBittorrent authentication returned Ok but no SID cookie found");
+        downloadersLogger.warn(
+          "qBittorrent authentication returned Ok but no SID-compatible cookie found"
+        );
         // Some qBittorrent configs don't require cookies, so this might be okay
         this.cookie = null;
       }
@@ -3383,7 +3397,7 @@ export class SABnzbdClient implements DownloaderClient {
       });
 
       if (options.body) {
-        req.write(options.body as string);
+        req.write(options.body as Buffer | string);
       }
       req.end();
     });
@@ -3442,16 +3456,23 @@ export class SABnzbdClient implements DownloaderClient {
         priority: (request.priority || 0).toString(),
       });
 
-      const formData = new FormData();
-      formData.append(
-        "name",
-        new Blob([nzbContent], { type: "application/x-nzb" }),
-        `${request.title}.nzb`
-      );
+      // Build multipart body manually so fetchInsecure (self-signed HTTPS fallback)
+      // can write it as a Buffer — FormData is not serialisable via req.write().
+      const boundary = `questarr${Date.now().toString(16)}`;
+      const safeName = request.title.replace(/["\\]/g, "_");
+      const nzbBuffer = Buffer.from(nzbContent);
+      const multipartBody = Buffer.concat([
+        Buffer.from(
+          `--${boundary}\r\nContent-Disposition: form-data; name="name"; filename="${safeName}.nzb"\r\nContent-Type: application/x-nzb\r\n\r\n`
+        ),
+        nzbBuffer,
+        Buffer.from(`\r\n--${boundary}--\r\n`),
+      ]);
 
       const response = await this.fetchWithFallback(url, {
         method: "POST",
-        body: formData,
+        body: multipartBody,
+        headers: { "Content-Type": `multipart/form-data; boundary=${boundary}` },
         signal: AbortSignal.timeout(30000),
       });
 

@@ -39,3 +39,5 @@ sqlite.db*
 pr_status.json
 .omc/
 .sonarlint/connectedMode.json
+data_test/
+docker-compose.test.yml

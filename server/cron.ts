@@ -3,7 +3,7 @@ import { igdbClient, IGDB_EARLY_ACCESS_STATUS } from "./igdb.js";
 import { igdbLogger } from "./logger.js";
 import { notifyUser } from "./socket.js";
 import { DownloaderManager } from "./downloaders.js";
-import { searchAllIndexers, filterBlacklistedReleases } from "./search.js";
+import { searchAllIndexers, filterBlacklistedReleases, type SearchItem } from "./search.js";
 import { xrelClient, DEFAULT_XREL_BASE } from "./xrel.js";
 import { steamService } from "./steam.js";
 import { downloadRulesSchema, type Game, type InsertNotification } from "../shared/schema.js";
@@ -38,8 +38,8 @@ interface AutoSearchRules {
 }
 
 interface AutoSearchCategorizedItems {
-  mainItems: Awaited<ReturnType<typeof searchAllIndexers>>["items"];
-  updateItems: Awaited<ReturnType<typeof searchAllIndexers>>["items"];
+  mainItems: SearchItem[];
+  updateItems: SearchItem[];
 }
 
 function getAutoSearchRules(downloadRules: string | null): AutoSearchRules {
@@ -59,7 +59,7 @@ function getAutoSearchRules(downloadRules: string | null): AutoSearchRules {
 }
 
 function categorizeSearchItems(
-  items: Awaited<ReturnType<typeof searchAllIndexers>>["items"],
+  items: SearchItem[],
   rules: AutoSearchRules
 ): AutoSearchCategorizedItems {
   const sortedItems = items
@@ -98,15 +98,46 @@ function categorizeSearchItems(
 }
 
 function applyPreferredGroupsFilter(
-  items: Awaited<ReturnType<typeof searchAllIndexers>>["items"],
-  preferredGroups: string[]
-): Awaited<ReturnType<typeof searchAllIndexers>>["items"] {
+  items: SearchItem[],
+  preferredGroups: string[],
+  strict: boolean
+): SearchItem[] {
   if (preferredGroups.length === 0) return items;
   const filtered = items.filter(
     (item) =>
       item.group && preferredGroups.some((g) => g.toLowerCase() === item.group!.toLowerCase())
   );
-  return filtered.length > 0 ? filtered : items;
+  if (filtered.length > 0) return filtered;
+  // When strict filtering is enabled, return nothing rather than falling back to all items.
+  // This respects the user's intent to only accept releases from preferred groups.
+  return strict ? [] : items;
+}
+
+/**
+ * De-duplicates search items that represent the same release (identical normalized title).
+ * When duplicates exist (e.g. the same torrent listed by multiple indexers), the item
+ * from the highest-priority indexer (lowest priority number) is kept.
+ */
+function deduplicateByTitle(
+  items: SearchItem[],
+  indexerPriorityMap: Map<string, number>
+): SearchItem[] {
+  const seen = new Map<string, SearchItem>();
+  for (const item of items) {
+    const key = `${normalizeTitle(item.title)}:${item.downloadType}`;
+    const existing = seen.get(key);
+    if (!existing) {
+      seen.set(key, item);
+    } else {
+      // Keep the item from the higher-priority indexer (lower number = higher priority)
+      const itemPriority = indexerPriorityMap.get(item.indexerId) ?? Infinity;
+      const existingPriority = indexerPriorityMap.get(existing.indexerId) ?? Infinity;
+      if (itemPriority < existingPriority) {
+        seen.set(key, item);
+      }
+    }
+  }
+  return Array.from(seen.values());
 }
 
 /**
@@ -115,9 +146,9 @@ function applyPreferredGroupsFilter(
  * Returns the input unchanged when no preferred platform is configured.
  */
 function applyPreferredPlatformFilter(
-  items: Awaited<ReturnType<typeof searchAllIndexers>>["items"],
+  items: SearchItem[],
   preferredPlatform: string | null | undefined
-): Awaited<ReturnType<typeof searchAllIndexers>>["items"] {
+): SearchItem[] {
   if (!preferredPlatform) return items;
   return items.filter((item) => {
     const { platform } = parseReleaseMetadata(item.title);
@@ -675,6 +706,11 @@ export async function checkAutoSearch() {
     // Get wanted games grouped by user directly from storage (optimized)
     const gamesByUser = await storage.getWantedGamesGroupedByUser();
 
+    // Build an indexer-priority map once for the whole run so duplicate releases from
+    // multiple indexers can be de-duplicated using the user-configured indexer order.
+    const enabledIndexers = await storage.getEnabledIndexers();
+    const indexerPriorityMap = new Map(enabledIndexers.map((idx) => [idx.id, idx.priority]));
+
     for (const [userId, userGames] of Array.from(gamesByUser.entries())) {
       try {
         const settings = await storage.getUserSettings(userId);
@@ -738,12 +774,18 @@ export async function checkAutoSearch() {
               continue;
             }
 
-            // Apply platform filter first (strict), then preferred groups (soft preference)
+            // Apply platform filter first (strict), then preferred groups filter, then
+            // de-duplicate releases that appear on multiple indexers (keep highest-priority indexer).
             const platformFilteredMain = applyPreferredPlatformFilter(
               searchResult.mainItems,
               preferredPlatform
             );
-            const mainItems = applyPreferredGroupsFilter(platformFilteredMain, preferredGroups);
+            const groupFilteredMain = applyPreferredGroupsFilter(
+              platformFilteredMain,
+              preferredGroups,
+              settings.filterByPreferredGroups ?? false
+            );
+            const mainItems = deduplicateByTitle(groupFilteredMain, indexerPriorityMap);
 
             // Handle main items
             if (mainItems.length === 0) {
@@ -852,7 +894,12 @@ export async function checkAutoSearch() {
               searchResult.updateItems,
               preferredPlatform
             );
-            const updateItems = applyPreferredGroupsFilter(platformFilteredUpdate, preferredGroups);
+            const groupFilteredUpdate = applyPreferredGroupsFilter(
+              platformFilteredUpdate,
+              preferredGroups,
+              settings.filterByPreferredGroups ?? false
+            );
+            const updateItems = deduplicateByTitle(groupFilteredUpdate, indexerPriorityMap);
 
             await storage.updateGameSearchResultsAvailable(game.id, updateItems.length > 0);
 

@@ -32,8 +32,26 @@ fi
 
 # Ensure the data directory exists and key directories are owned by the correct user
 mkdir -p /app/data
-chown questarr:questarr /app
-chown -R questarr:questarr /app/data
+
+QUESTARR_UID=$(id -u questarr)
+QUESTARR_GID=$(id -g questarr)
+
+# Only chown /app if ownership does not already match (avoids failures on NFS with root squash)
+APP_OWNER_UID=$(stat -c '%u' /app)
+APP_OWNER_GID=$(stat -c '%g' /app)
+if [ "$APP_OWNER_UID" != "$QUESTARR_UID" ] || [ "$APP_OWNER_GID" != "$QUESTARR_GID" ]; then
+  echo "Setting ownership of /app to questarr:questarr"
+  chown questarr:questarr /app
+fi
+
+# Only chown /app/data if the directory itself or any nested file/dir has wrong ownership.
+# Scanning recursively catches post-restore trees where the top-level inode matches but
+# inner files were created by a different host UID/GID.
+# -print -quit stops at the first mismatch so this is fast even on large trees.
+if find /app/data \( ! -uid "$QUESTARR_UID" -o ! -gid "$QUESTARR_GID" \) -print -quit 2>/dev/null | grep -q .; then
+  echo "Setting ownership of /app/data to questarr:questarr"
+  chown -R questarr:questarr /app/data
+fi
 
 # Drop root privileges and exec the CMD as questarr
 exec su-exec questarr "$@"

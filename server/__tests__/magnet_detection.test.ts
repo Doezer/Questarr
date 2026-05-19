@@ -91,24 +91,21 @@ describe("Magnet Detection and Redirect Handling in QBittorrentClient", () => {
       headersMap: {},
     });
 
-  it("should retry with %20 when a URL with + returns 400 Bad Request", async () => {
-    const urlWithPlus = "http://indexer.com/download?file=my+game.torrent";
-    const fixedUrl = "http://indexer.com/download?file=my%20game.torrent";
+  it("should apply fixNzbUrlEncoding to convert + to %2B in the link parameter before fetching", async () => {
+    // Prowlarr proxy URLs carry the real download URL in a base64 `link` query parameter.
+    // ASP.NET Core decodes `+` as space, so literal `+` in that base64 must be re-encoded
+    // as `%2B`. Only the `link` parameter is fixed; other parameters are left as-is so that
+    // `+`-as-space semantics remain intact and the 400-retry path stays functional.
+    const urlWithPlus = "http://prowlarr.local:9696/1/download?apikey=secret&link=abc+def+ghi";
+    const urlWithEncodedPlus =
+      "http://prowlarr.local:9696/1/download?apikey=secret&link=abc%2Bdef%2Bghi";
 
     fetchMock
       // 1. Auth
       .mockResolvedValueOnce(mockAuthSuccess())
-      // 2. Try Add URL to qBittorrent -> FAIL (Trigger Fallback)
+      // 2. Try Add URL to qBittorrent (step 1 uses fixNzbUrlEncoding) -> FAIL
       .mockResolvedValueOnce(mockAddTorrentFail())
-      // 3. Fetch original URL -> 400 Bad Request
-      .mockResolvedValueOnce(
-        createResponse({
-          ok: false,
-          status: 400,
-          statusText: "Bad Request",
-        })
-      )
-      // 4. Fetch fixed URL -> 200 OK (Torrent file)
+      // 3. Fetch corrected URL (%2B) in fallback -> 200 OK (Torrent file)
       .mockResolvedValueOnce(
         createResponse({
           ok: true,
@@ -117,7 +114,7 @@ describe("Magnet Detection and Redirect Handling in QBittorrentClient", () => {
           arrayBuffer: new ArrayBuffer(10),
         })
       )
-      // 5. Add torrent file to qBittorrent
+      // 4. Add torrent file to qBittorrent
       .mockResolvedValueOnce(mockAddTorrentSuccess());
 
     const result = await DownloaderManager.addDownload(qbDownloader, {
@@ -126,12 +123,10 @@ describe("Magnet Detection and Redirect Handling in QBittorrentClient", () => {
     });
 
     expect(result).not.toBeNull();
-    // Verify specific calls
-    // Call 2 (index 2) should be failing fetch
-    expect(fetchMock.mock.calls[2][0]).toBe(urlWithPlus);
-
-    // Call 3 (index 3) should be fixed fetch
-    expect(fetchMock.mock.calls[3][0]).toBe(fixedUrl);
+    // Step 2 fallback fetch should use the %2B-encoded URL, not the original +
+    expect(fetchMock.mock.calls[2][0]).toBe(urlWithEncodedPlus);
+    // The original + URL should never have been fetched
+    expect(fetchMock.mock.calls.every((call: unknown[]) => call[0] !== urlWithPlus)).toBe(true);
   });
 
   it("should detect magnet link redirects and handle them", async () => {

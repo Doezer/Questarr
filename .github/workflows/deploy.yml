@@ -31,10 +31,10 @@ on:
   schedule:
     - cron: "0 0 * * *"
 
-  # Trigger on release/1.4.0 branch for dev release
+  # Trigger on main branch for dev release
   push:
     branches:
-      - "release/1.4.0"
+      - "main"
 
 permissions:
   contents: read
@@ -66,8 +66,8 @@ jobs:
             echo "ENVIRONMENT=dev" >> $GITHUB_ENV
             echo "environment=dev" >> $GITHUB_OUTPUT
           else
-            echo "ENVIRONMENT=$INPUT_ENVIRONMENT" >> $GITHUB_ENV
-            echo "environment=$INPUT_ENVIRONMENT" >> $GITHUB_OUTPUT
+            echo "ENVIRONMENT=${INPUT_ENVIRONMENT:-dev}" >> $GITHUB_ENV
+            echo "environment=${INPUT_ENVIRONMENT:-dev}" >> $GITHUB_OUTPUT
           fi
 
           # Normalize repository name to lowercase and strip owner for Docker Hub

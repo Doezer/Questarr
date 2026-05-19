@@ -31,6 +31,7 @@ const mockUpdateGameStatus = vi.fn();
 const mockAddGameDownload = vi.fn();
 const mockGetEnabledDownloaders = vi.fn().mockResolvedValue([]);
 const mockGetReleaseBlacklistSet = vi.fn();
+const mockGetEnabledIndexers = vi.fn().mockResolvedValue([]);
 
 vi.mock("../storage.js", () => ({
   storage: {
@@ -44,6 +45,7 @@ vi.mock("../storage.js", () => ({
     addGameDownload: mockAddGameDownload,
     getEnabledDownloaders: mockGetEnabledDownloaders,
     getReleaseBlacklistSet: mockGetReleaseBlacklistSet,
+    getEnabledIndexers: mockGetEnabledIndexers,
   },
 }));
 
@@ -151,6 +153,7 @@ describe("Cron - checkAutoSearch", () => {
     mockGetEnabledDownloaders.mockResolvedValue([]);
     mockAddNotification.mockResolvedValue({ id: "notif-1" });
     mockGetReleaseBlacklistSet.mockResolvedValue(new Set());
+    mockGetEnabledIndexers.mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -803,5 +806,278 @@ describe("Cron - checkAutoSearch", () => {
     await checkAutoSearch();
 
     expect(mockUpdateGameSearchResultsAvailable).toHaveBeenCalledWith(game.id, false);
+  });
+
+  describe("Strict preferred-group filtering (filterByPreferredGroups=true)", () => {
+    const SKIDROW_ITEM = {
+      title: "Test Game SKIDROW",
+      link: "https://example.com/skidrow",
+      pubDate: FIXED_PUB_DATE,
+      seeders: 50,
+      size: 10_000,
+      group: "SKIDROW",
+    };
+    const CODEX_ITEM_1 = {
+      title: "Test Game CODEX",
+      link: "https://example.com/codex-1",
+      pubDate: FIXED_PUB_DATE,
+      seeders: 80,
+      size: 10_000,
+      group: "CODEX",
+    };
+    const CODEX_ITEM_2 = {
+      title: "Test Game CODEX v2",
+      link: "https://example.com/codex-2",
+      pubDate: FIXED_PUB_DATE,
+      seeders: 60,
+      size: 10_000,
+      group: "CODEX",
+    };
+
+    beforeEach(() => {
+      const wantedGame = {
+        ...baseGame,
+        status: "wanted" as const,
+        releaseStatus: "released" as const,
+      };
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [wantedGame]]]));
+    });
+
+    it("should trigger auto-download when strict filter narrows 3 results to 1 preferred-group match", async () => {
+      // Without strict filtering: 1 SKIDROW + 2 CODEX = 3 main items → no auto-download.
+      // With strict filtering: only SKIDROW survives → 1 item → auto-download fires.
+      const settings = {
+        ...baseSettings,
+        preferredReleaseGroups: '["SKIDROW"]',
+        filterByPreferredGroups: true,
+        autoDownloadEnabled: true,
+      };
+      const mockDownloader = { id: "dl-1", name: "qBittorrent", type: "torrent", enabled: true };
+
+      mockGetUserSettings.mockResolvedValue(settings);
+      mockGetEnabledDownloaders.mockResolvedValue([mockDownloader]);
+      mockAddDownloadWithFallback.mockResolvedValue({
+        success: true,
+        id: "hash-abc",
+        downloaderId: "dl-1",
+      });
+      mockSearchAllIndexers.mockResolvedValue({
+        items: [SKIDROW_ITEM, CODEX_ITEM_1, CODEX_ITEM_2],
+        errors: [],
+        total: 3,
+      });
+
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ url: SKIDROW_ITEM.link })
+      );
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Download Started" })
+      );
+    });
+
+    it("should clear availability flag and not auto-download when strict filter matches nothing", async () => {
+      // PLAZA is configured but only CODEX releases exist → strict filter returns [] → no download.
+      const settings = {
+        ...baseSettings,
+        preferredReleaseGroups: '["PLAZA"]',
+        filterByPreferredGroups: true,
+        autoDownloadEnabled: true,
+      };
+
+      mockGetUserSettings.mockResolvedValue(settings);
+      mockSearchAllIndexers.mockResolvedValue({
+        items: [SKIDROW_ITEM, CODEX_ITEM_1],
+        errors: [],
+        total: 2,
+      });
+
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).not.toHaveBeenCalled();
+      expect(mockUpdateGameSearchResultsAvailable).toHaveBeenCalledWith(baseGame.id, false);
+    });
+
+    it("should fall back to all items when filterByPreferredGroups is false and no group matches", async () => {
+      // Soft preference (filterByPreferredGroups=false): PLAZA absent → fall back to 2 items → multiple notification.
+      const settings = {
+        ...baseSettings,
+        preferredReleaseGroups: '["PLAZA"]',
+        filterByPreferredGroups: false,
+        notifyMultipleDownloads: true,
+      };
+
+      mockGetUserSettings.mockResolvedValue(settings);
+      mockSearchAllIndexers.mockResolvedValue({
+        items: [SKIDROW_ITEM, CODEX_ITEM_1],
+        errors: [],
+        total: 2,
+      });
+
+      await checkAutoSearch();
+
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Multiple Results Found" })
+      );
+    });
+  });
+
+  describe("De-duplication of releases across indexers", () => {
+    const ITEM_INDEXER_A = {
+      title: "Test Game SKIDROW",
+      link: "https://indexer-a.example.com/skidrow",
+      pubDate: FIXED_PUB_DATE,
+      seeders: 50,
+      size: 10_000,
+      indexerId: "indexer-a",
+      group: "SKIDROW",
+    };
+    const ITEM_INDEXER_B = {
+      title: "Test Game SKIDROW", // same release, different indexer
+      link: "https://indexer-b.example.com/skidrow",
+      pubDate: FIXED_PUB_DATE,
+      seeders: 50,
+      size: 10_000,
+      indexerId: "indexer-b",
+      group: "SKIDROW",
+    };
+    const DIFFERENT_ITEM = {
+      title: "Test Game CODEX",
+      link: "https://indexer-a.example.com/codex",
+      pubDate: FIXED_PUB_DATE,
+      seeders: 80,
+      size: 10_000,
+      indexerId: "indexer-a",
+      group: "CODEX",
+    };
+
+    beforeEach(() => {
+      const wantedGame = {
+        ...baseGame,
+        status: "wanted" as const,
+        releaseStatus: "released" as const,
+      };
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [wantedGame]]]));
+    });
+
+    it("should de-duplicate identical releases from multiple indexers and trigger auto-download", async () => {
+      // Two indexers carry the same "Test Game SKIDROW" torrent → without de-dup, mainItems.length=2
+      // (no auto-download). After de-dup, mainItems.length=1 → auto-download fires.
+      const settings = { ...baseSettings, autoDownloadEnabled: true };
+      const mockDownloader = { id: "dl-1", name: "qBittorrent", type: "torrent", enabled: true };
+
+      mockGetUserSettings.mockResolvedValue(settings);
+      mockGetEnabledDownloaders.mockResolvedValue([mockDownloader]);
+      mockAddDownloadWithFallback.mockResolvedValue({
+        success: true,
+        id: "hash-abc",
+        downloaderId: "dl-1",
+      });
+      mockGetEnabledIndexers.mockResolvedValue([
+        { id: "indexer-a", priority: 1 },
+        { id: "indexer-b", priority: 2 },
+      ]);
+      mockSearchAllIndexers.mockResolvedValue({
+        items: [ITEM_INDEXER_A, ITEM_INDEXER_B],
+        errors: [],
+        total: 2,
+      });
+
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).toHaveBeenCalledTimes(1);
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Download Started" })
+      );
+    });
+
+    it("should prefer the item from the higher-priority indexer when de-duplicating", async () => {
+      // indexer-b has higher priority (lower number) — its link should be used.
+      const settings = { ...baseSettings, autoDownloadEnabled: true };
+      const mockDownloader = { id: "dl-1", name: "qBittorrent", type: "torrent", enabled: true };
+
+      mockGetUserSettings.mockResolvedValue(settings);
+      mockGetEnabledDownloaders.mockResolvedValue([mockDownloader]);
+      mockAddDownloadWithFallback.mockResolvedValue({
+        success: true,
+        id: "hash-abc",
+        downloaderId: "dl-1",
+      });
+      mockGetEnabledIndexers.mockResolvedValue([
+        { id: "indexer-a", priority: 2 }, // lower priority
+        { id: "indexer-b", priority: 1 }, // higher priority
+      ]);
+      mockSearchAllIndexers.mockResolvedValue({
+        items: [ITEM_INDEXER_A, ITEM_INDEXER_B],
+        errors: [],
+        total: 2,
+      });
+
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ url: ITEM_INDEXER_B.link })
+      );
+    });
+
+    it("should not de-duplicate releases with different titles", async () => {
+      // SKIDROW and CODEX are genuinely different releases → 2 items → multiple notification.
+      const settings = {
+        ...baseSettings,
+        autoDownloadEnabled: false,
+        notifyMultipleDownloads: true,
+      };
+
+      mockGetUserSettings.mockResolvedValue(settings);
+      mockGetEnabledIndexers.mockResolvedValue([{ id: "indexer-a", priority: 1 }]);
+      mockSearchAllIndexers.mockResolvedValue({
+        items: [ITEM_INDEXER_A, DIFFERENT_ITEM],
+        errors: [],
+        total: 2,
+      });
+
+      await checkAutoSearch();
+
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Multiple Results Found" })
+      );
+    });
+
+    it("should treat titles as duplicates despite punctuation or casing differences", async () => {
+      // "Test Game SKIDROW" and "Test.Game.SKIDROW" normalise to the same key → de-duplicated to 1.
+      const settings = { ...baseSettings, autoDownloadEnabled: true };
+      const mockDownloader = { id: "dl-1", name: "qBittorrent", type: "torrent", enabled: true };
+
+      mockGetUserSettings.mockResolvedValue(settings);
+      mockGetEnabledDownloaders.mockResolvedValue([mockDownloader]);
+      mockAddDownloadWithFallback.mockResolvedValue({
+        success: true,
+        id: "hash-abc",
+        downloaderId: "dl-1",
+      });
+      mockGetEnabledIndexers.mockResolvedValue([
+        { id: "indexer-a", priority: 1 },
+        { id: "indexer-b", priority: 2 },
+      ]);
+      mockSearchAllIndexers.mockResolvedValue({
+        items: [
+          ITEM_INDEXER_A, // "Test Game SKIDROW"
+          {
+            ...ITEM_INDEXER_B,
+            title: "Test.Game.SKIDROW", // same release, dots instead of spaces
+          },
+        ],
+        errors: [],
+        total: 2,
+      });
+
+      await checkAutoSearch();
+
+      // After normalisation both titles match → de-duplicated to 1 → auto-download fires.
+      expect(mockAddDownloadWithFallback).toHaveBeenCalledTimes(1);
+    });
   });
 });

@@ -636,7 +636,18 @@ describe("QBittorrentClient - Advanced Features", () => {
     expect(fetchMock.mock.calls[4][0]).toBe("http://localhost:8080/api/v2/transfer/info");
   });
 
-  it("should surface error_string from qBittorrent when torrent state is error", async () => {
+  it.each([
+    {
+      label: "surfaces error_string when present",
+      error_string: "Cannot save /app/data/games: no such file or directory",
+      expectedError: "Cannot save /app/data/games: no such file or directory",
+    },
+    {
+      label: "falls back to 'Torrent error' when error_string is absent",
+      error_string: undefined,
+      expectedError: "Torrent error",
+    },
+  ])("qBittorrent error state: $label", async ({ error_string, expectedError }) => {
     const testDownloader = createTestDownloader();
 
     const loginResponse = {
@@ -645,29 +656,29 @@ describe("QBittorrentClient - Advanced Features", () => {
       headers: { get: () => "SID=123" },
     };
 
+    const torrent = {
+      hash: "aabbccddeeff00112233445566778899aabbccdd",
+      name: "Test Game",
+      state: "error",
+      category: "games",
+      progress: 0,
+      dlspeed: 0,
+      upspeed: 0,
+      eta: 0,
+      size: 0,
+      downloaded: 0,
+      uploaded: 0,
+      ratio: 0,
+      num_seeds: 0,
+      num_leechs: 0,
+      num_complete: 0,
+      num_incomplete: 0,
+      ...(error_string !== undefined && { error_string }),
+    };
+
     const torrentsInfoResponse = {
       ok: true,
-      json: async () => [
-        {
-          hash: "aabbccddeeff00112233445566778899aabbccdd",
-          name: "Test Game",
-          state: "error",
-          error_string: "Cannot save /app/data/games: no such file or directory",
-          category: "games",
-          progress: 0,
-          dlspeed: 0,
-          upspeed: 0,
-          eta: 0,
-          size: 0,
-          downloaded: 0,
-          uploaded: 0,
-          ratio: 0,
-          num_seeds: 0,
-          num_leechs: 0,
-          num_complete: 0,
-          num_incomplete: 0,
-        },
-      ],
+      json: async () => [torrent],
     };
 
     fetchMock.mockResolvedValueOnce(loginResponse).mockResolvedValueOnce(torrentsInfoResponse);
@@ -676,48 +687,6 @@ describe("QBittorrentClient - Advanced Features", () => {
 
     expect(downloads).toHaveLength(1);
     expect(downloads[0].status).toBe("error");
-    expect(downloads[0].error).toBe("Cannot save /app/data/games: no such file or directory");
-  });
-
-  it("should fall back to 'Torrent error' when error state has no error_string", async () => {
-    const testDownloader = createTestDownloader();
-
-    const loginResponse = {
-      ok: true,
-      text: async () => "Ok.",
-      headers: { get: () => "SID=123" },
-    };
-
-    const torrentsInfoResponse = {
-      ok: true,
-      json: async () => [
-        {
-          hash: "aabbccddeeff00112233445566778899aabbccdd",
-          name: "Test Game",
-          state: "error",
-          category: "games",
-          progress: 0,
-          dlspeed: 0,
-          upspeed: 0,
-          eta: 0,
-          size: 0,
-          downloaded: 0,
-          uploaded: 0,
-          ratio: 0,
-          num_seeds: 0,
-          num_leechs: 0,
-          num_complete: 0,
-          num_incomplete: 0,
-        },
-      ],
-    };
-
-    fetchMock.mockResolvedValueOnce(loginResponse).mockResolvedValueOnce(torrentsInfoResponse);
-
-    const downloads = await DownloaderManager.getAllDownloads(testDownloader);
-
-    expect(downloads).toHaveLength(1);
-    expect(downloads[0].status).toBe("error");
-    expect(downloads[0].error).toBe("Torrent error");
+    expect(downloads[0].error).toBe(expectedError);
   });
 });

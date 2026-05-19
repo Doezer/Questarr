@@ -111,6 +111,7 @@ interface QBittorrentTorrent {
   num_incomplete: number;
   category?: string;
   save_path?: string;
+  error_string?: string;
   [key: string]: unknown;
 }
 
@@ -2786,10 +2787,7 @@ export class QBittorrentClient implements DownloaderClient {
       seeders: torrent.num_seeds,
       leechers: torrent.num_leechs,
       ratio: torrent.ratio,
-      error:
-        torrent.state === "error"
-          ? (torrent["error_string"] as string) || "Torrent error"
-          : undefined,
+      error: torrent.state === "error" ? torrent.error_string || "Torrent error" : undefined,
       category: torrent.category,
     };
   }

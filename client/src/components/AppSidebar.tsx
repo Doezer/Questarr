@@ -187,12 +187,12 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: Readonly<Ap
                           : undefined
                       }
                     >
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2" aria-hidden={item.badge ? "true" : undefined}>
                         <item.icon className="w-4 h-4" />
                         <span>{item.title}</span>
                       </div>
                       {item.badge && (
-                        <Badge variant="secondary" className="ml-auto text-xs">
+                        <Badge variant="secondary" className="ml-auto text-xs" aria-hidden="true">
                           {item.badge}
                         </Badge>
                       )}

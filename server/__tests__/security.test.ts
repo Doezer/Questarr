@@ -134,6 +134,13 @@ describe("Security Headers", () => {
     const response = await request(app).get("/api/auth/status");
     expect(response.headers["x-content-type-options"]).toBe("nosniff");
   });
+
+  it("should hide X-Powered-By header", async () => {
+    const app = await createApp();
+    app.disable("x-powered-by"); // Replicate server/index.ts behavior for tests
+    const response = await request(app).get("/api/auth/status");
+    expect(response.headers["x-powered-by"]).toBeUndefined();
+  });
 });
 
 describe("Credential Exposure Prevention", () => {

@@ -18,6 +18,7 @@ import { nexusmodsClient } from "./nexusmods.js";
 import { storage } from "./storage.js";
 
 const app = express();
+app.disable("x-powered-by"); // 🛡️ Sentinel: Hide Express signature
 if (config.server.isProduction) {
   app.set("trust proxy", 1);
 }

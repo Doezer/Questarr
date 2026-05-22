@@ -19,6 +19,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Questarr is a video game management app inspired by the \*Arr ecosystem (Sonarr, Radarr). Users discover, track, and download games via automated indexer search and download client integration. Dark-themed UI built around visual game covers.
 
+## Design Context
+
+### Users
+
+Questarr is for self-hosting game collectors and power users who manage discovery, tracking, and downloads from a browser-based dashboard. On mobile, they are often checking status, searching for a title, reviewing availability, or triggering a quick action while away from their desk. The primary mobile job to be done is fast, confident control of the library from a phone in portrait orientation, with tablet support as a secondary context.
+
+### Brand Personality
+
+Questarr should feel focused, capable, and trustworthy. The current product language already points to a privacy-conscious, dark-first, cover-led interface built for enthusiasts; on mobile that should translate into a fast and utility-first experience rather than a decorative or playful one. The emotional goal is confidence through clarity: users should feel that core actions are always within reach and never fragile on small screens.
+
+### Aesthetic Direction
+
+Keep the dark-first, media-rich Questarr identity, but adapt it into a denser thumb-friendly control surface for phones. Preserve strong cover art, blue primary accents, and clear status color cues, while reducing visual chrome, avoiding cramped multi-column layouts, and prioritizing stacked flows, sticky context, and touchable surfaces. Mobile should feel like a deliberate field console for managing a game library, not a scaled-down desktop admin panel.
+
+### Design Principles
+
+1. Thumb-first navigation: primary actions and key navigation must stay reachable and comfortable with one-handed use.
+2. Speed over ornament: mobile layouts should surface the next useful action immediately and avoid decorative complexity that slows scanning.
+3. Preserve capability: core desktop functionality must remain available on mobile, but reorganized through progressive disclosure instead of compression.
+4. Cover-led clarity: game art and status signals should remain the visual anchor, with metadata condensed into scannable layers.
+5. Touch-safe density: interfaces can stay information-rich, but all controls need forgiving spacing and touch targets sized for real phones.
+
 ## Commands
 
 ```bash

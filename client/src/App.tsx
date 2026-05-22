@@ -6,6 +6,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import AppSidebar from "@/components/AppSidebar";
 import Header from "@/components/Header";
+import MobileBottomNav from "@/components/MobileBottomNav";
+import { getPageTitle } from "@/components/navigation-items";
 import { useBackgroundNotifications } from "@/hooks/use-background-notifications";
 import { AuthProvider } from "@/lib/auth";
 import { Suspense, lazy } from "react";
@@ -72,39 +74,6 @@ function App() {
     "--sidebar-width-icon": "4rem", // default icon width
   };
 
-  const getPageTitle = (path: string) => {
-    switch (path) {
-      case "/":
-        return "Library";
-      case "/discover":
-        return "Discover";
-      case "/search":
-        return "Search";
-      case "/downloads":
-        return "Downloads";
-      case "/indexers":
-        return "Indexers";
-      case "/downloaders":
-        return "Downloaders";
-      case "/settings":
-        return "Settings";
-      case "/calendar":
-        return "Calendar";
-      case "/wishlist":
-        return "Wishlist";
-      case "/xrel":
-        return "xREL.to releases";
-      case "/rss":
-        return "RSS Feeds";
-      case "/stats":
-        return "Statistics";
-      case "/logs":
-        return "Server Logs";
-      default:
-        return "Questarr";
-    }
-  };
-
   // If on login or setup page, render simplified layout without sidebar/header
   if (location === "/login" || location === "/setup") {
     return (
@@ -129,10 +98,11 @@ function App() {
                 <AppSidebar activeItem={location} onNavigate={navigate} />
                 <div className="flex flex-col flex-1 min-w-0">
                   <Header title={getPageTitle(location)} />
-                  <main className="flex-1 overflow-hidden">
+                  <main className="flex-1 overflow-hidden pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-0">
                     <AppContent />
                   </main>
                 </div>
+                <MobileBottomNav activeItem={location} onNavigate={navigate} />
               </div>
             </SidebarProvider>
             <Toaster />

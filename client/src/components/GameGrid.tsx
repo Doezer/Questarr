@@ -4,6 +4,7 @@ import CompactGameCard from "./CompactGameCard";
 import { type Game, type DownloadSummary } from "@shared/schema";
 import { type GameStatus } from "./StatusBadge";
 import { cn } from "@/lib/utils";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 interface GameGridProps {
   games: Game[];
@@ -34,6 +35,8 @@ export default function GameGrid({
   density = "comfortable",
   downloadSummaries,
 }: GameGridProps) {
+  const isMobile = useIsMobile();
+
   // Map column count to tailwind classes
   const gridColsClass = useMemo(() => {
     if (viewMode === "list") return "grid-cols-1";
@@ -42,23 +45,23 @@ export default function GameGrid({
       case 2:
         return "grid-cols-2";
       case 3:
-        return "grid-cols-3";
+        return "grid-cols-2 sm:grid-cols-3";
       case 4:
         return "grid-cols-2 sm:grid-cols-3 md:grid-cols-4";
       case 5:
-        return "grid-cols-3 sm:grid-cols-4 md:grid-cols-5";
+        return "grid-cols-2 sm:grid-cols-3 md:grid-cols-5";
       case 6:
-        return "grid-cols-3 sm:grid-cols-4 md:grid-cols-6";
+        return "grid-cols-2 sm:grid-cols-3 md:grid-cols-6";
       case 7:
-        return "grid-cols-3 sm:grid-cols-5 md:grid-cols-7";
+        return "grid-cols-2 sm:grid-cols-4 md:grid-cols-7";
       case 8:
-        return "grid-cols-4 sm:grid-cols-6 md:grid-cols-8";
+        return "grid-cols-2 sm:grid-cols-4 md:grid-cols-8";
       case 9:
-        return "grid-cols-4 sm:grid-cols-6 md:grid-cols-9";
+        return "grid-cols-2 sm:grid-cols-4 md:grid-cols-9";
       case 10:
-        return "grid-cols-5 sm:grid-cols-7 md:grid-cols-10";
+        return "grid-cols-2 sm:grid-cols-4 md:grid-cols-10";
       default:
-        return "grid-cols-3 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10";
+        return "grid-cols-2 sm:grid-cols-3 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10";
     }
   }, [columns, viewMode]);
 
@@ -96,6 +99,33 @@ export default function GameGrid({
   }
 
   if (viewMode === "list") {
+    if (isMobile) {
+      return (
+        <div
+          className={cn(
+            "space-y-3 transition-opacity duration-200",
+            isFetching && "opacity-50 pointer-events-none"
+          )}
+          data-testid="grid-games"
+          aria-busy={isFetching}
+        >
+          {games.map((game) => (
+            <CompactGameCard
+              key={game.id}
+              game={game}
+              onStatusChange={onStatusChange}
+              onViewDetails={onViewDetails}
+              onToggleHidden={onToggleHidden}
+              isDiscovery={isDiscovery}
+              density={density}
+              downloadSummary={downloadSummaries?.[game.id]}
+              mobileLayout={true}
+            />
+          ))}
+        </div>
+      );
+    }
+
     const rows = games.map((game) => (
       <CompactGameCard
         key={game.id}
@@ -145,7 +175,6 @@ export default function GameGrid({
       );
     }
 
-    // compact
     return (
       <div
         className={cn(listContainerClass, "gap-x-2 px-2")}
@@ -170,7 +199,6 @@ export default function GameGrid({
       </div>
     );
   }
-
   return (
     <div
       className={cn(

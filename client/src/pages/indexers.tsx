@@ -76,8 +76,8 @@ function PriorityControl({
         min={1}
         max={100}
         value={value}
-        onChange={(e) => setValue(parseInt(e.target.value) || 1)}
-        onBlur={(e) => save(parseInt(e.target.value) || 1)}
+        onChange={(e) => setValue(Number.parseInt(e.target.value, 10) || 1)}
+        onBlur={(e) => save(Number.parseInt(e.target.value, 10) || 1)}
         onKeyDown={(e) => e.key === "Enter" && save(value)}
         className="w-7 bg-transparent text-center outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
         aria-label="Priority value"
@@ -431,24 +431,29 @@ export default function IndexersPage() {
   }
 
   return (
-    <div className="h-full overflow-auto p-6">
-      <div className="flex justify-between items-center mb-6">
+    <div className="h-full overflow-auto p-4 sm:p-6">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Indexers</h1>
           <p className="text-muted-foreground text-sm mt-0.5">
             Manage Torznab and Newznab indexers for game discovery
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row">
           <Button
             variant="outline"
+            className="h-10 justify-center sm:h-9"
             onClick={() => setIsProwlarrDialogOpen(true)}
             data-testid="button-sync-prowlarr"
           >
             <RefreshCw className="h-4 w-4 mr-2" />
             Sync Prowlarr
           </Button>
-          <Button onClick={handleAdd} data-testid="button-add-indexer">
+          <Button
+            className="h-10 justify-center sm:h-9"
+            onClick={handleAdd}
+            data-testid="button-add-indexer"
+          >
             <Plus className="h-4 w-4 mr-2" />
             Add Indexer
           </Button>
@@ -464,10 +469,13 @@ export default function IndexersPage() {
               data-testid={`card-indexer-${indexer.id}`}
             >
               <CardHeader>
-                <div className="flex justify-between items-start">
-                  <div className="flex items-center space-x-3">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
                     <CardTitle
-                      className={cn("text-lg", !indexer.enabled && "text-muted-foreground")}
+                      className={cn(
+                        "min-w-0 break-words text-lg",
+                        !indexer.enabled && "text-muted-foreground"
+                      )}
                     >
                       {indexer.name}
                     </CardTitle>
@@ -499,7 +507,7 @@ export default function IndexersPage() {
                       onSave={(id, priority) => updatePriorityMutation.mutate({ id, priority })}
                     />
                   </div>
-                  <div className="flex items-center space-x-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <Button
                       variant="outline"
                       size="icon"
@@ -538,7 +546,9 @@ export default function IndexersPage() {
                     </Button>
                   </div>
                 </div>
-                <CardDescription className={cn(!indexer.enabled && "text-muted-foreground")}>
+                <CardDescription
+                  className={cn("break-all", !indexer.enabled && "text-muted-foreground")}
+                >
                   {indexer.url}
                 </CardDescription>
               </CardHeader>

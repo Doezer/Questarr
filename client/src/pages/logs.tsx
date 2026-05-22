@@ -21,6 +21,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 interface LogField {
   key: string;
@@ -252,6 +253,46 @@ const LogLineRow = memo(function LogLineRow({
   );
 });
 
+const LogLineCard = memo(function LogLineCard({
+  line,
+  isSelected,
+  onSelect,
+}: Readonly<{
+  line: ParsedLogLine;
+  isSelected: boolean;
+  onSelect: (line: ParsedLogLine) => void;
+}>) {
+  const timeStr = formatTime(line.time);
+  const summaryText = buildSummaryText(line.summaryFields);
+
+  return (
+    <button
+      type="button"
+      className={[
+        "w-full rounded-xl border border-zinc-800 bg-zinc-950/90 p-3 text-left transition-colors",
+        isSelected ? "ring-1 ring-primary/60" : "hover:bg-zinc-900/90",
+      ].join(" ")}
+      onClick={() => onSelect(line)}
+      data-testid="log-line-row"
+      aria-label={`Inspect log ${line.msg}`}
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs tabular-nums text-zinc-500">{timeStr}</span>
+        <span className={`rounded px-1.5 py-0.5 text-[11px] font-bold ${line.levelClass}`}>
+          {line.levelLabel}
+        </span>
+        {line.module && (
+          <span className="rounded-full bg-zinc-900 px-2 py-0.5 text-[11px] text-zinc-300">
+            {line.module}
+          </span>
+        )}
+      </div>
+      <p className="mt-2 break-words text-sm text-zinc-100">{line.msg}</p>
+      {summaryText !== "-" && <p className="mt-2 break-words text-xs text-zinc-400">{summaryText}</p>}
+    </button>
+  );
+});
+
 const InspectorFieldList = memo(function InspectorFieldList({
   fields,
   emptyState,
@@ -428,6 +469,7 @@ function LogInspector({
 
 export default function LogsPage() {
   const { toast } = useToast();
+  const isMobile = useIsMobile();
   const scrollRef = useRef<HTMLDivElement>(null);
   const userPausedRef = useRef(false);
   const [lines, setLines] = useState<ParsedLogLine[]>([]);
@@ -542,6 +584,7 @@ export default function LogsPage() {
     () => filteredLines.slice(startIndex, endIndex),
     [filteredLines, startIndex, endIndex]
   );
+  const linesToRender = isMobile ? filteredLines : visibleLines;
 
   const copyText = useCallback(
     (text: string, description: string) => {
@@ -584,8 +627,8 @@ export default function LogsPage() {
   };
 
   return (
-    <div className="flex h-full flex-col gap-4 p-6">
-      <div className="flex flex-shrink-0 items-start justify-between gap-4">
+    <div className="flex h-full flex-col gap-4 p-4 sm:p-6">
+      <div className="flex flex-shrink-0 flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
             <ScrollText className="h-6 w-6" />
@@ -595,7 +638,7 @@ export default function LogsPage() {
             Real-time server output &mdash; {filteredLines.length} lines displayed
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="outline"
             size="sm"
@@ -631,9 +674,9 @@ export default function LogsPage() {
         </div>
       </div>
 
-      <div className="flex flex-shrink-0 flex-wrap items-center gap-3">
+      <div className="flex flex-shrink-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
         <Select value={filterLevel} onValueChange={setFilterLevel}>
-          <SelectTrigger className="w-36" aria-label="Filter by log level">
+          <SelectTrigger className="w-full sm:w-36" aria-label="Filter by log level">
             <SelectValue placeholder="Level" />
           </SelectTrigger>
           <SelectContent>
@@ -647,7 +690,7 @@ export default function LogsPage() {
         </Select>
 
         <Select value={filterModule} onValueChange={setFilterModule}>
-          <SelectTrigger className="w-40" aria-label="Filter by module">
+          <SelectTrigger className="w-full sm:w-40" aria-label="Filter by module">
             <SelectValue placeholder="Module" />
           </SelectTrigger>
           <SelectContent>
@@ -660,7 +703,7 @@ export default function LogsPage() {
           </SelectContent>
         </Select>
 
-        <div className="relative min-w-[18rem] flex-1">
+        <div className="relative min-w-0 flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
           <Input
             value={filterText}
@@ -691,26 +734,37 @@ export default function LogsPage() {
             <p className="p-3 pt-8 text-center text-zinc-500">No log lines to display.</p>
           )}
           {filteredLines.length > 0 && (
-            <div className="min-w-max p-3">
-              <div className="mb-2 grid grid-cols-[5rem_4rem_6.5rem_minmax(18rem,2fr)_minmax(14rem,1.6fr)] gap-2 px-1 text-[11px] uppercase tracking-wide text-zinc-500">
-                <span className="text-right">Time</span>
-                <span className="text-center">Level</span>
-                <span>Module</span>
-                <span>Message</span>
-                <span>Context</span>
-              </div>
-              {topSpacerHeight > 0 && (
-                <div style={{ height: topSpacerHeight }} aria-hidden="true" />
+            <div className={isMobile ? "space-y-3 p-3" : "min-w-max p-3"}>
+              {!isMobile && (
+                <>
+                  <div className="mb-2 grid grid-cols-[5rem_4rem_6.5rem_minmax(18rem,2fr)_minmax(14rem,1.6fr)] gap-2 px-1 text-[11px] uppercase tracking-wide text-zinc-500">
+                    <span className="text-right">Time</span>
+                    <span className="text-center">Level</span>
+                    <span>Module</span>
+                    <span>Message</span>
+                    <span>Context</span>
+                  </div>
+                  {topSpacerHeight > 0 && <div style={{ height: topSpacerHeight }} aria-hidden="true" />}
+                </>
               )}
-              {visibleLines.map((line) => (
-                <LogLineRow
-                  key={line.id}
-                  line={line}
-                  isSelected={selectedLine?.id === line.id}
-                  onSelect={setSelectedLine}
-                />
-              ))}
-              {bottomSpacerHeight > 0 && (
+              {linesToRender.map((line) =>
+                isMobile ? (
+                  <LogLineCard
+                    key={line.id}
+                    line={line}
+                    isSelected={selectedLine?.id === line.id}
+                    onSelect={setSelectedLine}
+                  />
+                ) : (
+                  <LogLineRow
+                    key={line.id}
+                    line={line}
+                    isSelected={selectedLine?.id === line.id}
+                    onSelect={setSelectedLine}
+                  />
+                )
+              )}
+              {!isMobile && bottomSpacerHeight > 0 && (
                 <div style={{ height: bottomSpacerHeight }} aria-hidden="true" />
               )}
             </div>

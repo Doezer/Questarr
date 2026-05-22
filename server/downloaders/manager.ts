@@ -104,7 +104,10 @@ export class DownloaderManager {
       const client = this.createClient(downloader);
       return await client.getDownloadDetails(id);
     } catch (error) {
-      console.error("Error getting download details:", error);
+      downloadersLogger.error(
+        { error, downloaderId: downloader.id, id },
+        "Error getting download details"
+      );
       return null;
     }
   }

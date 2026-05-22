@@ -357,7 +357,7 @@ export class TransmissionClient implements DownloaderClient {
 
       return null;
     } catch (error) {
-      console.error("Error getting download details:", error);
+      downloadersLogger.error({ error, id }, "Error getting download details");
       return null;
     }
   }
@@ -623,7 +623,7 @@ export class TransmissionClient implements DownloaderClient {
     if (this.downloader.username && this.downloader.password) {
       const auth = Buffer.from(
         `${this.downloader.username}:${this.downloader.password}`,
-        "latin1"
+        "utf-8"
       ).toString("base64");
       headers["Authorization"] = `Basic ${auth}`;
     }

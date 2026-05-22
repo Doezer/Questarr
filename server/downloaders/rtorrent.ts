@@ -369,7 +369,7 @@ export class RTorrentClient implements DownloaderClient {
         connectedPeers: peersConnected,
       };
     } catch (error) {
-      console.error("Error getting download details:", error);
+      downloadersLogger.error({ error, id }, "Error getting download details");
       return null;
     }
   }
@@ -452,11 +452,14 @@ export class RTorrentClient implements DownloaderClient {
 
       // Use df with --output=avail to get just the available space
       // This is more portable and explicit than parsing columns
+      // Pass directory as a positional argument to avoid shell injection.
       const dfOutput = await this.makeXMLRPCRequest("execute.capture", [
         "",
         "sh",
         "-c",
-        `df --output=avail -B1 "${directory}" | tail -1`,
+        'df --output=avail -B1 "$1" | tail -1',
+        "sh",
+        directory,
       ]);
       downloadersLogger.debug({ dfOutput }, "Got df output from rTorrent");
 
@@ -679,7 +682,7 @@ export class RTorrentClient implements DownloaderClient {
     if (this.downloader.username && this.downloader.password) {
       const auth = Buffer.from(
         `${this.downloader.username}:${this.downloader.password}`,
-        "latin1"
+        "utf-8"
       ).toString("base64");
       headers["Authorization"] = `Basic ${auth}`;
     }

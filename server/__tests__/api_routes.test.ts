@@ -223,6 +223,19 @@ vi.mock("../downloaders.js", () => ({
   },
 }));
 
+vi.mock("../middleware.js", async () => {
+  const actual = await vi.importActual<typeof import("../middleware.js")>("../middleware.js");
+  const passthrough = (_req: Request, _res: Response, next: NextFunction) => next();
+
+  return {
+    ...actual,
+    sensitiveEndpointLimiter: passthrough,
+    authRateLimiter: passthrough,
+    igdbRateLimiter: passthrough,
+    generalApiLimiter: passthrough,
+  };
+});
+
 vi.mock("../steam-routes.js", () => ({
   steamRoutes: (_req: unknown, _res: unknown, next: () => void) => next(),
 }));

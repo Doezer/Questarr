@@ -176,11 +176,11 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: Readonly<Ap
                       }
                     >
                       <div className="flex items-center gap-2">
-                        <item.icon className="w-4 h-4" />
+                        <item.icon className="w-4 h-4" aria-hidden="true" />
                         <span>{item.title}</span>
                       </div>
                       {item.badge && (
-                        <Badge variant="secondary" className="ml-auto text-xs">
+                        <Badge variant="secondary" className="ml-auto text-xs" aria-hidden="true">
                           {item.badge}
                         </Badge>
                       )}
@@ -207,7 +207,7 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: Readonly<Ap
                       onClick={() => handleNavigation(item.url)}
                       className="flex items-center gap-2 w-full"
                     >
-                      <item.icon className="w-4 h-4" />
+                      <item.icon className="w-4 h-4" aria-hidden="true" />
                       <span>{item.title}</span>
                     </button>
                   </SidebarMenuButton>

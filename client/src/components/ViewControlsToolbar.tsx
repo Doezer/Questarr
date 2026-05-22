@@ -1,21 +1,14 @@
 import React from "react";
-import { LayoutGrid, List, Settings2 } from "lucide-react";
+import { LayoutGrid, List, Rows2, Rows3 } from "lucide-react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface ViewControlsToolbarProps {
   viewMode: "grid" | "list";
   onViewModeChange: (mode: "grid" | "list") => void;
-  listDensity: "comfortable" | "compact" | "ultra-compact";
-  onListDensityChange: (density: "comfortable" | "compact" | "ultra-compact") => void;
+  listDensity: "comfortable" | "compact";
+  onListDensityChange: (density: "comfortable" | "compact") => void;
 }
 
 export default function ViewControlsToolbar({
@@ -24,36 +17,29 @@ export default function ViewControlsToolbar({
   listDensity,
   onListDensityChange,
 }: ViewControlsToolbarProps) {
+  const toggleDensity = () =>
+    onListDensityChange(listDensity === "comfortable" ? "compact" : "comfortable");
+
   return (
     <>
       {viewMode === "list" && (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="h-8 gap-1">
-              <Settings2 className="h-3.5 w-3.5" />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={toggleDensity}>
+              {listDensity === "comfortable" ? (
+                <Rows3 className="h-3.5 w-3.5" />
+              ) : (
+                <Rows2 className="h-3.5 w-3.5" />
+              )}
               <span className="sr-only sm:not-sr-only sm:inline-block">
-                {listDensity === "comfortable"
-                  ? "Comfortable"
-                  : listDensity === "compact"
-                    ? "Compact"
-                    : "Ultra-compact"}
+                {listDensity === "comfortable" ? "Comfortable" : "Compact"}
               </span>
             </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuLabel>Row Density</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => onListDensityChange("comfortable")}>
-              Comfortable
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onListDensityChange("compact")}>
-              Compact
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onListDensityChange("ultra-compact")}>
-              Ultra-compact
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+          </TooltipTrigger>
+          <TooltipContent>
+            Switch to {listDensity === "comfortable" ? "compact" : "comfortable"}
+          </TooltipContent>
+        </Tooltip>
       )}
       <ToggleGroup
         type="single"

@@ -1,10 +1,10 @@
 import { useLocalStorageState } from "./use-local-storage-state";
 
 export type ViewMode = "grid" | "list";
-export type ListDensity = "comfortable" | "compact" | "ultra-compact";
+export type ListDensity = "comfortable" | "compact";
 
 const VALID_VIEW_MODES: ViewMode[] = ["grid", "list"];
-const VALID_DENSITIES: ListDensity[] = ["comfortable", "compact", "ultra-compact"];
+const VALID_DENSITIES: ListDensity[] = ["comfortable", "compact"];
 
 export function useViewControls(pageKey: string) {
   const [viewMode, setViewMode] = useLocalStorageState<string>(`${pageKey}ViewMode`, "grid");

@@ -125,3 +125,22 @@ export function safeUrl(url: string, fallback = "#"): string {
 export function getNextStatusLabel(status: Game["status"]): string {
   return status === "wanted" ? "Owned" : status === "owned" ? "Completed" : "Wanted";
 }
+
+/**
+ * Parses an ISO release date string into a display year and an optional full date.
+ * IGDB represents year-only known dates as YYYY-12-31; fullDate is null in that case.
+ * fullDate is formatted as dd/mm/yyyy using UTC to avoid timezone shifts.
+ */
+export function parseReleaseDate(isoDate: string | null | undefined): {
+  year: string;
+  fullDate: string | null;
+} {
+  if (!isoDate) return { year: "TBA", fullDate: null };
+  const year = isoDate.slice(0, 4);
+  if (isoDate.endsWith("-12-31")) return { year, fullDate: null };
+  const date = new Date(isoDate);
+  if (isNaN(date.getTime())) return { year, fullDate: null };
+  const dd = String(date.getUTCDate()).padStart(2, "0");
+  const mm = String(date.getUTCMonth() + 1).padStart(2, "0");
+  return { year, fullDate: `${dd}/${mm}/${date.getUTCFullYear()}` };
+}

@@ -25,6 +25,8 @@ import { type Game } from "@shared/schema";
 import { categorizeDownload, type DownloadCategory } from "@shared/download-categorizer";
 import { releaseMatchesGame } from "@shared/title-utils";
 import { apiRequest } from "@/lib/queryClient";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { parseReleaseDate } from "@/lib/utils";
 
 interface ClaimDownload {
   id: string;
@@ -356,9 +358,22 @@ function GameRow({
       )}
       <div className="flex-1 min-w-0">
         <p className="font-medium text-sm truncate">{game.title}</p>
-        {game.releaseDate && (
-          <p className="text-xs text-muted-foreground">{game.releaseDate.substring(0, 4)}</p>
-        )}
+        {game.releaseDate &&
+          (() => {
+            const { year, fullDate } = parseReleaseDate(game.releaseDate);
+            return fullDate ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <p className="text-xs text-muted-foreground cursor-default">{year}</p>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{fullDate}</p>
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              <p className="text-xs text-muted-foreground">{year}</p>
+            );
+          })()}
       </div>
       {selected && <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />}
     </button>

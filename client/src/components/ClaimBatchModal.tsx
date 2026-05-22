@@ -18,6 +18,8 @@ import { useToast } from "@/hooks/use-toast";
 import { type Game } from "@shared/schema";
 import { type DownloadCategory } from "@shared/download-categorizer";
 import { apiRequest } from "@/lib/queryClient";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { parseReleaseDate } from "@/lib/utils";
 
 interface ScanDownload {
   downloaderId: string;
@@ -498,11 +500,24 @@ function GroupRow({
                           <div className="h-8 w-6 rounded bg-muted shrink-0" />
                         )}
                         <span className="truncate">{g.title}</span>
-                        {g.releaseDate && (
-                          <span className="text-xs text-muted-foreground shrink-0">
-                            {new Date(g.releaseDate).getFullYear()}
-                          </span>
-                        )}
+                        {g.releaseDate &&
+                          (() => {
+                            const { year, fullDate } = parseReleaseDate(g.releaseDate);
+                            return fullDate ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="text-xs text-muted-foreground shrink-0 cursor-default">
+                                    {year}
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>{fullDate}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            ) : (
+                              <span className="text-xs text-muted-foreground shrink-0">{year}</span>
+                            );
+                          })()}
                       </button>
                     ))
                   )}

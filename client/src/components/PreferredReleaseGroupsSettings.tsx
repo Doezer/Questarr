@@ -126,8 +126,9 @@ export default function PreferredReleaseGroupsSettings({
                 size="icon"
                 onClick={handleAddGroup}
                 disabled={!inputValue.trim()}
+                aria-label="Add preferred release group"
               >
-                <Plus className="h-4 w-4" />
+                <Plus className="h-4 w-4" aria-hidden="true" />
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">

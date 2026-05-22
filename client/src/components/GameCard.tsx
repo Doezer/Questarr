@@ -10,7 +10,12 @@ import DownloadIndicator from "./DownloadIndicator";
 import SearchResultsBadge from "./SearchResultsBadge";
 import { useState, memo, useRef, useEffect, lazy, Suspense } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { mapGameToInsertGame, isDiscoveryId, getNextStatusLabel } from "@/lib/utils";
+import {
+  mapGameToInsertGame,
+  isDiscoveryId,
+  getNextStatusLabel,
+  parseReleaseDate,
+} from "@/lib/utils";
 import { apiRequest, ApiError } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import LazyModalFallback from "./LazyModalFallback";
@@ -128,6 +133,7 @@ const GameCard = ({
   };
 
   const nextStatusLabel = getNextStatusLabel(game.status);
+  const { year: releaseYear, fullDate: releaseFullDate } = parseReleaseDate(game.releaseDate);
 
   return (
     <Card
@@ -283,16 +289,14 @@ const GameCard = ({
               <div
                 className="flex items-center gap-1"
                 role="img"
-                aria-label={`Release Date: ${game.releaseDate ? game.releaseDate.slice(0, 4) : "To be announced"}`}
+                aria-label={`Release Date: ${releaseYear}`}
               >
                 <Calendar className="w-3 h-3" aria-hidden="true" />
-                <span data-testid={`text-release-${game.id}`}>
-                  {game.releaseDate ? game.releaseDate.slice(0, 4) : "TBA"}
-                </span>
+                <span data-testid={`text-release-${game.id}`}>{releaseYear}</span>
               </div>
             </TooltipTrigger>
             <TooltipContent>
-              <p>Release Date</p>
+              <p>{releaseFullDate ?? "Release Date"}</p>
             </TooltipContent>
           </Tooltip>
         </div>

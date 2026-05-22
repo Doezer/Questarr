@@ -8,7 +8,7 @@ import { type Game, type DownloadSummary } from "@shared/schema";
 import DownloadIndicator from "./DownloadIndicator";
 import SearchResultsBadge from "./SearchResultsBadge";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { mapGameToInsertGame, isDiscoveryId, cn } from "@/lib/utils";
+import { mapGameToInsertGame, isDiscoveryId, cn, parseReleaseDate } from "@/lib/utils";
 import { apiRequest, ApiError } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import LazyModalFallback from "./LazyModalFallback";
@@ -124,9 +124,7 @@ const CompactGameCard = ({
   };
   const handleToggleHidden = () => onToggleHidden?.(game.id, !game.hidden);
 
-  const releaseYear = game.releaseDate
-    ? (game.releaseDate.match(/\d{4}/)?.[0] ?? game.releaseDate)
-    : "TBA";
+  const { year: releaseYear, fullDate: releaseFullDate } = parseReleaseDate(game.releaseDate);
   const ratingDisplay = game.rating != null ? game.rating.toFixed(1) : null;
 
   return (
@@ -291,7 +289,18 @@ const CompactGameCard = ({
         {/* Release */}
         <div className="flex items-center justify-center gap-1">
           <Calendar className="w-3 h-3 text-muted-foreground/50 flex-shrink-0" />
-          <span className="text-xs text-muted-foreground">{releaseYear}</span>
+          {releaseFullDate ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="text-xs text-muted-foreground cursor-default">{releaseYear}</span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{releaseFullDate}</p>
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <span className="text-xs text-muted-foreground">{releaseYear}</span>
+          )}
         </div>
 
         {/* Status */}

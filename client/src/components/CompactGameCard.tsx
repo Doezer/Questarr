@@ -16,8 +16,6 @@ import { getReleaseStatus } from "@/lib/game-utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Slider } from "@/components/ui/slider";
 
-// ⚡ Bolt: Lazy load heavy modal components to reduce initial bundle size.
-// These are only needed when the user interacts with the card.
 const GameDetailsModal = lazy(() => import("./GameDetailsModal"));
 const GameDownloadDialog = lazy(() => import("./GameDownloadDialog"));
 
@@ -27,11 +25,20 @@ interface CompactGameCardProps {
   onViewDetails?: (gameId: string) => void;
   onToggleHidden?: (gameId: string, hidden: boolean) => void;
   isDiscovery?: boolean;
-  density?: "comfortable" | "compact" | "ultra-compact";
+  density?: "comfortable" | "compact";
   downloadSummary?: DownloadSummary;
+  /** When true, the row uses CSS subgrid (parent must provide the grid context). */
+  useSubgrid?: boolean;
 }
 
 const DEFAULT_RATING = 5;
+
+// Comfortable: Cover | Title | Genres | Score | My Score | Release | Status | Type | Actions
+// Compact:           Title | Genres | Score | My Score | Release | Status | Type | Actions
+const GRID_COLS = {
+  comfortable: "52px 1fr 180px 64px 64px 76px 90px 90px auto",
+  compact: "1fr 180px 64px 64px 76px 90px 90px auto",
+} as const;
 
 const getNextStatusInfo = (status: GameStatus): { id: GameStatus; label: string } => {
   if (status === "wanted") return { id: "owned", label: "Owned" };
@@ -47,6 +54,7 @@ const CompactGameCard = ({
   isDiscovery = false,
   density = "comfortable",
   downloadSummary,
+  useSubgrid = false,
 }: CompactGameCardProps) => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -54,20 +62,15 @@ const CompactGameCard = ({
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [popoverRating, setPopoverRating] = useState<number>(game.userRating ?? DEFAULT_RATING);
   const releaseStatus = getReleaseStatus(game);
-
-  // Keep track of the resolved game object (either original or newly added)
   const [resolvedGame, setResolvedGame] = useState<Game>(game);
 
-  // Update resolved game if props change
   useEffect(() => {
     setResolvedGame(game);
   }, [game]);
 
-  // For auto-adding games when downloading from Discovery
   const addGameMutation = useMutation<Game, Error, Game>({
     mutationFn: async (game: Game) => {
       const gameData = mapGameToInsertGame(game);
-
       try {
         const response = await apiRequest("POST", "/api/games", {
           ...gameData,
@@ -75,13 +78,9 @@ const CompactGameCard = ({
         });
         return response.json() as Promise<Game>;
       } catch (error) {
-        // Handle 409 Conflict (already in library)
         if (error instanceof ApiError && error.status === 409) {
           const data = error.data as Record<string, unknown>;
-          if (data?.game) {
-            return data.game as Game;
-          }
-          // Fallback if data format is unexpected but we know it's a 409
+          if (data?.game) return data.game as Game;
           return game;
         }
         throw error;
@@ -101,17 +100,12 @@ const CompactGameCard = ({
     onError: () => toast({ description: "Failed to save your rating", variant: "destructive" }),
   });
 
-  const handleStatusClick = () => {
-    onStatusChange?.(game.id, getNextStatusInfo(game.status).id);
-  };
-
+  const handleStatusClick = () => onStatusChange?.(game.id, getNextStatusInfo(game.status).id);
   const handleDetailsClick = () => {
     setDetailsOpen(true);
     onViewDetails?.(game.id);
   };
-
   const handleDownloadClick = async () => {
-    // If it's a discovery game (temporary ID), add it to library first
     if (isDiscoveryId(resolvedGame.id)) {
       try {
         const gameInLibrary = await addGameMutation.mutateAsync(resolvedGame);
@@ -128,33 +122,41 @@ const CompactGameCard = ({
       setDownloadOpen(true);
     }
   };
+  const handleToggleHidden = () => onToggleHidden?.(game.id, !game.hidden);
 
-  const handleToggleHidden = () => {
-    onToggleHidden?.(game.id, !game.hidden);
-  };
+  const releaseYear = game.releaseDate
+    ? (game.releaseDate.match(/\d{4}/)?.[0] ?? game.releaseDate)
+    : "TBA";
+  const ratingDisplay = game.rating != null ? game.rating.toFixed(1) : null;
 
   return (
     <>
       <div
         onClick={handleDetailsClick}
+        style={
+          useSubgrid
+            ? { gridColumn: "1 / -1", gridTemplateColumns: "subgrid" }
+            : { gridTemplateColumns: GRID_COLS[density] }
+        }
         className={cn(
-          "group flex items-center transition-colors hover:bg-accent/50 cursor-pointer",
+          "group grid items-center cursor-pointer transition-all duration-150",
           game.hidden && "opacity-60 grayscale",
           density === "comfortable" &&
-            "gap-4 p-3 rounded-lg border bg-card text-card-foreground shadow-sm",
-          density === "compact" &&
-            "gap-3 py-1.5 px-2 border-b border-slate-700/50 bg-transparent rounded-none",
-          density === "ultra-compact" &&
-            "gap-2 py-1 px-2 border-b border-slate-700/50 bg-transparent rounded-none"
+            useSubgrid &&
+            "py-2 border-b border-border/40 hover:bg-accent/30",
+          density === "comfortable" &&
+            !useSubgrid &&
+            "gap-3 pl-[13px] pr-3 py-2 border-l-[3px] border-l-transparent hover:bg-accent/30 hover:border-l-primary",
+          density === "compact" && "gap-2 px-2 py-1 border-b border-slate-700/50 hover:bg-accent/20"
         )}
         data-testid={`card-game-compact-${game.id}`}
       >
-        {/* Cover Image */}
-        {density !== "ultra-compact" && (
+        {/* Cover */}
+        {density !== "compact" && (
           <div
             className={cn(
-              "flex-shrink-0 relative overflow-hidden bg-muted",
-              density === "comfortable" ? "w-16 h-24 rounded" : "w-8 h-8 rounded-sm"
+              "flex-shrink-0 overflow-hidden bg-muted",
+              density === "comfortable" ? "h-[68px] w-[52px] rounded" : "h-9 w-9 rounded-sm"
             )}
           >
             <img
@@ -167,184 +169,159 @@ const CompactGameCard = ({
           </div>
         )}
 
-        {/* Content */}
-        <div
-          className={cn(
-            "flex-grow min-w-0 flex",
-            density === "ultra-compact" ? "flex-row items-center gap-4" : "flex-col gap-1"
-          )}
-        >
-          <div className="flex items-center gap-2 flex-wrap min-w-0">
-            <h3
-              className={cn(
-                "font-semibold truncate",
-                density === "comfortable" ? "text-base" : "text-sm"
-              )}
-              data-testid={`text-title-${game.id}`}
-            >
-              {game.title}
-            </h3>
-            <DownloadIndicator summary={downloadSummary} variant="inline" />
-            {!isDiscovery && game.status && (
-              <div className={density !== "comfortable" ? "scale-90 origin-left" : ""}>
-                <StatusBadge status={game.status} />
-              </div>
-            )}
-            <SearchResultsBadge visible={game.searchResultsAvailable ?? false} variant="inline" />
-          </div>
-
-          <div
+        {/* Title */}
+        <div className="flex items-center gap-2 min-w-0">
+          <h3
             className={cn(
-              "flex items-center text-muted-foreground",
-              density === "ultra-compact" ? "gap-3 text-xs ml-auto" : "gap-4 text-xs"
+              "font-medium truncate",
+              density === "comfortable" ? "text-sm" : "text-xs"
             )}
+            data-testid={`text-title-${game.id}`}
           >
-            {/* Rating */}
-            <div className="flex items-center gap-1">
-              <Star className="w-3 h-3 text-accent" />
-              <span>{game.rating ? `${game.rating}/10` : "N/A"}</span>
-            </div>
+            {game.title}
+          </h3>
+          <DownloadIndicator summary={downloadSummary} variant="inline" />
+          <SearchResultsBadge visible={game.searchResultsAvailable ?? false} variant="inline" />
+        </div>
 
-            {/* User Rating */}
-            {!isDiscovery &&
-              (density === "comfortable" ? (
-                <Popover
-                  onOpenChange={(open) => {
-                    if (open) setPopoverRating(game.userRating ?? DEFAULT_RATING);
-                  }}
+        {/* Genres */}
+        {density === "comfortable" ? (
+          <div className="flex items-center gap-1 min-w-0 overflow-hidden">
+            {game.genres && game.genres.length > 0 ? (
+              game.genres.slice(0, 2).map((genre) => (
+                <span
+                  key={genre}
+                  className="text-[10px] bg-muted/70 text-muted-foreground rounded-full px-1.5 py-0.5 truncate max-w-[72px]"
                 >
-                  <PopoverTrigger asChild>
-                    <button
-                      className="flex items-center gap-1 hover:text-foreground transition-colors"
-                      onClick={(e) => e.stopPropagation()}
-                      aria-label={
-                        game.userRating != null
-                          ? `My rating: ${game.userRating}/10. Click to change.`
-                          : "Rate this game"
-                      }
-                    >
-                      <Star className="w-3 h-3 fill-primary text-primary" />
-                      <span>{game.userRating != null ? `${game.userRating}/10` : "Rate"}</span>
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent
-                    className="w-64 p-4 space-y-3"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium">My Rating</span>
-                      <span className="text-sm font-bold">{popoverRating}/10</span>
-                    </div>
-                    <Slider
-                      min={0.5}
-                      max={10}
-                      step={0.5}
-                      value={[popoverRating]}
-                      onValueChange={([val]) => setPopoverRating(val)}
-                      onValueCommit={([val]) =>
-                        userRatingMutation.mutate({ gameId: game.id, userRating: val })
-                      }
-                      aria-label="My rating"
-                    />
-                    {game.userRating != null && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="w-full h-7 text-xs text-muted-foreground"
-                        onClick={() => {
-                          setPopoverRating(DEFAULT_RATING);
-                          userRatingMutation.mutate({ gameId: game.id, userRating: null });
-                        }}
-                      >
-                        Clear rating
-                      </Button>
-                    )}
-                  </PopoverContent>
-                </Popover>
-              ) : game.userRating != null ? (
-                <div className="flex items-center gap-1">
-                  <Star className="w-3 h-3 fill-primary text-primary" />
-                  <span>{game.userRating}/10</span>
-                </div>
-              ) : null)}
-
-            {/* Release Date */}
-            <div className="flex items-center gap-1">
-              <Calendar className="w-3 h-3" />
-              <span>{game.releaseDate || "TBA"}</span>
-            </div>
-
-            {/* Release Status Badge */}
-            {game.status === "wanted" && (
-              <Badge
-                variant={releaseStatus.variant}
-                className={`text-xs h-5 px-1.5 ${releaseStatus.className || ""}`}
-              >
-                {releaseStatus.label}
-              </Badge>
-            )}
-
-            {/* Early Access Badge */}
-            {game.earlyAccess && (
-              <Badge className="text-xs h-5 px-1.5 bg-amber-500 border-amber-600 text-white">
-                Early Access
-              </Badge>
-            )}
-
-            {/* Hidden Badge */}
-            {game.hidden && (
-              <Badge
-                variant="secondary"
-                className={cn(
-                  "text-xs h-5 px-1.5 bg-gray-500 text-white",
-                  density !== "comfortable" ? "h-4 px-1 text-[9px]" : ""
-                )}
-              >
-                Hidden
-              </Badge>
-            )}
-
-            {/* Genres */}
-            {density !== "comfortable" && (
-              <div
-                className={cn(
-                  "hidden sm:flex items-center",
-                  density === "ultra-compact" ? "gap-2 ml-4 border-l pl-4" : "gap-1"
-                )}
-              >
-                {game.genres && game.genres.length > 0 ? (
-                  <span className="truncate max-w-[200px]">
-                    {game.genres.slice(0, 3).join(" • ")}
-                  </span>
-                ) : null}
-              </div>
+                  {genre}
+                </span>
+              ))
+            ) : (
+              <span className="text-xs text-muted-foreground/40">—</span>
             )}
           </div>
+        ) : (
+          <div className="min-w-0 overflow-hidden">
+            {game.genres && game.genres.length > 0 ? (
+              <span className="text-xs text-muted-foreground/70 truncate block">
+                {game.genres.slice(0, 2).join(" • ")}
+              </span>
+            ) : (
+              <span className="text-xs text-muted-foreground/30">—</span>
+            )}
+          </div>
+        )}
 
-          {/* Genres (Comfortable Mode) */}
-          {density === "comfortable" && (
-            <div className="flex flex-wrap gap-1 mt-1">
-              {game.genres && game.genres.length > 0 ? (
-                game.genres.slice(0, 3).map((genre) => (
-                  <span key={genre} className="text-xs bg-muted px-1.5 py-0.5 rounded-sm">
-                    {genre}
+        {/* Score (IGDB) */}
+        <div className="flex items-center justify-center gap-1 tabular-nums">
+          <Star className="w-3 h-3 text-amber-400 flex-shrink-0" />
+          <span className="text-xs text-muted-foreground">
+            {ratingDisplay ?? <span className="opacity-40">—</span>}
+          </span>
+        </div>
+        {/* My Score — comfortable gets interactive popover, compact shows static value */}
+        <div className="flex items-center justify-center">
+          {density === "comfortable" && !isDiscovery ? (
+            <Popover
+              onOpenChange={(open) => {
+                if (open) setPopoverRating(game.userRating ?? DEFAULT_RATING);
+              }}
+            >
+              <PopoverTrigger asChild>
+                <button
+                  className="flex items-center gap-1 tabular-nums hover:text-foreground text-muted-foreground transition-colors"
+                  onClick={(e) => e.stopPropagation()}
+                  aria-label={
+                    game.userRating != null
+                      ? `My rating: ${game.userRating}/10. Click to change.`
+                      : "Rate this game"
+                  }
+                >
+                  <Star className="w-3 h-3 fill-primary text-primary flex-shrink-0" />
+                  <span className="text-xs">
+                    {game.userRating != null ? (
+                      game.userRating.toFixed(1)
+                    ) : (
+                      <span className="opacity-40">—</span>
+                    )}
                   </span>
-                ))
-              ) : (
-                <span className="text-xs text-muted-foreground">No genres</span>
-              )}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-64 p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">My Rating</span>
+                  <span className="text-sm font-bold">{popoverRating}/10</span>
+                </div>
+                <Slider
+                  min={0.5}
+                  max={10}
+                  step={0.5}
+                  value={[popoverRating]}
+                  onValueChange={([val]) => setPopoverRating(val)}
+                  onValueCommit={([val]) =>
+                    userRatingMutation.mutate({ gameId: game.id, userRating: val })
+                  }
+                  aria-label="My rating"
+                />
+                {game.userRating != null && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full h-7 text-xs text-muted-foreground"
+                    onClick={() => {
+                      setPopoverRating(DEFAULT_RATING);
+                      userRatingMutation.mutate({ gameId: game.id, userRating: null });
+                    }}
+                  >
+                    Clear rating
+                  </Button>
+                )}
+              </PopoverContent>
+            </Popover>
+          ) : !isDiscovery && game.userRating != null ? (
+            <div className="flex items-center gap-1 tabular-nums">
+              <Star className="w-3 h-3 fill-primary text-primary flex-shrink-0" />
+              <span className="text-xs text-muted-foreground">{game.userRating.toFixed(1)}</span>
             </div>
+          ) : (
+            <span className="text-xs text-muted-foreground/30">—</span>
+          )}
+        </div>
+
+        {/* Release */}
+        <div className="flex items-center justify-center gap-1">
+          <Calendar className="w-3 h-3 text-muted-foreground/50 flex-shrink-0" />
+          <span className="text-xs text-muted-foreground">{releaseYear}</span>
+        </div>
+
+        {/* Status */}
+        <div className="flex items-center justify-center">
+          {!isDiscovery && game.status && <StatusBadge status={game.status} />}
+        </div>
+        {/* Type (release status, EA, hidden) */}
+        <div className="flex items-center justify-center gap-0.5 flex-wrap">
+          {!isDiscovery && game.status === "wanted" && (
+            <Badge
+              variant={releaseStatus.variant}
+              className={cn("text-[9px] h-4 px-1", releaseStatus.className)}
+            >
+              {releaseStatus.label}
+            </Badge>
+          )}
+          {game.earlyAccess && (
+            <Badge className="text-[9px] h-4 px-1 bg-amber-500 border-amber-600 text-white">
+              EA
+            </Badge>
+          )}
+          {game.hidden && (
+            <Badge variant="secondary" className="text-[9px] h-4 px-1 bg-gray-500 text-white">
+              Hidden
+            </Badge>
           )}
         </div>
 
         {/* Actions */}
-        <div
-          className={cn(
-            "flex items-center self-center",
-            density === "ultra-compact" ? "gap-1 ml-4" : "gap-2"
-          )}
-          onClick={(e) => e.stopPropagation()}
-        >
+        <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
           {isDiscovery ? (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -353,46 +330,45 @@ const CompactGameCard = ({
                   variant="default"
                   className={cn(
                     "transition-all",
-                    density !== "comfortable" ? "h-6 w-6" : "h-8 w-8"
+                    density === "comfortable" ? "h-7 w-7" : "h-6 w-6"
                   )}
                   onClick={handleDownloadClick}
                   disabled={addGameMutation.isPending}
                   aria-label={`Download ${game.title}`}
                 >
                   {addGameMutation.isPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <Loader2 className="h-3 w-3 animate-spin" />
                   ) : (
-                    <Download className={density !== "comfortable" ? "w-3 h-3" : "w-4 h-4"} />
+                    <Download className="w-3 h-3" />
                   )}
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Download</TooltipContent>
             </Tooltip>
           ) : (
-            <Button
-              variant="outline"
-              size="sm"
-              className={cn(
-                "hidden sm:flex",
-                density !== "comfortable"
-                  ? "h-6 w-6 p-0 border-0 hover:bg-slate-700"
-                  : "h-8 text-xs"
-              )}
-              onClick={handleStatusClick}
-              aria-label={`Mark ${game.title} as ${getNextStatusInfo(game.status).label}`}
-            >
-              {density !== "comfortable" ? (
-                game.status === "wanted" ? (
-                  <span title="Mark Owned">📂</span>
-                ) : game.status === "owned" ? (
-                  <span title="Mark Completed">✔</span>
-                ) : (
-                  <span title="Mark Wanted">★</span>
-                )
-              ) : (
-                `Mark ${getNextStatusInfo(game.status).label}`
-              )}
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn(
+                    "hidden sm:flex transition-all text-muted-foreground hover:text-foreground",
+                    density === "comfortable" ? "h-7 w-7" : "h-6 w-6"
+                  )}
+                  onClick={handleStatusClick}
+                  aria-label={`Mark ${game.title} as ${getNextStatusInfo(game.status).label}`}
+                >
+                  {game.status === "wanted" ? (
+                    <span className="text-[11px]">📂</span>
+                  ) : game.status === "owned" ? (
+                    <span className="text-[11px]">✔</span>
+                  ) : (
+                    <span className="text-[11px]">★</span>
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Mark {getNextStatusInfo(game.status).label}</TooltipContent>
+            </Tooltip>
           )}
 
           <Tooltip>
@@ -400,11 +376,14 @@ const CompactGameCard = ({
               <Button
                 size="icon"
                 variant="ghost"
-                className={cn("transition-all", density !== "comfortable" ? "h-6 w-6" : "h-8 w-8")}
+                className={cn(
+                  "transition-all text-muted-foreground hover:text-foreground",
+                  density === "comfortable" ? "h-7 w-7" : "h-6 w-6"
+                )}
                 onClick={handleDetailsClick}
                 aria-label={`View details for ${game.title}`}
               >
-                <Info className={density !== "comfortable" ? "w-3 h-3" : "w-4 h-4"} />
+                <Info className="w-3 h-3" />
               </Button>
             </TooltipTrigger>
             <TooltipContent>View Details</TooltipContent>
@@ -417,17 +396,13 @@ const CompactGameCard = ({
                   size="icon"
                   variant="ghost"
                   className={cn(
-                    "transition-all",
-                    density !== "comfortable" ? "h-6 w-6" : "h-8 w-8"
+                    "transition-all text-muted-foreground hover:text-foreground",
+                    density === "comfortable" ? "h-7 w-7" : "h-6 w-6"
                   )}
                   onClick={handleToggleHidden}
                   aria-label={game.hidden ? `Unhide ${game.title}` : `Hide ${game.title}`}
                 >
-                  {game.hidden ? (
-                    <Eye className={density !== "comfortable" ? "w-3 h-3" : "w-4 h-4"} />
-                  ) : (
-                    <EyeOff className={density !== "comfortable" ? "w-3 h-3" : "w-4 h-4"} />
-                  )}
+                  {game.hidden ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
                 </Button>
               </TooltipTrigger>
               <TooltipContent>{game.hidden ? "Unhide" : "Hide"}</TooltipContent>

@@ -16,7 +16,7 @@ interface GameGridProps {
   isFetching?: boolean;
   columns?: number;
   viewMode?: "grid" | "list";
-  density?: "comfortable" | "compact" | "ultra-compact";
+  density?: "comfortable" | "compact";
   downloadSummaries?: Record<string, DownloadSummary>;
 }
 
@@ -95,6 +95,82 @@ export default function GameGrid({
     );
   }
 
+  if (viewMode === "list") {
+    const rows = games.map((game) => (
+      <CompactGameCard
+        key={game.id}
+        game={game}
+        onStatusChange={onStatusChange}
+        onViewDetails={onViewDetails}
+        onToggleHidden={onToggleHidden}
+        isDiscovery={isDiscovery}
+        density={density}
+        downloadSummary={downloadSummaries?.[game.id]}
+        useSubgrid={true}
+      />
+    ));
+
+    const listContainerClass = cn(
+      "grid rounded-lg border border-border bg-card overflow-hidden transition-opacity duration-200",
+      isFetching && "opacity-50 pointer-events-none"
+    );
+
+    const headerCellClass =
+      "text-[10px] uppercase tracking-widest text-muted-foreground font-medium";
+
+    if (density === "comfortable") {
+      return (
+        <div
+          className={cn(listContainerClass, "gap-x-3 px-3")}
+          style={{ gridTemplateColumns: "52px 1fr 180px 64px 64px 76px 90px 90px auto" }}
+          data-testid="grid-games"
+          aria-busy={isFetching}
+        >
+          <div
+            className="col-span-full grid items-center py-2 border-b border-border bg-muted/40"
+            style={{ gridTemplateColumns: "subgrid" }}
+          >
+            <div />
+            <span className={headerCellClass}>Title</span>
+            <span className={headerCellClass}>Genres</span>
+            <span className={cn(headerCellClass, "text-center")}>Score</span>
+            <span className={cn(headerCellClass, "text-center")}>My Score</span>
+            <span className={cn(headerCellClass, "text-center")}>Release</span>
+            <span className={cn(headerCellClass, "text-center")}>Status</span>
+            <span className={cn(headerCellClass, "text-center")}>Type</span>
+            <div />
+          </div>
+          {rows}
+        </div>
+      );
+    }
+
+    // compact
+    return (
+      <div
+        className={cn(listContainerClass, "gap-x-2 px-2")}
+        style={{ gridTemplateColumns: "1fr 180px 64px 64px 76px 90px 90px auto" }}
+        data-testid="grid-games"
+        aria-busy={isFetching}
+      >
+        <div
+          className="col-span-full grid items-center py-1 border-b border-border bg-muted/40"
+          style={{ gridTemplateColumns: "subgrid" }}
+        >
+          <span className={headerCellClass}>Title</span>
+          <span className={headerCellClass}>Genres</span>
+          <span className={cn(headerCellClass, "text-center")}>Score</span>
+          <span className={cn(headerCellClass, "text-center")}>My Score</span>
+          <span className={cn(headerCellClass, "text-center")}>Release</span>
+          <span className={cn(headerCellClass, "text-center")}>Status</span>
+          <span className={cn(headerCellClass, "text-center")}>Type</span>
+          <div />
+        </div>
+        {rows}
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn(
@@ -105,31 +181,18 @@ export default function GameGrid({
       data-testid="grid-games"
       aria-busy={isFetching}
     >
-      {games.map((game) =>
-        viewMode === "list" ? (
-          <CompactGameCard
-            key={game.id}
-            game={game}
-            onStatusChange={onStatusChange}
-            onViewDetails={onViewDetails}
-            onToggleHidden={onToggleHidden}
-            isDiscovery={isDiscovery}
-            density={density}
-            downloadSummary={downloadSummaries?.[game.id]}
-          />
-        ) : (
-          <GameCard
-            key={game.id}
-            game={game}
-            onStatusChange={onStatusChange}
-            onViewDetails={onViewDetails}
-            onTrackGame={onTrackGame}
-            onToggleHidden={onToggleHidden}
-            isDiscovery={isDiscovery}
-            downloadSummary={downloadSummaries?.[game.id]}
-          />
-        )
-      )}
+      {games.map((game) => (
+        <GameCard
+          key={game.id}
+          game={game}
+          onStatusChange={onStatusChange}
+          onViewDetails={onViewDetails}
+          onTrackGame={onTrackGame}
+          onToggleHidden={onToggleHidden}
+          isDiscovery={isDiscovery}
+          downloadSummary={downloadSummaries?.[game.id]}
+        />
+      ))}
     </div>
   );
 }

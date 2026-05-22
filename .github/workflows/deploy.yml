@@ -27,14 +27,9 @@ on:
       repository: # ← also passed automatically
         required: false
 
-  # Run daily at midnight for dev builds
+  # Run daily at midnight from the default branch (main) for dev builds
   schedule:
     - cron: "0 0 * * *"
-
-  # Trigger on main branch for dev release
-  push:
-    branches:
-      - "main"
 
 permissions:
   contents: read
@@ -43,7 +38,7 @@ permissions:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-    environment: ${{ (github.event_name == 'schedule' || github.ref == 'refs/heads/release/1.4.0') && 'dev' || inputs.environment || 'production' }}
+    environment: ${{ github.event_name == 'schedule' && 'dev' || inputs.environment || 'production' }}
 
     steps:
       - name: Harden the runner (Audit all outbound calls)
@@ -62,7 +57,7 @@ jobs:
           INPUT_ENVIRONMENT: ${{ inputs.environment }}
           REPOSITORY: ${{ github.repository }}
         run: |
-          if [ "$EVENT_NAME" == "schedule" ] || [ "$GH_REF" == "refs/heads/release/1.4.0" ]; then
+          if [ "$EVENT_NAME" == "schedule" ]; then
             echo "ENVIRONMENT=dev" >> $GITHUB_ENV
             echo "environment=dev" >> $GITHUB_OUTPUT
           else

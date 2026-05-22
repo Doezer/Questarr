@@ -9,6 +9,7 @@ import {
   sanitizeGameData,
   sanitizeIndexerData,
   sanitizeDownloaderData,
+  sanitizeDownloaderUpdateData,
   sanitizeDownloaderDownloadData,
   sanitizeIndexerSearchQuery,
 } from "../middleware";
@@ -377,6 +378,30 @@ describe("Middleware - Input Sanitization", () => {
       expect(res.status).not.toHaveBeenCalled();
     });
 
+    it("should allow synology downloader data", async () => {
+      const req = createMockRequest({
+        body: {
+          name: "Synology Downloader",
+          type: "synology",
+          url: "synology.local",
+          username: "admin",
+          password: "password",
+          enabled: true,
+        },
+      });
+      const res = createMockResponse();
+      const next = createMockNext();
+
+      for (const validator of sanitizeDownloaderData) {
+        await validator(req as Request, res as Response, next);
+      }
+
+      validateRequest(req as Request, res as Response, next);
+
+      expect(next).toHaveBeenCalled();
+      expect(res.status).not.toHaveBeenCalled();
+    });
+
     it("should reject downloader with invalid type", async () => {
       const req = createMockRequest({
         body: {
@@ -421,6 +446,28 @@ describe("Middleware - Input Sanitization", () => {
       expect(req.body.username).toBe("admin");
       expect(req.body.password).toBe("secret");
       expect(req.body.urlPath).toBe("/api");
+    });
+  });
+
+  describe("sanitizeDownloaderUpdateData", () => {
+    it("should allow synology downloader updates", async () => {
+      const req = createMockRequest({
+        body: {
+          type: "synology",
+          url: "synology.local",
+        },
+      });
+      const res = createMockResponse();
+      const next = createMockNext();
+
+      for (const validator of sanitizeDownloaderUpdateData) {
+        await validator(req as Request, res as Response, next);
+      }
+
+      validateRequest(req as Request, res as Response, next);
+
+      expect(next).toHaveBeenCalled();
+      expect(res.status).not.toHaveBeenCalled();
     });
   });
 

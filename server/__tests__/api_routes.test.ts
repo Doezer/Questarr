@@ -1013,6 +1013,65 @@ describe("API Routes - Extended Coverage", () => {
 
   // ─── Downloader routes ───
   describe("Downloader routes", () => {
+    describe("POST /api/downloaders", () => {
+      it("should create a synology downloader", async () => {
+        const createdDownloader = {
+          id: "dl-synology",
+          name: "Synology",
+          type: "synology",
+          url: "https://example.com",
+          username: "admin",
+          password: "secret",
+        };
+        vi.mocked(storage.addDownloader).mockResolvedValue(
+          createdDownloader as unknown as Downloader
+        );
+
+        const response = await request(app).post("/api/downloaders").send({
+          name: "Synology",
+          type: "synology",
+          url: "https://example.com",
+          username: "admin",
+          password: "secret",
+          enabled: true,
+        });
+
+        expect(response.status).toBe(201);
+        expect(storage.addDownloader).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: "synology",
+            url: "https://example.com",
+          })
+        );
+      });
+    });
+
+    describe("PATCH /api/downloaders/:id", () => {
+      it("should update a synology downloader", async () => {
+        vi.mocked(storage.updateDownloader).mockResolvedValue({
+          id: "dl-synology",
+          type: "synology",
+          url: "https://example.com",
+          urlPath: "downloadstation",
+        } as unknown as Downloader);
+
+        const response = await request(app).patch("/api/downloaders/dl-synology").send({
+          type: "synology",
+          url: "https://example.com",
+          urlPath: "downloadstation",
+        });
+
+        expect(response.status).toBe(200);
+        expect(storage.updateDownloader).toHaveBeenCalledWith(
+          "dl-synology",
+          expect.objectContaining({
+            type: "synology",
+            urlPath: "downloadstation",
+          })
+        );
+      });
+    });
+
     describe("GET /api/downloaders", () => {
       it("should return all downloaders", async () => {
         vi.mocked(storage.getAllDownloaders).mockResolvedValue([]);
@@ -1531,6 +1590,23 @@ describe("API Routes - Extended Coverage", () => {
     it("should return 400 for missing type/url", async () => {
       const response = await request(app).post("/api/downloaders/test").send({});
       expect(response.status).toBe(400);
+    });
+
+    it("should test a synology downloader payload", async () => {
+      const response = await request(app).post("/api/downloaders/test").send({
+        type: "synology",
+        url: "https://example.com",
+        username: "admin",
+        password: "secret",
+      });
+
+      expect(response.status).toBe(200);
+      expect(DownloaderManager.testDownloader).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "synology",
+          url: "https://example.com",
+        })
+      );
     });
   });
 

@@ -1,8 +1,11 @@
 import rateLimit from "express-rate-limit";
 import { body, param, query, validationResult } from "express-validator";
 import type { Request, Response, NextFunction } from "express";
+import { TORRENT_DOWNLOADER_TYPES, USENET_DOWNLOADER_TYPES } from "../shared/downloader-types.js";
 import { storage } from "./storage.js";
 import { expressLogger } from "./logger.js";
+
+const DOWNLOADER_TYPES = [...TORRENT_DOWNLOADER_TYPES, ...USENET_DOWNLOADER_TYPES];
 
 // Dynamic rate limiter for IGDB API endpoints to prevent blacklisting
 // IGDB has a limit of 4 requests per second, we default to 3 to be conservative
@@ -258,10 +261,7 @@ export const sanitizeDownloaderData = [
     .trim()
     .isLength({ min: 1, max: 200 })
     .withMessage("Name must be between 1 and 200 characters"),
-  body("type")
-    .trim()
-    .isIn(["transmission", "rtorrent", "qbittorrent", "sabnzbd", "nzbget"])
-    .withMessage("Invalid downloader type"),
+  body("type").trim().isIn(DOWNLOADER_TYPES).withMessage("Invalid downloader type"),
   body("url")
     .trim()
     .custom((value, { req }) => {
@@ -272,7 +272,7 @@ export const sanitizeDownloaderData = [
       if (isUrl) return true;
 
       // For downloaders, allow hostname/IP without protocol
-      if (["qbittorrent", "rtorrent", "transmission", "sabnzbd", "nzbget"].includes(type)) {
+      if (DOWNLOADER_TYPES.includes(type)) {
         // Accept hostname, IP address, or FQDN
         const hostnameRegex =
           /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
@@ -323,11 +323,7 @@ export const sanitizeDownloaderUpdateData = [
     .trim()
     .isLength({ min: 1, max: 200 })
     .withMessage("Name must be between 1 and 200 characters"),
-  body("type")
-    .optional()
-    .trim()
-    .isIn(["transmission", "rtorrent", "qbittorrent", "sabnzbd", "nzbget"])
-    .withMessage("Invalid downloader type"),
+  body("type").optional().trim().isIn(DOWNLOADER_TYPES).withMessage("Invalid downloader type"),
   body("url")
     .optional()
     .trim()
@@ -340,7 +336,7 @@ export const sanitizeDownloaderUpdateData = [
       if (isUrl) return true;
 
       // For downloaders, allow hostname/IP without protocol
-      if (["qbittorrent", "rtorrent", "transmission", "sabnzbd", "nzbget"].includes(type)) {
+      if (DOWNLOADER_TYPES.includes(type)) {
         // Accept hostname, IP address, or FQDN
         const hostnameRegex =
           /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;

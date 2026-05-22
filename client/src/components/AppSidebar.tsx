@@ -1,18 +1,6 @@
 import {
-  Home,
-  Download,
-  Calendar,
-  Settings,
-  Star,
-  Database,
-  HardDrive,
-  Compass,
   LogOut,
   User,
-  Newspaper,
-  Rss,
-  PieChart,
-  ScrollText,
 } from "lucide-react";
 import { useMemo } from "react";
 import {
@@ -32,72 +20,7 @@ import { useQuery } from "@tanstack/react-query";
 import { type Game, type DownloadStatus } from "@shared/schema";
 import { useAuth } from "@/lib/auth";
 import { GitHubVersionLink } from "@/components/GitHubVersionLink";
-
-const staticNavigation = [
-  {
-    title: "Library",
-    url: "/",
-    icon: Home,
-  },
-  {
-    title: "Discover",
-    url: "/discover",
-    icon: Compass,
-  },
-  {
-    title: "Downloads",
-    url: "/downloads",
-    icon: Download,
-  },
-  {
-    title: "Calendar",
-    url: "/calendar",
-    icon: Calendar,
-  },
-  {
-    title: "Wishlist",
-    url: "/wishlist",
-    icon: Star,
-  },
-  {
-    title: "xREL.to Releases",
-    url: "/xrel",
-    icon: Newspaper,
-  },
-  {
-    title: "RSS Feeds",
-    url: "/rss",
-    icon: Rss,
-  },
-  {
-    title: "Stats",
-    url: "/stats",
-    icon: PieChart,
-  },
-];
-
-const management = [
-  {
-    title: "Indexers",
-    url: "/indexers",
-    icon: Database,
-  },
-  {
-    title: "Downloaders",
-    url: "/downloaders",
-    icon: HardDrive,
-  },
-  {
-    title: "Settings",
-    url: "/settings",
-    icon: Settings,
-  },
-  {
-    title: "Logs",
-    url: "/logs",
-    icon: ScrollText,
-  },
-];
+import { managementNavigation, primaryNavigation } from "@/components/navigation-items";
 
 interface AppSidebarProps {
   activeItem?: string;
@@ -126,7 +49,7 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: Readonly<Ap
   const activeDownloadsCount =
     downloadsData?.downloads?.filter((d) => d.status === "downloading").length || 0;
 
-  const navigation = staticNavigation.map((item) => {
+  const navigation = primaryNavigation.map((item) => {
     let badge: string | undefined;
 
     if (item.title === "Wishlist" && wishlistCount > 0) {
@@ -196,7 +119,7 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: Readonly<Ap
           <SidebarGroupLabel>Management</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {management.map((item) => (
+              {managementNavigation.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton
                     asChild

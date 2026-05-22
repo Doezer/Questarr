@@ -104,103 +104,116 @@ export default function Header({ title = "Library" }: HeaderProps) {
   };
 
   return (
-    <div className="flex flex-col w-full z-10">
-      <header className="flex items-center justify-between p-4 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="flex items-center gap-4">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <SidebarTrigger data-testid="button-sidebar-toggle" />
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              <p>Toggle Sidebar</p>
-            </TooltipContent>
-          </Tooltip>
-          <h1 className="text-xl font-semibold" data-testid="text-page-title">
-            {title}
-          </h1>
-        </div>
-
-        <div className="flex items-center gap-4">
-          {/* Storage Info — hidden on small screens */}
-          <div className="hidden sm:flex items-center gap-2 sm:gap-3">
-            {isLoading && (
-              <span className="text-xs text-muted-foreground animate-pulse">
-                Checking storage...
-              </span>
-            )}
-            {isError && <span className="text-xs text-destructive">Error</span>}
-            {!isLoading && !isError && storageInfo.length === 0 && (
-              <span className="text-xs text-muted-foreground opacity-50 hidden sm:inline">
-                No downloaders
-              </span>
-            )}
-            {!isLoading &&
-              !isError &&
-              storageInfo.map((info) => (
-                <Tooltip key={info.downloaderId}>
-                  <TooltipTrigger asChild>
-                    <div
-                      className="flex items-center gap-1 sm:gap-1.5 text-xs text-muted-foreground border rounded-full px-2 py-0.5 sm:px-2.5 sm:py-1 hover:bg-muted/50 transition-colors cursor-help"
-                      tabIndex={0}
-                      role="button"
-                      aria-label={`Storage for ${info.downloaderName}: ${formatBytes(info.freeSpace)} available`}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") e.currentTarget.click();
-                      }}
-                    >
-                      <HardDrive className="w-3 sm:w-3.5 h-3 sm:h-3.5" />
-                      <span className="font-medium">{formatBytes(info.freeSpace)}</span>
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <div className="text-center">
-                      <p className="font-semibold">{info.downloaderName}</p>
-                      <p className="text-xs text-muted-foreground">Free Disk Space</p>
-                      {info.error && <p className="text-destructive text-xs mt-1">{info.error}</p>}
-                    </div>
-                  </TooltipContent>
-                </Tooltip>
-              ))}
+    <div className="sticky top-0 z-10 flex w-full flex-col">
+      <header className="border-b bg-background/95 px-3 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/60 sm:px-4 sm:py-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <SidebarTrigger
+                  className="h-10 w-10 rounded-xl md:h-7 md:w-7 md:rounded-md"
+                  data-testid="button-sidebar-toggle"
+                />
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                <p>Toggle Sidebar</p>
+              </TooltipContent>
+            </Tooltip>
+            <h1 className="truncate text-lg font-semibold sm:text-xl" data-testid="text-page-title">
+              {title}
+            </h1>
           </div>
 
-          <div className="flex items-center gap-2">
-            <AddGameModal>
-              <Button variant="default" size="sm" data-testid="button-add-game" className="gap-2">
-                <Plus className="w-4 h-4" />
-                <span className="hidden sm:inline">Add Game</span>
-              </Button>
-            </AddGameModal>
+          <div className="flex items-center gap-3 sm:gap-4">
+            {/* Storage Info — hidden on small screens */}
+            <div className="hidden items-center gap-2 sm:flex sm:gap-3">
+              {isLoading && (
+                <span className="text-xs text-muted-foreground animate-pulse">
+                  Checking storage...
+                </span>
+              )}
+              {isError && <span className="text-xs text-destructive">Error</span>}
+              {!isLoading && !isError && storageInfo.length === 0 && (
+                <span className="hidden text-xs text-muted-foreground opacity-50 sm:inline">
+                  No downloaders
+                </span>
+              )}
+              {!isLoading &&
+                !isError &&
+                storageInfo.map((info) => (
+                  <Tooltip key={info.downloaderId}>
+                    <TooltipTrigger asChild>
+                      <div
+                        className="flex cursor-help items-center gap-1 border rounded-full px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted/50 sm:gap-1.5 sm:px-2.5 sm:py-1"
+                        tabIndex={0}
+                        role="button"
+                        aria-label={`Storage for ${info.downloaderName}: ${formatBytes(info.freeSpace)} available`}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") e.currentTarget.click();
+                        }}
+                      >
+                        <HardDrive className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
+                        <span className="font-medium">{formatBytes(info.freeSpace)}</span>
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <div className="text-center">
+                        <p className="font-semibold">{info.downloaderName}</p>
+                        <p className="text-xs text-muted-foreground">Free Disk Space</p>
+                        {info.error && (
+                          <p className="mt-1 text-xs text-destructive">{info.error}</p>
+                        )}
+                      </div>
+                    </TooltipContent>
+                  </Tooltip>
+                ))}
+            </div>
 
-            {user?.steamId64 && (
+            <div className="flex items-center gap-2">
+              <AddGameModal>
+                <Button
+                  variant="default"
+                  size="sm"
+                  data-testid="button-add-game"
+                  className="h-10 gap-2 px-3 sm:h-9"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span className="hidden sm:inline">Add Game</span>
+                </Button>
+              </AddGameModal>
+
+              {user?.steamId64 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-10 gap-2 px-3 sm:h-9"
+                  disabled={steamSyncMutation.isPending}
+                  onClick={() => steamSyncMutation.mutate()}
+                >
+                  {steamSyncMutation.isPending ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <SteamIcon className="w-4 h-4" />
+                  )}
+                  <span className="hidden sm:inline">Sync Steam</span>
+                </Button>
+              )}
+
+              <NotificationCenter />
+
               <Button
                 variant="ghost"
-                size="sm"
-                className="gap-2"
-                disabled={steamSyncMutation.isPending}
-                onClick={() => steamSyncMutation.mutate()}
+                size="icon"
+                className="h-10 w-10 sm:h-9 sm:w-9"
+                onClick={handleThemeToggle}
+                data-testid="button-theme-toggle"
+                aria-label="Toggle theme"
               >
-                {steamSyncMutation.isPending ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <SteamIcon className="w-4 h-4" />
-                )}
-                <span className="hidden sm:inline">Sync Steam</span>
+                {mounted &&
+                  (theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />)}
+                {!mounted && <Sun className="w-4 h-4" />}
               </Button>
-            )}
-
-            <NotificationCenter />
-
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleThemeToggle}
-              data-testid="button-theme-toggle"
-              aria-label="Toggle theme"
-            >
-              {mounted &&
-                (theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />)}
-              {!mounted && <Sun className="w-4 h-4" />}
-            </Button>
+            </div>
           </div>
         </div>
       </header>

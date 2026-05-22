@@ -20,6 +20,7 @@ import { apiRequest, ApiError } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import LazyModalFallback from "./LazyModalFallback";
 import { getReleaseStatus } from "@/lib/game-utils";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 // ⚡ Bolt: Lazy load heavy modal components to reduce initial bundle size.
 // These are only needed when the user interacts with the card.
@@ -54,6 +55,7 @@ const GameCard = ({
   const [downloadOpen, setDownloadOpen] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
   const releaseStatus = getReleaseStatus(game);
+  const isMobile = useIsMobile();
 
   // Keep track of the resolved game object (either original or newly added)
   const [resolvedGame, setResolvedGame] = useState<Game>(game);
@@ -134,12 +136,13 @@ const GameCard = ({
 
   const nextStatusLabel = getNextStatusLabel(game.status);
   const { year: releaseYear, fullDate: releaseFullDate } = parseReleaseDate(game.releaseDate);
+  const mobileActionButtonClass = "h-9 w-9";
 
   return (
     <Card
       ref={cardRef}
       onClick={handleDetailsClick}
-      className={`group hover-elevate transition-all duration-200 max-w-[225px] mx-auto w-full cursor-pointer flex flex-col h-full ${game.hidden ? "opacity-60 grayscale" : ""}`}
+      className={`group hover-elevate transition-all duration-200 mx-auto w-full max-w-full cursor-pointer flex flex-col h-full sm:max-w-[225px] ${game.hidden ? "opacity-60 grayscale" : ""}`}
       data-testid={`card-game-${game.id}`}
     >
       <div className="relative">
@@ -173,53 +176,34 @@ const GameCard = ({
           )}
         </div>
         <SearchResultsBadge visible={game.searchResultsAvailable ?? false} />
-        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-200 rounded-t-md flex items-center justify-center gap-2">
-          {isDiscovery && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  size="icon"
-                  variant="default"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void handleDownloadClick();
-                  }}
-                  disabled={addGameMutation.isPending}
-                  aria-label={`Download ${game.title}`}
-                  data-testid={`button-download-${game.id}`}
-                >
-                  {addGameMutation.isPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Download className="w-4 h-4" />
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>Download</p>
-              </TooltipContent>
-            </Tooltip>
-          )}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                size="icon"
-                variant="secondary"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDetailsClick();
-                }}
-                aria-label={`View details for ${game.title}`}
-                data-testid={`button-details-${game.id}`}
-              >
-                <Info className="w-4 h-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>View Details</p>
-            </TooltipContent>
-          </Tooltip>
-          {!isDiscovery && (
+        {!isMobile && (
+          <div className="absolute inset-0 flex items-center justify-center gap-2 rounded-t-md bg-black/60 opacity-0 transition-opacity duration-200 group-hover:opacity-100 focus-within:opacity-100">
+            {isDiscovery && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="icon"
+                    variant="default"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void handleDownloadClick();
+                    }}
+                    disabled={addGameMutation.isPending}
+                    aria-label={`Download ${game.title}`}
+                    data-testid={`button-download-${game.id}`}
+                  >
+                    {addGameMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Download className="w-4 h-4" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Download</p>
+                </TooltipContent>
+              </Tooltip>
+            )}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -227,20 +211,41 @@ const GameCard = ({
                   variant="secondary"
                   onClick={(e) => {
                     e.stopPropagation();
-                    handleToggleHidden();
+                    handleDetailsClick();
                   }}
-                  aria-label={game.hidden ? `Unhide ${game.title}` : `Hide ${game.title}`}
-                  data-testid={`button-toggle-hidden-${game.id}`}
+                  aria-label={`View details for ${game.title}`}
+                  data-testid={`button-details-${game.id}`}
                 >
-                  {game.hidden ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                  <Info className="w-4 h-4" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                <p>{game.hidden ? "Unhide Game" : "Hide Game"}</p>
+                <p>View Details</p>
               </TooltipContent>
             </Tooltip>
-          )}
-        </div>
+            {!isDiscovery && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="icon"
+                    variant="secondary"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleToggleHidden();
+                    }}
+                    aria-label={game.hidden ? `Unhide ${game.title}` : `Hide ${game.title}`}
+                    data-testid={`button-toggle-hidden-${game.id}`}
+                  >
+                    {game.hidden ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{game.hidden ? "Unhide Game" : "Hide Game"}</p>
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </div>
+        )}
       </div>
       <CardContent className="p-3 flex flex-col flex-1" onClick={(e) => e.stopPropagation()}>
         <h3
@@ -315,12 +320,58 @@ const GameCard = ({
             <span className="text-xs text-muted-foreground">No genres</span>
           )}
         </div>
+        {isMobile && (
+          <div
+            className="mb-3 flex flex-wrap items-center gap-2"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {isDiscovery && (
+              <Button
+                size="icon"
+                variant="default"
+                className={mobileActionButtonClass}
+                onClick={() => void handleDownloadClick()}
+                disabled={addGameMutation.isPending}
+                aria-label={`Download ${game.title}`}
+                data-testid={`button-download-${game.id}`}
+              >
+                {addGameMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4" />
+                )}
+              </Button>
+            )}
+            <Button
+              size="icon"
+              variant="secondary"
+              className={mobileActionButtonClass}
+              onClick={handleDetailsClick}
+              aria-label={`View details for ${game.title}`}
+              data-testid={`button-details-${game.id}`}
+            >
+              <Info className="h-4 w-4" />
+            </Button>
+            {!isDiscovery && (
+              <Button
+                size="icon"
+                variant="ghost"
+                className={mobileActionButtonClass}
+                onClick={handleToggleHidden}
+                aria-label={game.hidden ? `Unhide ${game.title}` : `Hide ${game.title}`}
+                data-testid={`button-toggle-hidden-${game.id}`}
+              >
+                {game.hidden ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+              </Button>
+            )}
+          </div>
+        )}
         <div className="mt-auto">
           {isDiscovery ? (
             <Button
               variant="default"
               size="sm"
-              className="w-full"
+              className="h-10 w-full sm:h-9"
               onClick={() => onTrackGame?.(game)}
               disabled={addGameMutation.isPending}
               data-testid={`button-track-${game.id}`}
@@ -339,7 +390,7 @@ const GameCard = ({
             <Button
               variant="outline"
               size="sm"
-              className="w-full"
+              className="h-10 w-full sm:h-9"
               onClick={handleStatusClick}
               data-testid={`button-status-${game.id}`}
               aria-label={`Mark ${game.title} as ${nextStatusLabel}`}

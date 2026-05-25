@@ -1,7 +1,4 @@
-import {
-  LogOut,
-  User,
-} from "lucide-react";
+import { LogOut, User } from "lucide-react";
 import { useMemo } from "react";
 import {
   Sidebar,

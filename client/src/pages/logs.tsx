@@ -288,7 +288,9 @@ const LogLineCard = memo(function LogLineCard({
         )}
       </div>
       <p className="mt-2 break-words text-sm text-zinc-100">{line.msg}</p>
-      {summaryText !== "-" && <p className="mt-2 break-words text-xs text-zinc-400">{summaryText}</p>}
+      {summaryText !== "-" && (
+        <p className="mt-2 break-words text-xs text-zinc-400">{summaryText}</p>
+      )}
     </button>
   );
 });
@@ -584,7 +586,8 @@ export default function LogsPage() {
     () => filteredLines.slice(startIndex, endIndex),
     [filteredLines, startIndex, endIndex]
   );
-  const linesToRender = isMobile ? filteredLines : visibleLines;
+  const MOBILE_LOG_CAP = 200;
+  const linesToRender = isMobile ? filteredLines.slice(-MOBILE_LOG_CAP) : visibleLines;
 
   const copyText = useCallback(
     (text: string, description: string) => {
@@ -744,7 +747,9 @@ export default function LogsPage() {
                     <span>Message</span>
                     <span>Context</span>
                   </div>
-                  {topSpacerHeight > 0 && <div style={{ height: topSpacerHeight }} aria-hidden="true" />}
+                  {topSpacerHeight > 0 && (
+                    <div style={{ height: topSpacerHeight }} aria-hidden="true" />
+                  )}
                 </>
               )}
               {linesToRender.map((line) =>

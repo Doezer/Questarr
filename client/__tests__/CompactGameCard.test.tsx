@@ -102,7 +102,7 @@ describe("CompactGameCard", () => {
     const onStatusChange = vi.fn();
     renderWithProviders(<CompactGameCard game={mockGame} onStatusChange={onStatusChange} />);
 
-    const button = screen.getByLabelText("Mark Test Game as Owned");
+    const button = screen.getByLabelText(`Mark ${mockGame.title} as Owned`);
     fireEvent.click(button);
 
     expect(onStatusChange).toHaveBeenCalledWith("1", "owned");

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import express from "express";
+import { createApp as createServerApp } from "../app.js";
 
 // Use vi.hoisted to create the mock object before hoisting occurs
 const { mockConfig } = vi.hoisted(() => {
@@ -75,8 +76,6 @@ vi.mock("../steam-routes.js", () => ({
 import { registerRoutes } from "../routes.js";
 
 describe("Security Headers", () => {
-  let app: express.Express;
-
   beforeEach(() => {
     vi.clearAllMocks();
     // Reset config to dev default
@@ -88,7 +87,7 @@ describe("Security Headers", () => {
   });
 
   const createApp = async () => {
-    app = express();
+    const app = createServerApp();
     await registerRoutes(app);
     return app;
   };
@@ -133,6 +132,12 @@ describe("Security Headers", () => {
     const app = await createApp();
     const response = await request(app).get("/api/auth/status");
     expect(response.headers["x-content-type-options"]).toBe("nosniff");
+  });
+
+  it("should hide X-Powered-By header", async () => {
+    const app = await createApp();
+    const response = await request(app).get("/api/auth/status");
+    expect(response.headers["x-powered-by"]).toBeUndefined();
   });
 });
 

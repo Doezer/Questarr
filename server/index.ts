@@ -1,15 +1,13 @@
 // Force restart trigger
 import "dotenv/config";
-import express from "express";
 import https from "https";
 import fs from "fs";
-import cors from "cors";
 
+import { createApp } from "./app.js";
 import { registerRoutes } from "./routes.js";
 import { setupVite, serveStatic, log } from "./vite.js";
-import { generalApiLimiter, errorHandler } from "./middleware.js";
+import { errorHandler } from "./middleware.js";
 import { config } from "./config.js";
-import { expressLogger } from "./logger.js";
 import { startCronJobs } from "./cron.js";
 import { setupSocketIO } from "./socket.js";
 import { ensureDatabase } from "./migrate.js";
@@ -17,85 +15,8 @@ import { rssService } from "./rss.js";
 import { nexusmodsClient } from "./nexusmods.js";
 import { appriseClient } from "./apprise.js";
 import { storage } from "./storage.js";
-import { truncateLogData } from "./log-response.js";
 
-const app = express();
-if (config.server.isProduction) {
-  app.set("trust proxy", 1);
-}
-app.use(
-  cors({
-    origin: config.server.allowedOrigins,
-    credentials: true,
-  })
-);
-app.use(express.json({ limit: "5mb" }));
-app.use(express.urlencoded({ extended: false }));
-
-// Apply general rate limiting to all API routes
-app.use("/api", generalApiLimiter);
-
-// 🛡️ Set Origin-Agent-Cluster header to preventing mismatch errors
-app.use((_req, res, next) => {
-  res.setHeader("Origin-Agent-Cluster", "?1");
-  next();
-});
-
-app.use((req, res, next) => {
-  const start = Date.now();
-  const path = req.path;
-  let capturedJsonResponse: Record<string, unknown> | undefined = undefined;
-
-  const originalResJson = res.json;
-  res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
-  };
-
-  res.on("finish", () => {
-    const duration = Date.now() - start;
-    if (path.startsWith("/api")) {
-      const isNoisyEndpoint =
-        ((path === "/api/downloads" ||
-          path === "/api/games" ||
-          path === "/api/notifications" ||
-          path === "/api/search" ||
-          path === "/api/rss/items") &&
-          req.method === "GET") ||
-        path.startsWith("/api/igdb/genre/") ||
-        path === "/api/igdb/popular" ||
-        path === "/api/igdb/upcoming" ||
-        path.match(/^\/api\/indexers\/[^/]+\/categories$/);
-
-      // Always log metadata at info level
-      expressLogger.info(
-        {
-          method: req.method,
-          path,
-          statusCode: res.statusCode,
-          duration,
-          // Only include response body for non-noisy endpoints at info level, but truncated
-          response: isNoisyEndpoint ? undefined : truncateLogData(capturedJsonResponse),
-        },
-        `${req.method} ${path} ${res.statusCode} in ${duration}ms`
-      );
-
-      // Log the full response body at debug level for noisy endpoints
-      if (isNoisyEndpoint) {
-        expressLogger.debug(
-          {
-            method: req.method,
-            path,
-            response: capturedJsonResponse,
-          },
-          `${req.method} ${path} response body`
-        );
-      }
-    }
-  });
-
-  next();
-});
+const app = createApp();
 
 (async () => {
   try {

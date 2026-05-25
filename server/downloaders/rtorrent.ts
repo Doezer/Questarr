@@ -11,6 +11,7 @@ import crypto from "crypto";
 import { isSafeUrl } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient, XMLValue } from "./types.js";
 import { fetchWithMagnetDetection, extractHashFromUrl } from "./utils.js";
+import { XMLParser } from "fast-xml-parser";
 
 /**
  * rTorrent/ruTorrent client implementation using XML-RPC protocol.
@@ -23,6 +24,12 @@ import { fetchWithMagnetDetection, extractHashFromUrl } from "./utils.js";
  */
 export class RTorrentClient implements DownloaderClient {
   private downloader: Downloader;
+  private xmlParser = new XMLParser({
+    ignoreAttributes: true,
+    parseTagValue: false,
+    textNodeName: "_text",
+    isArray: (name) => ["member", "data", "value", "param"].includes(name),
+  });
 
   constructor(downloader: Downloader) {
     this.downloader = downloader;
@@ -788,147 +795,85 @@ export class RTorrentClient implements DownloaderClient {
   }
 
   private parseXMLRPCResponse(xml: string): XMLValue {
-    // Simple XML-RPC response parser
-    // Extract the value from <methodResponse><params><param><value>...</value></param></params></methodResponse>
+    const parsed = this.xmlParser.parse(xml);
 
-    // Check for fault
-    if (xml.includes("<fault>")) {
-      const faultStringMatch = xml.match(
-        /<name>faultString<\/name>\s*<value><string>([^<]+)<\/string>/
-      );
-      if (faultStringMatch) {
-        throw new Error(`XML-RPC Fault: ${faultStringMatch[1]}`);
+    if (parsed.methodResponse?.fault) {
+      const fault = this.parseXMLValueObj(parsed.methodResponse.fault.value) as Record<
+        string,
+        unknown
+      >;
+      const faultString = fault["faultString"] as string;
+      throw new Error(faultString ? `XML-RPC Fault: ${faultString}` : "XML-RPC Fault occurred");
+    }
+
+    if (parsed.methodResponse?.params?.param) {
+      const params = parsed.methodResponse.params.param;
+      const param = Array.isArray(params) ? params[0] : params;
+      if (param?.value) {
+        return this.parseXMLValueObj(param.value);
       }
-      throw new Error("XML-RPC Fault occurred");
-    }
-
-    // Find the main response value
-    const paramValueMatch = xml.match(
-      /<methodResponse>\s*<params>\s*<param>\s*<value>([\s\S]*?)<\/value>\s*<\/param>\s*<\/params>\s*<\/methodResponse>/
-    );
-    if (!paramValueMatch) {
-      return null;
-    }
-
-    const valueContent = paramValueMatch[1].trim();
-
-    // Parse array responses (for multicall)
-    if (valueContent.startsWith("<array>")) {
-      return this.parseXMLArray(valueContent);
-    }
-
-    // Parse string response
-    const stringMatch = valueContent.match(/<string>([^<]*)<\/string>/);
-    if (stringMatch) {
-      return this.unescapeXml(stringMatch[1]);
-    }
-
-    // Parse int response
-    const intMatch =
-      valueContent.match(/<int>([^<]+)<\/int>/) || valueContent.match(/<i4>([^<]+)<\/i4>/);
-    if (intMatch) {
-      return parseInt(intMatch[1]);
-    }
-
-    // Parse double response
-    const doubleMatch = valueContent.match(/<double>([^<]+)<\/double>/);
-    if (doubleMatch) {
-      return parseFloat(doubleMatch[1]);
     }
 
     return null;
   }
 
-  private parseXMLArray(arrayXml: string): XMLValue[] {
-    const result: XMLValue[] = [];
+  private parseXMLValueObj(valueObj: unknown): XMLValue {
+    if (typeof valueObj !== "object" || valueObj === null) {
+      return valueObj;
+    }
 
-    // Extract the data section from <array><data>...</data></array>
-    const dataMatch = arrayXml.match(/<array>\s*<data>([\s\S]*)<\/data>\s*<\/array>/);
-    if (!dataMatch) {
+    let obj = valueObj;
+    if (Array.isArray(obj)) {
+      obj = obj[0];
+      if (typeof obj !== "object" || obj === null) {
+        return obj;
+      }
+    }
+
+    const rec = obj as Record<string, unknown>;
+    const getText = (v: unknown) =>
+      v && typeof v === "object" && "_text" in v ? (v as Record<string, unknown>)._text : v;
+
+    if ("string" in rec) return getText(rec.string);
+    if ("int" in rec) return parseInt(getText(rec.int) as string);
+    if ("i4" in rec) return parseInt(getText(rec.i4) as string);
+    if ("i8" in rec) return parseInt(getText(rec.i8) as string);
+    if ("double" in rec) return parseFloat(getText(rec.double) as string);
+    if ("boolean" in rec) {
+      const boolVal = getText(rec.boolean);
+      return boolVal == 1 || boolVal === "1";
+    }
+    if ("base64" in rec) return getText(rec.base64);
+
+    if ("array" in rec) {
+      const arrayObj = rec["array"] as Record<string, unknown>;
+      const data = arrayObj["data"];
+      if (!data) return [];
+
+      const dataBlock = Array.isArray(data) ? data[0] : data;
+      if (!dataBlock || typeof dataBlock !== "object" || !("value" in dataBlock)) return [];
+
+      const values = Array.isArray((dataBlock as Record<string, unknown>).value)
+        ? (dataBlock as Record<string, unknown>).value
+        : [(dataBlock as Record<string, unknown>).value];
+      return (values as unknown[]).map((v: unknown) => this.parseXMLValueObj(v));
+    }
+
+    if ("struct" in rec) {
+      const structObj = rec["struct"] as Record<string, unknown>;
+      const members = structObj["member"] as Record<string, unknown>[];
+      if (!members) return {};
+
+      const result: Record<string, unknown> = {};
+      for (const m of members) {
+        if (m["name"] && m["value"]) {
+          result[getText(m["name"]) as string] = this.parseXMLValueObj(m["value"]);
+        }
+      }
       return result;
     }
 
-    const dataContent = dataMatch[1];
-
-    // Parse each value in the array
-    // We need to be careful with nested structures
-    let depth = 0;
-    let currentValue = "";
-    let inValue = false;
-
-    for (let i = 0; i < dataContent.length; i++) {
-      const char = dataContent[i];
-
-      if (dataContent.substring(i, i + 7) === "<value>") {
-        if (!inValue) {
-          inValue = true;
-          currentValue = "<value>";
-          i += 6;
-          depth = 1;
-          continue;
-        } else {
-          depth++;
-        }
-      } else if (dataContent.substring(i, i + 8) === "</value>") {
-        depth--;
-        if (depth === 0 && inValue) {
-          currentValue += "</value>";
-          // Parse this value
-          result.push(this.parseXMLValue(currentValue));
-          currentValue = "";
-          inValue = false;
-          i += 7;
-          continue;
-        }
-      }
-
-      if (inValue) {
-        currentValue += char;
-      }
-    }
-
-    return result;
-  }
-
-  private parseXMLValue(valueXml: string): XMLValue {
-    // Extract content between <value> and </value>
-    const contentMatch = valueXml.match(/<value>([\s\S]*)<\/value>/);
-    if (!contentMatch) {
-      return "";
-    }
-
-    const content = contentMatch[1].trim();
-
-    // Check if this is a nested array
-    if (content.startsWith("<array>")) {
-      return this.parseXMLArray(content);
-    }
-
-    // Parse string
-    const stringMatch = content.match(/<string>([^<]*)<\/string>/);
-    if (stringMatch) {
-      return this.unescapeXml(stringMatch[1]);
-    }
-
-    // Parse int
-    const intMatch = content.match(/<int>([^<]+)<\/int>/) || content.match(/<i4>([^<]+)<\/i4>/);
-    if (intMatch) {
-      return parseInt(intMatch[1]);
-    }
-
-    // Parse i8 (64-bit integer) - rTorrent uses this for file sizes
-    const i8Match = content.match(/<i8>([^<]+)<\/i8>/);
-    if (i8Match) {
-      return parseInt(i8Match[1]);
-    }
-
-    // Parse double
-    const doubleMatch = content.match(/<double>([^<]+)<\/double>/);
-    if (doubleMatch) {
-      return parseFloat(doubleMatch[1]);
-    }
-
-    return "";
+    return null;
   }
 
   private escapeXml(str: string): string {
@@ -938,14 +883,5 @@ export class RTorrentClient implements DownloaderClient {
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&apos;");
-  }
-
-  private unescapeXml(str: string): string {
-    return str
-      .replace(/&lt;/g, "<")
-      .replace(/&gt;/g, ">")
-      .replace(/&quot;/g, '"')
-      .replace(/&apos;/g, "'")
-      .replace(/&amp;/g, "&"); // Must be last
   }
 }

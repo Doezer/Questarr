@@ -85,23 +85,24 @@ describe("CompactGameCard", () => {
     renderWithProviders(<CompactGameCard game={mockGame} />);
 
     expect(screen.getByText("Test Game")).toBeInTheDocument();
-    expect(screen.getByText("8.5/10")).toBeInTheDocument();
-    expect(screen.getByText("2023-01-01")).toBeInTheDocument();
+    expect(screen.getByText("8.5")).toBeInTheDocument();
+    expect(screen.getByText("2023")).toBeInTheDocument();
     expect(screen.getByText("Action")).toBeInTheDocument();
     expect(screen.getByText("Adventure")).toBeInTheDocument();
   });
 
-  it("renders 'No genres' when genres is empty or undefined", () => {
+  it("renders no genre pills when genres is empty", () => {
     const gameWithoutGenres = { ...mockGame, genres: [] };
     renderWithProviders(<CompactGameCard game={gameWithoutGenres} />);
-    expect(screen.getByText("No genres")).toBeInTheDocument();
+    expect(screen.queryByText("Action")).not.toBeInTheDocument();
+    expect(screen.queryByText("Adventure")).not.toBeInTheDocument();
   });
 
   it("calls onStatusChange when status button is clicked", () => {
     const onStatusChange = vi.fn();
     renderWithProviders(<CompactGameCard game={mockGame} onStatusChange={onStatusChange} />);
 
-    const button = screen.getByText("Mark Owned");
+    const button = screen.getByLabelText("Mark Test Game as Owned");
     fireEvent.click(button);
 
     expect(onStatusChange).toHaveBeenCalledWith("1", "owned");
@@ -152,7 +153,7 @@ describe("CompactGameCard", () => {
   it("shows Early Access badge when earlyAccess is true", () => {
     const game = { ...mockGame, earlyAccess: true } as unknown as Game;
     renderWithProviders(<CompactGameCard game={game} />);
-    expect(screen.getByText("Early Access")).toBeInTheDocument();
+    expect(screen.getByText("EA")).toBeInTheDocument();
   });
 
   it("does not show Early Access badge when earlyAccess is false", () => {

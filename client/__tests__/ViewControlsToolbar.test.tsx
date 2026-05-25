@@ -3,6 +3,7 @@ import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import ViewControlsToolbar from "../src/components/ViewControlsToolbar";
+import { TooltipProvider } from "../src/components/ui/tooltip";
 import "@testing-library/jest-dom";
 
 // Mock lucide-react icons
@@ -12,27 +13,14 @@ vi.mock("lucide-react", async (importOriginal) => {
     ...actual,
     LayoutGrid: () => <div data-testid="icon-layout-grid" />,
     List: () => <div data-testid="icon-list" />,
-    Settings2: () => <div data-testid="icon-settings2" />,
+    Rows2: () => <div data-testid="icon-rows2" />,
+    Rows3: () => <div data-testid="icon-rows3" />,
   };
 });
 
-// Mock Radix UI DropdownMenu — renders content inline so items are always accessible
-vi.mock("@/components/ui/dropdown-menu", () => ({
-  DropdownMenu: ({ children }: React.PropsWithChildren) => <>{children}</>,
-  DropdownMenuTrigger: ({ children }: React.PropsWithChildren<{ asChild?: boolean }>) => (
-    <>{children}</>
-  ),
-  DropdownMenuContent: ({ children }: React.PropsWithChildren) => (
-    <div data-testid="dropdown-content">{children}</div>
-  ),
-  DropdownMenuItem: ({ children, onClick }: React.PropsWithChildren<{ onClick?: () => void }>) => (
-    <button role="menuitem" onClick={onClick}>
-      {children}
-    </button>
-  ),
-  DropdownMenuLabel: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
-  DropdownMenuSeparator: () => null,
-}));
+function renderWithTooltip(ui: React.ReactElement) {
+  return render(<TooltipProvider>{ui}</TooltipProvider>);
+}
 
 describe("ViewControlsToolbar", () => {
   const defaultProps = {
@@ -43,64 +31,55 @@ describe("ViewControlsToolbar", () => {
   };
 
   it("renders grid and list toggle buttons", () => {
-    render(<ViewControlsToolbar {...defaultProps} />);
+    renderWithTooltip(<ViewControlsToolbar {...defaultProps} />);
     expect(screen.getByLabelText("Grid View")).toBeInTheDocument();
     expect(screen.getByLabelText("List View")).toBeInTheDocument();
   });
 
-  it("does not show density dropdown in grid mode", () => {
-    render(<ViewControlsToolbar {...defaultProps} viewMode="grid" />);
-    expect(screen.queryByTestId("dropdown-content")).not.toBeInTheDocument();
+  it("does not show density button in grid mode", () => {
+    renderWithTooltip(<ViewControlsToolbar {...defaultProps} viewMode="grid" />);
+    expect(screen.queryByText("Comfortable")).not.toBeInTheDocument();
+    expect(screen.queryByText("Compact")).not.toBeInTheDocument();
   });
 
-  it("shows density options in list mode", () => {
-    render(<ViewControlsToolbar {...defaultProps} viewMode="list" />);
-    expect(screen.getByTestId("dropdown-content")).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: "Comfortable" })).toBeInTheDocument();
+  it("shows density toggle button in list mode", () => {
+    renderWithTooltip(<ViewControlsToolbar {...defaultProps} viewMode="list" />);
+    expect(screen.getByText("Comfortable")).toBeInTheDocument();
   });
 
   it("calls onViewModeChange when list toggle clicked", () => {
     const onViewModeChange = vi.fn();
-    render(<ViewControlsToolbar {...defaultProps} onViewModeChange={onViewModeChange} />);
+    renderWithTooltip(
+      <ViewControlsToolbar {...defaultProps} onViewModeChange={onViewModeChange} />
+    );
     fireEvent.click(screen.getByLabelText("List View"));
     expect(onViewModeChange).toHaveBeenCalledWith("list");
   });
 
   it("shows current density label in list mode trigger button", () => {
-    render(<ViewControlsToolbar {...defaultProps} viewMode="list" listDensity="compact" />);
-    // The trigger button span shows the current density
-    expect(screen.getAllByText("Compact").length).toBeGreaterThanOrEqual(1);
+    renderWithTooltip(
+      <ViewControlsToolbar {...defaultProps} viewMode="list" listDensity="compact" />
+    );
+    expect(screen.getByText("Compact")).toBeInTheDocument();
   });
 
-  it("calls onListDensityChange with compact when Compact item clicked", () => {
+  it("calls onListDensityChange with compact when button clicked in comfortable mode", () => {
     const onListDensityChange = vi.fn();
-    render(
+    renderWithTooltip(
       <ViewControlsToolbar
         {...defaultProps}
         viewMode="list"
+        listDensity="comfortable"
         onListDensityChange={onListDensityChange}
       />
     );
-    fireEvent.click(screen.getByRole("menuitem", { name: "Compact" }));
+    fireEvent.click(screen.getByText("Comfortable"));
     expect(onListDensityChange).toHaveBeenCalledWith("compact");
   });
 
-  it("calls onListDensityChange with ultra-compact when Ultra-compact item clicked", () => {
+  it("calls onListDensityChange with comfortable when button clicked in compact mode", () => {
     const onListDensityChange = vi.fn();
-    render(
-      <ViewControlsToolbar
-        {...defaultProps}
-        viewMode="list"
-        onListDensityChange={onListDensityChange}
-      />
-    );
-    fireEvent.click(screen.getByRole("menuitem", { name: "Ultra-compact" }));
-    expect(onListDensityChange).toHaveBeenCalledWith("ultra-compact");
-  });
-
-  it("calls onListDensityChange with comfortable when Comfortable item clicked", () => {
-    const onListDensityChange = vi.fn();
-    render(
+    renderWithTooltip(
       <ViewControlsToolbar
         {...defaultProps}
         viewMode="list"
@@ -108,7 +87,7 @@ describe("ViewControlsToolbar", () => {
         onListDensityChange={onListDensityChange}
       />
     );
-    fireEvent.click(screen.getByRole("menuitem", { name: "Comfortable" }));
+    fireEvent.click(screen.getByText("Compact"));
     expect(onListDensityChange).toHaveBeenCalledWith("comfortable");
   });
 });

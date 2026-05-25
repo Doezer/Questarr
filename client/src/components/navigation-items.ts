@@ -9,6 +9,7 @@ import {
   PieChart,
   Rss,
   ScrollText,
+  Search,
   Settings,
   Star,
 } from "lucide-react";
@@ -48,7 +49,13 @@ export const mobileBottomNavigation: AppNavItem[] = [
   { title: "Settings", url: "/settings", icon: Settings },
 ];
 
+const allNavigation: AppNavItem[] = [
+  ...primaryNavigation,
+  ...managementNavigation,
+  { title: "Search", url: "/search", icon: Search },
+];
+
 export function getPageTitle(path: string): string {
-  const item = [...primaryNavigation, ...managementNavigation].find((entry) => entry.url === path);
+  const item = allNavigation.find((entry) => entry.url === path);
   return item?.title ?? "Questarr";
 }

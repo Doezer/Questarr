@@ -29,6 +29,7 @@ interface CompactGameCardProps {
   downloadSummary?: DownloadSummary;
   /** When true, the row uses CSS subgrid (parent must provide the grid context). */
   useSubgrid?: boolean;
+  mobileLayout?: boolean;
 }
 
 const DEFAULT_RATING = 5;
@@ -55,6 +56,7 @@ const CompactGameCard = ({
   density = "comfortable",
   downloadSummary,
   useSubgrid = false,
+  mobileLayout = false,
 }: CompactGameCardProps) => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -123,9 +125,189 @@ const CompactGameCard = ({
     }
   };
   const handleToggleHidden = () => onToggleHidden?.(game.id, !game.hidden);
-
   const { year: releaseYear, fullDate: releaseFullDate } = parseReleaseDate(game.releaseDate);
   const ratingDisplay = game.rating != null ? game.rating.toFixed(1) : null;
+  const nextStatusInfo = getNextStatusInfo(game.status);
+
+  if (mobileLayout) {
+    return (
+      <>
+        <div
+          className={cn(
+            "rounded-xl border border-border bg-card p-3 shadow-sm",
+            game.hidden && "opacity-60 grayscale"
+          )}
+          data-testid={`card-game-compact-${game.id}`}
+        >
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={handleDetailsClick}
+              className="h-24 w-[4.5rem] shrink-0 overflow-hidden rounded-lg bg-muted"
+              aria-label={`View details for ${game.title}`}
+            >
+              <img
+                src={game.coverUrl || "/placeholder-game-cover.jpg"}
+                alt={`${game.title} cover`}
+                className="h-full w-full object-cover"
+                loading="lazy"
+                data-testid={`img-cover-${game.id}`}
+              />
+            </button>
+
+            <div className="min-w-0 flex-1">
+              <div className="flex items-start justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={handleDetailsClick}
+                  className="min-w-0 text-left"
+                  aria-label={`View details for ${game.title}`}
+                >
+                  <h3
+                    className="truncate text-sm font-semibold"
+                    data-testid={`text-title-${game.id}`}
+                  >
+                    {game.title}
+                  </h3>
+                </button>
+                {!isDiscovery && game.status && <StatusBadge status={game.status} />}
+              </div>
+
+              <div className="mt-2 flex flex-wrap items-center gap-1">
+                <DownloadIndicator summary={downloadSummary} variant="inline" />
+                <SearchResultsBadge
+                  visible={game.searchResultsAvailable ?? false}
+                  variant="inline"
+                />
+                {!isDiscovery && game.status === "wanted" && (
+                  <Badge
+                    variant={releaseStatus.variant}
+                    className={cn("h-5 px-1.5 text-[10px]", releaseStatus.className)}
+                  >
+                    {releaseStatus.label}
+                  </Badge>
+                )}
+                {game.earlyAccess && (
+                  <Badge className="h-5 bg-amber-500 px-1.5 text-[10px] text-white">EA</Badge>
+                )}
+                {game.hidden && (
+                  <Badge
+                    variant="secondary"
+                    className="h-5 bg-gray-500 px-1.5 text-[10px] text-white"
+                  >
+                    Hidden
+                  </Badge>
+                )}
+              </div>
+
+              <div className="mt-2 flex flex-wrap gap-1">
+                {game.genres && game.genres.length > 0 ? (
+                  game.genres.slice(0, 2).map((genre) => (
+                    <span
+                      key={genre}
+                      className="rounded-full bg-muted/70 px-2 py-1 text-[11px] text-muted-foreground"
+                    >
+                      {genre}
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-xs text-muted-foreground/50">No genres</span>
+                )}
+              </div>
+
+              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                <span className="inline-flex items-center gap-1">
+                  <Star className="h-3 w-3 text-amber-400" />
+                  {ratingDisplay ? `${ratingDisplay}/10` : "N/A"}
+                </span>
+                {!isDiscovery && (
+                  <span className="inline-flex items-center gap-1">
+                    <Star className="h-3 w-3 fill-primary text-primary" />
+                    {game.userRating != null ? `${game.userRating.toFixed(1)}/10` : "—"}
+                  </span>
+                )}
+                <span className="inline-flex items-center gap-1">
+                  <Calendar className="h-3 w-3" />
+                  {releaseYear}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {isDiscovery ? (
+              <Button
+                size="icon"
+                variant="default"
+                className="h-10 w-10"
+                onClick={handleDownloadClick}
+                disabled={addGameMutation.isPending}
+                aria-label={`Download ${game.title}`}
+              >
+                {addGameMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4" />
+                )}
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-10"
+                onClick={handleStatusClick}
+                aria-label={`Mark ${game.title} as ${nextStatusInfo.label}`}
+              >
+                Mark {nextStatusInfo.label}
+              </Button>
+            )}
+
+            <Button
+              variant="secondary"
+              size="icon"
+              className="h-10 w-10"
+              onClick={handleDetailsClick}
+              aria-label={`View details for ${game.title}`}
+            >
+              <Info className="h-4 w-4" />
+            </Button>
+
+            {!isDiscovery && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-10 w-10"
+                onClick={handleToggleHidden}
+                aria-label={game.hidden ? `Unhide ${game.title}` : `Hide ${game.title}`}
+              >
+                {game.hidden ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {detailsOpen && (
+          <Suspense fallback={<LazyModalFallback message="Loading game details..." />}>
+            <GameDetailsModal
+              game={resolvedGame}
+              open={detailsOpen}
+              onOpenChange={setDetailsOpen}
+            />
+          </Suspense>
+        )}
+
+        {downloadOpen && (
+          <Suspense fallback={<LazyModalFallback message="Loading download dialog..." />}>
+            <GameDownloadDialog
+              game={resolvedGame}
+              open={downloadOpen}
+              onOpenChange={setDownloadOpen}
+            />
+          </Suspense>
+        )}
+      </>
+    );
+  }
 
   return (
     <>
@@ -361,11 +543,14 @@ const CompactGameCard = ({
                   variant="ghost"
                   size="icon"
                   className={cn(
-                    "hidden sm:flex transition-all text-muted-foreground hover:text-foreground",
+                    "transition-all text-muted-foreground hover:text-foreground",
                     density === "comfortable" ? "h-7 w-7" : "h-6 w-6"
                   )}
-                  onClick={handleStatusClick}
-                  aria-label={`Mark ${game.title} as ${getNextStatusInfo(game.status).label}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleStatusClick();
+                  }}
+                  aria-label={`Mark ${game.title} as ${nextStatusInfo.label}`}
                 >
                   {game.status === "wanted" ? (
                     <span className="text-[11px]">📂</span>
@@ -376,7 +561,7 @@ const CompactGameCard = ({
                   )}
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Mark {getNextStatusInfo(game.status).label}</TooltipContent>
+              <TooltipContent>Mark {nextStatusInfo.label}</TooltipContent>
             </Tooltip>
           )}
 
@@ -389,7 +574,10 @@ const CompactGameCard = ({
                   "transition-all text-muted-foreground hover:text-foreground",
                   density === "comfortable" ? "h-7 w-7" : "h-6 w-6"
                 )}
-                onClick={handleDetailsClick}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDetailsClick();
+                }}
                 aria-label={`View details for ${game.title}`}
               >
                 <Info className="w-3 h-3" />
@@ -408,7 +596,10 @@ const CompactGameCard = ({
                     "transition-all text-muted-foreground hover:text-foreground",
                     density === "comfortable" ? "h-7 w-7" : "h-6 w-6"
                   )}
-                  onClick={handleToggleHidden}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleToggleHidden();
+                  }}
                   aria-label={game.hidden ? `Unhide ${game.title}` : `Hide ${game.title}`}
                 >
                   {game.hidden ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}

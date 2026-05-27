@@ -109,32 +109,36 @@ export default function DiscoverPage() {
     enabled: !!config?.igdb.configured,
   });
 
-  const hiddenIgdbIds = useMemo(() => {
-    return new Set(localGames.filter((g) => g.hidden).map((g) => g.igdbId));
-  }, [localGames]);
+  // ⚡ Bolt: Consolidate multiple sequential array traversals into a single loop
+  // to prevent unnecessary O(n) array allocations and avoid multiple passes over localGames.
+  const { hiddenIgdbIds, ownedIgdbIds, wantedIgdbIds, igdbToLocalIdMap } = useMemo(() => {
+    const hiddenIds = new Set<number>();
+    const ownedIds = new Set<number>();
+    const wantedIds = new Set<number>();
+    const idMap = new Map<number, string>();
 
-  const ownedIgdbIds = useMemo(() => {
-    return new Set(
-      localGames
-        .filter(
-          (g) => g.status === "owned" || g.status === "completed" || g.status === "downloading"
-        )
-        .map((g) => g.igdbId)
-    );
-  }, [localGames]);
+    for (const g of localGames) {
+      if (!g.igdbId) continue;
 
-  const wantedIgdbIds = useMemo(() => {
-    return new Set(
-      localGames.filter((g) => g.status === "wanted" && !g.hidden).map((g) => g.igdbId)
-    );
-  }, [localGames]);
+      idMap.set(g.igdbId, g.id);
 
-  const igdbToLocalIdMap = useMemo(() => {
-    const map = new Map<number, string>();
-    localGames.forEach((g) => {
-      if (g.igdbId) map.set(g.igdbId, g.id);
-    });
-    return map;
+      if (g.hidden) {
+        hiddenIds.add(g.igdbId);
+      }
+
+      if (g.status === "owned" || g.status === "completed" || g.status === "downloading") {
+        ownedIds.add(g.igdbId);
+      } else if (g.status === "wanted" && !g.hidden) {
+        wantedIds.add(g.igdbId);
+      }
+    }
+
+    return {
+      hiddenIgdbIds: hiddenIds,
+      ownedIgdbIds: ownedIds,
+      wantedIgdbIds: wantedIds,
+      igdbToLocalIdMap: idMap,
+    };
   }, [localGames]);
 
   const filterGames = useCallback(

@@ -11,7 +11,7 @@ import crypto from "crypto";
 import https from "https";
 import parseTorrent from "parse-torrent";
 import { XMLParser } from "fast-xml-parser";
-import { isSafeUrl, safeFetch } from "./ssrf.js";
+import { isSafeUrl, resolveSafeAddress, safeFetch } from "./ssrf.js";
 
 const DOWNLOAD_CLIENT_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
@@ -3429,7 +3429,7 @@ export class SABnzbdClient implements DownloaderClient {
 
   private async fetchWithFallback(url: string, options: RequestInit = {}): Promise<Response> {
     try {
-      return await fetch(url, options);
+      return await safeFetch(url, options);
     } catch (error) {
       const isSslError =
         error instanceof Error &&
@@ -3450,13 +3450,21 @@ export class SABnzbdClient implements DownloaderClient {
     }
   }
 
-  private fetchInsecure(url: string, options: RequestInit): Promise<Response> {
+  private async fetchInsecure(url: string, options: RequestInit): Promise<Response> {
+    const parsedUrl = new URL(url);
+    const { address, family } = await resolveSafeAddress(parsedUrl.hostname, true);
+    const safeUrl = new URL(url);
+    safeUrl.hostname = family === 6 ? `[${address}]` : address;
+
+    const headers = new Headers(options.headers || {});
+    headers.set("Host", parsedUrl.hostname);
+
     return new Promise((resolve, reject) => {
       const req = https.request(
-        url,
+        safeUrl.toString(),
         {
           method: options.method || "GET",
-          headers: options.headers as unknown as import("http").OutgoingHttpHeaders,
+          headers: Object.fromEntries(headers.entries()) as import("http").OutgoingHttpHeaders,
           rejectUnauthorized: false,
           timeout: 30000,
         },

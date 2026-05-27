@@ -176,6 +176,30 @@ describe("safeFetch", () => {
     expect(fetch).toHaveBeenCalledWith("https://192.168.1.1:8080/api", expect.any(Object));
   });
 
+  it("should allow bracketed IPv6 literals for HTTPS", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response("ok"));
+
+    await safeFetch("https://[::1]:8080/api");
+
+    expect(fetch).toHaveBeenCalledWith("https://[::1]:8080/api", expect.any(Object));
+  });
+
+  it("should allow bracketed IPv6 literals for HTTP and preserve the Host header", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(new Response("ok"));
+
+    await safeFetch("http://[::1]:8080/api");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "http://[::1]:8080/api",
+      expect.objectContaining({
+        headers: expect.any(Headers),
+      })
+    );
+
+    const calledHeaders = (fetch as Mock).mock.calls[0][1].headers as Headers;
+    expect(calledHeaders.get("Host")).toBe("[::1]");
+  });
+
   it("should allow private IPs for HTTPS when allowPrivate is true", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(new Response("ok"));
 

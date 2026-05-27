@@ -1,6 +1,54 @@
 import dns from "dns/promises";
 import { isIP } from "net";
 
+export function normalizeHostname(hostname: string): string {
+  if (hostname.startsWith("[") && hostname.endsWith("]")) {
+    return hostname.slice(1, -1);
+  }
+
+  return hostname;
+}
+
+export async function resolveSafeAddress(
+  hostname: string,
+  allowPrivate = true
+): Promise<{ address: string; family: 4 | 6 }> {
+  const normalizedHostname = normalizeHostname(hostname);
+  const ipVersion = isIP(normalizedHostname);
+
+  if (ipVersion !== 0) {
+    if (!isSafeIp(normalizedHostname, allowPrivate)) {
+      throw new Error("Invalid or unsafe URL");
+    }
+
+    return { address: normalizedHostname, family: ipVersion as 4 | 6 };
+  }
+
+  try {
+    const addresses = await dns.lookup(normalizedHostname, { all: true });
+    if (!addresses || addresses.length === 0) {
+      throw new Error("Invalid or unsafe URL");
+    }
+
+    for (const { address } of addresses) {
+      if (!isSafeIp(address, allowPrivate)) {
+        throw new Error("Invalid or unsafe URL");
+      }
+    }
+
+    return {
+      address: addresses[0].address,
+      family: addresses[0].family as 4 | 6,
+    };
+  } catch (error) {
+    if (error instanceof Error && error.message === "Invalid or unsafe URL") {
+      throw error;
+    }
+
+    throw new Error(`Failed to resolve hostname: ${normalizedHostname}`);
+  }
+}
+
 /**
  * Validates if a URL is safe to connect to, preventing SSRF attacks against
  * cloud metadata services and other sensitive internal endpoints.
@@ -39,13 +87,7 @@ export async function isSafeUrl(
     return false;
   }
 
-  let hostname = url.hostname;
-
-  // Handle IPv6 brackets in hostname (e.g. [::1]) which URL.hostname might preserve
-  // but isIP and dns.lookup don't always handle correctly.
-  if (hostname.startsWith("[") && hostname.endsWith("]")) {
-    hostname = hostname.slice(1, -1);
-  }
+  const hostname = normalizeHostname(url.hostname);
 
   // Check if hostname is an IP
   const ipVersion = isIP(hostname);
@@ -183,47 +225,10 @@ export async function safeFetch(
   options: RequestInit & { allowPrivate?: boolean } = {}
 ): Promise<Response> {
   const url = new URL(urlStr);
-  const hostname = url.hostname;
+  const originalHostname = url.hostname;
   const isHttps = url.protocol === "https:";
   const { allowPrivate, ...fetchOptions } = options;
-
-  // If hostname is already an IP, just validate it
-  const ipVersion = isIP(hostname);
-  let address = hostname;
-  let family = ipVersion;
-
-  if (ipVersion === 0) {
-    try {
-      const addresses = await dns.lookup(hostname, { all: true });
-
-      if (!addresses || addresses.length === 0) {
-        throw new Error("Invalid or unsafe URL");
-      }
-
-      // Check all resolved addresses to prevent DNS rebinding attacks
-      for (const { address } of addresses) {
-        if (!isSafeIp(address, allowPrivate)) {
-          throw new Error("Invalid or unsafe URL");
-        }
-      }
-
-      // Use the first resolved address for HTTP pinning
-      if (addresses.length > 0) {
-        address = addresses[0].address;
-        family = addresses[0].family;
-      }
-    } catch (error) {
-      if (error instanceof Error && error.message === "Invalid or unsafe URL") {
-        throw error;
-      }
-      throw new Error(`Failed to resolve hostname: ${hostname}`);
-    }
-  } else {
-    // Hostname is already an IP, check it directly
-    if (!isSafeIp(address, allowPrivate)) {
-      throw new Error("Invalid or unsafe URL");
-    }
-  }
+  const { address, family } = await resolveSafeAddress(originalHostname, allowPrivate);
 
   // For HTTPS, we cannot rewrite the URL to use the IP address because
   // SSL/TLS certificates are issued for hostnames, not IP addresses.
@@ -240,7 +245,7 @@ export async function safeFetch(
 
   // Clone headers and set Host to original hostname
   const headers = new Headers(fetchOptions.headers || {});
-  headers.set("Host", hostname);
+  headers.set("Host", originalHostname);
 
   return fetch(safeUrl.toString(), {
     ...fetchOptions,

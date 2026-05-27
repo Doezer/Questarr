@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Downloader } from "../../shared/schema.js";
+import * as rootDownloaderExports from "../downloaders.js";
 import * as downloaderExports from "../downloaders/index.js";
 import { downloadersLogger } from "../logger.js";
 import { NZBGetClient } from "../downloaders/nzbget.js";
@@ -56,6 +57,7 @@ describe("downloaders helper regression coverage", () => {
   });
 
   it("exports the modular downloader entrypoints", () => {
+    expect(rootDownloaderExports.DownloaderManager).toBe(downloaderExports.DownloaderManager);
     expect(downloaderExports.DownloaderManager).toBeDefined();
     expect(downloaderExports.TransmissionClient).toBe(TransmissionClient);
     expect(downloaderExports.RTorrentClient).toBe(RTorrentClient);
@@ -316,6 +318,85 @@ describe("downloaders helper regression coverage", () => {
     expect(downloadersLogger.warn).toHaveBeenCalled();
   });
 
+  it("covers qBittorrent request retry and failure branches", async () => {
+    const client = new QBittorrentClient(
+      createDownloader({
+        type: "qbittorrent",
+        url: "http://qb.local:8080",
+        username: "admin",
+        password: "password",
+      })
+    ) as unknown as {
+      cookie: string | null;
+      makeRequest(
+        method: string,
+        path: string,
+        body?: string | Buffer,
+        additionalHeaders?: Record<string, string>
+      ): Promise<Response>;
+      authenticate(force?: boolean): Promise<void>;
+    };
+
+    client.cookie = "SID=old";
+    const authenticateSpy = vi.spyOn(client, "authenticate").mockImplementation(async () => {
+      client.cookie = "SID=new";
+    });
+
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        statusText: "Forbidden",
+        text: async () => "expired",
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+      } as Response);
+
+    await expect(
+      client.makeRequest("POST", "/api/v2/test", Buffer.from("torrent"), {
+        "Content-Type": "application/octet-stream",
+      })
+    ).resolves.toMatchObject({ ok: true });
+
+    const retriedCall = fetchMock.mock.calls[1][1] as RequestInit;
+    expect((retriedCall.headers as Record<string, string>).Cookie).toBe("SID=new");
+    expect(retriedCall.body).toBeInstanceOf(Uint8Array);
+
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        statusText: "Unauthorized",
+        text: async () => "expired again",
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        statusText: "Offline",
+        text: async () => "still bad",
+      } as Response);
+
+    await expect(client.makeRequest("GET", "/api/v2/auth-fail")).rejects.toThrow(
+      "HTTP 503: Offline - still bad"
+    );
+
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      statusText: "Server Error",
+      text: async () => "boom",
+    } as Response);
+
+    await expect(client.makeRequest("GET", "/api/v2/direct-fail")).rejects.toThrow(
+      "HTTP 500: Server Error - boom"
+    );
+
+    authenticateSpy.mockRestore();
+  });
+
   it("covers rTorrent helpers and XML-RPC parsing", () => {
     const client = new RTorrentClient(
       createDownloader({ type: "rtorrent", url: "rt.local/base", urlPath: "RPC2" })
@@ -395,6 +476,93 @@ describe("downloaders helper regression coverage", () => {
 </methodResponse>`)
     ).toThrow("XML-RPC Fault: Nope");
     expect(client.escapeXml(`<&>"'`)).toBe("&lt;&amp;&gt;&quot;&apos;");
+
+    randomBytesSpy.mockRestore();
+  });
+
+  it("covers rTorrent XML-RPC request auth and error branches", async () => {
+    const client = new RTorrentClient(
+      createDownloader({
+        type: "rtorrent",
+        url: "rt.local/base/",
+        urlPath: "/RPC2",
+        username: "user",
+        password: "pass",
+      })
+    ) as unknown as {
+      makeXMLRPCRequest(method: string, params: unknown[]): Promise<unknown>;
+    };
+
+    const randomBytesSpy = vi
+      .spyOn(crypto, "randomBytes")
+      .mockReturnValue(Buffer.from("1234567890abcdef", "hex"));
+
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        statusText: "Unauthorized",
+        text: async () => "auth needed",
+        headers: {
+          get: (name: string) =>
+            name.toLowerCase() === "www-authenticate"
+              ? 'Digest realm="rtorrent", nonce="abc", qop="auth"'
+              : null,
+        },
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () => `<?xml version="1.0"?>
+<methodResponse>
+  <params>
+    <param><value><string>1.2.3</string></value></param>
+  </params>
+</methodResponse>`,
+      } as Response);
+
+    await expect(
+      client.makeXMLRPCRequest("system.client_version", [Buffer.from("abc"), 1])
+    ).resolves.toBe("1.2.3");
+    expect((fetchMock.mock.calls[1][1] as RequestInit).headers).toMatchObject({
+      Authorization: expect.stringContaining('Digest username="user"'),
+    });
+
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        statusText: "Unauthorized",
+        text: async () => "auth needed",
+        headers: {
+          get: (name: string) =>
+            name.toLowerCase() === "www-authenticate"
+              ? 'Digest realm="rtorrent", nonce="abc", qop="auth"'
+              : null,
+        },
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        statusText: "Unauthorized",
+        text: async () => "still bad",
+      } as Response);
+
+    await expect(client.makeXMLRPCRequest("system.client_version", ["a"])).rejects.toThrow(
+      "Digest Auth Error: Digest Authentication failed (wrong credentials, or server may have switched to HTTPS)"
+    );
+
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      statusText: "Server Error",
+      text: async () => "bad gateway",
+      headers: { get: () => null },
+    } as Response);
+
+    await expect(client.makeXMLRPCRequest("system.client_version", ["a"])).rejects.toThrow(
+      "HTTP 500: Server Error - bad gateway"
+    );
 
     randomBytesSpy.mockRestore();
   });
@@ -524,5 +692,144 @@ describe("downloaders helper regression coverage", () => {
     ]);
     expect(client.getSynologyDestination({ downloadPath: "/custom" })).toBe("/custom");
     expect(client.getSynologyDestination({})).toBe("/volume1/downloads");
+  });
+
+  it("covers Synology auth, retry, and logout helpers", async () => {
+    const client = new SynologyDownloadStationClient(
+      createDownloader({
+        type: "synology",
+        url: "http://nas.local:5000",
+        username: "admin",
+        password: "password",
+      })
+    ) as unknown as {
+      apiInfo: Record<string, { path: string; minVersion: number; maxVersion: number }> | null;
+      sessionId: string | null;
+      authenticate(force?: boolean): Promise<void>;
+      logout(): Promise<void>;
+      requestApi<T>(
+        apiName: string,
+        descriptor: { path: string; minVersion: number; maxVersion: number },
+        preferredVersion: number,
+        methodName: string,
+        options?: {
+          httpMethod?: "GET" | "POST";
+          params?: Record<string, string | number | boolean | undefined>;
+          body?: URLSearchParams | FormData;
+          retryOnAuthFailure?: boolean;
+          requiresAuth?: boolean;
+        }
+      ): Promise<T>;
+      fetchJson<T>(url: string, init: RequestInit, context: string): Promise<T>;
+      ensureApiInfo(): Promise<void>;
+    };
+
+    client.apiInfo = {
+      "SYNO.API.Auth": { path: "auth.cgi", minVersion: 1, maxVersion: 6 },
+      "SYNO.DownloadStation2.Task": { path: "entry.cgi", minVersion: 1, maxVersion: 2 },
+    };
+
+    const fetchJsonSpy = vi.spyOn(client, "fetchJson");
+    fetchJsonSpy.mockResolvedValueOnce({ success: true, data: { sid: "sid-1" } });
+
+    await client.authenticate();
+    expect(client.sessionId).toBe("sid-1");
+
+    const authenticateSpy = vi.spyOn(client, "authenticate").mockImplementation(async (force) => {
+      client.sessionId = force ? "sid-2" : "sid-1";
+    });
+    const ensureApiInfoSpy = vi.spyOn(client, "ensureApiInfo").mockResolvedValue(undefined);
+
+    fetchJsonSpy
+      .mockResolvedValueOnce({ success: false, error: { code: 106 } })
+      .mockResolvedValueOnce({ success: true, data: { tasks: [] } });
+
+    await expect(
+      client.requestApi(
+        "SYNO.DownloadStation2.Task",
+        { path: "entry.cgi", minVersion: 1, maxVersion: 2 },
+        2,
+        "list"
+      )
+    ).resolves.toEqual({ success: true, data: { tasks: [] } });
+    expect(authenticateSpy).toHaveBeenCalledWith(true);
+
+    client.sessionId = "sid-logout";
+    fetchJsonSpy.mockRejectedValueOnce(new Error("logout failed"));
+    await client.logout();
+    expect(client.sessionId).toBeNull();
+    expect(downloadersLogger.debug).toHaveBeenCalled();
+
+    authenticateSpy.mockRestore();
+    ensureApiInfoSpy.mockRestore();
+  });
+
+  it("covers Transmission request retry and error helpers", async () => {
+    const client = new TransmissionClient(
+      createDownloader({
+        type: "transmission",
+        url: "http://transmission.local",
+        username: "user",
+        password: "pass",
+      })
+    ) as unknown as {
+      makeRequest(method: string, arguments_: unknown): Promise<unknown>;
+      sessionId: string | null;
+    };
+
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 409,
+        headers: {
+          get: (name: string) => (name === "X-Transmission-Session-Id" ? "session-1" : null),
+        },
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ result: "success", arguments: { ok: true } }),
+      } as Response);
+
+    await expect(client.makeRequest("session-get", {})).resolves.toEqual({
+      result: "success",
+      arguments: { ok: true },
+    });
+    expect((fetchMock.mock.calls[1][1] as RequestInit).headers).toMatchObject({
+      "X-Transmission-Session-Id": "session-1",
+      Authorization: `Basic ${Buffer.from("user:pass", "utf-8").toString("base64")}`,
+    });
+
+    client.sessionId = null;
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 409,
+        headers: {
+          get: (name: string) => (name === "X-Transmission-Session-Id" ? "session-2" : null),
+        },
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        statusText: "Unauthorized",
+        text: async () => "denied",
+      } as Response);
+
+    await expect(client.makeRequest("session-get", {})).rejects.toThrow(
+      "Authentication failed: Invalid username or password for Transmission - denied"
+    );
+
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      statusText: "Server Error",
+      text: async () => "server down",
+      headers: { get: () => null },
+    } as Response);
+
+    await expect(client.makeRequest("session-get", {})).rejects.toThrow(
+      "HTTP 500: Server Error - server down"
+    );
   });
 });

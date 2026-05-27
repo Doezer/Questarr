@@ -104,6 +104,7 @@ export class QBittorrentClient implements DownloaderClient {
       const category = request.category || this.downloader.category || undefined;
       const pausedValue =
         qbSettings.initialState === "stopped" || this.downloader.addStopped ? "true" : "false";
+      let urlAddAcceptedButUnverified = false;
 
       const maybeSetForceStarted = async (hash: string) => {
         if (qbSettings.initialState !== "force-started") return;
@@ -303,6 +304,10 @@ export class QBittorrentClient implements DownloaderClient {
 
           // If we reach here for a non-magnet, qBittorrent either couldn't reach the URL
           // or didn't add anything we can observe. We'll fall back to torrent-file upload.
+          if (urlAddOk && !isMagnet) {
+            urlAddAcceptedButUnverified = true;
+          }
+
           downloadersLogger.warn(
             { url: request.url, responseText: urlAddResponseText },
             "URL-based add did not result in an added torrent; falling back to torrent-file upload"
@@ -425,6 +430,17 @@ export class QBittorrentClient implements DownloaderClient {
             userFriendlyError +=
               " - The indexer refused the connection. Check if Prowlarr/Jackett is running and the port is correct.";
           }
+        }
+
+        if (urlAddAcceptedButUnverified) {
+          downloadersLogger.warn(
+            { url: request.url, error: userFriendlyError },
+            "URL add was accepted by qBittorrent but could not be verified; treating as accepted"
+          );
+          return {
+            success: true,
+            message: "Download accepted by qBittorrent but could not be verified immediately",
+          };
         }
 
         return {

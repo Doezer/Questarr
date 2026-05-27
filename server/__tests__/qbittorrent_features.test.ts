@@ -145,6 +145,53 @@ describe("QBittorrentClient - Advanced Features", () => {
     expect(result.id).toBe("aaaaaaaaaabbbbbbbbbbccccccccccdddddddddd");
   });
 
+  it("should treat URL add as accepted when fallback torrent fetch fails after an Ok response", async () => {
+    vi.useFakeTimers();
+    const testDownloader = createTestDownloader();
+
+    const loginResponse = {
+      ok: true,
+      text: async () => "Ok.",
+      headers: { get: () => "SID=123" },
+    };
+
+    const urlAddResponse = {
+      ok: true,
+      status: 200,
+      text: async () => "Ok.",
+      headers: { entries: () => [] },
+    };
+
+    const torrentsInfoEmptyResponse = {
+      ok: true,
+      json: async () => [],
+    };
+
+    const fallbackFetchFailureResponse = {
+      ok: false,
+      status: 500,
+      statusText: "Internal Server Error",
+      headers: { get: () => null },
+    };
+
+    fetchMock
+      .mockResolvedValueOnce(loginResponse)
+      .mockResolvedValueOnce(urlAddResponse)
+      .mockResolvedValueOnce(torrentsInfoEmptyResponse)
+      .mockResolvedValueOnce(fallbackFetchFailureResponse);
+
+    const promise = DownloaderManager.addDownload(testDownloader, {
+      url: "http://tracker.example.com/download/123.torrent",
+      title: "Test Game",
+    });
+
+    await vi.runAllTimersAsync();
+    const result = await promise;
+
+    expect(result.success).toBe(true);
+    expect(result.message).toBe("Download accepted by qBittorrent but could not be verified immediately");
+  });
+
   it("should support force-started mode via settings", async () => {
     vi.useFakeTimers();
     const testDownloader = createTestDownloader({

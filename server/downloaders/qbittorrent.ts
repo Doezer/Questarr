@@ -104,6 +104,8 @@ export class QBittorrentClient implements DownloaderClient {
       const category = request.category || this.downloader.category || undefined;
       const pausedValue =
         qbSettings.initialState === "stopped" || this.downloader.addStopped ? "true" : "false";
+      // Set only when qBittorrent explicitly accepted a non-magnet URL ("Ok.")
+      // but we could not immediately verify the added torrent.
       let urlAddAcceptedButUnverified = false;
 
       const maybeSetForceStarted = async (hash: string) => {
@@ -433,6 +435,8 @@ export class QBittorrentClient implements DownloaderClient {
         }
 
         if (urlAddAcceptedButUnverified) {
+          // qBittorrent already accepted the URL add request. If the fallback fetch fails,
+          // treat it as accepted to avoid a false "all downloaders failed" error.
           downloadersLogger.warn(
             { url: request.url, error: userFriendlyError },
             "URL add was accepted by qBittorrent but could not be verified; treating as accepted"

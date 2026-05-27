@@ -1210,6 +1210,90 @@ describe("downloader client regression coverage", () => {
     });
   });
 
+  it("covers qBittorrent URL-add success, duplicate, and force-start branches", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-01T00:00:00.000Z"));
+
+    const client = new QBittorrentClient(
+      createDownloader({
+        type: "qbittorrent",
+        settings: JSON.stringify({ initialState: "force-started" }),
+      })
+    );
+    const privateClient = client as unknown as {
+      authenticate: (force?: boolean) => Promise<void>;
+      makeRequest: (
+        method: string,
+        path: string,
+        body?: string | Buffer,
+        additionalHeaders?: Record<string, string>
+      ) => Promise<Response>;
+    };
+
+    vi.spyOn(privateClient, "authenticate").mockResolvedValue(undefined);
+    const makeRequestSpy = vi.spyOn(privateClient, "makeRequest");
+    const emptyHeaders = {
+      entries: () => [][Symbol.iterator](),
+      get: () => null,
+    };
+
+    makeRequestSpy
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () => "Ok.",
+        headers: emptyHeaders,
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => [{ hash: "abcdef1234567890abcdef1234567890abcdef12" }],
+      } as Response)
+      .mockResolvedValueOnce({ ok: true } as Response);
+
+    const addedPromise = client.addDownload({
+      url: "magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12",
+      title: "Questarr Magnet",
+    });
+    await vi.runAllTimersAsync();
+    await expect(addedPromise).resolves.toEqual({
+      success: true,
+      id: "abcdef1234567890abcdef1234567890abcdef12",
+      message: "Download added successfully",
+    });
+
+    makeRequestSpy.mockReset();
+    makeRequestSpy
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () => "Fails.",
+        headers: emptyHeaders,
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => [
+          {
+            name: "Questarr Game",
+            hash: "recent-hash",
+            added_on: Math.floor(Date.now() / 1000) - 1,
+          },
+        ],
+      } as Response);
+
+    const duplicatePromise = client.addDownload({
+      url: "http://indexer.local/file.torrent",
+      title: "Questarr Game",
+    });
+    await vi.runAllTimersAsync();
+    await expect(duplicatePromise).resolves.toEqual({
+      success: true,
+      id: "recent-hash",
+      message: "Download already exists (qBittorrent)",
+    });
+
+    vi.useRealTimers();
+  });
+
   it("covers Transmission connection branches and duplicate magnet adds", async () => {
     const client = new TransmissionClient(createDownloader({ type: "transmission" }));
     const privateClient = client as unknown as {
@@ -1269,6 +1353,81 @@ describe("downloader client regression coverage", () => {
       success: true,
       id: "dup-hash",
       message: "Download already exists (Transmission)",
+    });
+  });
+
+  it("covers Transmission redirect, retry, and failure result branches", async () => {
+    const client = new TransmissionClient(
+      createDownloader({
+        type: "transmission",
+        downloadPath: "/downloads",
+        category: "games",
+      })
+    );
+    const privateClient = client as unknown as {
+      makeRequest: (
+        method: string,
+        args: Record<string, unknown>
+      ) => Promise<{
+        result?: string;
+        arguments: Record<string, unknown>;
+      }>;
+    };
+    const makeRequestSpy = vi.spyOn(privateClient, "makeRequest");
+
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 302,
+      headers: {
+        get: (name: string) =>
+          name.toLowerCase() === "location"
+            ? "magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12"
+            : null,
+      },
+    } as Response);
+    makeRequestSpy.mockResolvedValueOnce({
+      result: "success",
+      arguments: {
+        "torrent-added": {
+          hashString: "magnet-hash",
+        },
+      },
+    });
+
+    await expect(
+      client.addDownload({ url: "http://indexer.local/redirect.torrent", title: "Redirected" })
+    ).resolves.toEqual({
+      success: true,
+      id: "magnet-hash",
+      message: "Download added successfully",
+    });
+
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        statusText: "Bad Request",
+        headers: { get: () => null },
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+        headers: { get: () => null },
+      } as Response);
+    makeRequestSpy.mockResolvedValueOnce({
+      result: "tracker offline",
+      arguments: {},
+    });
+
+    await expect(
+      client.addDownload({
+        url: "http://indexer.local/file.torrent&file=Questarr",
+        title: "Retry file param",
+        priority: 5,
+      })
+    ).resolves.toEqual({
+      success: false,
+      message: "Failed to add download: tracker offline",
     });
   });
 
@@ -1333,6 +1492,50 @@ describe("downloader client regression coverage", () => {
     ).resolves.toEqual({
       success: false,
       message: "Failed to add download (rTorrent returned code: 5)",
+    });
+  });
+
+  it("covers rTorrent redirected magnet and non-magnet failure branches", async () => {
+    const client = new RTorrentClient(
+      createDownloader({ type: "rtorrent", addStopped: true, category: "games" })
+    );
+    const privateClient = client as unknown as {
+      makeXMLRPCRequest: (method: string, params: unknown[]) => Promise<unknown>;
+    };
+    const rpcSpy = vi.spyOn(privateClient, "makeXMLRPCRequest");
+
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 302,
+      headers: {
+        get: (name: string) =>
+          name.toLowerCase() === "location"
+            ? "magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12"
+            : null,
+      },
+    } as Response);
+    rpcSpy.mockResolvedValueOnce(0);
+
+    await expect(
+      client.addDownload({ url: "http://indexer.local/start.torrent", title: "Redirected" })
+    ).resolves.toEqual({
+      success: true,
+      id: "abcdef1234567890abcdef1234567890abcdef12",
+      message: "Download added successfully (stopped)",
+    });
+
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      statusText: "Server Error",
+      headers: { get: () => null },
+    } as Response);
+
+    await expect(
+      client.addDownload({ url: "http://indexer.local/broken.torrent", title: "Broken file" })
+    ).resolves.toEqual({
+      success: false,
+      message: "Failed to download file from indexer: Server Error",
     });
   });
 
@@ -1413,6 +1616,46 @@ describe("downloader client regression coverage", () => {
     });
   });
 
+  it("covers SABnzbd addDownload success-without-id and generic failure branches", async () => {
+    const client = new SABnzbdClient(createDownloader({ type: "sabnzbd", username: "api-key" }));
+    const privateClient = client as unknown as {
+      fetchWithFallback: (url: string, options?: RequestInit) => Promise<Response>;
+    };
+    const fetchWithFallbackSpy = vi.spyOn(privateClient, "fetchWithFallback");
+
+    vi.mocked(safeFetch).mockResolvedValueOnce({
+      ok: true,
+      arrayBuffer: async () => new TextEncoder().encode("nzb").buffer,
+    } as Response);
+    fetchWithFallbackSpy.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ status: true }),
+    } as Response);
+
+    await expect(
+      client.addDownload({ url: "http://indexer.local/file.nzb", title: "Merged NZB" })
+    ).resolves.toEqual({
+      success: true,
+      message: "NZB added successfully (likely duplicate or merged)",
+    });
+
+    vi.mocked(safeFetch).mockResolvedValueOnce({
+      ok: true,
+      arrayBuffer: async () => new TextEncoder().encode("nzb").buffer,
+    } as Response);
+    fetchWithFallbackSpy.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ status: false, error: "Queue rejected" }),
+    } as Response);
+
+    await expect(
+      client.addDownload({ url: "http://indexer.local/file.nzb", title: "Rejected NZB" })
+    ).resolves.toEqual({
+      success: false,
+      message: "Queue rejected",
+    });
+  });
+
   it("covers NZBGet success and addDownload failure branches", async () => {
     const client = new NZBGetClient(createDownloader({ type: "nzbget" }));
     const privateClient = client as unknown as {
@@ -1455,6 +1698,52 @@ describe("downloader client regression coverage", () => {
     ).resolves.toEqual({
       success: false,
       message: "Failed to add NZB (ID is 0 or negative)",
+    });
+  });
+
+  it("covers NZBGet addDownload success and completed history details", async () => {
+    const client = new NZBGetClient(createDownloader({ type: "nzbget" }));
+    const privateClient = client as unknown as {
+      makeXMLRPCRequest: (method: string, params?: unknown[]) => Promise<unknown>;
+    };
+    const rpcSpy = vi.spyOn(privateClient, "makeXMLRPCRequest");
+
+    vi.mocked(safeFetch).mockResolvedValueOnce({
+      ok: true,
+      text: async () => "<nzb></nzb>",
+    } as Response);
+    rpcSpy.mockResolvedValueOnce(42);
+
+    await expect(
+      client.addDownload({ url: "http://indexer.local/file.nzb", title: "Good NZB" })
+    ).resolves.toEqual({
+      success: true,
+      id: "42",
+      message: "NZB added successfully",
+    });
+
+    rpcSpy.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      {
+        NZBID: 12,
+        Name: "Finished Game",
+        Status: "SUCCESS/ALL",
+        FileSizeMB: 30,
+        Category: "games",
+        DownloadTimeSec: 60,
+        ParStatus: "NONE",
+        UnpackStatus: "SUCCESS",
+        FailedArticles: 0,
+        DeleteStatus: "NONE",
+        DestDir: "/downloads",
+      },
+    ]);
+
+    await expect(client.getDownloadDetails("12")).resolves.toMatchObject({
+      status: "completed",
+      repairStatus: "good",
+      unpackStatus: "completed",
+      files: [],
+      trackers: [],
     });
   });
 
@@ -1565,5 +1854,112 @@ describe("downloader client regression coverage", () => {
     vi.spyOn(privateClient, "ensureApiInfo").mockResolvedValue(undefined);
     vi.spyOn(privateClient, "requestApi").mockRejectedValueOnce(new Error("space boom"));
     await expect(client.getFreeSpace()).resolves.toBe(0);
+  });
+
+  it("covers Synology upload path and successful listing helpers", async () => {
+    const client = new SynologyDownloadStationClient(
+      createDownloader({
+        type: "synology",
+        username: "admin",
+        password: "password",
+      })
+    );
+    const privateClient = client as unknown as {
+      ensureApiInfo: () => Promise<void>;
+      getTaskApiDescriptor: () => { apiName: string };
+      requestTaskApi: <T>(
+        methodName: string,
+        options?: {
+          httpMethod?: "GET" | "POST";
+          params?: Record<string, string | number | boolean | undefined>;
+          body?: URLSearchParams | FormData;
+          retryOnAuthFailure?: boolean;
+        }
+      ) => Promise<T>;
+      requestApi: <T>(
+        apiName: string,
+        descriptor: { path: string; minVersion: number; maxVersion: number },
+        preferredVersion: number,
+        methodName: string,
+        options?: {
+          httpMethod?: "GET" | "POST";
+          params?: Record<string, string | number | boolean | undefined>;
+          body?: URLSearchParams | FormData;
+          retryOnAuthFailure?: boolean;
+          requiresAuth?: boolean;
+        }
+      ) => Promise<T>;
+      apiInfo: Record<string, { path: string; minVersion: number; maxVersion: number }> | null;
+    };
+
+    vi.spyOn(privateClient, "ensureApiInfo").mockResolvedValue(undefined);
+    vi.spyOn(privateClient, "getTaskApiDescriptor").mockReturnValue({
+      apiName: "SYNO.DownloadStation2.Task",
+    });
+    const requestTaskApiSpy = vi.spyOn(privateClient, "requestTaskApi");
+
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: {
+        get: (name: string) => (name.toLowerCase() === "content-type" ? "application/x-nzb" : null),
+      },
+      arrayBuffer: async () => new TextEncoder().encode("nzb-data").buffer,
+    } as Response);
+    requestTaskApiSpy.mockResolvedValueOnce({
+      success: true,
+      data: { task_id: ["task-upload"] },
+    } as never);
+
+    await expect(
+      client.addDownload({
+        url: "http://indexer.local/file.nzb",
+        title: "Uploaded NZB",
+        downloadType: "usenet",
+      })
+    ).resolves.toEqual({
+      success: true,
+      id: "task-upload",
+      message: "Download added successfully",
+    });
+
+    requestTaskApiSpy.mockResolvedValueOnce({
+      success: true,
+      data: {
+        tasks: [
+          {
+            id: "task-1",
+            title: "Questarr Game",
+            size: 100,
+            status: "finished",
+            additional: {
+              transfer: {
+                size_downloaded: 100,
+                speed_download: 0,
+              },
+            },
+          },
+        ],
+      },
+    } as never);
+
+    await expect(client.getAllDownloads()).resolves.toEqual([
+      expect.objectContaining({
+        id: "task-1",
+        status: "completed",
+        progress: 100,
+      }),
+    ]);
+
+    privateClient.apiInfo = {
+      "SYNO.FileStation.Info": { path: "entry.cgi", minVersion: 1, maxVersion: 2 },
+    };
+    vi.spyOn(privateClient, "requestApi").mockResolvedValueOnce({
+      success: true,
+      data: { useable_space: 16384 },
+    } as never);
+
+    await expect(client.getFreeSpace()).resolves.toBe(16384);
   });
 });

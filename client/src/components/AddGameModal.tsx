@@ -8,18 +8,27 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerDescription,
+  DrawerTrigger,
+} from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { Search, Plus, Star, AlertCircle, Calendar } from "lucide-react";
+import { Search, Plus, Star, AlertCircle, Calendar, Check } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { type Game, type InsertGame, type Config } from "@shared/schema";
 import { mapGameToInsertGame } from "@/lib/utils";
 import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { getAddGamePendingQuery, clearAddGamePendingQuery } from "@/lib/add-game-store";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 interface SearchResult extends Game {
   inCollection?: boolean;
@@ -37,6 +46,7 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
   const [showUndatedGames, setShowUndatedGames] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const isMobile = useIsMobile();
 
   const { data: config } = useQuery<Config>({
     queryKey: ["/api/config"],
@@ -142,6 +152,168 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
     inCollection: userGames.some((userGame) => userGame.igdbId === game.igdbId),
   }));
 
+  const igdbNotConfigured = config && !config.igdb?.configured;
+
+  // ─── Mobile layout (bottom sheet) ────────────────────────────────────────────
+
+  if (isMobile) {
+    return (
+      <Drawer open={open} onOpenChange={setOpen} shouldScaleBackground={false}>
+        <DrawerTrigger asChild>{children}</DrawerTrigger>
+        <DrawerContent className="h-[92vh] flex flex-col">
+          <DrawerHeader className="pt-2 pb-0 px-4">
+            <DrawerTitle className="text-base">Add Game</DrawerTitle>
+            <DrawerDescription className="sr-only">
+              Search for games to add to your collection
+            </DrawerDescription>
+          </DrawerHeader>
+
+          {igdbNotConfigured ? (
+            <div className="flex flex-col items-center justify-center flex-1 py-8 text-center space-y-4 px-6">
+              <div className="bg-muted p-4 rounded-full">
+                <AlertCircle className="h-8 w-8 text-muted-foreground" />
+              </div>
+              <h3 className="font-semibold text-lg">IGDB Configuration Required</h3>
+              <p className="text-muted-foreground text-sm">
+                Please configure IGDB credentials in settings to search for and add games.
+              </p>
+              <Link href="/settings">
+                <Button className="w-full" onClick={() => setOpen(false)}>
+                  Go to Settings
+                </Button>
+              </Link>
+            </div>
+          ) : (
+            <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+              {/* Sticky search + filter strip */}
+              <div className="flex-shrink-0 px-4 pt-3 pb-3 space-y-2 border-b border-border/50">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground w-4 h-4 pointer-events-none" />
+                  <Input
+                    type="search"
+                    placeholder="Search for games..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-10 h-11"
+                    data-testid="input-game-search"
+                    aria-label="Search games"
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-2 px-0.5">
+                  <span className="text-xs text-muted-foreground">Show undated games first</span>
+                  <Switch
+                    checked={showUndatedGames}
+                    onCheckedChange={setShowUndatedGames}
+                    aria-label="Show undated games first"
+                  />
+                </div>
+              </div>
+
+              {/* Scrollable results */}
+              <div
+                className="flex-1 overflow-y-auto min-h-0 px-4 py-3 space-y-2"
+                aria-live="polite"
+              >
+                {isSearching && (
+                  <div className="text-center py-10 text-sm text-muted-foreground">
+                    Searching games…
+                  </div>
+                )}
+
+                {!isSearching && !debouncedQuery && (
+                  <div className="text-center py-10 text-sm text-muted-foreground">
+                    Type at least 3 characters to search.
+                  </div>
+                )}
+
+                {!isSearching && debouncedQuery && resultsWithCollectionStatus.length === 0 && (
+                  <div className="text-center py-10 text-sm text-muted-foreground">
+                    No games found. Try a different search term.
+                  </div>
+                )}
+
+                {resultsWithCollectionStatus.map((game) => (
+                  <div
+                    key={game.id}
+                    className="flex gap-3 rounded-lg bg-muted/40 p-3"
+                    data-testid={`search-result-${game.id}`}
+                  >
+                    <img
+                      src={game.coverUrl || "/placeholder-game-cover.jpg"}
+                      alt={`${game.title} cover`}
+                      className="w-14 h-20 object-cover rounded-md flex-shrink-0"
+                    />
+                    <div className="flex-1 min-w-0 flex flex-col gap-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <h3
+                          className="font-semibold text-sm leading-snug line-clamp-2 flex-1"
+                          data-testid={`text-game-title-${game.id}`}
+                        >
+                          {game.title}
+                        </h3>
+                        {game.inCollection ? (
+                          <Badge variant="default" className="text-xs flex-shrink-0 mt-0.5 gap-1">
+                            <Check className="w-3 h-3" />
+                            Added
+                          </Badge>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleAddGame(game)}
+                            disabled={addGameMutation.isPending}
+                            className="flex-shrink-0 w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center active:scale-95 transition-transform disabled:opacity-50"
+                            data-testid={`button-add-${game.id}`}
+                            aria-label={`Add ${game.title} to collection`}
+                          >
+                            <Plus className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        {game.releaseDate && (
+                          <span className="flex items-center gap-1">
+                            <Calendar className="w-3 h-3" />
+                            {game.releaseDate.endsWith("-12-31")
+                              ? new Date(game.releaseDate).getFullYear()
+                              : new Date(game.releaseDate).toLocaleDateString(undefined, {
+                                  year: "numeric",
+                                  month: "short",
+                                })}
+                          </span>
+                        )}
+                        {game.rating && (
+                          <span className="flex items-center gap-1">
+                            <Star className="w-3 h-3 text-accent" />
+                            {game.rating}/10
+                          </span>
+                        )}
+                      </div>
+
+                      {game.genres?.[0] && (
+                        <Badge variant="secondary" className="text-xs w-fit">
+                          {game.genres[0]}
+                        </Badge>
+                      )}
+
+                      {game.summary && (
+                        <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
+                          {game.summary}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </DrawerContent>
+      </Drawer>
+    );
+  }
+
+  // ─── Desktop layout (dialog, unchanged) ──────────────────────────────────────
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{children}</DialogTrigger>
@@ -151,7 +323,7 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
           <DialogDescription>Search for games to add to your collection</DialogDescription>
         </DialogHeader>
 
-        {config && !config.igdb?.configured ? (
+        {igdbNotConfigured ? (
           <div className="flex flex-col items-center justify-center py-8 text-center space-y-4">
             <div className="bg-muted p-4 rounded-full">
               <AlertCircle className="h-8 w-8 text-muted-foreground" />

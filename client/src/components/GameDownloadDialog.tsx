@@ -8,6 +8,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerDescription,
+} from "@/components/ui/drawer";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -126,10 +133,12 @@ function formatDate(dateString: string): string {
 import { apiRequest } from "@/lib/queryClient";
 import { useDebounce } from "@/hooks/use-debounce";
 import { formatBytes, formatAge, isUsenetItem } from "@/lib/downloads-utils";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 export default function GameDownloadDialog({ game, open, onOpenChange }: GameDownloadDialogProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const isMobile = useIsMobile();
   const [searchQuery, setSearchQuery] = useState("");
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
   const [downloadingGuid, setDownloadingGuid] = useState<string | null>(null);
@@ -189,7 +198,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         const rules = downloadRulesSchema.parse(JSON.parse(userSettings.downloadRules));
         setMinSeeders(rules.minSeeders);
         setSortBy(rules.sortBy);
-        setSortOrder("desc"); // Default to desc when applying rules
+        setSortOrder("desc");
         if (rules.visibleCategories) {
           setVisibleCategories(new Set(rules.visibleCategories as DownloadCategory[]));
         }
@@ -215,8 +224,6 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   ]);
 
   // Initialize search query only when the dialog opens or game changes — not on settings refetch.
-  // Keeping this separate from applyDownloadRules prevents a settings re-fetch (e.g. on window
-  // focus) from overwriting a query the user has already edited.
   useEffect(() => {
     if (open && game) {
       setSearchQuery(game.title);
@@ -225,8 +232,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     }
   }, [open, game, setDefaults]);
 
-  // Apply download rules whenever settings load or change (applyDownloadRules identity changes
-  // whenever its userSettings deps change, so this fires at the right times).
+  // Apply download rules whenever settings load or change.
   useEffect(() => {
     if (open && game) {
       applyDownloadRules();
@@ -242,9 +248,8 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     enabled: open && debouncedSearchQuery.trim().length > 0,
   });
 
-  // When a canonical search (game title = search query) returns results, refresh the games list
-  // so the "Has results" badge reflects the updated searchResultsAvailable flag from the server.
-  // Only invalidate once per dialog session to avoid re-rendering the full library on every result.
+  // When a canonical search returns results, refresh the games list so the "Has results" badge
+  // reflects the updated searchResultsAvailable flag. Only invalidate once per dialog session.
   useEffect(() => {
     if (!searchResults || !game) return;
     if (searchResults.items.length === 0) return;
@@ -273,14 +278,12 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   const availableIndexers = useMemo(() => {
     if (!searchResults?.items) return [];
     const indexers = new Set(searchResults.items.map((item) => item.indexerName).filter(Boolean));
-
     if (enabledIndexers) {
       const enabledNames = new Set(enabledIndexers.map((i) => i.name));
       return Array.from(indexers)
         .filter((name) => enabledNames.has(name as string))
         .sort();
     }
-
     return Array.from(indexers).sort();
   }, [searchResults?.items, enabledIndexers]);
 
@@ -339,14 +342,12 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         .sort((a, b) => {
           let comparison = 0;
           if (sortBy === "seeders") {
-            // Health metric: seeders for torrents, grabs for Usenet
             const aHealth = isUsenetItem(a) ? (a.grabs ?? 0) : (a.seeders ?? 0);
             const bHealth = isUsenetItem(b) ? (b.grabs ?? 0) : (b.seeders ?? 0);
             comparison = bHealth - aHealth;
           } else if (sortBy === "date") {
             comparison = new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime();
           } else {
-            // size
             comparison = (b.size ?? 0) - (a.size ?? 0);
           }
           return sortOrder === "desc" ? comparison : -comparison;
@@ -378,7 +379,6 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
 
   const downloadMutation = useMutation({
     mutationFn: async (downloads: DownloadItem[]) => {
-      // Download multiple items sequentially
       const results = [];
       for (const download of downloads) {
         const response = await apiRequest("POST", "/api/downloads", {
@@ -424,11 +424,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       }
     },
     onError: (error: Error) => {
-      toast({
-        title: "Failed to start download",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast({ title: "Failed to start download", description: error.message });
     },
     onSettled: () => {
       setDownloadingGuid(null);
@@ -467,11 +463,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       }
     },
     onError: (error: Error) => {
-      toast({
-        title: "Failed to start download",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast({ title: "Failed to start download", description: error.message });
     },
   });
 
@@ -489,8 +481,6 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         return { ...old, items: old.items.filter((i) => i.title !== item.title) };
       });
       queryClient.invalidateQueries({ queryKey: ["/api/blacklist"] });
-      // Re-fetch the search so the server can recalculate searchResultsAvailable
-      // with the updated blacklist applied (blacklisted item is now excluded server-side).
       queryClient.invalidateQueries({ queryKey: [searchQueryKey] });
       toast({ description: "Release blacklisted" });
     },
@@ -500,40 +490,30 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   });
 
   const handleDownload = (download: DownloadItem) => {
-    // Check if this is a main game download and we have updates available
     if (categorizedDownloads.update.length > 0) {
       const downloadCategory = groupDownloadsByCategory([download]);
-
       if (downloadCategory.main.length > 0) {
-        // This is a main game download, ask if user wants to include updates
         setSelectedMainDownload(download);
         setIsDirectDownloadMode(false);
-        // Select all updates by default
         setSelectedUpdateIndices(new Set(filteredCategorizedDownloads.update.map((_, i) => i)));
         setShowBundleDialog(true);
         return;
       }
     }
-
-    // Otherwise, download normally
     setDownloadingGuid(download.guid || download.link);
     downloadMutation.mutate([download]);
   };
 
   const handleBundleDownload = (includeUpdates: boolean) => {
     if (!selectedMainDownload) return;
-
     const guid = selectedMainDownload.guid || selectedMainDownload.link;
     setDownloadingGuid(guid);
-
     if (includeUpdates && selectedUpdateIndices.size > 0) {
-      // Download main game + selected updates
       const selectedUpdates = Array.from(selectedUpdateIndices).map(
         (i) => filteredCategorizedDownloads.update[i]
       );
       downloadMutation.mutate([selectedMainDownload, ...selectedUpdates]);
     } else {
-      // Download only main game
       downloadMutation.mutate([selectedMainDownload]);
     }
   };
@@ -551,62 +531,42 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
 
   // Unused currently, can this be removed?
   const _handleDirectDownload = (download: DownloadItem) => {
-    // Check if this is a main game download and we have updates available
     if (categorizedDownloads.update.length > 0) {
       const downloadCategory = groupDownloadsByCategory([download]);
-
       if (downloadCategory.main.length > 0) {
-        // This is a main game download, ask if user wants to include updates
         setSelectedMainDownload(download);
         setIsDirectDownloadMode(true);
-        // Select all updates by default
         setSelectedUpdateIndices(new Set(filteredCategorizedDownloads.update.map((_, i) => i)));
         setShowBundleDialog(true);
         return;
       }
     }
-
-    // Otherwise, download normally
     downloadFile(download);
-    toast({
-      title: "Download started",
-      description: "File download initiated",
-    });
+    toast({ title: "Download started", description: "File download initiated" });
   };
 
   // Unused currently, can this be removed?
   const _handleDirectDownloadWithUpdates = async (mainDownload: DownloadItem) => {
-    // Check if there are updates to bundle
     if (categorizedDownloads.update.length === 0) {
       downloadFile(mainDownload);
-      toast({
-        title: "Download started",
-        description: "File download initiated",
-      });
+      toast({ title: "Download started", description: "File download initiated" });
       return;
     }
-
     setSelectedMainDownload(mainDownload);
     setIsDirectDownloadMode(true);
-    // Select all updates by default
     setSelectedUpdateIndices(new Set(filteredCategorizedDownloads.update.map((_, i) => i)));
     setShowBundleDialog(true);
   };
 
   const handleBundleDirectDownload = async (includeUpdates: boolean) => {
     if (!selectedMainDownload) return;
-
     if (includeUpdates && selectedUpdateIndices.size > 0) {
-      // Download selected updates as a ZIP bundle
       const selectedUpdates = Array.from(selectedUpdateIndices).map(
         (i) => filteredCategorizedDownloads.update[i]
       );
       const downloads = [selectedMainDownload, ...selectedUpdates];
-
       try {
         const response = await apiRequest("POST", "/api/downloads/bundle", { downloads });
-
-        // Download the ZIP file
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
         const link = document.createElement("a");
@@ -616,7 +576,6 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
         link.click();
         document.body.removeChild(link);
         window.URL.revokeObjectURL(url);
-
         toast({
           title: `Bundle downloaded`,
           description: `ZIP file with ${downloads.length} item(s)`,
@@ -630,12 +589,8 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       }
     } else {
       downloadFile(selectedMainDownload);
-      toast({
-        title: "Download started",
-        description: "File download initiated",
-      });
+      toast({ title: "Download started", description: "File download initiated" });
     }
-
     setShowBundleDialog(false);
     setSelectedMainDownload(null);
   };
@@ -643,31 +598,21 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   const toggleUpdateSelection = (index: number) => {
     setSelectedUpdateIndices((prev) => {
       const next = new Set(prev);
-      if (next.has(index)) {
-        next.delete(index);
-      } else {
-        next.add(index);
-      }
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
       return next;
     });
   };
 
-  const selectAllUpdates = () => {
+  const selectAllUpdates = () =>
     setSelectedUpdateIndices(new Set(filteredCategorizedDownloads.update.map((_, i) => i)));
-  };
-
-  const deselectAllUpdates = () => {
-    setSelectedUpdateIndices(new Set());
-  };
+  const deselectAllUpdates = () => setSelectedUpdateIndices(new Set());
 
   const toggleCategory = (category: DownloadCategory) => {
     setVisibleCategories((prev) => {
       const next = new Set(prev);
-      if (next.has(category)) {
-        next.delete(category);
-      } else {
-        next.add(category);
-      }
+      if (next.has(category)) next.delete(category);
+      else next.add(category);
       return next;
     });
   };
@@ -713,690 +658,864 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
 
   if (!game) return null;
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-6xl max-h-[90vh] flex flex-col ">
-        <DialogHeader className="flex-shrink-0">
-          <DialogTitle>Download {game.title}</DialogTitle>
-          <DialogDescription>
-            Search results for torrents and NZBs matching this game.{" "}
-            <span className="text-muted-foreground/80">
-              Tip: Enable auto-download in Settings to automatically download new releases.
-            </span>
-          </DialogDescription>
-        </DialogHeader>
+  // ─── Shared: Filter panel ─────────────────────────────────────────────────────
 
-        <div className="flex-shrink-0 mt-4 space-y-3">
-          <Input
-            type="text"
-            placeholder="Search for downloads..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full"
-          />
+  const filterPanel = showFilters && (
+    <div
+      className={cn(
+        "p-4 border rounded-md bg-muted/50",
+        isMobile ? "grid grid-cols-1 gap-3" : "grid grid-cols-4 gap-4"
+      )}
+    >
+      <div className="space-y-2">
+        <Label htmlFor="indexer" className="text-sm">
+          Indexer
+        </Label>
+        <Select
+          value={selectedIndexer}
+          onValueChange={setSelectedIndexer}
+          disabled={availableIndexers.length === 1}
+        >
+          <SelectTrigger id="indexer">
+            <SelectValue placeholder="All Indexers" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">
+              {availableIndexers.length === 1 ? availableIndexers[0] : "All Indexers"}
+            </SelectItem>
+            {availableIndexers.length > 1 &&
+              availableIndexers.map((indexer) => (
+                <SelectItem key={indexer} value={indexer as string}>
+                  {indexer}
+                </SelectItem>
+              ))}
+          </SelectContent>
+        </Select>
+      </div>
 
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowFilters(!showFilters)}
-              className="flex items-center gap-2"
-            >
-              <SlidersHorizontal className="h-4 w-4" />
-              {showFilters ? "Hide Filters" : "Show Filters"}
-            </Button>
-            {minSeeders > 0 && (
-              <Badge variant="secondary" className="text-xs">
-                Min Seeders: {minSeeders}
-              </Badge>
-            )}
-            <Badge variant="outline" className="text-xs capitalize">
-              Sorted by: {sortBy} ({sortOrder === "asc" ? "Asc" : "Desc"})
-            </Badge>
-          </div>
+      <div className="space-y-2">
+        <Label className="text-sm">Release Groups</Label>
+        <MultiSelect
+          options={availableGroups.map((g) => ({ label: g as string, value: g as string }))}
+          selected={selectedGroups}
+          onChange={setSelectedGroups}
+          placeholder="Select groups..."
+          className="w-full"
+        />
+      </div>
 
-          {showFilters && (
-            <div className="grid grid-cols-4 gap-4 p-4 border rounded-md bg-muted/50">
-              <div className="space-y-2">
-                <Label htmlFor="indexer" className="text-sm">
-                  Indexer
-                </Label>
-                <Select
-                  value={selectedIndexer}
-                  onValueChange={setSelectedIndexer}
-                  disabled={availableIndexers.length === 1}
-                >
-                  <SelectTrigger id="indexer">
-                    <SelectValue placeholder="All Indexers" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">
-                      {availableIndexers.length === 1 ? availableIndexers[0] : "All Indexers"}
-                    </SelectItem>
-                    {availableIndexers.length > 1 &&
-                      availableIndexers.map((indexer) => (
-                        <SelectItem key={indexer} value={indexer as string}>
-                          {indexer}
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
-              </div>
+      <div className="space-y-2">
+        <Label className="text-sm">Platform</Label>
+        <MultiSelect
+          options={availablePlatforms}
+          selected={selectedPlatforms}
+          onChange={setSelectedPlatforms}
+          placeholder={availablePlatforms.length === 0 ? "No platforms detected" : "All platforms"}
+          className="w-full"
+          disabled={availablePlatforms.length === 0}
+        />
+      </div>
 
-              <div className="space-y-2">
-                <Label className="text-sm">Release Groups</Label>
-                <MultiSelect
-                  options={availableGroups.map((g) => ({ label: g as string, value: g as string }))}
-                  selected={selectedGroups}
-                  onChange={setSelectedGroups}
-                  placeholder="Select groups..."
-                  className="w-full"
-                />
-              </div>
+      <div className="space-y-2">
+        <Label htmlFor="minSeeders" className="text-sm">
+          Min Seeders
+        </Label>
+        <Input
+          id="minSeeders"
+          type="number"
+          min="0"
+          value={minSeeders}
+          onChange={(e) => setMinSeeders(parseInt(e.target.value) || 0)}
+          className="w-full"
+        />
+      </div>
 
-              <div className="space-y-2">
-                <Label className="text-sm">Platform</Label>
-                <MultiSelect
-                  options={availablePlatforms}
-                  selected={selectedPlatforms}
-                  onChange={setSelectedPlatforms}
-                  placeholder={
-                    availablePlatforms.length === 0 ? "No platforms detected" : "All platforms"
-                  }
-                  className="w-full"
-                  disabled={availablePlatforms.length === 0}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="minSeeders" className="text-sm">
-                  Min Seeders
-                </Label>
-                <Input
-                  id="minSeeders"
-                  type="number"
-                  min="0"
-                  value={minSeeders}
-                  onChange={(e) => setMinSeeders(parseInt(e.target.value) || 0)}
-                  className="w-full"
-                />
-              </div>
-
-              <div className="col-span-4 space-y-2">
-                <Label className="text-sm">Categories</Label>
-                <div className="flex flex-wrap gap-2">
-                  {(["main", "update", "dlc", "extra"] as const).map((cat) => (
-                    <div key={cat} className="flex items-center">
-                      <Checkbox
-                        id={`cat-${cat}`}
-                        checked={visibleCategories.has(cat)}
-                        onCheckedChange={() => toggleCategory(cat)}
-                      />
-                      <label
-                        htmlFor={`cat-${cat}`}
-                        className="ml-2 text-sm cursor-pointer capitalize"
-                      >
-                        {cat === "main"
-                          ? "Main Game"
-                          : cat === "update"
-                            ? "Updates"
-                            : cat === "dlc"
-                              ? "DLC"
-                              : "Extras"}
-                      </label>
-                    </div>
-                  ))}
-                </div>
-              </div>
+      <div className={cn("space-y-2", !isMobile && "col-span-4")}>
+        <Label className="text-sm">Categories</Label>
+        <div className="flex flex-wrap gap-2">
+          {(["main", "update", "dlc", "extra"] as const).map((cat) => (
+            <div key={cat} className="flex items-center">
+              <Checkbox
+                id={`cat-${cat}`}
+                checked={visibleCategories.has(cat)}
+                onCheckedChange={() => toggleCategory(cat)}
+              />
+              <label htmlFor={`cat-${cat}`} className="ml-2 text-sm cursor-pointer capitalize">
+                {cat === "main"
+                  ? "Main Game"
+                  : cat === "update"
+                    ? "Updates"
+                    : cat === "dlc"
+                      ? "DLC"
+                      : "Extras"}
+              </label>
             </div>
-          )}
+          ))}
         </div>
+      </div>
+    </div>
+  );
 
-        <div className="flex-1 mt-4 overflow-y-auto min-h-0">
-          <div className="space-y-4 pr-4">
-            {isSearching && (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                <span className="ml-2 text-muted-foreground">Searching...</span>
-              </div>
-            )}
+  // ─── Shared: Search + filter bar ─────────────────────────────────────────────
 
-            {!isSearching && searchResults && searchResults.items.length === 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>No Results Found</CardTitle>
-                  <CardDescription>
-                    {searchResults.blacklistedCount
-                      ? `${searchResults.blacklistedCount} release(s) were found but are all blacklisted. Review your blacklist in the game settings.`
-                      : "No downloads found for this game. Try configuring indexers in settings."}
-                  </CardDescription>
-                </CardHeader>
-              </Card>
-            )}
+  const searchBar = (
+    <div className="space-y-3">
+      <Input
+        type="text"
+        placeholder="Search for downloads..."
+        value={searchQuery}
+        onChange={(e) => setSearchQuery(e.target.value)}
+        className="w-full"
+      />
+      <div className="flex items-center gap-2 flex-wrap">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setShowFilters(!showFilters)}
+          className="flex items-center gap-2"
+        >
+          <SlidersHorizontal className="h-4 w-4" />
+          {showFilters ? "Hide Filters" : "Show Filters"}
+        </Button>
+        {minSeeders > 0 && (
+          <Badge variant="secondary" className="text-xs">
+            Min Seeders: {minSeeders}
+          </Badge>
+        )}
+        <Badge variant="outline" className="text-xs capitalize">
+          Sorted by: {sortBy} ({sortOrder === "asc" ? "Asc" : "Desc"})
+        </Badge>
+      </div>
+      {filterPanel}
+    </div>
+  );
 
-            {!isSearching &&
-              searchResults &&
-              searchResults.items.length > 0 &&
-              (() => {
-                const totalFiltered = Object.values(filteredCategorizedDownloads).reduce(
-                  (sum, arr) => sum + arr.length,
-                  0
-                );
-                // Count items that pass all active filters *except* platform so the banner
-                // only appears when platform filtering is specifically the cause of an empty
-                // list, not when other filters (e.g. minSeeders) already hide everything.
-                const totalWithoutPlatformFilter = Object.entries(categorizedDownloads).reduce(
-                  (sum, [cat, downloads]) => {
-                    if (!visibleCategories.has(cat as DownloadCategory)) return sum;
-                    return (
-                      sum +
-                      downloads
-                        .filter((t) => meetsSeederThreshold(t))
-                        .filter(
-                          (t) => selectedIndexer === "all" || t.indexerName === selectedIndexer
-                        )
-                        .filter(
-                          (t) =>
-                            selectedGroups.length === 0 ||
-                            (t.group && selectedGroups.includes(t.group))
-                        ).length
-                    );
-                  },
-                  0
-                );
-                const platformFilterHidesAll =
-                  selectedPlatforms.length > 0 &&
-                  totalFiltered === 0 &&
-                  totalWithoutPlatformFilter > 0;
+  // ─── Shared: Results body ─────────────────────────────────────────────────────
+
+  const resultsBody = (
+    <div className="space-y-4">
+      {isSearching && (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          <span className="ml-2 text-muted-foreground">Searching...</span>
+        </div>
+      )}
+
+      {!isSearching && searchResults && searchResults.items.length === 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>No Results Found</CardTitle>
+            <CardDescription>
+              {searchResults.blacklistedCount
+                ? `${searchResults.blacklistedCount} release(s) were found but are all blacklisted. Review your blacklist in the game settings.`
+                : "No downloads found for this game. Try configuring indexers in settings."}
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      )}
+
+      {!isSearching &&
+        searchResults &&
+        searchResults.items.length > 0 &&
+        (() => {
+          const totalFiltered = Object.values(filteredCategorizedDownloads).reduce(
+            (sum, arr) => sum + arr.length,
+            0
+          );
+          const totalWithoutPlatformFilter = Object.entries(categorizedDownloads).reduce(
+            (sum, [cat, downloads]) => {
+              if (!visibleCategories.has(cat as DownloadCategory)) return sum;
+              return (
+                sum +
+                downloads
+                  .filter((t) => meetsSeederThreshold(t))
+                  .filter((t) => selectedIndexer === "all" || t.indexerName === selectedIndexer)
+                  .filter(
+                    (t) =>
+                      selectedGroups.length === 0 || (t.group && selectedGroups.includes(t.group))
+                  ).length
+              );
+            },
+            0
+          );
+          const platformFilterHidesAll =
+            selectedPlatforms.length > 0 && totalFiltered === 0 && totalWithoutPlatformFilter > 0;
+
+          return (
+            <div className="space-y-8">
+              {platformFilterHidesAll && (
+                <div className="flex items-start gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
+                  <Info className="mt-0.5 h-4 w-4 shrink-0" />
+                  <div className="flex-1">
+                    <span>
+                      No results match your preferred platform (
+                      <strong>{selectedPlatforms.join(", ")}</strong>).
+                    </span>{" "}
+                    <button
+                      type="button"
+                      className="underline hover:text-amber-100 transition-colors"
+                      onClick={() => setSelectedPlatforms([])}
+                    >
+                      Show all results
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {(["main", "update", "dlc", "extra"] as const).map((category) => {
+                const downloadsInCategory = filteredCategorizedDownloads[category] || [];
+                if (downloadsInCategory.length === 0) return null;
+
                 return (
-                  <div className="space-y-8">
-                    {/* Platform filter banner: shown when the preferred platform leaves no results */}
-                    {platformFilterHidesAll && (
-                      <div className="flex items-start gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
-                        <Info className="mt-0.5 h-4 w-4 shrink-0" />
-                        <div className="flex-1">
-                          <span>
-                            No results match your preferred platform (
-                            <strong>{selectedPlatforms.join(", ")}</strong>).
-                          </span>{" "}
-                          <button
-                            type="button"
-                            className="underline hover:text-amber-100 transition-colors"
-                            onClick={() => setSelectedPlatforms([])}
-                          >
-                            Show all results
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                    {/* Render each category separately */}
-                    {(["main", "update", "dlc", "extra"] as const).map((category) => {
-                      const downloadsInCategory = filteredCategorizedDownloads[category] || [];
-                      if (downloadsInCategory.length === 0) return null;
+                  <div key={category} className="relative">
+                    <div className="flex items-center gap-2 mb-3 px-1">
+                      <h3 className="font-bold text-lg capitalize tracking-tight">
+                        {category === "main"
+                          ? "Main Game"
+                          : category === "update"
+                            ? "Updates & Patches"
+                            : category === "dlc"
+                              ? "DLC & Expansions"
+                              : "Extras"}
+                      </h3>
+                      <Badge variant="secondary" className="text-xs font-semibold">
+                        {downloadsInCategory.length}
+                      </Badge>
+                    </div>
 
-                      return (
-                        <div key={category} className="relative">
-                          {/* Category Header */}
-                          <div className="flex items-center gap-2 mb-3 px-1">
-                            <h3 className="font-bold text-lg capitalize tracking-tight">
-                              {category === "main"
-                                ? "Main Game"
-                                : category === "update"
-                                  ? "Updates & Patches"
-                                  : category === "dlc"
-                                    ? "DLC & Expansions"
-                                    : "Extras"}
-                            </h3>
-                            <Badge variant="secondary" className="text-xs font-semibold">
-                              {downloadsInCategory.length}
-                            </Badge>
+                    <div className="border rounded-md divide-y mb-4 bg-card">
+                      {/* Desktop sticky sort header */}
+                      {!isMobile && (
+                        <div className="sticky top-0 z-10 bg-muted/95 backdrop-blur-md p-3 text-xs font-bold flex items-center px-4 border-b rounded-t-md group">
+                          <div className="flex-1 flex items-center">
+                            <span className="text-muted-foreground/70 uppercase tracking-widest">
+                              Release Information
+                            </span>
                           </div>
-
-                          {/* Downloads in this category */}
-                          <div className="border rounded-md divide-y mb-4 bg-card">
-                            {/* Sticky Sort Header */}
-                            <div className="sticky top-0 z-10 bg-muted/95 backdrop-blur-md p-3 text-xs font-bold flex items-center px-4 border-b rounded-t-md group">
-                              <div className="flex-1 flex items-center">
-                                <span className="text-muted-foreground/70 uppercase tracking-widest">
-                                  Release Information
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-6 md:gap-10">
-                                <SortHeader
-                                  field="date"
-                                  label="Date"
-                                  className="min-w-[70px] justify-end"
-                                />
-                                <SortHeader
-                                  field="size"
-                                  label="Size"
-                                  className="min-w-[70px] justify-end"
-                                />
-                                <SortHeader
-                                  field="seeders"
-                                  label="Health"
-                                  className="min-w-[70px] justify-end"
-                                />
-                                <div className="w-[80px] text-right text-muted-foreground/70 uppercase tracking-widest">
-                                  Actions
-                                </div>
-                              </div>
+                          <div className="flex items-center gap-6 md:gap-10">
+                            <SortHeader
+                              field="date"
+                              label="Date"
+                              className="min-w-[70px] justify-end"
+                            />
+                            <SortHeader
+                              field="size"
+                              label="Size"
+                              className="min-w-[70px] justify-end"
+                            />
+                            <SortHeader
+                              field="seeders"
+                              label="Health"
+                              className="min-w-[70px] justify-end"
+                            />
+                            <div className="w-[80px] text-right text-muted-foreground/70 uppercase tracking-widest">
+                              Actions
                             </div>
+                          </div>
+                        </div>
+                      )}
 
-                            {downloadsInCategory.map((download: DownloadItem) => {
-                              const isUsenet = isUsenetItem(download);
-                              const metadata =
-                                itemsMetadata.get(download.title) ??
-                                parseReleaseMetadata(download.title);
+                      {downloadsInCategory.map((download: DownloadItem) => {
+                        const isUsenet = isUsenetItem(download);
+                        const metadata =
+                          itemsMetadata.get(download.title) ?? parseReleaseMetadata(download.title);
 
-                              // Health calculation
-                              let healthColor = "text-muted-foreground";
+                        let healthColor = "text-muted-foreground";
+                        if (isUsenet) {
+                          const grabs = download.grabs ?? 0;
+                          if (grabs > 100) healthColor = "text-green-500";
+                          else if (grabs > 20) healthColor = "text-amber-500";
+                          else healthColor = "text-red-500";
+                        } else {
+                          const seeders = download.seeders ?? 0;
+                          if (seeders >= 20) healthColor = "text-green-500";
+                          else if (seeders >= 5) healthColor = "text-amber-500";
+                          else healthColor = "text-red-500";
+                        }
 
-                              if (isUsenet) {
-                                const grabs = download.grabs ?? 0;
-                                if (grabs > 100) healthColor = "text-green-500";
-                                else if (grabs > 20) healthColor = "text-amber-500";
-                                else healthColor = "text-red-500";
-                              } else {
-                                const seeders = download.seeders ?? 0;
-                                if (seeders >= 20) healthColor = "text-green-500";
-                                else if (seeders >= 5) healthColor = "text-amber-500";
-                                else healthColor = "text-red-500";
-                              }
+                        const pubDate = new Date(download.pubDate);
+                        const hoursOld = (Date.now() - pubDate.getTime()) / (1000 * 60 * 60);
+                        const isNew = hoursOld <= 24;
 
-                              const pubDate = new Date(download.pubDate);
-                              const hoursOld = (Date.now() - pubDate.getTime()) / (1000 * 60 * 60);
-                              const isNew = hoursOld <= 24;
+                        // ── Shared: actions dropdown ────────────────────────
+                        const actionsDropdown = (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-9 w-9"
+                                aria-label="More options"
+                              >
+                                <MoreVertical className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  navigator.clipboard.writeText(download.link);
+                                  toast({ description: "Link copied to clipboard" });
+                                }}
+                              >
+                                <Copy className="h-4 w-4 mr-2" />
+                                Copy {isUsenet ? "NZB" : "Torrent"} Link
+                              </DropdownMenuItem>
 
-                              return (
+                              {(() => {
+                                const compatibleDownloaders = downloaders.filter((d) =>
+                                  isUsenet
+                                    ? isUsenetDownloaderType(d.type)
+                                    : isTorrentDownloaderType(d.type)
+                                );
+                                if (compatibleDownloaders.length <= 1) return null;
+                                return (
+                                  <DropdownMenuSub>
+                                    <DropdownMenuSubTrigger>
+                                      <Download className="h-4 w-4 mr-2" />
+                                      Send to downloader
+                                    </DropdownMenuSubTrigger>
+                                    <DropdownMenuPortal>
+                                      <DropdownMenuSubContent>
+                                        {compatibleDownloaders.map((d) => (
+                                          <DropdownMenuItem
+                                            key={d.id}
+                                            onClick={() =>
+                                              sendToDownloaderMutation.mutate({
+                                                download,
+                                                downloaderId: d.id,
+                                                downloaderName: d.name,
+                                              })
+                                            }
+                                          >
+                                            {d.name}
+                                          </DropdownMenuItem>
+                                        ))}
+                                      </DropdownMenuSubContent>
+                                    </DropdownMenuPortal>
+                                  </DropdownMenuSub>
+                                );
+                              })()}
+
+                              <DropdownMenuItem
+                                onClick={() => blacklistMutation.mutate(download)}
+                                disabled={blacklistMutation.isPending}
+                                className="text-destructive focus:text-destructive"
+                              >
+                                <Ban className="h-4 w-4 mr-2" />
+                                Blacklist release
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        );
+
+                        // ── Mobile: stacked card ────────────────────────────
+                        if (isMobile) {
+                          return (
+                            <div
+                              key={download.guid || download.link}
+                              className="p-3 text-sm overflow-hidden"
+                            >
+                              <div className="flex items-start gap-2 min-w-0">
+                                {/* Type icon */}
                                 <div
-                                  key={download.guid || download.link}
-                                  className="p-4 text-sm hover:bg-muted/30 transition-colors group/row"
+                                  className={cn(
+                                    "h-5 w-5 flex items-center justify-center rounded-full flex-shrink-0 mt-0.5",
+                                    isUsenet ? "text-amber-500" : "text-violet-500"
+                                  )}
                                 >
-                                  <div className="flex items-center gap-4">
-                                    {/* Left Side: Title and Metadata */}
-                                    <div className="flex-1 min-w-0 space-y-1">
-                                      <div className="flex items-center gap-2 min-w-0">
-                                        <Tooltip>
-                                          <TooltipTrigger asChild>
-                                            <div
-                                              className={cn(
-                                                "h-5 w-5 flex items-center justify-center rounded-full flex-shrink-0",
-                                                isUsenet ? "text-amber-500" : "text-violet-500"
-                                              )}
-                                            >
-                                              {isUsenet ? (
-                                                <Newspaper className="h-4 w-4" />
-                                              ) : (
-                                                <Magnet className="h-4 w-4" />
-                                              )}
-                                            </div>
-                                          </TooltipTrigger>
-                                          <TooltipContent>
-                                            {isUsenet ? "Usenet (NZB)" : "Torrent"}
-                                          </TooltipContent>
-                                        </Tooltip>
+                                  {isUsenet ? (
+                                    <Newspaper className="h-4 w-4" />
+                                  ) : (
+                                    <Magnet className="h-4 w-4" />
+                                  )}
+                                </div>
 
-                                        <h4 className="font-bold text-base leading-tight break-words min-w-0">
+                                <div className="flex-1 min-w-0 overflow-hidden">
+                                  {/* Title row + actions */}
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-start gap-1.5 min-w-0">
+                                        <h4 className="font-semibold text-sm leading-snug break-all line-clamp-2 min-w-0 flex-1">
                                           {download.title}
                                         </h4>
-
                                         {isNew && (
                                           <Badge
                                             variant="default"
-                                            className="h-4 px-1 text-[8px] uppercase bg-blue-600 hover:bg-blue-600"
+                                            className="h-4 px-1 text-[8px] uppercase bg-blue-600 hover:bg-blue-600 flex-shrink-0 mt-0.5"
                                           >
                                             NEW
                                           </Badge>
                                         )}
                                       </div>
-
-                                      {/* Metadata Line */}
-                                      <div className="flex flex-wrap items-center gap-1.5">
-                                        {metadata.version && (
-                                          <Badge
-                                            variant="secondary"
-                                            className="h-5 px-1.5 text-xs font-mono bg-blue-500/10 text-blue-600 dark:text-blue-400 border-none"
-                                          >
-                                            {metadata.version}
-                                          </Badge>
-                                        )}
-                                        {metadata.languages?.map((lang) => (
-                                          <Badge
-                                            key={lang}
-                                            variant="secondary"
-                                            className="h-5 px-1.5 text-xs bg-green-500/10 text-green-600 dark:text-green-400 border-none"
-                                          >
-                                            {lang}
-                                          </Badge>
-                                        ))}
-                                        {metadata.drm && (
-                                          <Badge
-                                            variant="secondary"
-                                            className="h-5 px-1.5 text-xs bg-purple-500/10 text-purple-600 dark:text-purple-400 border-none"
-                                          >
-                                            {metadata.drm}
-                                          </Badge>
-                                        )}
-                                        {metadata.platform && (
-                                          <Badge
-                                            variant="secondary"
-                                            className="h-5 px-1.5 text-xs bg-orange-500/10 text-orange-600 dark:text-orange-400 border-none"
-                                          >
-                                            {metadata.platform}
-                                          </Badge>
-                                        )}
-                                        {metadata.isScene && (
-                                          <Badge
-                                            variant="outline"
-                                            className="h-5 px-1.5 text-xs border-muted-foreground/30 text-muted-foreground uppercase tracking-tighter"
-                                          >
-                                            Scene
-                                          </Badge>
-                                        )}
-                                        {!isUsenet && download.downloadVolumeFactor === 0 && (
-                                          <Badge
-                                            variant="secondary"
-                                            className="h-5 px-1.5 text-[10px] bg-emerald-500/15 text-emerald-500 dark:text-emerald-400 border-none uppercase tracking-tighter"
-                                          >
-                                            Freeleech
-                                          </Badge>
-                                        )}
-                                      </div>
-
-                                      {/* Release info line */}
-                                      <div className="flex items-center gap-2 text-[11px] text-muted-foreground/70">
-                                        {metadata.group && (
-                                          <span className="font-bold text-foreground/50">
-                                            {metadata.group}
-                                          </span>
-                                        )}
-                                        {metadata.group && <span>•</span>}
-                                        <span>{download.indexerName}</span>
-                                        {isUsenet && download.poster && (
-                                          <>
-                                            <span>•</span>
-                                            <span
-                                              className="truncate max-w-[160px]"
-                                              title={download.poster}
-                                            >
-                                              {download.poster}
-                                            </span>
-                                          </>
-                                        )}
-                                      </div>
                                     </div>
-
-                                    {/* Right Side: Metrics and Actions */}
-                                    <div className="flex items-center gap-6 md:gap-10 flex-shrink-0">
-                                      {/* Date Column */}
-                                      <div className="min-w-[70px] text-right">
-                                        <div className="text-xs font-medium">
-                                          {formatDate(download.pubDate)}
-                                        </div>
-                                        <div className="text-xs text-muted-foreground/50">
-                                          {formatAge(isUsenet ? download.age : hoursOld / 24)}
-                                        </div>
-                                      </div>
-
-                                      {/* Size Column */}
-                                      <div className="min-w-[70px] text-right font-mono text-xs font-bold">
-                                        {download.size ? formatBytes(download.size) : "-"}
-                                      </div>
-
-                                      {/* Health Column */}
-                                      <div
-                                        className={cn(
-                                          "min-w-[70px] text-right flex flex-col items-end justify-center",
-                                          healthColor
-                                        )}
+                                    <div className="flex items-center flex-shrink-0 self-start">
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        onClick={() => handleDownload(download)}
+                                        disabled={
+                                          downloadingGuid === (download.guid || download.link)
+                                        }
+                                        className="h-9 w-9 hover:bg-primary hover:text-primary-foreground transition-all"
+                                        aria-label={`Download ${download.title.replace(/[._]/g, " ")}`}
                                       >
-                                        <div className="flex items-center gap-1 font-bold">
-                                          <Activity className="h-3 w-3" />
-                                          {isUsenet
-                                            ? (download.grabs ?? 0)
-                                            : (download.seeders ?? 0)}
-                                        </div>
-                                        <div className="text-xs uppercase font-bold opacity-70">
-                                          {isUsenet ? "Grabs" : "Seeds"}
-                                        </div>
-                                        {!isUsenet && download.leechers != null && (
-                                          <div className="text-[10px] text-muted-foreground/60">
-                                            {download.leechers}L
-                                          </div>
+                                        {downloadingGuid === (download.guid || download.link) ? (
+                                          <Loader2 className="h-4 w-4 animate-spin" />
+                                        ) : (
+                                          <Download className="h-4 w-4" />
                                         )}
-                                      </div>
-
-                                      {/* Actions Column */}
-                                      <div className="w-[80px] flex items-center justify-end gap-1">
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          onClick={() => handleDownload(download)}
-                                          disabled={
-                                            downloadingGuid === (download.guid || download.link)
-                                          }
-                                          className="h-9 w-9 hover:bg-primary hover:text-primary-foreground transition-all"
-                                          aria-label={`Download ${download.title.replace(/[._]/g, " ")}`}
-                                        >
-                                          {downloadingGuid === (download.guid || download.link) ? (
-                                            <Loader2 className="h-4 w-4 animate-spin" />
-                                          ) : (
-                                            <Download className="h-4 w-4" />
-                                          )}
-                                        </Button>
-
-                                        <DropdownMenu>
-                                          <DropdownMenuTrigger asChild>
-                                            <Button
-                                              variant="ghost"
-                                              size="icon"
-                                              className="h-9 w-9"
-                                              aria-label="More options"
-                                            >
-                                              <MoreVertical className="h-4 w-4" />
-                                            </Button>
-                                          </DropdownMenuTrigger>
-                                          <DropdownMenuContent align="end">
-                                            <DropdownMenuItem
-                                              onClick={() => {
-                                                navigator.clipboard.writeText(download.link);
-                                                toast({ description: "Link copied to clipboard" });
-                                              }}
-                                            >
-                                              <Copy className="h-4 w-4 mr-2" />
-                                              Copy {isUsenet ? "NZB" : "Torrent"} Link
-                                            </DropdownMenuItem>
-
-                                            {(() => {
-                                              const compatibleDownloaders = downloaders.filter(
-                                                (d) =>
-                                                  isUsenet
-                                                    ? isUsenetDownloaderType(d.type)
-                                                    : isTorrentDownloaderType(d.type)
-                                              );
-
-                                              if (compatibleDownloaders.length <= 1) {
-                                                return null;
-                                              }
-
-                                              return (
-                                                <DropdownMenuSub>
-                                                  <DropdownMenuSubTrigger>
-                                                    <Download className="h-4 w-4 mr-2" />
-                                                    Send to downloader
-                                                  </DropdownMenuSubTrigger>
-                                                  <DropdownMenuPortal>
-                                                    <DropdownMenuSubContent>
-                                                      {compatibleDownloaders.map((d) => (
-                                                        <DropdownMenuItem
-                                                          key={d.id}
-                                                          onClick={() =>
-                                                            sendToDownloaderMutation.mutate({
-                                                              download,
-                                                              downloaderId: d.id,
-                                                              downloaderName: d.name,
-                                                            })
-                                                          }
-                                                        >
-                                                          {d.name}
-                                                        </DropdownMenuItem>
-                                                      ))}
-                                                    </DropdownMenuSubContent>
-                                                  </DropdownMenuPortal>
-                                                </DropdownMenuSub>
-                                              );
-                                            })()}
-                                            <DropdownMenuItem
-                                              onClick={() => blacklistMutation.mutate(download)}
-                                              disabled={blacklistMutation.isPending}
-                                              className="text-destructive focus:text-destructive"
-                                            >
-                                              <Ban className="h-4 w-4 mr-2" />
-                                              Blacklist release
-                                            </DropdownMenuItem>
-                                          </DropdownMenuContent>
-                                        </DropdownMenu>
-                                      </div>
+                                      </Button>
+                                      {actionsDropdown}
                                     </div>
                                   </div>
+
+                                  {/* Metadata badges */}
+                                  {(metadata.version ||
+                                    (metadata.languages && metadata.languages.length > 0) ||
+                                    metadata.drm ||
+                                    metadata.platform ||
+                                    metadata.isScene ||
+                                    (!isUsenet && download.downloadVolumeFactor === 0)) && (
+                                    <div className="flex flex-wrap items-center gap-1 mt-1">
+                                      {metadata.version && (
+                                        <Badge
+                                          variant="secondary"
+                                          className="h-5 px-1.5 text-xs font-mono bg-blue-500/10 text-blue-600 dark:text-blue-400 border-none"
+                                        >
+                                          {metadata.version}
+                                        </Badge>
+                                      )}
+                                      {metadata.languages?.map((lang) => (
+                                        <Badge
+                                          key={lang}
+                                          variant="secondary"
+                                          className="h-5 px-1.5 text-xs bg-green-500/10 text-green-600 dark:text-green-400 border-none"
+                                        >
+                                          {lang}
+                                        </Badge>
+                                      ))}
+                                      {metadata.drm && (
+                                        <Badge
+                                          variant="secondary"
+                                          className="h-5 px-1.5 text-xs bg-purple-500/10 text-purple-600 dark:text-purple-400 border-none"
+                                        >
+                                          {metadata.drm}
+                                        </Badge>
+                                      )}
+                                      {metadata.platform && (
+                                        <Badge
+                                          variant="secondary"
+                                          className="h-5 px-1.5 text-xs bg-orange-500/10 text-orange-600 dark:text-orange-400 border-none"
+                                        >
+                                          {metadata.platform}
+                                        </Badge>
+                                      )}
+                                      {metadata.isScene && (
+                                        <Badge
+                                          variant="outline"
+                                          className="h-5 px-1.5 text-xs border-muted-foreground/30 text-muted-foreground uppercase tracking-tighter"
+                                        >
+                                          Scene
+                                        </Badge>
+                                      )}
+                                      {!isUsenet && download.downloadVolumeFactor === 0 && (
+                                        <Badge
+                                          variant="secondary"
+                                          className="h-5 px-1.5 text-[10px] bg-emerald-500/15 text-emerald-500 dark:text-emerald-400 border-none uppercase tracking-tighter"
+                                        >
+                                          Freeleech
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {/* Group + indexer line */}
+                                  <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/70 mt-1 min-w-0 overflow-hidden">
+                                    {metadata.group && (
+                                      <span className="font-bold text-foreground/50 truncate shrink-0 max-w-[120px]">
+                                        {metadata.group}
+                                      </span>
+                                    )}
+                                    {metadata.group && <span className="flex-shrink-0">•</span>}
+                                    <span className="truncate">{download.indexerName}</span>
+                                  </div>
+
+                                  {/* Metrics row */}
+                                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1.5 text-xs text-muted-foreground/70">
+                                    <span className="font-mono font-bold text-foreground/70">
+                                      {download.size ? formatBytes(download.size) : "—"}
+                                    </span>
+                                    <span>•</span>
+                                    <span className={cn("flex items-center gap-0.5", healthColor)}>
+                                      <Activity className="h-3 w-3" />
+                                      {isUsenet
+                                        ? (download.grabs ?? 0)
+                                        : (download.seeders ?? 0)}{" "}
+                                      {isUsenet ? "grabs" : "seeds"}
+                                    </span>
+                                    <span>•</span>
+                                    <span>{formatDate(download.pubDate)}</span>
+                                  </div>
                                 </div>
-                              );
-                            })}
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        // ── Desktop: table row ──────────────────────────────
+                        return (
+                          <div
+                            key={download.guid || download.link}
+                            className="p-4 text-sm hover:bg-muted/30 transition-colors group/row"
+                          >
+                            <div className="flex items-center gap-4">
+                              <div className="flex-1 min-w-0 space-y-1">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <div
+                                        className={cn(
+                                          "h-5 w-5 flex items-center justify-center rounded-full flex-shrink-0",
+                                          isUsenet ? "text-amber-500" : "text-violet-500"
+                                        )}
+                                      >
+                                        {isUsenet ? (
+                                          <Newspaper className="h-4 w-4" />
+                                        ) : (
+                                          <Magnet className="h-4 w-4" />
+                                        )}
+                                      </div>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      {isUsenet ? "Usenet (NZB)" : "Torrent"}
+                                    </TooltipContent>
+                                  </Tooltip>
+
+                                  <h4 className="font-bold text-base leading-tight break-words min-w-0">
+                                    {download.title}
+                                  </h4>
+
+                                  {isNew && (
+                                    <Badge
+                                      variant="default"
+                                      className="h-4 px-1 text-[8px] uppercase bg-blue-600 hover:bg-blue-600"
+                                    >
+                                      NEW
+                                    </Badge>
+                                  )}
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  {metadata.version && (
+                                    <Badge
+                                      variant="secondary"
+                                      className="h-5 px-1.5 text-xs font-mono bg-blue-500/10 text-blue-600 dark:text-blue-400 border-none"
+                                    >
+                                      {metadata.version}
+                                    </Badge>
+                                  )}
+                                  {metadata.languages?.map((lang) => (
+                                    <Badge
+                                      key={lang}
+                                      variant="secondary"
+                                      className="h-5 px-1.5 text-xs bg-green-500/10 text-green-600 dark:text-green-400 border-none"
+                                    >
+                                      {lang}
+                                    </Badge>
+                                  ))}
+                                  {metadata.drm && (
+                                    <Badge
+                                      variant="secondary"
+                                      className="h-5 px-1.5 text-xs bg-purple-500/10 text-purple-600 dark:text-purple-400 border-none"
+                                    >
+                                      {metadata.drm}
+                                    </Badge>
+                                  )}
+                                  {metadata.platform && (
+                                    <Badge
+                                      variant="secondary"
+                                      className="h-5 px-1.5 text-xs bg-orange-500/10 text-orange-600 dark:text-orange-400 border-none"
+                                    >
+                                      {metadata.platform}
+                                    </Badge>
+                                  )}
+                                  {metadata.isScene && (
+                                    <Badge
+                                      variant="outline"
+                                      className="h-5 px-1.5 text-xs border-muted-foreground/30 text-muted-foreground uppercase tracking-tighter"
+                                    >
+                                      Scene
+                                    </Badge>
+                                  )}
+                                  {!isUsenet && download.downloadVolumeFactor === 0 && (
+                                    <Badge
+                                      variant="secondary"
+                                      className="h-5 px-1.5 text-[10px] bg-emerald-500/15 text-emerald-500 dark:text-emerald-400 border-none uppercase tracking-tighter"
+                                    >
+                                      Freeleech
+                                    </Badge>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center gap-2 text-[11px] text-muted-foreground/70">
+                                  {metadata.group && (
+                                    <span className="font-bold text-foreground/50">
+                                      {metadata.group}
+                                    </span>
+                                  )}
+                                  {metadata.group && <span>•</span>}
+                                  <span>{download.indexerName}</span>
+                                  {isUsenet && download.poster && (
+                                    <>
+                                      <span>•</span>
+                                      <span
+                                        className="truncate max-w-[160px]"
+                                        title={download.poster}
+                                      >
+                                        {download.poster}
+                                      </span>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-6 md:gap-10 flex-shrink-0">
+                                <div className="min-w-[70px] text-right">
+                                  <div className="text-xs font-medium">
+                                    {formatDate(download.pubDate)}
+                                  </div>
+                                  <div className="text-xs text-muted-foreground/50">
+                                    {formatAge(isUsenet ? download.age : hoursOld / 24)}
+                                  </div>
+                                </div>
+
+                                <div className="min-w-[70px] text-right font-mono text-xs font-bold">
+                                  {download.size ? formatBytes(download.size) : "-"}
+                                </div>
+
+                                <div
+                                  className={cn(
+                                    "min-w-[70px] text-right flex flex-col items-end justify-center",
+                                    healthColor
+                                  )}
+                                >
+                                  <div className="flex items-center gap-1 font-bold">
+                                    <Activity className="h-3 w-3" />
+                                    {isUsenet ? (download.grabs ?? 0) : (download.seeders ?? 0)}
+                                  </div>
+                                  <div className="text-xs uppercase font-bold opacity-70">
+                                    {isUsenet ? "Grabs" : "Seeds"}
+                                  </div>
+                                  {!isUsenet && download.leechers != null && (
+                                    <div className="text-[10px] text-muted-foreground/60">
+                                      {download.leechers}L
+                                    </div>
+                                  )}
+                                </div>
+
+                                <div className="w-[80px] flex items-center justify-end gap-1">
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => handleDownload(download)}
+                                    disabled={downloadingGuid === (download.guid || download.link)}
+                                    className="h-9 w-9 hover:bg-primary hover:text-primary-foreground transition-all"
+                                    aria-label={`Download ${download.title.replace(/[._]/g, " ")}`}
+                                  >
+                                    {downloadingGuid === (download.guid || download.link) ? (
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <Download className="h-4 w-4" />
+                                    )}
+                                  </Button>
+                                  {actionsDropdown}
+                                </div>
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
+                    </div>
                   </div>
                 );
-              })()}
+              })}
+            </div>
+          );
+        })()}
 
-            {searchResults?.errors && searchResults.errors.length > 0 && (
-              <Card className="border-destructive">
-                <CardHeader>
-                  <CardTitle className="text-sm text-destructive">Indexer Errors</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ul className="text-sm space-y-1">
-                    {searchResults.errors.map((error, index) => (
-                      <li key={index} className="text-muted-foreground">
-                        • {error}
-                      </li>
-                    ))}
-                  </ul>
-                </CardContent>
-              </Card>
-            )}
-          </div>
-        </div>
-      </DialogContent>
+      {searchResults?.errors && searchResults.errors.length > 0 && (
+        <Card className="border-destructive">
+          <CardHeader>
+            <CardTitle className="text-sm text-destructive">Indexer Errors</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="text-sm space-y-1">
+              {searchResults.errors.map((error, index) => (
+                <li key={index} className="text-muted-foreground">
+                  • {error}
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
 
-      {/* Bundle Confirmation Dialog */}
-      <AlertDialog open={showBundleDialog} onOpenChange={setShowBundleDialog}>
-        <AlertDialogContent className="max-w-2xl">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Download with Updates?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {filteredCategorizedDownloads.update.length} update(s) are available for this game.
-              Select which updates you want to download with the main game.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
+  // ─── Bundle dialog (shared) ───────────────────────────────────────────────────
 
-          {/* List of updates with checkboxes */}
-          {filteredCategorizedDownloads.update.length > 0 && (
-            <div className="my-4">
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-sm font-semibold">Available Updates:</div>
-                <div className="flex gap-2">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={selectAllUpdates}
-                    className="h-7 text-xs"
-                  >
-                    Select All
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={deselectAllUpdates}
-                    className="h-7 text-xs"
-                  >
-                    Deselect All
-                  </Button>
-                </div>
-              </div>
-              <div className="border rounded-md">
-                <ScrollArea className="h-[300px]">
-                  <div className="p-3 space-y-3">
-                    {filteredCategorizedDownloads.update.map((update, index) => (
-                      <div
-                        key={update.guid || update.link}
-                        className="flex items-start gap-3 p-2 rounded hover:bg-muted/50 transition-colors"
-                      >
-                        <Checkbox
-                          id={`update-${index}`}
-                          checked={selectedUpdateIndices.has(index)}
-                          onCheckedChange={() => toggleUpdateSelection(index)}
-                          className="mt-1"
-                        />
-                        <label
-                          htmlFor={`update-${index}`}
-                          className="flex-1 cursor-pointer text-sm"
-                        >
-                          <div className="font-medium">{update.title}</div>
-                          <div className="text-xs text-muted-foreground flex items-center gap-2 mt-1">
-                            {update.size && <span>{formatBytes(update.size)}</span>}
-                            {update.seeders !== undefined && (
-                              <>
-                                <span>•</span>
-                                <span className="text-green-600">{update.seeders} seeders</span>
-                              </>
-                            )}
-                          </div>
-                        </label>
-                      </div>
-                    ))}
-                  </div>
-                </ScrollArea>
-              </div>
-              <div className="text-xs text-muted-foreground mt-2">
-                {selectedUpdateIndices.size} of {filteredCategorizedDownloads.update.length} updates
-                selected
+  const bundleDialog = (
+    <AlertDialog open={showBundleDialog} onOpenChange={setShowBundleDialog}>
+      <AlertDialogContent className="max-w-2xl">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Download with Updates?</AlertDialogTitle>
+          <AlertDialogDescription>
+            {filteredCategorizedDownloads.update.length} update(s) are available for this game.
+            Select which updates you want to download with the main game.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+
+        {filteredCategorizedDownloads.update.length > 0 && (
+          <div className="my-4">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-sm font-semibold">Available Updates:</div>
+              <div className="flex gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={selectAllUpdates}
+                  className="h-7 text-xs"
+                >
+                  Select All
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={deselectAllUpdates}
+                  className="h-7 text-xs"
+                >
+                  Deselect All
+                </Button>
               </div>
             </div>
-          )}
+            <div className="border rounded-md">
+              <ScrollArea className="h-[300px]">
+                <div className="p-3 space-y-3">
+                  {filteredCategorizedDownloads.update.map((update, index) => (
+                    <div
+                      key={update.guid || update.link}
+                      className="flex items-start gap-3 p-2 rounded hover:bg-muted/50 transition-colors"
+                    >
+                      <Checkbox
+                        id={`update-${index}`}
+                        checked={selectedUpdateIndices.has(index)}
+                        onCheckedChange={() => toggleUpdateSelection(index)}
+                        className="mt-1"
+                      />
+                      <label htmlFor={`update-${index}`} className="flex-1 cursor-pointer text-sm">
+                        <div className="font-medium">{update.title}</div>
+                        <div className="text-xs text-muted-foreground flex items-center gap-2 mt-1">
+                          {update.size && <span>{formatBytes(update.size)}</span>}
+                          {update.seeders !== undefined && (
+                            <>
+                              <span>•</span>
+                              <span className="text-green-600">{update.seeders} seeders</span>
+                            </>
+                          )}
+                        </div>
+                      </label>
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
+            </div>
+            <div className="text-xs text-muted-foreground mt-2">
+              {selectedUpdateIndices.size} of {filteredCategorizedDownloads.update.length} updates
+              selected
+            </div>
+          </div>
+        )}
 
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className={buttonVariants({ variant: "outline" })}
-              onClick={() => {
-                if (isDirectDownloadMode) {
-                  handleBundleDirectDownload(false);
-                } else {
-                  handleBundleDownload(false);
-                }
-              }}
-            >
-              Only the main game
-            </AlertDialogAction>
-            <AlertDialogAction
-              onClick={() => {
-                if (isDirectDownloadMode) {
-                  handleBundleDirectDownload(true);
-                } else {
-                  handleBundleDownload(true);
-                }
-              }}
-              disabled={selectedUpdateIndices.size === 0}
-            >
-              <PackagePlus className="w-4 h-4 mr-2" />
-              Download with {selectedUpdateIndices.size} update(s)
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </Dialog>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            className={buttonVariants({ variant: "outline" })}
+            onClick={() => {
+              if (isDirectDownloadMode) handleBundleDirectDownload(false);
+              else handleBundleDownload(false);
+            }}
+          >
+            Only the main game
+          </AlertDialogAction>
+          <AlertDialogAction
+            onClick={() => {
+              if (isDirectDownloadMode) handleBundleDirectDownload(true);
+              else handleBundleDownload(true);
+            }}
+            disabled={selectedUpdateIndices.size === 0}
+          >
+            <PackagePlus className="w-4 h-4 mr-2" />
+            Download with {selectedUpdateIndices.size} update(s)
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+
+  // ─── Mobile: Drawer ───────────────────────────────────────────────────────────
+
+  if (isMobile) {
+    return (
+      <>
+        <Drawer open={open} onOpenChange={onOpenChange} shouldScaleBackground={false}>
+          <DrawerContent className="h-[95vh] flex flex-col">
+            <DrawerHeader className="pt-2 pb-0 px-4 flex-shrink-0">
+              <DrawerTitle className="text-base font-bold truncate">
+                Download {game.title}
+              </DrawerTitle>
+              <DrawerDescription className="sr-only">
+                Search results for torrents and NZBs matching this game.
+              </DrawerDescription>
+            </DrawerHeader>
+
+            {/* Sticky search + filter */}
+            <div className="flex-shrink-0 px-4 pt-3 pb-3 space-y-3 border-b border-border/50">
+              {searchBar}
+            </div>
+
+            {/* Scrollable results */}
+            <div className="flex-1 overflow-y-auto min-h-0 px-4 py-3">{resultsBody}</div>
+          </DrawerContent>
+        </Drawer>
+        {bundleDialog}
+      </>
+    );
+  }
+
+  // ─── Desktop: Dialog ──────────────────────────────────────────────────────────
+
+  return (
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-6xl max-h-[90vh] flex flex-col ">
+          <DialogHeader className="flex-shrink-0">
+            <DialogTitle>Download {game.title}</DialogTitle>
+            <DialogDescription>
+              Search results for torrents and NZBs matching this game.{" "}
+              <span className="text-muted-foreground/80">
+                Tip: Enable auto-download in Settings to automatically download new releases.
+              </span>
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-shrink-0 mt-4">{searchBar}</div>
+
+          <div className="flex-1 mt-4 overflow-y-auto min-h-0">
+            <div className="space-y-4 pr-4">{resultsBody}</div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      {bundleDialog}
+    </>
   );
 }

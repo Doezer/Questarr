@@ -37,12 +37,16 @@ import {
   Link2,
   Search,
   X,
+  ArrowUp,
+  CheckCircle2,
+  AlertCircle,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -360,17 +364,49 @@ export default function Downloads() {
 
   if (isLoading) {
     return (
-      <div className="p-6">
-        <div className="flex items-center space-x-2" data-testid="loading-downloads">
-          <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-          <span data-testid="text-loading-downloads">Loading downloads...</span>
+      <div className="h-full overflow-auto p-4 md:p-6" data-testid="loading-downloads">
+        {/* Header */}
+        <div className="flex justify-between items-center mb-6">
+          <div className="space-y-1.5">
+            <Skeleton className="h-7 w-36" />
+            <Skeleton className="h-4 w-56" />
+          </div>
+          <Skeleton className="h-8 w-8 md:w-24" />
         </div>
+        {/* Filter row */}
+        <div className="flex gap-3 mb-6">
+          <Skeleton className="h-10 md:h-8 w-full md:w-48" />
+          <Skeleton className="h-8 w-48 hidden md:block" />
+        </div>
+        {/* Download cards */}
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="mb-4 rounded-lg border bg-card p-4 md:p-6">
+            <div className="flex justify-between items-start mb-4">
+              <div className="flex-1 space-y-2 mr-4">
+                <Skeleton className="h-5 w-3/4" />
+                <div className="flex flex-wrap gap-2">
+                  <Skeleton className="h-5 w-20" />
+                  <Skeleton className="h-5 w-24" />
+                  <Skeleton className="h-5 w-16" />
+                </div>
+              </div>
+              <Skeleton className="h-8 w-8 shrink-0" />
+            </div>
+            <div className="space-y-1.5">
+              <div className="flex justify-between">
+                <Skeleton className="h-3.5 w-14" />
+                <Skeleton className="h-3.5 w-10" />
+              </div>
+              <Skeleton className="h-2 w-full" />
+            </div>
+          </div>
+        ))}
       </div>
     );
   }
 
   return (
-    <div className="h-full overflow-auto p-6">
+    <div className="h-full overflow-auto p-4 md:p-6">
       <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Downloads</h1>
@@ -378,19 +414,25 @@ export default function Downloads() {
             Monitor and manage active downloads
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="button-refresh">
-          <RefreshCw className="h-4 w-4 mr-2" />
-          Refresh
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => refetch()}
+          data-testid="button-refresh"
+          aria-label="Refresh downloads"
+        >
+          <RefreshCw className="h-4 w-4 md:mr-2" />
+          <span className="hidden md:inline">Refresh</span>
         </Button>
       </div>
 
       {/* Per-downloader summary */}
       {downloaderSummaries.length > 0 && (
-        <div className="flex flex-wrap gap-3 mb-6">
+        <div className="flex gap-3 mb-6 overflow-x-auto pb-1 md:flex-wrap md:pb-0">
           {downloaderSummaries.map((dl) => (
             <div
               key={dl.name}
-              className="flex items-center gap-3 px-4 py-2 rounded-lg border bg-card text-sm"
+              className="flex items-center gap-3 px-4 py-2 rounded-lg border bg-card text-sm shrink-0"
             >
               <span className="font-medium shrink-0">{dl.name}</span>
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -412,15 +454,15 @@ export default function Downloads() {
       )}
 
       {/* Filter row */}
-      <div className="flex flex-wrap items-center gap-6 mb-6">
-        <div className="relative">
+      <div className="flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center md:gap-6 mb-6">
+        <div className="relative w-full md:w-auto">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
           <Input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Filter downloads..."
-            className="pl-9 h-8 w-48 text-sm"
+            className="pl-9 h-10 md:h-8 w-full md:w-48 text-sm"
             aria-label="Filter downloads"
           />
           {searchQuery && (
@@ -434,8 +476,8 @@ export default function Downloads() {
             </button>
           )}
         </div>
-        <div className="flex items-center gap-3">
-          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider shrink-0">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 md:pb-0">
+          <span className="hidden md:block text-xs font-medium text-muted-foreground uppercase tracking-wider shrink-0">
             Status
           </span>
           <Tabs
@@ -447,80 +489,103 @@ export default function Downloads() {
               <TabsTrigger value="all" data-testid="filter-all">
                 All
               </TabsTrigger>
-              <TabsTrigger value="downloading" data-testid="filter-downloading">
-                Downloading
-              </TabsTrigger>
-              <TabsTrigger value="seeding" data-testid="filter-seeding">
-                Seeding
-              </TabsTrigger>
-              <TabsTrigger value="completed" data-testid="filter-completed">
-                Completed
-              </TabsTrigger>
-              <TabsTrigger value="paused" data-testid="filter-paused">
-                Paused
-              </TabsTrigger>
-              <TabsTrigger value="error" data-testid="filter-error">
-                Error
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider shrink-0">
-            Protocol
-          </span>
-          <Tabs
-            value={typeFilter}
-            onValueChange={(value) => setTypeFilter(value as DownloadType | "all")}
-            aria-label="Filter downloads by protocol"
-          >
-            <TabsList>
-              <TabsTrigger value="all">All</TabsTrigger>
-              <TabsTrigger value="torrent" className="flex items-center gap-2">
-                <Download className="h-3 w-3" /> Torrents
-              </TabsTrigger>
-              <TabsTrigger value="usenet" className="flex items-center gap-2">
-                <Newspaper className="h-3 w-3" /> Usenet
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider shrink-0">
-            Source
-          </span>
-          <Tabs
-            value={questarrFilter}
-            onValueChange={(value) => setQuestarrFilter(value as "all" | "questarr")}
-            aria-label="Filter downloads by source"
-          >
-            <TabsList>
-              <TabsTrigger value="all" data-testid="filter-source-all">
-                All
+              <TabsTrigger
+                value="downloading"
+                className="flex items-center gap-1"
+                data-testid="filter-downloading"
+              >
+                <Download className="h-3 w-3" />
+                <span className="md:hidden">DL</span>
+                <span className="hidden md:inline">Downloading</span>
               </TabsTrigger>
               <TabsTrigger
-                value="questarr"
-                className="flex items-center gap-2"
-                data-testid="filter-source-questarr"
+                value="seeding"
+                className="flex items-center gap-1"
+                data-testid="filter-seeding"
               >
-                <Download className="h-3 w-3" /> Questarr only
+                <ArrowUp className="h-3 w-3" />
+                <span className="md:hidden">Seed</span>
+                <span className="hidden md:inline">Seeding</span>
+              </TabsTrigger>
+              <TabsTrigger
+                value="completed"
+                className="flex items-center gap-1"
+                data-testid="filter-completed"
+              >
+                <CheckCircle2 className="h-3 w-3" />
+                <span className="md:hidden">Done</span>
+                <span className="hidden md:inline">Completed</span>
+              </TabsTrigger>
+              <TabsTrigger
+                value="paused"
+                className="flex items-center gap-1"
+                data-testid="filter-paused"
+              >
+                <Pause className="h-3 w-3" />
+                <span className="hidden md:inline">Paused</span>
+              </TabsTrigger>
+              <TabsTrigger
+                value="error"
+                className="flex items-center gap-1"
+                data-testid="filter-error"
+              >
+                <AlertCircle className="h-3 w-3" />
+                <span className="hidden md:inline">Error</span>
               </TabsTrigger>
             </TabsList>
           </Tabs>
         </div>
 
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setBatchModalOpen(true)}
-          className="ml-auto flex items-center gap-2"
-          aria-label="Scan unlinked downloads"
-        >
-          <ScanLine className="h-4 w-4" />
-          Scan Unlinked
-        </Button>
+        <div className="flex flex-wrap items-center gap-2 md:contents">
+          <div className="flex items-center gap-2">
+            <span className="hidden md:inline text-xs font-medium text-muted-foreground uppercase tracking-wider shrink-0">
+              Protocol
+            </span>
+            <Tabs
+              value={typeFilter}
+              onValueChange={(value) => setTypeFilter(value as DownloadType | "all")}
+              aria-label="Filter downloads by protocol"
+            >
+              <TabsList>
+                <TabsTrigger value="all">All</TabsTrigger>
+                <TabsTrigger value="torrent">
+                  <span className="md:hidden">Tor</span>
+                  <span className="hidden md:inline">Torrents</span>
+                </TabsTrigger>
+                <TabsTrigger value="usenet">
+                  <span className="md:hidden">NZB</span>
+                  <span className="hidden md:inline">Usenet</span>
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
+
+          <Button
+            variant={questarrFilter === "questarr" ? "default" : "outline"}
+            size="sm"
+            className="flex items-center gap-1.5 h-10 md:h-8"
+            onClick={() => setQuestarrFilter((v) => (v === "questarr" ? "all" : "questarr"))}
+            aria-label={
+              questarrFilter === "questarr" ? "Show all downloads" : "Show Questarr downloads only"
+            }
+            aria-pressed={questarrFilter === "questarr"}
+            data-testid="filter-source-questarr"
+          >
+            <Download className="h-3 w-3" />
+            Questarr only
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setBatchModalOpen(true)}
+            className="hidden sm:flex items-center gap-2 sm:ml-auto"
+            aria-label="Scan unlinked downloads"
+          >
+            <ScanLine className="h-4 w-4" />
+            Scan Unlinked
+          </Button>
+        </div>
       </div>
 
       {/* Category filter banner */}
@@ -549,9 +614,42 @@ export default function Downloads() {
               <CardHeader>
                 <div className="flex justify-between items-start">
                   <div className="flex-1">
-                    <CardTitle className="text-lg leading-tight">{download.name}</CardTitle>
+                    <CardTitle className="text-base sm:text-lg leading-tight line-clamp-2 sm:line-clamp-none">
+                      {download.name}
+                    </CardTitle>
                     <CardDescription className="mt-2">
-                      <div className="flex flex-wrap gap-2 items-center">
+                      {/* Mobile: status + type + the most relevant active metric */}
+                      <div className="flex flex-wrap gap-1.5 sm:hidden">
+                        <Badge
+                          variant={getStatusBadgeVariant(download.status)}
+                          className="capitalize"
+                          aria-label={`Status: ${download.status}`}
+                        >
+                          {download.status}
+                        </Badge>
+                        <Badge
+                          className={`text-xs border-none ${getDownloadTypeColor(download.downloadType || "torrent")}`}
+                        >
+                          {download.downloadType === "usenet" ? "NZB" : "Torrent"}
+                        </Badge>
+                        {shouldShowSpeedBadge(download.downloadSpeed) && (
+                          <Badge variant="outline">↓ {formatSpeed(download.downloadSpeed!)}</Badge>
+                        )}
+                        {shouldShowETABadge(download.eta) && (
+                          <Badge variant="outline">{formatETA(download.eta!)}</Badge>
+                        )}
+                        {!shouldShowSpeedBadge(download.downloadSpeed) &&
+                          shouldShowSizeBadge(download.size) && (
+                            <Badge variant="outline">{formatBytes(download.size!)}</Badge>
+                          )}
+                        {!shouldShowSpeedBadge(download.downloadSpeed) &&
+                          shouldShowRatioBadge(download.ratio) &&
+                          shouldShowTorrentMetrics(download) && (
+                            <Badge variant="outline">{download.ratio?.toFixed(2)}</Badge>
+                          )}
+                      </div>
+                      {/* Desktop: full badge list */}
+                      <div className="hidden sm:flex flex-wrap gap-2 items-center">
                         <Badge
                           variant={getStatusBadgeVariant(download.status)}
                           className="capitalize"
@@ -686,7 +784,7 @@ export default function Downloads() {
                       </div>
                     </CardDescription>
                   </div>
-                  <div className="flex items-center space-x-2 ml-4">
+                  <div className="flex items-center space-x-2 ml-4 shrink-0">
                     {ACTIVE_DOWNLOAD_STATUSES.includes(download.status) && (
                       <>
                         {download.status === "paused" ? (

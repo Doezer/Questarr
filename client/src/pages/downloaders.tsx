@@ -6,6 +6,7 @@ import { Plus, Edit, Trash2, Check, X, Activity } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
@@ -39,6 +40,7 @@ import { insertDownloaderSchema, type Downloader, type InsertDownloader } from "
 import { isUsenetDownloaderType } from "@shared/downloader-types";
 import { useToast } from "@/hooks/use-toast";
 import { getDownloadTypeColor } from "@/lib/downloads-utils";
+import PageHeader from "@/components/PageHeader";
 
 const downloaderTypes = [
   { value: "transmission", label: "Transmission", protocol: "torrent" },
@@ -406,30 +408,55 @@ export default function DownloadersPage() {
 
   if (isLoading) {
     return (
-      <div className="p-6">
-        <div className="flex items-center space-x-2">
-          <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-          <span>Loading downloaders...</span>
+      <div className="h-full overflow-auto p-4 md:p-6">
+        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1.5">
+            <Skeleton className="h-7 w-40" />
+            <Skeleton className="h-4 w-72" />
+          </div>
+          <Skeleton className="h-10 sm:h-9 sm:w-36" />
         </div>
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="mb-4 rounded-lg border bg-card p-4 md:p-6">
+            <div className="flex justify-between items-start gap-3">
+              <div className="space-y-2 flex-1">
+                <Skeleton className="h-5 w-32" />
+                <div className="flex flex-wrap gap-2">
+                  <Skeleton className="h-5 w-24" />
+                  <Skeleton className="h-5 w-20" />
+                  <Skeleton className="h-5 w-16" />
+                  <Skeleton className="h-5 w-20" />
+                </div>
+              </div>
+              <div className="flex gap-1.5">
+                <Skeleton className="h-11 w-11 md:h-9 md:w-9" />
+                <Skeleton className="h-11 w-11 md:h-9 md:w-9" />
+                <Skeleton className="h-11 w-11 md:h-9 md:w-9" />
+                <Skeleton className="h-11 w-11 md:h-9 md:w-9" />
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
     );
   }
 
   return (
-    <div className="h-full overflow-auto p-6">
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Downloaders</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">
-            Manage download clients for automated downloads. Downloads are sent to enabled clients
-            in priority order (lowest number first), with automatic fallback if a client fails.
-          </p>
-        </div>
-        <Button onClick={handleAdd} data-testid="button-add-downloader">
-          <Plus className="h-4 w-4 mr-2" />
-          Add Downloader
-        </Button>
-      </div>
+    <div className="h-full overflow-auto p-4 md:p-6">
+      <PageHeader
+        title="Downloaders"
+        description="Manage download clients for automated downloads. Downloads are sent to enabled clients in priority order (lowest number first), with automatic fallback if a client fails."
+        actions={
+          <Button
+            className="h-10 justify-center sm:h-9"
+            onClick={handleAdd}
+            data-testid="button-add-downloader"
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Add Downloader
+          </Button>
+        }
+      />
 
       <div className="grid gap-4">
         {sortedActiveDownloaders.length > 0 ? (
@@ -439,45 +466,18 @@ export default function DownloadersPage() {
               className={cn(!downloader.enabled && "bg-muted/30")}
               data-testid={`card-downloader-${downloader.id}`}
             >
-              <CardHeader>
-                <div className="flex justify-between items-start">
-                  <div className="flex items-center space-x-3">
-                    <CardTitle
-                      className={cn("text-lg", !downloader.enabled && "text-muted-foreground")}
-                    >
-                      {downloader.name}
-                    </CardTitle>
-                    <Badge variant="outline" className="capitalize">
-                      {downloader.type}
-                    </Badge>
-                    <Badge
-                      className={`text-xs border-none ${getDownloadTypeColor(isUsenetDownloader(downloader.type) ? "usenet" : "torrent")}`}
-                    >
-                      {isUsenetDownloader(downloader.type) ? "USENET" : "TORRENT"}
-                    </Badge>
-                    <Badge
-                      variant={downloader.enabled ? "default" : "secondary"}
-                      data-testid={`status-downloader-${downloader.id}`}
-                    >
-                      {downloader.enabled ? (
-                        <>
-                          <Check className="h-3 w-3 mr-1" />
-                          Enabled
-                        </>
-                      ) : (
-                        <>
-                          <X className="h-3 w-3 mr-1" />
-                          Disabled
-                        </>
-                      )}
-                    </Badge>
-                    <PriorityControl
-                      id={downloader.id}
-                      priority={downloader.priority}
-                      onSave={(id, priority) => updatePriorityMutation.mutate({ id, priority })}
-                    />
-                  </div>
-                  <div className="flex items-center space-x-2">
+              <CardHeader className="space-y-2">
+                {/* Row 1: name + action buttons */}
+                <div className="flex items-center justify-between gap-3">
+                  <CardTitle
+                    className={cn(
+                      "min-w-0 truncate text-base md:text-lg",
+                      !downloader.enabled && "text-muted-foreground"
+                    )}
+                  >
+                    {downloader.name}
+                  </CardTitle>
+                  <div className="flex shrink-0 items-center gap-1.5">
                     <Button
                       variant="outline"
                       size="icon"
@@ -485,6 +485,7 @@ export default function DownloadersPage() {
                       disabled={testingDownloaderId === downloader.id}
                       title="Test connection"
                       aria-label={`Test connection for ${downloader.name}`}
+                      className="h-11 w-11 md:h-9 md:w-9"
                       data-testid={`button-test-downloader-${downloader.id}`}
                     >
                       <Activity className="h-4 w-4" />
@@ -501,6 +502,7 @@ export default function DownloadersPage() {
                       size="icon"
                       onClick={() => handleEdit(downloader)}
                       aria-label={`Edit ${downloader.name}`}
+                      className="h-11 w-11 md:h-9 md:w-9"
                       data-testid={`button-edit-downloader-${downloader.id}`}
                     >
                       <Edit className="h-4 w-4" />
@@ -510,15 +512,54 @@ export default function DownloadersPage() {
                       size="icon"
                       onClick={() => deleteMutation.mutate(downloader.id)}
                       aria-label={`Delete ${downloader.name}`}
+                      className="h-11 w-11 md:h-9 md:w-9"
                       data-testid={`button-delete-downloader-${downloader.id}`}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
                 </div>
-                <CardDescription className={cn(!downloader.enabled && "text-muted-foreground")}>
+                {/* Row 2: type / protocol / status / priority */}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Badge variant="outline" className="capitalize">
+                    {downloader.type}
+                  </Badge>
+                  <Badge
+                    className={`text-xs border-none ${getDownloadTypeColor(isUsenetDownloader(downloader.type) ? "usenet" : "torrent")}`}
+                  >
+                    {isUsenetDownloader(downloader.type) ? "USENET" : "TORRENT"}
+                  </Badge>
+                  <Badge
+                    variant={downloader.enabled ? "default" : "secondary"}
+                    data-testid={`status-downloader-${downloader.id}`}
+                  >
+                    {downloader.enabled ? (
+                      <>
+                        <Check className="h-3 w-3 mr-1" />
+                        Enabled
+                      </>
+                    ) : (
+                      <>
+                        <X className="h-3 w-3 mr-1" />
+                        Disabled
+                      </>
+                    )}
+                  </Badge>
+                  <PriorityControl
+                    id={downloader.id}
+                    priority={downloader.priority}
+                    onSave={(id, priority) => updatePriorityMutation.mutate({ id, priority })}
+                  />
+                </div>
+                {/* Row 3: URL */}
+                <p
+                  className={cn(
+                    "truncate text-sm text-muted-foreground",
+                    !downloader.enabled && "opacity-60"
+                  )}
+                >
                   {downloader.url}
-                </CardDescription>
+                </p>
               </CardHeader>
               <CardContent>
                 <div className="flex flex-wrap gap-2">
@@ -553,7 +594,7 @@ export default function DownloadersPage() {
       </div>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col">
+        <DialogContent className="w-full md:max-w-md max-h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>{editingDownloader ? "Edit Downloader" : "Add Downloader"}</DialogTitle>
             <DialogDescription>
@@ -1091,7 +1132,7 @@ export default function DownloadersPage() {
                   </div>
                 )}
               </div>
-              <div className="flex justify-end space-x-2 pt-2 border-t">
+              <div className="flex flex-wrap justify-end gap-2 pt-2 border-t">
                 <Button
                   type="button"
                   variant="outline"

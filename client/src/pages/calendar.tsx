@@ -25,7 +25,10 @@ interface GamesByDate {
 }
 
 function formatDate(date: Date): string {
-  return date.toISOString().split("T")[0];
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
 }
 
 function getMonthName(month: number): string {
@@ -124,11 +127,10 @@ export default function CalendarPage() {
     const grouped: GamesByDate = {};
     wantedGames.forEach((game) => {
       if (game.releaseDate) {
-        const date = formatDate(new Date(game.releaseDate));
-        if (!grouped[date]) {
-          grouped[date] = [];
+        if (!grouped[game.releaseDate]) {
+          grouped[game.releaseDate] = [];
         }
-        grouped[date].push(game);
+        grouped[game.releaseDate].push(game);
       }
     });
     return grouped;
@@ -189,7 +191,7 @@ export default function CalendarPage() {
   }
 
   return (
-    <div className="h-full overflow-auto p-6">
+    <div className="h-full overflow-auto p-4 md:p-6">
       <div className="space-y-3 mb-6">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Release Calendar</h1>
@@ -366,42 +368,81 @@ function MonthView({
   const month = currentDate.getMonth();
   const days = getDaysInMonth(year, month);
   const weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const [selectedDayKey, setSelectedDayKey] = useState<string | null>(null);
+
+  const handleCellClick = (dateKey: string, gamesOnDay: Game[]) => {
+    if (gamesOnDay.length === 0) {
+      setSelectedDayKey(null);
+      return;
+    }
+    setSelectedDayKey(selectedDayKey === dateKey ? null : dateKey);
+  };
+
+  const selectedGames = selectedDayKey ? (gamesByDate[selectedDayKey] ?? []) : [];
 
   return (
-    <div className="bg-card border rounded-lg p-4">
-      <div className="grid grid-cols-7 gap-2 mb-2">
+    <div className="bg-card border rounded-lg p-2 md:p-4">
+      <div className="grid grid-cols-7 gap-1 md:gap-2 mb-2">
         {weekDays.map((day) => (
-          <div key={day} className="text-center font-semibold text-sm text-muted-foreground py-2">
-            {day}
+          <div
+            key={day}
+            className="text-center font-semibold text-xs md:text-sm text-muted-foreground py-1 md:py-2"
+          >
+            <span className="md:hidden">{day[0]}</span>
+            <span className="hidden md:inline">{day}</span>
           </div>
         ))}
       </div>
-      <div className="grid grid-cols-7 gap-2">
+      <div className="grid grid-cols-7 gap-1 md:gap-2">
         {days.map((day, idx) => {
           const isCurrentMonth = day.getMonth() === month;
           const dateKey = formatDate(day);
           const gamesOnDay = gamesByDate[dateKey] || [];
           const isToday = formatDate(new Date()) === dateKey;
+          const isSelected = selectedDayKey === dateKey;
 
           return (
             <div
               key={idx}
+              onClick={() => handleCellClick(dateKey, gamesOnDay)}
               className={cn(
-                "min-h-[120px] border rounded-lg p-2",
+                "min-h-[48px] md:min-h-[120px] border rounded-lg p-1 md:p-2 transition-colors",
                 !isCurrentMonth && "bg-muted/30",
-                isToday && "border-primary border-2"
+                isToday && "border-primary border-2",
+                isSelected && "border-primary/60 bg-primary/5",
+                gamesOnDay.length > 0 ? "cursor-pointer" : "cursor-default"
               )}
             >
               <div
                 className={cn(
-                  "text-sm font-medium mb-2",
+                  "text-xs md:text-sm font-medium mb-0.5 md:mb-2",
                   !isCurrentMonth && "text-muted-foreground",
                   isToday && "text-primary font-bold"
                 )}
               >
                 {day.getDate()}
               </div>
-              <div className="space-y-1">
+              {/* Mobile: colored dots per game */}
+              {gamesOnDay.length > 0 && (
+                <div className="flex flex-wrap gap-0.5 md:hidden">
+                  {gamesOnDay.slice(0, 3).map((game) => (
+                    <div
+                      key={game.id}
+                      className={cn(
+                        "w-1.5 h-1.5 rounded-full",
+                        game.releaseStatus === "delayed" ? "bg-destructive" : "bg-primary"
+                      )}
+                    />
+                  ))}
+                  {gamesOnDay.length > 3 && (
+                    <span className="text-[9px] leading-none text-muted-foreground">
+                      +{gamesOnDay.length - 3}
+                    </span>
+                  )}
+                </div>
+              )}
+              {/* Desktop: full compact badges */}
+              <div className="hidden md:block space-y-1">
                 {gamesOnDay.map((game) => (
                   <GameBadge key={game.id} game={game} compact onClick={() => onGameClick(game)} />
                 ))}
@@ -410,6 +451,23 @@ function MonthView({
           );
         })}
       </div>
+      {/* Mobile day detail — shown below grid when a day with games is tapped */}
+      {selectedDayKey && selectedGames.length > 0 && (
+        <div className="mt-3 p-3 bg-muted/50 rounded-lg md:hidden">
+          <p className="text-xs font-semibold text-muted-foreground mb-2">
+            {new Date(selectedDayKey).toLocaleDateString(undefined, {
+              weekday: "long",
+              month: "long",
+              day: "numeric",
+            })}
+          </p>
+          <div className="space-y-2">
+            {selectedGames.map((game) => (
+              <GameBadge key={game.id} game={game} onClick={() => onGameClick(game)} />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -424,14 +482,67 @@ function WeekView({
   onGameClick: (game: Game) => void;
 }) {
   const weekDays = getWeekDays(new Date(currentDate));
+  const todayKey = formatDate(new Date());
 
   return (
     <div className="bg-card border rounded-lg p-4">
-      <div className="grid grid-cols-7 gap-4">
+      {/* Mobile: vertical list — one full-width row per day */}
+      <div className="space-y-2 md:hidden">
         {weekDays.map((day, idx) => {
           const dateKey = formatDate(day);
           const gamesOnDay = gamesByDate[dateKey] || [];
-          const isToday = formatDate(new Date()) === dateKey;
+          const isToday = todayKey === dateKey;
+          const dayName = day.toLocaleDateString(undefined, { weekday: "short" });
+          const monthName = day.toLocaleDateString(undefined, { month: "short" });
+
+          return (
+            <div
+              key={idx}
+              className={cn(
+                "flex gap-3 rounded-lg border p-3",
+                isToday ? "border-primary border-2" : "border-border",
+                gamesOnDay.length === 0 && "opacity-60"
+              )}
+            >
+              {/* Date column */}
+              <div className="flex w-12 shrink-0 flex-col items-center justify-center">
+                <span
+                  className={cn(
+                    "text-xs font-semibold uppercase tracking-wide",
+                    isToday ? "text-primary" : "text-muted-foreground"
+                  )}
+                >
+                  {dayName}
+                </span>
+                <span className={cn("text-xl font-bold leading-tight", isToday && "text-primary")}>
+                  {day.getDate()}
+                </span>
+                <span className="text-xs text-muted-foreground">{monthName}</span>
+              </div>
+              <div className="w-px shrink-0 bg-border" />
+              {/* Games column */}
+              <div className="flex min-w-0 flex-1 items-center">
+                {gamesOnDay.length > 0 ? (
+                  <div className="w-full space-y-2">
+                    {gamesOnDay.map((game) => (
+                      <GameBadge key={game.id} game={game} onClick={() => onGameClick(game)} />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">No releases</p>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Desktop: 7-column grid */}
+      <div className="hidden md:grid md:grid-cols-7 md:gap-4">
+        {weekDays.map((day, idx) => {
+          const dateKey = formatDate(day);
+          const gamesOnDay = gamesByDate[dateKey] || [];
+          const isToday = todayKey === dateKey;
           const dayName = day.toLocaleDateString(undefined, { weekday: "short" });
 
           return (

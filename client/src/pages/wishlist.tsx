@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import GameGrid from "@/components/GameGrid";
@@ -14,6 +14,8 @@ import { Button } from "@/components/ui/button";
 import { useViewControls } from "@/hooks/use-view-controls";
 import PageToolbar from "@/components/PageToolbar";
 import { useDownloadSummary } from "@/hooks/use-download-summary";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 type SortOption = "release-asc" | "release-desc" | "added-desc" | "title-asc";
 
@@ -123,6 +125,42 @@ export default function WishlistPage() {
     return sortGames(tbaGames, sortBy);
   }, [tbaGames, sortBy]);
 
+  const isMobile = useIsMobile();
+
+  const mobileSections = useMemo(() => {
+    const sections: { id: string; label: string; count: number; games: Game[] }[] = [];
+    if (sortedReleasedGames.length > 0)
+      sections.push({
+        id: "released",
+        label: "Released",
+        count: sortedReleasedGames.length,
+        games: sortedReleasedGames,
+      });
+    if (showUnreleased && sortedUpcomingGames.length > 0)
+      sections.push({
+        id: "upcoming",
+        label: "Upcoming",
+        count: sortedUpcomingGames.length,
+        games: sortedUpcomingGames,
+      });
+    if (showUnreleased && sortedTbaGames.length > 0)
+      sections.push({
+        id: "tba",
+        label: "TBA",
+        count: sortedTbaGames.length,
+        games: sortedTbaGames,
+      });
+    return sections;
+  }, [sortedReleasedGames, sortedUpcomingGames, sortedTbaGames, showUnreleased]);
+
+  const [activeTab, setActiveTab] = useState(() => mobileSections[0]?.id ?? "released");
+
+  useEffect(() => {
+    if (mobileSections.length > 0 && !mobileSections.find((s) => s.id === activeTab)) {
+      setActiveTab(mobileSections[0].id);
+    }
+  }, [mobileSections, activeTab]);
+
   const statusMutation = useMutation({
     mutationFn: async ({ gameId, status }: { gameId: string; status: GameStatus }) => {
       const response = await apiRequest("PATCH", `/api/games/${gameId}/status`, { status });
@@ -144,7 +182,7 @@ export default function WishlistPage() {
   });
 
   return (
-    <div className="h-full overflow-auto p-6">
+    <div className="h-full overflow-auto p-4 md:p-6">
       <div className="space-y-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Wishlist</h1>
@@ -227,8 +265,32 @@ export default function WishlistPage() {
                     : "Try adjusting your filters."
             }
           />
+        ) : isMobile && mobileSections.length > 1 ? (
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList className="w-full">
+              {mobileSections.map((section) => (
+                <TabsTrigger key={section.id} value={section.id} className="flex-1">
+                  {section.label}
+                  <span className="ml-1.5 text-xs opacity-60">{section.count}</span>
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            {mobileSections.map((section) => (
+              <TabsContent key={section.id} value={section.id} className="mt-4">
+                <GameGrid
+                  games={section.games}
+                  onStatusChange={(id, status) => statusMutation.mutate({ gameId: id, status })}
+                  onToggleHidden={(id, hidden) => hiddenMutation.mutate({ gameId: id, hidden })}
+                  isLoading={isLoading}
+                  viewMode={viewMode}
+                  density={listDensity}
+                  downloadSummaries={downloadSummaries}
+                />
+              </TabsContent>
+            ))}
+          </Tabs>
         ) : (
-          <div className="space-y-12">
+          <div className="space-y-8 md:space-y-12">
             {releasedGames.length > 0 && (
               <section>
                 <div className="flex items-baseline gap-2 mb-3">

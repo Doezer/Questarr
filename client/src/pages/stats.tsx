@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { type Game } from "@shared/schema";
 import StatsCard from "@/components/StatsCard";
 import {
@@ -43,6 +44,7 @@ export default function StatsPage() {
     },
   });
 
+  const isMobile = useIsMobile();
   const stats = useMemo(() => calculateLibraryStats(games), [games]);
 
   const pieData = useMemo(() => {
@@ -70,7 +72,7 @@ export default function StatsPage() {
   }
 
   return (
-    <div className="h-full overflow-auto p-6 space-y-8">
+    <div className="h-full overflow-auto p-4 md:p-6 space-y-6 md:space-y-8">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Statistics</h1>
@@ -92,7 +94,7 @@ export default function StatsPage() {
         discordConfigured={discordConfig?.configured}
       />
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5 lg:grid-cols-3">
+      <div className="grid gap-3 grid-cols-2 md:gap-4 lg:grid-cols-3 xl:grid-cols-5">
         <StatsCard
           title="Total Games"
           value={stats.totalGames}
@@ -140,11 +142,15 @@ export default function StatsPage() {
                   data={pieData}
                   cx="50%"
                   cy="50%"
-                  innerRadius={60}
-                  outerRadius={100}
+                  innerRadius={isMobile ? 45 : 60}
+                  outerRadius={isMobile ? 75 : 100}
                   paddingAngle={5}
                   dataKey="value"
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                  label={
+                    isMobile
+                      ? undefined
+                      : ({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`
+                  }
                 >
                   {pieData.map((entry, index) => (
                     <Cell

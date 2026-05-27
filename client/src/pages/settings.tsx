@@ -735,7 +735,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="h-full overflow-auto p-6">
+    <div className="h-full overflow-auto p-4 pb-20 sm:p-6 md:pb-6">
       <div className="mb-6">
         <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
         <p className="text-muted-foreground text-sm mt-0.5">
@@ -758,7 +758,7 @@ export default function SettingsPage() {
         )}
 
         <Tabs defaultValue="general" className="w-full">
-          <TabsList className="mb-8 flex w-full flex-nowrap overflow-x-auto [&>*]:shrink-0">
+          <TabsList className="mb-4 sm:mb-8 flex w-full flex-nowrap overflow-x-auto [&>*]:shrink-0">
             <TabsTrigger value="general">General</TabsTrigger>
             <TabsTrigger value="rules">Rules</TabsTrigger>
             <TabsTrigger value="notifications">Notifications</TabsTrigger>
@@ -873,7 +873,7 @@ export default function SettingsPage() {
                     value={preferredPlatform || "__none__"}
                     onValueChange={(v) => setPreferredPlatform(v === "__none__" ? "" : v)}
                   >
-                    <SelectTrigger id="preferred-platform" className="w-48">
+                    <SelectTrigger id="preferred-platform" className="w-full sm:w-48">
                       <SelectValue placeholder="No preference" />
                     </SelectTrigger>
                     <SelectContent>
@@ -997,7 +997,7 @@ export default function SettingsPage() {
                     is set.
                   </p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-col sm:flex-row gap-2">
                   <Button
                     onClick={() =>
                       updateAppriseMutation.mutate({
@@ -1034,13 +1034,13 @@ export default function SettingsPage() {
                   <table className="w-full">
                     <thead>
                       <tr className="border-b">
-                        <th className="text-left text-sm font-medium text-muted-foreground pb-3 pr-4">
+                        <th className="text-left text-sm font-medium text-muted-foreground pb-3 pr-2 sm:pr-4">
                           Event
                         </th>
-                        <th className="text-center text-sm font-medium text-muted-foreground pb-3 px-6 w-24">
+                        <th className="text-center text-sm font-medium text-muted-foreground pb-3 px-3 sm:px-6 w-14 sm:w-24">
                           In-App
                         </th>
-                        <th className="text-center text-sm font-medium text-muted-foreground pb-3 pl-6 w-24">
+                        <th className="text-center text-sm font-medium text-muted-foreground pb-3 pl-3 sm:pl-6 w-14 sm:w-24">
                           Apprise
                         </th>
                       </tr>
@@ -1053,8 +1053,8 @@ export default function SettingsPage() {
                             key={key}
                             className={`border-b last:border-0 ${isGroupStart ? "border-t-2 border-t-muted" : ""}`}
                           >
-                            <td className="py-3 pr-4 text-sm">{label}</td>
-                            <td className="py-3 px-6 text-center">
+                            <td className="py-3 pr-2 sm:pr-4 text-sm">{label}</td>
+                            <td className="py-3 px-3 sm:px-6 text-center">
                               <Switch
                                 aria-label={`In-App: ${label}`}
                                 checked={notifPrefs[key].inApp}
@@ -1063,7 +1063,7 @@ export default function SettingsPage() {
                                 }
                               />
                             </td>
-                            <td className="py-3 pl-6 text-center">
+                            <td className="py-3 pl-3 sm:pl-6 text-center">
                               <div
                                 title={
                                   !appriseSettings?.configured
@@ -1547,7 +1547,7 @@ export default function SettingsPage() {
               <CardContent className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="discord-webhook">Webhook URL</Label>
-                  <div className="flex gap-2">
+                  <div className="flex flex-col sm:flex-row gap-2">
                     <div className="relative flex-1">
                       <Input
                         id="discord-webhook"
@@ -1578,6 +1578,7 @@ export default function SettingsPage() {
                     <Button
                       onClick={() => updateDiscordMutation.mutate(discordWebhookUrl)}
                       disabled={updateDiscordMutation.isPending || !discordWebhookUrl.trim()}
+                      className="shrink-0 w-full sm:w-auto"
                     >
                       {updateDiscordMutation.isPending ? "Saving..." : "Save"}
                     </Button>
@@ -1606,7 +1607,7 @@ export default function SettingsPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex flex-col space-y-2">
-                  <div className="flex justify-between items-center">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <p className="text-sm font-medium">Clear Downloads Cache</p>
                       <p className="text-xs text-muted-foreground">
@@ -1625,7 +1626,7 @@ export default function SettingsPage() {
                             "Search results cache has been cleared. New searches will fetch fresh data.",
                         });
                       }}
-                      className="gap-2"
+                      className="gap-2 w-full sm:w-auto shrink-0"
                     >
                       <RefreshCw className="h-4 w-4" />
                       Clear Cache
@@ -1633,7 +1634,7 @@ export default function SettingsPage() {
                   </div>
                 </div>
                 <div className="flex flex-col space-y-2">
-                  <div className="flex justify-between items-center">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <p className="text-sm font-medium">Refresh Metadata</p>
                       <p className="text-xs text-muted-foreground">
@@ -1645,7 +1646,7 @@ export default function SettingsPage() {
                       size="sm"
                       onClick={() => refreshMetadataMutation.mutate()}
                       disabled={refreshMetadataMutation.isPending}
-                      className="gap-2"
+                      className="gap-2 w-full sm:w-auto shrink-0"
                     >
                       {refreshMetadataMutation.isPending ? (
                         <RefreshCw className="h-4 w-4 animate-spin" />

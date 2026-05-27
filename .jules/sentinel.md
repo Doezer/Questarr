@@ -15,3 +15,8 @@
 **Vulnerability:** The RSS feed creation and update endpoints (`POST /api/rss/feeds` and `PUT /api/rss/feeds/:id`) lacked `isSafeUrl` validation, allowing attackers to force the server to fetch arbitrary URLs, including cloud metadata services (`169.254.169.254`).
 **Learning:** Even if `isSafeUrl` exists, it must be applied to _all_ inputs that trigger server-side requests. RSS feeds are a common vector for SSRF because they inherently involve fetching remote content.
 **Prevention:** Apply `isSafeUrl` validation to all URL inputs in API routes. Implement defense-in-depth by also validating the URL at the point of use (in `rssService.refreshFeed`).
+
+## 2025-05-24 - [SSRF via Global Fetch]
+**Vulnerability:** Core integration logic in `server/igdb.ts`, `server/routes.ts`, and `server/downloaders.ts` used the global `fetch` function directly, bypassing the application's SSRF protection and DNS rebinding mitigations.
+**Learning:** Even when validation middleware or `isSafeUrl` checks exist, directly calling `fetch` leaves the system vulnerable to Time-of-Check to Time-of-Use (TOCTOU) attacks, specifically DNS rebinding, where an attacker changes the DNS record after validation but before the actual fetch.
+**Prevention:** Always use the `safeFetch` wrapper from `server/ssrf.ts` for all outbound HTTP requests, as it performs IP validation at the time of resolution and pins the request to the verified IP.

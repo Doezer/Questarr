@@ -816,7 +816,7 @@ export class TransmissionClient implements DownloaderClient {
       headers["Authorization"] = `Basic ${auth}`;
     }
 
-    const response = await fetch(url, {
+    const response = await safeFetch(url, {
       method: "POST",
       headers,
       body: JSON.stringify(body),
@@ -833,7 +833,7 @@ export class TransmissionClient implements DownloaderClient {
         downloadersLogger.debug({ method, url }, "Retrying Transmission request with session ID");
 
         // Retry with session ID
-        const retryResponse = await fetch(url, {
+        const retryResponse = await safeFetch(url, {
           method: "POST",
           headers,
           body: JSON.stringify(body),
@@ -1584,7 +1584,7 @@ export class RTorrentClient implements DownloaderClient {
       headers["Authorization"] = `Basic ${auth}`;
     }
 
-    const response = await fetch(url, {
+    const response = await safeFetch(url, {
       method: "POST",
       headers,
       body: xmlBody,
@@ -1617,7 +1617,7 @@ export class RTorrentClient implements DownloaderClient {
 
             downloadersLogger.debug({ url }, "Retrying rTorrent request with Digest Auth");
 
-            const retryResponse = await fetch(url, {
+            const retryResponse = await safeFetch(url, {
               method: "POST",
               headers,
               body: xmlBody,
@@ -2829,7 +2829,7 @@ export class QBittorrentClient implements DownloaderClient {
     formData.append("password", this.downloader.password);
 
     try {
-      const response = await fetch(url, {
+      const response = await safeFetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
@@ -2979,7 +2979,7 @@ export class QBittorrentClient implements DownloaderClient {
       "Making qBittorrent request"
     );
 
-    let response = await fetch(url, {
+    let response = await safeFetch(url, {
       method,
       headers,
       body: requestBody,
@@ -2998,7 +2998,7 @@ export class QBittorrentClient implements DownloaderClient {
         retryHeaders["Cookie"] = this.cookie;
       }
 
-      response = await fetch(url, {
+      response = await safeFetch(url, {
         method,
         headers: retryHeaders,
         body: requestBody,
@@ -3331,7 +3331,7 @@ export class SABnzbdClient implements DownloaderClient {
 
   private async fetchWithFallback(url: string, options: RequestInit = {}): Promise<Response> {
     try {
-      return await fetch(url, options);
+      return await safeFetch(url, options);
     } catch (error) {
       const isSslError =
         error instanceof Error &&
@@ -3988,7 +3988,7 @@ export class NZBGetClient implements DownloaderClient {
 
     downloadersLogger.debug({ url, method, params: logParams }, "Making NZBGet XML-RPC request");
 
-    const response = await fetch(url, {
+    const response = await safeFetch(url, {
       method: "POST",
       headers,
       body: xmlBody,

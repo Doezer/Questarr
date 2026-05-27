@@ -1147,4 +1147,423 @@ describe("downloader client regression coverage", () => {
       message: "Download URL is required",
     });
   });
+
+  it("covers qBittorrent connection and addDownload guard branches", async () => {
+    const client = new QBittorrentClient(createDownloader({ type: "qbittorrent" }));
+    const privateClient = client as unknown as {
+      authenticate: (force?: boolean) => Promise<void>;
+      makeRequest: (
+        method: string,
+        path: string,
+        body?: string | Buffer,
+        additionalHeaders?: Record<string, string>
+      ) => Promise<Response>;
+    };
+
+    const authenticateSpy = vi.spyOn(privateClient, "authenticate").mockResolvedValue(undefined);
+    const makeRequestSpy = vi.spyOn(privateClient, "makeRequest").mockResolvedValue({
+      text: async () => "4.6.5",
+    } as Response);
+
+    await expect(client.testConnection()).resolves.toEqual({
+      success: true,
+      message: "Connected successfully to qBittorrent 4.6.5",
+    });
+
+    authenticateSpy.mockRejectedValueOnce(new Error("auth boom"));
+    await expect(client.testConnection()).resolves.toEqual({
+      success: false,
+      message: "Failed to connect to qBittorrent: auth boom",
+    });
+
+    await expect(client.addDownload({ url: "", title: "No URL" })).resolves.toEqual({
+      success: false,
+      message: "Download URL is required",
+    });
+
+    vi.mocked(isSafeUrl).mockResolvedValueOnce(false);
+    await expect(
+      client.addDownload({ url: "http://unsafe.local/file.torrent", title: "Unsafe" })
+    ).resolves.toEqual({
+      success: false,
+      message: "Unsafe URL blocked: http://unsafe.local/file.torrent",
+    });
+
+    makeRequestSpy.mockReset();
+    makeRequestSpy.mockResolvedValueOnce({
+      text: async () => "unexpected failure",
+      status: 200,
+      ok: true,
+      headers: {
+        entries: () => [][Symbol.iterator](),
+      },
+    } as Response);
+
+    await expect(
+      client.addDownload({
+        url: "magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12",
+        title: "Broken magnet",
+      })
+    ).resolves.toEqual({
+      success: false,
+      message: "Failed to add magnet link: unexpected failure",
+    });
+  });
+
+  it("covers Transmission connection branches and duplicate magnet adds", async () => {
+    const client = new TransmissionClient(createDownloader({ type: "transmission" }));
+    const privateClient = client as unknown as {
+      makeRequest: (
+        method: string,
+        args: unknown
+      ) => Promise<{
+        result?: string;
+        arguments: Record<string, unknown>;
+      }>;
+    };
+    const makeRequestSpy = vi.spyOn(privateClient, "makeRequest");
+
+    makeRequestSpy.mockResolvedValueOnce({ result: "success", arguments: {} });
+    await expect(client.testConnection()).resolves.toEqual({
+      success: true,
+      message: "Connected successfully to Transmission",
+    });
+
+    makeRequestSpy.mockRejectedValueOnce(
+      new Error("Authentication failed: Invalid username or password for Transmission - denied")
+    );
+    await expect(client.testConnection()).resolves.toEqual({
+      success: false,
+      message: "Authentication failed: Invalid username or password for Transmission - denied",
+    });
+
+    makeRequestSpy.mockRejectedValueOnce(new Error("network boom"));
+    await expect(client.testConnection()).resolves.toEqual({
+      success: false,
+      message: "Failed to connect to Transmission: network boom",
+    });
+
+    vi.mocked(isSafeUrl).mockResolvedValueOnce(false);
+    await expect(
+      client.addDownload({ url: "http://unsafe.local/file.torrent", title: "Unsafe" })
+    ).resolves.toEqual({
+      success: false,
+      message: "Unsafe URL blocked: http://unsafe.local/file.torrent",
+    });
+
+    makeRequestSpy.mockResolvedValueOnce({
+      result: "success",
+      arguments: {
+        "torrent-duplicate": {
+          hashString: "dup-hash",
+          id: 7,
+        },
+      },
+    });
+    await expect(
+      client.addDownload({
+        url: "magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12",
+        title: "Duplicate magnet",
+      })
+    ).resolves.toEqual({
+      success: true,
+      id: "dup-hash",
+      message: "Download already exists (Transmission)",
+    });
+  });
+
+  it("covers rTorrent connection branches and magnet add flows", async () => {
+    const client = new RTorrentClient(
+      createDownloader({ type: "rtorrent", category: "games", downloadPath: "/downloads" })
+    );
+    const privateClient = client as unknown as {
+      makeXMLRPCRequest: (method: string, params: unknown[]) => Promise<unknown>;
+    };
+    const rpcSpy = vi.spyOn(privateClient, "makeXMLRPCRequest");
+
+    rpcSpy.mockResolvedValueOnce("0.9.8");
+    await expect(client.testConnection()).resolves.toEqual({
+      success: true,
+      message: "Connected to rTorrent v0.9.8",
+    });
+
+    rpcSpy.mockRejectedValueOnce(new Error("Authentication failed: bad credentials"));
+    await expect(client.testConnection()).resolves.toEqual({
+      success: false,
+      message: "Authentication failed: bad credentials",
+    });
+
+    rpcSpy.mockRejectedValueOnce(new Error("rpc down"));
+    await expect(client.testConnection()).resolves.toEqual({
+      success: false,
+      message: "Failed to connect to rTorrent: rpc down",
+    });
+
+    await expect(client.addDownload({ url: "", title: "No URL" })).resolves.toEqual({
+      success: false,
+      message: "Download URL is required",
+    });
+
+    vi.mocked(isSafeUrl).mockResolvedValueOnce(false);
+    await expect(
+      client.addDownload({ url: "http://unsafe.local/file.torrent", title: "Unsafe" })
+    ).resolves.toEqual({
+      success: false,
+      message: "Unsafe URL blocked: http://unsafe.local/file.torrent",
+    });
+
+    rpcSpy.mockResolvedValueOnce(0);
+    await expect(
+      client.addDownload({
+        url: "magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12",
+        title: "Magnet",
+      })
+    ).resolves.toEqual({
+      success: true,
+      id: "abcdef1234567890abcdef1234567890abcdef12",
+      message: "Download added successfully",
+    });
+
+    rpcSpy.mockResolvedValueOnce(5);
+    await expect(
+      client.addDownload({
+        url: "magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12",
+        title: "Magnet failure",
+      })
+    ).resolves.toEqual({
+      success: false,
+      message: "Failed to add download (rTorrent returned code: 5)",
+    });
+  });
+
+  it("covers SABnzbd connection and addDownload error variants", async () => {
+    const client = new SABnzbdClient(createDownloader({ type: "sabnzbd", username: "api-key" }));
+    const privateClient = client as unknown as {
+      fetchWithFallback: (url: string, options?: RequestInit) => Promise<Response>;
+    };
+    const fetchWithFallbackSpy = vi.spyOn(privateClient, "fetchWithFallback");
+
+    fetchWithFallbackSpy.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ version: "4.3.2" }),
+    } as Response);
+    await expect(client.testConnection()).resolves.toEqual({
+      success: true,
+      message: "Connected to SABnzbd v4.3.2",
+    });
+
+    fetchWithFallbackSpy.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ notVersion: true }),
+    } as Response);
+    await expect(client.testConnection()).resolves.toEqual({
+      success: false,
+      message: "Invalid SABnzbd response - missing version field",
+    });
+
+    fetchWithFallbackSpy.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      statusText: "Boom",
+      text: async () => "server error",
+    } as Response);
+    await expect(client.testConnection()).resolves.toEqual({
+      success: false,
+      message: "HTTP 500: Boom - server error",
+    });
+
+    fetchWithFallbackSpy.mockRejectedValueOnce(new Error("connect boom"));
+    await expect(client.testConnection()).resolves.toEqual({
+      success: false,
+      message: expect.stringContaining("Failed to connect to SABnzbd"),
+    });
+
+    vi.mocked(isSafeUrl).mockResolvedValueOnce(false);
+    await expect(
+      client.addDownload({ url: "http://unsafe.local/file.nzb", title: "Unsafe" })
+    ).resolves.toEqual({
+      success: false,
+      message: "Unsafe URL blocked: http://unsafe.local/file.nzb",
+    });
+
+    vi.mocked(safeFetch).mockResolvedValueOnce({
+      ok: false,
+      statusText: "Not Found",
+    } as Response);
+    await expect(
+      client.addDownload({ url: "http://indexer.local/file.nzb", title: "Missing" })
+    ).resolves.toEqual({
+      success: false,
+      message: "Failed to fetch NZB: Not Found",
+    });
+
+    vi.mocked(safeFetch).mockResolvedValueOnce({
+      ok: true,
+      arrayBuffer: async () => new TextEncoder().encode("nzb").buffer,
+    } as Response);
+    fetchWithFallbackSpy.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ status: false, error: "Duplicate NZB" }),
+    } as Response);
+    await expect(
+      client.addDownload({ url: "http://indexer.local/file.nzb", title: 'Game "One"' })
+    ).resolves.toEqual({
+      success: true,
+      message: "NZB already exists: Duplicate NZB",
+    });
+  });
+
+  it("covers NZBGet success and addDownload failure branches", async () => {
+    const client = new NZBGetClient(createDownloader({ type: "nzbget" }));
+    const privateClient = client as unknown as {
+      makeXMLRPCRequest: (method: string, params?: unknown[]) => Promise<unknown>;
+    };
+    const rpcSpy = vi.spyOn(privateClient, "makeXMLRPCRequest");
+
+    rpcSpy.mockResolvedValueOnce("23.0");
+    await expect(client.testConnection()).resolves.toEqual({
+      success: true,
+      message: "Connected to NZBGet v23.0",
+    });
+
+    vi.mocked(isSafeUrl).mockResolvedValueOnce(false);
+    await expect(
+      client.addDownload({ url: "http://unsafe.local/file.nzb", title: "Unsafe" })
+    ).resolves.toEqual({
+      success: false,
+      message: "Unsafe URL blocked: http://unsafe.local/file.nzb",
+    });
+
+    vi.mocked(safeFetch).mockResolvedValueOnce({
+      ok: false,
+      statusText: "Not Found",
+    } as Response);
+    await expect(
+      client.addDownload({ url: "http://indexer.local/file.nzb", title: "Missing" })
+    ).resolves.toEqual({
+      success: false,
+      message: "Failed to fetch NZB: Not Found",
+    });
+
+    vi.mocked(safeFetch).mockResolvedValueOnce({
+      ok: true,
+      text: async () => "<nzb></nzb>",
+    } as Response);
+    rpcSpy.mockResolvedValueOnce(0);
+    await expect(
+      client.addDownload({ url: "http://indexer.local/file.nzb", title: "Zero ID" })
+    ).resolves.toEqual({
+      success: false,
+      message: "Failed to add NZB (ID is 0 or negative)",
+    });
+  });
+
+  it("covers Synology connection and operational error branches", async () => {
+    const client = new SynologyDownloadStationClient(
+      createDownloader({
+        type: "synology",
+        username: "admin",
+        password: "password",
+      })
+    );
+    const privateClient = client as unknown as {
+      authenticate: (force?: boolean) => Promise<void>;
+      logout: () => Promise<void>;
+      requestTaskApi: <T>(
+        methodName: string,
+        options?: {
+          httpMethod?: "GET" | "POST";
+          params?: Record<string, string | number | boolean | undefined>;
+          body?: URLSearchParams | FormData;
+          retryOnAuthFailure?: boolean;
+        }
+      ) => Promise<T>;
+      ensureApiInfo: () => Promise<void>;
+      getTaskApiDescriptor: () => { apiName: string };
+      getTask: (id: string, additional: string) => Promise<unknown>;
+      requestApi: <T>(
+        apiName: string,
+        descriptor: { path: string; minVersion: number; maxVersion: number },
+        preferredVersion: number,
+        methodName: string,
+        options?: {
+          httpMethod?: "GET" | "POST";
+          params?: Record<string, string | number | boolean | undefined>;
+          body?: URLSearchParams | FormData;
+          retryOnAuthFailure?: boolean;
+          requiresAuth?: boolean;
+        }
+      ) => Promise<T>;
+      apiInfo: Record<string, { path: string; minVersion: number; maxVersion: number }> | null;
+    };
+
+    vi.spyOn(privateClient, "authenticate").mockResolvedValue(undefined);
+    vi.spyOn(privateClient, "logout").mockResolvedValue(undefined);
+    await expect(client.testConnection()).resolves.toEqual({
+      success: true,
+      message: "Connected successfully to Synology Download Station",
+    });
+
+    vi.spyOn(privateClient, "authenticate").mockRejectedValueOnce(new Error("auth boom"));
+    await expect(client.testConnection()).resolves.toEqual({
+      success: false,
+      message: "Failed to connect to Synology Download Station: auth boom",
+    });
+
+    vi.spyOn(privateClient, "ensureApiInfo").mockResolvedValue(undefined);
+    vi.spyOn(privateClient, "getTaskApiDescriptor").mockReturnValue({
+      apiName: "SYNO.DownloadStation2.Task",
+    });
+    const requestTaskApiSpy = vi.spyOn(privateClient, "requestTaskApi");
+
+    vi.mocked(isSafeUrl).mockResolvedValueOnce(false);
+    await expect(
+      client.addDownload({ url: "http://unsafe.local/file.torrent", title: "Unsafe" })
+    ).resolves.toEqual({
+      success: false,
+      message: "Unsafe URL blocked",
+    });
+
+    requestTaskApiSpy.mockResolvedValueOnce({
+      success: true,
+      data: { task_id: ["task-1"] },
+    } as never);
+    await expect(
+      client.addDownload({
+        url: "magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12",
+        title: "Magnet",
+      })
+    ).resolves.toEqual({
+      success: true,
+      id: "task-1",
+      message: "Download added successfully",
+    });
+
+    vi.spyOn(privateClient, "getTask").mockRejectedValue(new Error("status boom"));
+    await expect(client.getDownloadStatus("task-1")).resolves.toBeNull();
+    await expect(client.getDownloadDetails("task-1")).resolves.toBeNull();
+
+    requestTaskApiSpy.mockRejectedValueOnce(new Error("list boom"));
+    await expect(client.getAllDownloads()).resolves.toEqual([]);
+    requestTaskApiSpy.mockRejectedValueOnce(new Error("pause boom"));
+    await expect(client.pauseDownload("task-1")).resolves.toEqual({
+      success: false,
+      message: "Failed to pause download: pause boom",
+    });
+    requestTaskApiSpy.mockRejectedValueOnce(new Error("resume boom"));
+    await expect(client.resumeDownload("task-1")).resolves.toEqual({
+      success: false,
+      message: "Failed to resume download: resume boom",
+    });
+    requestTaskApiSpy.mockRejectedValueOnce(new Error("remove boom"));
+    await expect(client.removeDownload("task-1", true)).resolves.toEqual({
+      success: false,
+      message: "Failed to remove download: remove boom",
+    });
+
+    privateClient.apiInfo = null;
+    vi.spyOn(privateClient, "ensureApiInfo").mockResolvedValue(undefined);
+    vi.spyOn(privateClient, "requestApi").mockRejectedValueOnce(new Error("space boom"));
+    await expect(client.getFreeSpace()).resolves.toBe(0);
+  });
 });

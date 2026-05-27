@@ -144,6 +144,8 @@ export default function DiscoverPage() {
   const filterGames = useCallback(
     (games: Game[]) => {
       return games.filter((g: Game) => {
+        if (g.igdbId == null) return true;
+
         if (hiddenIgdbIds.has(g.igdbId)) return false;
 
         if (hideOwned && ownedIgdbIds.has(g.igdbId)) return false;

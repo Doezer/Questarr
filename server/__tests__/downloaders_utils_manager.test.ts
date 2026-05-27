@@ -258,6 +258,41 @@ describe("DownloaderManager", () => {
     createClientSpy.mockRestore();
   });
 
+  it("wraps add, pause, resume and remove errors from the active client", async () => {
+    const client = stubClient({
+      addDownload: vi.fn().mockRejectedValue(new Error("add failed")),
+      pauseDownload: vi.fn().mockRejectedValue(new Error("pause failed")),
+      resumeDownload: vi.fn().mockRejectedValue(new Error("resume failed")),
+      removeDownload: vi.fn().mockRejectedValue(new Error("remove failed")),
+    });
+    const createClientSpy = vi.spyOn(DownloaderManager, "createClient").mockReturnValue(client);
+    const downloader = baseDownloader();
+
+    await expect(
+      DownloaderManager.addDownload(downloader, {
+        url: "magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12",
+        title: "Game",
+      })
+    ).resolves.toEqual({
+      success: false,
+      message: "add failed",
+    });
+    await expect(DownloaderManager.pauseDownload(downloader, "abc")).resolves.toEqual({
+      success: false,
+      message: "pause failed",
+    });
+    await expect(DownloaderManager.resumeDownload(downloader, "abc")).resolves.toEqual({
+      success: false,
+      message: "resume failed",
+    });
+    await expect(DownloaderManager.removeDownload(downloader, "abc", true)).resolves.toEqual({
+      success: false,
+      message: "remove failed",
+    });
+
+    createClientSpy.mockRestore();
+  });
+
   it("returns an empty attempted list when no downloaders are available", async () => {
     await expect(
       DownloaderManager.addDownloadWithFallback([], {
@@ -310,5 +345,69 @@ describe("DownloaderManager", () => {
     expect(result.message).toContain("Secondary: Secondary failed");
 
     addDownloadSpy.mockRestore();
+  });
+
+  it("treats thrown non-Error fallback failures as unknown errors", async () => {
+    const addDownloadSpy = vi
+      .spyOn(DownloaderManager, "addDownload")
+      .mockRejectedValueOnce("plain failure");
+
+    const result = await DownloaderManager.addDownloadWithFallback(
+      [baseDownloader({ id: "one", name: "Primary", type: "transmission" })],
+      {
+        url: "magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12",
+        title: "Game",
+        downloadType: "torrent",
+      }
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.attemptedDownloaders).toEqual(["Primary"]);
+    expect(result.message).toContain("Primary: Unknown error");
+
+    addDownloadSpy.mockRestore();
+  });
+});
+
+describe("downloaders utils edge cases", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(isSafeUrl).mockResolvedValue(true);
+  });
+
+  it("returns the original response when a redirect has no location header", async () => {
+    const redirectResponse = {
+      ok: false,
+      status: 302,
+      headers: { get: () => null },
+    } as Response;
+    vi.mocked(safeFetch).mockResolvedValueOnce(redirectResponse);
+
+    const result = await fetchWithMagnetDetection("http://indexer.local/redirect");
+
+    expect(result.response).toBe(redirectResponse);
+    expect(result.magnetLink).toBeUndefined();
+  });
+
+  it("keeps the response when retry URL parsing fails or redirect URL is malformed", async () => {
+    vi.mocked(safeFetch)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        headers: { get: () => null },
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 302,
+        headers: {
+          get: (name: string) => (name.toLowerCase() === "location" ? "http://[bad-url" : null),
+        },
+      } as Response);
+
+    const retryResult = await fetchWithMagnetDetection("not a url+plus");
+    const malformedRedirectResult = await fetchWithMagnetDetection("http://indexer.local/bad");
+
+    expect(retryResult.response?.status).toBe(400);
+    expect(malformedRedirectResult.response?.status).toBe(302);
   });
 });

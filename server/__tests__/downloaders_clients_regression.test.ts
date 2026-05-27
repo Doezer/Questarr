@@ -545,4 +545,606 @@ describe("downloader client regression coverage", () => {
     await expect(client.getFreeSpace()).resolves.toBe(8192);
     expect(safeFetch).toHaveBeenCalled();
   });
+
+  it("fetches a missing Transmission hashString and falls back to the numeric id when that lookup fails", async () => {
+    const client = new TransmissionClient(createDownloader({ type: "transmission" }));
+
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          result: "success",
+          arguments: {
+            "torrent-added": {
+              id: 77,
+              name: "No Hash Yet",
+            },
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          result: "success",
+          arguments: {
+            torrents: [{ hashString: "hash-from-details" }],
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          result: "success",
+          arguments: {
+            "torrent-added": {
+              id: 88,
+              name: "Still No Hash",
+            },
+          },
+        }),
+      })
+      .mockRejectedValueOnce(new Error("lookup failed"));
+
+    await expect(
+      client.addDownload({
+        url: "magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12",
+        title: "No Hash Yet",
+      })
+    ).resolves.toMatchObject({ success: true, id: "hash-from-details" });
+
+    await expect(
+      client.addDownload({
+        url: "magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef13",
+        title: "Still No Hash",
+      })
+    ).resolves.toMatchObject({ success: true, id: "88" });
+  });
+
+  it("covers SABnzbd status variants, details, listing and control failures", async () => {
+    const client = new SABnzbdClient(
+      createDownloader({ type: "sabnzbd", username: "api-key", category: "games" })
+    );
+    const fetchWithFallbackSpy = vi.spyOn(
+      client as unknown as {
+        fetchWithFallback: (url: string, options?: RequestInit) => Promise<Response>;
+      },
+      "fetchWithFallback"
+    );
+
+    fetchWithFallbackSpy
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          queue: {
+            slots: [
+              {
+                nzo_id: "sab-1",
+                filename: "Packed Game",
+                status: "Unpacking",
+                percentage: "100",
+                mb: "10",
+                mbleft: "0",
+                timeleft: "unknown",
+                cat: "games",
+                avg_age: "1",
+              },
+              {
+                nzo_id: "sab-2",
+                filename: "Done Game",
+                status: "Completed",
+                percentage: "100",
+                mb: "12",
+                mbleft: "0",
+                timeleft: "0:00:00",
+                cat: "games",
+                avg_age: "4.5",
+              },
+            ],
+            speed: "0",
+          },
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          queue: {
+            slots: [
+              {
+                nzo_id: "sab-1",
+                filename: "Packed Game",
+                status: "Unpacking",
+                percentage: "100",
+                mb: "10",
+                mbleft: "0",
+                timeleft: "unknown",
+                cat: "games",
+                avg_age: "1",
+              },
+            ],
+            speed: "0",
+          },
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          queue: {
+            slots: [
+              {
+                nzo_id: "sab-1",
+                filename: "Packed Game",
+                status: "Unpacking",
+                percentage: "100",
+                mb: "10",
+                mbleft: "0",
+                timeleft: "unknown",
+                cat: "games",
+                avg_age: "1",
+              },
+              {
+                nzo_id: "sab-2",
+                filename: "Done Game",
+                status: "Completed",
+                percentage: "100",
+                mb: "12",
+                mbleft: "0",
+                timeleft: "0:00:00",
+                cat: "games",
+                avg_age: "4.5",
+              },
+            ],
+            speed: "0",
+          },
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          queue: {
+            slots: [
+              {
+                nzo_id: "sab-1",
+                filename: "Packed Game",
+                status: "Unpacking",
+                percentage: "100",
+                mb: "10",
+                mbleft: "0",
+                timeleft: "unknown",
+                cat: "games",
+                avg_age: "1",
+              },
+            ],
+            speed: "0",
+          },
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          queue: {
+            slots: [
+              {
+                nzo_id: "sab-1",
+                filename: "Packed Game",
+                status: "Unpacking",
+                percentage: "100",
+                mb: "10",
+                mbleft: "0",
+                timeleft: "unknown",
+                cat: "games",
+                avg_age: "1",
+              },
+            ],
+            speed: "0",
+          },
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          queue: {
+            slots: [
+              {
+                nzo_id: "sab-1",
+                filename: "Packed Game",
+                status: "Unpacking",
+                percentage: "100",
+                mb: "10",
+                mbleft: "0",
+                timeleft: "unknown",
+                cat: "games",
+                avg_age: "1",
+              },
+            ],
+            speed: "0",
+          },
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          queue: {
+            slots: [
+              {
+                nzo_id: "sab-1",
+                filename: "Packed Game",
+                status: "Unpacking",
+                percentage: "100",
+                mb: "10",
+                mbleft: "0",
+                timeleft: "unknown",
+                cat: "games",
+                avg_age: "1",
+              },
+            ],
+            speed: "0",
+          },
+        }),
+      } as Response)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ status: false }) } as Response)
+      .mockRejectedValueOnce(new Error("resume boom"))
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ status: false }) } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ queue: { diskspace1: "NaN" } }),
+      } as Response)
+      .mockRejectedValueOnce(new Error("queue boom"));
+
+    await expect(client.getDownloadStatus("sab-1")).resolves.toMatchObject({
+      status: "unpacking",
+      unpackStatus: "unpacking",
+      eta: undefined,
+    });
+    await expect(client.getDownloadStatus("sab-2")).resolves.toBeNull();
+    await expect(client.getDownloadDetails("sab-1")).resolves.toMatchObject({
+      id: "sab-1",
+      files: [],
+      trackers: [],
+    });
+    await expect(client.getAllDownloads()).resolves.toHaveLength(1);
+    await expect(client.pauseDownload("sab-1")).resolves.toEqual({
+      success: false,
+      message: "Failed to pause NZB",
+    });
+    await expect(client.resumeDownload("sab-1")).resolves.toEqual({
+      success: false,
+      message: "Failed to resume NZB",
+    });
+    await expect(client.removeDownload("sab-1")).resolves.toMatchObject({ success: false });
+    await expect(client.getFreeSpace()).resolves.toBe(0);
+    await expect(client.getAllDownloads()).resolves.toEqual([]);
+  });
+
+  it("maps completed SABnzbd queue entries and handles control failures with a fresh client", async () => {
+    const client = new SABnzbdClient(createDownloader({ type: "sabnzbd", username: "api-key" }));
+    const fetchWithFallbackSpy = vi.spyOn(
+      client as unknown as {
+        fetchWithFallback: (url: string, options?: RequestInit) => Promise<Response>;
+      },
+      "fetchWithFallback"
+    );
+
+    fetchWithFallbackSpy.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        queue: {
+          slots: [
+            {
+              nzo_id: "sab-done",
+              filename: "Done Game",
+              status: "Completed",
+              percentage: "100",
+              mb: "12",
+              mbleft: "0",
+              timeleft: "0:00:00",
+              cat: "games",
+              avg_age: "4.5",
+            },
+          ],
+          speed: "0",
+        },
+      }),
+    } as Response);
+
+    await expect(client.getDownloadStatus("sab-done")).resolves.toMatchObject({
+      status: "completed",
+      repairStatus: "good",
+      unpackStatus: "completed",
+      age: 4.5,
+    });
+
+    fetchWithFallbackSpy.mockReset();
+    fetchWithFallbackSpy
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ status: false }) } as Response)
+      .mockRejectedValueOnce(new Error("resume boom"))
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ status: false }) } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ queue: { diskspace1: "NaN" } }),
+      } as Response);
+
+    await expect(client.pauseDownload("sab-done")).resolves.toEqual({
+      success: false,
+      message: "Failed to pause NZB",
+    });
+    await expect(client.resumeDownload("sab-done")).resolves.toEqual({
+      success: false,
+      message: "resume boom",
+    });
+    await expect(client.removeDownload("sab-done")).resolves.toEqual({
+      success: false,
+      message: "Failed to remove NZB",
+    });
+    await expect(client.getFreeSpace()).resolves.toBe(0);
+  });
+
+  it("covers NZBGet XML helpers, history mapping and failure paths", async () => {
+    const client = new NZBGetClient(
+      createDownloader({
+        type: "nzbget",
+        url: "nzbget.local/",
+        username: "usér",
+        password: "päss",
+        useSsl: true,
+        port: 6789,
+      })
+    );
+    const privateClient = client as unknown as {
+      getBaseUrl: () => string;
+      escapeXml: (value: string) => string;
+      buildXMLValue: (value: unknown) => string;
+      parseValueObj: (value: unknown) => unknown;
+      makeXMLRPCRequest: (method: string, params?: unknown[]) => Promise<unknown>;
+    };
+
+    expect(privateClient.getBaseUrl()).toBe("https://nzbget.local:6789");
+    expect(privateClient.escapeXml(`<&>"'`)).toBe("&lt;&amp;&gt;&quot;&apos;");
+    expect(privateClient.buildXMLValue({ ok: true, score: 1.5, list: [1, "two"] })).toContain(
+      "<struct>"
+    );
+    expect(
+      privateClient.parseValueObj({
+        struct: {
+          member: [
+            { name: { _text: "flag" }, value: { boolean: { _text: "1" } } },
+            { name: { _text: "count" }, value: { int: { _text: "2" } } },
+            {
+              name: { _text: "items" },
+              value: {
+                array: {
+                  data: [
+                    {
+                      value: [{ string: { _text: "one" } }, { double: { _text: "2.5" } }],
+                    },
+                  ],
+                },
+              },
+            },
+          ],
+        },
+      })
+    ).toEqual({
+      flag: true,
+      count: 2,
+      items: ["one", 2.5],
+    });
+
+    const rpcSpy = vi.spyOn(privateClient, "makeXMLRPCRequest");
+    rpcSpy
+      .mockRejectedValueOnce(new Error("version boom"))
+      .mockResolvedValueOnce([
+        {
+          NZBID: 10,
+          NZBName: "Paused Game",
+          Status: "PAUSED",
+          FileSizeMB: 100,
+          RemainingSizeMB: 25,
+          DownloadedSizeMB: 75,
+          Category: "games",
+          DownloadRate: 0,
+          PostInfoText: "",
+        },
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          NZBID: 11,
+          Name: "Broken Game",
+          Status: "FAILURE/PAR",
+          FileSizeMB: 50,
+          Category: "games",
+          DownloadTimeSec: 120,
+          ParStatus: "FAILURE",
+          UnpackStatus: "FAILURE",
+          FailedArticles: 2,
+          DeleteStatus: "NONE",
+          DestDir: "/downloads",
+        },
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          NZBID: 12,
+          Name: "Finished Game",
+          Status: "SUCCESS/ALL",
+          FileSizeMB: 30,
+          Category: "games",
+          DownloadTimeSec: 60,
+          ParStatus: "NONE",
+          UnpackStatus: "SUCCESS",
+          FailedArticles: 0,
+          DeleteStatus: "NONE",
+          DestDir: "/downloads",
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          NZBID: 10,
+          NZBName: "Paused Game",
+          Status: "PAUSED",
+          FileSizeMB: 100,
+          RemainingSizeMB: 25,
+          DownloadedSizeMB: 75,
+          Category: "games",
+          DownloadRate: 0,
+          PostInfoText: "",
+        },
+      ])
+      .mockResolvedValueOnce([{ NZBID: 10 }])
+      .mockResolvedValueOnce([
+        {
+          NZBID: 10,
+          NZBName: "Paused Game",
+          Status: "PAUSED",
+          FileSizeMB: 100,
+          RemainingSizeMB: 25,
+          DownloadedSizeMB: 75,
+          Category: "games",
+          DownloadRate: 0,
+          PostInfoText: "",
+        },
+      ])
+      .mockRejectedValueOnce(new Error("pause boom"))
+      .mockRejectedValueOnce(new Error("resume boom"))
+      .mockRejectedValueOnce(new Error("remove boom"))
+      .mockRejectedValueOnce(new Error("space boom"));
+
+    await expect(client.testConnection()).resolves.toMatchObject({
+      success: false,
+      message: expect.stringContaining("Failed to connect to NZBGet at https://nzbget.local:6789"),
+    });
+    await expect(client.getDownloadStatus("10")).resolves.toMatchObject({
+      status: "paused",
+      progress: 75,
+    });
+    await expect(client.getDownloadStatus("11")).resolves.toMatchObject({
+      status: "error",
+      repairStatus: "failed",
+      unpackStatus: "failed",
+    });
+    await expect(client.getDownloadDetails("12")).resolves.toMatchObject({
+      status: "completed",
+      files: [],
+      trackers: [],
+    });
+    await expect(client.getAllDownloads()).resolves.toHaveLength(1);
+    await expect(client.pauseDownload("10")).resolves.toEqual({
+      success: true,
+      message: "NZB paused",
+    });
+    await expect(client.resumeDownload("10")).resolves.toMatchObject({ success: false });
+    await expect(client.removeDownload("10")).resolves.toMatchObject({ success: false });
+    await expect(client.getFreeSpace()).resolves.toBe(0);
+  });
+
+  it("returns NZBGet control failures with explicit error messages", async () => {
+    const client = new NZBGetClient(createDownloader({ type: "nzbget" }));
+    const rpcSpy = vi.spyOn(
+      client as unknown as {
+        makeXMLRPCRequest: (method: string, params?: unknown[]) => Promise<unknown>;
+      },
+      "makeXMLRPCRequest"
+    );
+
+    rpcSpy
+      .mockRejectedValueOnce(new Error("pause boom"))
+      .mockRejectedValueOnce(new Error("resume boom"))
+      .mockRejectedValueOnce(new Error("remove boom"))
+      .mockRejectedValueOnce(new Error("space boom"));
+
+    await expect(client.pauseDownload("10")).resolves.toEqual({
+      success: false,
+      message: "pause boom",
+    });
+    await expect(client.resumeDownload("10")).resolves.toEqual({
+      success: false,
+      message: "resume boom",
+    });
+    await expect(client.removeDownload("10")).resolves.toEqual({
+      success: false,
+      message: "remove boom",
+    });
+    await expect(client.getFreeSpace()).resolves.toBe(0);
+  });
+
+  it("covers Synology auth retry, error mappings and missing File Station support", async () => {
+    const client = new SynologyDownloadStationClient(
+      createDownloader({
+        type: "synology",
+        url: "nas.local/base",
+        urlPath: "/downloads",
+        username: "admin",
+        password: "password",
+      })
+    );
+    const privateClient = client as unknown as {
+      apiInfo: Record<string, { path: string; minVersion: number; maxVersion: number }> | null;
+      getBaseUrlParts: () => { origin: string; prefix: string };
+      buildSynologyErrorMessage: (code: number | undefined, fallback: string) => string;
+      normalizeSynologyStatus: (status: string | undefined, progress: number) => string;
+      mapSynologyFilePriority: (priority: string | number | undefined) => string;
+      mapSynologyTrackerStatus: (status: string | undefined, error: string | undefined) => string;
+      requestApi: <T>(
+        apiName: string,
+        descriptor: { path: string; minVersion: number; maxVersion: number },
+        preferredVersion: number,
+        methodName: string,
+        options?: {
+          httpMethod?: "GET" | "POST";
+          params?: Record<string, string | number | boolean | undefined>;
+          body?: URLSearchParams | FormData;
+          retryOnAuthFailure?: boolean;
+          requiresAuth?: boolean;
+        }
+      ) => Promise<T>;
+      fetchJson: <T>(url: string, init: RequestInit, context: string) => Promise<T>;
+      authenticate: (force?: boolean) => Promise<void>;
+      ensureApiInfo: () => Promise<void>;
+    };
+
+    expect(privateClient.getBaseUrlParts()).toEqual({
+      origin: "http://nas.local",
+      prefix: "/base/downloads",
+    });
+    expect(privateClient.buildSynologyErrorMessage(401, "fallback")).toBe(
+      "Synology maximum task limit reached"
+    );
+    expect(privateClient.normalizeSynologyStatus("paused", 100)).toBe("completed");
+    expect(privateClient.mapSynologyFilePriority("low")).toBe("low");
+    expect(privateClient.mapSynologyTrackerStatus("connected", undefined)).toBe("working");
+    expect(privateClient.mapSynologyTrackerStatus(undefined, "boom")).toBe("error");
+
+    privateClient.apiInfo = {
+      "SYNO.API.Auth": { path: "auth.cgi", minVersion: 1, maxVersion: 7 },
+      "SYNO.DownloadStation2.Task": { path: "entry.cgi", minVersion: 1, maxVersion: 2 },
+    };
+
+    const fetchJsonSpy = vi.spyOn(privateClient, "fetchJson");
+    const authSpy = vi.spyOn(privateClient, "authenticate").mockResolvedValue(undefined);
+    fetchJsonSpy
+      .mockResolvedValueOnce({ success: false, error: { code: 106 } })
+      .mockResolvedValueOnce({ success: true, data: { ok: true } });
+
+    await expect(
+      privateClient.requestApi<{ success: boolean; data: { ok: boolean } }>(
+        "SYNO.DownloadStation2.Task",
+        { path: "entry.cgi", minVersion: 1, maxVersion: 2 },
+        2,
+        "list",
+        { httpMethod: "GET" }
+      )
+    ).resolves.toMatchObject({ success: true, data: { ok: true } });
+    expect(authSpy).toHaveBeenCalledWith(true);
+
+    vi.spyOn(privateClient, "ensureApiInfo").mockResolvedValue(undefined);
+    privateClient.apiInfo = {
+      "SYNO.API.Auth": { path: "auth.cgi", minVersion: 1, maxVersion: 7 },
+    };
+
+    await expect(client.getFreeSpace()).resolves.toBe(0);
+    await expect(client.addDownload({ url: "", title: "Missing URL" })).resolves.toEqual({
+      success: false,
+      message: "Download URL is required",
+    });
+  });
 });

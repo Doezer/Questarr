@@ -12,9 +12,21 @@ describe("app path helpers", () => {
 
   it("resolves relative Vite bases against the current browser location", () => {
     expect(resolveBasePathFrom("./", "https://example.com/")).toBe("/");
-    expect(resolveBasePathFrom("./", "https://example.com/questarr")).toBe("/questarr/");
-    expect(resolveBasePathFrom("./", "https://example.com/questarr/")).toBe("/questarr/");
     expect(resolveBasePathFrom("./", "https://example.com/questarr/search")).toBe("/questarr/");
+    expect(
+      resolveBasePathFrom(
+        "./",
+        "https://example.com/questarr",
+        "https://example.com/questarr/assets/index-abc123.js"
+      )
+    ).toBe("/questarr/");
+    expect(
+      resolveBasePathFrom(
+        "./",
+        "https://example.com/questarr/",
+        "https://example.com/questarr/assets/index-abc123.js"
+      )
+    ).toBe("/questarr/");
   });
 
   it("prefers the loaded module asset path for relative bases on unknown routes", () => {

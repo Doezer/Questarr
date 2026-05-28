@@ -88,6 +88,9 @@ describe("downloaders utils", () => {
     expect(fixNzbUrlEncoding("http://indexer.local/download")).toBe(
       "http://indexer.local/download"
     );
+    expect(fixNzbUrlEncoding("http://indexer.local/download?flag")).toBe(
+      "http://indexer.local/download?flag"
+    );
   });
 
   it("extracts and normalizes magnet hashes for hex and base32 inputs", () => {
@@ -237,6 +240,24 @@ describe("DownloaderManager", () => {
     createClientSpy.mockRestore();
   });
 
+  it("returns all downloads unchanged when no category filter is configured", async () => {
+    const allDownloads = [
+      { id: "1", name: "A", status: "downloading", progress: 10, category: "Games" },
+      { id: "2", name: "B", status: "paused", progress: 20 },
+    ] satisfies DownloadStatus[];
+    const createClientSpy = vi.spyOn(DownloaderManager, "createClient").mockReturnValue(
+      stubClient({
+        getAllDownloads: vi.fn().mockResolvedValue(allDownloads),
+      })
+    );
+
+    await expect(
+      DownloaderManager.getAllDownloads(baseDownloader({ category: null }))
+    ).resolves.toBe(allDownloads);
+
+    createClientSpy.mockRestore();
+  });
+
   it("wraps client errors for test, status, details and free-space calls", async () => {
     const client = stubClient({
       testConnection: vi.fn().mockRejectedValue(new Error("boom")),
@@ -343,6 +364,32 @@ describe("DownloaderManager", () => {
     expect(result.attemptedDownloaders).toEqual(["Primary", "Secondary"]);
     expect(result.message).toContain("Primary: Primary failed");
     expect(result.message).toContain("Secondary: Secondary failed");
+
+    addDownloadSpy.mockRestore();
+  });
+
+  it("returns the winning downloader metadata on fallback success", async () => {
+    const addDownloadSpy = vi
+      .spyOn(DownloaderManager, "addDownload")
+      .mockResolvedValueOnce({ success: true, id: "ok-1", message: "Added" });
+
+    await expect(
+      DownloaderManager.addDownloadWithFallback(
+        [baseDownloader({ id: "one", name: "Primary", type: "transmission" })],
+        {
+          url: "magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12",
+          title: "Game",
+          downloadType: "torrent",
+        }
+      )
+    ).resolves.toEqual({
+      success: true,
+      id: "ok-1",
+      message: "Added",
+      downloaderId: "one",
+      downloaderName: "Primary",
+      attemptedDownloaders: ["Primary"],
+    });
 
     addDownloadSpy.mockRestore();
   });

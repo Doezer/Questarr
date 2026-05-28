@@ -448,6 +448,7 @@ export class SABnzbdClient implements DownloaderClient {
         return null;
       }
     }
+    /* v8 ignore next -- loop always returns or continues before reaching this fallback */
     return null;
   }
 

@@ -40,6 +40,17 @@ describe("PageToolbar", () => {
     expect(screen.getByRole("textbox", { name: "Search games..." })).toBeInTheDocument();
   });
 
+  it("calls onSearchChange when the search input changes", () => {
+    const onSearchChange = vi.fn();
+    render(
+      <PageToolbar search="" onSearchChange={onSearchChange} searchPlaceholder="Search games..." />
+    );
+    fireEvent.change(screen.getByRole("textbox", { name: "Search games..." }), {
+      target: { value: "quest" },
+    });
+    expect(onSearchChange).toHaveBeenCalledWith("quest");
+  });
+
   it("does not render search input when onSearchChange is not provided", () => {
     render(<PageToolbar />);
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();

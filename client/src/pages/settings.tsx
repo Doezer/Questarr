@@ -229,7 +229,7 @@ export default function SettingsPage() {
     if (user?.steamId64) {
       setSteamIdInput(user.steamId64);
     }
-  }, [userSettings, config, igdbSettings, user]);
+  }, [userSettings, config, igdbSettings, user, toast]);
 
   // SSL Settings State
   const [sslEnabled, setSslEnabled] = useState(false);

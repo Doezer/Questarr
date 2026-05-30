@@ -274,14 +274,9 @@ export const insertDownloaderSchema = createInsertSchema(downloaders, {
     createdAt: true,
     updatedAt: true,
   })
-  .superRefine((data, ctx) => {
-    if (data.type === "sabnzbd" && !data.username) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["username"],
-        message: "API key is required for SABnzbd",
-      });
-    }
+  .refine((data) => !(data.type === "sabnzbd" && !data.username), {
+    message: "API key is required for SABnzbd",
+    path: ["username"],
   });
 
 export const insertGameDownloadSchema = createInsertSchema(gameDownloads).omit({
@@ -345,7 +340,7 @@ export const insertReleaseBlacklistSchema = createInsertSchema(releaseBlacklist)
   id: true,
   createdAt: true,
 });
-export type InsertReleaseBlacklist = (typeof insertReleaseBlacklistSchema)["_output"];
+export type InsertReleaseBlacklist = z.infer<typeof insertReleaseBlacklistSchema>;
 export type ReleaseBlacklist = typeof releaseBlacklist.$inferSelect;
 
 export const insertUserSettingsSchema = createInsertSchema(userSettings).omit({
@@ -376,7 +371,7 @@ export type UpdatePassword = z.infer<typeof updatePasswordSchema>;
 
 // Type definitions - using Drizzle's table inference for select types
 export type User = typeof users.$inferSelect;
-export type InsertUser = (typeof insertUserSchema)["_output"];
+export type InsertUser = z.infer<typeof insertUserSchema>;
 
 export type Game = typeof games.$inferSelect & {
   // Additional fields for Discovery games
@@ -384,32 +379,28 @@ export type Game = typeof games.$inferSelect & {
   releaseYear?: number | null;
 };
 
-export type InsertGame = (typeof insertGameSchema)["_output"];
+export type InsertGame = z.infer<typeof insertGameSchema>;
 
-export type UpdateGameStatus = (typeof updateGameStatusSchema)["_output"];
+export type UpdateGameStatus = z.infer<typeof updateGameStatusSchema>;
 
 export type Indexer = typeof indexers.$inferSelect;
-export type InsertIndexer = (typeof insertIndexerSchema)["_output"];
+export type InsertIndexer = z.infer<typeof insertIndexerSchema>;
 
 export type Downloader = typeof downloaders.$inferSelect;
-export type InsertDownloader = (typeof insertDownloaderSchema)["_output"];
+export type InsertDownloader = z.infer<typeof insertDownloaderSchema>;
 
 export type GameDownload = typeof gameDownloads.$inferSelect;
-export type InsertGameDownload = (typeof insertGameDownloadSchema)["_output"];
+export type InsertGameDownload = z.infer<typeof insertGameDownloadSchema>;
 
 export type XrelNotifiedRelease = typeof xrelNotifiedReleases.$inferSelect;
-export type InsertXrelNotifiedRelease = (typeof insertXrelNotifiedReleaseSchema)["_output"];
-
-// Legacy type names for backward compatibility
-export type GameDownloadLegacy = GameDownload;
-export type InsertGameDownloadLegacy = InsertGameDownload;
+export type InsertXrelNotifiedRelease = z.infer<typeof insertXrelNotifiedReleaseSchema>;
 
 export type Notification = typeof notifications.$inferSelect;
-export type InsertNotification = (typeof insertNotificationSchema)["_output"];
+export type InsertNotification = z.infer<typeof insertNotificationSchema>;
 
 export type UserSettings = typeof userSettings.$inferSelect;
-export type InsertUserSettings = (typeof insertUserSettingsSchema)["_output"];
-export type UpdateUserSettings = (typeof updateUserSettingsSchema)["_output"];
+export type InsertUserSettings = z.infer<typeof insertUserSettingsSchema>;
+export type UpdateUserSettings = z.infer<typeof updateUserSettingsSchema>;
 
 export type NotificationEvent =
   | "gameReleased"
@@ -597,7 +588,7 @@ export const insertRssFeedItemSchema = createInsertSchema(rssFeedItems).omit({
 });
 
 export type RssFeed = typeof rssFeeds.$inferSelect;
-export type InsertRssFeed = (typeof insertRssFeedSchema)["_output"];
+export type InsertRssFeed = typeof insertRssFeedSchema.$inferInsert;
 
 export type RssFeedItem = typeof rssFeedItems.$inferSelect;
-export type InsertRssFeedItem = (typeof insertRssFeedItemSchema)["_output"];
+export type InsertRssFeedItem = typeof insertRssFeedItemSchema.$inferInsert;

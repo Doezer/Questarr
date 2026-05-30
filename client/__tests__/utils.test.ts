@@ -92,7 +92,7 @@ describe("mapGameToInsertGame", () => {
       status: "wanted",
       hidden: undefined,
       earlyAccess: undefined,
-    } as never);
+    });
 
     expect(mapped).toEqual({
       igdbId: 77,

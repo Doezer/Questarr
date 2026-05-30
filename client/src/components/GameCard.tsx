@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, memo, useRef, useEffect, lazy, Suspense } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Download, Info, Star, Calendar, Eye, EyeOff, Loader2 } from "lucide-react";
@@ -9,7 +9,6 @@ import StatusPicker from "./StatusPicker";
 import { type Game, type DownloadSummary } from "@shared/schema";
 import DownloadIndicator from "./DownloadIndicator";
 import SearchResultsBadge from "./SearchResultsBadge";
-import { useState, memo, useRef, useEffect, lazy, Suspense } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { mapGameToInsertGame, isDiscoveryId, parseReleaseDate } from "@/lib/utils";
 import { apiRequest, ApiError } from "@/lib/queryClient";
@@ -248,7 +247,7 @@ const GameCard = ({
               <div
                 className="flex items-center gap-1"
                 role="img"
-                aria-label={`IGDB rating: ${game.rating ? `${game.rating} out of 10` : "Not rated"}`}
+                aria-label={`IGDB rating: ${game.rating ? game.rating + " out of 10" : "Not rated"}`}
               >
                 <Star className="w-3 h-3 text-accent" aria-hidden="true" />
                 <span data-testid={`text-rating-${game.id}`}>
@@ -312,6 +311,12 @@ const GameCard = ({
           <div
             className="mb-3 flex flex-wrap items-center gap-2"
             onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+            }}
+            role="toolbar"
+            aria-label={`Actions for ${game.title}`}
+            tabIndex={0}
           >
             {isDiscovery && (
               <Button

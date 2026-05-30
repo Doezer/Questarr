@@ -1,10 +1,8 @@
 import React from "react";
 import { Badge } from "@/components/ui/badge";
 
-export type GameStatus = string;
-
 interface StatusBadgeProps {
-  status: GameStatus;
+  status: string;
 }
 
 const statusConfig = {

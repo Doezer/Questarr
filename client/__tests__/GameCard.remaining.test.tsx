@@ -13,7 +13,7 @@ const { apiRequestMock, invalidateQueriesMock, toastMock, mutationState, mobileS
     invalidateQueriesMock: vi.fn(),
     toastMock: vi.fn(),
     mutationState: {
-      config: null as Record<string, unknown> | null,
+      config: null,
       pending: false,
     },
     mobileState: { value: false },
@@ -159,7 +159,7 @@ describe("GameCard remaining coverage", () => {
 
     const { container } = render(
       <GameCard
-        game={{ ...baseGame, id: "igdb-1" } as Game}
+        game={{ ...baseGame, id: "igdb-1" }}
         isDiscovery
         onViewDetails={onViewDetails}
         onToggleHidden={onToggleHidden}

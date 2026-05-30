@@ -61,7 +61,7 @@ describe("calculateLibraryStats", () => {
   ];
 
   it("calculates stats correctly for a mixed library", () => {
-    const stats = calculateLibraryStats(mockGames as Game[]);
+    const stats = calculateLibraryStats(mockGames);
 
     expect(stats.totalGames).toBe(4);
     expect(stats.avgRating).toBe("85.0"); // (80 + 90) / 2 — Games 3 & 4 have no rating
@@ -85,7 +85,7 @@ describe("calculateLibraryStats", () => {
       { id: "1", title: "G1", status: "owned" } as Game,
       { id: "2", title: "G2", status: "completed" } as Game,
     ];
-    const stats = calculateLibraryStats(games as Game[]);
+    const stats = calculateLibraryStats(games);
     expect(stats.statusBreakdown.shelved).toBe(0);
   });
 
@@ -107,7 +107,7 @@ describe("calculateLibraryStats", () => {
         platforms: null as unknown as string[],
       } as Game,
     ];
-    const stats = calculateLibraryStats(incompleteGames as Game[]);
+    const stats = calculateLibraryStats(incompleteGames);
     expect(stats.topGenre).toBeNull();
     expect(stats.metadataHealth).toBe(0);
   });

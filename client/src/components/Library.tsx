@@ -409,10 +409,7 @@ export default function Library() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
                   <Label>Status</Label>
-                  <Select
-                    value={statusFilter}
-                    onValueChange={(value) => setStatusFilter(value as GameStatus | "all")}
-                  >
+                  <Select value={statusFilter} onValueChange={setStatusFilter}>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
@@ -464,7 +461,7 @@ export default function Library() {
                   <div className="flex items-center justify-between">
                     <Label>Min Rating</Label>
                     <span className="text-sm text-muted-foreground">
-                      {minRating !== null ? `≥ ${minRating}/10` : "Any"}
+                      {minRating === null ? "Any" : `≥ ${minRating}/10`}
                     </span>
                   </div>
                   <Slider
@@ -507,8 +504,10 @@ export default function Library() {
               platformFilter !== "all" ||
               minRating !== null ||
               showUnratedOnly;
-            return hasActiveFilters ? (
-              debouncedSearchQuery.trim() ? (
+            const hasSearchQuery = debouncedSearchQuery.trim();
+
+            if (hasActiveFilters) {
+              return hasSearchQuery ? (
                 <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
                   <p className="text-lg font-medium mb-1">
                     No results for &ldquo;{debouncedSearchQuery}&rdquo;
@@ -530,8 +529,10 @@ export default function Library() {
                     Try adjusting or clearing your filters.
                   </p>
                 </div>
-              )
-            ) : (
+              );
+            }
+
+            return (
               <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
                 <p className="text-lg font-medium mb-1">No games yet</p>
                 <p className="text-sm text-muted-foreground mb-6">

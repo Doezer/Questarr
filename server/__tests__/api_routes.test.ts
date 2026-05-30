@@ -11,7 +11,6 @@ import { torznabClient } from "../torznab.js";
 import { rssService } from "../rss.js";
 import { comparePassword } from "../auth.js";
 import { db } from "../db.js";
-import { prowlarrClient } from "../prowlarr.js";
 
 // Use vi.hoisted to create the mock object
 const { mockConfig } = vi.hoisted(() => {
@@ -129,7 +128,7 @@ vi.mock("../auth.js", async () => {
   return {
     ...actual,
     authenticateToken: (req: Request, res: Response, next: NextFunction) => {
-      (req as Request).user = { id: "user-1", username: "testuser" } as unknown as User;
+      req.user = { id: "user-1", username: "testuser" } as unknown as User;
       next();
     },
     generateToken: vi.fn().mockResolvedValue("mock-token"),
@@ -510,7 +509,7 @@ describe("API Routes - Extended Coverage", () => {
       });
 
       it("should return 404 when user not found", async () => {
-        vi.mocked(storage.getUser).mockResolvedValue(null as unknown as User);
+        vi.mocked(storage.getUser).mockResolvedValue(null);
 
         const res = await request(app).patch("/api/auth/password").send({
           currentPassword: "oldpass1",

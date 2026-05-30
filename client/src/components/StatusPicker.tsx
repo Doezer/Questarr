@@ -11,20 +11,20 @@ const USER_SETTABLE_STATUSES: { id: GameStatus; label: string }[] = [
 ];
 
 interface StatusPickerProps {
-  currentStatus: GameStatus;
-  onStatusChange: (status: GameStatus) => void;
+  readonly currentStatus: GameStatus;
+  readonly onStatusChange: (status: GameStatus) => void;
   /** Shown in the trigger's aria-label: "Change status for <gameTitle>" */
-  gameTitle?: string;
+  readonly gameTitle?: string;
   /** data-testid forwarded to the default trigger button */
-  "data-testid"?: string;
+  readonly "data-testid"?: string;
   /**
    * Custom trigger element. Must forward ref and accept onClick.
    * When provided, it replaces the default badge-button trigger.
    * When the status is "downloading" this is rendered as-is (no popover).
    */
-  children?: React.ReactElement;
+  readonly children?: React.ReactElement;
   /** Extra className applied to the default trigger button (e.g. "w-full"). */
-  triggerClassName?: string;
+  readonly triggerClassName?: string;
 }
 
 /**

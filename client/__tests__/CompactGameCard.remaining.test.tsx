@@ -155,7 +155,17 @@ vi.mock("@/components/ui/popover", () => ({
     children: React.ReactNode;
     onClick?: (event: React.MouseEvent) => void;
   }) => (
-    <div data-testid="popover-content" onClick={onClick}>
+    <div
+      data-testid="popover-content"
+      role="button"
+      onClick={onClick}
+      onKeyDown={(event: React.KeyboardEvent) => {
+        if (event.key === "Enter" || event.key === " ") {
+          onClick?.(event as unknown as React.MouseEvent);
+        }
+      }}
+      tabIndex={0}
+    >
       {children}
     </div>
   ),
@@ -251,9 +261,7 @@ describe("CompactGameCard remaining coverage", () => {
       json: async () => addedGame,
     });
 
-    renderCard(
-      <CompactGameCard game={{ ...baseGame, id: "igdb-1" } as Game} isDiscovery mobileLayout />
-    );
+    renderCard(<CompactGameCard game={{ ...baseGame, id: "igdb-1" }} isDiscovery mobileLayout />);
 
     fireEvent.click(screen.getByLabelText("Download Questarr Game"));
 
@@ -275,7 +283,7 @@ describe("CompactGameCard remaining coverage", () => {
       (mutationState.addConfig?.mutationFn as ((value: Game) => Promise<Game>) | undefined)?.({
         ...baseGame,
         id: "igdb-2",
-      } as Game)
+      })
     ).resolves.toEqual(duplicateGame);
 
     apiRequestMock.mockRejectedValueOnce(
@@ -285,7 +293,7 @@ describe("CompactGameCard remaining coverage", () => {
       (mutationState.addConfig?.mutationFn as ((value: Game) => Promise<Game>) | undefined)?.({
         ...baseGame,
         id: "igdb-3",
-      } as Game)
+      })
     ).resolves.toEqual({ ...baseGame, id: "igdb-3" });
   });
 

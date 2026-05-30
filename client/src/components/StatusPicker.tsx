@@ -22,7 +22,7 @@ interface StatusPickerProps {
    * When provided, it replaces the default badge-button trigger.
    * When the status is "downloading" this is rendered as-is (no popover).
    */
-  children?: React.ReactNode;
+  children?: React.ReactElement;
   /** Extra className applied to the default trigger button (e.g. "w-full"). */
   triggerClassName?: string;
 }
@@ -55,6 +55,7 @@ export default function StatusPicker({
       type="button"
       data-testid={testId}
       aria-label={gameTitle ? `Change status for ${gameTitle}` : "Change status"}
+      onClick={(e) => e.stopPropagation()}
       className={cn(
         "rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
         triggerClassName

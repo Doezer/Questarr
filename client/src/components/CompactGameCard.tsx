@@ -533,6 +533,7 @@ const CompactGameCard = ({
               <Button
                 variant="ghost"
                 size="icon"
+                disabled={game.status === "downloading"}
                 className={cn(
                   "transition-all text-muted-foreground hover:text-foreground",
                   density === "comfortable" ? "h-7 w-7" : "h-6 w-6"

@@ -10,6 +10,11 @@ interface StatusBadgeProps {
 const statusConfig = {
   wanted: { label: "Wanted", variant: "destructive" as const, className: "" },
   owned: { label: "Owned", variant: "secondary" as const, className: "" },
+  shelved: {
+    label: "Shelved",
+    variant: "secondary" as const,
+    className: "bg-amber-700/80 hover:bg-amber-700 text-amber-100 border-amber-600",
+  },
   completed: { label: "Completed", variant: "default" as const, className: "" },
   downloading: {
     label: "Downloading",

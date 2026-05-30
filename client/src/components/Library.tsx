@@ -5,6 +5,7 @@ import PageToolbar from "./PageToolbar";
 import GameGrid from "./GameGrid";
 import AddGameModal from "./AddGameModal";
 import {
+  Archive,
   Bookmark,
   CheckCircle2,
   EyeOff,
@@ -247,6 +248,14 @@ export default function Library() {
               </span>
               <span className="opacity-30">·</span>
               <span className="flex items-center gap-1">
+                <Archive className="h-3 w-3" />
+                <span className="font-medium text-foreground">
+                  {stableLibStats.statusBreakdown.shelved}
+                </span>{" "}
+                shelved
+              </span>
+              <span className="opacity-30">·</span>
+              <span className="flex items-center gap-1">
                 <CheckCircle2 className="h-3 w-3" />
                 <span className="font-medium text-foreground">
                   {stableLibStats.statusBreakdown.completed}
@@ -411,6 +420,7 @@ export default function Library() {
                       <SelectItem value="all">All</SelectItem>
                       <SelectItem value="wanted">Wanted</SelectItem>
                       <SelectItem value="owned">Owned</SelectItem>
+                      <SelectItem value="shelved">Shelved</SelectItem>
                       <SelectItem value="completed">Completed</SelectItem>
                       <SelectItem value="downloading">Downloading</SelectItem>
                     </SelectContent>

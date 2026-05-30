@@ -701,6 +701,26 @@ describe("API Routes - Extended Coverage", () => {
       expect(response.status).toBe(200);
     });
 
+    it("should accept shelved as a valid status", async () => {
+      const gameId = "123e4567-e89b-12d3-a456-426614174000";
+      const updatedGame = { id: gameId, status: "shelved" };
+      vi.mocked(storage.updateGameStatus).mockResolvedValue(updatedGame as unknown as Game);
+
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/status`)
+        .send({ status: "shelved" });
+      expect(response.status).toBe(200);
+    });
+
+    it("should return 400 for an invalid status value", async () => {
+      const gameId = "123e4567-e89b-12d3-a456-426614174000";
+
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/status`)
+        .send({ status: "dropped" });
+      expect(response.status).toBe(400);
+    });
+
     it("should return 404 for non-existent game", async () => {
       const gameId = "123e4567-e89b-12d3-a456-426614174099";
       vi.mocked(storage.updateGameStatus).mockResolvedValue(undefined);

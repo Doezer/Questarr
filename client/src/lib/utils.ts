@@ -120,13 +120,6 @@ export function safeUrl(url: string, fallback = "#"): string {
 }
 
 /**
- * Returns the human-readable label for the next status a game can transition to.
- */
-export function getNextStatusLabel(status: Game["status"]): string {
-  return status === "wanted" ? "Owned" : status === "owned" ? "Completed" : "Wanted";
-}
-
-/**
  * Parses an ISO release date string into a display year and an optional full date.
  * IGDB represents year-only known dates as YYYY-12-31; fullDate is null in that case.
  * fullDate is formatted as dd/mm/yyyy using UTC to avoid timezone shifts.

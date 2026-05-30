@@ -5,17 +5,13 @@ import { Download, Info, Star, Calendar, Eye, EyeOff, Loader2 } from "lucide-rea
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import StatusBadge, { type GameStatus } from "./StatusBadge";
+import StatusPicker from "./StatusPicker";
 import { type Game, type DownloadSummary } from "@shared/schema";
 import DownloadIndicator from "./DownloadIndicator";
 import SearchResultsBadge from "./SearchResultsBadge";
 import { useState, memo, useRef, useEffect, lazy, Suspense } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  mapGameToInsertGame,
-  isDiscoveryId,
-  getNextStatusLabel,
-  parseReleaseDate,
-} from "@/lib/utils";
+import { mapGameToInsertGame, isDiscoveryId, parseReleaseDate } from "@/lib/utils";
 import { apiRequest, ApiError } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import LazyModalFallback from "./LazyModalFallback";
@@ -95,13 +91,6 @@ const GameCard = ({
     },
   });
 
-  const handleStatusClick = () => {
-    console.warn(`Status change triggered for game: ${game.title}`);
-    const nextStatus: GameStatus =
-      game.status === "wanted" ? "owned" : game.status === "owned" ? "completed" : "wanted";
-    onStatusChange?.(game.id, nextStatus);
-  };
-
   const handleDetailsClick = () => {
     console.warn(`View details triggered for game: ${game.title}`);
     setDetailsOpen(true);
@@ -134,7 +123,6 @@ const GameCard = ({
     onToggleHidden?.(game.id, !game.hidden);
   };
 
-  const nextStatusLabel = getNextStatusLabel(game.status);
   const { year: releaseYear, fullDate: releaseFullDate } = parseReleaseDate(game.releaseDate);
   const mobileActionButtonClass = "h-9 w-9";
 
@@ -387,21 +375,13 @@ const GameCard = ({
               )}
             </Button>
           ) : (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-10 w-full sm:h-9"
-              onClick={handleStatusClick}
+            <StatusPicker
+              currentStatus={game.status}
+              onStatusChange={(newStatus) => onStatusChange?.(game.id, newStatus)}
+              gameTitle={game.title}
               data-testid={`button-status-${game.id}`}
-              aria-label={`Mark ${game.title} as ${nextStatusLabel}`}
-            >
-              Mark as{" "}
-              {game.status === "wanted"
-                ? "Owned"
-                : game.status === "owned"
-                  ? "Completed"
-                  : "Wanted"}
-            </Button>
+              triggerClassName="w-full"
+            />
           )}
         </div>
       </CardContent>

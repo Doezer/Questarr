@@ -98,12 +98,17 @@ describe("CompactGameCard", () => {
     expect(screen.queryByText("Adventure")).not.toBeInTheDocument();
   });
 
-  it("calls onStatusChange when status button is clicked", () => {
+  it("calls onStatusChange when a status chip is selected from the picker", async () => {
     const onStatusChange = vi.fn();
     renderWithProviders(<CompactGameCard game={mockGame} onStatusChange={onStatusChange} />);
 
-    const button = screen.getByLabelText(`Mark ${mockGame.title} as Owned`);
-    fireEvent.click(button);
+    // Open the status picker via the trigger button
+    const trigger = screen.getByLabelText(`Change status for ${mockGame.title}`);
+    fireEvent.click(trigger);
+
+    // Select "owned" from the chips
+    const ownedChip = await screen.findByRole("button", { name: "owned" });
+    fireEvent.click(ownedChip);
 
     expect(onStatusChange).toHaveBeenCalledWith("1", "owned");
   });
@@ -119,26 +124,17 @@ describe("CompactGameCard", () => {
     expect(onViewDetails).toHaveBeenCalledWith("1");
   });
 
-  describe("dynamic aria-labels for status button", () => {
+  describe("status picker trigger", () => {
     it.each([
-      { status: "wanted" as const, expectedLabel: "Owned", expectedNext: "owned" },
-      { status: "owned" as const, expectedLabel: "Completed", expectedNext: "completed" },
-      { status: "completed" as const, expectedLabel: "Wanted", expectedNext: "wanted" },
-    ])(
-      "shows aria-label 'Mark $title as $expectedLabel' when status is $status",
-      ({ status, expectedLabel, expectedNext }) => {
-        const onStatusChange = vi.fn();
-        renderWithProviders(
-          <CompactGameCard game={{ ...mockGame, status }} onStatusChange={onStatusChange} />
-        );
+      { status: "wanted" as const },
+      { status: "owned" as const },
+      { status: "completed" as const },
+      { status: "shelved" as const },
+    ])("shows Change status trigger for $status", ({ status }) => {
+      renderWithProviders(<CompactGameCard game={{ ...mockGame, status }} />);
 
-        const btn = screen.getByLabelText(`Mark ${mockGame.title} as ${expectedLabel}`);
-        expect(btn).toBeInTheDocument();
-
-        fireEvent.click(btn);
-        expect(onStatusChange).toHaveBeenCalledWith(mockGame.id, expectedNext);
-      }
-    );
+      expect(screen.getByLabelText(`Change status for ${mockGame.title}`)).toBeInTheDocument();
+    });
   });
 
   it("shows a loading fallback when opening details", async () => {

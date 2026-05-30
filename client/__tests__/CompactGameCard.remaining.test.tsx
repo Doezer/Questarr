@@ -106,6 +106,24 @@ vi.mock("@/components/ui/tooltip", () => ({
   TooltipContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
+// Stub StatusPicker so it doesn't add a second Popover instance to the page.
+// The rating-popover mock below assumes a single PopoverContent; two would break it.
+vi.mock("../src/components/StatusPicker", () => ({
+  __esModule: true,
+  default: ({
+    currentStatus,
+    gameTitle,
+  }: {
+    currentStatus: string;
+    gameTitle?: string;
+    children?: React.ReactNode;
+  }) => (
+    <button type="button" aria-label={`Change status for ${gameTitle}`}>
+      {currentStatus}
+    </button>
+  ),
+}));
+
 vi.mock("@/components/ui/popover", () => ({
   // Single popover instance is enough for this test file.
   __esModule: true,

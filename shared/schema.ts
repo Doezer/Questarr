@@ -220,7 +220,7 @@ export const insertGameSchema = createInsertSchema(games, {
 });
 
 export const updateGameStatusSchema = z.object({
-  status: z.enum(["wanted", "owned", "completed", "downloading"]),
+  status: z.enum(["wanted", "owned", "shelved", "completed", "downloading"]),
   completedAt: z.date().optional(),
 });
 

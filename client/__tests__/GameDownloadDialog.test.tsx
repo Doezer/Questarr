@@ -26,6 +26,7 @@ vi.mock("@/lib/queryClient", () => ({
 
 // Mocking external dependencies
 const mockToast = vi.fn();
+let mockIsMobile = false;
 
 vi.mock("@/components/ui/dropdown-menu", () => ({
   DropdownMenu: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -52,7 +53,7 @@ vi.mock("@/hooks/use-toast", () => ({
 }));
 
 vi.mock("@/hooks/use-mobile", () => ({
-  useIsMobile: () => false,
+  useIsMobile: () => mockIsMobile,
 }));
 
 // Mock Lucide icons
@@ -89,6 +90,7 @@ vi.mock("lucide-react", () => ({
   ChevronsUpDown: () => <div data-testid="icon-chevrons-up-down" />,
   MoreVertical: () => <div data-testid="icon-more-vertical" />,
   Copy: () => <div />,
+  Info: () => <div data-testid="icon-info" />,
   Ban: () => <div data-testid="icon-ban" />,
 }));
 
@@ -273,6 +275,12 @@ const createFetchMock = (overrides: FetchOverrides = {}) =>
 describe("GameDownloadDialog", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    mockIsMobile = false;
+    Object.assign(navigator, {
+      clipboard: {
+        writeText: vi.fn(),
+      },
+    });
     global.fetch = createFetchMock();
   });
 
@@ -827,5 +835,138 @@ describe("GameDownloadDialog", () => {
       },
       { timeout: 3000 }
     );
+  });
+
+  it("shows the preferred-platform warning and clears it with the inline action", async () => {
+    global.fetch = createFetchMock({
+      settings: { preferredPlatform: "PS5" },
+      search: platformSearchResults,
+    });
+
+    renderComponent();
+
+    expect(
+      (
+        await screen.findAllByText(
+          (_, element) =>
+            element?.textContent?.includes("No results match your preferred platform") ?? false
+        )
+      ).length
+    ).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Show all results" }));
+
+    await waitFor(() => {
+      expect(screen.queryByText(/No results match your preferred platform/i)).toBeNull();
+      expect(screen.getAllByText("Test Game PC v1.0-SKIDROW").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Test Game Mac Edition-CODEX").length).toBeGreaterThan(0);
+    });
+  });
+
+  it("supports copying links and sending a release to a specific downloader", async () => {
+    global.fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const target = String(url);
+      if (target.includes("/api/search")) {
+        return { ok: true, json: async () => mockTorrents } as Response;
+      }
+      if (target.includes("/api/indexers/enabled")) {
+        return { ok: true, json: async () => mockEnabledIndexers } as Response;
+      }
+      if (target.includes("/api/downloaders/enabled")) {
+        return {
+          ok: true,
+          json: async () => [
+            { id: "1", name: "qBittorrent", enabled: true, type: "qbittorrent" },
+            { id: "2", name: "Transmission", enabled: true, type: "transmission" },
+            { id: "3", name: "SABnzbd", enabled: true, type: "sabnzbd" },
+          ],
+        } as Response;
+      }
+      if (target.includes("/api/settings")) {
+        return { ok: true, json: async () => ({}) } as Response;
+      }
+      if (target.includes("/api/downloaders/2/downloads") && init?.method === "POST") {
+        return { ok: true, json: async () => ({ success: true }) } as Response;
+      }
+      if (target.includes("/api/downloaders/")) {
+        return { ok: true, json: async () => ({ success: true }) } as Response;
+      }
+      return { ok: true, json: async () => ({ success: true }) } as Response;
+    }) as never;
+
+    renderComponent();
+
+    expect(await screen.findAllByText("Copy Torrent Link")).not.toHaveLength(0);
+    expect(await screen.findAllByText("Transmission")).not.toHaveLength(0);
+
+    fireEvent.click(screen.getAllByText("Copy Torrent Link")[0]);
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("http://test.com/torrent1");
+
+    fireEvent.click(screen.getAllByText("Transmission")[0]);
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/downloaders/2/downloads",
+        expect.objectContaining({ method: "POST" })
+      );
+      expect(mockToast).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Download sent to Transmission" })
+      );
+    });
+  });
+
+  it("lets mobile users select bundle updates and download only the main game", async () => {
+    mockIsMobile = true;
+    global.fetch = createFetchMock({
+      search: makeSearchResult([
+        makeTorrentItem({
+          guid: "mobile-main",
+          title: "Test Game ElAmigos",
+          link: "http://test.com/mobile-main",
+          pubDate: new Date().toISOString(),
+          downloadVolumeFactor: 0,
+        }),
+        makeTorrentItem({
+          guid: "mobile-update",
+          title: "Test Game Update v1.1",
+          link: "http://test.com/mobile-update",
+          seeders: 8,
+        }),
+      ]),
+    });
+
+    renderComponent();
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Test Game ElAmigos").length).toBeGreaterThan(0);
+      expect(screen.getByText("Freeleech")).toBeInTheDocument();
+      expect(screen.getByText("NEW")).toBeInTheDocument();
+    });
+
+    const downloadButtons = screen.getAllByTestId("icon-download");
+    fireEvent.click(downloadButtons[0].closest("button")!);
+
+    await waitFor(() => {
+      expect(screen.getByText("Download with Updates?")).toBeInTheDocument();
+      expect(screen.getByText("1 of 1 updates selected")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Deselect All"));
+    expect(screen.getByText("0 of 1 updates selected")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Select All"));
+    expect(screen.getByText("1 of 1 updates selected")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Only the main game"));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/downloads",
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining("mobile-main"),
+        })
+      );
+    });
   });
 });

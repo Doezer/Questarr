@@ -66,4 +66,16 @@ describe("MobileBottomNav", () => {
     expect(onNavigate).toHaveBeenCalledWith("/logs");
     expect(moreButton).toHaveAttribute("aria-expanded", "false");
   });
+
+  it("does not treat login as a More page and shows section headings in the sheet", () => {
+    render(<MobileBottomNav activeItem="/login" onNavigate={vi.fn()} />);
+
+    const moreButton = screen.getByRole("button", { name: "More navigation options" });
+    expect(moreButton).not.toHaveAttribute("aria-current");
+
+    fireEvent.click(moreButton);
+
+    expect(screen.getByText("Pages")).toBeInTheDocument();
+    expect(screen.getByText("Management")).toBeInTheDocument();
+  });
 });

@@ -73,7 +73,7 @@ function setupFetch({
   configured?: boolean;
   postHandler?: () => Promise<unknown>;
 } = {}) {
-  global.fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+  globalThis.fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
     const u = String(url);
     if (u.includes("/api/config") && !u.includes("/api/igdb")) {
       return { ok: true, json: async () => ({ igdb: { configured } }) };
@@ -188,7 +188,7 @@ describe("AddGameModal", () => {
     fireEvent.click(screen.getByRole("switch"));
 
     await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledWith(
+      expect(globalThis.fetch).toHaveBeenCalledWith(
         expect.stringContaining("includeUndated=true"),
         expect.any(Object)
       );
@@ -248,5 +248,17 @@ describe("AddGameModal", () => {
     });
 
     resolvePost?.();
+  });
+
+  it("shows a no-results message on mobile when a search returns nothing", async () => {
+    mockIsMobile = true;
+    setupFetch({ searchResults: [] });
+    renderModal({ initialQuery: "Missing Game" });
+
+    fireEvent.click(screen.getByTestId("open-btn"));
+
+    expect(
+      await screen.findByText("No games found. Try a different search term.")
+    ).toBeInTheDocument();
   });
 });

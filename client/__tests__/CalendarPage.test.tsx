@@ -89,7 +89,7 @@ function renderPage() {
 describe("CalendarPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.fetch = vi.fn(async (url: RequestInfo | URL) => {
+    globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
       if (String(url).includes("/api/games")) {
         return {
           ok: true,
@@ -125,7 +125,7 @@ describe("CalendarPage", () => {
   });
 
   it("filters displayed games and renders the undated year section", async () => {
-    global.fetch = vi.fn(async (url: RequestInfo | URL) => {
+    globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
       if (String(url).includes("/api/games")) {
         return {
           ok: true,
@@ -161,7 +161,7 @@ describe("CalendarPage", () => {
   });
 
   it("switches to week view and opens the download dialog from a visible game", async () => {
-    global.fetch = vi.fn(async (url: RequestInfo | URL) => {
+    globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
       if (String(url).includes("/api/games")) {
         return {
           ok: true,
@@ -192,7 +192,7 @@ describe("CalendarPage", () => {
   });
 
   it("shows month view mobile day details when a day with releases is tapped", async () => {
-    global.fetch = vi.fn(async (url: RequestInfo | URL) => {
+    globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
       if (String(url).includes("/api/games")) {
         return {
           ok: true,

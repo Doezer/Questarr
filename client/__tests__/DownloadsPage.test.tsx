@@ -86,7 +86,7 @@ describe("Downloads page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     toastSpy.mockReset();
-    global.fetch = vi.fn(async (url: RequestInfo | URL) => {
+    globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
       if (String(url).includes("/api/downloads")) {
         return {
           ok: true,
@@ -122,7 +122,7 @@ describe("Downloads page", () => {
   });
 
   it("filters downloads by search and Questarr-only toggle while showing the category banner", async () => {
-    global.fetch = vi.fn(async (url: RequestInfo | URL) => {
+    globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
       if (String(url).includes("/api/downloads")) {
         return {
           ok: true,
@@ -190,7 +190,7 @@ describe("Downloads page", () => {
   });
 
   it("shows a filtered empty state message when no downloads match the active search", async () => {
-    global.fetch = vi.fn(async (url: RequestInfo | URL) => {
+    globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
       if (String(url).includes("/api/downloads")) {
         return {
           ok: true,
@@ -237,7 +237,7 @@ describe("Downloads page", () => {
 
   it("shows the loading skeleton before downloads resolve", async () => {
     let resolveResponse: ((value: Response) => void) | undefined;
-    global.fetch = vi.fn(
+    globalThis.fetch = vi.fn(
       () =>
         new Promise<Response>((resolve) => {
           resolveResponse = resolve;
@@ -257,7 +257,7 @@ describe("Downloads page", () => {
   });
 
   it("renders torrent and usenet-specific metric badges and download errors", async () => {
-    global.fetch = vi.fn(async (url: RequestInfo | URL) => {
+    globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
       if (String(url).includes("/api/downloads")) {
         return {
           ok: true,
@@ -324,7 +324,7 @@ describe("Downloads page", () => {
   });
 
   it("opens details and claim modals, performs download actions, and reports downloader errors", async () => {
-    global.fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
       const target = String(url);
 
       if (target === "/api/downloads") {
@@ -391,11 +391,11 @@ describe("Downloads page", () => {
     fireEvent.click(screen.getByTestId("button-resume-dl-paused"));
 
     await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledWith(
+      expect(globalThis.fetch).toHaveBeenCalledWith(
         "/api/downloaders/downloader-1/downloads/dl-active/pause",
         expect.objectContaining({ method: "POST" })
       );
-      expect(global.fetch).toHaveBeenCalledWith(
+      expect(globalThis.fetch).toHaveBeenCalledWith(
         "/api/downloaders/downloader-1/downloads/dl-paused/resume",
         expect.objectContaining({ method: "POST" })
       );
@@ -419,11 +419,11 @@ describe("Downloads page", () => {
     fireEvent.click(await screen.findByTestId("button-remove-files-dl-active"));
 
     await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledWith(
+      expect(globalThis.fetch).toHaveBeenCalledWith(
         "/api/downloaders/downloader-1/downloads/dl-active?deleteFiles=false",
         expect.objectContaining({ method: "DELETE" })
       );
-      expect(global.fetch).toHaveBeenCalledWith(
+      expect(globalThis.fetch).toHaveBeenCalledWith(
         "/api/downloaders/downloader-1/downloads/dl-active?deleteFiles=true",
         expect.objectContaining({ method: "DELETE" })
       );

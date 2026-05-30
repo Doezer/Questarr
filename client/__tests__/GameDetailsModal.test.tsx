@@ -314,6 +314,44 @@ describe("GameDetailsModal", () => {
     expect(screen.queryByText("Rating")).not.toBeInTheDocument();
   });
 
+  it("renders source labels for steam, api, and manual games", () => {
+    const { rerender } = render(
+      <QueryClientProvider client={createQueryClient()}>
+        <GameDetailsModal
+          game={{ ...mockGame, source: "steam" }}
+          open={true}
+          onOpenChange={() => {}}
+        />
+        <Toaster />
+      </QueryClientProvider>
+    );
+    expect(screen.getAllByText("Steam Wishlist").length).toBeGreaterThan(0);
+
+    rerender(
+      <QueryClientProvider client={createQueryClient()}>
+        <GameDetailsModal
+          game={{ ...mockGame, source: "api" }}
+          open={true}
+          onOpenChange={() => {}}
+        />
+        <Toaster />
+      </QueryClientProvider>
+    );
+    expect(screen.getAllByText("Via API").length).toBeGreaterThan(0);
+
+    rerender(
+      <QueryClientProvider client={createQueryClient()}>
+        <GameDetailsModal
+          game={{ ...mockGame, source: "manual" }}
+          open={true}
+          onOpenChange={() => {}}
+        />
+        <Toaster />
+      </QueryClientProvider>
+    );
+    expect(screen.getAllByText("Added Manually").length).toBeGreaterThan(0);
+  });
+
   describe("NexusMods integration", () => {
     it("shows fallback search link when Nexus Mods is not configured", async () => {
       // default beforeEach mock: configured: false, domain: null → fallback link shown

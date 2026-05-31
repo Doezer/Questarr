@@ -122,6 +122,8 @@ interface GameDownloadDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
+type ReleaseMetadata = ReturnType<typeof parseReleaseMetadata>;
+
 function formatDate(dateString: string): string {
   try {
     return new Date(dateString).toLocaleDateString();
@@ -134,6 +136,84 @@ import { apiRequest } from "@/lib/queryClient";
 import { useDebounce } from "@/hooks/use-debounce";
 import { formatBytes, formatAge, isUsenetItem } from "@/lib/downloads-utils";
 import { useIsMobile } from "@/hooks/use-mobile";
+
+function ReleaseMetadataBadges({
+  metadata,
+  isUsenet,
+  downloadVolumeFactor,
+  className,
+}: {
+  metadata: ReleaseMetadata;
+  isUsenet: boolean;
+  downloadVolumeFactor?: number;
+  className?: string;
+}) {
+  const hasMetadata =
+    metadata.version ||
+    (metadata.languages && metadata.languages.length > 0) ||
+    metadata.drm ||
+    metadata.platform ||
+    metadata.isScene ||
+    (!isUsenet && downloadVolumeFactor === 0);
+
+  if (!hasMetadata) {
+    return null;
+  }
+
+  return (
+    <div className={cn("flex flex-wrap items-center gap-1", className)}>
+      {metadata.version && (
+        <Badge
+          variant="secondary"
+          className="h-5 px-1.5 text-xs font-mono bg-blue-500/10 text-blue-600 dark:text-blue-400 border-none"
+        >
+          {metadata.version}
+        </Badge>
+      )}
+      {metadata.languages?.map((lang) => (
+        <Badge
+          key={lang}
+          variant="secondary"
+          className="h-5 px-1.5 text-xs bg-green-500/10 text-green-600 dark:text-green-400 border-none"
+        >
+          {lang}
+        </Badge>
+      ))}
+      {metadata.drm && (
+        <Badge
+          variant="secondary"
+          className="h-5 px-1.5 text-xs bg-purple-500/10 text-purple-600 dark:text-purple-400 border-none"
+        >
+          {metadata.drm}
+        </Badge>
+      )}
+      {metadata.platform && (
+        <Badge
+          variant="secondary"
+          className="h-5 px-1.5 text-xs bg-orange-500/10 text-orange-600 dark:text-orange-400 border-none"
+        >
+          {metadata.platform}
+        </Badge>
+      )}
+      {metadata.isScene && (
+        <Badge
+          variant="outline"
+          className="h-5 px-1.5 text-xs border-muted-foreground/30 text-muted-foreground uppercase tracking-tighter"
+        >
+          Scene
+        </Badge>
+      )}
+      {!isUsenet && downloadVolumeFactor === 0 && (
+        <Badge
+          variant="secondary"
+          className="h-5 px-1.5 text-[10px] bg-emerald-500/15 text-emerald-500 dark:text-emerald-400 border-none uppercase tracking-tighter"
+        >
+          Freeleech
+        </Badge>
+      )}
+    </div>
+  );
+}
 
 export default function GameDownloadDialog({ game, open, onOpenChange }: GameDownloadDialogProps) {
   const { toast } = useToast();
@@ -1095,64 +1175,12 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                   </div>
 
                                   {/* Metadata badges */}
-                                  {(metadata.version ||
-                                    (metadata.languages && metadata.languages.length > 0) ||
-                                    metadata.drm ||
-                                    metadata.platform ||
-                                    metadata.isScene ||
-                                    (!isUsenet && download.downloadVolumeFactor === 0)) && (
-                                    <div className="flex flex-wrap items-center gap-1 mt-1">
-                                      {metadata.version && (
-                                        <Badge
-                                          variant="secondary"
-                                          className="h-5 px-1.5 text-xs font-mono bg-blue-500/10 text-blue-600 dark:text-blue-400 border-none"
-                                        >
-                                          {metadata.version}
-                                        </Badge>
-                                      )}
-                                      {metadata.languages?.map((lang) => (
-                                        <Badge
-                                          key={lang}
-                                          variant="secondary"
-                                          className="h-5 px-1.5 text-xs bg-green-500/10 text-green-600 dark:text-green-400 border-none"
-                                        >
-                                          {lang}
-                                        </Badge>
-                                      ))}
-                                      {metadata.drm && (
-                                        <Badge
-                                          variant="secondary"
-                                          className="h-5 px-1.5 text-xs bg-purple-500/10 text-purple-600 dark:text-purple-400 border-none"
-                                        >
-                                          {metadata.drm}
-                                        </Badge>
-                                      )}
-                                      {metadata.platform && (
-                                        <Badge
-                                          variant="secondary"
-                                          className="h-5 px-1.5 text-xs bg-orange-500/10 text-orange-600 dark:text-orange-400 border-none"
-                                        >
-                                          {metadata.platform}
-                                        </Badge>
-                                      )}
-                                      {metadata.isScene && (
-                                        <Badge
-                                          variant="outline"
-                                          className="h-5 px-1.5 text-xs border-muted-foreground/30 text-muted-foreground uppercase tracking-tighter"
-                                        >
-                                          Scene
-                                        </Badge>
-                                      )}
-                                      {!isUsenet && download.downloadVolumeFactor === 0 && (
-                                        <Badge
-                                          variant="secondary"
-                                          className="h-5 px-1.5 text-[10px] bg-emerald-500/15 text-emerald-500 dark:text-emerald-400 border-none uppercase tracking-tighter"
-                                        >
-                                          Freeleech
-                                        </Badge>
-                                      )}
-                                    </div>
-                                  )}
+                                  <ReleaseMetadataBadges
+                                    metadata={metadata}
+                                    isUsenet={isUsenet}
+                                    downloadVolumeFactor={download.downloadVolumeFactor}
+                                    className="mt-1"
+                                  />
 
                                   {/* Group + indexer line */}
                                   <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/70 mt-1 min-w-0 overflow-hidden">
@@ -1230,57 +1258,12 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                   )}
                                 </div>
 
-                                <div className="flex flex-wrap items-center gap-1.5">
-                                  {metadata.version && (
-                                    <Badge
-                                      variant="secondary"
-                                      className="h-5 px-1.5 text-xs font-mono bg-blue-500/10 text-blue-600 dark:text-blue-400 border-none"
-                                    >
-                                      {metadata.version}
-                                    </Badge>
-                                  )}
-                                  {metadata.languages?.map((lang) => (
-                                    <Badge
-                                      key={lang}
-                                      variant="secondary"
-                                      className="h-5 px-1.5 text-xs bg-green-500/10 text-green-600 dark:text-green-400 border-none"
-                                    >
-                                      {lang}
-                                    </Badge>
-                                  ))}
-                                  {metadata.drm && (
-                                    <Badge
-                                      variant="secondary"
-                                      className="h-5 px-1.5 text-xs bg-purple-500/10 text-purple-600 dark:text-purple-400 border-none"
-                                    >
-                                      {metadata.drm}
-                                    </Badge>
-                                  )}
-                                  {metadata.platform && (
-                                    <Badge
-                                      variant="secondary"
-                                      className="h-5 px-1.5 text-xs bg-orange-500/10 text-orange-600 dark:text-orange-400 border-none"
-                                    >
-                                      {metadata.platform}
-                                    </Badge>
-                                  )}
-                                  {metadata.isScene && (
-                                    <Badge
-                                      variant="outline"
-                                      className="h-5 px-1.5 text-xs border-muted-foreground/30 text-muted-foreground uppercase tracking-tighter"
-                                    >
-                                      Scene
-                                    </Badge>
-                                  )}
-                                  {!isUsenet && download.downloadVolumeFactor === 0 && (
-                                    <Badge
-                                      variant="secondary"
-                                      className="h-5 px-1.5 text-[10px] bg-emerald-500/15 text-emerald-500 dark:text-emerald-400 border-none uppercase tracking-tighter"
-                                    >
-                                      Freeleech
-                                    </Badge>
-                                  )}
-                                </div>
+                                <ReleaseMetadataBadges
+                                  metadata={metadata}
+                                  isUsenet={isUsenet}
+                                  downloadVolumeFactor={download.downloadVolumeFactor}
+                                  className="gap-1.5"
+                                />
 
                                 <div className="flex items-center gap-2 text-[11px] text-muted-foreground/70">
                                   {metadata.group && (

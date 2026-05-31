@@ -4,13 +4,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { useIsMobile } from "../src/hooks/use-mobile";
 
-const originalMatchMedia = window.matchMedia;
-const originalInnerWidth = window.innerWidth;
+const originalMatchMedia = globalThis.matchMedia;
+const originalInnerWidth = globalThis.innerWidth;
 
 describe("useIsMobile", () => {
   afterEach(() => {
-    window.matchMedia = originalMatchMedia;
-    window.innerWidth = originalInnerWidth;
+    globalThis.matchMedia = originalMatchMedia;
+    globalThis.innerWidth = originalInnerWidth;
     vi.restoreAllMocks();
   });
 
@@ -18,15 +18,15 @@ describe("useIsMobile", () => {
     const addListener = vi.fn();
     const removeListener = vi.fn();
 
-    window.innerWidth = 767;
-    window.matchMedia = vi.fn().mockReturnValue({
+    globalThis.innerWidth = 767;
+    globalThis.matchMedia = vi.fn().mockReturnValue({
       matches: true,
       media: "(max-width: 767px)",
       onchange: null,
       addListener,
       removeListener,
       dispatchEvent: vi.fn(),
-    }) as typeof window.matchMedia;
+    }) as typeof globalThis.matchMedia;
 
     const { result, unmount } = renderHook(() => useIsMobile());
 

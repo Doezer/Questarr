@@ -1,11 +1,12 @@
 /** @vitest-environment jsdom */
 import React from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
 import WishlistPage from "../src/pages/wishlist";
+import { createTestQueryClient } from "./test-utils";
 
 vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({ toast: vi.fn() }),
@@ -29,7 +30,10 @@ vi.mock("@/hooks/use-view-controls", () => ({
 }));
 
 vi.mock("@/hooks/use-local-storage-state", () => ({
-  useLocalStorageState: (_key: string, initial: boolean) => React.useState(initial),
+  useLocalStorageState: <T,>(_key: string, initial: T) => {
+    const [value, setValue] = React.useState(initial);
+    return [value, setValue] as const;
+  },
 }));
 
 vi.mock("@/hooks/use-download-summary", () => ({
@@ -93,30 +97,16 @@ vi.mock("@/components/ui/tabs", () => ({
   ),
 }));
 
-const createTestQueryClient = () =>
-  new QueryClient({
-    defaultOptions: {
-      queries: {
-        retry: false,
-        queryFn: async ({ queryKey }) => {
-          const response = await fetch(queryKey.join(""));
-          if (!response.ok) throw new Error("Network response was not ok");
-          return response.json();
-        },
-      },
-    },
-  });
-
 describe("WishlistPage mobile sections", () => {
   it("renders mobile tabs for released, upcoming, and TBA games", async () => {
-    global.fetch = vi.fn(async () => ({
+    globalThis.fetch = vi.fn(async () => ({
       ok: true,
       json: async () => [
         { id: "released", title: "Released Game", status: "wanted", releaseDate: "2024-01-01" },
         { id: "upcoming", title: "Upcoming Game", status: "wanted", releaseDate: "2099-01-01" },
         { id: "tba", title: "TBA Game", status: "wanted", releaseDate: null },
       ],
-    })) as never;
+    })) as typeof fetch;
 
     render(
       <QueryClientProvider client={createTestQueryClient()}>

@@ -406,49 +406,71 @@ function MonthView({
           const gamesOnDay = gamesByDate[dateKey] || [];
           const isToday = todayKey === dateKey;
           const isSelected = selectedDayKey === dateKey;
+          const mobileButtonLabel =
+            gamesOnDay.length > 0
+              ? `${day.toLocaleDateString(undefined, {
+                  weekday: "long",
+                  month: "long",
+                  day: "numeric",
+                })}, ${gamesOnDay.length} release${gamesOnDay.length === 1 ? "" : "s"}`
+              : day.toLocaleDateString(undefined, {
+                  weekday: "long",
+                  month: "long",
+                  day: "numeric",
+                });
 
           return (
             <div
               key={idx}
-              onClick={() => handleCellClick(dateKey, gamesOnDay)}
               className={cn(
                 "min-h-[48px] md:min-h-[120px] border rounded-lg p-1 md:p-2 transition-colors",
                 !isCurrentMonth && "bg-muted/30",
                 isToday && "border-primary border-2",
-                isSelected && "border-primary/60 bg-primary/5",
-                gamesOnDay.length > 0 ? "cursor-pointer" : "cursor-default"
+                isSelected && "border-primary/60 bg-primary/5"
               )}
             >
-              <div
+              <button
+                type="button"
+                onClick={() => handleCellClick(dateKey, gamesOnDay)}
                 className={cn(
-                  "text-xs md:text-sm font-medium mb-0.5 md:mb-2",
-                  !isCurrentMonth && "text-muted-foreground",
-                  isToday && "text-primary font-bold"
+                  "w-full text-left md:pointer-events-none",
+                  gamesOnDay.length > 0 ? "cursor-pointer" : "cursor-default"
                 )}
+                aria-label={mobileButtonLabel}
               >
-                {day.getDate()}
-              </div>
-              {/* Mobile: colored dots per game */}
-              {gamesOnDay.length > 0 && (
-                <div className="flex flex-wrap gap-0.5 md:hidden">
-                  {gamesOnDay.slice(0, 3).map((game) => (
-                    <div
-                      key={game.id}
-                      className={cn(
-                        "w-1.5 h-1.5 rounded-full",
-                        game.releaseStatus === "delayed" ? "bg-destructive" : "bg-primary"
-                      )}
-                    />
-                  ))}
-                  {gamesOnDay.length > 3 && (
-                    <span className="text-[9px] leading-none text-muted-foreground">
-                      +{gamesOnDay.length - 3}
-                    </span>
+                <div
+                  className={cn(
+                    "text-xs md:text-sm font-medium mb-0.5 md:mb-2",
+                    !isCurrentMonth && "text-muted-foreground",
+                    isToday && "text-primary font-bold"
                   )}
+                >
+                  {day.getDate()}
                 </div>
-              )}
-              {/* Desktop: full compact badges */}
-              <div className="hidden md:block space-y-1">
+                {/* Mobile: colored dots per game */}
+                {gamesOnDay.length > 0 && (
+                  <div className="flex flex-wrap gap-0.5 md:hidden">
+                    {gamesOnDay.slice(0, 3).map((game) => (
+                      <div
+                        key={game.id}
+                        className={cn(
+                          "w-1.5 h-1.5 rounded-full",
+                          game.releaseStatus === "delayed" ? "bg-destructive" : "bg-primary"
+                        )}
+                      />
+                    ))}
+                    {gamesOnDay.length > 3 && (
+                      <span className="text-[9px] leading-none text-muted-foreground">
+                        +{gamesOnDay.length - 3}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </button>
+              <div
+                className="hidden md:block space-y-1"
+                aria-hidden={gamesOnDay.length === 0 ? undefined : true}
+              >
                 {gamesOnDay.map((game) => (
                   <GameBadge key={game.id} game={game} compact onClick={() => onGameClick(game)} />
                 ))}

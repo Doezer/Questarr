@@ -2,10 +2,11 @@
 import React from "react";
 import { render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
 import Library from "../src/components/Library";
+import { createTestQueryClient } from "./test-utils";
 
 vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({ toast: vi.fn() }),
@@ -29,7 +30,10 @@ vi.mock("@/hooks/use-view-controls", () => ({
 }));
 
 vi.mock("@/hooks/use-local-storage-state", () => ({
-  useLocalStorageState: (_key: string, initial: number | boolean) => React.useState(initial),
+  useLocalStorageState: <T,>(_key: string, initial: T) => {
+    const [value, setValue] = React.useState(initial);
+    return [value, setValue] as const;
+  },
 }));
 
 vi.mock("@/components/GameFilterPills", () => ({
@@ -43,26 +47,12 @@ vi.mock("@/components/ui/tooltip", () => ({
   TooltipContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
-const createTestQueryClient = () =>
-  new QueryClient({
-    defaultOptions: {
-      queries: {
-        retry: false,
-        queryFn: async ({ queryKey }) => {
-          const response = await fetch(queryKey.join(""));
-          if (!response.ok) throw new Error("Network response was not ok");
-          return response.json();
-        },
-      },
-    },
-  });
-
 describe("Library mobile toolbar", () => {
   it("renders mobile filter pills and the filter tooltip label", async () => {
-    global.fetch = vi.fn(async () => ({
+    globalThis.fetch = vi.fn(async () => ({
       ok: true,
       json: async () => [],
-    })) as never;
+    })) as typeof fetch;
 
     render(
       <QueryClientProvider client={createTestQueryClient()}>

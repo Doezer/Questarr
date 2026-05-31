@@ -621,6 +621,24 @@ export default function Downloads() {
                     <CardDescription className="mt-2">
                       {/* Mobile: status + type + the most relevant active metric */}
                       <div className="flex flex-wrap gap-1.5 sm:hidden">
+                        {download.downloadSpeed !== undefined &&
+                          shouldShowSpeedBadge(download.downloadSpeed) && (
+                            <Badge variant="outline">↓ {formatSpeed(download.downloadSpeed)}</Badge>
+                          )}
+                        {download.eta !== undefined && shouldShowETABadge(download.eta) && (
+                          <Badge variant="outline">{formatETA(download.eta)}</Badge>
+                        )}
+                        {!shouldShowSpeedBadge(download.downloadSpeed) &&
+                          download.size !== undefined &&
+                          shouldShowSizeBadge(download.size) && (
+                            <Badge variant="outline">{formatBytes(download.size)}</Badge>
+                          )}
+                        {!shouldShowSpeedBadge(download.downloadSpeed) &&
+                          download.ratio !== undefined &&
+                          shouldShowRatioBadge(download.ratio) &&
+                          shouldShowTorrentMetrics(download) && (
+                            <Badge variant="outline">{download.ratio.toFixed(2)}</Badge>
+                          )}
                         <Badge
                           variant={getStatusBadgeVariant(download.status)}
                           className="capitalize"
@@ -633,21 +651,6 @@ export default function Downloads() {
                         >
                           {download.downloadType === "usenet" ? "NZB" : "Torrent"}
                         </Badge>
-                        {shouldShowSpeedBadge(download.downloadSpeed) && (
-                          <Badge variant="outline">↓ {formatSpeed(download.downloadSpeed!)}</Badge>
-                        )}
-                        {shouldShowETABadge(download.eta) && (
-                          <Badge variant="outline">{formatETA(download.eta!)}</Badge>
-                        )}
-                        {!shouldShowSpeedBadge(download.downloadSpeed) &&
-                          shouldShowSizeBadge(download.size) && (
-                            <Badge variant="outline">{formatBytes(download.size!)}</Badge>
-                          )}
-                        {!shouldShowSpeedBadge(download.downloadSpeed) &&
-                          shouldShowRatioBadge(download.ratio) &&
-                          shouldShowTorrentMetrics(download) && (
-                            <Badge variant="outline">{download.ratio?.toFixed(2)}</Badge>
-                          )}
                       </div>
                       {/* Desktop: full badge list */}
                       <div className="hidden sm:flex flex-wrap gap-2 items-center">

@@ -2,10 +2,11 @@
 import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import Downloads from "../src/pages/downloads";
+import { createTestQueryClient, getRequestUrl } from "./test-utils";
 
 const toastSpy = vi.fn();
 
@@ -63,42 +64,28 @@ vi.mock("@/components/ui/dropdown-menu", () => ({
   ),
 }));
 
-const createTestQueryClient = () =>
-  new QueryClient({
-    defaultOptions: {
-      queries: {
-        retry: false,
-        queryFn: async ({ queryKey }) => {
-          const response = await fetch(queryKey.join(""));
-          if (!response.ok) {
-            throw new Error("Network response was not ok");
-          }
-          return response.json();
-        },
-      },
-      mutations: {
-        retry: false,
-      },
-    },
+function createJsonResponse(data: unknown): Response {
+  return {
+    ok: true,
+    json: async () => data,
+  } as Response;
+}
+
+function mockDownloadsFetch(responseData: unknown) {
+  globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
+    if (getRequestUrl(url).includes("/api/downloads")) {
+      return createJsonResponse(responseData);
+    }
+
+    return createJsonResponse({});
   });
+}
 
 describe("Downloads page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     toastSpy.mockReset();
-    globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
-      if (String(url).includes("/api/downloads")) {
-        return {
-          ok: true,
-          json: async () => ({ downloads: [], errors: [] }),
-        } as Response;
-      }
-
-      return {
-        ok: true,
-        json: async () => ({}),
-      } as Response;
-    });
+    mockDownloadsFetch({ downloads: [], errors: [] });
   });
 
   const renderPage = () =>
@@ -122,45 +109,33 @@ describe("Downloads page", () => {
   });
 
   it("filters downloads by search and Questarr-only toggle while showing the category banner", async () => {
-    globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
-      if (String(url).includes("/api/downloads")) {
-        return {
-          ok: true,
-          json: async () => ({
-            downloads: [
-              {
-                id: "dl-1",
-                name: "Questarr Release",
-                status: "downloading",
-                progress: 55,
-                downloaderId: "downloader-1",
-                downloaderName: "qBittorrent",
-                trackedByQuestarr: true,
-                downloaderCategory: "questarr",
-                downloadType: "torrent",
-                size: 1024,
-                downloaded: 512,
-              },
-              {
-                id: "dl-2",
-                name: "Manual NZB",
-                status: "completed",
-                progress: 100,
-                downloaderId: "downloader-2",
-                downloaderName: "SABnzbd",
-                trackedByQuestarr: false,
-                downloadType: "usenet",
-              },
-            ],
-            errors: [],
-          }),
-        } as Response;
-      }
-
-      return {
-        ok: true,
-        json: async () => ({}),
-      } as Response;
+    mockDownloadsFetch({
+      downloads: [
+        {
+          id: "dl-1",
+          name: "Questarr Release",
+          status: "downloading",
+          progress: 55,
+          downloaderId: "downloader-1",
+          downloaderName: "qBittorrent",
+          trackedByQuestarr: true,
+          downloaderCategory: "questarr",
+          downloadType: "torrent",
+          size: 1024,
+          downloaded: 512,
+        },
+        {
+          id: "dl-2",
+          name: "Manual NZB",
+          status: "completed",
+          progress: 100,
+          downloaderId: "downloader-2",
+          downloaderName: "SABnzbd",
+          trackedByQuestarr: false,
+          downloadType: "usenet",
+        },
+      ],
+      errors: [],
     });
 
     renderPage();
@@ -190,32 +165,20 @@ describe("Downloads page", () => {
   });
 
   it("shows a filtered empty state message when no downloads match the active search", async () => {
-    globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
-      if (String(url).includes("/api/downloads")) {
-        return {
-          ok: true,
-          json: async () => ({
-            downloads: [
-              {
-                id: "dl-3",
-                name: "Only Torrent",
-                status: "downloading",
-                progress: 25,
-                downloaderId: "downloader-1",
-                downloaderName: "qBittorrent",
-                trackedByQuestarr: true,
-                downloadType: "torrent",
-              },
-            ],
-            errors: [],
-          }),
-        } as Response;
-      }
-
-      return {
-        ok: true,
-        json: async () => ({}),
-      } as Response;
+    mockDownloadsFetch({
+      downloads: [
+        {
+          id: "dl-3",
+          name: "Only Torrent",
+          status: "downloading",
+          progress: 25,
+          downloaderId: "downloader-1",
+          downloaderName: "qBittorrent",
+          trackedByQuestarr: true,
+          downloadType: "torrent",
+        },
+      ],
+      errors: [],
     });
 
     renderPage();
@@ -242,7 +205,7 @@ describe("Downloads page", () => {
         new Promise<Response>((resolve) => {
           resolveResponse = resolve;
         })
-    ) as never;
+    ) as typeof fetch;
 
     renderPage();
 
@@ -257,55 +220,43 @@ describe("Downloads page", () => {
   });
 
   it("renders torrent and usenet-specific metric badges and download errors", async () => {
-    globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
-      if (String(url).includes("/api/downloads")) {
-        return {
-          ok: true,
-          json: async () => ({
-            downloads: [
-              {
-                id: "dl-torrent",
-                name: "Torrent Game",
-                status: "downloading",
-                progress: 45,
-                downloaderId: "downloader-1",
-                downloaderName: "qBittorrent",
-                trackedByQuestarr: true,
-                downloadType: "torrent",
-                size: 2 * 1024 * 1024,
-                downloaded: 1024 * 1024,
-                downloadSpeed: 2048,
-                uploadSpeed: 512,
-                eta: 3600,
-                seeders: 12,
-                leechers: 3,
-                ratio: 1.25,
-              },
-              {
-                id: "dl-usenet",
-                name: "Usenet Game",
-                status: "error",
-                progress: 90,
-                downloaderId: "downloader-2",
-                downloaderName: "SABnzbd",
-                trackedByQuestarr: false,
-                downloadType: "usenet",
-                repairStatus: "repairing",
-                unpackStatus: "running",
-                age: 5,
-                grabs: 8,
-                error: "Post-processing failed",
-              },
-            ],
-            errors: [],
-          }),
-        } as Response;
-      }
-
-      return {
-        ok: true,
-        json: async () => ({}),
-      } as Response;
+    mockDownloadsFetch({
+      downloads: [
+        {
+          id: "dl-torrent",
+          name: "Torrent Game",
+          status: "downloading",
+          progress: 45,
+          downloaderId: "downloader-1",
+          downloaderName: "qBittorrent",
+          trackedByQuestarr: true,
+          downloadType: "torrent",
+          size: 2 * 1024 * 1024,
+          downloaded: 1024 * 1024,
+          downloadSpeed: 2048,
+          uploadSpeed: 512,
+          eta: 3600,
+          seeders: 12,
+          leechers: 3,
+          ratio: 1.25,
+        },
+        {
+          id: "dl-usenet",
+          name: "Usenet Game",
+          status: "error",
+          progress: 90,
+          downloaderId: "downloader-2",
+          downloaderName: "SABnzbd",
+          trackedByQuestarr: false,
+          downloadType: "usenet",
+          repairStatus: "repairing",
+          unpackStatus: "running",
+          age: 5,
+          grabs: 8,
+          error: "Post-processing failed",
+        },
+      ],
+      errors: [],
     });
 
     renderPage();
@@ -325,7 +276,7 @@ describe("Downloads page", () => {
 
   it("opens details and claim modals, performs download actions, and reports downloader errors", async () => {
     globalThis.fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
-      const target = String(url);
+      const target = getRequestUrl(url);
 
       if (target === "/api/downloads") {
         return {
@@ -380,7 +331,7 @@ describe("Downloads page", () => {
         ok: true,
         json: async () => ({}),
       } as Response;
-    }) as never;
+    }) as typeof fetch;
 
     renderPage();
 

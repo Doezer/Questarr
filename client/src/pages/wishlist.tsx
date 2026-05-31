@@ -18,6 +18,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 type SortOption = "release-asc" | "release-desc" | "added-desc" | "title-asc";
+type MobileSection = { id: string; label: string; count: number; games: Game[] };
 
 const SORT_OPTIONS = [
   { value: "release-desc", label: "Release (Newest)" },
@@ -128,7 +129,7 @@ export default function WishlistPage() {
   const isMobile = useIsMobile();
 
   const mobileSections = useMemo(() => {
-    const sections: { id: string; label: string; count: number; games: Game[] }[] = [];
+    const sections: MobileSection[] = [];
     if (sortedReleasedGames.length > 0)
       sections.push({
         id: "released",
@@ -156,10 +157,53 @@ export default function WishlistPage() {
   const [activeTab, setActiveTab] = useState(() => mobileSections[0]?.id ?? "released");
 
   useEffect(() => {
-    if (mobileSections.length > 0 && !mobileSections.find((s) => s.id === activeTab)) {
+    if (mobileSections.length > 0 && !mobileSections.some((section) => section.id === activeTab)) {
       setActiveTab(mobileSections[0].id);
     }
   }, [mobileSections, activeTab]);
+
+  const emptyStateContent = useMemo(() => {
+    if (searchQuery) {
+      return {
+        title: "No games match your search",
+        description: `No wishlist games found for "${searchQuery}".`,
+      };
+    }
+
+    if (showDownloadsOnly && showSearchResultsOnly) {
+      return {
+        title: "No games match your filters",
+        description: "Try disabling one or more filters to see more games.",
+      };
+    }
+
+    if (showDownloadsOnly) {
+      return {
+        title: "No games with active downloads",
+        description: "Try disabling one or more filters to see more games.",
+      };
+    }
+
+    if (showSearchResultsOnly) {
+      return {
+        title: "No games with search results",
+        description: "Try disabling one or more filters to see more games.",
+      };
+    }
+
+    if (!showUnreleased) {
+      return {
+        title: "No released games in your wishlist",
+        description:
+          "All your wishlist games are upcoming or unannounced. Enable 'Unreleased' to see them.",
+      };
+    }
+
+    return {
+      title: "No games match your filters",
+      description: "Try adjusting your filters.",
+    };
+  }, [searchQuery, showDownloadsOnly, showSearchResultsOnly, showUnreleased]);
 
   const statusMutation = useMutation({
     mutationFn: async ({ gameId, status }: { gameId: string; status: GameStatus }) => {
@@ -242,28 +286,8 @@ export default function WishlistPage() {
         ) : !isLoading && filteredGames.length === 0 ? (
           <EmptyState
             icon={Star}
-            title={
-              searchQuery
-                ? "No games match your search"
-                : showDownloadsOnly && showSearchResultsOnly
-                  ? "No games match your filters"
-                  : showDownloadsOnly
-                    ? "No games with active downloads"
-                    : showSearchResultsOnly
-                      ? "No games with search results"
-                      : !showUnreleased
-                        ? "No released games in your wishlist"
-                        : "No games match your filters"
-            }
-            description={
-              searchQuery
-                ? `No wishlist games found for "${searchQuery}".`
-                : showDownloadsOnly || showSearchResultsOnly
-                  ? "Try disabling one or more filters to see more games."
-                  : !showUnreleased
-                    ? "All your wishlist games are upcoming or unannounced. Enable 'Unreleased' to see them."
-                    : "Try adjusting your filters."
-            }
+            title={emptyStateContent.title}
+            description={emptyStateContent.description}
           />
         ) : isMobile && mobileSections.length > 1 ? (
           <Tabs value={activeTab} onValueChange={setActiveTab}>

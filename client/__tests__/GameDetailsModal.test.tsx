@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import React from "react";
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import GameDetailsModal from "../src/components/GameDetailsModal";
@@ -270,8 +270,9 @@ describe("GameDetailsModal", () => {
   it("renders the Your rating section", () => {
     renderComponent();
     // Links tab is forceMount-ed; always in DOM
-    expect(screen.getByTestId("section-user-rating")).toBeInTheDocument();
-    expect(screen.getByText("Your rating")).toBeInTheDocument();
+    const ratingSection = screen.getByTestId("section-user-rating");
+    expect(ratingSection).toBeInTheDocument();
+    expect(within(ratingSection).getAllByText("Your rating").length).toBeGreaterThan(0);
   });
 
   it('shows "Not rated" when userRating is null', () => {

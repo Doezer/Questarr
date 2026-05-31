@@ -13,7 +13,12 @@ interface PageHeaderProps {
   className?: string;
 }
 
-export default function PageHeader({ title, description, actions, className }: PageHeaderProps) {
+export default function PageHeader({
+  title,
+  description,
+  actions,
+  className,
+}: Readonly<PageHeaderProps>) {
   return (
     <div
       className={cn(

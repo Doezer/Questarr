@@ -17,6 +17,6 @@ describe("calendar date helpers", () => {
   it("pads month grids with adjacent-month dates", () => {
     const days = getDaysInMonth(2026, 1);
     expect(formatDate(days[0])).toBe("2026-01-26");
-    expect(formatDate(days[days.length - 1])).toBe("2026-03-01");
+    expect(formatDate(days.at(-1)!)).toBe("2026-03-01");
   });
 });

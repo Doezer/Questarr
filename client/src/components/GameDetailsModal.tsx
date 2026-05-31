@@ -255,7 +255,8 @@ function StarRatingInput({
   const display = hovered ?? value;
 
   return (
-    <div className="flex items-center gap-2 sm:gap-1" role="group" aria-label="Your rating">
+    <fieldset className="flex items-center gap-2 border-0 p-0 sm:gap-1">
+      <legend className="sr-only">Your rating</legend>
       {[1, 2, 3, 4, 5].map((star) => {
         const fullValue = star * 2; // e.g. star=3 → fullValue=6
         const halfValue = star * 2 - 1; // e.g. star=3 → halfValue=5
@@ -310,7 +311,7 @@ function StarRatingInput({
           "Not rated"
         )}
       </span>
-    </div>
+    </fieldset>
   );
 }
 

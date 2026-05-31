@@ -2,11 +2,12 @@
 import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "../src/components/ui/tooltip";
 import CalendarPage from "../src/pages/calendar";
+import { createTestQueryClient, getRequestUrl } from "./test-utils";
 
 vi.mock("@/components/GameDownloadDialog", () => ({
   default: ({ open, game }: { open: boolean; game: { title: string } | null }) =>
@@ -49,22 +50,6 @@ vi.mock("@/components/ui/select", () => ({
   ),
 }));
 
-const createTestQueryClient = () =>
-  new QueryClient({
-    defaultOptions: {
-      queries: {
-        retry: false,
-        queryFn: async ({ queryKey }) => {
-          const response = await fetch(queryKey.join(""));
-          if (!response.ok) {
-            throw new Error("Network response was not ok");
-          }
-          return response.json();
-        },
-      },
-    },
-  });
-
 const baseGame = {
   id: "game-1",
   title: "Space Quest",
@@ -86,29 +71,34 @@ function renderPage() {
   );
 }
 
+function createJsonResponse(data: unknown): Response {
+  return {
+    ok: true,
+    json: async () => data,
+  } as Response;
+}
+
+function mockGamesFetch(games: unknown[]) {
+  globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
+    if (getRequestUrl(url).includes("/api/games")) {
+      return createJsonResponse(games);
+    }
+
+    return createJsonResponse({});
+  });
+}
+
 describe("CalendarPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
-      if (String(url).includes("/api/games")) {
-        return {
-          ok: true,
-          json: async () => [],
-        } as Response;
-      }
-
-      return {
-        ok: true,
-        json: async () => ({}),
-      } as Response;
-    });
+    mockGamesFetch([]);
   });
 
   it("shows the IGDB setup prompt when configuration is missing", async () => {
     const { apiRequest } = await import("@/lib/queryClient");
-    vi.mocked(apiRequest).mockResolvedValueOnce({
-      json: async () => ({ igdb: { configured: false } }),
-    } as Awaited<ReturnType<typeof apiRequest>>);
+    vi.mocked(apiRequest).mockResolvedValueOnce(
+      createJsonResponse({ igdb: { configured: false } }) as Awaited<ReturnType<typeof apiRequest>>
+    );
 
     renderPage();
 
@@ -125,23 +115,11 @@ describe("CalendarPage", () => {
   });
 
   it("filters displayed games and renders the undated year section", async () => {
-    globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
-      if (String(url).includes("/api/games")) {
-        return {
-          ok: true,
-          json: async () => [
-            baseGame,
-            { ...baseGame, id: "game-2", title: "Mystery Year", releaseDate: "2026-12-31" },
-            { ...baseGame, id: "game-3", title: "Owned Game", status: "owned" },
-          ],
-        } as Response;
-      }
-
-      return {
-        ok: true,
-        json: async () => ({}),
-      } as Response;
-    });
+    mockGamesFetch([
+      baseGame,
+      { ...baseGame, id: "game-2", title: "Mystery Year", releaseDate: "2026-12-31" },
+      { ...baseGame, id: "game-3", title: "Owned Game", status: "owned" },
+    ]);
 
     renderPage();
 
@@ -161,21 +139,7 @@ describe("CalendarPage", () => {
   });
 
   it("switches to week view and opens the download dialog from a visible game", async () => {
-    globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
-      if (String(url).includes("/api/games")) {
-        return {
-          ok: true,
-          json: async () => [
-            { ...baseGame, id: "game-4", title: "Week Hero", releaseDate: "2026-05-29" },
-          ],
-        } as Response;
-      }
-
-      return {
-        ok: true,
-        json: async () => ({}),
-      } as Response;
-    });
+    mockGamesFetch([{ ...baseGame, id: "game-4", title: "Week Hero", releaseDate: "2026-05-29" }]);
 
     renderPage();
 
@@ -192,21 +156,7 @@ describe("CalendarPage", () => {
   });
 
   it("shows month view mobile day details when a day with releases is tapped", async () => {
-    globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
-      if (String(url).includes("/api/games")) {
-        return {
-          ok: true,
-          json: async () => [
-            { ...baseGame, id: "game-5", title: "Month Hero", releaseDate: "2026-05-29" },
-          ],
-        } as Response;
-      }
-
-      return {
-        ok: true,
-        json: async () => ({}),
-      } as Response;
-    });
+    mockGamesFetch([{ ...baseGame, id: "game-5", title: "Month Hero", releaseDate: "2026-05-29" }]);
 
     renderPage();
 
@@ -218,23 +168,26 @@ describe("CalendarPage", () => {
       expect(screen.queryByText("Loading calendar...")).not.toBeInTheDocument();
     });
 
-    const dayCell = Array.from(document.querySelectorAll("div.cursor-pointer")).find((node) =>
+    const dayButton = Array.from(document.querySelectorAll("button.cursor-pointer")).find((node) =>
       node.textContent?.includes("29")
-    ) as HTMLDivElement | undefined;
+    ) as HTMLButtonElement | undefined;
 
-    expect(dayCell).toBeDefined();
-    fireEvent.click(dayCell);
+    expect(dayButton).toBeDefined();
+    const dayCell = dayButton?.parentElement as HTMLDivElement | null;
+
+    expect(dayCell).not.toBeNull();
+    fireEvent.click(dayButton!);
 
     await waitFor(() => {
-      expect(dayCell.className).toContain("border-primary/60");
-      expect(dayCell.className).toContain("bg-primary/5");
+      expect(dayCell?.className).toContain("border-primary/60");
+      expect(dayCell?.className).toContain("bg-primary/5");
     });
 
-    fireEvent.click(dayCell);
+    fireEvent.click(dayButton!);
 
     await waitFor(() => {
-      expect(dayCell.className).not.toContain("border-primary/60");
-      expect(dayCell.className).not.toContain("bg-primary/5");
+      expect(dayCell?.className).not.toContain("border-primary/60");
+      expect(dayCell?.className).not.toContain("bg-primary/5");
     });
   });
 });

@@ -8,7 +8,11 @@ function isPrimitiveLogValue(value: unknown): boolean {
   );
 }
 
-export function truncateLogData(data: unknown, depth = 0): unknown {
+function shouldPreserveString(key?: string): boolean {
+  return key === "message";
+}
+
+export function truncateLogData(data: unknown, depth = 0, key?: string): unknown {
   if (!data) return data;
 
   if (depth > 2) {
@@ -17,7 +21,9 @@ export function truncateLogData(data: unknown, depth = 0): unknown {
     }
 
     if (isPrimitiveLogValue(data)) {
-      return typeof data === "string" && data.length > 50 ? data.substring(0, 50) + "..." : data;
+      return typeof data === "string" && data.length > 50 && !shouldPreserveString(key)
+        ? data.substring(0, 50) + "..."
+        : data;
     }
 
     return "[Object/Array]";
@@ -25,10 +31,10 @@ export function truncateLogData(data: unknown, depth = 0): unknown {
 
   if (Array.isArray(data)) {
     if (data.length > 3) {
-      const truncatedItems = data.slice(0, 3).map((item) => truncateLogData(item, depth + 1));
+      const truncatedItems = data.slice(0, 3).map((item) => truncateLogData(item, depth + 1, key));
       return [...truncatedItems, `... ${data.length - 3} more items`];
     }
-    return data.map((item) => truncateLogData(item, depth + 1));
+    return data.map((item) => truncateLogData(item, depth + 1, key));
   }
 
   if (typeof data === "object") {
@@ -40,7 +46,7 @@ export function truncateLogData(data: unknown, depth = 0): unknown {
     const processingKeys = keys.slice(0, maxKeys);
 
     for (const key of processingKeys) {
-      newObj[key] = truncateLogData(dict[key], depth + 1);
+      newObj[key] = truncateLogData(dict[key], depth + 1, key);
     }
 
     if (keys.length > maxKeys) {
@@ -49,7 +55,7 @@ export function truncateLogData(data: unknown, depth = 0): unknown {
     return newObj;
   }
 
-  if (typeof data === "string" && data.length > 50) {
+  if (typeof data === "string" && data.length > 50 && !shouldPreserveString(key)) {
     return data.substring(0, 50) + "...";
   }
   return data;

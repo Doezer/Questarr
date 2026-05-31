@@ -506,17 +506,7 @@ const CompactGameCard = ({
         </div>
 
         {/* Actions */}
-        <div
-          className="flex items-center justify-end gap-1"
-          onClick={(e) => e.stopPropagation()}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.stopPropagation();
-            }
-          }}
-          role="group"
-          aria-label="Game actions"
-        >
+        <div className="flex items-center justify-end gap-1" aria-label="Game actions">
           {isDiscovery ? (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -527,7 +517,10 @@ const CompactGameCard = ({
                     "transition-all",
                     density === "comfortable" ? "h-7 w-7" : "h-6 w-6"
                   )}
-                  onClick={handleDownloadClick}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDownloadClick();
+                  }}
                   disabled={addGameMutation.isPending}
                   aria-label={`Download ${game.title}`}
                 >

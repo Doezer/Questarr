@@ -155,19 +155,9 @@ vi.mock("@/components/ui/popover", () => ({
     children: React.ReactNode;
     onClick?: (event: React.MouseEvent) => void;
   }) => (
-    <div
-      data-testid="popover-content"
-      role="button"
-      onClick={onClick}
-      onKeyDown={(event: React.KeyboardEvent) => {
-        if (event.key === "Enter" || event.key === " ") {
-          onClick?.(event as unknown as React.MouseEvent);
-        }
-      }}
-      tabIndex={0}
-    >
+    <button type="button" data-testid="popover-content" onClick={onClick}>
       {children}
-    </div>
+    </button>
   ),
 }));
 
@@ -380,8 +370,6 @@ describe("CompactGameCard remaining coverage", () => {
         typeof element.className === "string" && element.className.includes("justify-end gap-1")
     );
     expect(actionsWrapper).toBeTruthy();
-    fireEvent.click(actionsWrapper!);
-    expect(onViewDetails).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByLabelText("Hide Questarr Game"));
     expect(onToggleHidden).toHaveBeenCalledWith("1", true);

@@ -409,7 +409,10 @@ export default function Library() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
                   <Label>Status</Label>
-                  <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <Select
+                    value={statusFilter}
+                    onValueChange={(v) => setStatusFilter(v as GameStatus | "all")}
+                  >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>

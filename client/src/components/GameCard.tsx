@@ -381,7 +381,7 @@ const GameCard = ({
             </Button>
           ) : (
             <StatusPicker
-              currentStatus={game.status}
+              currentStatus={game.status as GameStatus}
               onStatusChange={(newStatus) => onStatusChange?.(game.id, newStatus)}
               gameTitle={game.title}
               data-testid={`button-status-${game.id}`}

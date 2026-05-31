@@ -244,7 +244,7 @@ const CompactGameCard = ({
               </Button>
             ) : (
               <StatusPicker
-                currentStatus={game.status}
+                currentStatus={game.status as GameStatus}
                 onStatusChange={(newStatus) => onStatusChange?.(game.id, newStatus)}
                 gameTitle={game.title}
               />
@@ -542,7 +542,7 @@ const CompactGameCard = ({
             </Tooltip>
           ) : (
             <StatusPicker
-              currentStatus={game.status}
+              currentStatus={game.status as GameStatus}
               onStatusChange={(newStatus) => onStatusChange?.(game.id, newStatus)}
               gameTitle={game.title}
             >

@@ -21,6 +21,8 @@ const statusConfig = {
   },
 };
 
+export type GameStatus = keyof typeof statusConfig;
+
 export default function StatusBadge({ status }: StatusBadgeProps) {
   const config = statusConfig[status as keyof typeof statusConfig] || {
     label: status,

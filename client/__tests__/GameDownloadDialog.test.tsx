@@ -959,4 +959,31 @@ describe("GameDownloadDialog", () => {
       );
     });
   });
+
+  it("renders parsed metadata badges for mobile torrent results", async () => {
+    mockIsMobile = true;
+    globalThis.fetch = createFetchMock({
+      search: makeSearchResult([
+        makeTorrentItem({
+          guid: "metadata-1",
+          title: "Shadow.of.the.Tomb.Raider.v1.2.MULTI5.DRM-Free.PC-SKIDROW",
+          link: "http://test.com/metadata",
+          seeders: 42,
+          downloadVolumeFactor: 0,
+        }),
+      ]),
+    });
+
+    renderComponent();
+
+    expect(
+      await screen.findByText("Shadow.of.the.Tomb.Raider.v1.2.MULTI5.DRM-Free.PC-SKIDROW")
+    ).toBeInTheDocument();
+    expect(screen.getByText("v1.2")).toBeInTheDocument();
+    expect(screen.getByText("Multi")).toBeInTheDocument();
+    expect(screen.getByText("DRM-Free")).toBeInTheDocument();
+    expect(screen.getByText("PC")).toBeInTheDocument();
+    expect(screen.getByText("Scene")).toBeInTheDocument();
+    expect(screen.getByText("Freeleech")).toBeInTheDocument();
+  });
 });

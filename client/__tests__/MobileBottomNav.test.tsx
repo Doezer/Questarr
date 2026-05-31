@@ -36,6 +36,15 @@ vi.mock("@/components/ui/sheet", () => ({
 }));
 
 describe("MobileBottomNav", () => {
+  it("navigates directly from pinned items", () => {
+    const onNavigate = vi.fn();
+    render(<MobileBottomNav activeItem="/discover" onNavigate={onNavigate} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Downloads" }));
+
+    expect(onNavigate).toHaveBeenCalledWith("/downloads");
+  });
+
   it("marks the active pinned page", () => {
     render(<MobileBottomNav activeItem="/downloads" onNavigate={vi.fn()} />);
 
@@ -77,5 +86,13 @@ describe("MobileBottomNav", () => {
 
     expect(screen.getByText("Pages")).toBeInTheDocument();
     expect(screen.getByText("Management")).toBeInTheDocument();
+  });
+
+  it("does not treat setup as a More page", () => {
+    render(<MobileBottomNav activeItem="/setup" onNavigate={vi.fn()} />);
+
+    expect(screen.getByRole("button", { name: "More navigation options" })).not.toHaveAttribute(
+      "aria-current"
+    );
   });
 });

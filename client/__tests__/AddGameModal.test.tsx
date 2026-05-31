@@ -206,6 +206,15 @@ describe("AddGameModal", () => {
     expect(screen.getByRole("button", { name: "Go to Settings" })).toBeInTheDocument();
   });
 
+  it("shows the mobile starter prompt before a query is entered", async () => {
+    mockIsMobile = true;
+    renderModal();
+
+    fireEvent.click(screen.getByTestId("open-btn"));
+
+    expect(await screen.findByText("Type at least 3 characters to search.")).toBeInTheDocument();
+  });
+
   it("renders the mobile empty prompt and added badge for games already in collection", async () => {
     mockIsMobile = true;
     const result = makeSearchResult("Collection Game", "2024-12-31");

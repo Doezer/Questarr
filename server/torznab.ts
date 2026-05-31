@@ -400,15 +400,26 @@ export class TorznabClient {
             // Prowlarr — which has FlareSolverr configured to bypass Cloudflare.
             const prowlarrMatch = indexerUrlObj.pathname.match(/^\/(\d+)\/api\/?$/i);
             if (prowlarrMatch && indexer?.apiKey) {
-              const prowlarrUrl = new URL(`${indexerUrlObj.protocol}//${indexerUrlObj.host}`);
-              prowlarrUrl.pathname = `/${prowlarrMatch[1]}/download`;
-              prowlarrUrl.searchParams.set("file", torznabItem.title || "download");
-              prowlarrUrl.searchParams.set(
-                "link",
-                Buffer.from(torznabItem.link).toString("base64")
-              );
-              prowlarrUrl.searchParams.set("apikey", indexer.apiKey);
-              torznabItem.link = prowlarrUrl.toString();
+              const isProwlarrProxyUrl =
+                /^\/\d+\/download\/?$/i.test(linkUrl.pathname) && linkUrl.searchParams.has("link");
+
+              if (isProwlarrProxyUrl) {
+                // Prowlarr already returned a proxy URL. Avoid double-wrapping when only
+                // hostnames differ (e.g. localhost vs 127.0.0.1) by doing host rewrite only.
+                linkUrl.protocol = indexerUrlObj.protocol;
+                linkUrl.host = indexerUrlObj.host;
+                torznabItem.link = linkUrl.toString();
+              } else {
+                const prowlarrUrl = new URL(`${indexerUrlObj.protocol}//${indexerUrlObj.host}`);
+                prowlarrUrl.pathname = `/${prowlarrMatch[1]}/download`;
+                prowlarrUrl.searchParams.set("file", torznabItem.title || "download");
+                prowlarrUrl.searchParams.set(
+                  "link",
+                  Buffer.from(torznabItem.link).toString("base64")
+                );
+                prowlarrUrl.searchParams.set("apikey", indexer.apiKey);
+                torznabItem.link = prowlarrUrl.toString();
+              }
             } else {
               // Standard host rewrite for reverse-proxy / seedbox setups where the indexer
               // returns its internal address but should be reached via the configured URL.

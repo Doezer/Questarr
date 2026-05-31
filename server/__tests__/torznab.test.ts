@@ -156,6 +156,24 @@ describe("TorznabClient — download link rewriting", () => {
     expect(result.items[0].link).toBe(prowlarrProxyUrl);
   });
 
+  it("does not double-wrap Prowlarr proxy URL when only host aliases differ", async () => {
+    const prowlarrIndexer = makeIndexer({
+      url: "http://localhost:9696/5/api",
+      apiKey: "prowlarr-api-key",
+    });
+    const prowlarrProxyUrlFromAlias =
+      "http://127.0.0.1:9696/5/download?file=Some+Game&link=aHR0cHM6Ly9leGFtcGxlLmNvbS90b3JyZW50L2Rvd25sb2FkP2lkPTE%3D&apikey=prowlarr-api-key";
+    mockFetchResponse(makeTorznabXml(prowlarrProxyUrlFromAlias));
+
+    const result = await client.searchGames(prowlarrIndexer, { query: "game" });
+
+    const rewritten = new URL(result.items[0].link);
+    expect(rewritten.hostname).toBe("localhost");
+    expect(rewritten.pathname).toBe("/5/download");
+    expect(rewritten.searchParams.get("apikey")).toBe("prowlarr-api-key");
+    expect(rewritten.searchParams.get("link")).toBe("aHR0cHM6Ly9leGFtcGxlLmNvbS90b3JyZW50L2Rvd25sb2FkP2lkPTE=");
+  });
+
   it("falls back to standard host rewrite for Prowlarr-style URL path but missing apiKey", async () => {
     const indexer = makeIndexer({
       url: "https://prowlarr:9696/5/api",

@@ -220,7 +220,7 @@ export const insertGameSchema = createInsertSchema(games, {
 });
 
 export const updateGameStatusSchema = z.object({
-  status: z.enum(["wanted", "owned", "completed", "downloading"]),
+  status: z.enum(["wanted", "owned", "shelved", "completed", "downloading"]),
   completedAt: z.date().optional(),
 });
 
@@ -274,14 +274,9 @@ export const insertDownloaderSchema = createInsertSchema(downloaders, {
     createdAt: true,
     updatedAt: true,
   })
-  .superRefine((data, ctx) => {
-    if (data.type === "sabnzbd" && !data.username) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["username"],
-        message: "API key is required for SABnzbd",
-      });
-    }
+  .refine((data) => !(data.type === "sabnzbd" && !data.username), {
+    message: "API key is required for SABnzbd",
+    path: ["username"],
   });
 
 export const insertGameDownloadSchema = createInsertSchema(gameDownloads).omit({
@@ -386,7 +381,7 @@ export type Game = typeof games.$inferSelect & {
 
 export type InsertGame = (typeof insertGameSchema)["_output"];
 
-export type UpdateGameStatus = (typeof updateGameStatusSchema)["_output"];
+export type UpdateGameStatus = z.infer<typeof updateGameStatusSchema>;
 
 export type Indexer = typeof indexers.$inferSelect;
 export type InsertIndexer = (typeof insertIndexerSchema)["_output"];
@@ -399,10 +394,6 @@ export type InsertGameDownload = (typeof insertGameDownloadSchema)["_output"];
 
 export type XrelNotifiedRelease = typeof xrelNotifiedReleases.$inferSelect;
 export type InsertXrelNotifiedRelease = (typeof insertXrelNotifiedReleaseSchema)["_output"];
-
-// Legacy type names for backward compatibility
-export type GameDownloadLegacy = GameDownload;
-export type InsertGameDownloadLegacy = InsertGameDownload;
 
 export type Notification = typeof notifications.$inferSelect;
 export type InsertNotification = (typeof insertNotificationSchema)["_output"];

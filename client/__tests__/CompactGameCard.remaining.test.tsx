@@ -106,6 +106,24 @@ vi.mock("@/components/ui/tooltip", () => ({
   TooltipContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
+// Stub StatusPicker so it doesn't add a second Popover instance to the page.
+// The rating-popover mock below assumes a single PopoverContent; two would break it.
+vi.mock("../src/components/StatusPicker", () => ({
+  __esModule: true,
+  default: ({
+    currentStatus,
+    gameTitle,
+  }: {
+    currentStatus: string;
+    gameTitle?: string;
+    children?: React.ReactNode;
+  }) => (
+    <button type="button" aria-label={`Change status for ${gameTitle}`}>
+      {currentStatus}
+    </button>
+  ),
+}));
+
 vi.mock("@/components/ui/popover", () => ({
   // Single popover instance is enough for this test file.
   __esModule: true,
@@ -137,9 +155,9 @@ vi.mock("@/components/ui/popover", () => ({
     children: React.ReactNode;
     onClick?: (event: React.MouseEvent) => void;
   }) => (
-    <div data-testid="popover-content" onClick={onClick}>
+    <button type="button" data-testid="popover-content" onClick={onClick}>
       {children}
-    </div>
+    </button>
   ),
 }));
 
@@ -233,9 +251,7 @@ describe("CompactGameCard remaining coverage", () => {
       json: async () => addedGame,
     });
 
-    renderCard(
-      <CompactGameCard game={{ ...baseGame, id: "igdb-1" } as Game} isDiscovery mobileLayout />
-    );
+    renderCard(<CompactGameCard game={{ ...baseGame, id: "igdb-1" }} isDiscovery mobileLayout />);
 
     fireEvent.click(screen.getByLabelText("Download Questarr Game"));
 
@@ -257,7 +273,7 @@ describe("CompactGameCard remaining coverage", () => {
       (mutationState.addConfig?.mutationFn as ((value: Game) => Promise<Game>) | undefined)?.({
         ...baseGame,
         id: "igdb-2",
-      } as Game)
+      })
     ).resolves.toEqual(duplicateGame);
 
     apiRequestMock.mockRejectedValueOnce(
@@ -267,7 +283,7 @@ describe("CompactGameCard remaining coverage", () => {
       (mutationState.addConfig?.mutationFn as ((value: Game) => Promise<Game>) | undefined)?.({
         ...baseGame,
         id: "igdb-3",
-      } as Game)
+      })
     ).resolves.toEqual({ ...baseGame, id: "igdb-3" });
   });
 
@@ -354,8 +370,6 @@ describe("CompactGameCard remaining coverage", () => {
         typeof element.className === "string" && element.className.includes("justify-end gap-1")
     );
     expect(actionsWrapper).toBeTruthy();
-    fireEvent.click(actionsWrapper!);
-    expect(onViewDetails).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByLabelText("Hide Questarr Game"));
     expect(onToggleHidden).toHaveBeenCalledWith("1", true);

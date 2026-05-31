@@ -15,7 +15,7 @@ export function formatBytes(bytes: number): string {
   const k = 1024;
   const sizes = ["B", "KB", "MB", "GB", "TB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+  return Number.parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
 }
 
 /**
@@ -108,7 +108,8 @@ export function compareEnabledPriorityName<T extends EnabledPriorityNamed>(a: T,
  */
 export function safeUrl(url: string, fallback = "#"): string {
   try {
-    const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost";
+    const origin =
+      globalThis.window === undefined ? "http://localhost" : globalThis.window.location.origin;
     const parsedUrl = new URL(url, origin);
     if (parsedUrl.protocol === "http:" || parsedUrl.protocol === "https:") {
       return url;
@@ -117,13 +118,6 @@ export function safeUrl(url: string, fallback = "#"): string {
     // Ignore invalid URLs
   }
   return fallback;
-}
-
-/**
- * Returns the human-readable label for the next status a game can transition to.
- */
-export function getNextStatusLabel(status: Game["status"]): string {
-  return status === "wanted" ? "Owned" : status === "owned" ? "Completed" : "Wanted";
 }
 
 /**
@@ -139,7 +133,7 @@ export function parseReleaseDate(isoDate: string | null | undefined): {
   const year = isoDate.slice(0, 4);
   if (isoDate.endsWith("-12-31")) return { year, fullDate: null };
   const date = new Date(isoDate);
-  if (isNaN(date.getTime())) return { year, fullDate: null };
+  if (Number.isNaN(date.getTime())) return { year, fullDate: null };
   const dd = String(date.getUTCDate()).padStart(2, "0");
   const mm = String(date.getUTCMonth() + 1).padStart(2, "0");
   return { year, fullDate: `${dd}/${mm}/${date.getUTCFullYear()}` };

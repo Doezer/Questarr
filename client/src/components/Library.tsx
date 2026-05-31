@@ -5,6 +5,7 @@ import PageToolbar from "./PageToolbar";
 import GameGrid from "./GameGrid";
 import AddGameModal from "./AddGameModal";
 import {
+  Archive,
   Bookmark,
   CheckCircle2,
   EyeOff,
@@ -247,6 +248,14 @@ export default function Library() {
               </span>
               <span className="opacity-30">·</span>
               <span className="flex items-center gap-1">
+                <Archive className="h-3 w-3" />
+                <span className="font-medium text-foreground">
+                  {stableLibStats.statusBreakdown.shelved}
+                </span>{" "}
+                shelved
+              </span>
+              <span className="opacity-30">·</span>
+              <span className="flex items-center gap-1">
                 <CheckCircle2 className="h-3 w-3" />
                 <span className="font-medium text-foreground">
                   {stableLibStats.statusBreakdown.completed}
@@ -402,7 +411,7 @@ export default function Library() {
                   <Label>Status</Label>
                   <Select
                     value={statusFilter}
-                    onValueChange={(value) => setStatusFilter(value as GameStatus | "all")}
+                    onValueChange={(v) => setStatusFilter(v as GameStatus | "all")}
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -411,6 +420,7 @@ export default function Library() {
                       <SelectItem value="all">All</SelectItem>
                       <SelectItem value="wanted">Wanted</SelectItem>
                       <SelectItem value="owned">Owned</SelectItem>
+                      <SelectItem value="shelved">Shelved</SelectItem>
                       <SelectItem value="completed">Completed</SelectItem>
                       <SelectItem value="downloading">Downloading</SelectItem>
                     </SelectContent>
@@ -454,7 +464,7 @@ export default function Library() {
                   <div className="flex items-center justify-between">
                     <Label>Min Rating</Label>
                     <span className="text-sm text-muted-foreground">
-                      {minRating !== null ? `≥ ${minRating}/10` : "Any"}
+                      {minRating === null ? "Any" : `≥ ${minRating}/10`}
                     </span>
                   </div>
                   <Slider
@@ -497,8 +507,10 @@ export default function Library() {
               platformFilter !== "all" ||
               minRating !== null ||
               showUnratedOnly;
-            return hasActiveFilters ? (
-              debouncedSearchQuery.trim() ? (
+            const hasSearchQuery = debouncedSearchQuery.trim();
+
+            if (hasActiveFilters) {
+              return hasSearchQuery ? (
                 <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
                   <p className="text-lg font-medium mb-1">
                     No results for &ldquo;{debouncedSearchQuery}&rdquo;
@@ -520,8 +532,10 @@ export default function Library() {
                     Try adjusting or clearing your filters.
                   </p>
                 </div>
-              )
-            ) : (
+              );
+            }
+
+            return (
               <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
                 <p className="text-lg font-medium mb-1">No games yet</p>
                 <p className="text-sm text-muted-foreground mb-6">

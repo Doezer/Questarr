@@ -13,7 +13,7 @@ const { apiRequestMock, invalidateQueriesMock, toastMock, mutationState, mobileS
     invalidateQueriesMock: vi.fn(),
     toastMock: vi.fn(),
     mutationState: {
-      config: null as Record<string, unknown> | null,
+      config: null,
       pending: false,
     },
     mobileState: { value: false },
@@ -159,7 +159,7 @@ describe("GameCard remaining coverage", () => {
 
     const { container } = render(
       <GameCard
-        game={{ ...baseGame, id: "igdb-1" } as Game}
+        game={{ ...baseGame, id: "igdb-1" }}
         isDiscovery
         onViewDetails={onViewDetails}
         onToggleHidden={onToggleHidden}
@@ -256,14 +256,20 @@ describe("GameCard remaining coverage", () => {
     expect(screen.getByText("Tracking...")).toBeInTheDocument();
   });
 
-  it("covers status changes for library games", () => {
+  it("covers status changes for library games", async () => {
     const onStatusChange = vi.fn();
 
     render(
       <GameCard game={{ ...baseGame, status: "owned" } as Game} onStatusChange={onStatusChange} />
     );
 
+    // Open the status picker popover
     fireEvent.click(screen.getByTestId("button-status-1"));
+
+    // Select "completed" from the picker chips (aria-label matches status id)
+    const completedChip = await screen.findByRole("button", { name: "completed" });
+    fireEvent.click(completedChip);
+
     expect(onStatusChange).toHaveBeenCalledWith("1", "completed");
   });
 });

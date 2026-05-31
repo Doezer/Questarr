@@ -4,7 +4,6 @@ import {
   asZodType,
   compareEnabledPriorityName,
   formatBytes,
-  getNextStatusLabel,
   isDiscoveryId,
   mapGameToInsertGame,
   parseReleaseDate,
@@ -93,7 +92,7 @@ describe("mapGameToInsertGame", () => {
       status: "wanted",
       hidden: undefined,
       earlyAccess: undefined,
-    } as never);
+    });
 
     expect(mapped).toEqual({
       igdbId: 77,
@@ -130,20 +129,6 @@ describe("compareEnabledPriorityName", () => {
       "Zulu",
       "Beta",
     ]);
-  });
-});
-
-describe("getNextStatusLabel", () => {
-  it("returns Owned when current status is wanted", () => {
-    expect(getNextStatusLabel("wanted")).toBe("Owned");
-  });
-
-  it("returns Completed when current status is owned", () => {
-    expect(getNextStatusLabel("owned")).toBe("Completed");
-  });
-
-  it("returns Wanted when current status is completed", () => {
-    expect(getNextStatusLabel("completed")).toBe("Wanted");
   });
 });
 

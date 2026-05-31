@@ -11,7 +11,6 @@ import { torznabClient } from "../torznab.js";
 import { rssService } from "../rss.js";
 import { comparePassword } from "../auth.js";
 import { db } from "../db.js";
-import { prowlarrClient } from "../prowlarr.js";
 
 // Use vi.hoisted to create the mock object
 const { mockConfig } = vi.hoisted(() => {
@@ -129,7 +128,7 @@ vi.mock("../auth.js", async () => {
   return {
     ...actual,
     authenticateToken: (req: Request, res: Response, next: NextFunction) => {
-      (req as Request).user = { id: "user-1", username: "testuser" } as unknown as User;
+      req.user = { id: "user-1", username: "testuser" } as unknown as User;
       next();
     },
     generateToken: vi.fn().mockResolvedValue("mock-token"),
@@ -510,7 +509,7 @@ describe("API Routes - Extended Coverage", () => {
       });
 
       it("should return 404 when user not found", async () => {
-        vi.mocked(storage.getUser).mockResolvedValue(null as unknown as User);
+        vi.mocked(storage.getUser).mockResolvedValue(null);
 
         const res = await request(app).patch("/api/auth/password").send({
           currentPassword: "oldpass1",
@@ -699,6 +698,26 @@ describe("API Routes - Extended Coverage", () => {
         .patch(`/api/games/${gameId}/status`)
         .send({ status: "completed" });
       expect(response.status).toBe(200);
+    });
+
+    it("should accept shelved as a valid status", async () => {
+      const gameId = "123e4567-e89b-12d3-a456-426614174000";
+      const updatedGame = { id: gameId, status: "shelved" };
+      vi.mocked(storage.updateGameStatus).mockResolvedValue(updatedGame as unknown as Game);
+
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/status`)
+        .send({ status: "shelved" });
+      expect(response.status).toBe(200);
+    });
+
+    it("should return 400 for an invalid status value", async () => {
+      const gameId = "123e4567-e89b-12d3-a456-426614174000";
+
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/status`)
+        .send({ status: "dropped" });
+      expect(response.status).toBe(400);
     });
 
     it("should return 404 for non-existent game", async () => {

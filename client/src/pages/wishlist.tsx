@@ -225,6 +225,118 @@ export default function WishlistPage() {
     errorMessage: "Failed to update game visibility",
   });
 
+  let wishlistContent: React.ReactNode;
+
+  if (!isLoading && games.length === 0) {
+    wishlistContent = (
+      <EmptyState
+        icon={Star}
+        title="Your wishlist is empty"
+        description="Keep track of games you want to play. Add them from the Discover page to get notified about releases and updates."
+        actionLabel="Find Games"
+        actionLink="/discover"
+      />
+    );
+  } else if (!isLoading && filteredGames.length === 0) {
+    wishlistContent = (
+      <EmptyState
+        icon={Star}
+        title={emptyStateContent.title}
+        description={emptyStateContent.description}
+      />
+    );
+  } else if (isMobile && mobileSections.length > 1) {
+    wishlistContent = (
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="w-full">
+          {mobileSections.map((section) => (
+            <TabsTrigger key={section.id} value={section.id} className="flex-1">
+              {section.label}
+              <span className="ml-1.5 text-xs opacity-60">{section.count}</span>
+            </TabsTrigger>
+          ))}
+        </TabsList>
+        {mobileSections.map((section) => (
+          <TabsContent key={section.id} value={section.id} className="mt-4">
+            <GameGrid
+              games={section.games}
+              onStatusChange={(id, status) => statusMutation.mutate({ gameId: id, status })}
+              onToggleHidden={(id, hidden) => hiddenMutation.mutate({ gameId: id, hidden })}
+              isLoading={isLoading}
+              viewMode={viewMode}
+              density={listDensity}
+              downloadSummaries={downloadSummaries}
+            />
+          </TabsContent>
+        ))}
+      </Tabs>
+    );
+  } else {
+    wishlistContent = (
+      <div className="space-y-8 md:space-y-12">
+        {releasedGames.length > 0 && (
+          <section>
+            <div className="flex items-baseline gap-2 mb-3">
+              <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                Released
+              </h2>
+              <span className="text-xs text-muted-foreground/60">{releasedGames.length}</span>
+            </div>
+            <GameGrid
+              games={sortedReleasedGames}
+              onStatusChange={(id, status) => statusMutation.mutate({ gameId: id, status })}
+              onToggleHidden={(id, hidden) => hiddenMutation.mutate({ gameId: id, hidden })}
+              isLoading={isLoading}
+              viewMode={viewMode}
+              density={listDensity}
+              downloadSummaries={downloadSummaries}
+            />
+          </section>
+        )}
+
+        {showUnreleased && upcomingGames.length > 0 && (
+          <section>
+            <div className="flex items-baseline gap-2 mb-3">
+              <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                Upcoming
+              </h2>
+              <span className="text-xs text-muted-foreground/60">{upcomingGames.length}</span>
+            </div>
+            <GameGrid
+              games={sortedUpcomingGames}
+              onStatusChange={(id, status) => statusMutation.mutate({ gameId: id, status })}
+              onToggleHidden={(id, hidden) => hiddenMutation.mutate({ gameId: id, hidden })}
+              isLoading={isLoading}
+              viewMode={viewMode}
+              density={listDensity}
+              downloadSummaries={downloadSummaries}
+            />
+          </section>
+        )}
+
+        {showUnreleased && tbaGames.length > 0 && (
+          <section>
+            <div className="flex items-baseline gap-2 mb-3">
+              <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                To Be Announced
+              </h2>
+              <span className="text-xs text-muted-foreground/60">{tbaGames.length}</span>
+            </div>
+            <GameGrid
+              games={sortedTbaGames}
+              onStatusChange={(id, status) => statusMutation.mutate({ gameId: id, status })}
+              onToggleHidden={(id, hidden) => hiddenMutation.mutate({ gameId: id, hidden })}
+              isLoading={isLoading}
+              viewMode={viewMode}
+              density={listDensity}
+              downloadSummaries={downloadSummaries}
+            />
+          </section>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="h-full overflow-auto p-4 md:p-6">
       <div className="space-y-3">
@@ -275,107 +387,7 @@ export default function WishlistPage() {
           }}
         />
 
-        {!isLoading && games.length === 0 ? (
-          <EmptyState
-            icon={Star}
-            title="Your wishlist is empty"
-            description="Keep track of games you want to play. Add them from the Discover page to get notified about releases and updates."
-            actionLabel="Find Games"
-            actionLink="/discover"
-          />
-        ) : !isLoading && filteredGames.length === 0 ? (
-          <EmptyState
-            icon={Star}
-            title={emptyStateContent.title}
-            description={emptyStateContent.description}
-          />
-        ) : isMobile && mobileSections.length > 1 ? (
-          <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="w-full">
-              {mobileSections.map((section) => (
-                <TabsTrigger key={section.id} value={section.id} className="flex-1">
-                  {section.label}
-                  <span className="ml-1.5 text-xs opacity-60">{section.count}</span>
-                </TabsTrigger>
-              ))}
-            </TabsList>
-            {mobileSections.map((section) => (
-              <TabsContent key={section.id} value={section.id} className="mt-4">
-                <GameGrid
-                  games={section.games}
-                  onStatusChange={(id, status) => statusMutation.mutate({ gameId: id, status })}
-                  onToggleHidden={(id, hidden) => hiddenMutation.mutate({ gameId: id, hidden })}
-                  isLoading={isLoading}
-                  viewMode={viewMode}
-                  density={listDensity}
-                  downloadSummaries={downloadSummaries}
-                />
-              </TabsContent>
-            ))}
-          </Tabs>
-        ) : (
-          <div className="space-y-8 md:space-y-12">
-            {releasedGames.length > 0 && (
-              <section>
-                <div className="flex items-baseline gap-2 mb-3">
-                  <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-                    Released
-                  </h2>
-                  <span className="text-xs text-muted-foreground/60">{releasedGames.length}</span>
-                </div>
-                <GameGrid
-                  games={sortedReleasedGames}
-                  onStatusChange={(id, status) => statusMutation.mutate({ gameId: id, status })}
-                  onToggleHidden={(id, hidden) => hiddenMutation.mutate({ gameId: id, hidden })}
-                  isLoading={isLoading}
-                  viewMode={viewMode}
-                  density={listDensity}
-                  downloadSummaries={downloadSummaries}
-                />
-              </section>
-            )}
-
-            {showUnreleased && upcomingGames.length > 0 && (
-              <section>
-                <div className="flex items-baseline gap-2 mb-3">
-                  <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-                    Upcoming
-                  </h2>
-                  <span className="text-xs text-muted-foreground/60">{upcomingGames.length}</span>
-                </div>
-                <GameGrid
-                  games={sortedUpcomingGames}
-                  onStatusChange={(id, status) => statusMutation.mutate({ gameId: id, status })}
-                  onToggleHidden={(id, hidden) => hiddenMutation.mutate({ gameId: id, hidden })}
-                  isLoading={isLoading}
-                  viewMode={viewMode}
-                  density={listDensity}
-                  downloadSummaries={downloadSummaries}
-                />
-              </section>
-            )}
-
-            {showUnreleased && tbaGames.length > 0 && (
-              <section>
-                <div className="flex items-baseline gap-2 mb-3">
-                  <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-                    To Be Announced
-                  </h2>
-                  <span className="text-xs text-muted-foreground/60">{tbaGames.length}</span>
-                </div>
-                <GameGrid
-                  games={sortedTbaGames}
-                  onStatusChange={(id, status) => statusMutation.mutate({ gameId: id, status })}
-                  onToggleHidden={(id, hidden) => hiddenMutation.mutate({ gameId: id, hidden })}
-                  isLoading={isLoading}
-                  viewMode={viewMode}
-                  density={listDensity}
-                  downloadSummaries={downloadSummaries}
-                />
-              </section>
-            )}
-          </div>
-        )}
+        {wishlistContent}
       </div>
     </div>
   );

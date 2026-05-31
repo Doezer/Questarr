@@ -97,7 +97,7 @@ describe("CalendarPage", () => {
   it("shows the IGDB setup prompt when configuration is missing", async () => {
     const { apiRequest } = await import("@/lib/queryClient");
     vi.mocked(apiRequest).mockResolvedValueOnce(
-      createJsonResponse({ igdb: { configured: false } }) as Awaited<ReturnType<typeof apiRequest>>
+      createJsonResponse({ igdb: { configured: false } })
     );
 
     renderPage();

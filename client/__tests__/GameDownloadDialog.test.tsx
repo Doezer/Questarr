@@ -929,7 +929,12 @@ describe("GameDownloadDialog", () => {
     });
 
     const downloadButtons = screen.getAllByTestId("icon-download");
-    fireEvent.click(downloadButtons[0].closest("button")!);
+    const firstDownloadButton = downloadButtons[0]?.closest("button");
+    expect(firstDownloadButton).not.toBeNull();
+    if (!firstDownloadButton) {
+      throw new Error("Expected a download button");
+    }
+    fireEvent.click(firstDownloadButton);
 
     await waitFor(() => {
       expect(screen.getByText("Download with Updates?")).toBeInTheDocument();

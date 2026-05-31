@@ -137,17 +137,19 @@ import { useDebounce } from "@/hooks/use-debounce";
 import { formatBytes, formatAge, isUsenetItem } from "@/lib/downloads-utils";
 import { useIsMobile } from "@/hooks/use-mobile";
 
+type ReleaseMetadataBadgesProps = Readonly<{
+  metadata: ReleaseMetadata;
+  isUsenet: boolean;
+  downloadVolumeFactor?: number;
+  className?: string;
+}>;
+
 function ReleaseMetadataBadges({
   metadata,
   isUsenet,
   downloadVolumeFactor,
   className,
-}: {
-  metadata: ReleaseMetadata;
-  isUsenet: boolean;
-  downloadVolumeFactor?: number;
-  className?: string;
-}) {
+}: ReleaseMetadataBadgesProps) {
   const hasMetadata =
     metadata.version ||
     (metadata.languages && metadata.languages.length > 0) ||

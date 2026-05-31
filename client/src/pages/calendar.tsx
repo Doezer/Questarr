@@ -400,28 +400,25 @@ function MonthView({
         ))}
       </div>
       <div className="grid grid-cols-7 gap-1 md:gap-2">
-        {days.map((day, idx) => {
+        {days.map((day) => {
           const isCurrentMonth = day.getMonth() === month;
           const dateKey = formatDate(day);
           const gamesOnDay = gamesByDate[dateKey] || [];
           const isToday = todayKey === dateKey;
           const isSelected = selectedDayKey === dateKey;
+          const formattedDayLabel = day.toLocaleDateString(undefined, {
+            weekday: "long",
+            month: "long",
+            day: "numeric",
+          });
+          const releaseLabel =
+            gamesOnDay.length === 1 ? "1 release" : `${gamesOnDay.length} releases`;
           const mobileButtonLabel =
-            gamesOnDay.length > 0
-              ? `${day.toLocaleDateString(undefined, {
-                  weekday: "long",
-                  month: "long",
-                  day: "numeric",
-                })}, ${gamesOnDay.length} release${gamesOnDay.length === 1 ? "" : "s"}`
-              : day.toLocaleDateString(undefined, {
-                  weekday: "long",
-                  month: "long",
-                  day: "numeric",
-                });
+            gamesOnDay.length > 0 ? `${formattedDayLabel}, ${releaseLabel}` : formattedDayLabel;
 
           return (
             <div
-              key={idx}
+              key={dateKey}
               className={cn(
                 "min-h-[48px] md:min-h-[120px] border rounded-lg p-1 md:p-2 transition-colors",
                 !isCurrentMonth && "bg-muted/30",
@@ -518,7 +515,7 @@ function WeekView({
     <div className="bg-card border rounded-lg p-4">
       {/* Mobile: vertical list — one full-width row per day */}
       <div className="space-y-2 md:hidden">
-        {weekDays.map((day, idx) => {
+        {weekDays.map((day) => {
           const dateKey = formatDate(day);
           const gamesOnDay = gamesByDate[dateKey] || [];
           const isToday = todayKey === dateKey;
@@ -527,7 +524,7 @@ function WeekView({
 
           return (
             <div
-              key={idx}
+              key={dateKey}
               className={cn(
                 "flex gap-3 rounded-lg border p-3",
                 isToday ? "border-primary border-2" : "border-border",
@@ -569,7 +566,7 @@ function WeekView({
 
       {/* Desktop: 7-column grid */}
       <div className="hidden md:grid md:grid-cols-7 md:gap-4">
-        {weekDays.map((day, idx) => {
+        {weekDays.map((day) => {
           const dateKey = formatDate(day);
           const gamesOnDay = gamesByDate[dateKey] || [];
           const isToday = todayKey === dateKey;
@@ -577,7 +574,7 @@ function WeekView({
 
           return (
             <div
-              key={idx}
+              key={dateKey}
               className={cn("border rounded-lg p-3", isToday && "border-primary border-2")}
             >
               <div className="text-center mb-3">

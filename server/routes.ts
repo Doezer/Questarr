@@ -64,6 +64,7 @@ import { appriseClient } from "./apprise.js";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import { readLastLogLines } from "./log-file.js";
 
 // Root directory for the file system browser; restrict browsing to this tree
 const FILE_BROWSER_ROOT = fs.realpathSync(process.cwd());
@@ -266,22 +267,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json({ lines: [] });
       }
 
-      // Read only the tail of the file to avoid loading the entire log into memory.
-      // 512 bytes per line is a generous upper bound for structured JSON log lines.
-      const tailBytes = Math.min(stat.size, limit * 512);
-      const buffer = Buffer.alloc(tailBytes);
-      const fileHandle = await fs.promises.open(logPath, "r");
-      try {
-        await fileHandle.read(buffer, 0, tailBytes, stat.size - tailBytes);
-      } finally {
-        await fileHandle.close();
+      if (stat.size === 0) {
+        return res.json({ lines: [] });
       }
 
-      const lines = buffer
-        .toString("utf-8")
-        .split("\n")
-        .filter((l) => l.trim().length > 0)
-        .slice(-limit);
+      const lines = await readLastLogLines(logPath, limit);
 
       res.json({ lines });
     } catch (error) {

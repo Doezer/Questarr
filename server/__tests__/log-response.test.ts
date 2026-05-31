@@ -39,4 +39,36 @@ describe("truncateLogData", () => {
       },
     });
   });
+
+  it("preserves full nested message strings", () => {
+    const fullMessage = "Synology ".repeat(20);
+
+    const result = truncateLogData({
+      response: {
+        success: false,
+        message: fullMessage,
+      },
+    });
+
+    expect(result).toEqual({
+      response: {
+        success: false,
+        message: fullMessage,
+      },
+    });
+  });
+
+  it("continues truncating other long strings", () => {
+    const result = truncateLogData({
+      response: {
+        detail: "a".repeat(60),
+      },
+    });
+
+    expect(result).toEqual({
+      response: {
+        detail: `${"a".repeat(50)}...`,
+      },
+    });
+  });
 });

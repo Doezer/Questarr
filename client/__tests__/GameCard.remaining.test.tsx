@@ -203,7 +203,7 @@ describe("GameCard remaining coverage", () => {
     expect(content).toBeTruthy();
     onViewDetails.mockClear();
     fireEvent.click(content!);
-    expect(onViewDetails).not.toHaveBeenCalled();
+    expect(onViewDetails).toHaveBeenCalledWith("igdb-1");
 
     render(
       <GameCard game={baseGame} onToggleHidden={onToggleHidden} onViewDetails={onViewDetails} />

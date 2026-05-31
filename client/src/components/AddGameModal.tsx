@@ -21,7 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { Search, Plus, Star, AlertCircle, Calendar, Check } from "lucide-react";
+import { Search, Plus, Star, AlertCircle, Calendar, Check, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { type Game, type InsertGame, type Config } from "@shared/schema";
 import { mapGameToInsertGame } from "@/lib/utils";
@@ -154,6 +154,9 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
 
   const igdbNotConfigured = config && !config.igdb?.configured;
 
+  const isAddingGame = (igdbId: number | null | undefined) =>
+    addGameMutation.isPending && addGameMutation.variables?.igdbId === igdbId;
+
   // ─── Mobile layout (bottom sheet) ────────────────────────────────────────────
 
   if (isMobile) {
@@ -265,7 +268,11 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
                             data-testid={`button-add-${game.id}`}
                             aria-label={`Add ${game.title} to collection`}
                           >
-                            <Plus className="w-4 h-4" />
+                            {isAddingGame(game.igdbId) ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Plus className="w-4 h-4" />
+                            )}
                           </button>
                         )}
                       </div>
@@ -460,8 +467,12 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
                               data-testid={`button-add-${game.id}`}
                               aria-label={`Add ${game.title} to collection`}
                             >
-                              <Plus className="w-4 h-4 mr-1" />
-                              Add
+                              {isAddingGame(game.igdbId) ? (
+                                <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                              ) : (
+                                <Plus className="w-4 h-4 mr-1" />
+                              )}
+                              {isAddingGame(game.igdbId) ? "Adding..." : "Add"}
                             </Button>
                           )}
                         </div>

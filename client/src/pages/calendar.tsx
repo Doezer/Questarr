@@ -24,7 +24,7 @@ interface GamesByDate {
   [date: string]: Game[];
 }
 
-function formatDate(date: Date): string {
+export function formatDate(date: Date): string {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
   const d = String(date.getDate()).padStart(2, "0");
@@ -35,7 +35,7 @@ function getMonthName(month: number): string {
   return new Date(2000, month, 1).toLocaleDateString(undefined, { month: "long" });
 }
 
-function getWeekDays(date: Date): Date[] {
+export function getWeekDays(date: Date): Date[] {
   const day = date.getDay();
   const diff = date.getDate() - day + (day === 0 ? -6 : 1); // Adjust when day is sunday
   const monday = new Date(date);
@@ -47,7 +47,7 @@ function getWeekDays(date: Date): Date[] {
   });
 }
 
-function getDaysInMonth(year: number, month: number): Date[] {
+export function getDaysInMonth(year: number, month: number): Date[] {
   const firstDay = new Date(year, month, 1);
   const lastDay = new Date(year, month + 1, 0);
   const days: Date[] = [];
@@ -81,6 +81,7 @@ export default function CalendarPage() {
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
   const [downloadDialogOpen, setDownloadDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const today = useMemo(() => new Date(), []);
 
   const handleGameClick = (game: Game) => {
     setSelectedGame(game);
@@ -256,6 +257,7 @@ export default function CalendarPage() {
                   currentDate={currentDate}
                   gamesByDate={gamesByDate}
                   onGameClick={handleGameClick}
+                  today={today}
                 />
               )}
               {viewMode === "week" && (
@@ -263,6 +265,7 @@ export default function CalendarPage() {
                   currentDate={currentDate}
                   gamesByDate={gamesByDate}
                   onGameClick={handleGameClick}
+                  today={today}
                 />
               )}
             </>
@@ -359,16 +362,19 @@ function MonthView({
   currentDate,
   gamesByDate,
   onGameClick,
+  today,
 }: {
   currentDate: Date;
   gamesByDate: GamesByDate;
   onGameClick: (game: Game) => void;
+  today: Date;
 }) {
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
   const days = getDaysInMonth(year, month);
   const weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
   const [selectedDayKey, setSelectedDayKey] = useState<string | null>(null);
+  const todayKey = formatDate(today);
 
   const handleCellClick = (dateKey: string, gamesOnDay: Game[]) => {
     if (gamesOnDay.length === 0) {
@@ -398,7 +404,7 @@ function MonthView({
           const isCurrentMonth = day.getMonth() === month;
           const dateKey = formatDate(day);
           const gamesOnDay = gamesByDate[dateKey] || [];
-          const isToday = formatDate(new Date()) === dateKey;
+          const isToday = todayKey === dateKey;
           const isSelected = selectedDayKey === dateKey;
 
           return (
@@ -476,13 +482,15 @@ function WeekView({
   currentDate,
   gamesByDate,
   onGameClick,
+  today,
 }: {
   currentDate: Date;
   gamesByDate: GamesByDate;
   onGameClick: (game: Game) => void;
+  today: Date;
 }) {
   const weekDays = getWeekDays(new Date(currentDate));
-  const todayKey = formatDate(new Date());
+  const todayKey = formatDate(today);
 
   return (
     <div className="bg-card border rounded-lg p-4">

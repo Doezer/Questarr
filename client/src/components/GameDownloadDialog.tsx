@@ -162,6 +162,9 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   );
   const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
+  // Tracks whether dialog defaults have already been applied for the current open session.
+  // This prevents settings refetches from overwriting user-made changes after initialization.
+  const defaultsAppliedRef = useRef(false);
   // Tracks whether platform preselection has been applied this dialog session to prevent
   // re-applying it (and overriding the user's manual choice) if userSettings refetches.
   const platformPreselectedRef = useRef(false);
@@ -183,6 +186,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     setVisibleCategories(new Set(["main", "update", "dlc", "extra"] as DownloadCategory[]));
     setSelectedGroups([]);
     setSelectedPlatforms([]);
+    defaultsAppliedRef.current = false;
     platformPreselectedRef.current = false;
     hasInvalidatedRef.current = false;
   }, []);
@@ -232,12 +236,14 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     }
   }, [open, game, setDefaults]);
 
-  // Apply download rules whenever settings load or change.
+  // Apply settings-derived defaults only once per dialog session so later refetches
+  // do not overwrite manual adjustments the user makes in the UI.
   useEffect(() => {
-    if (open && game) {
+    if (open && game && userSettings && !defaultsAppliedRef.current) {
       applyDownloadRules();
+      defaultsAppliedRef.current = true;
     }
-  }, [open, game, applyDownloadRules]);
+  }, [open, game, userSettings, applyDownloadRules]);
 
   const searchQueryKey = game?.id
     ? `/api/search?query=${encodeURIComponent(debouncedSearchQuery)}&gameId=${game.id}`
@@ -315,6 +321,13 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       .map((p) => ({ label: p, value: p }));
   }, [itemsMetadata]);
 
+  const itemPubDateTimestamps = useMemo(() => {
+    if (!searchResults?.items) return new Map<string, number>();
+    return new Map(
+      searchResults.items.map((item) => [item.guid || item.link, new Date(item.pubDate).getTime()])
+    );
+  }, [searchResults?.items]);
+
   // Apply filters and sorting
   const filteredCategorizedDownloads = useMemo(() => {
     const filtered: Record<DownloadCategory, DownloadItem[]> = {
@@ -346,7 +359,10 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
             const bHealth = isUsenetItem(b) ? (b.grabs ?? 0) : (b.seeders ?? 0);
             comparison = bHealth - aHealth;
           } else if (sortBy === "date") {
-            comparison = new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime();
+            const keyA = a.guid || a.link;
+            const keyB = b.guid || b.link;
+            comparison =
+              (itemPubDateTimestamps.get(keyB) ?? 0) - (itemPubDateTimestamps.get(keyA) ?? 0);
           } else {
             comparison = (b.size ?? 0) - (a.size ?? 0);
           }
@@ -365,6 +381,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     visibleCategories,
     selectedGroups,
     selectedPlatforms,
+    itemPubDateTimestamps,
   ]);
 
   // Sorted items for display (by date)
@@ -424,7 +441,11 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       }
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to start download", description: error.message });
+      toast({
+        title: "Failed to start download",
+        description: error.message,
+        variant: "destructive",
+      });
     },
     onSettled: () => {
       setDownloadingGuid(null);
@@ -463,7 +484,11 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       }
     },
     onError: (error: Error) => {
-      toast({ title: "Failed to start download", description: error.message });
+      toast({
+        title: "Failed to start download",
+        description: error.message,
+        variant: "destructive",
+      });
     },
   });
 
@@ -725,7 +750,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
           type="number"
           min="0"
           value={minSeeders}
-          onChange={(e) => setMinSeeders(parseInt(e.target.value) || 0)}
+          onChange={(e) => setMinSeeders(Number.parseInt(e.target.value) || 0)}
           className="w-full"
         />
       </div>

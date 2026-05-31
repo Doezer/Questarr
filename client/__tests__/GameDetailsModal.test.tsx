@@ -21,7 +21,9 @@ vi.mock("@/hooks/use-toast", () => ({
 }));
 
 vi.mock("../src/components/StatusBadge", () => ({
+  __esModule: true,
   default: ({ status }: { status: string }) => <div data-testid="status-badge">{status}</div>,
+  getStatusLabel: (status: string) => status,
 }));
 
 vi.mock("../src/components/GameDownloadDialog", () => ({

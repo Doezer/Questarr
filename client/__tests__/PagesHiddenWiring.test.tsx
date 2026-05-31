@@ -199,7 +199,7 @@ describe("Library filter buttons", () => {
       expect(lastGames).toHaveLength(2);
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Show games with downloads only" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Show games with downloads only" })[0]);
 
     await waitFor(() => {
       const calls = gameGridSpy.mock.calls;
@@ -217,7 +217,9 @@ describe("Library filter buttons", () => {
       expect(calls[calls.length - 1]?.[0]?.games).toHaveLength(2);
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Show games with search results only" }));
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "Show games with search results only" })[0]
+    );
 
     await waitFor(() => {
       const calls = gameGridSpy.mock.calls;

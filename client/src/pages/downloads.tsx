@@ -579,11 +579,12 @@ export default function Downloads() {
             variant="outline"
             size="sm"
             onClick={() => setBatchModalOpen(true)}
-            className="hidden sm:flex items-center gap-2 sm:ml-auto"
+            className="ml-auto flex items-center gap-2"
             aria-label="Scan unlinked downloads"
           >
             <ScanLine className="h-4 w-4" />
-            Scan Unlinked
+            <span className="sm:hidden">Scan</span>
+            <span className="hidden sm:inline">Scan Unlinked</span>
           </Button>
         </div>
       </div>

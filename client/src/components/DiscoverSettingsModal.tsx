@@ -128,7 +128,9 @@ export default function DiscoverSettingsModal({
                     onClick={() => handleUnhide(game.id)}
                     disabled={unhideMutation.isPending}
                   >
-                    Unhide
+                    {unhideMutation.isPending && unhideMutation.variables === game.id
+                      ? "Unhiding..."
+                      : "Unhide"}
                   </Button>
                 </div>
               ))}

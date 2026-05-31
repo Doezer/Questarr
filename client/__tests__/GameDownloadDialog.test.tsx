@@ -51,6 +51,10 @@ vi.mock("@/hooks/use-toast", () => ({
   }),
 }));
 
+vi.mock("@/hooks/use-mobile", () => ({
+  useIsMobile: () => false,
+}));
+
 // Mock Lucide icons
 vi.mock("lucide-react", () => ({
   Download: (props: Record<string, unknown>) => <div data-testid="icon-download" {...props} />,

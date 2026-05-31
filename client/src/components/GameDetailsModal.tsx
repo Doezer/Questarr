@@ -719,127 +719,131 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
             </TabsList>
 
             {/* ── Overview tab ── */}
-            <TabsContent value="overview" className="flex-1 min-h-0 overflow-y-auto">
-              <div className="space-y-5 pb-2">
-                {/* Summary */}
-                {game.summary && (
-                  <div>
-                    <h3 className="font-semibold mb-2 flex items-center gap-2">
-                      <Gamepad2 className="w-4 h-4" />
-                      About
-                    </h3>
-                    <p
-                      className={cn(
-                        "text-sm text-muted-foreground leading-relaxed break-words [overflow-wrap:anywhere]",
-                        !isSummaryExpanded && "line-clamp-3 sm:line-clamp-5"
-                      )}
-                      data-testid={`text-summary-${game.id}`}
-                    >
-                      {game.summary}
-                    </p>
-                    {isSummaryLong && (
-                      <Button
-                        variant="link"
-                        className="p-0 h-auto mt-1 font-semibold"
-                        onClick={() => setIsSummaryExpanded(!isSummaryExpanded)}
+            <TabsContent value="overview" className="flex-1 min-h-0">
+              <ScrollArea className="h-full">
+                <div className="space-y-5 pr-4 pb-2">
+                  {/* Summary */}
+                  {game.summary && (
+                    <div>
+                      <h3 className="font-semibold mb-2 flex items-center gap-2">
+                        <Gamepad2 className="w-4 h-4" />
+                        About
+                      </h3>
+                      <p
+                        className={cn(
+                          "text-sm text-muted-foreground leading-relaxed break-words [overflow-wrap:anywhere]",
+                          !isSummaryExpanded && "line-clamp-3 sm:line-clamp-5"
+                        )}
+                        data-testid={`text-summary-${game.id}`}
                       >
-                        {isSummaryExpanded ? "Show less" : "Read more"}
-                      </Button>
+                        {game.summary}
+                      </p>
+                      {isSummaryLong && (
+                        <Button
+                          variant="link"
+                          className="p-0 h-auto mt-1 font-semibold"
+                          onClick={() => setIsSummaryExpanded(!isSummaryExpanded)}
+                        >
+                          {isSummaryExpanded ? "Show less" : "Read more"}
+                        </Button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Metadata grid */}
+                  <div className="grid grid-cols-2 gap-4">
+                    {game.rating && (
+                      <div>
+                        <h4 className="font-medium text-sm text-muted-foreground mb-1">
+                          IGDB score
+                        </h4>
+                        <div className="flex items-center gap-1">
+                          <Star className="w-4 h-4 text-accent fill-current" />
+                          <span className="text-sm font-medium">{game.rating}/10</span>
+                        </div>
+                      </div>
+                    )}
+                    {game.releaseDate && (
+                      <div>
+                        <h4 className="font-medium text-sm text-muted-foreground mb-1">
+                          Release Date
+                        </h4>
+                        <p className="text-sm" data-testid={`text-full-release-date-${game.id}`}>
+                          {new Date(game.releaseDate).toLocaleDateString()}
+                        </p>
+                      </div>
+                    )}
+                    {game.addedAt && (
+                      <div>
+                        <h4 className="font-medium text-sm text-muted-foreground mb-1">
+                          Added to Collection
+                        </h4>
+                        <p className="text-sm">{new Date(game.addedAt).toLocaleDateString()}</p>
+                      </div>
+                    )}
+                    {game.developers && game.developers.length > 0 && (
+                      <div>
+                        <h4 className="font-medium text-sm text-muted-foreground mb-1 flex items-center gap-1">
+                          <Building2 className="w-3.5 h-3.5" />
+                          Developer{game.developers.length > 1 ? "s" : ""}
+                        </h4>
+                        <p className="text-sm">{game.developers.join(", ")}</p>
+                      </div>
+                    )}
+                    {game.publishers && game.publishers.length > 0 && (
+                      <div>
+                        <h4 className="font-medium text-sm text-muted-foreground mb-1 flex items-center gap-1">
+                          <Building2 className="w-3.5 h-3.5" />
+                          Publisher{game.publishers.length > 1 ? "s" : ""}
+                        </h4>
+                        <p className="text-sm">{game.publishers.join(", ")}</p>
+                      </div>
                     )}
                   </div>
-                )}
 
-                {/* Metadata grid */}
-                <div className="grid grid-cols-2 gap-4">
-                  {game.rating && (
-                    <div>
-                      <h4 className="font-medium text-sm text-muted-foreground mb-1">IGDB score</h4>
-                      <div className="flex items-center gap-1">
-                        <Star className="w-4 h-4 text-accent fill-current" />
-                        <span className="text-sm font-medium">{game.rating}/10</span>
+                  {/* Genres and Platforms */}
+                  <div className="grid grid-cols-2 gap-4">
+                    {game.genres && game.genres.length > 0 && (
+                      <div>
+                        <h3 className="font-semibold mb-2 flex items-center gap-2">
+                          <Tag className="w-4 h-4" />
+                          Genres
+                        </h3>
+                        <div className="flex flex-wrap gap-2">
+                          {game.genres.map((genre, i) => (
+                            <Badge
+                              key={i}
+                              variant="secondary"
+                              data-testid={`badge-genre-${genre.toLowerCase().replace(/\s+/g, "-")}`}
+                            >
+                              {genre}
+                            </Badge>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  )}
-                  {game.releaseDate && (
-                    <div>
-                      <h4 className="font-medium text-sm text-muted-foreground mb-1">
-                        Release Date
-                      </h4>
-                      <p className="text-sm" data-testid={`text-full-release-date-${game.id}`}>
-                        {new Date(game.releaseDate).toLocaleDateString()}
-                      </p>
-                    </div>
-                  )}
-                  {game.addedAt && (
-                    <div>
-                      <h4 className="font-medium text-sm text-muted-foreground mb-1">
-                        Added to Collection
-                      </h4>
-                      <p className="text-sm">{new Date(game.addedAt).toLocaleDateString()}</p>
-                    </div>
-                  )}
-                  {game.developers && game.developers.length > 0 && (
-                    <div>
-                      <h4 className="font-medium text-sm text-muted-foreground mb-1 flex items-center gap-1">
-                        <Building2 className="w-3.5 h-3.5" />
-                        Developer{game.developers.length > 1 ? "s" : ""}
-                      </h4>
-                      <p className="text-sm">{game.developers.join(", ")}</p>
-                    </div>
-                  )}
-                  {game.publishers && game.publishers.length > 0 && (
-                    <div>
-                      <h4 className="font-medium text-sm text-muted-foreground mb-1 flex items-center gap-1">
-                        <Building2 className="w-3.5 h-3.5" />
-                        Publisher{game.publishers.length > 1 ? "s" : ""}
-                      </h4>
-                      <p className="text-sm">{game.publishers.join(", ")}</p>
-                    </div>
-                  )}
+                    )}
+                    {game.platforms && game.platforms.length > 0 && (
+                      <div>
+                        <h3 className="font-semibold mb-2 flex items-center gap-2">
+                          <Monitor className="w-4 h-4" />
+                          Platforms
+                        </h3>
+                        <div className="flex flex-wrap gap-2">
+                          {game.platforms.map((platform, i) => (
+                            <Badge
+                              key={i}
+                              variant="outline"
+                              data-testid={`badge-platform-${platform.toLowerCase().replace(/\s+/g, "-")}`}
+                            >
+                              {platform}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
-
-                {/* Genres and Platforms */}
-                <div className="grid grid-cols-2 gap-4">
-                  {game.genres && game.genres.length > 0 && (
-                    <div>
-                      <h3 className="font-semibold mb-2 flex items-center gap-2">
-                        <Tag className="w-4 h-4" />
-                        Genres
-                      </h3>
-                      <div className="flex flex-wrap gap-2">
-                        {game.genres.map((genre, i) => (
-                          <Badge
-                            key={i}
-                            variant="secondary"
-                            data-testid={`badge-genre-${genre.toLowerCase().replace(/\s+/g, "-")}`}
-                          >
-                            {genre}
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {game.platforms && game.platforms.length > 0 && (
-                    <div>
-                      <h3 className="font-semibold mb-2 flex items-center gap-2">
-                        <Monitor className="w-4 h-4" />
-                        Platforms
-                      </h3>
-                      <div className="flex flex-wrap gap-2">
-                        {game.platforms.map((platform, i) => (
-                          <Badge
-                            key={i}
-                            variant="outline"
-                            data-testid={`badge-platform-${platform.toLowerCase().replace(/\s+/g, "-")}`}
-                          >
-                            {platform}
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
+              </ScrollArea>
             </TabsContent>
 
             {/* ── Downloads tab ── */}

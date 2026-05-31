@@ -88,7 +88,7 @@ describe("SendLogsDialog", () => {
   });
 
   it("submits scrubbed logs and shows the success state", async () => {
-    sendLogsMock.mockResolvedValue({ ok: true, code: "ABCD", gistId: "gist-123" });
+    sendLogsMock.mockResolvedValue({ ok: true, code: "ABCD", issueNumber: 123 });
     const onOpenChange = vi.fn();
 
     const { rerender } = render(
@@ -154,7 +154,7 @@ describe("SendLogsDialog", () => {
   });
 
   it("shows a destructive toast when copying the support code fails", async () => {
-    sendLogsMock.mockResolvedValue({ ok: true, code: "WXYZ", gistId: "gist-999" });
+    sendLogsMock.mockResolvedValue({ ok: true, code: "WXYZ", issueNumber: 999 });
     Object.assign(navigator, {
       clipboard: {
         writeText: vi.fn().mockRejectedValue(new Error("denied")),

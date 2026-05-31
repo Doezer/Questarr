@@ -24,7 +24,7 @@ import {
 } from "../src/lib/send-logs";
 
 describe("send-logs utilities", () => {
-  const originalFetch = global.fetch;
+  const originalFetch = globalThis.fetch;
   const originalUserAgent = window.navigator.userAgent;
 
   beforeEach(() => {
@@ -34,7 +34,7 @@ describe("send-logs utilities", () => {
   });
 
   afterEach(() => {
-    global.fetch = originalFetch;
+    globalThis.fetch = originalFetch;
     Object.defineProperty(window.navigator, "userAgent", {
       configurable: true,
       value: originalUserAgent,
@@ -81,9 +81,9 @@ describe("send-logs utilities", () => {
   it("posts scrubbed logs and returns the support code on success", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ code: "ABCD", gistId: "gist-123" }),
+      json: async () => ({ code: "ABCD", issueNumber: 123 }),
     } satisfies Partial<Response>);
-    global.fetch = fetchMock as typeof fetch;
+    globalThis.fetch = fetchMock as typeof fetch;
 
     await expect(
       sendLogs({
@@ -95,7 +95,7 @@ describe("send-logs utilities", () => {
     ).resolves.toEqual({
       ok: true,
       code: "ABCD",
-      gistId: "gist-123",
+      issueNumber: 123,
     });
 
     expect(fetchMock).toHaveBeenCalledWith("https://support.example/workers/logs", {
@@ -111,7 +111,7 @@ describe("send-logs utilities", () => {
   });
 
   it("prefers the worker error payload when the upload fails", async () => {
-    global.fetch = vi.fn().mockResolvedValue({
+    globalThis.fetch = vi.fn().mockResolvedValue({
       ok: false,
       status: 502,
       json: async () => ({ error: "GitHub rejected the gist request." }),
@@ -132,7 +132,7 @@ describe("send-logs utilities", () => {
   });
 
   it("surfaces network failures", async () => {
-    global.fetch = vi.fn().mockRejectedValue(new Error("offline")) as typeof fetch;
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error("offline")) as typeof fetch;
 
     await expect(
       sendLogs({
@@ -152,8 +152,9 @@ describe("send-logs utilities", () => {
     const issueUrl = buildGitHubIssueUrl("ABCD", "1.4.0");
 
     expect(issueUrl).toContain("https://github.com/Doezer/Questarr/issues/new?");
-    expect(decodeURIComponent(issueUrl)).toContain("[Support] Log code ABCD");
+    expect(decodeURIComponent(issueUrl)).toContain("[Support] Issue with Questarr v1.4.0");
     expect(decodeURIComponent(issueUrl)).toContain("**App version:** 1.4.0");
+    expect(decodeURIComponent(issueUrl)).toContain("**Support log #:** `ABCD`");
   });
 
   it("detects the current platform from the browser user agent", () => {

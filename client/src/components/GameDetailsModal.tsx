@@ -38,6 +38,7 @@ import {
   Users,
   Building2,
   ThumbsUp,
+  FlaskConical,
 } from "lucide-react";
 import { FaSteam, FaRedditAlien, FaDiscord, FaWikipediaW, FaTwitch } from "react-icons/fa";
 import {
@@ -53,7 +54,7 @@ import { io } from "socket.io-client";
 import { useToast } from "@/hooks/use-toast";
 import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { type Game, type GameDownload } from "@shared/schema";
-import StatusBadge from "./StatusBadge";
+import StatusBadge, { getStatusLabel } from "./StatusBadge";
 import { apiRequest } from "@/lib/queryClient";
 import { cn, safeUrl, formatBytes, isDiscoveryId } from "@/lib/utils";
 
@@ -183,12 +184,18 @@ function DownloadStatusIcon({ status }: { status: string }) {
 
 // ── Source badge ──────────────────────────────────────────────────────────────
 
+function getSourceLabel(source: string | null | undefined): string {
+  if (source === "steam") return "Steam Wishlist";
+  if (source === "api") return "Via API";
+  return "Added Manually";
+}
+
 function SourceBadge({ source }: { source: string | null | undefined }) {
   if (source === "steam") {
     return (
       <Badge variant="outline" className="gap-1.5 text-sky-400 border-sky-400/30">
         <FaSteam size={11} />
-        Steam Wishlist
+        <span className="hidden sm:inline">Steam Wishlist</span>
       </Badge>
     );
   }
@@ -196,14 +203,14 @@ function SourceBadge({ source }: { source: string | null | undefined }) {
     return (
       <Badge variant="outline" className="gap-1.5 text-purple-400 border-purple-400/30">
         <Zap className="w-3 h-3" />
-        Via API
+        <span className="hidden sm:inline">Via API</span>
       </Badge>
     );
   }
   return (
     <Badge variant="outline" className="gap-1.5 text-muted-foreground">
       <UserRound className="w-3 h-3" />
-      Added Manually
+      <span className="hidden sm:inline">Added Manually</span>
     </Badge>
   );
 }
@@ -248,7 +255,8 @@ function StarRatingInput({
   const display = hovered ?? value;
 
   return (
-    <div className="flex items-center gap-1" role="group" aria-label="Your rating">
+    <fieldset className="flex items-center gap-2 border-0 p-0 sm:gap-1">
+      <legend className="sr-only">Your rating</legend>
       {[1, 2, 3, 4, 5].map((star) => {
         const fullValue = star * 2; // e.g. star=3 → fullValue=6
         const halfValue = star * 2 - 1; // e.g. star=3 → halfValue=5
@@ -256,7 +264,7 @@ function StarRatingInput({
         const isHalf = display !== null && display >= halfValue && display < fullValue;
 
         return (
-          <span key={star} className="relative inline-flex w-5 h-5 overflow-visible">
+          <span key={star} className="relative inline-flex w-7 h-7 sm:w-5 sm:h-5 overflow-visible">
             <StarHitTarget
               ratingValue={halfValue}
               currentValue={value}
@@ -274,13 +282,13 @@ function StarRatingInput({
             {/* Background star first so the accent star renders on top */}
             {isHalf && (
               <Star
-                className="w-5 h-5 pointer-events-none text-muted-foreground absolute inset-0"
+                className="w-7 h-7 sm:w-5 sm:h-5 pointer-events-none text-muted-foreground absolute inset-0"
                 aria-hidden="true"
               />
             )}
             {/* Visual star (accent-filled when full/half, muted otherwise) */}
             <Star
-              className={`w-5 h-5 pointer-events-none transition-colors ${
+              className={`w-7 h-7 sm:w-5 sm:h-5 pointer-events-none transition-colors ${
                 isFull
                   ? "text-accent fill-current"
                   : isHalf
@@ -303,7 +311,7 @@ function StarRatingInput({
           "Not rated"
         )}
       </span>
-    </div>
+    </fieldset>
   );
 }
 
@@ -493,14 +501,14 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     : (game.userRating ?? null);
 
   return (
-    <>
+    <TooltipProvider>
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent
-          className="max-w-4xl max-h-[90vh] flex flex-col"
+          className="max-w-4xl max-h-[95svh] sm:max-h-[90vh] flex flex-col overflow-hidden"
           onClick={(e) => e.stopPropagation()}
         >
           {/* ── Header ── */}
-          <DialogHeader className="flex-shrink-0 pb-0 pr-8">
+          <DialogHeader className="flex-shrink-0 pb-0 pr-8 text-left">
             <div className="flex items-start justify-between gap-4">
               <div className="flex-1 min-w-0">
                 <DialogTitle
@@ -513,11 +521,28 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                   Detailed information about {game.title}
                 </DialogDescription>
                 <div className="flex flex-wrap items-center gap-2">
-                  <StatusBadge status={game.status} />
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="cursor-default">
+                        <StatusBadge status={game.status} />
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent className="sm:hidden">
+                      {getStatusLabel(game.status)}
+                    </TooltipContent>
+                  </Tooltip>
                   {game.earlyAccess && (
-                    <Badge className="text-xs bg-amber-500 border-amber-600 text-white">
-                      Early Access
-                    </Badge>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="cursor-default">
+                          <Badge className="text-xs bg-amber-500 border-amber-600 text-white gap-1">
+                            <FlaskConical className="w-3 h-3" />
+                            <span className="hidden sm:inline">Early Access</span>
+                          </Badge>
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent className="sm:hidden">Early Access</TooltipContent>
+                    </Tooltip>
                   )}
                   {game.rating ? (
                     <div className="flex items-center gap-1 text-sm">
@@ -546,13 +571,24 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                           data-testid={`badge-search-results-${game.id}`}
                         >
                           <Search className="w-3 h-3" />
-                          Results available
+                          <span className="hidden sm:inline">Results available</span>
                         </Badge>
                       </TooltipTrigger>
-                      <TooltipContent>Downloads found on indexers</TooltipContent>
+                      <TooltipContent className="sm:hidden">
+                        Downloads found on indexers
+                      </TooltipContent>
                     </Tooltip>
                   )}
-                  <SourceBadge source={game.source} />
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="cursor-default">
+                        <SourceBadge source={game.source} />
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent className="sm:hidden">
+                      {getSourceLabel(game.source)}
+                    </TooltipContent>
+                  </Tooltip>
                 </div>
               </div>
               {game.coverUrl && (
@@ -560,7 +596,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                   <img
                     src={game.coverUrl}
                     alt={`${game.title} cover`}
-                    className="w-32 object-cover rounded-lg shadow-md"
+                    className="w-20 sm:w-32 object-cover rounded-lg shadow-md"
                     style={{ aspectRatio: "3/4" }}
                     data-testid={`img-cover-${game.id}`}
                   />
@@ -580,7 +616,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                   }
                 }}
                 placeholder="Personal notes..."
-                className="resize-none min-h-[72px] text-sm"
+                className="resize-none min-h-[56px] sm:min-h-[72px] text-sm"
                 maxLength={10000}
                 aria-label="Personal notes for this game"
                 disabled={notesMutation.isPending}
@@ -591,45 +627,69 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
             </div>
 
             {/* Quick Actions */}
-            <div className="flex flex-wrap gap-2 mt-3">
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                onClick={() => setDownloadOpen(true)}
-                data-testid="button-download-game"
-              >
-                <Download className="w-4 h-4" />
-                Download
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => hiddenMutation.mutate({ gameId: game.id, hidden: !game.hidden })}
-                disabled={hiddenMutation.isPending}
-                className="gap-2"
-                data-testid={`button-toggle-hidden-quick-${game.id}`}
-              >
-                {game.hidden ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                {hiddenMutation.isPending ? "Updating..." : game.hidden ? "Unhide" : "Hide"}
-              </Button>
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => removeGameMutation.mutate(game.id)}
-                disabled={removeGameMutation.isPending}
-                className="gap-2"
-                data-testid={`button-remove-game-quick-${game.id}`}
-              >
-                <X className="w-4 h-4" />
-                {removeGameMutation.isPending ? "Removing..." : "Remove"}
-              </Button>
+            <div className="flex gap-2 mt-3">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-10 w-10 sm:h-9 sm:w-auto sm:px-3 sm:gap-2"
+                    aria-label="Download"
+                    onClick={() => setDownloadOpen(true)}
+                    data-testid="button-download-game"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span className="hidden sm:inline">Download</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent className="sm:hidden">Download</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => hiddenMutation.mutate({ gameId: game.id, hidden: !game.hidden })}
+                    disabled={hiddenMutation.isPending}
+                    className="h-10 w-10 sm:h-9 sm:w-auto sm:px-3 sm:gap-2"
+                    aria-label={game.hidden ? "Unhide" : "Hide"}
+                    data-testid={`button-toggle-hidden-quick-${game.id}`}
+                  >
+                    {game.hidden ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                    <span className="hidden sm:inline">
+                      {hiddenMutation.isPending ? "Updating..." : game.hidden ? "Unhide" : "Hide"}
+                    </span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent className="sm:hidden">
+                  {game.hidden ? "Unhide" : "Hide"}
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => removeGameMutation.mutate(game.id)}
+                    disabled={removeGameMutation.isPending}
+                    className="h-10 w-10 sm:h-9 sm:w-auto sm:px-3 sm:gap-2"
+                    aria-label="Remove"
+                    data-testid={`button-remove-game-quick-${game.id}`}
+                  >
+                    <X className="w-4 h-4" />
+                    <span className="hidden sm:inline">
+                      {removeGameMutation.isPending ? "Removing..." : "Remove"}
+                    </span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent className="sm:hidden">Remove</TooltipContent>
+              </Tooltip>
             </div>
           </DialogHeader>
 
           {/* ── Tabs ── */}
           <Tabs defaultValue="overview" className="flex-1 flex flex-col min-h-0 mt-4">
-            <TabsList className="flex-shrink-0 w-full justify-start">
+            <TabsList className="flex-shrink-0 w-full justify-start overflow-x-auto">
               <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="downloads">
                 Downloads
@@ -647,7 +707,10 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                   </Badge>
                 )}
               </TabsTrigger>
-              <TabsTrigger value="links">Links & Ratings</TabsTrigger>
+              <TabsTrigger value="links">
+                <span className="sm:hidden">Links</span>
+                <span className="hidden sm:inline">Links &amp; Ratings</span>
+              </TabsTrigger>
               {nexusDomain && (
                 <TabsTrigger value="mods">
                   <SiNexusmods className="h-3.5 w-3.5 text-amber-500 mr-1" />
@@ -670,7 +733,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                       <p
                         className={cn(
                           "text-sm text-muted-foreground leading-relaxed break-words [overflow-wrap:anywhere]",
-                          isSummaryExpanded ? "max-h-48 overflow-y-auto" : "line-clamp-5"
+                          !isSummaryExpanded && "line-clamp-3 sm:line-clamp-5"
                         )}
                         data-testid={`text-summary-${game.id}`}
                       >
@@ -689,7 +752,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                   )}
 
                   {/* Metadata grid */}
-                  <div className="grid md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-4">
                     {game.rating && (
                       <div>
                         <h4 className="font-medium text-sm text-muted-foreground mb-1">
@@ -740,7 +803,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                   </div>
 
                   {/* Genres and Platforms */}
-                  <div className="grid md:grid-cols-2 gap-5">
+                  <div className="grid grid-cols-2 gap-4">
                     {game.genres && game.genres.length > 0 && (
                       <div>
                         <h3 className="font-semibold mb-2 flex items-center gap-2">
@@ -845,7 +908,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                                className="h-10 w-10 sm:h-7 sm:w-7 text-muted-foreground hover:text-destructive"
                                 aria-label="Remove download record"
                                 disabled={
                                   removeDownloadMutation.isPending &&
@@ -961,7 +1024,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                     </div>
                   </div>
 
-                  <TooltipProvider>
+                  <div>
                     {/* IGDB website links */}
                     {igdbWebsites.length > 0 && (
                       <div>
@@ -983,7 +1046,11 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                                       target="_blank"
                                       rel="noopener noreferrer"
                                     >
-                                      <Button variant="outline" size="sm" className="gap-2">
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="gap-2 h-10 sm:h-9"
+                                      >
                                         <Icon size={16} className={colorClass} />
                                         <span className="hidden sm:inline">{label}</span>
                                       </Button>
@@ -1012,7 +1079,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                                 target="_blank"
                                 rel="noopener noreferrer"
                               >
-                                <Button variant="outline" size="sm" className="gap-2">
+                                <Button variant="outline" size="sm" className="gap-2 h-10 sm:h-9">
                                   <link.Icon size={16} className={link.colorClass} />
                                   <span className="hidden sm:inline">{link.label}</span>
                                 </Button>
@@ -1031,7 +1098,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                                   target="_blank"
                                   rel="noopener noreferrer"
                                 >
-                                  <Button variant="outline" size="sm" className="gap-2">
+                                  <Button variant="outline" size="sm" className="gap-2 h-10 sm:h-9">
                                     <SiNexusmods size={16} className="text-amber-500" />
                                     <span className="hidden sm:inline">NexusMods</span>
                                   </Button>
@@ -1049,7 +1116,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                                   target="_blank"
                                   rel="noopener noreferrer"
                                 >
-                                  <Button variant="outline" size="sm" className="gap-2">
+                                  <Button variant="outline" size="sm" className="gap-2 h-10 sm:h-9">
                                     <SiNexusmods size={16} className="text-amber-500" />
                                     <span className="hidden sm:inline">NexusMods</span>
                                   </Button>
@@ -1060,7 +1127,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                           ) : null)}
                       </div>
                     </div>
-                  </TooltipProvider>
+                  </div>
                 </div>
               </ScrollArea>
             </TabsContent>
@@ -1169,6 +1236,6 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
           <GameDownloadDialog game={game} open={downloadOpen} onOpenChange={setDownloadOpen} />
         </Suspense>
       )}
-    </>
+    </TooltipProvider>
   );
 }

@@ -1,0 +1,64 @@
+/** @vitest-environment jsdom */
+import { renderHook } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { useIsMobile } from "../src/hooks/use-mobile";
+
+const originalMatchMedia = globalThis.matchMedia;
+const originalInnerWidth = globalThis.innerWidth;
+
+describe("useIsMobile", () => {
+  afterEach(() => {
+    globalThis.matchMedia = originalMatchMedia;
+    globalThis.innerWidth = originalInnerWidth;
+    vi.restoreAllMocks();
+  });
+
+  it("supports modern MediaQueryList event listeners", () => {
+    const addEventListener = vi.fn();
+    const removeEventListener = vi.fn();
+
+    globalThis.innerWidth = 1024;
+    globalThis.matchMedia = vi.fn().mockReturnValue({
+      matches: false,
+      media: "(max-width: 767px)",
+      onchange: null,
+      addEventListener,
+      removeEventListener,
+      dispatchEvent: vi.fn(),
+    }) as typeof globalThis.matchMedia;
+
+    const { result, unmount } = renderHook(() => useIsMobile());
+
+    expect(result.current).toBe(false);
+    expect(addEventListener).toHaveBeenCalledWith("change", expect.any(Function));
+
+    unmount();
+
+    expect(removeEventListener).toHaveBeenCalledWith("change", expect.any(Function));
+  });
+
+  it("supports legacy MediaQueryList listeners used by jsdom environments", () => {
+    const addListener = vi.fn();
+    const removeListener = vi.fn();
+
+    globalThis.innerWidth = 767;
+    globalThis.matchMedia = vi.fn().mockReturnValue({
+      matches: true,
+      media: "(max-width: 767px)",
+      onchange: null,
+      addListener,
+      removeListener,
+      dispatchEvent: vi.fn(),
+    }) as typeof globalThis.matchMedia;
+
+    const { result, unmount } = renderHook(() => useIsMobile());
+
+    expect(result.current).toBe(true);
+    expect(addListener).toHaveBeenCalledTimes(1);
+
+    unmount();
+
+    expect(removeListener).toHaveBeenCalledTimes(1);
+  });
+});

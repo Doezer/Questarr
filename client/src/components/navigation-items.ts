@@ -46,7 +46,6 @@ export const mobileBottomNavigation: AppNavItem[] = [
   { title: "Discover", url: "/discover", icon: Compass },
   { title: "Downloads", url: "/downloads", icon: Download },
   { title: "Wishlist", url: "/wishlist", icon: Star },
-  { title: "Settings", url: "/settings", icon: Settings },
 ];
 
 const allNavigation: AppNavItem[] = [

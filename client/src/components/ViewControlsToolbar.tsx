@@ -23,23 +23,25 @@ export default function ViewControlsToolbar({
   return (
     <>
       {viewMode === "list" && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={toggleDensity}>
-              {listDensity === "comfortable" ? (
-                <Rows3 className="h-3.5 w-3.5" />
-              ) : (
-                <Rows2 className="h-3.5 w-3.5" />
-              )}
-              <span className="sr-only sm:not-sr-only sm:inline-block">
-                {listDensity === "comfortable" ? "Comfortable" : "Compact"}
-              </span>
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>
-            Switch to {listDensity === "comfortable" ? "compact" : "comfortable"}
-          </TooltipContent>
-        </Tooltip>
+        <span className="hidden sm:contents">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={toggleDensity}>
+                {listDensity === "comfortable" ? (
+                  <Rows3 className="h-3.5 w-3.5" />
+                ) : (
+                  <Rows2 className="h-3.5 w-3.5" />
+                )}
+                <span className="sr-only sm:not-sr-only sm:inline-block">
+                  {listDensity === "comfortable" ? "Comfortable" : "Compact"}
+                </span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              Switch to {listDensity === "comfortable" ? "compact" : "comfortable"}
+            </TooltipContent>
+          </Tooltip>
+        </span>
       )}
       <ToggleGroup
         type="single"

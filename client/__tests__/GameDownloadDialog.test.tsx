@@ -4,16 +4,17 @@
 import React from "react";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { type QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import GameDownloadDialog from "../src/components/GameDownloadDialog";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { createTestQueryClient, getRequestUrl } from "./test-utils";
 
-// Route apiRequest through global.fetch so test mocks capture mutation calls
+// Route apiRequest through globalThis.fetch so test mocks capture mutation calls
 vi.mock("@/lib/queryClient", () => ({
   apiRequest: async (method: string, url: string, data?: unknown) => {
     const headers: Record<string, string> = data ? { "Content-Type": "application/json" } : {};
-    const res = await global.fetch(url, {
+    const res = await globalThis.fetch(url, {
       method,
       headers,
       body: data ? JSON.stringify(data) : undefined,
@@ -26,6 +27,7 @@ vi.mock("@/lib/queryClient", () => ({
 
 // Mocking external dependencies
 const mockToast = vi.fn();
+let mockIsMobile = false;
 
 vi.mock("@/components/ui/dropdown-menu", () => ({
   DropdownMenu: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -49,6 +51,10 @@ vi.mock("@/hooks/use-toast", () => ({
     toast: mockToast,
     toasts: [],
   }),
+}));
+
+vi.mock("@/hooks/use-mobile", () => ({
+  useIsMobile: () => mockIsMobile,
 }));
 
 // Mock Lucide icons
@@ -85,6 +91,7 @@ vi.mock("lucide-react", () => ({
   ChevronsUpDown: () => <div data-testid="icon-chevrons-up-down" />,
   MoreVertical: () => <div data-testid="icon-more-vertical" />,
   Copy: () => <div />,
+  Info: () => <div data-testid="icon-info" />,
   Ban: () => <div data-testid="icon-ban" />,
 }));
 
@@ -189,23 +196,7 @@ const mockDownloaders = [
 ];
 
 // Mock fetch
-global.fetch = vi.fn();
-
-const createTestQueryClient = () =>
-  new QueryClient({
-    defaultOptions: {
-      queries: {
-        retry: false,
-        queryFn: async ({ queryKey }) => {
-          const response = await fetch(queryKey.join(""));
-          if (!response.ok) {
-            throw new Error("Network response was not ok");
-          }
-          return response.json();
-        },
-      },
-    },
-  });
+globalThis.fetch = vi.fn();
 
 let queryClient: QueryClient;
 const mockOnOpenChange = vi.fn();
@@ -232,7 +223,7 @@ type FetchOverrides = {
 /** Creates a fetch mock with sensible defaults, overridable per-endpoint. */
 const createFetchMock = (overrides: FetchOverrides = {}) =>
   vi.fn(async (url: RequestInfo | URL) => {
-    const urlString = url.toString();
+    const urlString = getRequestUrl(url);
     if (urlString.includes("/api/search")) {
       return { ok: true, json: async () => overrides.search ?? mockTorrents };
     }
@@ -264,12 +255,18 @@ const createFetchMock = (overrides: FetchOverrides = {}) =>
       };
     }
     return { ok: false, json: async () => ({}) };
-  }) as never;
+  }) as typeof fetch;
 
 describe("GameDownloadDialog", () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    global.fetch = createFetchMock();
+    mockIsMobile = false;
+    Object.assign(navigator, {
+      clipboard: {
+        writeText: vi.fn(),
+      },
+    });
+    globalThis.fetch = createFetchMock();
   });
 
   it("renders search results correctly", async () => {
@@ -357,7 +354,7 @@ describe("GameDownloadDialog", () => {
     fireEvent.click(screen.getAllByText("Blacklist release")[0]);
 
     await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledWith(
+      expect(globalThis.fetch).toHaveBeenCalledWith(
         expect.stringContaining("/blacklist"),
         expect.objectContaining({
           method: "POST",
@@ -391,7 +388,7 @@ describe("GameDownloadDialog", () => {
   });
 
   it("shows destructive toast when download API returns success:false", async () => {
-    global.fetch = createFetchMock({
+    globalThis.fetch = createFetchMock({
       downloads: { success: false, message: "Downloader offline" },
     });
 
@@ -411,7 +408,7 @@ describe("GameDownloadDialog", () => {
   });
 
   it("displays indexer errors returned by the search API", async () => {
-    global.fetch = createFetchMock({
+    globalThis.fetch = createFetchMock({
       search: { items: [], total: 0, offset: 0, errors: ["Indexer A: connection timeout"] },
     });
 
@@ -442,7 +439,7 @@ describe("GameDownloadDialog", () => {
       leechers: 1,
     });
 
-    global.fetch = createFetchMock({
+    globalThis.fetch = createFetchMock({
       search: makeSearchResult([mainItem, updateItem]),
     });
 
@@ -482,7 +479,7 @@ describe("GameDownloadDialog", () => {
   const groupSearchResults = makeSearchResult([skidrowItem, codexItem]);
 
   it("filters displayed results to preferred groups when filterByPreferredGroups is enabled", async () => {
-    global.fetch = createFetchMock({
+    globalThis.fetch = createFetchMock({
       search: groupSearchResults,
       settings: { filterByPreferredGroups: true, preferredReleaseGroups: '["SKIDROW"]' },
     });
@@ -500,7 +497,7 @@ describe("GameDownloadDialog", () => {
   });
 
   it("shows all results when filterByPreferredGroups is false even if groups are configured", async () => {
-    global.fetch = createFetchMock({
+    globalThis.fetch = createFetchMock({
       search: groupSearchResults,
       settings: { filterByPreferredGroups: false, preferredReleaseGroups: '["SKIDROW"]' },
     });
@@ -536,7 +533,7 @@ describe("GameDownloadDialog", () => {
   const platformSearchResults = makeSearchResult([pcItem, macItem]);
 
   it("shows platform filter section when results contain platform metadata", async () => {
-    global.fetch = createFetchMock({ search: platformSearchResults });
+    globalThis.fetch = createFetchMock({ search: platformSearchResults });
 
     renderComponent();
 
@@ -556,7 +553,7 @@ describe("GameDownloadDialog", () => {
   });
 
   it("filters results by selected platform", async () => {
-    global.fetch = createFetchMock({ search: platformSearchResults });
+    globalThis.fetch = createFetchMock({ search: platformSearchResults });
 
     renderComponent();
 
@@ -593,7 +590,7 @@ describe("GameDownloadDialog", () => {
 
   it("clears stale platform selections when search results no longer include that platform", async () => {
     // Start with PC + Mac results
-    global.fetch = createFetchMock({ search: platformSearchResults });
+    globalThis.fetch = createFetchMock({ search: platformSearchResults });
 
     renderComponent();
 
@@ -625,7 +622,7 @@ describe("GameDownloadDialog", () => {
 
     // Now simulate search returning only PC results (no Mac platform)
     const pcOnlyResults = makeSearchResult([pcItem]);
-    global.fetch = createFetchMock({ search: pcOnlyResults });
+    globalThis.fetch = createFetchMock({ search: pcOnlyResults });
 
     // Change search query to trigger re-fetch
     const searchInput = screen.getByDisplayValue("Test Game");
@@ -641,7 +638,7 @@ describe("GameDownloadDialog", () => {
   });
 
   it("displays Freeleech badge for torrents with downloadVolumeFactor of 0", async () => {
-    global.fetch = createFetchMock({
+    globalThis.fetch = createFetchMock({
       search: makeSearchResult([
         makeTorrentItem({
           guid: "fl-1",
@@ -666,7 +663,7 @@ describe("GameDownloadDialog", () => {
   });
 
   it("does not display Freeleech badge when downloadVolumeFactor is absent", async () => {
-    global.fetch = createFetchMock({
+    globalThis.fetch = createFetchMock({
       search: makeSearchResult([
         makeTorrentItem({
           guid: "no-fl-1",
@@ -689,7 +686,7 @@ describe("GameDownloadDialog", () => {
   });
 
   it("displays leechers count for torrent results", async () => {
-    global.fetch = createFetchMock({
+    globalThis.fetch = createFetchMock({
       search: makeSearchResult([
         makeTorrentItem({
           guid: "leecher-1",
@@ -712,7 +709,7 @@ describe("GameDownloadDialog", () => {
   });
 
   it.skip("displays file count for usenet results", async () => {
-    global.fetch = createFetchMock({
+    globalThis.fetch = createFetchMock({
       search: makeSearchResult([
         makeUsenetItem({
           guid: "nzb-files-1",
@@ -742,7 +739,7 @@ describe("GameDownloadDialog", () => {
       platform: string | null,
       items: ReturnType<typeof makeTorrentItem>[]
     ) {
-      global.fetch = createFetchMock({
+      globalThis.fetch = createFetchMock({
         settings: { preferredPlatform: platform },
         search: makeSearchResult(items),
       });
@@ -801,7 +798,7 @@ describe("GameDownloadDialog", () => {
   });
 
   it("displays poster name for usenet results", async () => {
-    global.fetch = createFetchMock({
+    globalThis.fetch = createFetchMock({
       search: makeSearchResult([
         makeUsenetItem({
           guid: "nzb-poster-1",
@@ -823,5 +820,170 @@ describe("GameDownloadDialog", () => {
       },
       { timeout: 3000 }
     );
+  });
+
+  it("shows the preferred-platform warning and clears it with the inline action", async () => {
+    globalThis.fetch = createFetchMock({
+      settings: { preferredPlatform: "PS5" },
+      search: platformSearchResults,
+    });
+
+    renderComponent();
+
+    expect(
+      (
+        await screen.findAllByText(
+          (_, element) =>
+            element?.textContent?.includes("No results match your preferred platform") ?? false
+        )
+      ).length
+    ).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Show all results" }));
+
+    await waitFor(() => {
+      expect(screen.queryByText(/No results match your preferred platform/i)).toBeNull();
+      expect(screen.getAllByText("Test Game PC v1.0-SKIDROW").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Test Game Mac Edition-CODEX").length).toBeGreaterThan(0);
+    });
+  });
+
+  it("supports copying links and sending a release to a specific downloader", async () => {
+    globalThis.fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const target = getRequestUrl(url);
+      if (target.includes("/api/search")) {
+        return { ok: true, json: async () => mockTorrents } as Response;
+      }
+      if (target.includes("/api/indexers/enabled")) {
+        return { ok: true, json: async () => mockEnabledIndexers } as Response;
+      }
+      if (target.includes("/api/downloaders/enabled")) {
+        return {
+          ok: true,
+          json: async () => [
+            { id: "1", name: "qBittorrent", enabled: true, type: "qbittorrent" },
+            { id: "2", name: "Transmission", enabled: true, type: "transmission" },
+            { id: "3", name: "SABnzbd", enabled: true, type: "sabnzbd" },
+          ],
+        } as Response;
+      }
+      if (target.includes("/api/settings")) {
+        return { ok: true, json: async () => ({}) } as Response;
+      }
+      if (target.includes("/api/downloaders/2/downloads") && init?.method === "POST") {
+        return { ok: true, json: async () => ({ success: true }) } as Response;
+      }
+      if (target.includes("/api/downloaders/")) {
+        return { ok: true, json: async () => ({ success: true }) } as Response;
+      }
+      return { ok: true, json: async () => ({ success: true }) } as Response;
+    }) as typeof fetch;
+
+    renderComponent();
+
+    expect(await screen.findAllByText("Copy Torrent Link")).not.toHaveLength(0);
+    expect(await screen.findAllByText("Transmission")).not.toHaveLength(0);
+
+    fireEvent.click(screen.getAllByText("Copy Torrent Link")[0]);
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("http://test.com/torrent1");
+
+    fireEvent.click(screen.getAllByText("Transmission")[0]);
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "/api/downloaders/2/downloads",
+        expect.objectContaining({ method: "POST" })
+      );
+      expect(mockToast).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Download sent to Transmission" })
+      );
+    });
+  });
+
+  it("lets mobile users select bundle updates and download only the main game", async () => {
+    mockIsMobile = true;
+    globalThis.fetch = createFetchMock({
+      search: makeSearchResult([
+        makeTorrentItem({
+          guid: "mobile-main",
+          title: "Test Game ElAmigos",
+          link: "http://test.com/mobile-main",
+          pubDate: new Date().toISOString(),
+          downloadVolumeFactor: 0,
+        }),
+        makeTorrentItem({
+          guid: "mobile-update",
+          title: "Test Game Update v1.1",
+          link: "http://test.com/mobile-update",
+          seeders: 8,
+        }),
+      ]),
+    });
+
+    renderComponent();
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Test Game ElAmigos").length).toBeGreaterThan(0);
+      expect(screen.getByText("Freeleech")).toBeInTheDocument();
+      expect(screen.getByText("NEW")).toBeInTheDocument();
+    });
+
+    const downloadButtons = screen.getAllByTestId("icon-download");
+    const firstDownloadButton = downloadButtons[0]?.closest("button");
+    expect(firstDownloadButton).not.toBeNull();
+    if (!firstDownloadButton) {
+      throw new Error("Expected a download button");
+    }
+    fireEvent.click(firstDownloadButton);
+
+    await waitFor(() => {
+      expect(screen.getByText("Download with Updates?")).toBeInTheDocument();
+      expect(screen.getByText("1 of 1 updates selected")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Deselect All"));
+    expect(screen.getByText("0 of 1 updates selected")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Select All"));
+    expect(screen.getByText("1 of 1 updates selected")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Only the main game"));
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "/api/downloads",
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining("mobile-main"),
+        })
+      );
+    });
+  });
+
+  it("renders parsed metadata badges for mobile torrent results", async () => {
+    mockIsMobile = true;
+    globalThis.fetch = createFetchMock({
+      search: makeSearchResult([
+        makeTorrentItem({
+          guid: "metadata-1",
+          title: "Shadow.of.the.Tomb.Raider.v1.2.MULTI5.DRM-Free.PC-SKIDROW",
+          link: "http://test.com/metadata",
+          seeders: 42,
+          downloadVolumeFactor: 0,
+        }),
+      ]),
+    });
+
+    renderComponent();
+
+    expect(
+      await screen.findByText("Shadow.of.the.Tomb.Raider.v1.2.MULTI5.DRM-Free.PC-SKIDROW")
+    ).toBeInTheDocument();
+    expect(screen.getByText("v1.2")).toBeInTheDocument();
+    expect(screen.getByText("Multi")).toBeInTheDocument();
+    expect(screen.getByText("DRM-Free")).toBeInTheDocument();
+    expect(screen.getByText("PC")).toBeInTheDocument();
+    expect(screen.getByText("Scene")).toBeInTheDocument();
+    expect(screen.getByText("Freeleech")).toBeInTheDocument();
   });
 });

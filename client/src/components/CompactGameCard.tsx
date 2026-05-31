@@ -194,7 +194,7 @@ const CompactGameCard = ({
 
               <div className="mt-2 flex flex-wrap gap-1">
                 {game.genres && game.genres.length > 0 ? (
-                  game.genres.slice(0, 2).map((genre) => (
+                  game.genres.slice(0, 1).map((genre) => (
                     <span
                       key={genre}
                       className="rounded-full bg-muted/70 px-2 py-1 text-[11px] text-muted-foreground"

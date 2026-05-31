@@ -28,6 +28,7 @@ vi.mock("lucide-react", () => ({
   SlidersHorizontal: () => <div data-testid="icon-sliders-horizontal" />,
   RefreshCw: () => <div data-testid="icon-refresh-cw" />,
   HardDrive: () => <div data-testid="icon-hard-drive" />,
+  CheckCircle2: () => <div data-testid="icon-check-circle2" />,
   Check: () => <div data-testid="icon-check" />,
   Database: () => <div data-testid="icon-database" />,
   Search: () => <div data-testid="icon-search" />,

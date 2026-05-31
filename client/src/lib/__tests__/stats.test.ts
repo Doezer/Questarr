@@ -45,25 +45,48 @@ describe("calculateLibraryStats", () => {
       summary: "Summary 3",
       coverUrl: "url3",
     },
+    {
+      id: "4",
+      title: "Game 4",
+      status: "shelved",
+      rating: null,
+      genres: ["Action"],
+      platforms: ["PC"],
+      publishers: ["Pub 2"],
+      developers: ["Dev 2"],
+      releaseDate: "2023-01-01",
+      summary: "Summary 4",
+      coverUrl: "url4",
+    },
   ];
 
   it("calculates stats correctly for a mixed library", () => {
-    const stats = calculateLibraryStats(mockGames as Game[]);
+    const stats = calculateLibraryStats(mockGames);
 
-    expect(stats.totalGames).toBe(3);
-    expect(stats.avgRating).toBe("85.0"); // (80 + 90) / 2
+    expect(stats.totalGames).toBe(4);
+    expect(stats.avgRating).toBe("85.0"); // (80 + 90) / 2 — Games 3 & 4 have no rating
     expect(stats.avgUserRating).toBe("7.8"); // (8 + 7.5) / 2
-    expect(stats.topGenre?.name).toBe("RPG");
-
-    expect(stats.topPlatform?.name).toBe("PC");
+    expect(stats.topGenre?.name).toBe("RPG"); // RPG appears 3×, Action 2×
+    expect(stats.topPlatform?.name).toBe("PC"); // PC appears 3×
     expect(stats.topPublisher?.name).toBe("Pub 1");
     expect(stats.uniqueDevelopers).toBe(2);
-    expect(stats.avgReleaseYear).toBe(2021);
-    expect(stats.metadataHealth).toBe(67); // 2 out of 3 (Game 3 has no rating)
+    expect(stats.avgReleaseYear).toBe(2022); // (2020+2021+2022+2023) / 4 = 2021.5 → 2022
+    expect(stats.metadataHealth).toBe(50); // 2 complete out of 4 (Games 3 & 4 have no rating)
     expect(stats.statusBreakdown.wanted).toBe(1);
     expect(stats.statusBreakdown.owned).toBe(1);
+    expect(stats.statusBreakdown.shelved).toBe(1);
     expect(stats.statusBreakdown.completed).toBe(1);
-    expect(stats.completionRate).toBe(50); // 1 completed / 2 owned (owned + completed)
+    // 1 completed / (1 owned + 1 shelved + 1 completed) ≈ 33%
+    expect(stats.completionRate).toBe(33);
+  });
+
+  it("statusBreakdown includes shelved: 0 when no shelved games", () => {
+    const games: Partial<Game>[] = [
+      { id: "1", title: "G1", status: "owned" } as Game,
+      { id: "2", title: "G2", status: "completed" } as Game,
+    ];
+    const stats = calculateLibraryStats(games);
+    expect(stats.statusBreakdown.shelved).toBe(0);
   });
 
   it("handles empty library", () => {
@@ -84,7 +107,7 @@ describe("calculateLibraryStats", () => {
         platforms: null as unknown as string[],
       } as Game,
     ];
-    const stats = calculateLibraryStats(incompleteGames as Game[]);
+    const stats = calculateLibraryStats(incompleteGames);
     expect(stats.topGenre).toBeNull();
     expect(stats.metadataHealth).toBe(0);
   });

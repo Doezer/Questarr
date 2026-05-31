@@ -4,6 +4,7 @@ import { Download, Info, Star, Calendar, Eye, EyeOff, Loader2 } from "lucide-rea
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import StatusBadge, { type GameStatus } from "./StatusBadge";
+import StatusPicker from "./StatusPicker";
 import { type Game, type DownloadSummary } from "@shared/schema";
 import DownloadIndicator from "./DownloadIndicator";
 import SearchResultsBadge from "./SearchResultsBadge";
@@ -40,12 +41,6 @@ const GRID_COLS = {
   comfortable: "52px 1fr 180px 64px 64px 76px 90px 90px auto",
   compact: "1fr 180px 64px 64px 76px 90px 90px auto",
 } as const;
-
-const getNextStatusInfo = (status: GameStatus): { id: GameStatus; label: string } => {
-  if (status === "wanted") return { id: "owned", label: "Owned" };
-  if (status === "owned") return { id: "completed", label: "Completed" };
-  return { id: "wanted", label: "Wanted" };
-};
 
 const CompactGameCard = ({
   game,
@@ -102,7 +97,6 @@ const CompactGameCard = ({
     onError: () => toast({ description: "Failed to save your rating", variant: "destructive" }),
   });
 
-  const handleStatusClick = () => onStatusChange?.(game.id, getNextStatusInfo(game.status).id);
   const handleDetailsClick = () => {
     setDetailsOpen(true);
     onViewDetails?.(game.id);
@@ -126,9 +120,7 @@ const CompactGameCard = ({
   };
   const handleToggleHidden = () => onToggleHidden?.(game.id, !game.hidden);
   const { year: releaseYear, fullDate: releaseFullDate } = parseReleaseDate(game.releaseDate);
-  const ratingDisplay = game.rating != null ? game.rating.toFixed(1) : null;
-  const nextStatusInfo = getNextStatusInfo(game.status);
-
+  const ratingDisplay = game.rating === null ? null : game.rating.toFixed(1);
   if (mobileLayout) {
     return (
       <>
@@ -223,7 +215,7 @@ const CompactGameCard = ({
                 {!isDiscovery && (
                   <span className="inline-flex items-center gap-1">
                     <Star className="h-3 w-3 fill-primary text-primary" />
-                    {game.userRating != null ? `${game.userRating.toFixed(1)}/10` : "—"}
+                    {game.userRating === null ? "—" : `${game.userRating.toFixed(1)}/10`}
                   </span>
                 )}
                 <span className="inline-flex items-center gap-1">
@@ -251,15 +243,11 @@ const CompactGameCard = ({
                 )}
               </Button>
             ) : (
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-10"
-                onClick={handleStatusClick}
-                aria-label={`Mark ${game.title} as ${nextStatusInfo.label}`}
-              >
-                Mark {nextStatusInfo.label}
-              </Button>
+              <StatusPicker
+                currentStatus={game.status as GameStatus}
+                onStatusChange={(newStatus) => onStatusChange?.(game.id, newStatus)}
+                gameTitle={game.title}
+              />
             )}
 
             <Button
@@ -412,17 +400,17 @@ const CompactGameCard = ({
                   className="flex items-center gap-1 tabular-nums hover:text-foreground text-muted-foreground transition-colors"
                   onClick={(e) => e.stopPropagation()}
                   aria-label={
-                    game.userRating != null
-                      ? `My rating: ${game.userRating}/10. Click to change.`
-                      : "Rate this game"
+                    game.userRating == null
+                      ? "Rate this game"
+                      : `My rating: ${game.userRating}/10. Click to change.`
                   }
                 >
                   <Star className="w-3 h-3 fill-primary text-primary flex-shrink-0" />
                   <span className="text-xs">
-                    {game.userRating != null ? (
-                      game.userRating.toFixed(1)
-                    ) : (
+                    {game.userRating == null ? (
                       <span className="opacity-40">—</span>
+                    ) : (
+                      game.userRating.toFixed(1)
                     )}
                   </span>
                 </button>
@@ -458,13 +446,19 @@ const CompactGameCard = ({
                 )}
               </PopoverContent>
             </Popover>
-          ) : !isDiscovery && game.userRating != null ? (
-            <div className="flex items-center gap-1 tabular-nums">
-              <Star className="w-3 h-3 fill-primary text-primary flex-shrink-0" />
-              <span className="text-xs text-muted-foreground">{game.userRating.toFixed(1)}</span>
-            </div>
           ) : (
-            <span className="text-xs text-muted-foreground/30">—</span>
+            <>
+              {!isDiscovery && game.userRating != null ? (
+                <div className="flex items-center gap-1 tabular-nums">
+                  <Star className="w-3 h-3 fill-primary text-primary flex-shrink-0" />
+                  <span className="text-xs text-muted-foreground">
+                    {game.userRating.toFixed(1)}
+                  </span>
+                </div>
+              ) : (
+                <span className="text-xs text-muted-foreground/30">—</span>
+              )}
+            </>
           )}
         </div>
 
@@ -512,7 +506,7 @@ const CompactGameCard = ({
         </div>
 
         {/* Actions */}
-        <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-end gap-1" aria-label="Game actions">
           {isDiscovery ? (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -523,7 +517,10 @@ const CompactGameCard = ({
                     "transition-all",
                     density === "comfortable" ? "h-7 w-7" : "h-6 w-6"
                   )}
-                  onClick={handleDownloadClick}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDownloadClick();
+                  }}
                   disabled={addGameMutation.isPending}
                   aria-label={`Download ${game.title}`}
                 >
@@ -537,32 +534,35 @@ const CompactGameCard = ({
               <TooltipContent>Download</TooltipContent>
             </Tooltip>
           ) : (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className={cn(
-                    "transition-all text-muted-foreground hover:text-foreground",
-                    density === "comfortable" ? "h-7 w-7" : "h-6 w-6"
-                  )}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleStatusClick();
-                  }}
-                  aria-label={`Mark ${game.title} as ${nextStatusInfo.label}`}
-                >
-                  {game.status === "wanted" ? (
-                    <span className="text-[11px]">📂</span>
-                  ) : game.status === "owned" ? (
-                    <span className="text-[11px]">✔</span>
-                  ) : (
-                    <span className="text-[11px]">★</span>
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Mark {nextStatusInfo.label}</TooltipContent>
-            </Tooltip>
+            <StatusPicker
+              currentStatus={game.status as GameStatus}
+              onStatusChange={(newStatus) => onStatusChange?.(game.id, newStatus)}
+              gameTitle={game.title}
+            >
+              <Button
+                variant="ghost"
+                size="icon"
+                disabled={game.status === "downloading"}
+                className={cn(
+                  "transition-all text-muted-foreground hover:text-foreground",
+                  density === "comfortable" ? "h-7 w-7" : "h-6 w-6"
+                )}
+                aria-label={`Change status for ${game.title}`}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {(() => {
+                  if (game.status === "wanted") {
+                    return <span className="text-[11px]">📂</span>;
+                  } else if (game.status === "owned") {
+                    return <span className="text-[11px]">✔</span>;
+                  } else if (game.status === "shelved") {
+                    return <span className="text-[11px]">📦</span>;
+                  } else {
+                    return <span className="text-[11px]">★</span>;
+                  }
+                })()}
+              </Button>
+            </StatusPicker>
           )}
 
           <Tooltip>

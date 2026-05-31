@@ -10,7 +10,8 @@
       "Bash(node -e \"const chunks=[]; process.stdin.on\\(''''data'''',c=>chunks.push\\(c\\)\\); process.stdin.on\\(''''end'''',\\(\\)=>{const d=JSON.parse\\(chunks.join\\(''''''''\\)\\); console.log\\(Buffer.from\\(d.content,''''base64''''\\).toString\\(\\)\\);}\\)\")",
       "Bash(node -e \"const chunks=[]; process.stdin.on\\(''''data'''',c=>chunks.push\\(c\\)\\); process.stdin.on\\(''''end'''',\\(\\)=>{const d=JSON.parse\\(chunks.join\\(''''''''\\)\\); d.forEach\\(f=>console.log\\(f.name\\)\\);}\\)\")",
       "Bash(npx tsc:*)",
-      "Bash(gh issue *)"
+      "Bash(gh issue *)",
+      "Bash(rtk grep *)"
     ]
   },
   "hooks": {

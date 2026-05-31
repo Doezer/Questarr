@@ -124,7 +124,7 @@ export const sanitizeIgdbId = [
 export const sanitizeGameStatus = [
   body("status")
     .trim()
-    .isIn(["wanted", "owned", "completed", "downloading"])
+    .isIn(["wanted", "owned", "shelved", "completed", "downloading"])
     .withMessage("Invalid status value"),
 ];
 

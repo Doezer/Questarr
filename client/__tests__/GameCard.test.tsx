@@ -66,7 +66,7 @@ describe("GameCard", () => {
   let queryClient: QueryClient;
 
   beforeEach(() => {
-    Object.defineProperty(window, "matchMedia", {
+    Object.defineProperty(globalThis, "matchMedia", {
       writable: true,
       value: vi.fn().mockImplementation((query) => ({
         matches: false,
@@ -151,10 +151,10 @@ describe("GameCard", () => {
     expect(screen.queryByTestId("text-user-rating-1")).not.toBeInTheDocument();
   });
 
-  it("status button has aria-label with next status name", () => {
+  it("status button has accessible label for changing status", () => {
     renderComponent({ game: { ...mockGame, status: "owned" } });
     expect(
-      screen.getByRole("button", { name: /Mark Test Game as Completed/i })
+      screen.getByRole("button", { name: /Change status for Test Game/i })
     ).toBeInTheDocument();
   });
 });

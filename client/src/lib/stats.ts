@@ -13,6 +13,7 @@ export interface LibraryStats {
   statusBreakdown: {
     wanted: number;
     owned: number;
+    shelved: number;
     completed: number;
     downloading: number;
   };
@@ -36,6 +37,7 @@ export function calculateLibraryStats(games: Game[]): LibraryStats {
       statusBreakdown: {
         wanted: 0,
         owned: 0,
+        shelved: 0,
         completed: 0,
         downloading: 0,
       },
@@ -76,8 +78,8 @@ export function calculateLibraryStats(games: Game[]): LibraryStats {
 
   // Avg Release Year
   const years = games
-    .map((g) => (g.releaseDate ? new Date(g.releaseDate).getFullYear() : NaN))
-    .filter((year) => !isNaN(year));
+    .map((g) => (g.releaseDate ? new Date(g.releaseDate).getFullYear() : Number.NaN))
+    .filter((year) => !Number.isNaN(year));
   const avgReleaseYear =
     years.length > 0
       ? Math.round(years.reduce((acc, year) => acc + year, 0) / years.length)
@@ -93,6 +95,7 @@ export function calculateLibraryStats(games: Game[]): LibraryStats {
   const statusBreakdown = {
     wanted: 0,
     owned: 0,
+    shelved: 0,
     completed: 0,
     downloading: 0,
   };
@@ -100,14 +103,15 @@ export function calculateLibraryStats(games: Game[]): LibraryStats {
   games.forEach((g) => {
     if (g.status === "wanted") statusBreakdown.wanted++;
     else if (g.status === "owned") statusBreakdown.owned++;
+    else if (g.status === "shelved") statusBreakdown.shelved++;
     else if (g.status === "completed") statusBreakdown.completed++;
     else if (g.status === "downloading") statusBreakdown.downloading++;
   });
 
-  // Completion Rate: % of owned games that are completed
-  const ownedCount = statusBreakdown.owned + statusBreakdown.completed;
+  // Completion Rate: % of acquired games (owned + shelved + completed) that are completed
+  const acquiredCount = statusBreakdown.owned + statusBreakdown.shelved + statusBreakdown.completed;
   const completionRate =
-    ownedCount > 0 ? Math.round((statusBreakdown.completed / ownedCount) * 100) : 0;
+    acquiredCount > 0 ? Math.round((statusBreakdown.completed / acquiredCount) * 100) : 0;
 
   return {
     totalGames,

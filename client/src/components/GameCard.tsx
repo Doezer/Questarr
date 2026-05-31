@@ -234,7 +234,7 @@ const GameCard = ({
           </div>
         )}
       </div>
-      <CardContent className="p-3 flex flex-col flex-1" onClick={(e) => e.stopPropagation()}>
+      <CardContent className="p-3 flex flex-col flex-1">
         <h3
           className="font-semibold text-sm mb-2 line-clamp-2"
           data-testid={`text-title-${game.id}`}
@@ -365,7 +365,10 @@ const GameCard = ({
               variant="default"
               size="sm"
               className="h-10 w-full sm:h-9"
-              onClick={() => onTrackGame?.(game)}
+              onClick={(e) => {
+                e.stopPropagation();
+                onTrackGame?.(game);
+              }}
               disabled={addGameMutation.isPending}
               data-testid={`button-track-${game.id}`}
               aria-label={`Track ${game.title}`}

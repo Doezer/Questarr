@@ -22,16 +22,21 @@ export default function GameFilterPills({
 }: Readonly<GameFilterPillsProps>) {
   return (
     <>
-      <Button
-        variant={showSearchResultsOnly ? "default" : "outline"}
-        size="sm"
-        className="h-7 gap-1.5 text-xs"
-        onClick={() => setShowSearchResultsOnly(!showSearchResultsOnly)}
-        aria-label="Show games with search results only"
-      >
-        <Search className="h-3 w-3" />
-        Has Results
-      </Button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant={showSearchResultsOnly ? "default" : "outline"}
+            size="sm"
+            className="h-7 gap-1.5 text-xs"
+            onClick={() => setShowSearchResultsOnly(!showSearchResultsOnly)}
+            aria-label="Show games with search results only"
+          >
+            <Search className="h-3 w-3" />
+            <span className="hidden sm:inline">Has Results</span>
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent className="sm:hidden">Has Results</TooltipContent>
+      </Tooltip>
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
@@ -42,10 +47,10 @@ export default function GameFilterPills({
             aria-label={showDownloadsOnly ? "Show all games" : "Show games with downloads only"}
           >
             <Download className="h-3 w-3" />
-            Has Downloads
+            <span className="hidden sm:inline">Has Downloads</span>
           </Button>
         </TooltipTrigger>
-        <TooltipContent>{showDownloadsOnly ? "Show all" : "Has downloads"}</TooltipContent>
+        <TooltipContent className="sm:hidden">Has Downloads</TooltipContent>
       </Tooltip>
       {setShowUpdateAvailableOnly && (
         <Tooltip>
@@ -60,12 +65,10 @@ export default function GameFilterPills({
               }
             >
               <RefreshCw className="h-3 w-3" />
-              Update Available
+              <span className="hidden sm:inline">Update Available</span>
             </Button>
           </TooltipTrigger>
-          <TooltipContent>
-            {showUpdateAvailableOnly ? "Show all" : "Has update downloads"}
-          </TooltipContent>
+          <TooltipContent className="sm:hidden">Update Available</TooltipContent>
         </Tooltip>
       )}
     </>

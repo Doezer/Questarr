@@ -108,17 +108,19 @@ export default function Header({ title = "Library" }: HeaderProps) {
       <header className="border-b bg-background/95 px-3 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/60 sm:px-4 sm:py-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3 sm:gap-4">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <SidebarTrigger
-                  className="h-10 w-10 rounded-xl md:h-7 md:w-7 md:rounded-md"
-                  data-testid="button-sidebar-toggle"
-                />
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                <p>Toggle Sidebar</p>
-              </TooltipContent>
-            </Tooltip>
+            <span className="hidden md:contents">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <SidebarTrigger
+                    className="h-7 w-7 rounded-md"
+                    data-testid="button-sidebar-toggle"
+                  />
+                </TooltipTrigger>
+                <TooltipContent side="right">
+                  <p>Toggle Sidebar</p>
+                </TooltipContent>
+              </Tooltip>
+            </span>
             <h1 className="truncate text-lg font-semibold sm:text-xl" data-testid="text-page-title">
               {title}
             </h1>

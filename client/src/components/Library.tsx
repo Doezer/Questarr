@@ -24,6 +24,7 @@ import { useDebounce } from "@/hooks/use-debounce";
 import { calculateLibraryStats } from "@/lib/stats";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -223,7 +224,7 @@ export default function Library() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">My Library</h1>
           {stableLibStats.totalGames > 0 && (
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-sm text-muted-foreground">
+            <div className="hidden sm:flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-sm text-muted-foreground">
               <span>
                 <span className="font-medium text-foreground">
                   {filtersActive ? filteredGames.length : stableLibStats.totalGames}
@@ -283,12 +284,14 @@ export default function Library() {
           onSearchChange={setSearchQuery}
           searchPlaceholder="Search your library..."
           filterPills={
-            <GameFilterPills
-              showSearchResultsOnly={showSearchResultsOnly}
-              setShowSearchResultsOnly={setShowSearchResultsOnly}
-              showDownloadsOnly={showDownloadsOnly}
-              setShowDownloadsOnly={setShowDownloadsOnly}
-            />
+            <div className="hidden sm:contents">
+              <GameFilterPills
+                showSearchResultsOnly={showSearchResultsOnly}
+                setShowSearchResultsOnly={setShowSearchResultsOnly}
+                showDownloadsOnly={showDownloadsOnly}
+                setShowDownloadsOnly={setShowDownloadsOnly}
+              />
+            </div>
           }
           viewControls={{
             viewMode,
@@ -298,22 +301,35 @@ export default function Library() {
           }}
           actions={
             <>
-              <Button
-                variant={showFilters ? "secondary" : "outline"}
-                size="sm"
-                className="h-8 gap-1.5"
-                onClick={() => setShowFilters((v) => !v)}
-                aria-label="Toggle filters"
-                aria-expanded={showFilters}
-              >
-                <Filter className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Filters</span>
-                {activeFilters.length > 0 && (
-                  <span className="ml-0.5 rounded-full bg-primary text-primary-foreground text-[10px] font-semibold w-4 h-4 flex items-center justify-center">
-                    {activeFilters.length}
-                  </span>
-                )}
-              </Button>
+              <div className="flex sm:hidden items-center gap-2">
+                <GameFilterPills
+                  showSearchResultsOnly={showSearchResultsOnly}
+                  setShowSearchResultsOnly={setShowSearchResultsOnly}
+                  showDownloadsOnly={showDownloadsOnly}
+                  setShowDownloadsOnly={setShowDownloadsOnly}
+                />
+              </div>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={showFilters ? "secondary" : "outline"}
+                    size="sm"
+                    className="h-8 gap-1.5"
+                    onClick={() => setShowFilters((v) => !v)}
+                    aria-label="Toggle filters"
+                    aria-expanded={showFilters}
+                  >
+                    <Filter className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">Filters</span>
+                    {activeFilters.length > 0 && (
+                      <span className="ml-0.5 rounded-full bg-primary text-primary-foreground text-[10px] font-semibold w-4 h-4 flex items-center justify-center">
+                        {activeFilters.length}
+                      </span>
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent className="sm:hidden">Filters</TooltipContent>
+              </Tooltip>
               <Popover>
                 <PopoverTrigger asChild>
                   <Button variant="outline" size="sm" className="h-8" aria-label="Grid settings">

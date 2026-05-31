@@ -7,6 +7,7 @@ import { Plus, Edit, Trash2, Check, X, Activity, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
@@ -38,6 +39,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { insertIndexerSchema, type Indexer, type InsertIndexer } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { MultiSelect, type MultiSelectOption } from "@/components/ui/multi-select";
+import PageHeader from "@/components/PageHeader";
 
 function PriorityControl({
   id,
@@ -421,44 +423,68 @@ export default function IndexersPage() {
 
   if (isLoading) {
     return (
-      <div className="p-6">
-        <div className="flex items-center space-x-2">
-          <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-          <span>Loading indexers...</span>
+      <div className="h-full overflow-auto p-4 sm:p-6">
+        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1.5">
+            <Skeleton className="h-7 w-32" />
+            <Skeleton className="h-4 w-64" />
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Skeleton className="h-10 sm:h-9 sm:w-36" />
+            <Skeleton className="h-10 sm:h-9 sm:w-32" />
+          </div>
         </div>
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="mb-4 rounded-lg border bg-card p-4 sm:p-6">
+            <div className="flex justify-between items-start gap-3">
+              <div className="space-y-2 flex-1">
+                <Skeleton className="h-5 w-40" />
+                <div className="flex flex-wrap gap-2">
+                  <Skeleton className="h-5 w-24" />
+                  <Skeleton className="h-5 w-20" />
+                  <Skeleton className="h-5 w-16" />
+                </div>
+              </div>
+              <div className="flex gap-1.5">
+                <Skeleton className="h-9 w-9" />
+                <Skeleton className="h-9 w-9" />
+                <Skeleton className="h-9 w-9" />
+                <Skeleton className="h-9 w-9" />
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
     );
   }
 
   return (
     <div className="h-full overflow-auto p-4 sm:p-6">
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Indexers</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">
-            Manage Torznab and Newznab indexers for game discovery
-          </p>
-        </div>
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <Button
-            variant="outline"
-            className="h-10 justify-center sm:h-9"
-            onClick={() => setIsProwlarrDialogOpen(true)}
-            data-testid="button-sync-prowlarr"
-          >
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Sync Prowlarr
-          </Button>
-          <Button
-            className="h-10 justify-center sm:h-9"
-            onClick={handleAdd}
-            data-testid="button-add-indexer"
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Add Indexer
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Indexers"
+        description="Manage Torznab and Newznab indexers for game discovery"
+        actions={
+          <>
+            <Button
+              variant="outline"
+              className="h-10 justify-center sm:h-9"
+              onClick={() => setIsProwlarrDialogOpen(true)}
+              data-testid="button-sync-prowlarr"
+            >
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Sync Prowlarr
+            </Button>
+            <Button
+              className="h-10 justify-center sm:h-9"
+              onClick={handleAdd}
+              data-testid="button-add-indexer"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Add Indexer
+            </Button>
+          </>
+        }
+      />
 
       <div className="grid gap-4">
         {sortedIndexers.length > 0 ? (

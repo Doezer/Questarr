@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import React from "react";
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 import { vi, describe, it, expect, beforeEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import GameDetailsModal from "../src/components/GameDetailsModal";
@@ -21,7 +21,9 @@ vi.mock("@/hooks/use-toast", () => ({
 }));
 
 vi.mock("../src/components/StatusBadge", () => ({
+  __esModule: true,
   default: ({ status }: { status: string }) => <div data-testid="status-badge">{status}</div>,
+  getStatusLabel: (status: string) => status,
 }));
 
 vi.mock("../src/components/GameDownloadDialog", () => ({
@@ -268,8 +270,9 @@ describe("GameDetailsModal", () => {
   it("renders the Your rating section", () => {
     renderComponent();
     // Links tab is forceMount-ed; always in DOM
-    expect(screen.getByTestId("section-user-rating")).toBeInTheDocument();
-    expect(screen.getByText("Your rating")).toBeInTheDocument();
+    const ratingSection = screen.getByTestId("section-user-rating");
+    expect(ratingSection).toBeInTheDocument();
+    expect(within(ratingSection).getAllByText("Your rating").length).toBeGreaterThan(0);
   });
 
   it('shows "Not rated" when userRating is null', () => {
@@ -310,6 +313,44 @@ describe("GameDetailsModal", () => {
     renderComponent();
     expect(screen.getByText("IGDB score")).toBeInTheDocument();
     expect(screen.queryByText("Rating")).not.toBeInTheDocument();
+  });
+
+  it("renders source labels for steam, api, and manual games", () => {
+    const { rerender } = render(
+      <QueryClientProvider client={createQueryClient()}>
+        <GameDetailsModal
+          game={{ ...mockGame, source: "steam" }}
+          open={true}
+          onOpenChange={() => {}}
+        />
+        <Toaster />
+      </QueryClientProvider>
+    );
+    expect(screen.getAllByText("Steam Wishlist").length).toBeGreaterThan(0);
+
+    rerender(
+      <QueryClientProvider client={createQueryClient()}>
+        <GameDetailsModal
+          game={{ ...mockGame, source: "api" }}
+          open={true}
+          onOpenChange={() => {}}
+        />
+        <Toaster />
+      </QueryClientProvider>
+    );
+    expect(screen.getAllByText("Via API").length).toBeGreaterThan(0);
+
+    rerender(
+      <QueryClientProvider client={createQueryClient()}>
+        <GameDetailsModal
+          game={{ ...mockGame, source: "manual" }}
+          open={true}
+          onOpenChange={() => {}}
+        />
+        <Toaster />
+      </QueryClientProvider>
+    );
+    expect(screen.getAllByText("Added Manually").length).toBeGreaterThan(0);
   });
 
   describe("NexusMods integration", () => {

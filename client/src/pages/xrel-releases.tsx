@@ -121,8 +121,8 @@ export default function XrelReleasesPage() {
   const totalPages = pagination?.total_pages ?? 1;
 
   return (
-    <div className="h-full overflow-auto p-6">
-      <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
+    <div className="h-full overflow-auto p-4 md:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-4 mb-4 md:mb-6">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">xREL.to Releases</h1>
           <p className="text-muted-foreground text-sm mt-0.5">
@@ -178,33 +178,53 @@ export default function XrelReleasesPage() {
             <>
               <ul className="space-y-2">
                 {list.map((rel) => (
-                  <li
-                    key={rel.id}
-                    className="flex flex-wrap items-center justify-between gap-2 py-2 border-b border-border/50 last:border-0"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="font-medium truncate" title={rel.dirname}>
-                        {rel.dirname}
-                      </div>
-                      {rel.ext_info?.title && (
-                        <div className="text-sm text-muted-foreground truncate">
-                          Title: {rel.ext_info.title}
+                  <li key={rel.id} className="py-2.5 border-b border-border/50 last:border-0">
+                    {/* Title row: dirname + view link anchored top-right */}
+                    <div className="flex items-start gap-2 min-w-0">
+                      <div className="min-w-0 flex-1">
+                        <div
+                          className="font-medium text-sm truncate leading-snug"
+                          title={rel.dirname}
+                        >
+                          {rel.dirname}
                         </div>
-                      )}
+                        {rel.ext_info?.title && (
+                          <div className="text-xs text-muted-foreground truncate mt-0.5">
+                            {rel.ext_info.title}
+                          </div>
+                        )}
+                      </div>
+                      <a
+                        href={safeUrl(rel.link_href)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="shrink-0 text-primary hover:underline inline-flex items-center gap-0.5 text-sm"
+                        aria-label={`View ${rel.ext_info?.title ?? rel.dirname} on xREL`}
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" />
+                        <span className="hidden sm:inline">View</span>
+                      </a>
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <span className="text-sm text-muted-foreground whitespace-nowrap">
+                    {/* Meta row: date · size · badges · action — wraps naturally on mobile */}
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5">
+                      <span className="text-xs text-muted-foreground whitespace-nowrap">
                         {formatDate(rel.time)}
                       </span>
                       {rel.sizeMb != null && (
-                        <span className="text-sm text-muted-foreground">
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">
                           {formatSize(rel.sizeMb, rel.sizeUnit)}
                         </span>
                       )}
+                      <Badge variant="secondary" className="text-[10px] h-4 px-1.5">
+                        {rel.source}
+                      </Badge>
+                      <Badge variant="outline" className="text-[10px] h-4 px-1.5">
+                        {rel.group_name || "—"}
+                      </Badge>
                       {rel.libraryStatus ? (
                         <Badge
                           variant={rel.libraryStatus === "wanted" ? "default" : "secondary"}
-                          className={`text-xs ${rel.libraryStatus === "wanted" ? "bg-primary text-primary-foreground" : ""}`}
+                          className={`text-[10px] h-4 px-1.5 ${rel.libraryStatus === "wanted" ? "bg-primary text-primary-foreground" : ""}`}
                         >
                           {rel.libraryStatus.charAt(0).toUpperCase() + rel.libraryStatus.slice(1)}
                         </Badge>
@@ -212,15 +232,8 @@ export default function XrelReleasesPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-6 px-2 text-xs gap-1"
+                          className="h-7 px-2 text-xs gap-1"
                           onClick={() => {
-                            // We use matchCandidate data which is already formatted via IGDB
-                            // But our API expects just the fields to add.
-                            // Actually, reusing the same POST endpoint /api/games/match-and-add might be weird
-                            // if we already have the ID.
-                            // Let's call /api/games directly or use match-and-add with title (but that re-searches).
-                            // Better to call match-and-add which we updated? No we didn't update it to take ID.
-                            // Let's just use match-and-add with the *candidate* title, which is the official IGDB title.
                             if (rel.matchCandidate) {
                               addGameMutation.mutate(rel.matchCandidate.title);
                             }
@@ -240,22 +253,6 @@ export default function XrelReleasesPage() {
                           Add
                         </Button>
                       ) : null}
-                      <Badge variant="secondary" className="text-xs">
-                        {rel.source}
-                      </Badge>
-                      <Badge variant="outline" className="text-xs">
-                        {rel.group_name || "—"}
-                      </Badge>
-                      <a
-                        href={safeUrl(rel.link_href)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-primary hover:underline inline-flex items-center gap-0.5 text-sm"
-                        aria-label={`View ${rel.ext_info?.title ?? rel.dirname} on xREL`}
-                      >
-                        <ExternalLink className="h-3.5 w-3.5" />
-                        View
-                      </a>
                     </div>
                   </li>
                 ))}

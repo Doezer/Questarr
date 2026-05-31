@@ -8,6 +8,7 @@ vi.mock("../logger.js", () => ({
 vi.mock("../ssrf.js", () => ({ safeFetch: vi.fn() }));
 
 const { TorznabClient } = await import("../torznab.js");
+const { torznabLogger } = await import("../logger.js");
 const { safeFetch } = await import("../ssrf.js");
 
 const mockSafeFetch = vi.mocked(safeFetch);
@@ -54,6 +55,13 @@ function mockFetchResponse(xml: string) {
     statusText: "OK",
     text: async () => xml,
   } as Response);
+}
+
+function makeCapsXml(version = "1.2.3", title = "Test Torznab"): string {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<caps>
+  <server title="${title}" version="${version}" />
+</caps>`;
 }
 
 describe("TorznabClient — download link rewriting", () => {
@@ -159,5 +167,21 @@ describe("TorznabClient — download link rewriting", () => {
     // No apiKey → falls through to standard host rewrite
     const link = result.items[0].link;
     expect(new URL(link).host).toBe("prowlarr:9696");
+  });
+
+  it("logs torznab server version from caps", async () => {
+    mockFetchResponse(makeCapsXml("2.4.0", "My Torznab"));
+
+    await client.logVersionInfo(makeIndexer());
+
+    expect(torznabLogger.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        indexer: "Test Indexer",
+        protocol: "torznab",
+        serverTitle: "My Torznab",
+        serverVersion: "2.4.0",
+      }),
+      "Indexer version probe completed"
+    );
   });
 });

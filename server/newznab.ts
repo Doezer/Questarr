@@ -43,6 +43,11 @@ export interface NewznabCategory {
   name: string;
 }
 
+interface NewznabServerInfo {
+  title?: string;
+  version?: string;
+}
+
 class NewznabClient {
   /**
    * Search a single Newznab indexer
@@ -418,6 +423,64 @@ class NewznabClient {
         message: error instanceof Error ? error.message : "Unknown error",
       };
     }
+  }
+
+  async logVersionInfo(indexer: Indexer): Promise<void> {
+    try {
+      const serverInfo = await this.fetchServerInfo(indexer);
+      if (!serverInfo.title && !serverInfo.version) {
+        routesLogger.debug(
+          { indexerId: indexer.id, indexer: indexer.name },
+          "Newznab caps response did not expose version info"
+        );
+        return;
+      }
+
+      routesLogger.info(
+        {
+          indexerId: indexer.id,
+          indexer: indexer.name,
+          protocol: indexer.protocol,
+          serverTitle: serverInfo.title,
+          serverVersion: serverInfo.version,
+        },
+        "Indexer version probe completed"
+      );
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      routesLogger.warn(
+        { indexerId: indexer.id, indexer: indexer.name, error: errorMessage },
+        "Indexer version probe failed"
+      );
+    }
+  }
+
+  private async fetchServerInfo(indexer: Indexer): Promise<NewznabServerInfo> {
+    if (!(await isSafeUrl(indexer.url))) {
+      throw new Error(`Unsafe URL detected: ${indexer.url}`);
+    }
+
+    const url = new URL(indexer.url);
+    url.pathname = url.pathname.endsWith("/") ? `${url.pathname}api` : `${url.pathname}/api`;
+    url.searchParams.set("apikey", indexer.apiKey);
+    url.searchParams.set("t", "caps");
+
+    const response = await safeFetch(url.toString(), {
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const xmlText = await response.text();
+    const data = parser.parse(xmlText);
+    const server = data.caps?.server;
+
+    return {
+      title: typeof server?.["@_title"] === "string" ? server["@_title"] : undefined,
+      version: typeof server?.["@_version"] === "string" ? server["@_version"] : undefined,
+    };
   }
 }
 

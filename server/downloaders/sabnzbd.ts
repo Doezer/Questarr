@@ -176,20 +176,8 @@ export class SABnzbdClient implements DownloaderClient {
   }
 
   async testConnection(): Promise<{ success: boolean; message: string }> {
-    const url = this.getApiUrl("version");
     try {
-      downloadersLogger.debug({ url }, "Testing SABnzbd connection");
-      const response = await this.fetchWithFallback(url, { signal: AbortSignal.timeout(10000) });
-
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => "No error details");
-        return {
-          success: false,
-          message: `HTTP ${response.status}: ${response.statusText} - ${errorText}`,
-        };
-      }
-
-      const data = await response.json();
+      const data = await this.getVersionInfo();
       if (data.version) {
         return { success: true, message: `Connected to SABnzbd v${data.version}` };
       }
@@ -197,12 +185,45 @@ export class SABnzbdClient implements DownloaderClient {
       return { success: false, message: "Invalid SABnzbd response - missing version field" };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      downloadersLogger.error({ error, url }, "SABnzbd connection test failed");
+      downloadersLogger.error({ error, url: this.getApiUrl("version") }, "SABnzbd connection test failed");
       return {
         success: false,
-        message: `Failed to connect to SABnzbd at ${url}: ${errorMessage}`,
+        message: `Failed to connect to SABnzbd at ${this.getApiUrl("version")}: ${errorMessage}`,
       };
     }
+  }
+
+  async logVersionInfo(): Promise<void> {
+    const data = await this.getVersionInfo();
+    if (!data.version) {
+      downloadersLogger.debug(
+        { downloaderId: this.downloader.id, downloaderType: this.downloader.type },
+        "SABnzbd version endpoint did not expose version info"
+      );
+      return;
+    }
+
+    downloadersLogger.info(
+      {
+        downloaderId: this.downloader.id,
+        downloaderType: this.downloader.type,
+        version: data.version,
+      },
+      "Downloader version probe completed"
+    );
+  }
+
+  private async getVersionInfo(): Promise<Record<string, unknown>> {
+    const url = this.getApiUrl("version");
+    downloadersLogger.debug({ url }, "Testing SABnzbd connection");
+    const response = await this.fetchWithFallback(url, { signal: AbortSignal.timeout(10000) });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => "No error details");
+      throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
   }
 
   async addDownload(

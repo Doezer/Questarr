@@ -51,6 +51,19 @@ export class DownloaderManager {
     }
   }
 
+  static async logVersionInfo(downloader: Downloader): Promise<void> {
+    try {
+      const client = this.createClient(downloader);
+      await client.logVersionInfo();
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      downloadersLogger.warn(
+        { downloaderId: downloader.id, downloaderType: downloader.type, error: errorMessage },
+        "Downloader version probe failed"
+      );
+    }
+  }
+
   static async addDownload(
     downloader: Downloader,
     request: DownloadRequest

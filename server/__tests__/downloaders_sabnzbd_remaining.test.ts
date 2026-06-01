@@ -209,7 +209,8 @@ describe("sabnzbd remaining regression coverage", () => {
     } as Response);
     await expect(client.testConnection()).resolves.toEqual({
       success: false,
-      message: "HTTP 500: Broken - No error details",
+      message:
+        "Failed to connect to SABnzbd at http://sab.local/api?apikey=api-key&mode=version&output=json: HTTP 500: Broken - No error details",
     });
 
     safeFetchMock.mockResolvedValueOnce({

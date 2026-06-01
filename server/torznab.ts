@@ -1,6 +1,6 @@
 import { type Indexer } from "@shared/schema";
 import { torznabLogger } from "./logger.js";
-import { safeFetch } from "./ssrf.js";
+import { isSafeUrl, safeFetch } from "./ssrf.js";
 import { XMLParser } from "fast-xml-parser";
 
 interface TorznabItem {
@@ -53,6 +53,19 @@ export class TorznabClient {
       textNodeName: "#text",
       isArray: (name: string) => ["item", "category"].includes(name),
     });
+  }
+
+  private buildApiUrl(indexerUrl: string): URL {
+    const url = new URL(indexerUrl);
+
+    if (!url.pathname.endsWith("/")) {
+      url.pathname += "/";
+    }
+    if (!url.pathname.includes("/api")) {
+      url.pathname += "api/";
+    }
+
+    return url;
   }
 
   /**
@@ -224,15 +237,7 @@ export class TorznabClient {
    * Build the search URL for a Torznab indexer
    */
   private buildSearchUrl(indexer: Indexer, params: TorznabSearchParams): string {
-    const url = new URL(indexer.url);
-
-    // Ensure the URL ends with a slash and has the correct path
-    if (!url.pathname.endsWith("/")) {
-      url.pathname += "/";
-    }
-    if (!url.pathname.includes("/api")) {
-      url.pathname += "api/";
-    }
+    const url = this.buildApiUrl(indexer.url);
 
     // Set common Torznab parameters
     url.searchParams.set("t", "search");
@@ -280,9 +285,13 @@ export class TorznabClient {
   }
 
   private async fetchServerInfo(indexer: Indexer): Promise<TorznabServerInfo> {
-    const url = new URL(indexer.url);
+    const url = this.buildApiUrl(indexer.url);
     url.searchParams.set("t", "caps");
     url.searchParams.set("apikey", indexer.apiKey);
+
+    if (!(await isSafeUrl(url.toString()))) {
+      throw new Error(`Unsafe URL detected: ${url.toString()}`);
+    }
 
     const response = await safeFetch(url.toString(), {
       headers: { "User-Agent": "Questarr/1.0" },

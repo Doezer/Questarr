@@ -49,6 +49,15 @@ interface NewznabServerInfo {
 }
 
 class NewznabClient {
+  private buildApiUrl(indexerUrl: string): URL {
+    const url = new URL(indexerUrl);
+    if (!url.pathname.includes("/api")) {
+      url.pathname = url.pathname.endsWith("/") ? `${url.pathname}api` : `${url.pathname}/api`;
+    }
+
+    return url;
+  }
+
   /**
    * Search a single Newznab indexer
    */
@@ -59,11 +68,7 @@ class NewznabClient {
         throw new Error(`Unsafe URL detected: ${indexer.url}`);
       }
 
-      const url = new URL(indexer.url);
-      // Don't modify pathname if it already contains 'api'
-      if (!url.pathname.includes("/api")) {
-        url.pathname = url.pathname.endsWith("/") ? `${url.pathname}api` : `${url.pathname}/api`;
-      }
+      const url = this.buildApiUrl(indexer.url);
 
       // Build Newznab search parameters
       url.searchParams.set("apikey", indexer.apiKey);
@@ -460,10 +465,13 @@ class NewznabClient {
       throw new Error(`Unsafe URL detected: ${indexer.url}`);
     }
 
-    const url = new URL(indexer.url);
-    url.pathname = url.pathname.endsWith("/") ? `${url.pathname}api` : `${url.pathname}/api`;
+    const url = this.buildApiUrl(indexer.url);
     url.searchParams.set("apikey", indexer.apiKey);
     url.searchParams.set("t", "caps");
+
+    if (!(await isSafeUrl(url.toString()))) {
+      throw new Error(`Unsafe URL detected: ${url.toString()}`);
+    }
 
     const response = await safeFetch(url.toString(), {
       signal: AbortSignal.timeout(10000),

@@ -5,12 +5,13 @@ vi.mock("../db.js", () => ({ pool: {}, db: {} }));
 vi.mock("../logger.js", () => ({
   torznabLogger: { info: vi.fn(), debug: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
-vi.mock("../ssrf.js", () => ({ safeFetch: vi.fn() }));
+vi.mock("../ssrf.js", () => ({ isSafeUrl: vi.fn(), safeFetch: vi.fn() }));
 
 const { TorznabClient } = await import("../torznab.js");
 const { torznabLogger } = await import("../logger.js");
-const { safeFetch } = await import("../ssrf.js");
+const { isSafeUrl, safeFetch } = await import("../ssrf.js");
 
+const mockIsSafeUrl = vi.mocked(isSafeUrl);
 const mockSafeFetch = vi.mocked(safeFetch);
 
 function makeIndexer(overrides: Partial<Indexer> = {}): Indexer {
@@ -170,9 +171,20 @@ describe("TorznabClient — download link rewriting", () => {
   });
 
   it("logs torznab server version from caps", async () => {
+    mockIsSafeUrl.mockResolvedValue(true);
     mockFetchResponse(makeCapsXml("2.4.0", "My Torznab"));
 
     await client.logVersionInfo(makeIndexer());
+
+    expect(mockIsSafeUrl).toHaveBeenCalledWith(
+      "http://indexer.example.com/api/?t=caps&apikey=testkey"
+    );
+    expect(mockSafeFetch).toHaveBeenCalledWith(
+      "http://indexer.example.com/api/?t=caps&apikey=testkey",
+      expect.objectContaining({
+        headers: { "User-Agent": "Questarr/1.0" },
+      })
+    );
 
     expect(torznabLogger.info).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -182,6 +194,23 @@ describe("TorznabClient — download link rewriting", () => {
         serverVersion: "2.4.0",
       }),
       "Indexer version probe completed"
+    );
+  });
+
+  it("logs torznab server version from the api caps endpoint when the configured URL omits it", async () => {
+    mockIsSafeUrl.mockResolvedValue(true);
+    mockFetchResponse(makeCapsXml("2.4.0", "My Torznab"));
+
+    await client.logVersionInfo(makeIndexer({ url: "http://indexer.example.com/5" }));
+
+    expect(mockIsSafeUrl).toHaveBeenCalledWith(
+      "http://indexer.example.com/5/api/?t=caps&apikey=testkey"
+    );
+    expect(mockSafeFetch).toHaveBeenCalledWith(
+      "http://indexer.example.com/5/api/?t=caps&apikey=testkey",
+      expect.objectContaining({
+        headers: { "User-Agent": "Questarr/1.0" },
+      })
     );
   });
 });

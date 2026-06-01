@@ -214,7 +214,7 @@ describe("NewznabClient", () => {
   });
 
   describe("logVersionInfo", () => {
-    it("logs newznab server version from caps", async () => {
+    it("logs newznab server version from caps without duplicating api", async () => {
       (isSafeUrl as Mock).mockResolvedValue(true);
       (safeFetch as Mock).mockResolvedValue({
         ok: true,
@@ -222,6 +222,12 @@ describe("NewznabClient", () => {
       });
 
       await newznabClient.logVersionInfo(mockIndexer);
+
+      expect(isSafeUrl).toHaveBeenNthCalledWith(1, "http://example.com/api");
+      expect(isSafeUrl).toHaveBeenNthCalledWith(2, "http://example.com/api?apikey=secret&t=caps");
+      expect(safeFetch).toHaveBeenCalledWith("http://example.com/api?apikey=secret&t=caps", {
+        signal: expect.any(AbortSignal),
+      });
 
       expect(routesLogger.info).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -232,6 +238,22 @@ describe("NewznabClient", () => {
         }),
         "Indexer version probe completed"
       );
+    });
+
+    it("logs newznab server version from the api caps endpoint when the configured URL omits it", async () => {
+      (isSafeUrl as Mock).mockResolvedValue(true);
+      (safeFetch as Mock).mockResolvedValue({
+        ok: true,
+        text: async () => mockCapsWithVersionXml,
+      });
+
+      await newznabClient.logVersionInfo({ ...mockIndexer, url: "http://example.com" });
+
+      expect(isSafeUrl).toHaveBeenNthCalledWith(1, "http://example.com");
+      expect(isSafeUrl).toHaveBeenNthCalledWith(2, "http://example.com/api?apikey=secret&t=caps");
+      expect(safeFetch).toHaveBeenCalledWith("http://example.com/api?apikey=secret&t=caps", {
+        signal: expect.any(AbortSignal),
+      });
     });
   });
 

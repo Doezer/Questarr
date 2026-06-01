@@ -3,7 +3,7 @@ import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "../src/components/ui/tooltip";
 import CalendarPage from "../src/pages/calendar";
@@ -90,8 +90,14 @@ function mockGamesFetch(games: unknown[]) {
 
 describe("CalendarPage", () => {
   beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-05-29T12:00:00Z"));
     vi.clearAllMocks();
     mockGamesFetch([]);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("shows the IGDB setup prompt when configuration is missing", async () => {

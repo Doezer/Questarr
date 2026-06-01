@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 import { newznabClient } from "../newznab.js";
+import { routesLogger } from "../logger.js";
 
 vi.mock("../ssrf.js", () => ({
   isSafeUrl: vi.fn(),
@@ -66,6 +67,11 @@ const mockSearchXml = `<?xml version="1.0" encoding="UTF-8"?>
     </item>
   </channel>
 </rss>`;
+
+const mockCapsWithVersionXml = `<?xml version="1.0" encoding="UTF-8"?>
+<caps>
+  <server title="My Newznab" version="7.8.9" />
+</caps>`;
 
 describe("NewznabClient", () => {
   beforeEach(() => {
@@ -204,6 +210,50 @@ describe("NewznabClient", () => {
       const result = await newznabClient.testConnection(mockIndexer);
       expect(result.success).toBe(false);
       expect(result.message).toBe("Invalid API Key");
+    });
+  });
+
+  describe("logVersionInfo", () => {
+    it("logs newznab server version from caps without duplicating api", async () => {
+      (isSafeUrl as Mock).mockResolvedValue(true);
+      (safeFetch as Mock).mockResolvedValue({
+        ok: true,
+        text: async () => mockCapsWithVersionXml,
+      });
+
+      await newznabClient.logVersionInfo(mockIndexer);
+
+      expect(isSafeUrl).toHaveBeenNthCalledWith(1, "http://example.com/api");
+      expect(isSafeUrl).toHaveBeenNthCalledWith(2, "http://example.com/api?apikey=secret&t=caps");
+      expect(safeFetch).toHaveBeenCalledWith("http://example.com/api?apikey=secret&t=caps", {
+        signal: expect.any(AbortSignal),
+      });
+
+      expect(routesLogger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          indexer: "My Newznab",
+          protocol: "newznab",
+          serverTitle: "My Newznab",
+          serverVersion: "7.8.9",
+        }),
+        "Indexer version probe completed"
+      );
+    });
+
+    it("logs newznab server version from the api caps endpoint when the configured URL omits it", async () => {
+      (isSafeUrl as Mock).mockResolvedValue(true);
+      (safeFetch as Mock).mockResolvedValue({
+        ok: true,
+        text: async () => mockCapsWithVersionXml,
+      });
+
+      await newznabClient.logVersionInfo({ ...mockIndexer, url: "http://example.com" });
+
+      expect(isSafeUrl).toHaveBeenNthCalledWith(1, "http://example.com");
+      expect(isSafeUrl).toHaveBeenNthCalledWith(2, "http://example.com/api?apikey=secret&t=caps");
+      expect(safeFetch).toHaveBeenCalledWith("http://example.com/api?apikey=secret&t=caps", {
+        signal: expect.any(AbortSignal),
+      });
     });
   });
 

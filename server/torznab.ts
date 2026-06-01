@@ -1,6 +1,6 @@
 import { type Indexer } from "@shared/schema";
 import { torznabLogger } from "./logger.js";
-import { safeFetch } from "./ssrf.js";
+import { isSafeUrl, safeFetch } from "./ssrf.js";
 import { XMLParser } from "fast-xml-parser";
 
 interface TorznabItem {
@@ -38,6 +38,11 @@ interface TorznabResponse {
   offset?: number;
 }
 
+interface TorznabServerInfo {
+  title?: string;
+  version?: string;
+}
+
 export class TorznabClient {
   private parser: XMLParser;
 
@@ -48,6 +53,19 @@ export class TorznabClient {
       textNodeName: "#text",
       isArray: (name: string) => ["item", "category"].includes(name),
     });
+  }
+
+  private buildApiUrl(indexerUrl: string): URL {
+    const url = new URL(indexerUrl);
+
+    if (!url.pathname.endsWith("/")) {
+      url.pathname += "/";
+    }
+    if (!url.pathname.includes("/api")) {
+      url.pathname += "api/";
+    }
+
+    return url;
   }
 
   /**
@@ -185,19 +203,41 @@ export class TorznabClient {
     };
   }
 
+  async logVersionInfo(indexer: Indexer): Promise<void> {
+    try {
+      const serverInfo = await this.fetchServerInfo(indexer);
+      if (!serverInfo.title && !serverInfo.version) {
+        torznabLogger.debug(
+          { indexerId: indexer.id, indexer: indexer.name },
+          "Torznab caps response did not expose version info"
+        );
+        return;
+      }
+
+      torznabLogger.info(
+        {
+          indexerId: indexer.id,
+          indexer: indexer.name,
+          protocol: indexer.protocol,
+          serverTitle: serverInfo.title,
+          serverVersion: serverInfo.version,
+        },
+        "Indexer version probe completed"
+      );
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      torznabLogger.warn(
+        { indexerId: indexer.id, indexer: indexer.name, error: errorMessage },
+        "Indexer version probe failed"
+      );
+    }
+  }
+
   /**
    * Build the search URL for a Torznab indexer
    */
   private buildSearchUrl(indexer: Indexer, params: TorznabSearchParams): string {
-    const url = new URL(indexer.url);
-
-    // Ensure the URL ends with a slash and has the correct path
-    if (!url.pathname.endsWith("/")) {
-      url.pathname += "/";
-    }
-    if (!url.pathname.includes("/api")) {
-      url.pathname += "api/";
-    }
+    const url = this.buildApiUrl(indexer.url);
 
     // Set common Torznab parameters
     url.searchParams.set("t", "search");
@@ -242,6 +282,35 @@ export class TorznabClient {
     }
 
     return url.toString();
+  }
+
+  private async fetchServerInfo(indexer: Indexer): Promise<TorznabServerInfo> {
+    const url = this.buildApiUrl(indexer.url);
+    url.searchParams.set("t", "caps");
+    url.searchParams.set("apikey", indexer.apiKey);
+
+    if (!(await isSafeUrl(url.toString()))) {
+      throw new Error(`Unsafe URL detected: ${url.toString()}`);
+    }
+
+    const response = await safeFetch(url.toString(), {
+      headers: { "User-Agent": "Questarr/1.0" },
+      signal: AbortSignal.timeout(30000),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => "No error details available");
+      throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
+    }
+
+    const xmlData = await response.text();
+    const parsed = this.parser.parse(xmlData);
+    const server = parsed.caps?.server;
+
+    return {
+      title: typeof server?.["@_title"] === "string" ? server["@_title"] : undefined,
+      version: typeof server?.["@_version"] === "string" ? server["@_version"] : undefined,
+    };
   }
 
   /**

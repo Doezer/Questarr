@@ -11,7 +11,7 @@ const { version } = JSON.parse(
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   define: {
-    __APP_VERSION__: JSON.stringify(version),
+    "globalThis.__APP_VERSION__": JSON.stringify(version),
   },
   resolve: {
     alias: {

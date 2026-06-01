@@ -86,6 +86,7 @@ import {
   matchesPlatformFilter,
 } from "../shared/title-utils.js";
 import { categorizeDownload } from "../shared/download-categorizer.js";
+import { SUPPORT_WORKER_ORIGIN } from "../shared/support-config.js";
 import archiver from "archiver";
 import helmet from "helmet";
 import { steamRoutes } from "./steam-routes.js";
@@ -213,7 +214,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // 🛡️ Sentinel: Add security headers with Helmet
   // Configured to allow Vite/React (unsafe-inline/eval) in dev, and IGDB images everywhere
   const scriptSrc = ["'self'"];
-  const connectSrc = ["'self'", "https://raw.githubusercontent.com", "https://api.github.com"];
+  const connectSrc = [
+    "'self'",
+    "https://raw.githubusercontent.com",
+    "https://api.github.com",
+    SUPPORT_WORKER_ORIGIN,
+  ];
 
   if (!appConfig.server.isProduction) {
     scriptSrc.push("'unsafe-inline'", "'unsafe-eval'");

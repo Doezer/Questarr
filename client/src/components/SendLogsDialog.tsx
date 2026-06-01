@@ -23,15 +23,23 @@ interface SendLogsDialogProps {
   onOpenChange: (open: boolean) => void;
   /** Raw NDJSON lines currently visible in the log viewer */
   logLines: string[];
+  getCurrentDate?: () => Date;
 }
 
 type Step = "consent" | "sending" | "success" | "error";
 
-declare const __APP_VERSION__: string;
+declare global {
+  var __APP_VERSION__: string | undefined;
+}
 
-const APP_VERSION: string = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "unknown";
+const APP_VERSION = globalThis.__APP_VERSION__ ?? "unknown";
 
-export default function SendLogsDialog({ open, onOpenChange, logLines }: SendLogsDialogProps) {
+export default function SendLogsDialog({
+  open,
+  onOpenChange,
+  logLines,
+  getCurrentDate,
+}: Readonly<SendLogsDialogProps>) {
   const { toast } = useToast();
   const [step, setStep] = useState<Step>("consent");
   const [result, setResult] = useState<SendLogsResult | null>(null);
@@ -53,20 +61,31 @@ export default function SendLogsDialog({ open, onOpenChange, logLines }: SendLog
     setStep("sending");
 
     const scrubbedLogs = scrubLogLines(logLines);
+    const currentDate = getCurrentDate?.() ?? new Date();
     const outcome = await sendLogs({
       logs: scrubbedLogs,
       appVersion: APP_VERSION,
       platform: detectPlatform(),
-      timestamp: new Date().toISOString(),
+      timestamp: currentDate.toISOString(),
     });
 
     setResult(outcome);
     setStep(outcome.ok ? "success" : "error");
-  }, [logLines]);
+  }, [getCurrentDate, logLines]);
 
   const handleCopyCode = useCallback(() => {
     if (!result?.ok) return;
-    navigator.clipboard
+    const clipboard = navigator.clipboard;
+    if (!clipboard) {
+      toast({
+        title: "Copy failed",
+        description: "Clipboard API not supported in this browser",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    clipboard
       .writeText(result.code)
       .then(() => {
         toast({ title: "Copied", description: `Code ${result.code} copied to clipboard` });
@@ -147,7 +166,12 @@ export default function SendLogsDialog({ open, onOpenChange, logLines }: SendLog
               <Button variant="outline" onClick={() => handleOpenChange(false)}>
                 Cancel
               </Button>
-              <Button onClick={() => void handleSend()} disabled={logLines.length === 0}>
+              <Button
+                onClick={() => {
+                  handleSend();
+                }}
+                disabled={logLines.length === 0}
+              >
                 <Send className="mr-2 h-4 w-4" />
                 Send logs
               </Button>

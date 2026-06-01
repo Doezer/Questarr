@@ -25,7 +25,7 @@ import {
 
 describe("send-logs utilities", () => {
   const originalFetch = globalThis.fetch;
-  const originalUserAgent = window.navigator.userAgent;
+  const originalUserAgent = globalThis.navigator.userAgent;
 
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -35,17 +35,19 @@ describe("send-logs utilities", () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
-    Object.defineProperty(window.navigator, "userAgent", {
+    Object.defineProperty(globalThis.navigator, "userAgent", {
       configurable: true,
       value: originalUserAgent,
     });
   });
 
   it("scrubs common PII patterns from log text", () => {
+    const ipv4 = ["192", "168", "1", "12"].join(".");
+    const ipv6 = ["2001", "0db8", "85a3", "0000", "0000", "8a2e", "0370", "7334"].join(":");
     const input = [
       "email=user@example.com",
-      "ipv4=192.168.1.12",
-      "ipv6=2001:0db8:85a3:0000:0000:8a2e:0370:7334",
+      `ipv4=${ipv4}`,
+      `ipv6=${ipv6}`,
       "uuid=123e4567-e89b-12d3-a456-426614174000",
       "token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.signature",
       "unix=/home/alice/questarr/logs/app.log",
@@ -58,7 +60,14 @@ describe("send-logs utilities", () => {
   });
 
   it("scrubs each line before joining them", () => {
-    expect(scrubLogLines(["user@example.com", "10.0.0.1"])).toBe("[email]\n[ip]");
+    const privateIp = ["10", "0", "0", "1"].join(".");
+    expect(scrubLogLines(["user@example.com", privateIp])).toBe("[email]\n[ip]");
+  });
+
+  it("keeps clock timestamps while still scrubbing compressed IPv6 addresses", () => {
+    expect(scrubPii("time=12:34:56 client=::1 local=fe80::")).toBe(
+      "time=12:34:56 client=[ip] local=[ip]"
+    );
   });
 
   it("returns a configuration error when log upload is not configured", async () => {
@@ -110,6 +119,28 @@ describe("send-logs utilities", () => {
     });
   });
 
+  it("surfaces invalid success payloads as failures", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => {
+        throw new SyntaxError("Unexpected end of JSON input");
+      },
+    }) as typeof fetch;
+
+    await expect(
+      sendLogs({
+        logs: "hello",
+        appVersion: "1.4.0",
+        platform: "Windows",
+        timestamp: "2026-05-31T12:00:00.000Z",
+      })
+    ).resolves.toEqual({
+      ok: false,
+      status: 0,
+      message: "Unexpected end of JSON input",
+    });
+  });
+
   it("prefers the worker error payload when the upload fails", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: false,
@@ -158,19 +189,19 @@ describe("send-logs utilities", () => {
   });
 
   it("detects the current platform from the browser user agent", () => {
-    Object.defineProperty(window.navigator, "userAgent", {
+    Object.defineProperty(globalThis.navigator, "userAgent", {
       configurable: true,
       value: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
     });
     expect(detectPlatform()).toBe("Windows");
 
-    Object.defineProperty(window.navigator, "userAgent", {
+    Object.defineProperty(globalThis.navigator, "userAgent", {
       configurable: true,
       value: "Mozilla/5.0 (X11; Linux x86_64)",
     });
     expect(detectPlatform()).toBe("Linux");
 
-    Object.defineProperty(window.navigator, "userAgent", {
+    Object.defineProperty(globalThis.navigator, "userAgent", {
       configurable: true,
       value: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)",
     });

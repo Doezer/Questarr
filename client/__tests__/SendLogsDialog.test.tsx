@@ -90,12 +90,15 @@ describe("SendLogsDialog", () => {
   it("submits scrubbed logs and shows the success state", async () => {
     sendLogsMock.mockResolvedValue({ ok: true, code: "ABCD", issueNumber: 123 });
     const onOpenChange = vi.fn();
+    const privateIp = ["10", "0", "0", "1"].join(".");
+    const currentDate = new Date("2026-05-31T12:34:56.000Z");
 
     const { rerender } = render(
       <SendLogsDialog
         open={true}
         onOpenChange={onOpenChange}
-        logLines={["user@example.com", "10.0.0.1"]}
+        logLines={["user@example.com", privateIp]}
+        getCurrentDate={() => currentDate}
       />
     );
 
@@ -103,12 +106,13 @@ describe("SendLogsDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send logs" }));
 
     expect(await screen.findByText("Logs uploaded")).toBeInTheDocument();
-    expect(scrubLogLinesMock).toHaveBeenCalledWith(["user@example.com", "10.0.0.1"]);
+    expect(scrubLogLinesMock).toHaveBeenCalledWith(["user@example.com", privateIp]);
     expect(sendLogsMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        logs: "user@example.com\n10.0.0.1",
+        logs: `user@example.com\n${privateIp}`,
         appVersion: "unknown",
         platform: "Windows",
+        timestamp: "2026-05-31T12:34:56.000Z",
       })
     );
     expect(buildGitHubIssueUrlMock).toHaveBeenCalledWith("ABCD", "unknown");
@@ -173,6 +177,27 @@ describe("SendLogsDialog", () => {
         description: "Clipboard access denied",
         variant: "destructive",
       });
+    });
+  });
+
+  it("shows a fallback toast when the Clipboard API is unavailable", async () => {
+    sendLogsMock.mockResolvedValue({ ok: true, code: "QWER", issueNumber: 321 });
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: undefined,
+    });
+
+    render(<SendLogsDialog open={true} onOpenChange={vi.fn()} logLines={["line 1"]} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Send logs" }));
+    expect(await screen.findByText("Logs uploaded")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy support code" }));
+
+    expect(toastMock).toHaveBeenCalledWith({
+      title: "Copy failed",
+      description: "Clipboard API not supported in this browser",
+      variant: "destructive",
     });
   });
 

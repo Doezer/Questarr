@@ -738,6 +738,88 @@ describe("qbittorrent remaining regression coverage", () => {
     });
   });
 
+  it("treats structured qBittorrent URL-add acceptance as success without fallback", async () => {
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+      callback: TimerHandler,
+      _delay?: number,
+      ...args: unknown[]
+    ) => {
+      if (typeof callback === "function") {
+        callback(...args);
+      }
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    }) as typeof setTimeout);
+
+    const client = new QBittorrentClient(createDownloader());
+    const privateClient = client as unknown as {
+      authenticate(force?: boolean): Promise<void>;
+      makeRequest(
+        method: string,
+        path: string,
+        body?: string | Buffer,
+        additionalHeaders?: Record<string, string>
+      ): Promise<Response>;
+    };
+
+    vi.spyOn(privateClient, "authenticate").mockResolvedValue(undefined);
+    const makeRequestSpy = vi.spyOn(privateClient, "makeRequest");
+    makeRequestSpy
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 202,
+        text: async () =>
+          '{"added_torrent_ids":[],"failure_count":0,"pending_count":1,"success_count":0}',
+        headers: emptyHeaders,
+      } as Response)
+      .mockResolvedValueOnce({ ok: true, json: async () => [] } as Response);
+
+    await expect(
+      client.addDownload({
+        url: "http://indexer.local/proxied.torrent",
+        title: "Structured acceptance",
+      })
+    ).resolves.toEqual({
+      success: true,
+      message: "Download accepted by qBittorrent but could not be verified immediately",
+    });
+
+    expect(fetchWithMagnetDetectionMock).not.toHaveBeenCalled();
+    setTimeoutSpy.mockRestore();
+  });
+
+  it("treats qBittorrent magnet 409 conflicts as duplicates", async () => {
+    const client = new QBittorrentClient(createDownloader());
+    const privateClient = client as unknown as {
+      authenticate(force?: boolean): Promise<void>;
+      makeRequest(
+        method: string,
+        path: string,
+        body?: string | Buffer,
+        additionalHeaders?: Record<string, string>
+      ): Promise<Response>;
+    };
+
+    vi.spyOn(privateClient, "authenticate").mockResolvedValue(undefined);
+    const makeRequestSpy = vi.spyOn(privateClient, "makeRequest");
+    makeRequestSpy
+      .mockRejectedValueOnce(new Error("HTTP 409: Conflict - Conflict"))
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => [{ hash: "abcdef1234567890abcdef1234567890abcdef12" }],
+      } as Response);
+
+    await expect(
+      client.addDownload({
+        url: "magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12",
+        title: "Duplicate magnet conflict",
+      })
+    ).resolves.toEqual({
+      success: true,
+      id: "abcdef1234567890abcdef1234567890abcdef12",
+      message: "Download already exists (qBittorrent)",
+    });
+  });
+
   it("covers upload hash recovery, verification, unexpected responses, and upload errors", async () => {
     const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
       callback: TimerHandler,

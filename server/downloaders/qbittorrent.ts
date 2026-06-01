@@ -32,6 +32,18 @@ interface QBittorrentTorrent {
   [key: string]: unknown;
 }
 
+interface QBittorrentUrlAddResponse {
+  added_torrent_ids?: unknown;
+  failure_count?: unknown;
+  pending_count?: unknown;
+  success_count?: unknown;
+}
+
+interface QBittorrentUrlAddInterpretation {
+  status: "accepted" | "duplicate_or_failed" | "unexpected";
+  acceptedByStructuredResponse: boolean;
+}
+
 /**
  * qBittorrent client implementation using Web API v2.
  *
@@ -51,6 +63,45 @@ export class QBittorrentClient implements DownloaderClient {
 
   constructor(downloader: Downloader) {
     this.downloader = downloader;
+  }
+
+  private interpretUrlAddResponse(responseText: string): QBittorrentUrlAddInterpretation {
+    const trimmedResponse = responseText.trim();
+    if (trimmedResponse === "Ok." || trimmedResponse === "") {
+      return { status: "accepted", acceptedByStructuredResponse: false };
+    }
+    if (trimmedResponse === "Fails.") {
+      return { status: "duplicate_or_failed", acceptedByStructuredResponse: false };
+    }
+
+    try {
+      const parsedResponse = JSON.parse(trimmedResponse) as QBittorrentUrlAddResponse;
+      const addedTorrentIds = Array.isArray(parsedResponse.added_torrent_ids)
+        ? parsedResponse.added_torrent_ids.filter((id): id is string => typeof id === "string")
+        : [];
+      const failureCount =
+        typeof parsedResponse.failure_count === "number" ? parsedResponse.failure_count : 0;
+      const pendingCount =
+        typeof parsedResponse.pending_count === "number" ? parsedResponse.pending_count : 0;
+      const successCount =
+        typeof parsedResponse.success_count === "number" ? parsedResponse.success_count : 0;
+
+      if (successCount > 0 || pendingCount > 0 || addedTorrentIds.length > 0) {
+        return { status: "accepted", acceptedByStructuredResponse: true };
+      }
+
+      if (failureCount > 0) {
+        return { status: "duplicate_or_failed", acceptedByStructuredResponse: false };
+      }
+    } catch {
+      // Keep treating unknown response bodies as unexpected so legacy fallback behavior remains.
+    }
+
+    return { status: "unexpected", acceptedByStructuredResponse: false };
+  }
+
+  private isConflictErrorMessage(message: string): boolean {
+    return /^HTTP 409\b/i.test(message);
   }
 
   async testConnection(): Promise<{ success: boolean; message: string }> {
@@ -235,8 +286,9 @@ export class QBittorrentClient implements DownloaderClient {
           "qBittorrent URL add response"
         );
 
-        const urlAddOk = urlAddResponseText === "Ok." || urlAddResponseText === "";
-        const urlAddFails = urlAddResponseText === "Fails.";
+        const urlAddResult = this.interpretUrlAddResponse(urlAddResponseText);
+        const urlAddOk = urlAddResult.status === "accepted";
+        const urlAddFails = urlAddResult.status === "duplicate_or_failed";
 
         if (urlAddOk || urlAddFails) {
           const hashFromUrl = extractHashFromUrl(request.url);
@@ -268,6 +320,14 @@ export class QBittorrentClient implements DownloaderClient {
               };
             }
 
+            if (urlAddResult.acceptedByStructuredResponse) {
+              return {
+                success: true,
+                id: hashFromUrl,
+                message: "Download accepted by qBittorrent but could not be verified immediately",
+              };
+            }
+
             // Magnet links cannot fall back to torrent-file upload.
             if (isMagnet) {
               return {
@@ -296,12 +356,27 @@ export class QBittorrentClient implements DownloaderClient {
               };
             }
 
+            if (urlAddResult.acceptedByStructuredResponse) {
+              return {
+                success: true,
+                message: "Download accepted by qBittorrent but could not be verified immediately",
+              };
+            }
+
             if (isMagnet) {
               return {
                 success: false,
                 message: "Failed to add magnet link to qBittorrent",
               };
             }
+          }
+
+          if (urlAddResult.acceptedByStructuredResponse) {
+            return {
+              success: true,
+              id: hashFromUrl ?? undefined,
+              message: "Download accepted by qBittorrent but could not be verified immediately",
+            };
           }
 
           // If we reach here for a non-magnet, qBittorrent either couldn't reach the URL
@@ -330,6 +405,36 @@ export class QBittorrentClient implements DownloaderClient {
       } catch (error) {
         if (isMagnet) {
           const errorMessage = error instanceof Error ? error.message : "Unknown error";
+          const hashFromUrl = extractHashFromUrl(request.url);
+          if (hashFromUrl && this.isConflictErrorMessage(errorMessage)) {
+            try {
+              const verifyResponse = await this.makeRequest(
+                "GET",
+                `/api/v2/torrents/info?hashes=${hashFromUrl}`
+              );
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const downloads = (await verifyResponse.json()) as any[];
+              if (downloads && downloads.length > 0) {
+                return {
+                  success: true,
+                  id: hashFromUrl,
+                  message: "Download already exists (qBittorrent)",
+                };
+              }
+            } catch (verifyError) {
+              downloadersLogger.warn(
+                { hash: hashFromUrl, verifyError },
+                "Failed to verify qBittorrent 409 conflict as duplicate"
+              );
+            }
+
+            return {
+              success: true,
+              id: hashFromUrl,
+              message: "Download already exists (qBittorrent)",
+            };
+          }
+
           return {
             success: false,
             message: `Failed to add magnet link: ${errorMessage}`,

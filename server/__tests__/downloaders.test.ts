@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Downloader } from "../../shared/schema";
 import { safeFetch } from "../ssrf.js";
+import { downloadersLogger } from "../logger.js";
 import {
   TransmissionClient,
   RTorrentClient,
@@ -100,13 +101,13 @@ describe("TransmissionClient", () => {
         ok: true,
         json: async () => ({
           result: "success",
-          arguments: { "session-id": "12345" },
+          arguments: { "session-id": "12345", version: "4.0.6", "rpc-version": 17 },
         }),
       });
 
       const result = await client.testConnection();
       expect(result.success).toBe(true);
-      expect(result.message).toContain("Connected successfully");
+      expect(result.message).toBe("Connected successfully to Transmission 4.0.6");
     });
 
     it("should handle authentication failure", async () => {
@@ -120,6 +121,33 @@ describe("TransmissionClient", () => {
       const result = await client.testConnection();
       expect(result.success).toBe(false);
       expect(result.message).toContain("Authentication failed");
+    });
+
+    it("should log version info from session-get", async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          result: "success",
+          arguments: {
+            version: "4.0.6",
+            "rpc-version": 17,
+            "rpc-version-minimum": 1,
+          },
+        }),
+      });
+
+      await client.logVersionInfo();
+
+      expect(downloadersLogger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          downloaderId: "trans-1",
+          downloaderType: "transmission",
+          version: "4.0.6",
+          rpcVersion: 17,
+          rpcVersionMinimum: 1,
+        }),
+        "Downloader version probe completed"
+      );
     });
   });
 

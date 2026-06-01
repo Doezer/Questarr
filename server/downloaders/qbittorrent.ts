@@ -56,14 +56,25 @@ export class QBittorrentClient implements DownloaderClient {
   async testConnection(): Promise<{ success: boolean; message: string }> {
     try {
       await this.authenticate();
-      // Test by getting app version
-      const response = await this.makeRequest("GET", "/api/v2/app/version");
-      const version = await response.text();
+      const version = await this.getAppVersion();
       return { success: true, message: `Connected successfully to qBittorrent ${version}` };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       return { success: false, message: `Failed to connect to qBittorrent: ${errorMessage}` };
     }
+  }
+
+  async logVersionInfo(): Promise<void> {
+    await this.authenticate();
+    const version = await this.getAppVersion();
+    downloadersLogger.info(
+      {
+        downloaderId: this.downloader.id,
+        downloaderType: this.downloader.type,
+        version,
+      },
+      "Downloader version probe completed"
+    );
   }
 
   async addDownload(
@@ -991,6 +1002,11 @@ export class QBittorrentClient implements DownloaderClient {
       .trim();
 
     return cleaned.length > 0 ? cleaned : "torrent.torrent";
+  }
+
+  private async getAppVersion(): Promise<string> {
+    const response = await this.makeRequest("GET", "/api/v2/app/version");
+    return (await response.text()).trim();
   }
 
   private async authenticate(force = false): Promise<void> {

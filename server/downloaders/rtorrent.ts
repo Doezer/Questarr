@@ -66,6 +66,18 @@ export class RTorrentClient implements DownloaderClient {
     }
   }
 
+  async logVersionInfo(): Promise<void> {
+    const version = await this.makeXMLRPCRequest("system.client_version", []);
+    downloadersLogger.info(
+      {
+        downloaderId: this.downloader.id,
+        downloaderType: this.downloader.type,
+        version,
+      },
+      "Downloader version probe completed"
+    );
+  }
+
   async addDownload(
     request: DownloadRequest
   ): Promise<{ success: boolean; id?: string; message: string }> {

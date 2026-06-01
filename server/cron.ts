@@ -3,6 +3,8 @@ import { igdbClient, IGDB_EARLY_ACCESS_STATUS } from "./igdb.js";
 import { igdbLogger } from "./logger.js";
 import { notifyUser } from "./socket.js";
 import { DownloaderManager } from "./downloaders.js";
+import { torznabClient } from "./torznab.js";
+import { newznabClient } from "./newznab.js";
 import { searchAllIndexers, filterBlacklistedReleases, type SearchItem } from "./search.js";
 import { xrelClient, DEFAULT_XREL_BASE } from "./xrel.js";
 import { steamService } from "./steam.js";
@@ -35,6 +37,7 @@ const downloadMissCount = new Map<string, number>();
 const DOWNLOAD_MISS_THRESHOLD = 3;
 const AUTO_SEARCH_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const XREL_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours (xREL search rate limit: 2/5s)
+const CLIENT_VERSION_LOG_INTERVAL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const OWNED_STATUSES = new Set(["owned", "completed", "downloading"]);
 
 const GAME_UPDATE_TITLE_TO_EVENT: Record<string, NotificationEvent> = {
@@ -271,6 +274,7 @@ export function startCronJobs() {
     checkDownloadStatus().catch((err) => igdbLogger.error({ err }, "Error in checkDownloadStatus"));
     checkAutoSearch().catch((err) => igdbLogger.error({ err }, "Error in checkAutoSearch"));
     checkXrelReleases().catch((err) => igdbLogger.error({ err }, "Error in checkXrelReleases"));
+    logClientVersions().catch((err) => igdbLogger.warn({ err }, "Error in logClientVersions"));
   }, 10000);
 
   // Schedule periodic checks
@@ -289,6 +293,35 @@ export function startCronJobs() {
   setInterval(() => {
     checkXrelReleases().catch((err) => igdbLogger.error({ err }, "Error in checkXrelReleases"));
   }, XREL_CHECK_INTERVAL_MS);
+
+  setInterval(() => {
+    logClientVersions().catch((err) => igdbLogger.warn({ err }, "Error in logClientVersions"));
+  }, CLIENT_VERSION_LOG_INTERVAL_MS);
+}
+
+async function logClientVersions(): Promise<void> {
+  const [downloaders, indexers] = await Promise.all([
+    storage.getEnabledDownloaders(),
+    storage.getEnabledIndexers(),
+  ]);
+
+  if (downloaders.length === 0 && indexers.length === 0) {
+    return;
+  }
+
+  igdbLogger.debug(
+    { downloaderCount: downloaders.length, indexerCount: indexers.length },
+    "Running periodic client version probes"
+  );
+
+  await Promise.allSettled([
+    ...downloaders.map((downloader) => DownloaderManager.logVersionInfo(downloader)),
+    ...indexers.map((indexer) =>
+      indexer.protocol === "newznab"
+        ? newznabClient.logVersionInfo(indexer)
+        : torznabClient.logVersionInfo(indexer)
+    ),
+  ]);
 }
 
 export async function checkGameUpdates() {

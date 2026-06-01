@@ -645,6 +645,27 @@ export class SynologyDownloadStationClient implements DownloaderClient {
     }
   }
 
+  async logVersionInfo(): Promise<void> {
+    await this.ensureApiInfo();
+
+    const authDescriptor = this.apiInfo?.["SYNO.API.Auth"];
+    const taskDescriptor = this.apiInfo?.["SYNO.DownloadStation2.Task"];
+    const legacyTaskDescriptor = this.apiInfo?.["SYNO.DownloadStation.Task"];
+    const fileStationDescriptor = this.apiInfo?.["SYNO.FileStation.Info"];
+
+    downloadersLogger.info(
+      {
+        downloaderId: this.downloader.id,
+        downloaderType: this.downloader.type,
+        authApiVersion: authDescriptor?.maxVersion,
+        downloadStationTaskApiVersion: taskDescriptor?.maxVersion,
+        legacyDownloadStationTaskApiVersion: legacyTaskDescriptor?.maxVersion,
+        fileStationApiVersion: fileStationDescriptor?.maxVersion,
+      },
+      "Downloader version probe completed"
+    );
+  }
+
   async addDownload(
     request: DownloadRequest
   ): Promise<{ success: boolean; id?: string; message: string }> {

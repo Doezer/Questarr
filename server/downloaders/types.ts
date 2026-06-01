@@ -23,6 +23,7 @@ export interface DownloadResult extends DownloaderActionResult {
 
 export interface DownloaderClient {
   testConnection(): Promise<DownloaderActionResult>;
+  logVersionInfo(): Promise<void>;
   addDownload(request: DownloadRequest): Promise<DownloadResult>;
   getDownloadStatus(id: string): Promise<DownloadStatus | null>;
   getDownloadDetails(id: string): Promise<DownloadDetails | null>;

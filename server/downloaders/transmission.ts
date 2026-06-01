@@ -102,12 +102,19 @@ export class TransmissionClient implements DownloaderClient {
 
   async testConnection(): Promise<{ success: boolean; message: string }> {
     try {
-      const _response = await this.makeRequest("session-get", {});
+      const response = await this.makeRequest("session-get", {});
+      const version = response.arguments?.version;
       downloadersLogger.info(
         { url: this.downloader.url },
         "Transmission connection test successful"
       );
-      return { success: true, message: "Connected successfully to Transmission" };
+      return {
+        success: true,
+        message:
+          typeof version === "string"
+            ? `Connected successfully to Transmission ${version}`
+            : "Connected successfully to Transmission",
+      };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       downloadersLogger.error(
@@ -124,6 +131,32 @@ export class TransmissionClient implements DownloaderClient {
       }
       return { success: false, message: `Failed to connect to Transmission: ${errorMessage}` };
     }
+  }
+
+  async logVersionInfo(): Promise<void> {
+    const response = await this.makeRequest("session-get", {});
+    const version = response.arguments?.version;
+    const rpcVersion = response.arguments?.["rpc-version"];
+    const rpcVersionMinimum = response.arguments?.["rpc-version-minimum"];
+
+    if (typeof version !== "string" && typeof rpcVersion !== "number") {
+      downloadersLogger.debug(
+        { downloaderId: this.downloader.id, downloaderType: this.downloader.type },
+        "Transmission session-get did not expose version info"
+      );
+      return;
+    }
+
+    downloadersLogger.info(
+      {
+        downloaderId: this.downloader.id,
+        downloaderType: this.downloader.type,
+        version,
+        rpcVersion,
+        rpcVersionMinimum,
+      },
+      "Downloader version probe completed"
+    );
   }
 
   async addDownload(

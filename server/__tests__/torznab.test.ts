@@ -5,11 +5,13 @@ vi.mock("../db.js", () => ({ pool: {}, db: {} }));
 vi.mock("../logger.js", () => ({
   torznabLogger: { info: vi.fn(), debug: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
-vi.mock("../ssrf.js", () => ({ safeFetch: vi.fn() }));
+vi.mock("../ssrf.js", () => ({ isSafeUrl: vi.fn(), safeFetch: vi.fn() }));
 
 const { TorznabClient } = await import("../torznab.js");
-const { safeFetch } = await import("../ssrf.js");
+const { torznabLogger } = await import("../logger.js");
+const { isSafeUrl, safeFetch } = await import("../ssrf.js");
 
+const mockIsSafeUrl = vi.mocked(isSafeUrl);
 const mockSafeFetch = vi.mocked(safeFetch);
 
 function makeIndexer(overrides: Partial<Indexer> = {}): Indexer {
@@ -54,6 +56,13 @@ function mockFetchResponse(xml: string) {
     statusText: "OK",
     text: async () => xml,
   } as Response);
+}
+
+function makeCapsXml(version = "1.2.3", title = "Test Torznab"): string {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<caps>
+  <server title="${title}" version="${version}" />
+</caps>`;
 }
 
 describe("TorznabClient — download link rewriting", () => {
@@ -159,5 +168,49 @@ describe("TorznabClient — download link rewriting", () => {
     // No apiKey → falls through to standard host rewrite
     const link = result.items[0].link;
     expect(new URL(link).host).toBe("prowlarr:9696");
+  });
+
+  it("logs torznab server version from caps", async () => {
+    mockIsSafeUrl.mockResolvedValue(true);
+    mockFetchResponse(makeCapsXml("2.4.0", "My Torznab"));
+
+    await client.logVersionInfo(makeIndexer());
+
+    expect(mockIsSafeUrl).toHaveBeenCalledWith(
+      "http://indexer.example.com/api/?t=caps&apikey=testkey"
+    );
+    expect(mockSafeFetch).toHaveBeenCalledWith(
+      "http://indexer.example.com/api/?t=caps&apikey=testkey",
+      expect.objectContaining({
+        headers: { "User-Agent": "Questarr/1.0" },
+      })
+    );
+
+    expect(torznabLogger.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        indexer: "Test Indexer",
+        protocol: "torznab",
+        serverTitle: "My Torznab",
+        serverVersion: "2.4.0",
+      }),
+      "Indexer version probe completed"
+    );
+  });
+
+  it("logs torznab server version from the api caps endpoint when the configured URL omits it", async () => {
+    mockIsSafeUrl.mockResolvedValue(true);
+    mockFetchResponse(makeCapsXml("2.4.0", "My Torznab"));
+
+    await client.logVersionInfo(makeIndexer({ url: "http://indexer.example.com/5" }));
+
+    expect(mockIsSafeUrl).toHaveBeenCalledWith(
+      "http://indexer.example.com/5/api/?t=caps&apikey=testkey"
+    );
+    expect(mockSafeFetch).toHaveBeenCalledWith(
+      "http://indexer.example.com/5/api/?t=caps&apikey=testkey",
+      expect.objectContaining({
+        headers: { "User-Agent": "Questarr/1.0" },
+      })
+    );
   });
 });

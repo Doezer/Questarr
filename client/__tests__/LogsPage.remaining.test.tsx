@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import React from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -214,9 +214,11 @@ describe("LogsPage remaining coverage", () => {
     });
     expect(await screen.findByText("Error message")).toBeInTheDocument();
 
-    logStreamState.callback?.(
-      JSON.stringify({ level: 50, module: "cron", msg: "error streamed", time: Date.now() })
-    );
+    await act(async () => {
+      logStreamState.callback?.(
+        JSON.stringify({ level: 50, module: "cron", msg: "error streamed", time: Date.now() })
+      );
+    });
     expect(await screen.findByText("error streamed")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Inspect log Error message/i }));

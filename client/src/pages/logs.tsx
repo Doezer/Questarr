@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo, memo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Copy, PauseCircle, PlayCircle, ScrollText, Search, Trash2 } from "lucide-react";
+import { Copy, PauseCircle, PlayCircle, ScrollText, Search, Send, Trash2 } from "lucide-react";
+import SendLogsDialog from "@/components/SendLogsDialog";
 import { apiRequest } from "@/lib/queryClient";
 import { useLogStream } from "@/hooks/use-log-stream";
 import { Badge } from "@/components/ui/badge";
@@ -482,6 +483,7 @@ export default function LogsPage() {
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(DEFAULT_VIEWPORT_HEIGHT);
   const [selectedLine, setSelectedLine] = useState<ParsedLogLine | null>(null);
+  const [sendLogsOpen, setSendLogsOpen] = useState(false);
 
   const { data: initialData, isLoading } = useQuery<{ lines: string[] }>({
     queryKey: ["/api/logs"],
@@ -674,6 +676,15 @@ export default function LogsPage() {
             <Trash2 className="mr-1 h-4 w-4" />
             Clear
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setSendLogsOpen(true)}
+            aria-label="Send logs to support"
+          >
+            <Send className="mr-1 h-4 w-4" />
+            Send Logs
+          </Button>
         </div>
       </div>
 
@@ -778,6 +789,12 @@ export default function LogsPage() {
       )}
 
       <LogInspector line={selectedLine} onClose={() => setSelectedLine(null)} onCopy={copyText} />
+
+      <SendLogsDialog
+        open={sendLogsOpen}
+        onOpenChange={setSendLogsOpen}
+        logLines={filteredLines.map((line) => line.raw)}
+      />
     </div>
   );
 }

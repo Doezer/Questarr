@@ -139,7 +139,10 @@ describe("CalendarPage", () => {
   });
 
   it("switches to week view and opens the download dialog from a visible game", async () => {
-    mockGamesFetch([{ ...baseGame, id: "game-4", title: "Week Hero", releaseDate: "2026-05-29" }]);
+    const currentWeekRelease = new Date();
+    const releaseDate = currentWeekRelease.toISOString().slice(0, 10);
+
+    mockGamesFetch([{ ...baseGame, id: "game-4", title: "Week Hero", releaseDate }]);
 
     renderPage();
 
@@ -156,7 +159,21 @@ describe("CalendarPage", () => {
   });
 
   it("shows month view mobile day details when a day with releases is tapped", async () => {
-    mockGamesFetch([{ ...baseGame, id: "game-5", title: "Month Hero", releaseDate: "2026-05-29" }]);
+    const currentMonthRelease = new Date();
+    currentMonthRelease.setDate(
+      Math.min(
+        15,
+        new Date(currentMonthRelease.getFullYear(), currentMonthRelease.getMonth() + 1, 0).getDate()
+      )
+    );
+    const releaseDate = currentMonthRelease.toISOString().slice(0, 10);
+    const mobileButtonLabel = `${currentMonthRelease.toLocaleDateString(undefined, {
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+    })}, 1 release`;
+
+    mockGamesFetch([{ ...baseGame, id: "game-5", title: "Month Hero", releaseDate }]);
 
     renderPage();
 
@@ -168,12 +185,8 @@ describe("CalendarPage", () => {
       expect(screen.queryByText("Loading calendar...")).not.toBeInTheDocument();
     });
 
-    const dayButton = Array.from(document.querySelectorAll("button.cursor-pointer")).find((node) =>
-      node.textContent?.includes("29")
-    ) as HTMLButtonElement | undefined;
-
-    expect(dayButton).toBeDefined();
-    const dayCell = dayButton?.parentElement as HTMLDivElement | null;
+    const dayButton = screen.getByRole("button", { name: mobileButtonLabel });
+    const dayCell = dayButton.parentElement as HTMLDivElement | null;
 
     expect(dayCell).not.toBeNull();
     fireEvent.click(dayButton!);

@@ -398,10 +398,11 @@ export class TorznabClient {
             // indexer), a naive host swap would produce an invalid path on Prowlarr. Instead,
             // construct a proper Prowlarr download proxy URL so the request goes through
             // Prowlarr — which has FlareSolverr configured to bypass Cloudflare.
-            const prowlarrMatch = indexerUrlObj.pathname.match(/^\/(\d+)\/api\/?$/i);
+            const prowlarrMatch = indexerUrlObj.pathname.match(/(?:^|\/)(\d+)\/api\/?$/i);
             if (prowlarrMatch && indexer?.apiKey) {
               const isProwlarrProxyUrl =
-                /^\/\d+\/download\/?$/i.test(linkUrl.pathname) && linkUrl.searchParams.has("link");
+                /(?:^|\/)\d+\/download\/?$/i.test(linkUrl.pathname) &&
+                linkUrl.searchParams.has("link");
 
               if (isProwlarrProxyUrl) {
                 // Prowlarr already returned a proxy URL. Avoid double-wrapping when only
@@ -411,7 +412,7 @@ export class TorznabClient {
                 torznabItem.link = linkUrl.toString();
               } else {
                 const prowlarrUrl = new URL(`${indexerUrlObj.protocol}//${indexerUrlObj.host}`);
-                prowlarrUrl.pathname = `/${prowlarrMatch[1]}/download`;
+                prowlarrUrl.pathname = indexerUrlObj.pathname.replace(/\/api\/?$/i, "/download");
                 prowlarrUrl.searchParams.set("file", torznabItem.title || "download");
                 prowlarrUrl.searchParams.set(
                   "link",

@@ -142,7 +142,7 @@ export default function Downloads() {
     refetch,
   } = useQuery<DownloadsResponse>({
     queryKey: ["/api/downloads"],
-    refetchInterval: 5000, // Refresh every 5 seconds
+    refetchInterval: 30_000,
   });
 
   const downloads = useMemo(() => downloadsData?.downloads || [], [downloadsData?.downloads]);

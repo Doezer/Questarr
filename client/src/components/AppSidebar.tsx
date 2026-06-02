@@ -37,7 +37,7 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: Readonly<Ap
 
   const { data: downloadsData } = useQuery<{ downloads: DownloadStatus[] }>({
     queryKey: ["/api/downloads"],
-    refetchInterval: 5000,
+    refetchInterval: 30_000,
   });
 
   const wishlistCount = useMemo(() => {

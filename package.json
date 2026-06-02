@@ -144,8 +144,8 @@
     "@types/semver": "^7.7.1",
     "@types/supertest": "^6.0.3",
     "@vitejs/plugin-react": "^6.0.2",
-    "@vitest/coverage-v8": "4.1.7",
-    "@vitest/ui": "4.1.7",
+    "@vitest/coverage-v8": "4.1.8",
+    "@vitest/ui": "4.1.8",
     "autoprefixer": "10.5.0",
     "cross-env": "^10.1.0",
     "drizzle-kit": "^0.31.10",
@@ -161,11 +161,11 @@
     "prettier": "3.8.3",
     "supertest": "^7.2.2",
     "tailwindcss": "^4.0.0",
-    "tsx": "^4.22.2",
+    "tsx": "^4.22.4",
     "typescript": "^5.9.3",
-    "typescript-eslint": "8.59.4",
-    "vite": "8.0.14",
-    "vitest": "4.1.7"
+    "typescript-eslint": "8.60.1",
+    "vite": "8.0.16",
+    "vitest": "4.1.8"
   },
   "optionalDependencies": {
     "bufferutil": "^4.0.8"

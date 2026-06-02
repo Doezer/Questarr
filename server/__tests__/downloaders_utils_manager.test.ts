@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Downloader, DownloadStatus } from "../../shared/schema.js";
+import { DelugeClient } from "../downloaders/deluge.js";
 import { DownloaderManager } from "../downloaders.js";
 import {
   DOWNLOAD_CLIENT_USER_AGENT,

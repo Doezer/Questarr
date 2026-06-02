@@ -5,6 +5,7 @@ export const TORRENT_DOWNLOADER_TYPES = [
   "rtorrent",
   "qbittorrent",
   "synology",
+  "deluge",
 ] as const;
 
 export function isUsenetDownloaderType(type: string): boolean {

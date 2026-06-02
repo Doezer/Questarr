@@ -95,7 +95,7 @@
     "nanoid": "^5.1.9",
     "next-themes": "^0.4.6",
     "node-forge": "^1.4.0",
-    "parse-torrent": "^11.0.19",
+    "parse-torrent": "^11.0.21",
     "passport": "^0.7.0",
     "passport-steam": "^1.0.18",
     "pg": "^8.20.0",

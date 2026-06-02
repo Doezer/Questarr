@@ -88,7 +88,7 @@
     "html-to-image": "^1.11.13",
     "husky": "^9.1.7",
     "input-otp": "^1.4.2",
-    "js-yaml": "^4.1.1",
+    "js-yaml": "^4.2.0",
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^0.577.0",
     "multer": "^2.1.1",

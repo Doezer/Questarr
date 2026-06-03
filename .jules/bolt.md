@@ -32,3 +32,7 @@
 
 **Learning:** Found multiple O(n) array traversals (filter, map, reduce, flatMap) within a React useMemo hook processing game statistics. Replacing these multiple array methods with a single manual loop significantly improves performance on the hot path (re-evaluating stats) by reducing redundant iterations and object allocations.
 **Action:** Always scrutinize React useMemo hooks operating on collections for unnecessary or repeated iterations, and consider combining loops.
+## 2025-05-23 - Optimizing O(N*M) lookups in React loops
+
+**Learning:** Nesting array `.some()` or `.find()` calls inside a `.map()` loop (e.g., to check if an API search result exists in the user's local library) creates an O(N*M) time complexity that runs on every render, severely degrading performance for large collections.
+**Action:** Always optimize nested array lookups by pre-computing a `Set` or `Map` of unique identifiers from the target array inside a `useMemo` hook. This reduces the time complexity to O(N+M) and prevents redundant parsing on re-renders.

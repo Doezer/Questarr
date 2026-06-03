@@ -126,6 +126,7 @@ export default function PreferredReleaseGroupsSettings({
                 size="icon"
                 onClick={handleAddGroup}
                 disabled={!inputValue.trim()}
+                aria-label="Add release group"
               >
                 <Plus className="h-4 w-4" />
               </Button>

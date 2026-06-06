@@ -210,6 +210,16 @@ If you are upgrading from an older version that used PostgreSQL, you need to mig
 
 See [docs/MIGRATION.md](docs/MIGRATION.md) for more details.
 
+### Home Assistant Add-on
+
+You can install Questarr as a Home Assistant add-on from this repository:
+
+1. In Home Assistant, open **Settings → Add-ons → Add-on Store**.
+2. Click the menu (⋮) and choose **Repositories**.
+3. Add this repository URL: `https://github.com/Doezer/Questarr`
+4. Install the **Questarr** add-on and start it.
+5. Open `http://<home-assistant-host>:5000` to access the UI.
+
 ## Configuration
 
 1. **First-time setup:**

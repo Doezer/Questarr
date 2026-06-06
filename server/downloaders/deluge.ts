@@ -9,6 +9,7 @@ import { downloadersLogger } from "../logger.js";
 import { isSafeUrl } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
 import { fetchWithMagnetDetection, extractHashFromUrl } from "./utils.js";
+import { z } from "zod";
 
 interface DelugeTorrentStatus {
   name?: string;
@@ -137,7 +138,9 @@ export class DelugeClient implements DownloaderClient {
     );
 
     const hostsResponse = await this.makeRequest("web.get_hosts", []);
-    const hosts = hostsResponse.result as Array<[string, string, number, string, string]> | undefined;
+    const hosts = hostsResponse.result as
+      | Array<[string, string, number, string, string]>
+      | undefined;
 
     if (!hosts || hosts.length === 0) {
       throw new Error("No Deluge daemon hosts configured in Web UI");
@@ -199,7 +202,11 @@ export class DelugeClient implements DownloaderClient {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       downloadersLogger.warn(
-        { downloaderId: this.downloader.id, downloaderType: this.downloader.type, error: errorMessage },
+        {
+          downloaderId: this.downloader.id,
+          downloaderType: this.downloader.type,
+          error: errorMessage,
+        },
         "Downloader version probe failed"
       );
     }
@@ -219,6 +226,22 @@ export class DelugeClient implements DownloaderClient {
       const isMagnet = request.url.startsWith("magnet:");
       const downloadPath = request.downloadPath || this.downloader.downloadPath;
       const category = request.category || this.downloader.category;
+      const succeed = async (id: string, message: string) => {
+        if (category) {
+          try {
+            await this.makeRequest("label.add", [category]);
+          } catch {
+            // Label may already exist
+          }
+          try {
+            await this.makeRequest("label.set_torrent", [id, category]);
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : "Unknown error";
+            downloadersLogger.warn({ id, category, error: msg }, "Failed to apply Deluge label");
+          }
+        }
+        return { success: true as const, id, message };
+      };
       const addPaused = this.downloader.addStopped ?? false;
 
       const options: Record<string, unknown> = {};
@@ -233,19 +256,12 @@ export class DelugeClient implements DownloaderClient {
         // Validate magnet hash for later verification
         const hashFromUrl = extractHashFromUrl(request.url);
 
-        const response = await this.makeRequest("core.add_torrent_magnet", [
-          request.url,
-          options,
-        ]);
+        const response = await this.makeRequest("core.add_torrent_magnet", [request.url, options]);
 
         const result = response.result;
         if (typeof result === "string" && result.length > 0) {
           // result is the torrent ID (info hash)
-          return {
-            success: true,
-            id: result.toLowerCase(),
-            message: "Download added successfully",
-          };
+          return succeed(result.toLowerCase(), "Download added successfully");
         }
 
         if (result === null && hashFromUrl) {
@@ -255,11 +271,7 @@ export class DelugeClient implements DownloaderClient {
             ["name"],
           ]);
           if (verifyResponse.result && typeof verifyResponse.result === "object") {
-            return {
-              success: true,
-              id: hashFromUrl,
-              message: "Download already exists (Deluge)",
-            };
+            return succeed(hashFromUrl, "Download already exists (Deluge)");
           }
         }
 
@@ -278,7 +290,7 @@ export class DelugeClient implements DownloaderClient {
 
       let torrentFileBuffer: Buffer;
       let torrentFileName = "torrent.torrent";
-      let parsedInfoHash: string | null = null;
+      const parsedInfoHash: string | null = null;
 
       try {
         const { response: torrentResponse, magnetLink } = await fetchWithMagnetDetection(
@@ -298,9 +310,7 @@ export class DelugeClient implements DownloaderClient {
 
         const contentDisposition = torrentResponse.headers.get("content-disposition");
         if (contentDisposition) {
-          const filenameMatch = contentDisposition.match(
-            /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/
-          );
+          const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
           if (filenameMatch && filenameMatch[1]) {
             torrentFileName = filenameMatch[1].replace(/['"]/g, "").trim();
           }
@@ -315,7 +325,10 @@ export class DelugeClient implements DownloaderClient {
         );
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "Unknown error";
-        downloadersLogger.error({ error: errorMessage, url: request.url }, "Failed to download torrent file");
+        downloadersLogger.error(
+          { error: errorMessage, url: request.url },
+          "Failed to download torrent file"
+        );
 
         // Fallback: try core.add_torrent_url (Deluge downloads the URL itself)
         downloadersLogger.info({ url: request.url }, "Falling back to Deluge URL download");
@@ -326,11 +339,7 @@ export class DelugeClient implements DownloaderClient {
 
         const fallbackResult = fallbackResponse.result;
         if (typeof fallbackResult === "string" && fallbackResult.length > 0) {
-          return {
-            success: true,
-            id: fallbackResult.toLowerCase(),
-            message: "Download added successfully (via URL)",
-          };
+          return succeed(fallbackResult.toLowerCase(), "Download added successfully (via URL)");
         }
         if (fallbackResult === null) {
           // Could be duplicate or failure —Deluge returns null for existing torrents sometimes
@@ -341,11 +350,7 @@ export class DelugeClient implements DownloaderClient {
               ["name"],
             ]);
             if (verifyResponse.result && typeof verifyResponse.result === "object") {
-              return {
-                success: true,
-                id: hashFromUrl,
-                message: "Download already exists (Deluge)",
-              };
+              return succeed(hashFromUrl, "Download already exists (Deluge)");
             }
           }
         }
@@ -366,11 +371,7 @@ export class DelugeClient implements DownloaderClient {
 
       const result = response.result;
       if (typeof result === "string" && result.length > 0) {
-        return {
-          success: true,
-          id: result.toLowerCase(),
-          message: "Download added successfully",
-        };
+        return succeed(result.toLowerCase(), "Download added successfully");
       }
 
       if (result === null) {
@@ -382,22 +383,14 @@ export class DelugeClient implements DownloaderClient {
             ["name"],
           ]);
           if (verifyResponse.result && typeof verifyResponse.result === "object") {
-            return {
-              success: true,
-              id: hashFromUrl,
-              message: "Download already exists (Deluge)",
-            };
+            return succeed(hashFromUrl, "Download already exists (Deluge)");
           }
         }
 
         // Try to find by the most recently added torrent
         const recent = await this.findRecentlyAddedDownload();
         if (recent) {
-          return {
-            success: true,
-            id: recent.hash,
-            message: "Download added successfully",
-          };
+          return succeed(recent.hash, "Download added successfully");
         }
       }
 
@@ -421,7 +414,9 @@ export class DelugeClient implements DownloaderClient {
         ["name", "time_added"],
       ]);
 
-      const torrents = response.result as Record<string, { name?: string; time_added?: number }> | undefined;
+      const torrents = response.result as
+        | Record<string, { name?: string; time_added?: number }>
+        | undefined;
       if (!torrents || Object.keys(torrents).length === 0) return null;
 
       const entries = Object.entries(torrents);
@@ -518,11 +513,13 @@ export class DelugeClient implements DownloaderClient {
 
       // Map files
       const files: DownloadFile[] = [];
-      if (status.files && status.file_priorities && status.file_progress) {
+      if (status.files) {
+        const filePriorities = status.file_priorities || [];
+        const fileProgresses = status.file_progress || [];
         for (let i = 0; i < status.files.length; i++) {
           const file = status.files[i];
-          const priority = status.file_priorities[i] ?? 1;
-          const progress = status.file_progress[i] ?? 0;
+          const priority = filePriorities[i] ?? 1;
+          const progress = fileProgresses[i] ?? 0;
 
           let filePriority: DownloadFile["priority"] = "normal";
           if (priority === 0) filePriority = "off";
@@ -613,9 +610,7 @@ export class DelugeClient implements DownloaderClient {
       const torrents = response.result as Record<string, DelugeTorrentStatus> | undefined;
       if (!torrents) return [];
 
-      return Object.entries(torrents).map(([hash, status]) =>
-        this.mapDelugeStatus(hash, status)
-      );
+      return Object.entries(torrents).map(([hash, status]) => this.mapDelugeStatus(hash, status));
     } catch (error) {
       downloadersLogger.error({ error }, "Error getting all downloads from Deluge");
       return [];
@@ -712,15 +707,12 @@ export class DelugeClient implements DownloaderClient {
       default:
         downloadStatus = "paused";
         if (status.state) {
-          downloadersLogger.warn(
-            { state: status.state, hash },
-            "Unknown Deluge state encountered"
-          );
+          downloadersLogger.warn({ state: status.state, hash }, "Unknown Deluge state encountered");
         }
         break;
     }
 
-    const progress = Math.round((status.progress ?? 0) * 100);
+    const progress = Math.round(status.progress ?? 0);
 
     // Force completed/seeding based on progress
     if (progress >= 100) {
@@ -788,7 +780,8 @@ export class DelugeClient implements DownloaderClient {
     // Extract cookies from response for future requests
     const setCookieHeader = response.headers.get("set-cookie");
     if (setCookieHeader) {
-      const cookieMatch = setCookieHeader.match(/([^;]+)/);
+      const cookieMatch =
+        setCookieHeader.match(/(_session_id=[^;]+)/) ?? setCookieHeader.match(/([^;]+)/);
       if (cookieMatch) {
         this.cookie = cookieMatch[1];
       }
@@ -806,16 +799,24 @@ export class DelugeClient implements DownloaderClient {
           },
           "Deluge authentication failed - check password"
         );
-        throw new Error(
-          `Authentication failed: Invalid password for Deluge - ${errorText}`
-        );
+        throw new Error(`Authentication failed: Invalid password for Deluge - ${errorText}`);
       }
       throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
     }
 
+    const delugeResponseSchema = z.object({
+      result: z.unknown().optional(),
+      error: z
+        .object({ message: z.string().optional(), code: z.number().optional() })
+        .nullable()
+        .optional(),
+      id: z.number().optional(),
+    });
+
     let data: DelugeJSONRPCResponse;
     try {
-      data = (await response.json()) as DelugeJSONRPCResponse;
+      const raw = await response.json();
+      data = delugeResponseSchema.parse(raw);
     } catch {
       throw new Error("Invalid JSON response from Deluge");
     }

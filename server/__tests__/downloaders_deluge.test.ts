@@ -282,7 +282,7 @@ describe("DelugeClient", () => {
       fetchMock.mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          result: { "recenthash123": { name: "Recent", time_added: Date.now() / 1000 } },
+          result: { recenthash123: { name: "Recent", time_added: Date.now() / 1000 } },
           error: null,
           id: 5,
         }),
@@ -427,7 +427,7 @@ describe("DelugeClient", () => {
           result: {
             name: "Linux ISO",
             state: "Downloading",
-            progress: 0.5,
+            progress: 50,
             download_payload_rate: 1024,
             upload_payload_rate: 0,
             eta: 3600,
@@ -463,7 +463,7 @@ describe("DelugeClient", () => {
           result: {
             name: "Done",
             state: "Paused",
-            progress: 1.0,
+            progress: 100,
             download_payload_rate: 0,
             upload_payload_rate: 0,
             eta: 0,
@@ -547,7 +547,7 @@ describe("DelugeClient", () => {
             hash1: {
               name: "Game A",
               state: "Downloading",
-              progress: 0.25,
+              progress: 25,
               download_payload_rate: 512,
               upload_payload_rate: 0,
               eta: 7200,
@@ -561,7 +561,7 @@ describe("DelugeClient", () => {
             hash2: {
               name: "Game B",
               state: "Seeding",
-              progress: 1.0,
+              progress: 100,
               download_payload_rate: 0,
               upload_payload_rate: 256,
               eta: 0,
@@ -681,7 +681,7 @@ describe("DelugeClient", () => {
           result: {
             name: "Detailed Game",
             state: "Downloading",
-            progress: 0.5,
+            progress: 50,
             download_payload_rate: 1024,
             upload_payload_rate: 0,
             eta: 3600,
@@ -695,8 +695,8 @@ describe("DelugeClient", () => {
             time_added: 1700000000,
             completed_time: 0,
             files: [
-              { path: "game/setup.exe", size: 500000, progress: 0.5, priority: 1 },
-              { path: "game/readme.txt", size: 1000, progress: 1.0, priority: 2 },
+              { path: "game/setup.exe", size: 500000, progress: 50, priority: 1 },
+              { path: "game/readme.txt", size: 1000, progress: 100, priority: 2 },
             ],
             file_priorities: [1, 2],
             file_progress: [0.5, 1.0],
@@ -794,15 +794,15 @@ describe("DelugeClient", () => {
   describe("status mapping", () => {
     // Use it.each so beforeEach runs before every test case, keeping mocks fresh
     it.each([
-      { state: "Downloading", expected: "downloading", progress: 0.5 },
-      { state: "Checking", expected: "downloading", progress: 0.5 },
-      { state: "Allocating", expected: "downloading", progress: 0.5 },
-      { state: "Seeding", expected: "seeding", progress: 1.0 },
-      { state: "Paused", expected: "paused", progress: 0.5 },
-      { state: "Queued", expected: "paused", progress: 0.5 },
-      { state: "Error", expected: "error", progress: 0.1 },
-      { state: "Moving", expected: "downloading", progress: 0.8 },
-      { state: "Paused", expected: "completed", progress: 1.0 },
+      { state: "Downloading", expected: "downloading", progress: 50 },
+      { state: "Checking", expected: "downloading", progress: 50 },
+      { state: "Allocating", expected: "downloading", progress: 50 },
+      { state: "Seeding", expected: "seeding", progress: 100 },
+      { state: "Paused", expected: "paused", progress: 50 },
+      { state: "Queued", expected: "paused", progress: 50 },
+      { state: "Error", expected: "error", progress: 10 },
+      { state: "Moving", expected: "downloading", progress: 80 },
+      { state: "Paused", expected: "completed", progress: 100 },
     ])("maps Deluge state '$state' to '$expected'", async ({ state, expected, progress }) => {
       const client = new DelugeClient(createDownloader());
       setupAuthAndConnect();

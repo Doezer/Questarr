@@ -245,6 +245,36 @@ export class QBittorrentClient implements DownloaderClient {
         return null;
       };
 
+      // Helpers: retries for cases where qBittorrent accepts the add but needs time to process it.
+      const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+      const tryVerifyHash = async (hash: string, attempts = 6, delayMs = 1000) => {
+        for (let i = 0; i < attempts; i++) {
+          try {
+            const verifyResp = await this.makeRequest(
+              "GET",
+              `/api/v2/torrents/info?hashes=${hash}`
+            );
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const downloads = (await verifyResp.json()) as any[];
+            if (downloads && downloads.length > 0) return downloads[0];
+          } catch (e) {
+            // ignore transient errors and retry
+          }
+          await sleep(delayMs);
+        }
+        return null;
+      };
+
+      const findRecentlyAddedWithRetries = async (attempts = 6, delayMs = 1000) => {
+        for (let i = 0; i < attempts; i++) {
+          const recent = await findRecentlyAddedDownload();
+          if (recent) return recent;
+          await sleep(delayMs);
+        }
+        return null;
+      };
+
       // 1) Try URL-based add first.
       //    - Required for magnet links.
       //    - Also supports "normal" torrent URLs when qBittorrent can reach the URL.
@@ -322,6 +352,24 @@ export class QBittorrentClient implements DownloaderClient {
             }
 
             if (urlAddResult.acceptedByStructuredResponse) {
+              // Try to verify by hash for a short period before giving up — qBittorrent may be processing the add.
+              const verified = await tryVerifyHash(hashFromUrl);
+              if (verified) {
+                if (urlAddFails) {
+                  return {
+                    success: true,
+                    id: hashFromUrl,
+                    message: "Download already exists (qBittorrent)",
+                  };
+                }
+                await maybeSetForceStarted(hashFromUrl);
+                return {
+                  success: true,
+                  id: hashFromUrl,
+                  message: "Download added successfully",
+                };
+              }
+
               return {
                 success: true,
                 id: hashFromUrl,
@@ -358,6 +406,24 @@ export class QBittorrentClient implements DownloaderClient {
             }
 
             if (urlAddResult.acceptedByStructuredResponse) {
+              // Try to find the recently added torrent for a few seconds before returning an unverified acceptance.
+              const recent = await findRecentlyAddedWithRetries();
+              if (recent) {
+                if (urlAddFails) {
+                  return {
+                    success: true,
+                    id: recent.hash,
+                    message: "Download already exists (qBittorrent)",
+                  };
+                }
+                await maybeSetForceStarted(recent.hash);
+                return {
+                  success: true,
+                  id: recent.hash,
+                  message: "Download added successfully",
+                };
+              }
+
               return {
                 success: true,
                 message: "Download accepted by qBittorrent but could not be verified immediately",
@@ -373,9 +439,38 @@ export class QBittorrentClient implements DownloaderClient {
           }
 
           if (urlAddResult.acceptedByStructuredResponse) {
+            // If we have a hash try verifying it, otherwise attempt to find the new torrent for a few seconds.
+            if (hashFromUrl) {
+              const verified = await tryVerifyHash(hashFromUrl);
+              if (verified) {
+                await maybeSetForceStarted(hashFromUrl);
+                return {
+                  success: true,
+                  id: hashFromUrl,
+                  message: "Download added successfully",
+                };
+              }
+
+              return {
+                success: true,
+                id: hashFromUrl,
+                message: "Download accepted by qBittorrent but could not be verified immediately",
+              };
+            }
+
+            const recent = await findRecentlyAddedWithRetries();
+            if (recent) {
+              await maybeSetForceStarted(recent.hash);
+              return {
+                success: true,
+                id: recent.hash,
+                message: "Download added successfully",
+              };
+            }
+
             return {
               success: true,
-              id: hashFromUrl ?? undefined,
+              id: undefined,
               message: "Download accepted by qBittorrent but could not be verified immediately",
             };
           }

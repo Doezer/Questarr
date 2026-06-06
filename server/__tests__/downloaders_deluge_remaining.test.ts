@@ -65,7 +65,7 @@ describe("DelugeClient — remaining coverage edge cases", () => {
           result: {
             name: "Weird",
             state: "SomeUnknownState",
-            progress: 0.3,
+            progress: 30,
             download_payload_rate: 0,
             upload_payload_rate: 0,
             eta: 0,
@@ -95,7 +95,7 @@ describe("DelugeClient — remaining coverage edge cases", () => {
           result: {
             name: "AlmostDone",
             state: "Downloading",
-            progress: 1.0,
+            progress: 100,
             download_payload_rate: 0,
             upload_payload_rate: 256,
             eta: 0,
@@ -380,7 +380,7 @@ describe("DelugeClient — remaining coverage edge cases", () => {
             hash1: {
               name: "Cached",
               state: "Seeding",
-              progress: 1.0,
+              progress: 100,
               download_payload_rate: 0,
               upload_payload_rate: 0,
               eta: 0,
@@ -401,12 +401,10 @@ describe("DelugeClient — remaining coverage edge cases", () => {
       expect(downloads).toHaveLength(1);
 
       // Should NOT have called auth.login again (only 1 extra fetch for get_torrents_status after testConnection)
-      const authCalls = fetchMock.mock.calls.filter(
-        (call) => {
-          const body = JSON.parse((call[1]?.body as string) || "{}") as Record<string, unknown>;
-          return body.method === "auth.login";
-        }
-      );
+      const authCalls = fetchMock.mock.calls.filter((call) => {
+        const body = JSON.parse((call[1]?.body as string) || "{}") as Record<string, unknown>;
+        return body.method === "auth.login";
+      });
       expect(authCalls).toHaveLength(1);
     });
   });

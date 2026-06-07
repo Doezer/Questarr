@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/form";
 import { Lock, User, ShieldCheck, Gamepad2, HelpCircle, Info, ExternalLink } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { withBasePath } from "@/lib/app-path";
 
 type SetupForm = {
   username: string;
@@ -88,7 +89,7 @@ export default function SetupPage() {
       await checkSetup();
       toast({ title: "Setup complete! Welcome." });
       // Force reload to pick up auth state or navigate
-      window.location.href = "/";
+      window.location.href = withBasePath("/");
     },
     onError: (error: Error) => {
       toast({

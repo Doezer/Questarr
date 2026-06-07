@@ -1,6 +1,13 @@
 /** @vitest-environment jsdom */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { ApiError, apiRequest, clearSearchCache, getQueryFn, queryClient } from "../queryClient";
+import {
+  ApiError,
+  apiFetch,
+  apiRequest,
+  clearSearchCache,
+  getQueryFn,
+  queryClient,
+} from "../queryClient";
 
 describe("queryClient utilities", () => {
   beforeEach(() => {
@@ -41,6 +48,23 @@ describe("queryClient utilities", () => {
       body: JSON.stringify({ hello: "world" }),
       credentials: "include",
     });
+  });
+
+  it("apiFetch clones Headers inputs before adding authorization", async () => {
+    localStorage.setItem("token", "jwt-token");
+
+    const response = new Response(JSON.stringify({ ok: true }), { status: 200 });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(response);
+    const headers = new Headers({ Accept: "application/json" });
+
+    await apiFetch("/api/test", { headers });
+
+    expect(headers.has("Authorization")).toBe(false);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const requestInit = fetchMock.mock.calls[0]?.[1];
+    expect(requestInit?.headers).toBeInstanceOf(Headers);
+    expect(requestInit?.headers).not.toBe(headers);
+    expect((requestInit?.headers as Headers).get("Authorization")).toBe("Bearer jwt-token");
   });
 
   it("apiRequest surfaces API message from JSON error payload", async () => {

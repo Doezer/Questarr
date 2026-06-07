@@ -26,7 +26,7 @@ import { useToast } from "@/hooks/use-toast";
 import { type Game, type InsertGame, type Config } from "@shared/schema";
 import { mapGameToInsertGame } from "@/lib/utils";
 import { Link } from "wouter";
-import { apiRequest } from "@/lib/queryClient";
+import { apiFetch, apiRequest } from "@/lib/queryClient";
 import { getAddGamePendingQuery, clearAddGamePendingQuery } from "@/lib/add-game-store";
 import { useIsMobile } from "@/hooks/use-mobile";
 
@@ -112,7 +112,7 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
       if (token) {
         headers["Authorization"] = `Bearer ${token}`;
       }
-      const response = await fetch("/api/games", {
+      const response = await apiFetch("/api/games", {
         method: "POST",
         headers,
         body: JSON.stringify(gameData),

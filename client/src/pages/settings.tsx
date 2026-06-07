@@ -31,6 +31,7 @@ import { Label } from "@/components/ui/label";
 import { PathBrowser } from "@/components/PathBrowser";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { apiFetch, apiRequest, clearSearchCache } from "@/lib/queryClient";
 import {
   Select,
   SelectContent,
@@ -42,7 +43,6 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest, clearSearchCache } from "@/lib/queryClient";
 import AutoDownloadRulesSettings from "@/components/AutoDownloadRulesSettings";
 import PreferredReleaseGroupsSettings from "@/components/PreferredReleaseGroupsSettings";
 import PasswordSettings from "@/components/PasswordSettings";
@@ -393,7 +393,7 @@ export default function SettingsPage() {
       formData.append("cert", selectedCert);
       formData.append("key", selectedKey);
 
-      const res = await fetch("/api/settings/ssl/upload", {
+      const res = await apiFetch("/api/settings/ssl/upload", {
         method: "POST",
         body: formData,
         headers: {

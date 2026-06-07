@@ -507,6 +507,8 @@ export interface DownloadDetails extends DownloadStatus {
   comment?: string;
   creator?: string;
   files: DownloadFile[];
+  filesSupport?: "supported" | "unsupported";
+  filesSupportReason?: string;
   trackers: DownloadTracker[];
   totalPeers?: number;
   connectedPeers?: number;

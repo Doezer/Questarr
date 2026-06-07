@@ -719,6 +719,7 @@ export class QBittorrentClient implements DownloaderClient {
             ? new Date(props.completion_date * 1000).toISOString()
             : undefined,
         files,
+        filesSupport: "supported",
         trackers,
         totalPeers: props.peers_total || torrent.num_complete + torrent.num_incomplete,
         connectedPeers: props.peers || torrent.num_seeds + torrent.num_leechs,

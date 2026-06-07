@@ -614,6 +614,7 @@ export class SynologyDownloadStationClient implements DownloaderClient {
           : undefined,
       downloadDir: detail?.destination,
       files,
+      filesSupport: "supported",
       trackers,
     };
   }

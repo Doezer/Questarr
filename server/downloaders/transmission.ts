@@ -321,7 +321,7 @@ export class TransmissionClient implements DownloaderClient {
   async getDownloadStatus(id: string): Promise<DownloadStatus | null> {
     try {
       const response = await this.makeRequest("torrent-get", {
-        ids: [parseInt(id)],
+        ids: this.toTransmissionIds(id),
         fields: [
           "id",
           "name",
@@ -355,7 +355,7 @@ export class TransmissionClient implements DownloaderClient {
   async getDownloadDetails(id: string): Promise<DownloadDetails | null> {
     try {
       const response = await this.makeRequest("torrent-get", {
-        ids: [parseInt(id)],
+        ids: this.toTransmissionIds(id),
         fields: [
           "id",
           "name",
@@ -429,7 +429,7 @@ export class TransmissionClient implements DownloaderClient {
 
   async pauseDownload(id: string): Promise<{ success: boolean; message: string }> {
     try {
-      await this.makeRequest("torrent-stop", { ids: [parseInt(id)] });
+      await this.makeRequest("torrent-stop", { ids: this.toTransmissionIds(id) });
       return { success: true, message: "Download paused successfully" };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
@@ -439,7 +439,7 @@ export class TransmissionClient implements DownloaderClient {
 
   async resumeDownload(id: string): Promise<{ success: boolean; message: string }> {
     try {
-      await this.makeRequest("torrent-start", { ids: [parseInt(id)] });
+      await this.makeRequest("torrent-start", { ids: this.toTransmissionIds(id) });
       return { success: true, message: "Download resumed successfully" };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
@@ -453,7 +453,7 @@ export class TransmissionClient implements DownloaderClient {
   ): Promise<{ success: boolean; message: string }> {
     try {
       await this.makeRequest("torrent-remove", {
-        ids: [parseInt(id)],
+        ids: this.toTransmissionIds(id),
         "delete-local-data": deleteFiles,
       });
       return { success: true, message: "Download removed successfully" };
@@ -630,6 +630,7 @@ export class TransmissionClient implements DownloaderClient {
       comment: torrent.comment || undefined,
       creator: torrent.creator || undefined,
       files,
+      filesSupport: "supported",
       trackers,
       totalPeers: torrent.peersConnected,
       connectedPeers: torrent.peersConnected,
@@ -638,6 +639,10 @@ export class TransmissionClient implements DownloaderClient {
 
   private normalizePeerCount(count: number | undefined): number | undefined {
     return typeof count === "number" && Number.isFinite(count) && count >= 0 ? count : undefined;
+  }
+
+  private toTransmissionIds(id: string): Array<string | number> {
+    return /^\d+$/.test(id) ? [Number.parseInt(id, 10)] : [id];
   }
 
   private getTrackerSwarmCounts(trackerStats: TransmissionTorrent["trackerStats"]): {

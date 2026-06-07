@@ -156,18 +156,21 @@ describe("downloader client regression coverage", () => {
       }),
     });
 
-    const details = await client.getDownloadDetails("7");
+    const details = await client.getDownloadDetails("hash-7");
 
     expect(details?.hash).toBe("hash-7");
+    expect(details?.filesSupport).toBe("supported");
     expect(details?.files.map((file) => file.priority)).toEqual(["off", "low", "high"]);
     expect(details?.trackers.map((tracker) => tracker.status)).toEqual([
       "working",
       "error",
       "updating",
     ]);
-    expect((fetchMock.mock.calls[0][1] as RequestInit).headers).toMatchObject({
+    const firstCallOptions = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(firstCallOptions.headers).toMatchObject({
       Authorization: `Basic ${Buffer.from("usér:päss", "utf-8").toString("base64")}`,
     });
+    expect(JSON.parse(firstCallOptions.body as string).arguments.ids).toEqual(["hash-7"]);
   });
 
   it("covers Transmission pause, resume, remove, and free-space RPC methods", async () => {
@@ -186,9 +189,11 @@ describe("downloader client regression coverage", () => {
         json: async () => ({ result: "success", arguments: { "size-bytes": 4096 } }),
       });
 
-    await expect(client.pauseDownload("1")).resolves.toMatchObject({ success: true });
-    await expect(client.resumeDownload("2")).resolves.toMatchObject({ success: true });
-    await expect(client.removeDownload("3", true)).resolves.toMatchObject({ success: true });
+    await expect(client.pauseDownload("hash-stop")).resolves.toMatchObject({ success: true });
+    await expect(client.resumeDownload("hash-start")).resolves.toMatchObject({ success: true });
+    await expect(client.removeDownload("hash-remove", true)).resolves.toMatchObject({
+      success: true,
+    });
     await expect(client.getFreeSpace()).resolves.toBe(4096);
 
     const methods = fetchMock.mock.calls.map(
@@ -201,6 +206,11 @@ describe("downloader client regression coverage", () => {
       "session-get",
       "free-space",
     ]);
+
+    const ids = fetchMock.mock.calls
+      .slice(0, 3)
+      .map((call) => JSON.parse((call[1] as RequestInit).body as string).arguments.ids);
+    expect(ids).toEqual([["hash-stop"], ["hash-start"], ["hash-remove"]]);
   });
 
   it("reuses qBittorrent's exact SID cookie name and maps rich details", async () => {
@@ -799,6 +809,7 @@ describe("downloader client regression coverage", () => {
     await expect(client.getDownloadDetails("sab-1")).resolves.toMatchObject({
       id: "sab-1",
       files: [],
+      filesSupport: "unsupported",
       trackers: [],
     });
     await expect(client.getAllDownloads()).resolves.toHaveLength(1);
@@ -1025,6 +1036,7 @@ describe("downloader client regression coverage", () => {
     await expect(client.getDownloadDetails("12")).resolves.toMatchObject({
       status: "completed",
       files: [],
+      filesSupport: "unsupported",
       trackers: [],
     });
     await expect(client.getAllDownloads()).resolves.toHaveLength(1);
@@ -1744,6 +1756,7 @@ describe("downloader client regression coverage", () => {
       repairStatus: "good",
       unpackStatus: "completed",
       files: [],
+      filesSupport: "unsupported",
       trackers: [],
     });
   });

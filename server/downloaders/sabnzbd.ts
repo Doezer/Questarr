@@ -485,6 +485,8 @@ export class SABnzbdClient implements DownloaderClient {
     return {
       ...status,
       files: [],
+      filesSupport: "unsupported",
+      filesSupportReason: "SABnzbd API does not expose per-file details for queue/history items.",
       trackers: [],
     };
   }

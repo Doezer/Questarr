@@ -383,6 +383,7 @@ export class RTorrentClient implements DownloaderClient {
         downloadDir: directory,
         addedDate: creationDate > 0 ? new Date(creationDate * 1000).toISOString() : undefined,
         files,
+        filesSupport: "supported",
         trackers,
         totalPeers: peersConnected,
         connectedPeers: peersConnected,

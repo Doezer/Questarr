@@ -441,6 +441,8 @@ export class NZBGetClient implements DownloaderClient {
     return {
       ...status,
       files: [],
+      filesSupport: "unsupported",
+      filesSupportReason: "NZBGet API does not expose per-file details for grouped downloads.",
       trackers: [],
     };
   }

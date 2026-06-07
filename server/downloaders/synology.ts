@@ -540,6 +540,7 @@ export class SynologyDownloadStationClient implements DownloaderClient {
       transfer?.size_downloaded && transfer.size_downloaded > 0 && transfer.size_uploaded != null
         ? transfer.size_uploaded / transfer.size_downloaded
         : undefined;
+    const trackerSwarmCounts = this.getTrackerSwarmCounts(task.additional?.tracker);
 
     return {
       id: task.id,
@@ -554,6 +555,8 @@ export class SynologyDownloadStationClient implements DownloaderClient {
           : undefined,
       size: size || undefined,
       downloaded: downloaded || undefined,
+      seeders: trackerSwarmCounts.seeders,
+      leechers: trackerSwarmCounts.leechers,
       ratio,
       error: task.status === "error" ? "Synology Download Station reported an error" : undefined,
     };
@@ -770,7 +773,7 @@ export class SynologyDownloadStationClient implements DownloaderClient {
 
   async getDownloadStatus(id: string): Promise<DownloadStatus | null> {
     try {
-      const task = await this.getTask(id, "detail,transfer");
+      const task = await this.getTask(id, "detail,transfer,tracker");
       return task ? this.mapSynologyStatus(task) : null;
     } catch (error) {
       downloadersLogger.error({ error, id }, "Failed to get Synology download status");
@@ -793,7 +796,7 @@ export class SynologyDownloadStationClient implements DownloaderClient {
       const response = await this.requestTaskApi<SynologyTaskResponse>("list", {
         httpMethod: "GET",
         params: {
-          additional: "detail,transfer",
+          additional: "detail,transfer,tracker",
         },
       });
 
@@ -802,6 +805,38 @@ export class SynologyDownloadStationClient implements DownloaderClient {
       downloadersLogger.error({ error }, "Failed to list Synology downloads");
       return [];
     }
+  }
+
+  private getTrackerSwarmCounts(trackers: SynologyTaskTrackerInfo[] | undefined): {
+    seeders?: number;
+    leechers?: number;
+  } {
+    let seeders: number | undefined;
+    let leechers: number | undefined;
+
+    for (const tracker of trackers ?? []) {
+      const trackerSeeders =
+        typeof tracker.seeders === "number" &&
+        Number.isFinite(tracker.seeders) &&
+        tracker.seeders >= 0
+          ? tracker.seeders
+          : undefined;
+      const trackerLeechers =
+        typeof tracker.leechers === "number" &&
+        Number.isFinite(tracker.leechers) &&
+        tracker.leechers >= 0
+          ? tracker.leechers
+          : undefined;
+
+      if (trackerSeeders !== undefined) {
+        seeders = seeders === undefined ? trackerSeeders : Math.max(seeders, trackerSeeders);
+      }
+      if (trackerLeechers !== undefined) {
+        leechers = leechers === undefined ? trackerLeechers : Math.max(leechers, trackerLeechers);
+      }
+    }
+
+    return { seeders, leechers };
   }
 
   async pauseDownload(id: string): Promise<{ success: boolean; message: string }> {

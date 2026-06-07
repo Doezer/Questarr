@@ -968,6 +968,11 @@ export class QBittorrentClient implements DownloaderClient {
       }
     }
 
+    const swarmSeeders = this.normalizePeerCount(torrent.num_complete);
+    const swarmLeechers = this.normalizePeerCount(torrent.num_incomplete);
+    const connectedSeeders = this.normalizePeerCount(torrent.num_seeds);
+    const connectedLeechers = this.normalizePeerCount(torrent.num_leechs);
+
     return {
       id: torrent.hash,
       name: torrent.name,
@@ -981,12 +986,17 @@ export class QBittorrentClient implements DownloaderClient {
           : undefined,
       size: torrent.size,
       downloaded: torrent.downloaded,
-      seeders: torrent.num_seeds,
-      leechers: torrent.num_leechs,
+      // Prefer swarm totals from tracker; fallback to connected peers when unavailable.
+      seeders: swarmSeeders ?? connectedSeeders,
+      leechers: swarmLeechers ?? connectedLeechers,
       ratio: torrent.ratio,
       error: torrent.state === "error" ? "Torrent error" : undefined,
       category: torrent.category,
     };
+  }
+
+  private normalizePeerCount(count: number | undefined): number | undefined {
+    return typeof count === "number" && Number.isFinite(count) && count >= 0 ? count : undefined;
   }
 
   private sanitizeMultipartFilename(filename: string): string {

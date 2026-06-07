@@ -334,6 +334,7 @@ export class TransmissionClient implements DownloaderClient {
           "downloadedEver",
           "peersSendingToUs",
           "peersGettingFromUs",
+          "trackerStats",
           "uploadRatio",
           "errorString",
         ],
@@ -409,6 +410,7 @@ export class TransmissionClient implements DownloaderClient {
         "downloadedEver",
         "peersSendingToUs",
         "peersGettingFromUs",
+        "trackerStats",
         "uploadRatio",
         "errorString",
         "hashString", // Required for matching downloads by hash
@@ -517,6 +519,10 @@ export class TransmissionClient implements DownloaderClient {
       status = "error";
     }
 
+    const trackerSwarmCounts = this.getTrackerSwarmCounts(torrent.trackerStats);
+    const connectedSeeders = this.normalizePeerCount(torrent.peersSendingToUs);
+    const connectedLeechers = this.normalizePeerCount(torrent.peersGettingFromUs);
+
     return {
       id: torrent.hashString || torrent.id.toString(), // Use hash for consistency, fallback to numeric id
       name: torrent.name,
@@ -527,8 +533,9 @@ export class TransmissionClient implements DownloaderClient {
       eta: torrent.eta > 0 ? torrent.eta : undefined,
       size: torrent.totalSize,
       downloaded: torrent.downloadedEver,
-      seeders: torrent.peersSendingToUs,
-      leechers: torrent.peersGettingFromUs,
+      // Prefer tracker swarm counts; fallback to currently connected peer counts when unavailable.
+      seeders: trackerSwarmCounts.seeders ?? connectedSeeders,
+      leechers: trackerSwarmCounts.leechers ?? connectedLeechers,
       ratio: torrent.uploadRatio,
       error: torrent.errorString || undefined,
       category: torrent.labels?.[0],
@@ -627,6 +634,32 @@ export class TransmissionClient implements DownloaderClient {
       totalPeers: torrent.peersConnected,
       connectedPeers: torrent.peersConnected,
     };
+  }
+
+  private normalizePeerCount(count: number | undefined): number | undefined {
+    return typeof count === "number" && Number.isFinite(count) && count >= 0 ? count : undefined;
+  }
+
+  private getTrackerSwarmCounts(trackerStats: TransmissionTorrent["trackerStats"]): {
+    seeders?: number;
+    leechers?: number;
+  } {
+    let seeders: number | undefined;
+    let leechers: number | undefined;
+
+    for (const tracker of trackerStats ?? []) {
+      const trackerSeeders = this.normalizePeerCount(tracker.seederCount);
+      const trackerLeechers = this.normalizePeerCount(tracker.leecherCount);
+
+      if (trackerSeeders !== undefined) {
+        seeders = seeders === undefined ? trackerSeeders : Math.max(seeders, trackerSeeders);
+      }
+      if (trackerLeechers !== undefined) {
+        leechers = leechers === undefined ? trackerLeechers : Math.max(leechers, trackerLeechers);
+      }
+    }
+
+    return { seeders, leechers };
   }
 
   // Transmission API response structure

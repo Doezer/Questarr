@@ -144,6 +144,7 @@ export const gameDownloads = sqliteTable("game_downloads", {
   downloadHash: text("download_hash").notNull(),
   downloadTitle: text("download_title").notNull(),
   status: text("status").notNull().default("downloading"),
+  errorMessage: text("error_message"),
   fileSize: integer("file_size"), // bytes, stored at completion when available
   addedAt: integer("added_at", { mode: "timestamp_ms" }).default(
     sql`(strftime('%s', 'now') * 1000)`
@@ -406,6 +407,7 @@ export type NotificationEvent =
   | "gameReleased"
   | "gameDelayed"
   | "downloadCompleted"
+  | "downloadFailed"
   | "autoDownload"
   | "gameAvailable"
   | "multipleResults"
@@ -422,6 +424,7 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   gameReleased: { inApp: true, apprise: true },
   gameDelayed: { inApp: true, apprise: true },
   downloadCompleted: { inApp: true, apprise: true },
+  downloadFailed: { inApp: true, apprise: true },
   autoDownload: { inApp: true, apprise: true },
   gameAvailable: { inApp: true, apprise: true },
   multipleResults: { inApp: true, apprise: true },

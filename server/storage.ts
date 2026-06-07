@@ -120,7 +120,7 @@ export interface IStorage {
   getDownloadsByGameId(
     gameId: string
   ): Promise<(GameDownload & { downloaderName: string | null })[]>;
-  updateGameDownloadStatus(id: string, status: string): Promise<void>;
+  updateGameDownloadStatus(id: string, status: string, errorMessage?: string | null): Promise<void>;
   addGameDownload(gameDownload: InsertGameDownload): Promise<GameDownload>;
   removeGameDownload(id: string, gameId: string): Promise<boolean>;
   getDownloadSummaryByGame(userId: string): Promise<Record<string, DownloadSummary>>;
@@ -656,11 +656,19 @@ export class MemStorage implements IStorage {
       }));
   }
 
-  async updateGameDownloadStatus(id: string, status: string): Promise<void> {
+  async updateGameDownloadStatus(
+    id: string,
+    status: string,
+    errorMessage?: string | null
+  ): Promise<void> {
     const gd = this.gameDownloads.get(id);
     if (gd) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      this.gameDownloads.set(id, { ...gd, status: status as any });
+      this.gameDownloads.set(id, {
+        ...gd,
+        status,
+        completedAt: status === "completed" ? new Date() : null,
+        ...(errorMessage !== undefined ? { errorMessage } : {}),
+      });
     }
   }
 
@@ -671,6 +679,7 @@ export class MemStorage implements IStorage {
       id,
       status: insertGameDownload.status || "downloading",
       downloadType: insertGameDownload.downloadType || "torrent",
+      errorMessage: insertGameDownload.errorMessage ?? null,
       fileSize: insertGameDownload.fileSize ?? null,
       addedAt: new Date(),
       completedAt: null,
@@ -1472,6 +1481,7 @@ export class DatabaseStorage implements IStorage {
         downloadHash: gameDownloads.downloadHash,
         downloadTitle: gameDownloads.downloadTitle,
         status: gameDownloads.status,
+        errorMessage: gameDownloads.errorMessage,
         fileSize: gameDownloads.fileSize,
         addedAt: gameDownloads.addedAt,
         completedAt: gameDownloads.completedAt,
@@ -1484,12 +1494,19 @@ export class DatabaseStorage implements IStorage {
     return rows;
   }
 
-  async updateGameDownloadStatus(id: string, status: string): Promise<void> {
-    await db
-      .update(gameDownloads)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .set({ status: status as any, completedAt: status === "completed" ? new Date() : null })
-      .where(eq(gameDownloads.id, id));
+  async updateGameDownloadStatus(
+    id: string,
+    status: string,
+    errorMessage?: string | null
+  ): Promise<void> {
+    const updates: Partial<typeof gameDownloads.$inferInsert> = {
+      status: status as (typeof gameDownloads.$inferInsert)["status"],
+      completedAt: status === "completed" ? new Date() : null,
+    };
+    if (errorMessage !== undefined) {
+      updates.errorMessage = errorMessage;
+    }
+    await db.update(gameDownloads).set(updates).where(eq(gameDownloads.id, id));
   }
 
   async addGameDownload(insertGameDownload: InsertGameDownload): Promise<GameDownload> {

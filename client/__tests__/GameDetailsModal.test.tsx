@@ -564,6 +564,39 @@ describe("GameDetailsModal", () => {
         expect(screen.getByTestId("icon-loader2")).toBeInTheDocument();
       });
     });
+
+    it("shows aborted label and error details for failed downloads", async () => {
+      const download = {
+        id: "dl-2",
+        downloadTitle: "Tomb Raider Chronicles-FLT",
+        status: "failed",
+        downloadType: "usenet",
+        downloaderName: "SABnzbd",
+        fileSize: null,
+        downloadHash: "nzo-123",
+        errorMessage: "Aborted, cannot be completed - https://sabnzbd.org/not-complete",
+      };
+      const qc = createQueryClient();
+      qc.setQueryData(["/api/games/1/downloads"], [download]);
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+        makeFetchMock({ "/api/games/1/downloads": [download] })
+      );
+
+      render(
+        <QueryClientProvider client={qc}>
+          <GameDetailsModal game={mockGame} open={true} onOpenChange={() => {}} />
+          <Toaster />
+        </QueryClientProvider>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("Tomb Raider Chronicles-FLT")).toBeInTheDocument();
+        expect(screen.getByText("Aborted")).toBeInTheDocument();
+        expect(
+          screen.getByText("Aborted, cannot be completed - https://sabnzbd.org/not-complete")
+        ).toBeInTheDocument();
+      });
+    });
   });
 
   describe("modal state reset", () => {

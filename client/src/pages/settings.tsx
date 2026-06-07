@@ -70,6 +70,7 @@ const NOTIFICATION_EVENT_ROWS: { key: NotificationEvent; label: string; group: s
   { key: "gameReleased", label: "Game Released", group: "library" },
   { key: "gameDelayed", label: "Game Delayed", group: "library" },
   { key: "downloadCompleted", label: "Download Completed", group: "downloads" },
+  { key: "downloadFailed", label: "Download Aborted", group: "downloads" },
   { key: "autoDownload", label: "Auto-Download Started", group: "downloads" },
   { key: "gameAvailable", label: "Game Found on Indexer", group: "downloads" },
   { key: "multipleResults", label: "Multiple Releases Found", group: "downloads" },

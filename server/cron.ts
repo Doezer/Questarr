@@ -599,7 +599,7 @@ export async function checkDownloadStatus() {
             );
 
             // Update DB - mark as completed
-            await storage.updateGameDownloadStatus(download.id, "completed");
+            await storage.updateGameDownloadStatus(download.id, "completed", null);
 
             // Update Game status to 'owned' (which means we have the files)
             await storage.updateGameStatus(download.gameId, { status: "owned" });
@@ -634,15 +634,19 @@ export async function checkDownloadStatus() {
             }
           } else {
             // Sync download status with actual status from downloader
-            let newDownloadStatus: "downloading" | "paused" | "failed" | "completed" =
-              "downloading";
+            let newDownloadStatus: "downloading" | "paused" | "failed" | "completed" = "downloading";
             let newGameStatus: "wanted" | "downloading" | "owned" = "downloading";
+            let newErrorMessage: string | null = null;
+            let isDefinitiveError = false;
 
             if (remoteDownload.status === "error") {
               newDownloadStatus = "failed";
               newGameStatus = "wanted"; // Reset to wanted on error
+              newErrorMessage =
+                remoteDownload.error?.trim() || "Aborted by downloader (no details provided)";
+              isDefinitiveError = true;
               igdbLogger.warn(
-                { title: download.downloadTitle, error: remoteDownload.error },
+                { title: download.downloadTitle, error: newErrorMessage },
                 "Download error detected"
               );
             } else if (remoteDownload.status === "paused") {
@@ -653,20 +657,47 @@ export async function checkDownloadStatus() {
               newGameStatus = "downloading";
             }
 
-            // Only update if status changed
-            if (download.status !== newDownloadStatus) {
-              await storage.updateGameDownloadStatus(download.id, newDownloadStatus);
+            const previousErrorMessage = download.errorMessage ?? null;
+            const shouldUpdateStatus = download.status !== newDownloadStatus;
+            const shouldUpdateErrorMessage = previousErrorMessage !== newErrorMessage;
+            const shouldPersistDownloadUpdate = shouldUpdateStatus || shouldUpdateErrorMessage;
+
+            // Only update if tracked status or error details changed.
+            if (shouldPersistDownloadUpdate) {
+              await storage.updateGameDownloadStatus(download.id, newDownloadStatus, newErrorMessage);
               igdbLogger.debug(
                 {
                   title: download.downloadTitle,
                   oldStatus: download.status,
                   newStatus: newDownloadStatus,
+                  oldErrorMessage: previousErrorMessage,
+                  newErrorMessage,
                 },
                 "Updated download status"
               );
               // Notify frontend to refresh downloads for this game.
               // TODO: scope this to a per-user socket room once multi-user socket auth is wired up.
               notifyUser("downloadUpdate", download.gameId);
+            }
+
+            if (isDefinitiveError && shouldPersistDownloadUpdate) {
+              const game = await storage.getGame(download.gameId);
+              const gameTitle = game?.title ?? download.downloadTitle;
+              const settings = await storage.getUserSettings(game?.userId ?? "");
+              const prefs = resolvePrefs(settings);
+              const message = `Download aborted for "${gameTitle}": ${newErrorMessage}`;
+
+              if (prefs.downloadFailed.inApp) {
+                const notification = await storage.addNotification({
+                  type: "error",
+                  title: "Download Aborted",
+                  message,
+                  link: `modal:game:${download.gameId}`,
+                  userId: game?.userId ?? undefined,
+                });
+                notifyUser("notification", notification);
+                if (prefs.downloadFailed.apprise) appriseClient.send(notification);
+              }
             }
 
             // Update game status
@@ -755,7 +786,7 @@ export async function checkDownloadStatus() {
           );
 
           // Mark download as completed (assumption)
-          await storage.updateGameDownloadStatus(download.id, "completed");
+          await storage.updateGameDownloadStatus(download.id, "completed", null);
 
           // Update game status to owned (assumption)
           await storage.updateGameStatus(download.gameId, { status: "owned" });

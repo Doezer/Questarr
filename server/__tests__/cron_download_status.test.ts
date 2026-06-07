@@ -24,6 +24,8 @@ const mockUpdateGameDownloadStatus = vi.fn();
 const mockUpdateGameStatus = vi.fn();
 const mockGetGame = vi.fn();
 const mockAddNotification = vi.fn();
+const mockGetUserSettings = vi.fn();
+const mockGetDownloadsByGameId = vi.fn();
 
 vi.mock("../storage.js", () => ({
   storage: {
@@ -33,6 +35,8 @@ vi.mock("../storage.js", () => ({
     updateGameStatus: mockUpdateGameStatus,
     getGame: mockGetGame,
     addNotification: mockAddNotification,
+    getUserSettings: mockGetUserSettings,
+    getDownloadsByGameId: mockGetDownloadsByGameId,
   },
 }));
 
@@ -62,6 +66,10 @@ vi.mock("../search.js", () => ({
 vi.mock("../xrel.js", () => ({
   xrelClient: { getLatestReleases: vi.fn() },
   DEFAULT_XREL_BASE: "http://example.com",
+}));
+
+vi.mock("../apprise.js", () => ({
+  appriseClient: { send: vi.fn() },
 }));
 
 const { checkDownloadStatus } = await import("../cron.js");
@@ -104,8 +112,15 @@ const baseDownload = {
 describe("Cron - checkDownloadStatus", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetGame.mockResolvedValue({ id: "game-1", title: "Test Game", status: "downloading" });
+    mockGetGame.mockResolvedValue({
+      id: "game-1",
+      title: "Test Game",
+      status: "downloading",
+      userId: "user-1",
+    });
     mockAddNotification.mockResolvedValue({ id: "notif-1" });
+    mockGetUserSettings.mockResolvedValue({ notificationPreferences: null });
+    mockGetDownloadsByGameId.mockResolvedValue([]);
     mockUpdateGameDownloadStatus.mockResolvedValue(undefined);
     mockUpdateGameStatus.mockResolvedValue(undefined);
   });
@@ -155,7 +170,7 @@ describe("Cron - checkDownloadStatus", () => {
 
     expect(mockGetDownloadStatus).toHaveBeenCalledWith(baseDownloader, baseDownload.downloadHash);
     // Should mark as completed via the normal completion path
-    expect(mockUpdateGameDownloadStatus).toHaveBeenCalledWith(baseDownload.id, "completed");
+    expect(mockUpdateGameDownloadStatus).toHaveBeenCalledWith(baseDownload.id, "completed", null);
     expect(mockUpdateGameStatus).toHaveBeenCalledWith(baseDownload.gameId, { status: "owned" });
   });
 
@@ -174,7 +189,7 @@ describe("Cron - checkDownloadStatus", () => {
 
     expect(mockGetDownloadStatus).toHaveBeenCalledWith(baseDownloader, baseDownload.downloadHash);
     // Falls through to the "missing" path after threshold is reached
-    expect(mockUpdateGameDownloadStatus).toHaveBeenCalledWith(baseDownload.id, "completed");
+    expect(mockUpdateGameDownloadStatus).toHaveBeenCalledWith(baseDownload.id, "completed", null);
     expect(mockUpdateGameStatus).toHaveBeenCalledWith(baseDownload.gameId, { status: "owned" });
   });
 
@@ -195,6 +210,36 @@ describe("Cron - checkDownloadStatus", () => {
     await checkDownloadStatus();
 
     expect(mockGetDownloadStatus).not.toHaveBeenCalled();
-    expect(mockUpdateGameDownloadStatus).toHaveBeenCalledWith(baseDownload.id, "completed");
+    expect(mockUpdateGameDownloadStatus).toHaveBeenCalledWith(baseDownload.id, "completed", null);
+  });
+
+  it("should mark definitive downloader errors as failed with persisted error and reset game to wanted", async () => {
+    mockGetDownloadingGameDownloads.mockResolvedValue([baseDownload]);
+    mockGetDownloader.mockResolvedValue(baseDownloader);
+    mockGetAllDownloads.mockResolvedValue([
+      {
+        id: "SABnzbd_nzo_abc123",
+        name: "Test Game",
+        status: "error",
+        progress: 10,
+        error: "Aborted, cannot be completed - https://sabnzbd.org/not-complete",
+        downloadType: "usenet",
+      },
+    ]);
+
+    await checkDownloadStatus();
+
+    expect(mockUpdateGameDownloadStatus).toHaveBeenCalledWith(
+      baseDownload.id,
+      "failed",
+      "Aborted, cannot be completed - https://sabnzbd.org/not-complete"
+    );
+    expect(mockUpdateGameStatus).toHaveBeenCalledWith(baseDownload.gameId, { status: "wanted" });
+    expect(mockAddNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "error",
+        title: "Download Aborted",
+      })
+    );
   });
 });

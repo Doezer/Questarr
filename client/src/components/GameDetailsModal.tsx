@@ -182,6 +182,10 @@ function DownloadStatusIcon({ status }: { status: string }) {
   }
 }
 
+function getTrackedDownloadStatusLabel(status: string): string {
+  return status === "failed" ? "Aborted" : status;
+}
+
 // ── Source badge ──────────────────────────────────────────────────────────────
 
 function getSourceLabel(source: string | null | undefined): string {
@@ -886,8 +890,13 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                                     {dl.downloadType}
                                   </Badge>
                                   <span className="text-xs text-muted-foreground capitalize">
-                                    {dl.status}
+                                    {getTrackedDownloadStatusLabel(dl.status)}
                                   </span>
+                                  {dl.errorMessage && (
+                                    <span className="text-xs text-red-400 break-words max-w-full">
+                                      {dl.errorMessage}
+                                    </span>
+                                  )}
                                 </div>
                               </div>
                             </div>

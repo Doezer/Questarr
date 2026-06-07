@@ -525,6 +525,7 @@ describe("MemStorage", () => {
         downloadTitle: "Download Game-SKIDROW",
         status: "downloading",
         downloadType: "torrent",
+        errorMessage: null,
         fileSize: null,
       } as InsertGameDownload);
 
@@ -532,6 +533,33 @@ describe("MemStorage", () => {
       expect(downloads).toHaveLength(1);
       expect(downloads[0].gameId).toBe(gameId);
       expect(downloads[0].downloaderName).toBe("qBit");
+      expect(downloads[0].errorMessage).toBeNull();
+    });
+
+    it("persists and clears error messages when updating download status", async () => {
+      const created = await storage.addGameDownload({
+        gameId,
+        downloaderId,
+        downloadHash: "hash-error",
+        downloadTitle: "Error-Prone-GROUP",
+        status: "downloading",
+        downloadType: "usenet",
+        fileSize: null,
+      } as InsertGameDownload);
+
+      await storage.updateGameDownloadStatus(
+        created.id,
+        "failed",
+        "Aborted, cannot be completed - https://sabnzbd.org/not-complete"
+      );
+      let downloads = await storage.getDownloadsByGameId(gameId);
+      expect(downloads.find((d) => d.id === created.id)?.errorMessage).toBe(
+        "Aborted, cannot be completed - https://sabnzbd.org/not-complete"
+      );
+
+      await storage.updateGameDownloadStatus(created.id, "downloading", null);
+      downloads = await storage.getDownloadsByGameId(gameId);
+      expect(downloads.find((d) => d.id === created.id)?.errorMessage).toBeNull();
     });
 
     it("only returns downloads belonging to the specified game", async () => {

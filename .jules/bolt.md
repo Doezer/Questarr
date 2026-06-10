@@ -32,3 +32,6 @@
 
 **Learning:** Found multiple O(n) array traversals (filter, map, reduce, flatMap) within a React useMemo hook processing game statistics. Replacing these multiple array methods with a single manual loop significantly improves performance on the hot path (re-evaluating stats) by reducing redundant iterations and object allocations.
 **Action:** Always scrutinize React useMemo hooks operating on collections for unnecessary or repeated iterations, and consider combining loops.
+## 2026-06-10 - Consolidating O(N) array loops in useMemo
+**Learning:** Chained array operations like `.filter().map()` inside `useMemo` hooks will iterate over arrays multiple times and create several unnecessary intermediate arrays, compounding overhead significantly as N grows.
+**Action:** When computing multiple derived states from a single large array (e.g. mapping IDs by multiple criteria), consolidate all calculations into a single `for...of` loop inside one `useMemo`.

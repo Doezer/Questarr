@@ -145,6 +145,8 @@ export default function DiscoverPage() {
   const filterGames = useCallback(
     (games: Game[]) => {
       return games.filter((g: Game) => {
+        if (g.igdbId === null) return true; // Keep games without IGDB ID as we can't reliably filter them
+
         if (hiddenIgdbIds.has(g.igdbId)) return false;
 
         if (hideOwned && ownedIgdbIds.has(g.igdbId)) return false;

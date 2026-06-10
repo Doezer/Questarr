@@ -35,3 +35,6 @@
 ## 2026-06-10 - Consolidating O(N) array loops in useMemo
 **Learning:** Chained array operations like `.filter().map()` inside `useMemo` hooks will iterate over arrays multiple times and create several unnecessary intermediate arrays, compounding overhead significantly as N grows.
 **Action:** When computing multiple derived states from a single large array (e.g. mapping IDs by multiple criteria), consolidate all calculations into a single `for...of` loop inside one `useMemo`.
+## 2026-06-10 - Handling nullable properties in object-mapped Set lookups
+**Learning:** When adding elements to a `Set<number>` from an object property (like `igdbId`), failing to handle `null`/`undefined` values causes TypeScript build failures when later using `Set.has()` on objects that might legitimately have a null ID.
+**Action:** When filtering or transforming objects by properties that can be `null` in the schema, add an explicit check to early-return or fallback to avoid passing `null` into `Set.has()`.

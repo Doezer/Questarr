@@ -126,8 +126,9 @@ export default function PreferredReleaseGroupsSettings({
                 size="icon"
                 onClick={handleAddGroup}
                 disabled={!inputValue.trim()}
+                aria-label="Add release group"
               >
-                <Plus className="h-4 w-4" />
+                <Plus className="h-4 w-4" aria-hidden="true" />
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
@@ -147,7 +148,7 @@ export default function PreferredReleaseGroupsSettings({
                     className="ml-1 rounded-full hover:bg-muted-foreground/20 p-0.5"
                     aria-label={`Remove ${group}`}
                   >
-                    <X className="h-3 w-3" />
+                    <X className="h-3 w-3" aria-hidden="true" />
                   </button>
                 </Badge>
               ))}

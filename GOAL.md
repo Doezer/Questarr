@@ -15,11 +15,11 @@ node scripts/goal-score.mjs --json
 score = validation + page_coverage + e2e_journeys
 ```
 
-| Component         | Max | What it measures                                                                                        |
-| ----------------- | --- | ------------------------------------------------------------------------------------------------------- |
-| **Validation**    | 40  | Whether `npm run lint`, `npm run check`, and `npm run test:run` all pass.                               |
-| **Page coverage** | 30  | Whether the main frontend surfaces have page-level tests instead of only utility or component coverage. |
-| **E2E journeys**  | 30  | Whether the highest-value user journeys have dedicated Playwright specs.                                |
+| Component         | Max | What it measures                                                                                                |
+| ----------------- | --- | --------------------------------------------------------------------------------------------------------------- |
+| **Validation**    | 40  | Whether `npm run lint`, `npm run check`, and `npm run test:run` all pass.                                       |
+| **Page coverage** | 30  | Whether the main frontend surfaces have page-level tests instead of only utility or component coverage.         |
+| **E2E journeys**  | 30  | Whether the highest-value user journeys have dedicated Playwright specs that pass `npm run test:e2e -- --list`. |
 
 ### Metric Mutability
 

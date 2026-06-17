@@ -39,6 +39,7 @@ const e2eChecks = [
   { name: "Library journey", patterns: [/^tests\/e2e\/library\.spec\.ts$/] },
   { name: "Downloads journey", patterns: [/^tests\/e2e\/downloads\.spec\.ts$/] },
 ];
+const e2eValidationCommand = "npm run test:e2e -- --list";
 
 function runCommand(command) {
   try {
@@ -118,7 +119,16 @@ const uiFiles = [
 const e2eFiles = collectFiles(path.join(repoRoot, "tests", "e2e"));
 
 const pageCoverage = summarizeChecklist(pageChecks, uiFiles, 30);
-const e2eCoverage = summarizeChecklist(e2eChecks, e2eFiles, 30);
+const e2eValidation = runCommand(e2eValidationCommand);
+const e2eCoverageChecklist = summarizeChecklist(e2eChecks, e2eFiles, 30);
+const e2eCoverage = {
+  ...e2eCoverageChecklist,
+  score: e2eValidation.passed ? e2eCoverageChecklist.score : 0,
+  validation: {
+    command: e2eValidationCommand,
+    passed: e2eValidation.passed,
+  },
+};
 const totalScore = Number((validationScore + pageCoverage.score + e2eCoverage.score).toFixed(1));
 
 const output = {
@@ -148,6 +158,7 @@ const output = {
       maxScore: 30,
       satisfied: e2eCoverage.satisfied,
       missing: e2eCoverage.missing,
+      validation: e2eCoverage.validation,
     },
   },
 };
@@ -184,4 +195,8 @@ if (pageCoverage.missing.length > 0) {
 
 if (e2eCoverage.missing.length > 0) {
   console.log(`  Missing e2e journeys: ${e2eCoverage.missing.join(", ")}`);
+}
+
+if (!e2eCoverage.validation.passed) {
+  console.log(`  E2E journey points withheld: ${e2eCoverage.validation.command}`);
 }

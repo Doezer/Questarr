@@ -1,2 +1,6 @@
 #!/bin/sh
-npx --no-install lint-staged
+if [ -x ./node_modules/.bin/lint-staged ]; then
+  ./node_modules/.bin/lint-staged
+else
+  npx --no-install lint-staged
+fi

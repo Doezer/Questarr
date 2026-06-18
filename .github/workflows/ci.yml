@@ -60,6 +60,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: true
           report_type: coverage
+          skip_validation: true
 
       - name: Upload test results to Codecov
         if: ${{ !cancelled() }}
@@ -67,6 +68,7 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           report_type: test_results
+          skip_validation: true
 
   docker-build:
     runs-on: ubuntu-latest

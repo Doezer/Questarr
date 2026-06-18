@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import {
   Dialog,
@@ -133,11 +133,21 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
     addGameMutation.mutate(gameData);
   };
 
+  const userGameIgdbIds = useMemo(() => {
+    const ids = new Set<number>();
+    for (const g of userGames) {
+      if (g.igdbId != null) ids.add(g.igdbId);
+    }
+    return ids;
+  }, [userGames]);
+
   // Mark games already in collection
-  const resultsWithCollectionStatus: SearchResult[] = searchResults.map((game: Game) => ({
-    ...game,
-    inCollection: userGames.some((userGame) => userGame.igdbId === game.igdbId),
-  }));
+  const resultsWithCollectionStatus: SearchResult[] = useMemo(() => {
+    return searchResults.map((game: Game) => ({
+      ...game,
+      inCollection: game.igdbId != null ? userGameIgdbIds.has(game.igdbId) : false,
+    }));
+  }, [searchResults, userGameIgdbIds]);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>

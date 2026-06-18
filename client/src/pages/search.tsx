@@ -146,7 +146,7 @@ export default function SearchPage() {
     },
   });
 
-  const allItems = useMemo(() => data?.pages.flatMap((p) => p.items) ?? [], [data]);
+  const allItems = useMemo(() => data?.pages.flatMap((p) => p.items ?? []) ?? [], [data]);
 
   const filteredAndSortedItems = useMemo(() => {
     const fromTime = dateFrom ? new Date(dateFrom).getTime() : null;
@@ -155,6 +155,7 @@ export default function SearchPage() {
     for (let i = 0; i < allItems.length; i++) {
       const item = allItems[i];
       const time = new Date(item.pubDate).getTime();
+      if (isNaN(time)) continue;
       if (fromTime !== null && time < fromTime) continue;
       if (toTime !== null && time > toTime) continue;
       mapped.push({ item, time });
@@ -167,7 +168,17 @@ export default function SearchPage() {
     if (!el) return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && hasNextPage && !isFetchingNextPage) {
+        // Don't auto-fetch when an active date filter yields zero visible results —
+        // that would spam the backend with rapid consecutive requests until hasNextPage
+        // is exhausted (sentinel always visible in an empty list).
+        const filterActive = !!(dateFrom || dateTo);
+        const listIsEmpty = filteredAndSortedItems.length === 0;
+        if (
+          entries[0].isIntersecting &&
+          hasNextPage &&
+          !isFetchingNextPage &&
+          !(filterActive && listIsEmpty)
+        ) {
           fetchNextPage();
         }
       },
@@ -175,7 +186,14 @@ export default function SearchPage() {
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage, filteredAndSortedItems.length]);
+  }, [
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+    filteredAndSortedItems.length,
+    dateFrom,
+    dateTo,
+  ]);
 
   useEffect(() => {
     if (

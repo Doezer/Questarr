@@ -419,7 +419,7 @@ export class TorznabClient {
             // indexer), a naive host swap would produce an invalid path on Prowlarr. Instead,
             // construct a proper Prowlarr download proxy URL so the request goes through
             // Prowlarr — which has FlareSolverr configured to bypass Cloudflare.
-            const prowlarrMatch = indexerUrlObj.pathname.match(/(?:^|\/)(\d+)\/api\/?$/i);
+            const prowlarrMatch = /(?:^|\/)(\d+)\/api\/?$/i.exec(indexerUrlObj.pathname);
             if (prowlarrMatch && indexer?.apiKey) {
               const expectedProxyPath = indexerUrlObj.pathname
                 .replace(/\/api\/?$/i, "/download")

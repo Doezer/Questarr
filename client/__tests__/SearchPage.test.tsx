@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import React from "react";
-import { fireEvent, render, screen, waitFor, act } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -49,29 +49,6 @@ vi.mock("@/components/ui/dialog", () => ({
   DialogDescription: ({ children }: { children: React.ReactNode }) => <p>{children}</p>,
 }));
 
-// Stub Radix Select
-vi.mock("@/components/ui/select", () => ({
-  Select: ({
-    children,
-    onValueChange,
-    value,
-  }: {
-    children: React.ReactNode;
-    onValueChange?: (v: string) => void;
-    value?: string;
-  }) => (
-    <select value={value} onChange={(e) => onValueChange?.(e.target.value)}>
-      {children}
-    </select>
-  ),
-  SelectTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  SelectValue: ({ placeholder }: { placeholder?: string }) => <span>{placeholder}</span>,
-  SelectContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  SelectItem: ({ value, children }: { value: string; children: React.ReactNode }) => (
-    <option value={value}>{children}</option>
-  ),
-}));
-
 // Stub Radix Tooltip
 vi.mock("@/components/ui/tooltip", () => ({
   Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -83,11 +60,7 @@ vi.mock("@/components/ui/tooltip", () => ({
 vi.mock("@/components/ui/form", () => ({
   Form: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   FormControl: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  FormField: ({
-    render,
-  }: {
-    render: (props: { field: Record<string, unknown> }) => React.ReactNode;
-  }) => <>{render({ field: { value: "", onChange: vi.fn(), onBlur: vi.fn(), ref: vi.fn() } })}</>,
+  FormField: () => null,
   FormItem: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   FormLabel: ({ children }: { children: React.ReactNode }) => <label>{children}</label>,
   FormMessage: () => null,

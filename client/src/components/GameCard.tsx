@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Download, Info, Star, Calendar, Eye, EyeOff, Loader2 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
+import { TagList } from "@/components/ui/tag-list";
 import StatusBadge, { type GameStatus } from "./StatusBadge";
 import StatusPicker from "./StatusPicker";
 import { type Game, type DownloadSummary } from "@shared/schema";
@@ -292,20 +293,15 @@ const GameCard = ({
             </TooltipContent>
           </Tooltip>
         </div>
-        <div className="flex flex-wrap gap-1 mb-3 flex-1 content-start">
-          {game.genres && game.genres.length > 0 ? (
-            game.genres.slice(0, 1).map((genre) => (
-              <span
-                key={genre}
-                className="text-xs bg-muted px-2 py-1 rounded-sm"
-                data-testid={`tag-genre-${genre.toLowerCase()}`}
-              >
-                {genre}
-              </span>
-            ))
-          ) : (
-            <span className="text-xs text-muted-foreground">No genres</span>
-          )}
+        <div className="mb-3 flex-1 content-start">
+          <TagList
+            items={game.genres ?? []}
+            variant="secondary"
+            maxVisible={2}
+            getTestId={(g) => `tag-genre-${g.toLowerCase()}`}
+            emptyText="No genres"
+            className="gap-1"
+          />
         </div>
         {isMobile && (
           <div

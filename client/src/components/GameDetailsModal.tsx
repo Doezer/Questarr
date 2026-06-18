@@ -11,6 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { TagList } from "@/components/ui/tag-list";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -813,17 +814,12 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                           <Tag className="w-4 h-4" />
                           Genres
                         </h3>
-                        <div className="flex flex-wrap gap-2">
-                          {game.genres.map((genre, i) => (
-                            <Badge
-                              key={i}
-                              variant="secondary"
-                              data-testid={`badge-genre-${genre.toLowerCase().replace(/\s+/g, "-")}`}
-                            >
-                              {genre}
-                            </Badge>
-                          ))}
-                        </div>
+                        <TagList
+                          items={game.genres}
+                          variant="secondary"
+                          maxVisible={6}
+                          getTestId={(g) => `badge-genre-${g.toLowerCase().replace(/\s+/g, "-")}`}
+                        />
                       </div>
                     )}
                     {game.platforms && game.platforms.length > 0 && (
@@ -832,17 +828,14 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                           <Monitor className="w-4 h-4" />
                           Platforms
                         </h3>
-                        <div className="flex flex-wrap gap-2">
-                          {game.platforms.map((platform, i) => (
-                            <Badge
-                              key={i}
-                              variant="outline"
-                              data-testid={`badge-platform-${platform.toLowerCase().replace(/\s+/g, "-")}`}
-                            >
-                              {platform}
-                            </Badge>
-                          ))}
-                        </div>
+                        <TagList
+                          items={game.platforms}
+                          variant="outline"
+                          maxVisible={8}
+                          getTestId={(p) =>
+                            `badge-platform-${p.toLowerCase().replace(/\s+/g, "-")}`
+                          }
+                        />
                       </div>
                     )}
                   </div>

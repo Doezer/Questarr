@@ -157,4 +157,28 @@ describe("CompactGameCard", () => {
     renderWithProviders(<CompactGameCard game={game} />);
     expect(screen.queryByText("Early Access")).not.toBeInTheDocument();
   });
+
+  it("shows overflow pill when genres exceed 2 in list row", () => {
+    const game = {
+      ...mockGame,
+      genres: ["Action", "Adventure", "RPG", "Strategy"],
+    } as unknown as Game;
+    renderWithProviders(<CompactGameCard game={game} />);
+    expect(screen.getByText("Action")).toBeInTheDocument();
+    expect(screen.getByText("Adventure")).toBeInTheDocument();
+    const overflowIndicators = screen.getAllByText(/^\+2/);
+    expect(overflowIndicators.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("shows overflow pill when genres exceed 2 in mobile layout", () => {
+    const game = {
+      ...mockGame,
+      genres: ["Action", "Adventure", "RPG", "Strategy"],
+      userRating: null,
+    } as unknown as Game;
+    renderWithProviders(<CompactGameCard game={game} mobileLayout />);
+    expect(screen.getByText("Action")).toBeInTheDocument();
+    expect(screen.getByText("Adventure")).toBeInTheDocument();
+    expect(screen.getByText("+2 more")).toBeInTheDocument();
+  });
 });

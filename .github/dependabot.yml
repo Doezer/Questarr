@@ -7,7 +7,7 @@ updates:
       interval: "weekly"
       day: "monday"
       time: "09:00"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 10
     labels:
       - "dependencies"
       - "automated"
@@ -28,7 +28,12 @@ updates:
         update-types:
           - "minor"
           - "patch"
-    # Auto-merge minor and patch updates for dev dependencies
+      # Group all other production dependencies
+      production:
+        dependency-type: "production"
+        update-types:
+          - "minor"
+          - "patch"
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
@@ -40,6 +45,12 @@ updates:
       interval: "weekly"
       day: "monday"
       time: "09:00"
+    open-pull-requests-limit: 5
     labels:
       - "github-actions"
       - "dependencies"
+    groups:
+      # Group all GitHub Actions updates into a single PR
+      all-actions:
+        patterns:
+          - "*"

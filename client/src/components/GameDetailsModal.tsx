@@ -50,7 +50,7 @@ import {
   SiItchdotio,
   SiNexusmods,
 } from "react-icons/si";
-import { io } from "socket.io-client";
+import { getSocket } from "@/lib/socket";
 import { useToast } from "@/hooks/use-toast";
 import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { type Game, type GameDownload } from "@shared/schema";
@@ -342,11 +342,10 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   }, [game?.id, game?.notes]);
 
   // GDM-2: Subscribe to socket download updates and invalidate the downloads query.
-  // io() returns the shared singleton — register/unregister the handler rather than
-  // disconnecting, which would tear down the app-wide connection used by NotificationCenter.
+  // The shared socket connection stays alive app-wide, so only register/unregister handlers here.
   useEffect(() => {
     if (!open || !game?.id) return;
-    const socket = io();
+    const socket = getSocket();
     const handler = (gameId: string) => {
       if (gameId === game.id) {
         queryClient.invalidateQueries({ queryKey: [`/api/games/${game.id}/downloads`] });

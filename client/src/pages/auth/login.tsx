@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/form";
 import { Lock, User } from "lucide-react";
 import { GitHubVersionLink } from "@/components/GitHubVersionLink";
+import { withBasePath } from "@/lib/app-path";
 
 const loginSchema = z.object({
   username: z.string().min(1, "Username is required"),
@@ -41,7 +42,11 @@ export default function LoginPage() {
     <div className="min-h-screen flex flex-col items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center flex flex-col items-center gap-2">
-          <img src="/Questarr_Logo-nobg.png" alt="Questarr Logo" className="h-16 w-auto mb-2" />
+          <img
+            src={withBasePath("/Questarr_Logo-nobg.png")}
+            alt="Questarr Logo"
+            className="h-16 w-auto mb-2"
+          />
           <CardTitle className="text-2xl font-bold">Welcome Back</CardTitle>
           <CardDescription>Login to manage your game collection</CardDescription>
         </CardHeader>

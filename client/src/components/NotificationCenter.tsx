@@ -7,10 +7,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { NotificationItem } from "./NotificationItem";
 import { Notification, Game } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
-import { io } from "socket.io-client";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import GameDownloadDialog from "./GameDownloadDialog";
+import { getSocket } from "@/lib/socket";
 
 export function NotificationCenter() {
   const [open, setOpen] = useState(false);
@@ -43,14 +43,8 @@ export function NotificationCenter() {
 
   // Socket.IO connection
   useEffect(() => {
-    const socket = io();
-
-    socket.on("connect", () => {
-      // WebSocket connected
-    });
-
-    socket.on("notification", (notification: Notification) => {
-      // Show toast
+    const socket = getSocket();
+    const handleNotification = (notification: Notification) => {
       toast({
         title: notification.title,
         description: notification.message,
@@ -60,10 +54,12 @@ export function NotificationCenter() {
       // Update query cache
       queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
       queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
-    });
+    };
+
+    socket.on("notification", handleNotification);
 
     return () => {
-      socket.disconnect();
+      socket.off("notification", handleNotification);
     };
   }, [queryClient, toast]);
 

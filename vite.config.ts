@@ -8,7 +8,16 @@ const { version } = JSON.parse(
   readFileSync(path.resolve(import.meta.dirname, "package.json"), "utf-8")
 ) as { version: string };
 
+const configuredBase = process.env.QUESTARR_BASE_PATH;
+const base =
+  configuredBase && configuredBase.length > 0
+    ? configuredBase.endsWith("/")
+      ? configuredBase
+      : `${configuredBase}/`
+    : "./";
+
 export default defineConfig({
+  base,
   plugins: [react(), tailwindcss()],
   define: {
     "globalThis.__APP_VERSION__": JSON.stringify(version),

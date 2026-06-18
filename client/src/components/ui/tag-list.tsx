@@ -1,4 +1,3 @@
-import * as React from "react";
 import { Badge, badgeVariants } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";

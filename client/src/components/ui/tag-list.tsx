@@ -19,9 +19,9 @@ export function TagList({
   emptyText,
   className,
 }: TagListProps) {
-  const overflow =
-    maxVisible !== undefined && items.length > maxVisible ? items.length - maxVisible : 0;
-  const visible = overflow > 0 ? items.slice(0, maxVisible) : items;
+  const visibleCount = maxVisible ?? items.length;
+  const overflow = items.length > visibleCount ? items.length - visibleCount : 0;
+  const visible = items.slice(0, visibleCount);
 
   if (items.length === 0) {
     if (!emptyText) return null;
@@ -49,7 +49,7 @@ export function TagList({
           </PopoverTrigger>
           <PopoverContent className="w-auto max-w-64 p-3">
             <div className="flex flex-wrap gap-1.5">
-              {items.slice(maxVisible).map((item) => (
+              {items.slice(visibleCount).map((item) => (
                 <Badge key={item} variant={variant} className="text-xs">
                   {item}
                 </Badge>

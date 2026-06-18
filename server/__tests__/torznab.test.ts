@@ -176,6 +176,28 @@ describe("TorznabClient — download link rewriting", () => {
     );
   });
 
+  it("re-wraps external URLs that mimic Prowlarr proxy path/query on a different host", async () => {
+    const prowlarrIndexer = makeIndexer({
+      url: "http://localhost:9696/5/api",
+      apiKey: "prowlarr-api-key",
+    });
+    const fakeProxyFromExternalHost =
+      "https://tracker.example/5/download?file=Some+Game&link=aHR0cHM6Ly9leGFtcGxlLmNvbQ%3D%3D";
+    mockFetchResponse(makeTorznabXml(fakeProxyFromExternalHost));
+
+    const result = await client.searchGames(prowlarrIndexer, { query: "game" });
+    const rewritten = new URL(result.items[0].link);
+
+    expect(rewritten.hostname).toBe("localhost");
+    expect(rewritten.pathname).toBe("/5/download");
+    expect(rewritten.searchParams.get("apikey")).toBe("prowlarr-api-key");
+
+    const nestedEncoded = rewritten.searchParams.get("link");
+    expect(nestedEncoded).not.toBeNull();
+    const decoded = Buffer.from(nestedEncoded!, "base64").toString("utf-8");
+    expect(decoded).toBe(fakeProxyFromExternalHost);
+  });
+
   it("does not double-wrap Prowlarr proxy URLs when Prowlarr uses a UrlBase", async () => {
     const prowlarrIndexer = makeIndexer({
       url: "http://localhost:9696/prowlarr/5/api",

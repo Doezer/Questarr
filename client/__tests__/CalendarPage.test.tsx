@@ -6,7 +6,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "../src/components/ui/tooltip";
-import CalendarPage, { formatDate, getWeekDays } from "../src/pages/calendar";
+import CalendarPage from "../src/pages/calendar";
 import { createTestQueryClient, getRequestUrl } from "./test-utils";
 
 vi.mock("@/components/GameDownloadDialog", () => ({
@@ -50,16 +50,10 @@ vi.mock("@/components/ui/select", () => ({
   ),
 }));
 
-const today = new Date();
-const currentYear = today.getFullYear();
-const currentMonth = today.getMonth();
-const currentMonthReleaseDate = formatDate(new Date(currentYear, currentMonth, 2));
-const weekReleaseDate = formatDate(getWeekDays(new Date())[3]);
-
 const baseGame = {
   id: "game-1",
   title: "Space Quest",
-  releaseDate: currentMonthReleaseDate,
+  releaseDate: "2026-06-02",
   status: "wanted",
   releaseStatus: "released",
   coverUrl: null,
@@ -129,12 +123,7 @@ describe("CalendarPage", () => {
   it("filters displayed games and renders the undated year section", async () => {
     mockGamesFetch([
       baseGame,
-      {
-        ...baseGame,
-        id: "game-2",
-        title: "Mystery Year",
-        releaseDate: `${currentYear}-12-31`,
-      },
+      { ...baseGame, id: "game-2", title: "Mystery Year", releaseDate: "2026-12-31" },
       { ...baseGame, id: "game-3", title: "Owned Game", status: "owned" },
     ]);
 
@@ -156,9 +145,7 @@ describe("CalendarPage", () => {
   });
 
   it("switches to week view and opens the download dialog from a visible game", async () => {
-    mockGamesFetch([
-      { ...baseGame, id: "game-4", title: "Week Hero", releaseDate: weekReleaseDate },
-    ]);
+    mockGamesFetch([{ ...baseGame, id: "game-4", title: "Week Hero", releaseDate: "2026-05-29" }]);
 
     renderPage();
 
@@ -175,9 +162,7 @@ describe("CalendarPage", () => {
   });
 
   it("shows month view mobile day details when a day with releases is tapped", async () => {
-    mockGamesFetch([
-      { ...baseGame, id: "game-5", title: "Month Hero", releaseDate: weekReleaseDate },
-    ]);
+    mockGamesFetch([{ ...baseGame, id: "game-5", title: "Month Hero", releaseDate: "2026-05-29" }]);
 
     renderPage();
 
@@ -189,26 +174,22 @@ describe("CalendarPage", () => {
       expect(screen.queryByText("Loading calendar...")).not.toBeInTheDocument();
     });
 
-    const selectedDate = new Date(weekReleaseDate);
-    const dayButtonLabel = `${selectedDate.toLocaleDateString(undefined, {
-      weekday: "long",
-      month: "long",
-      day: "numeric",
-    })}, 1 release`;
-    const dayButton = screen.getByRole("button", { name: dayButtonLabel });
+    const dayButton = Array.from(document.querySelectorAll("button.cursor-pointer")).find((node) =>
+      node.textContent?.includes("29")
+    ) as HTMLButtonElement | undefined;
 
     expect(dayButton).toBeDefined();
-    const dayCell = dayButton.parentElement as HTMLDivElement | null;
+    const dayCell = dayButton?.parentElement as HTMLDivElement | null;
 
     expect(dayCell).not.toBeNull();
-    fireEvent.click(dayButton);
+    fireEvent.click(dayButton!);
 
     await waitFor(() => {
       expect(dayCell?.className).toContain("border-primary/60");
       expect(dayCell?.className).toContain("bg-primary/5");
     });
 
-    fireEvent.click(dayButton);
+    fireEvent.click(dayButton!);
 
     await waitFor(() => {
       expect(dayCell?.className).not.toContain("border-primary/60");

@@ -68,6 +68,27 @@ export class TorznabClient {
     return url;
   }
 
+  private isLoopbackHostname(hostname: string): boolean {
+    return (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "::1" ||
+      hostname === "[::1]"
+    );
+  }
+
+  private isSameProwlarrHost(candidate: URL, configured: URL): boolean {
+    if (candidate.protocol !== configured.protocol || candidate.port !== configured.port) {
+      return false;
+    }
+    if (candidate.hostname === configured.hostname) {
+      return true;
+    }
+    return (
+      this.isLoopbackHostname(candidate.hostname) && this.isLoopbackHostname(configured.hostname)
+    );
+  }
+
   /**
    * Search for games using a Torznab indexer
    */
@@ -400,9 +421,15 @@ export class TorznabClient {
             // Prowlarr — which has FlareSolverr configured to bypass Cloudflare.
             const prowlarrMatch = indexerUrlObj.pathname.match(/(?:^|\/)(\d+)\/api\/?$/i);
             if (prowlarrMatch && indexer?.apiKey) {
+              const expectedProxyPath = indexerUrlObj.pathname
+                .replace(/\/api\/?$/i, "/download")
+                .replace(/\/+$/, "");
+              const normalizedLinkPath = linkUrl.pathname.replace(/\/+$/, "");
               const isProwlarrProxyUrl =
-                /(?:^|\/)\d+\/download\/?$/i.test(linkUrl.pathname) &&
-                linkUrl.searchParams.has("link");
+                /\/download$/i.test(normalizedLinkPath) &&
+                linkUrl.searchParams.has("link") &&
+                normalizedLinkPath.toLowerCase() === expectedProxyPath.toLowerCase() &&
+                this.isSameProwlarrHost(linkUrl, indexerUrlObj);
 
               if (isProwlarrProxyUrl) {
                 // Prowlarr already returned a proxy URL. Avoid double-wrapping when only

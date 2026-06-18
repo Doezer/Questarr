@@ -151,15 +151,15 @@ export default function SearchPage() {
   const filteredAndSortedItems = useMemo(() => {
     const fromTime = dateFrom ? new Date(dateFrom).getTime() : null;
     const toTime = dateTo ? new Date(dateTo).getTime() + 86399999 : null;
-    return allItems
-      .map((item) => ({ item, time: new Date(item.pubDate).getTime() }))
-      .filter(({ time }) => {
-        if (fromTime !== null && time < fromTime) return false;
-        if (toTime !== null && time > toTime) return false;
-        return true;
-      })
-      .sort((a, b) => b.time - a.time)
-      .map(({ item }) => item);
+    const mapped: { item: DownloadItem; time: number }[] = [];
+    for (let i = 0; i < allItems.length; i++) {
+      const item = allItems[i];
+      const time = new Date(item.pubDate).getTime();
+      if (fromTime !== null && time < fromTime) continue;
+      if (toTime !== null && time > toTime) continue;
+      mapped.push({ item, time });
+    }
+    return mapped.sort((a, b) => b.time - a.time).map(({ item }) => item);
   }, [allItems, dateFrom, dateTo]);
 
   useEffect(() => {
@@ -175,7 +175,7 @@ export default function SearchPage() {
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage, filteredAndSortedItems.length]);
 
   useEffect(() => {
     if (
@@ -217,33 +217,15 @@ export default function SearchPage() {
   });
 
   const downloadMutation = useMutation({
-    mutationFn: async ({
-      download,
-      formData,
-    }: {
-      download: DownloadItem;
-      formData: DownloadForm;
-    }) => {
-      const token = localStorage.getItem("token");
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
-      const response = await fetch(`/api/downloaders/${formData.downloaderId}/downloads`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          url: download.link,
-          title: download.title,
-          category: formData.category || undefined,
-          downloadPath: formData.downloadPath,
-          priority: formData.priority,
-          downloadType: isUsenetItem(download) ? "usenet" : "torrent",
-        }),
-      });
-      if (!response.ok) throw new Error("Failed to add download");
-      return response.json();
-    },
+    mutationFn: ({ download, formData }: { download: DownloadItem; formData: DownloadForm }) =>
+      apiRequest("POST", `/api/downloaders/${formData.downloaderId}/downloads`, {
+        url: download.link,
+        title: download.title,
+        category: formData.category || undefined,
+        downloadPath: formData.downloadPath,
+        priority: formData.priority,
+        downloadType: isUsenetItem(download) ? "usenet" : "torrent",
+      }).then((r) => r.json()),
     onSuccess: (result) => {
       if (result.success) {
         toast({ title: "Download started successfully" });
@@ -513,9 +495,10 @@ export default function SearchPage() {
               <>
                 {filteredAndSortedItems.map((download, index) => {
                   const isUsenet = isUsenetItem(download);
+                  const itemKey = download.guid ?? download.link ?? index;
                   return (
                     <div
-                      key={index}
+                      key={itemKey}
                       className="p-3 text-sm flex justify-between items-center hover:bg-muted/30 transition-colors gap-4 px-4"
                       data-testid={`card-torrent-${index}`}
                     >
@@ -620,12 +603,6 @@ export default function SearchPage() {
                     </div>
                   );
                 })}
-                {/* Infinite scroll sentinel */}
-                <div ref={sentinelRef} className="flex justify-center py-3">
-                  {isFetchingNextPage && (
-                    <Search className="h-4 w-4 animate-spin text-muted-foreground" />
-                  )}
-                </div>
               </>
             ) : (
               <div className="p-8 text-center text-muted-foreground" data-testid="card-no-results">
@@ -637,6 +614,12 @@ export default function SearchPage() {
                 </p>
               </div>
             )}
+            {/* Infinite scroll sentinel — always rendered so observer reattaches after filter changes */}
+            <div ref={sentinelRef} className="flex justify-center py-3">
+              {isFetchingNextPage && (
+                <Search className="h-4 w-4 animate-spin text-muted-foreground" />
+              )}
+            </div>
           </div>
         </div>
       )}

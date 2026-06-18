@@ -157,4 +157,17 @@ describe("CompactGameCard", () => {
     renderWithProviders(<CompactGameCard game={game} />);
     expect(screen.queryByText("Early Access")).not.toBeInTheDocument();
   });
+
+  it("shows overflow pill when genres exceed 2", () => {
+    const game = {
+      ...mockGame,
+      genres: ["Action", "Adventure", "RPG", "Strategy"],
+    } as unknown as Game;
+    renderWithProviders(<CompactGameCard game={game} />);
+    expect(screen.getByText("Action")).toBeInTheDocument();
+    expect(screen.getByText("Adventure")).toBeInTheDocument();
+    // Both mobile card and comfortable list row render +2 more indicators
+    const overflowIndicators = screen.getAllByText(/^\+2/);
+    expect(overflowIndicators.length).toBeGreaterThanOrEqual(1);
+  });
 });

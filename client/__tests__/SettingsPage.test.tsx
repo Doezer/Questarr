@@ -11,14 +11,11 @@ vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({ toast: vi.fn() }),
 }));
 
-vi.mock("@/lib/queryClient", async () => {
-  const { QueryClient } = await import("@tanstack/react-query");
-  return {
-    apiRequest: vi.fn(async () => ({ json: async () => ({}) })),
-    queryClient: new QueryClient(),
-    clearSearchCache: vi.fn(),
-  };
-});
+vi.mock("@/lib/queryClient", () => ({
+  apiRequest: vi.fn().mockResolvedValue({ json: async () => ({}) }),
+  queryClient: { cancelQueries: vi.fn(), invalidateQueries: vi.fn() },
+  clearSearchCache: vi.fn(),
+}));
 
 vi.mock("@/components/AutoDownloadRulesSettings", () => ({
   default: () => <div data-testid="auto-download-rules" />,

@@ -11,13 +11,10 @@ vi.mock("@/hooks/use-mobile", () => ({
   useIsMobile: () => false,
 }));
 
-vi.mock("@/lib/queryClient", async () => {
-  const { QueryClient } = await import("@tanstack/react-query");
-  return {
-    apiRequest: vi.fn(async () => ({ json: async () => [] })),
-    queryClient: new QueryClient(),
-  };
-});
+// Stub apiRequest so game and discord-config queries resolve without network
+vi.mock("@/lib/queryClient", () => ({
+  apiRequest: vi.fn().mockResolvedValue({ json: async () => [] }),
+}));
 
 vi.mock("@/components/StatsCard", () => ({
   default: ({ title, value }: { title: string; value: number | string }) => (
@@ -45,10 +42,6 @@ vi.mock("recharts", () => ({
 describe("StatsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    globalThis.fetch = vi.fn(async () => ({
-      ok: true,
-      json: async () => [],
-    })) as typeof fetch;
   });
 
   it("renders the Statistics heading", async () => {
@@ -59,5 +52,16 @@ describe("StatsPage", () => {
     );
 
     expect(await screen.findByText("Statistics")).toBeInTheDocument();
+  });
+
+  it("renders stats cards when games are loaded", async () => {
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <StatsPage />
+      </QueryClientProvider>
+    );
+
+    const cards = await screen.findAllByTestId("stats-card");
+    expect(cards.length).toBeGreaterThan(0);
   });
 });

@@ -11,25 +11,17 @@ vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({ toast: vi.fn() }),
 }));
 
-vi.mock("@/lib/queryClient", async () => {
-  const { QueryClient } = await import("@tanstack/react-query");
-  return {
-    apiRequest: vi.fn(async () => ({ json: async () => ({}) })),
-    queryClient: new QueryClient(),
-    clearSearchCache: vi.fn(),
-  };
-});
-
 describe("SearchPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Stub fetch: search query is gated on input, downloaders returns empty list
     globalThis.fetch = vi.fn(async () => ({
       ok: true,
       json: async () => [],
     })) as typeof fetch;
   });
 
-  it("renders the Search heading and search form", async () => {
+  it("renders the Search heading and search input", async () => {
     render(
       <QueryClientProvider client={createTestQueryClient()}>
         <SearchPage />

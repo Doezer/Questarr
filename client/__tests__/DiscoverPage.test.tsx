@@ -39,13 +39,10 @@ vi.mock("@/components/RssSettings", () => ({
   default: () => <div data-testid="rss-settings" />,
 }));
 
-vi.mock("@/lib/queryClient", async () => {
-  const { QueryClient } = await import("@tanstack/react-query");
-  return {
-    apiRequest: vi.fn(async () => ({ json: async () => ({ configured: false }) })),
-    queryClient: new QueryClient(),
-  };
-});
+vi.mock("@/lib/queryClient", () => ({
+  apiRequest: vi.fn().mockResolvedValue({ json: async () => ({ configured: false }) }),
+  queryClient: { cancelQueries: vi.fn(), invalidateQueries: vi.fn() },
+}));
 
 vi.mock("@/lib/discover-hidden-mutation", () => ({
   hideDiscoveryGame: vi.fn(),
@@ -91,7 +88,7 @@ describe("DiscoverPage", () => {
     vi.clearAllMocks();
     globalThis.fetch = vi.fn(async () => ({
       ok: true,
-      json: async () => ({ configured: true }),
+      json: async () => ({ igdb: { configured: true } }),
     })) as typeof fetch;
   });
 

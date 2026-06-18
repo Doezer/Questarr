@@ -132,7 +132,7 @@ function setupApiRequest({
   libraryGames?: object[];
   downloaders?: object[];
 } = {}) {
-  mockApiRequest.mockImplementation((method: string, url: string) => {
+  mockApiRequest.mockImplementation((_method: string, url: string) => {
     if (url.startsWith("/api/search"))
       return Promise.resolve(makeSearchResult(items, total, errors));
     if (url.startsWith("/api/games")) return Promise.resolve({ json: async () => libraryGames });
@@ -156,6 +156,12 @@ function renderSearch() {
   );
 }
 
+function typeSearch(query: string) {
+  fireEvent.change(screen.getByPlaceholderText("Enter game title..."), {
+    target: { value: query },
+  });
+}
+
 describe("SearchPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -176,10 +182,7 @@ describe("SearchPage", () => {
   it("shows search results after typing a query", async () => {
     setupApiRequest({ items: [TORRENT_ITEM], total: 1 });
     renderSearch();
-
-    fireEvent.change(screen.getByPlaceholderText("Enter game title..."), {
-      target: { value: "game name" },
-    });
+    typeSearch("game name");
 
     await waitFor(() => {
       expect(screen.getByTestId("card-torrent-0")).toBeInTheDocument();
@@ -190,10 +193,7 @@ describe("SearchPage", () => {
   it("shows results count header", async () => {
     setupApiRequest({ items: [TORRENT_ITEM], total: 1 });
     renderSearch();
-
-    fireEvent.change(screen.getByPlaceholderText("Enter game title..."), {
-      target: { value: "game" },
-    });
+    typeSearch("game");
 
     await waitFor(() => {
       expect(screen.getByTestId("text-search-results-count")).toBeInTheDocument();
@@ -203,10 +203,7 @@ describe("SearchPage", () => {
   it("shows no-results message when search returns empty items", async () => {
     setupApiRequest({ items: [], total: 0 });
     renderSearch();
-
-    fireEvent.change(screen.getByPlaceholderText("Enter game title..."), {
-      target: { value: "nothing" },
-    });
+    typeSearch("nothing");
 
     await waitFor(() => {
       expect(screen.getByTestId("card-no-results")).toBeInTheDocument();
@@ -217,10 +214,7 @@ describe("SearchPage", () => {
   it("shows indexer errors when search returns errors", async () => {
     setupApiRequest({ items: [], total: 0, errors: ["Indexer A timed out"] });
     renderSearch();
-
-    fireEvent.change(screen.getByPlaceholderText("Enter game title..."), {
-      target: { value: "game" },
-    });
+    typeSearch("game");
 
     await waitFor(() => {
       expect(screen.getByTestId("card-indexer-errors")).toBeInTheDocument();
@@ -257,10 +251,7 @@ describe("SearchPage", () => {
     it("filters results by date range, hiding items outside the range", async () => {
       setupApiRequest({ items: [TORRENT_ITEM, OLD_ITEM], total: 2 });
       renderSearch();
-
-      fireEvent.change(screen.getByPlaceholderText("Enter game title..."), {
-        target: { value: "game" },
-      });
+      typeSearch("game");
       await waitFor(() => expect(screen.getByTestId("card-torrent-0")).toBeInTheDocument());
 
       // Both items visible initially
@@ -280,10 +271,7 @@ describe("SearchPage", () => {
     it("shows date-range no-results message when filter excludes all items", async () => {
       setupApiRequest({ items: [TORRENT_ITEM], total: 1 });
       renderSearch();
-
-      fireEvent.change(screen.getByPlaceholderText("Enter game title..."), {
-        target: { value: "game" },
-      });
+      typeSearch("game");
       await waitFor(() => expect(screen.getByTestId("card-torrent-0")).toBeInTheDocument());
 
       // Set a date range that excludes the item (TORRENT_ITEM is Jan 2026)
@@ -299,10 +287,7 @@ describe("SearchPage", () => {
     it("shows filter count label when date filter reduces visible items", async () => {
       setupApiRequest({ items: [TORRENT_ITEM, OLD_ITEM], total: 2 });
       renderSearch();
-
-      fireEvent.change(screen.getByPlaceholderText("Enter game title..."), {
-        target: { value: "game" },
-      });
+      typeSearch("game");
       await waitFor(() => expect(screen.getAllByTestId(/card-torrent-/).length).toBe(2));
 
       fireEvent.click(screen.getByTestId("button-toggle-filters"));
@@ -319,10 +304,7 @@ describe("SearchPage", () => {
       const game = { id: "game-1", title: "Game Name" };
       setupApiRequest({ items: [TORRENT_ITEM], total: 1, libraryGames: [game] });
       renderSearch();
-
-      fireEvent.change(screen.getByPlaceholderText("Enter game title..."), {
-        target: { value: "game name" },
-      });
+      typeSearch("game name");
 
       await waitFor(() => {
         expect(screen.getByTestId("banner-library-matches")).toBeInTheDocument();
@@ -334,10 +316,7 @@ describe("SearchPage", () => {
       const game = { id: "game-1", title: "My Game" };
       setupApiRequest({ items: [TORRENT_ITEM], total: 1, libraryGames: [game] });
       renderSearch();
-
-      fireEvent.change(screen.getByPlaceholderText("Enter game title..."), {
-        target: { value: "game" },
-      });
+      typeSearch("game");
 
       await waitFor(() => {
         expect(screen.getByTestId("button-remove-game-game-1")).toBeInTheDocument();
@@ -356,10 +335,7 @@ describe("SearchPage", () => {
       const dl = { id: "dl-1", name: "qBit", type: "qbittorrent", enabled: true };
       setupApiRequest({ items: [TORRENT_ITEM], total: 1, downloaders: [dl] });
       renderSearch();
-
-      fireEvent.change(screen.getByPlaceholderText("Enter game title..."), {
-        target: { value: "game" },
-      });
+      typeSearch("game");
 
       // Wait for results to appear, then interact with the download button
       await waitFor(() => expect(screen.getByTestId("card-torrent-0")).toBeInTheDocument());
@@ -380,10 +356,7 @@ describe("SearchPage", () => {
       const usenetDl = { id: "dl-2", name: "SABnzbd", type: "sabnzbd", enabled: true };
       setupApiRequest({ items: [TORRENT_ITEM], total: 1, downloaders: [usenetDl] });
       renderSearch();
-
-      fireEvent.change(screen.getByPlaceholderText("Enter game title..."), {
-        target: { value: "game" },
-      });
+      typeSearch("game");
 
       await waitFor(() => expect(screen.getByTestId("card-torrent-0")).toBeInTheDocument());
       const btn = screen.getByTestId("button-download-0");

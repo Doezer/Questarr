@@ -1216,6 +1216,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                                         "transmission",
                                                         "rtorrent",
                                                         "qbittorrent",
+                                                        "downloadstation",
                                                       ].includes(d.type)
                                               );
 

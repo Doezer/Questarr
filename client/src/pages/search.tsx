@@ -223,7 +223,7 @@ export default function SearchPage() {
     const compatibleDownloaders = downloaders.filter((d) =>
       isUsenet
         ? ["sabnzbd", "nzbget"].includes(d.type)
-        : ["transmission", "rtorrent", "qbittorrent"].includes(d.type)
+        : ["transmission", "rtorrent", "qbittorrent", "downloadstation"].includes(d.type)
     );
 
     if (compatibleDownloaders.length === 0) {
@@ -256,7 +256,7 @@ export default function SearchPage() {
     ? downloaders.filter((d) =>
         isUsenetItem(selectedDownload)
           ? ["sabnzbd", "nzbget"].includes(d.type)
-          : ["transmission", "rtorrent", "qbittorrent"].includes(d.type)
+          : ["transmission", "rtorrent", "qbittorrent", "downloadstation"].includes(d.type)
       )
     : downloaders;
 

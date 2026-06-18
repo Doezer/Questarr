@@ -422,6 +422,29 @@ describe("Middleware - Input Sanitization", () => {
       expect(req.body.password).toBe("secret");
       expect(req.body.urlPath).toBe("/api");
     });
+
+    it("should allow Synology Download Station type", async () => {
+      const req = createMockRequest({
+        body: {
+          name: "Synology DS",
+          type: "downloadstation",
+          url: "nas.local",
+          username: "admin",
+          password: "password",
+        },
+      });
+      const res = createMockResponse();
+      const next = createMockNext();
+
+      for (const validator of sanitizeDownloaderData) {
+        await validator(req as Request, res as Response, next);
+      }
+
+      validateRequest(req as Request, res as Response, next);
+
+      expect(next).toHaveBeenCalled();
+      expect(res.status).not.toHaveBeenCalled();
+    });
   });
 
   describe("sanitizeDownloaderDownloadData", () => {

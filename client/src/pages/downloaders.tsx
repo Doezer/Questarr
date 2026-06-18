@@ -43,6 +43,7 @@ const downloaderTypes = [
   { value: "transmission", label: "Transmission", protocol: "torrent" },
   { value: "rtorrent", label: "rTorrent", protocol: "torrent" },
   { value: "qbittorrent", label: "qBittorrent", protocol: "torrent" },
+  { value: "downloadstation", label: "Synology Download Station", protocol: "torrent" },
   { value: "sabnzbd", label: "SABnzbd", protocol: "usenet" },
   { value: "nzbget", label: "NZBGet", protocol: "usenet" },
 ] as const;
@@ -504,7 +505,8 @@ export default function DownloadersPage() {
               <CardTitle>No Downloaders Configured</CardTitle>
               <CardDescription>
                 Add your first downloader client to enable automated downloads. Supported clients
-                include Transmission, rTorrent, qBittorrent, SABnzbd, and NZBGet.
+                include Transmission, rTorrent, qBittorrent, Synology Download Station, SABnzbd, and
+                NZBGet.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -610,11 +612,13 @@ export default function DownloadersPage() {
                                 ? "8080"
                                 : form.watch("type") === "transmission"
                                   ? "9091"
-                                  : form.watch("type") === "sabnzbd"
-                                    ? "8080"
-                                    : form.watch("type") === "nzbget"
-                                      ? "6789"
-                                      : "80 or 443"
+                                  : form.watch("type") === "downloadstation"
+                                    ? "5000"
+                                    : form.watch("type") === "sabnzbd"
+                                      ? "8080"
+                                      : form.watch("type") === "nzbget"
+                                        ? "6789"
+                                        : "80 or 443"
                             }
                             {...field}
                             value={field.value || ""}
@@ -640,11 +644,13 @@ export default function DownloadersPage() {
                               ? "See Options → Web UI → 'Use HTTPS instead of HTTP' in qBittorrent"
                               : form.watch("type") === "transmission"
                                 ? "Enable HTTPS (see Settings → Web in Transmission)"
-                                : form.watch("type") === "sabnzbd"
-                                  ? "Enable HTTPS in SABnzbd (Config → General)"
-                                  : form.watch("type") === "nzbget"
-                                    ? "Enable HTTPS in NZBGet (Settings → Security)"
-                                    : "Enable HTTPS"}
+                                : form.watch("type") === "downloadstation"
+                                  ? "Enable HTTPS in Synology DSM (Control Panel → Login Portal)"
+                                  : form.watch("type") === "sabnzbd"
+                                    ? "Enable HTTPS in SABnzbd (Config → General)"
+                                    : form.watch("type") === "nzbget"
+                                      ? "Enable HTTPS in NZBGet (Settings → Security)"
+                                      : "Enable HTTPS"}
                           </FormDescription>
                         </div>
                         <FormControl>
@@ -671,7 +677,9 @@ export default function DownloadersPage() {
                               ? "RPC2"
                               : form.watch("type") === "sabnzbd"
                                 ? "sabnzbd"
-                                : ""
+                                : form.watch("type") === "downloadstation"
+                                  ? "webapi"
+                                  : ""
                           }
                           {...field}
                           value={field.value || ""}
@@ -695,6 +703,7 @@ export default function DownloadersPage() {
                           ? "API Key"
                           : form.watch("type") === "qbittorrent" ||
                               form.watch("type") === "transmission" ||
+                              form.watch("type") === "downloadstation" ||
                               form.watch("type") === "nzbget"
                             ? "Username"
                             : "Username (Optional)"}
@@ -719,6 +728,7 @@ export default function DownloadersPage() {
                       )}
                       {(form.watch("type") === "qbittorrent" ||
                         form.watch("type") === "transmission" ||
+                        form.watch("type") === "downloadstation" ||
                         form.watch("type") === "nzbget") && (
                         <FormDescription className="text-xs">
                           Only required if this client&apos;s web UI uses authentication.
@@ -736,6 +746,7 @@ export default function DownloadersPage() {
                       <RequiredFormLabel>
                         {form.watch("type") === "qbittorrent" ||
                         form.watch("type") === "transmission" ||
+                        form.watch("type") === "downloadstation" ||
                         form.watch("type") === "nzbget"
                           ? "Password"
                           : "Password (Optional)"}
@@ -751,6 +762,7 @@ export default function DownloadersPage() {
                       </FormControl>
                       {(form.watch("type") === "qbittorrent" ||
                         form.watch("type") === "transmission" ||
+                        form.watch("type") === "downloadstation" ||
                         form.watch("type") === "nzbget") && (
                         <FormDescription className="text-xs">
                           Only required if this client&apos;s web UI uses authentication.

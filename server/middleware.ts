@@ -255,7 +255,7 @@ export const sanitizeDownloaderData = [
     .withMessage("Name must be between 1 and 200 characters"),
   body("type")
     .trim()
-    .isIn(["transmission", "rtorrent", "qbittorrent", "sabnzbd", "nzbget"])
+    .isIn(["transmission", "rtorrent", "qbittorrent", "downloadstation", "sabnzbd", "nzbget"])
     .withMessage("Invalid downloader type"),
   body("url")
     .trim()
@@ -267,7 +267,16 @@ export const sanitizeDownloaderData = [
       if (isUrl) return true;
 
       // For downloaders, allow hostname/IP without protocol
-      if (["qbittorrent", "rtorrent", "transmission", "sabnzbd", "nzbget"].includes(type)) {
+      if (
+        [
+          "qbittorrent",
+          "rtorrent",
+          "transmission",
+          "downloadstation",
+          "sabnzbd",
+          "nzbget",
+        ].includes(type)
+      ) {
         // Accept hostname, IP address, or FQDN
         const hostnameRegex =
           /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
@@ -321,7 +330,7 @@ export const sanitizeDownloaderUpdateData = [
   body("type")
     .optional()
     .trim()
-    .isIn(["transmission", "rtorrent", "qbittorrent", "sabnzbd", "nzbget"])
+    .isIn(["transmission", "rtorrent", "qbittorrent", "downloadstation", "sabnzbd", "nzbget"])
     .withMessage("Invalid downloader type"),
   body("url")
     .optional()
@@ -335,7 +344,16 @@ export const sanitizeDownloaderUpdateData = [
       if (isUrl) return true;
 
       // For downloaders, allow hostname/IP without protocol
-      if (["qbittorrent", "rtorrent", "transmission", "sabnzbd", "nzbget"].includes(type)) {
+      if (
+        [
+          "qbittorrent",
+          "rtorrent",
+          "transmission",
+          "downloadstation",
+          "sabnzbd",
+          "nzbget",
+        ].includes(type)
+      ) {
         // Accept hostname, IP address, or FQDN
         const hostnameRegex =
           /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;

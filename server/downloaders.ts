@@ -3024,6 +3024,380 @@ export class QBittorrentClient implements DownloaderClient {
   }
 }
 
+interface DownloadStationTask {
+  id?: string;
+  title?: string;
+  status?: string;
+  size?: number;
+  size_downloaded?: number;
+  additional?: {
+    transfer?: {
+      size_downloaded?: number;
+      size_uploaded?: number;
+      speed_download?: number;
+      speed_upload?: number;
+    };
+    detail?: {
+      destination?: string;
+      connected_seeders?: number;
+      connected_leechers?: number;
+      create_time?: number;
+    };
+  };
+}
+
+interface DownloadStationApiResponse<T = unknown> {
+  success?: boolean;
+  data?: T;
+  error?: { code?: number };
+}
+
+export class DownloadStationClient implements DownloaderClient {
+  private static readonly ADD_TASK_LOOKUP_LIMIT = "30";
+  private static readonly LIST_TASK_LIMIT = "500";
+
+  private downloader: Downloader;
+  private sid: string | null = null;
+
+  constructor(downloader: Downloader) {
+    this.downloader = downloader;
+  }
+
+  private getBaseUrl(): string {
+    let baseUrl = this.downloader.url;
+    if (!baseUrl.startsWith("http://") && !baseUrl.startsWith("https://")) {
+      const protocol = this.downloader.useSsl ? "https://" : "http://";
+      baseUrl = protocol + baseUrl;
+    }
+
+    try {
+      const urlObj = new URL(baseUrl);
+      if (this.downloader.port) {
+        urlObj.port = this.downloader.port.toString();
+      }
+      return urlObj.toString().replace(/\/$/, "");
+    } catch {
+      return baseUrl.replace(/\/$/, "");
+    }
+  }
+
+  private getApiRootPath(): string {
+    const configuredPath = this.downloader.urlPath?.trim();
+    if (!configuredPath) return "/webapi";
+    const prefixed = configuredPath.startsWith("/") ? configuredPath : `/${configuredPath}`;
+    return prefixed.replace(/\/$/, "");
+  }
+
+  private buildApiUrl(script: string): string {
+    return `${this.getBaseUrl()}${this.getApiRootPath()}/${script}`;
+  }
+
+  private mapTaskStatus(taskStatus?: string): DownloadStatus["status"] {
+    const status = taskStatus?.toLowerCase() || "";
+    if (status === "seeding") return "seeding";
+    if (status === "finished" || status === "finishing") return "completed";
+    if (status === "paused" || status === "waiting") return "paused";
+    if (status.includes("error")) return "error";
+    return "downloading";
+  }
+
+  private mapTask(task: DownloadStationTask): DownloadStatus {
+    const transfer = task.additional?.transfer;
+    const details = task.additional?.detail;
+    const size = Number(task.size || 0);
+    const downloaded = Number(transfer?.size_downloaded ?? task.size_downloaded ?? 0);
+    const progress = size > 0 ? Math.round((downloaded / size) * 100) : 0;
+
+    return {
+      id: task.id || "",
+      name: task.title || "Unknown task",
+      downloadType: "torrent",
+      status: this.mapTaskStatus(task.status),
+      progress: Math.max(0, Math.min(100, progress)),
+      downloadSpeed: transfer?.speed_download,
+      uploadSpeed: transfer?.speed_upload,
+      size: size || undefined,
+      downloaded: downloaded || undefined,
+      seeders: details?.connected_seeders,
+      leechers: details?.connected_leechers,
+      category: this.downloader.category || undefined,
+    };
+  }
+
+  private async parseApiResponse<T>(response: Response): Promise<DownloadStationApiResponse<T>> {
+    const raw = await response.text();
+    if (!raw) return { success: false };
+    try {
+      return JSON.parse(raw) as DownloadStationApiResponse<T>;
+    } catch {
+      throw new Error(`Invalid Download Station response: ${raw}`);
+    }
+  }
+
+  private getErrorMessage(code?: number): string {
+    if (!code) return "Unknown Download Station API error";
+    const errors: Record<number, string> = {
+      100: "Unknown error",
+      101: "Invalid parameter",
+      102: "API does not exist",
+      103: "Method does not exist",
+      104: "Version not supported",
+      105: "Insufficient permissions",
+      106: "Session timeout",
+      107: "Session interrupted",
+      400: "File upload failed",
+      401: "Max number of tasks reached",
+      402: "Destination denied",
+      403: "Destination does not exist",
+      404: "Invalid task id",
+      405: "Invalid task action",
+      406: "No default destination",
+      408: "Download task already exists",
+      119: "Session not found",
+    };
+    return errors[code] ?? `Download Station API error ${code}`;
+  }
+
+  private async authenticate(force = false): Promise<void> {
+    if (this.sid && !force) return;
+    if (!this.downloader.username || !this.downloader.password) {
+      throw new Error(
+        "Username and password are required for Synology Download Station. Configure credentials in downloader settings."
+      );
+    }
+
+    const params = new URLSearchParams({
+      api: "SYNO.API.Auth",
+      version: "7",
+      method: "login",
+      account: this.downloader.username,
+      passwd: this.downloader.password,
+      session: "DownloadStation",
+      format: "sid",
+    });
+
+    const authUrl = `${this.buildApiUrl("auth.cgi")}?${params.toString()}`;
+    if (!(await isSafeUrl(authUrl))) {
+      throw new Error(`Unsafe URL blocked: ${authUrl}`);
+    }
+
+    const response = await safeFetch(authUrl, {
+      method: "GET",
+      signal: AbortSignal.timeout(30000),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Authentication failed: HTTP ${response.status}`);
+    }
+
+    const data = await this.parseApiResponse<{ sid?: string }>(response);
+    if (!data.success || !data.data?.sid) {
+      throw new Error(this.getErrorMessage(data.error?.code));
+    }
+
+    this.sid = data.data.sid;
+  }
+
+  private async callTaskApi<T>(
+    method: "list" | "create" | "pause" | "resume" | "delete",
+    params: Record<string, string> = {},
+    retried = false
+  ): Promise<DownloadStationApiResponse<T>> {
+    await this.authenticate(retried);
+    const payload = new URLSearchParams({
+      api: "SYNO.DownloadStation.Task",
+      version: "3",
+      method,
+      _sid: this.sid || "",
+      ...params,
+    });
+
+    const taskUrl = this.buildApiUrl("DownloadStation/task.cgi");
+    if (!(await isSafeUrl(taskUrl))) {
+      throw new Error(`Unsafe URL blocked: ${taskUrl}`);
+    }
+
+    const response = await safeFetch(taskUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: payload.toString(),
+      signal: AbortSignal.timeout(30000),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Download Station request failed: HTTP ${response.status}`);
+    }
+
+    const data = await this.parseApiResponse<T>(response);
+    const errorCode = data.error?.code;
+    if (
+      !data.success &&
+      !retried &&
+      (errorCode === 106 || errorCode === 107 || errorCode === 119)
+    ) {
+      this.sid = null;
+      return this.callTaskApi<T>(method, params, true);
+    }
+
+    return data;
+  }
+
+  async testConnection(): Promise<DownloaderActionResult> {
+    try {
+      await this.authenticate();
+      const response = await this.callTaskApi<{ tasks?: DownloadStationTask[] }>("list", {
+        offset: "0",
+        limit: "1",
+      });
+      if (!response.success) {
+        return { success: false, message: this.getErrorMessage(response.error?.code) };
+      }
+      return { success: true, message: "Connected successfully to Synology Download Station" };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      return { success: false, message: `Failed to connect to Download Station: ${errorMessage}` };
+    }
+  }
+
+  async addDownload(request: DownloadRequest): Promise<DownloadResult> {
+    try {
+      if (!request.url) {
+        return { success: false, message: "Download URL is required" };
+      }
+      // Magnet links are intentionally exempt from URL SSRF checks because they are
+      // not fetched by Questarr; Download Station validates and handles them directly.
+      if (!request.url.startsWith("magnet:") && !(await isSafeUrl(request.url))) {
+        return { success: false, message: `Unsafe URL blocked: ${request.url}` };
+      }
+
+      const createdAfter = Math.floor(Date.now() / 1000);
+      const createParams: Record<string, string> = { uri: request.url };
+      const destination = request.downloadPath || this.downloader.downloadPath;
+      if (destination) {
+        createParams.destination = destination;
+      }
+
+      const response = await this.callTaskApi("create", createParams);
+
+      if (!response.success) {
+        const errorCode = response.error?.code;
+        if (errorCode === 408) {
+          return { success: true, message: "Download already exists (Download Station)" };
+        }
+        const errorMessage = this.getErrorMessage(errorCode);
+        return { success: false, message: errorMessage };
+      }
+
+      const listResponse = await this.callTaskApi<{ tasks?: DownloadStationTask[] }>("list", {
+        additional: "transfer,detail",
+        offset: "0",
+        limit: DownloadStationClient.ADD_TASK_LOOKUP_LIMIT,
+      });
+
+      const matchedTaskByTimeAndTitle = listResponse.data?.tasks?.find(
+        (task) =>
+          (task.additional?.detail?.create_time ?? 0) > createdAfter &&
+          (!request.title || task.title === request.title)
+      );
+      const matchedTask =
+        matchedTaskByTimeAndTitle ||
+        listResponse.data?.tasks?.find(
+          (task) => (task.additional?.detail?.create_time ?? 0) > createdAfter
+        );
+      return {
+        success: true,
+        id: matchedTask?.id,
+        message: "Download added successfully",
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      return { success: false, message: `Failed to add download: ${errorMessage}` };
+    }
+  }
+
+  async getDownloadStatus(id: string): Promise<DownloadStatus | null> {
+    try {
+      const response = await this.callTaskApi<{ tasks?: DownloadStationTask[] }>("list", {
+        id,
+        additional: "transfer,detail",
+      });
+      if (!response.success || !response.data?.tasks?.length) return null;
+      const task = response.data.tasks.find((item) => item.id === id) || response.data.tasks[0];
+      return this.mapTask(task);
+    } catch (error) {
+      downloadersLogger.error({ error, id }, "Failed to get Download Station status");
+      return null;
+    }
+  }
+
+  async getDownloadDetails(id: string): Promise<DownloadDetails | null> {
+    const status = await this.getDownloadStatus(id);
+    if (!status) return null;
+    return { ...status, files: [], trackers: [] };
+  }
+
+  async getAllDownloads(): Promise<DownloadStatus[]> {
+    try {
+      const response = await this.callTaskApi<{ tasks?: DownloadStationTask[] }>("list", {
+        additional: "transfer,detail",
+        offset: "0",
+        limit: DownloadStationClient.LIST_TASK_LIMIT,
+      });
+      if (!response.success || !response.data?.tasks) return [];
+      return response.data.tasks.map((task) => this.mapTask(task));
+    } catch (error) {
+      downloadersLogger.error({ error }, "Failed to list Download Station tasks");
+      return [];
+    }
+  }
+
+  async pauseDownload(id: string): Promise<DownloaderActionResult> {
+    try {
+      const response = await this.callTaskApi("pause", { id });
+      if (!response.success) {
+        return { success: false, message: this.getErrorMessage(response.error?.code) };
+      }
+      return { success: true, message: "Download paused successfully" };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      return { success: false, message: `Failed to pause download: ${errorMessage}` };
+    }
+  }
+
+  async resumeDownload(id: string): Promise<DownloaderActionResult> {
+    try {
+      const response = await this.callTaskApi("resume", { id });
+      if (!response.success) {
+        return { success: false, message: this.getErrorMessage(response.error?.code) };
+      }
+      return { success: true, message: "Download resumed successfully" };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      return { success: false, message: `Failed to resume download: ${errorMessage}` };
+    }
+  }
+
+  async removeDownload(id: string, deleteFiles = false): Promise<DownloaderActionResult> {
+    try {
+      const response = await this.callTaskApi("delete", {
+        id,
+        force_complete: deleteFiles ? "true" : "false",
+      });
+      if (!response.success) {
+        return { success: false, message: this.getErrorMessage(response.error?.code) };
+      }
+      return { success: true, message: "Download removed successfully" };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      return { success: false, message: `Failed to remove download: ${errorMessage}` };
+    }
+  }
+
+  async getFreeSpace(): Promise<number> {
+    return 0;
+  }
+}
+
 export class DownloaderManager {
   static createClient(downloader: Downloader): DownloaderClient {
     switch (downloader.type) {
@@ -3033,6 +3407,8 @@ export class DownloaderManager {
         return new RTorrentClient(downloader);
       case "qbittorrent":
         return new QBittorrentClient(downloader);
+      case "downloadstation":
+        return new DownloadStationClient(downloader);
       case "sabnzbd":
         return new SABnzbdClient(downloader);
       case "nzbget":
@@ -3188,7 +3564,7 @@ export class DownloaderManager {
       compatibleDownloaders = downloaders.filter((d) => ["sabnzbd", "nzbget"].includes(d.type));
     } else if (request.downloadType === "torrent") {
       compatibleDownloaders = downloaders.filter((d) =>
-        ["transmission", "rtorrent", "qbittorrent"].includes(d.type)
+        ["transmission", "rtorrent", "qbittorrent", "downloadstation"].includes(d.type)
       );
     }
 

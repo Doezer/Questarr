@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Downloader } from "../../shared/schema";
-import { TransmissionClient, RTorrentClient, QBittorrentClient } from "../downloaders.js";
+import {
+  TransmissionClient,
+  RTorrentClient,
+  QBittorrentClient,
+  DownloadStationClient,
+} from "../downloaders.js";
 
 // Mock dependencies
 vi.mock("../logger.js", () => ({
@@ -407,6 +412,76 @@ describe("QBittorrentClient", () => {
     port: 8080,
     username: "admin",
     password: "adminadmin",
+  });
+
+  describe("DownloadStationClient", () => {
+    let fetchMock: ReturnType<typeof vi.fn>;
+    let client: DownloadStationClient;
+
+    const mockDownloader = createMockDownloader({
+      id: "ds-1",
+      name: "Synology Download Station",
+      type: "downloadstation",
+      url: "http://nas.local",
+      port: 5000,
+      username: "admin",
+      password: "adminadmin",
+      urlPath: "webapi",
+    });
+
+    beforeEach(() => {
+      ({ fetchMock, client } = setupClientTest(() => new DownloadStationClient(mockDownloader)));
+    });
+
+    it("tests Download Station connection", async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        text: async () => JSON.stringify({ success: true, data: { sid: "sid-1" } }),
+      });
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        text: async () => JSON.stringify({ success: true, data: { tasks: [] } }),
+      });
+
+      const result = await client.testConnection();
+      expect(result.success).toBe(true);
+      expect(result.message).toContain("Connected successfully");
+    });
+
+    it("adds a magnet download successfully", async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        text: async () => JSON.stringify({ success: true, data: { sid: "sid-1" } }),
+      });
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        text: async () => JSON.stringify({ success: true }),
+      });
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        text: async () =>
+          JSON.stringify({
+            success: true,
+            data: {
+              tasks: [
+                {
+                  id: "dbid_1",
+                  title: "Test Release",
+                  additional: { detail: { create_time: Math.floor(Date.now() / 1000) + 5 } },
+                },
+              ],
+            },
+          }),
+      });
+
+      const result = await client.addDownload({
+        url: "magnet:?xt=urn:btih:hash123",
+        title: "Test Release",
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.id).toBe("dbid_1");
+    });
   });
 
   beforeEach(() => {

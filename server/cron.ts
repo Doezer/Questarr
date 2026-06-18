@@ -634,7 +634,8 @@ export async function checkDownloadStatus() {
             }
           } else {
             // Sync download status with actual status from downloader
-            let newDownloadStatus: "downloading" | "paused" | "failed" | "completed" = "downloading";
+            let newDownloadStatus: "downloading" | "paused" | "failed" | "completed" =
+              "downloading";
             let newGameStatus: "wanted" | "downloading" | "owned" = "downloading";
             let newErrorMessage: string | null = null;
             let isDefinitiveError = false;
@@ -664,7 +665,11 @@ export async function checkDownloadStatus() {
 
             // Only update if tracked status or error details changed.
             if (shouldPersistDownloadUpdate) {
-              await storage.updateGameDownloadStatus(download.id, newDownloadStatus, newErrorMessage);
+              await storage.updateGameDownloadStatus(
+                download.id,
+                newDownloadStatus,
+                newErrorMessage
+              );
               igdbLogger.debug(
                 {
                   title: download.downloadTitle,

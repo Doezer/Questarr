@@ -92,6 +92,8 @@ function formatDate(dateString: string): string {
   }
 }
 
+const PAGE_SIZE = 50;
+
 export default function SearchPage() {
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
@@ -116,12 +118,16 @@ export default function SearchPage() {
     queryFn: ({ pageParam }) =>
       apiRequest(
         "GET",
-        `/api/search?query=${encodeURIComponent(debouncedSearchQuery)}&limit=50&offset=${pageParam}`
+        `/api/search?query=${encodeURIComponent(debouncedSearchQuery)}&limit=${PAGE_SIZE}&offset=${pageParam}`
       ).then((r) => r.json()),
     initialPageParam: 0,
     getNextPageParam: (lastPage, _allPages, lastPageParam) => {
-      const fetched = lastPageParam + lastPage.items.length;
-      return fetched < lastPage.total ? fetched : undefined;
+      // Use "received a full page" as the continuation signal rather than comparing
+      // against lastPage.total, which equals the current batch size for Torznab
+      // indexers and would always terminate pagination after the first page.
+      return (lastPage.items ?? []).length >= PAGE_SIZE
+        ? lastPageParam + (lastPage.items ?? []).length
+        : undefined;
     },
     enabled: debouncedSearchQuery.trim().length > 0,
   });
@@ -149,8 +155,15 @@ export default function SearchPage() {
   const allItems = useMemo(() => data?.pages.flatMap((p) => p.items ?? []) ?? [], [data]);
 
   const filteredAndSortedItems = useMemo(() => {
-    const fromTime = dateFrom ? new Date(dateFrom).getTime() : null;
-    const toTime = dateTo ? new Date(dateTo).getTime() + 86399999 : null;
+    // Parse YYYY-MM-DD date inputs as local midnight so the filter matches
+    // what the user sees in toLocaleDateString(), not UTC midnight which would
+    // shift boundaries by the user's UTC offset.
+    const parseLocalDay = (s: string) => {
+      const [y, m, d] = s.split("-").map(Number);
+      return new Date(y, m - 1, d).getTime();
+    };
+    const fromTime = dateFrom ? parseLocalDay(dateFrom) : null;
+    const toTime = dateTo ? parseLocalDay(dateTo) + 86399999 : null;
     const mapped: { item: DownloadItem; time: number }[] = [];
     for (let i = 0; i < allItems.length; i++) {
       const item = allItems[i];

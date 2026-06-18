@@ -123,6 +123,11 @@ vi.mock("../igdb.js", () => ({
   },
 }));
 
+vi.mock("../ssrf.js", () => ({
+  isSafeUrl: vi.fn().mockResolvedValue(true),
+  safeFetch: vi.fn(),
+}));
+
 vi.mock("../auth.js", async () => {
   const actual = await vi.importActual("../auth.js");
   return {

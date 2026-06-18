@@ -31,14 +31,14 @@ export function TagList({
 
   return (
     <div className={cn("flex flex-wrap gap-2", className)}>
-      {visible.map((item, i) => (
-        <Badge key={i} variant={variant} data-testid={getTestId?.(item)}>
+      {visible.map((item) => (
+        <Badge key={item} variant={variant} data-testid={getTestId?.(item)}>
           {item}
         </Badge>
       ))}
       {overflow > 0 && (
         <Popover>
-          <PopoverTrigger asChild>
+          <PopoverTrigger asChild onClick={(e) => e.stopPropagation()}>
             <Badge
               variant="outline"
               className="cursor-pointer text-muted-foreground hover:text-foreground"
@@ -49,8 +49,8 @@ export function TagList({
           </PopoverTrigger>
           <PopoverContent className="w-auto max-w-64 p-3">
             <div className="flex flex-wrap gap-1.5">
-              {items.slice(maxVisible).map((item, i) => (
-                <Badge key={i} variant={variant} className="text-xs">
+              {items.slice(maxVisible).map((item) => (
+                <Badge key={item} variant={variant} className="text-xs">
                   {item}
                 </Badge>
               ))}

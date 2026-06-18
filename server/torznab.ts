@@ -68,6 +68,27 @@ export class TorznabClient {
     return url;
   }
 
+  private isLoopbackHostname(hostname: string): boolean {
+    return (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "::1" ||
+      hostname === "[::1]"
+    );
+  }
+
+  private isSameProwlarrHost(candidate: URL, configured: URL): boolean {
+    if (candidate.protocol !== configured.protocol || candidate.port !== configured.port) {
+      return false;
+    }
+    if (candidate.hostname === configured.hostname) {
+      return true;
+    }
+    return (
+      this.isLoopbackHostname(candidate.hostname) && this.isLoopbackHostname(configured.hostname)
+    );
+  }
+
   /**
    * Search for games using a Torznab indexer
    */
@@ -398,17 +419,35 @@ export class TorznabClient {
             // indexer), a naive host swap would produce an invalid path on Prowlarr. Instead,
             // construct a proper Prowlarr download proxy URL so the request goes through
             // Prowlarr — which has FlareSolverr configured to bypass Cloudflare.
-            const prowlarrMatch = indexerUrlObj.pathname.match(/^\/(\d+)\/api\/?$/i);
+            const prowlarrMatch = /(?:^|\/)(\d+)\/api\/?$/i.exec(indexerUrlObj.pathname);
             if (prowlarrMatch && indexer?.apiKey) {
-              const prowlarrUrl = new URL(`${indexerUrlObj.protocol}//${indexerUrlObj.host}`);
-              prowlarrUrl.pathname = `/${prowlarrMatch[1]}/download`;
-              prowlarrUrl.searchParams.set("file", torznabItem.title || "download");
-              prowlarrUrl.searchParams.set(
-                "link",
-                Buffer.from(torznabItem.link).toString("base64")
-              );
-              prowlarrUrl.searchParams.set("apikey", indexer.apiKey);
-              torznabItem.link = prowlarrUrl.toString();
+              const expectedProxyPath = indexerUrlObj.pathname
+                .replace(/\/api\/?$/i, "/download")
+                .replace(/\/+$/, "");
+              const normalizedLinkPath = linkUrl.pathname.replace(/\/+$/, "");
+              const isProwlarrProxyUrl =
+                /\/download$/i.test(normalizedLinkPath) &&
+                linkUrl.searchParams.has("link") &&
+                normalizedLinkPath.toLowerCase() === expectedProxyPath.toLowerCase() &&
+                this.isSameProwlarrHost(linkUrl, indexerUrlObj);
+
+              if (isProwlarrProxyUrl) {
+                // Prowlarr already returned a proxy URL. Avoid double-wrapping when only
+                // hostnames differ (e.g. localhost vs 127.0.0.1) by doing host rewrite only.
+                linkUrl.protocol = indexerUrlObj.protocol;
+                linkUrl.host = indexerUrlObj.host;
+                torznabItem.link = linkUrl.toString();
+              } else {
+                const prowlarrUrl = new URL(`${indexerUrlObj.protocol}//${indexerUrlObj.host}`);
+                prowlarrUrl.pathname = indexerUrlObj.pathname.replace(/\/api\/?$/i, "/download");
+                prowlarrUrl.searchParams.set("file", torznabItem.title || "download");
+                prowlarrUrl.searchParams.set(
+                  "link",
+                  Buffer.from(torznabItem.link).toString("base64")
+                );
+                prowlarrUrl.searchParams.set("apikey", indexer.apiKey);
+                torznabItem.link = prowlarrUrl.toString();
+              }
             } else {
               // Standard host rewrite for reverse-proxy / seedbox setups where the indexer
               // returns its internal address but should be reached via the configured URL.

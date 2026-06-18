@@ -156,6 +156,87 @@ describe("TorznabClient — download link rewriting", () => {
     expect(result.items[0].link).toBe(prowlarrProxyUrl);
   });
 
+  it("does not double-wrap Prowlarr proxy URL when only host aliases differ", async () => {
+    const prowlarrIndexer = makeIndexer({
+      url: "http://localhost:9696/5/api",
+      apiKey: "prowlarr-api-key",
+    });
+    const prowlarrProxyUrlFromAlias =
+      "http://127.0.0.1:9696/5/download?file=Some+Game&link=aHR0cHM6Ly9leGFtcGxlLmNvbS90b3JyZW50L2Rvd25sb2FkP2lkPTE%3D&apikey=prowlarr-api-key";
+    mockFetchResponse(makeTorznabXml(prowlarrProxyUrlFromAlias));
+
+    const result = await client.searchGames(prowlarrIndexer, { query: "game" });
+
+    const rewritten = new URL(result.items[0].link);
+    expect(rewritten.hostname).toBe("localhost");
+    expect(rewritten.pathname).toBe("/5/download");
+    expect(rewritten.searchParams.get("apikey")).toBe("prowlarr-api-key");
+    expect(rewritten.searchParams.get("link")).toBe(
+      "aHR0cHM6Ly9leGFtcGxlLmNvbS90b3JyZW50L2Rvd25sb2FkP2lkPTE="
+    );
+  });
+
+  it("re-wraps external URLs that mimic Prowlarr proxy path/query on a different host", async () => {
+    const prowlarrIndexer = makeIndexer({
+      url: "http://localhost:9696/5/api",
+      apiKey: "prowlarr-api-key",
+    });
+    const fakeProxyFromExternalHost =
+      "https://tracker.example/5/download?file=Some+Game&link=aHR0cHM6Ly9leGFtcGxlLmNvbQ%3D%3D";
+    mockFetchResponse(makeTorznabXml(fakeProxyFromExternalHost));
+
+    const result = await client.searchGames(prowlarrIndexer, { query: "game" });
+    const rewritten = new URL(result.items[0].link);
+
+    expect(rewritten.hostname).toBe("localhost");
+    expect(rewritten.pathname).toBe("/5/download");
+    expect(rewritten.searchParams.get("apikey")).toBe("prowlarr-api-key");
+
+    const nestedEncoded = rewritten.searchParams.get("link");
+    expect(nestedEncoded).not.toBeNull();
+    const decoded = Buffer.from(nestedEncoded!, "base64").toString("utf-8");
+    expect(decoded).toBe(fakeProxyFromExternalHost);
+  });
+
+  it("does not double-wrap Prowlarr proxy URLs when Prowlarr uses a UrlBase", async () => {
+    const prowlarrIndexer = makeIndexer({
+      url: "http://localhost:9696/prowlarr/5/api",
+      apiKey: "prowlarr-api-key",
+    });
+    const prowlarrProxyUrlFromAlias =
+      "http://127.0.0.1:9696/prowlarr/5/download?file=Some+Game&link=aHR0cHM6Ly9leGFtcGxlLmNvbS90b3JyZW50L2Rvd25sb2FkP2lkPTI%3D&apikey=prowlarr-api-key";
+    mockFetchResponse(makeTorznabXml(prowlarrProxyUrlFromAlias));
+
+    const result = await client.searchGames(prowlarrIndexer, { query: "game" });
+
+    const rewritten = new URL(result.items[0].link);
+    expect(rewritten.hostname).toBe("localhost");
+    expect(rewritten.pathname).toBe("/prowlarr/5/download");
+    expect(rewritten.searchParams.get("apikey")).toBe("prowlarr-api-key");
+    expect(rewritten.searchParams.get("link")).toBe(
+      "aHR0cHM6Ly9leGFtcGxlLmNvbS90b3JyZW50L2Rvd25sb2FkP2lkPTI="
+    );
+  });
+
+  it("preserves UrlBase when building a Prowlarr proxy URL for raw external links", async () => {
+    const prowlarrIndexer = makeIndexer({
+      url: "https://prowlarr:9696/prowlarr/12/api",
+      apiKey: "secret",
+    });
+    const rawUrl = "https://external-indexer.org/torrents/download/99999.torrent";
+    mockFetchResponse(makeTorznabXml(rawUrl));
+
+    const result = await client.searchGames(prowlarrIndexer, { query: "game" });
+
+    const link = result.items[0].link;
+    expect(link).toMatch(/^https:\/\/prowlarr:9696\/prowlarr\/12\/download\?/);
+
+    const parsed = new URL(link);
+    expect(parsed.searchParams.get("apikey")).toBe("secret");
+    const decoded = Buffer.from(parsed.searchParams.get("link")!, "base64").toString();
+    expect(decoded).toBe(rawUrl);
+  });
+
   it("falls back to standard host rewrite for Prowlarr-style URL path but missing apiKey", async () => {
     const indexer = makeIndexer({
       url: "https://prowlarr:9696/5/api",

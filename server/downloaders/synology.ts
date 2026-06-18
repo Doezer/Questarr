@@ -679,25 +679,17 @@ export class SynologyDownloadStationClient implements DownloaderClient {
       }
 
       await this.ensureApiInfo();
-      const { apiName } = this.getTaskApiDescriptor();
+      this.getTaskApiDescriptor();
       const destination = this.getSynologyDestination(request);
       const isMagnet = request.url.startsWith("magnet:");
 
       const createUrlDownload = async (downloadUrl: string) => {
         const response = await this.requestTaskApi<SynologyTaskResponse>("create", {
           httpMethod: "POST",
-          params:
-            apiName === "SYNO.DownloadStation2.Task"
-              ? {
-                  type: "url",
-                  url: downloadUrl,
-                  create_list: "false",
-                  destination,
-                }
-              : {
-                  uri: downloadUrl,
-                  destination,
-                },
+          params: {
+            uri: downloadUrl,
+            destination,
+          },
         });
 
         const id = response.data?.task_id?.[0];

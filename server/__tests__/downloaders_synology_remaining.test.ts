@@ -373,6 +373,13 @@ describe("synology remaining regression coverage", () => {
       id: "task-magnet",
       message: "Download added successfully",
     });
+    expect(requestTaskApiSpy).toHaveBeenLastCalledWith("create", {
+      httpMethod: "POST",
+      params: {
+        uri: "magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12",
+        destination: "/volume1/downloads",
+      },
+    });
 
     fetchWithMagnetDetectionMock.mockResolvedValueOnce({
       response: {

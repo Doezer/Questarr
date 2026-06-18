@@ -1,6 +1,12 @@
 /** @vitest-environment jsdom */
 import { describe, it, expect } from "vitest";
-import { normalizeBasePath, resolveBasePathFrom, withBasePathFrom } from "../src/lib/app-path";
+import {
+  normalizeBasePath,
+  resolveBasePathFrom,
+  withBasePathFrom,
+  withBasePath,
+  getSocketPath,
+} from "../src/lib/app-path";
 
 // ─── normalizeBasePath ────────────────────────────────────────────────────────
 
@@ -171,5 +177,17 @@ describe("withBasePathFrom", () => {
 
   it('does not alter already-absolute paths when basePath is "/"', () => {
     expect(withBasePathFrom("/", "/already/absolute")).toBe("/already/absolute");
+  });
+});
+
+// ─── withBasePath / getSocketPath ────────────────────────────────────────────
+
+describe("withBasePath and getSocketPath", () => {
+  it("withBasePath delegates to withBasePathFrom using the resolved appBasePath", () => {
+    expect(withBasePath("/api/games")).toBe("/api/games");
+  });
+
+  it("getSocketPath returns the socket.io path under the app base", () => {
+    expect(getSocketPath()).toBe("/socket.io/");
   });
 });

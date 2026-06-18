@@ -194,14 +194,21 @@ const CompactGameCard = ({
 
               <div className="mt-2 flex flex-wrap gap-1">
                 {game.genres && game.genres.length > 0 ? (
-                  game.genres.slice(0, 1).map((genre) => (
-                    <span
-                      key={genre}
-                      className="rounded-full bg-muted/70 px-2 py-1 text-[11px] text-muted-foreground"
-                    >
-                      {genre}
-                    </span>
-                  ))
+                  <>
+                    {game.genres.slice(0, 2).map((genre) => (
+                      <span
+                        key={genre}
+                        className="rounded-full bg-muted/70 px-2 py-1 text-[11px] text-muted-foreground"
+                      >
+                        {genre}
+                      </span>
+                    ))}
+                    {game.genres.length > 2 && (
+                      <span className="rounded-full bg-muted/40 px-2 py-1 text-[11px] text-muted-foreground/60">
+                        +{game.genres.length - 2} more
+                      </span>
+                    )}
+                  </>
                 ) : (
                   <span className="text-xs text-muted-foreground/50">No genres</span>
                 )}
@@ -356,14 +363,21 @@ const CompactGameCard = ({
         {density === "comfortable" ? (
           <div className="flex items-center gap-1 min-w-0 overflow-hidden">
             {game.genres && game.genres.length > 0 ? (
-              game.genres.slice(0, 2).map((genre) => (
-                <span
-                  key={genre}
-                  className="text-[10px] bg-muted/70 text-muted-foreground rounded-full px-1.5 py-0.5 truncate max-w-[72px]"
-                >
-                  {genre}
-                </span>
-              ))
+              <>
+                {game.genres.slice(0, 2).map((genre) => (
+                  <span
+                    key={genre}
+                    className="text-[10px] bg-muted/70 text-muted-foreground rounded-full px-1.5 py-0.5 truncate max-w-[72px]"
+                  >
+                    {genre}
+                  </span>
+                ))}
+                {game.genres.length > 2 && (
+                  <span className="shrink-0 text-[10px] text-muted-foreground/50">
+                    +{game.genres.length - 2}
+                  </span>
+                )}
+              </>
             ) : (
               <span className="text-xs text-muted-foreground/40">—</span>
             )}

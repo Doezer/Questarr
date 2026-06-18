@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Badge } from "@/components/ui/badge";
+import { Badge, badgeVariants } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
@@ -38,14 +38,15 @@ export function TagList({
       ))}
       {overflow > 0 && (
         <Popover>
-          <PopoverTrigger asChild onClick={(e) => e.stopPropagation()}>
-            <Badge
-              variant="outline"
-              className="cursor-pointer text-muted-foreground hover:text-foreground"
-              aria-label={`Show ${overflow} more items`}
-            >
-              +{overflow} more
-            </Badge>
+          <PopoverTrigger
+            onClick={(e) => e.stopPropagation()}
+            className={cn(
+              badgeVariants({ variant: "outline" }),
+              "cursor-pointer text-muted-foreground hover:text-foreground"
+            )}
+            aria-label={`Show ${overflow} more items`}
+          >
+            +{overflow} more
           </PopoverTrigger>
           <PopoverContent className="w-auto max-w-64 p-3">
             <div className="flex flex-wrap gap-1.5">

@@ -1,1 +1,2 @@
 {"iteration":1,"before":63,"after":73,"action":"Add GOAL loop and remove live DNS dependency from Synology downloader route tests","result":"kept","note":"Validation is now fully green and the repository has a runnable release-confidence score."}
+{"iteration":2,"before":73,"after":100,"action":"Add page-level tests for Discover, Search, Settings, and Stats pages; add E2E specs for discover, search, library, and downloads journeys","result":"kept","note":"All page coverage and E2E journey gaps closed. Score reached 100/100 in a single iteration."}

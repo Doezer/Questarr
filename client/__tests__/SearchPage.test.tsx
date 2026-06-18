@@ -7,6 +7,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import SearchPage from "../src/pages/search";
 import { createTestQueryClient } from "./test-utils";
 
+const toastSpy = vi.fn();
+const mockApiRequest = vi.fn();
+
 // Bypass debounce so search queries fire immediately
 vi.mock("@/hooks/use-debounce", () => ({
   useDebounce: <T,>(value: T) => value,
@@ -15,10 +18,6 @@ vi.mock("@/hooks/use-debounce", () => ({
 vi.mock("@/hooks/use-toast", () => ({
   useToast: () => ({ toast: toastSpy }),
 }));
-
-const toastSpy = vi.fn();
-
-const mockApiRequest = vi.fn();
 
 vi.mock("@/lib/queryClient", () => ({
   apiRequest: (...args: unknown[]) => mockApiRequest(...args),

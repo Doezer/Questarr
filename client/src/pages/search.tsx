@@ -192,7 +192,7 @@ export default function SearchPage() {
           !isFetchingNextPage &&
           !(filterActive && listIsEmpty)
         ) {
-          fetchNextPage();
+          void fetchNextPage();
         }
       },
       { threshold: 0.1 }

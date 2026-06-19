@@ -181,7 +181,7 @@ export default function SearchPage() {
 
   useEffect(() => {
     const el = sentinelRef.current;
-    if (!el) return;
+    if (!el) return undefined;
     const observer = new IntersectionObserver(
       (entries) => {
         // Don't auto-fetch when an active date filter yields zero visible results —

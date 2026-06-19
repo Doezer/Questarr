@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import React from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,6 +9,21 @@ import { createTestQueryClient } from "./test-utils";
 
 const toastSpy = vi.fn();
 const mockApiRequest = vi.fn();
+
+// Capture IntersectionObserver callback so tests can trigger it manually
+let capturedIntersectionCallback: IntersectionObserverCallback | null = null;
+const mockObserve = vi.fn();
+const mockDisconnect = vi.fn();
+class CapturingIntersectionObserver {
+  observe = mockObserve;
+  unobserve = vi.fn();
+  disconnect = mockDisconnect;
+  constructor(callback: IntersectionObserverCallback, _options?: IntersectionObserverInit) {
+    capturedIntersectionCallback = callback;
+  }
+}
+global.IntersectionObserver =
+  CapturingIntersectionObserver as unknown as typeof IntersectionObserver;
 
 // Bypass debounce so search queries fire immediately
 vi.mock("@/hooks/use-debounce", () => ({
@@ -137,6 +152,7 @@ function typeSearch(query: string) {
 describe("SearchPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    capturedIntersectionCallback = null;
     setupApiRequest();
   });
 
@@ -341,6 +357,140 @@ describe("SearchPage", () => {
           expect.objectContaining({ title: "No compatible downloaders" })
         );
       });
+    });
+  });
+
+  describe("removeGameMutation callbacks", () => {
+    it("shows success toast after game is removed from library", async () => {
+      const game = { id: "game-1", title: "My Game" };
+      setupApiRequest({ items: [TORRENT_ITEM], total: 1, libraryGames: [game] });
+      renderSearch();
+      typeSearch("game");
+
+      await waitFor(() => {
+        expect(screen.getByTestId("button-remove-game-game-1")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByTestId("button-remove-game-game-1"));
+
+      await waitFor(() => {
+        expect(toastSpy).toHaveBeenCalledWith(
+          expect.objectContaining({ title: "Game removed from library" })
+        );
+      });
+    });
+
+    it("shows error toast when game removal fails", async () => {
+      const game = { id: "game-err", title: "Failing Game" };
+      mockApiRequest.mockImplementation((_method: string, url: string) => {
+        if (url === "/api/games/game-err") return Promise.reject(new Error("Server error"));
+        if (url.startsWith("/api/search"))
+          return Promise.resolve({ json: async () => ({ items: [TORRENT_ITEM], total: 1 }) });
+        if (url.startsWith("/api/games")) return Promise.resolve({ json: async () => [game] });
+        return Promise.resolve({ json: async () => [] });
+      });
+      globalThis.fetch = vi.fn(async () => ({ ok: true, json: async () => [] })) as typeof fetch;
+      renderSearch();
+      typeSearch("game");
+
+      await waitFor(() => {
+        expect(screen.getByTestId("button-remove-game-game-err")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByTestId("button-remove-game-game-err"));
+
+      await waitFor(() => {
+        expect(toastSpy).toHaveBeenCalledWith(
+          expect.objectContaining({ title: "Failed to remove game" })
+        );
+      });
+    });
+  });
+
+  describe("infinite scroll", () => {
+    it("registers IntersectionObserver on the sentinel element after results load", async () => {
+      setupApiRequest({ items: [TORRENT_ITEM], total: 1 });
+      renderSearch();
+      typeSearch("game");
+
+      await waitFor(() => expect(screen.getByTestId("card-torrent-0")).toBeInTheDocument());
+
+      expect(mockObserve).toHaveBeenCalled();
+    });
+
+    it("does not fetch next page when sentinel intersects but hasNextPage is false", async () => {
+      setupApiRequest({ items: [TORRENT_ITEM], total: 1 });
+      renderSearch();
+      typeSearch("game");
+
+      await waitFor(() => expect(capturedIntersectionCallback).not.toBeNull());
+
+      act(() => {
+        capturedIntersectionCallback!(
+          [{ isIntersecting: true } as IntersectionObserverEntry],
+          {} as IntersectionObserver
+        );
+      });
+
+      // With only 1 item (< PAGE_SIZE=50), hasNextPage is false — no extra fetch
+      expect(mockApiRequest).toHaveBeenCalledTimes(2); // search + games
+    });
+
+    it("fetches next page when sentinel intersects and hasNextPage is true", async () => {
+      const items = Array.from({ length: 50 }, (_, i) => ({
+        ...TORRENT_ITEM,
+        guid: `guid-${i}`,
+        title: `Game ${i}`,
+      }));
+      setupApiRequest({ items, total: 100 });
+      renderSearch();
+      typeSearch("game");
+
+      await waitFor(() => expect(capturedIntersectionCallback).not.toBeNull());
+      await waitFor(() => expect(screen.getByTestId("card-torrent-0")).toBeInTheDocument());
+
+      act(() => {
+        capturedIntersectionCallback!(
+          [{ isIntersecting: true } as IntersectionObserverEntry],
+          {} as IntersectionObserver
+        );
+      });
+
+      await waitFor(() => {
+        // Initial search + games query + second page fetch
+        expect(mockApiRequest).toHaveBeenCalledTimes(3);
+      });
+    });
+
+    it("does not fetch next page when date filter is active and list is empty", async () => {
+      // 50 items so getNextPageParam returns a value → hasNextPage = true
+      const items = Array.from({ length: 50 }, (_, i) => ({
+        ...TORRENT_ITEM,
+        guid: `guid-${i}`,
+        title: `Game ${i}`,
+        pubDate: "2026-01-15T12:00:00Z",
+      }));
+      setupApiRequest({ items, total: 100 });
+      renderSearch();
+      typeSearch("game");
+      await waitFor(() => expect(screen.getByTestId("card-torrent-0")).toBeInTheDocument());
+
+      // Activate date filter that excludes all items (they are Jan 2026)
+      fireEvent.click(screen.getByTestId("button-toggle-filters"));
+      fireEvent.change(screen.getByTestId("input-date-to"), { target: { value: "2020-01-01" } });
+
+      await waitFor(() => expect(capturedIntersectionCallback).not.toBeNull());
+
+      const callCountBefore = mockApiRequest.mock.calls.length;
+      act(() => {
+        capturedIntersectionCallback!(
+          [{ isIntersecting: true } as IntersectionObserverEntry],
+          {} as IntersectionObserver
+        );
+      });
+
+      // No additional fetch should happen: filterActive=true and listIsEmpty=true
+      expect(mockApiRequest.mock.calls.length).toBe(callCountBefore);
     });
   });
 });

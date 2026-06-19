@@ -1,6 +1,17 @@
 import React, { useState, useEffect, lazy, Suspense } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -325,6 +336,9 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
   const [notesValue, setNotesValue] = useState<string>("");
+  const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
+  const [removeFromClient, setRemoveFromClient] = useState(true);
+  const [deleteFiles, setDeleteFiles] = useState(true);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -401,7 +415,27 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   });
 
   const removeGameMutation = useMutation({
-    mutationFn: async (gameId: string) => {
+    mutationFn: async ({
+      gameId,
+      removeFromClient,
+      deleteFiles,
+    }: {
+      gameId: string;
+      removeFromClient: boolean;
+      deleteFiles: boolean;
+    }) => {
+      if (removeFromClient) {
+        await Promise.allSettled(
+          gameDownloads
+            .filter((dl) => dl.downloaderId && dl.downloadHash)
+            .map((dl) =>
+              apiRequest(
+                "DELETE",
+                `/api/downloaders/${dl.downloaderId}/downloads/${dl.downloadHash}?deleteFiles=${deleteFiles}`
+              )
+            )
+        );
+      }
       await apiRequest("DELETE", `/api/games/${gameId}`);
     },
     onSuccess: () => {
@@ -455,6 +489,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/games/${game!.id}/downloads`] });
       queryClient.invalidateQueries({ queryKey: ["/api/downloads/summary"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/imports/pending"] });
       toast({ description: "Download record removed" });
     },
     onError: () => {
@@ -674,7 +709,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                   <Button
                     variant="destructive"
                     size="sm"
-                    onClick={() => removeGameMutation.mutate(game.id)}
+                    onClick={() => setShowRemoveConfirm(true)}
                     disabled={removeGameMutation.isPending}
                     className="h-10 w-10 sm:h-9 sm:w-auto sm:px-3 sm:gap-2"
                     aria-label="Remove"
@@ -1237,6 +1272,77 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
           <GameDownloadDialog game={game} open={downloadOpen} onOpenChange={setDownloadOpen} />
         </Suspense>
       )}
+
+      <AlertDialog open={showRemoveConfirm} onOpenChange={setShowRemoveConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove game?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove <strong>{game?.title}</strong> from your library. This action cannot
+              be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {gameDownloads.some((dl) => dl.downloaderId && dl.downloadHash) && (
+            <div className="space-y-3 py-1">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <Checkbox
+                  checked={removeFromClient}
+                  onCheckedChange={(checked) => {
+                    setRemoveFromClient(!!checked);
+                    if (!checked) setDeleteFiles(false);
+                  }}
+                />
+                <div>
+                  <div className="text-sm font-medium leading-none">
+                    Remove from download client
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    Removes the{" "}
+                    {gameDownloads.some((dl) => dl.downloadType === "usenet") &&
+                    gameDownloads.some((dl) => dl.downloadType !== "usenet")
+                      ? "torrent/NZB"
+                      : gameDownloads.some((dl) => dl.downloadType === "usenet")
+                        ? ".nzb"
+                        : ".torrent"}{" "}
+                    metadata from your downloader
+                  </div>
+                </div>
+              </label>
+              <label
+                className={cn(
+                  "flex items-start gap-3",
+                  removeFromClient ? "cursor-pointer" : "opacity-50 cursor-not-allowed"
+                )}
+              >
+                <Checkbox
+                  checked={deleteFiles}
+                  onCheckedChange={(checked) => setDeleteFiles(!!checked)}
+                  disabled={!removeFromClient}
+                />
+                <div>
+                  <div className="text-sm font-medium leading-none">
+                    Delete downloaded files from disk
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    Permanently removes the game files
+                  </div>
+                </div>
+              </label>
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() =>
+                removeGameMutation.mutate({ gameId: game!.id, removeFromClient, deleteFiles })
+              }
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </TooltipProvider>
   );
 }

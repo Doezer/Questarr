@@ -90,6 +90,7 @@ vi.mock("../storage.js", () => ({
     getDownloadsByGameId: vi.fn().mockResolvedValue([]),
     getDownloadSummaryByGame: vi.fn().mockResolvedValue({}),
     getTrackedDownloadKeys: vi.fn().mockResolvedValue(new Set()),
+    getTrackedDownloadGameStatuses: vi.fn().mockResolvedValue(new Map()),
     getAllRssFeeds: vi.fn().mockResolvedValue([]),
     addRssFeed: vi.fn(),
     updateRssFeed: vi.fn(),
@@ -1385,6 +1386,61 @@ describe("API Routes - Extended Coverage", () => {
 
       expect(response.status).toBe(200);
       expect(response.body.downloads[0].downloaderCategory).toBeUndefined();
+    });
+
+    it("should include gameStatus for tracked downloads", async () => {
+      vi.mocked(storage.getEnabledDownloaders).mockResolvedValue([
+        { id: "dl-1", name: "My qBit" } as unknown as Downloader,
+      ]);
+      vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(new Set(["dl-1:abc123"]));
+      vi.mocked(storage.getTrackedDownloadGameStatuses).mockResolvedValue(
+        new Map([["dl-1:abc123", "owned"]])
+      );
+      vi.mocked(DownloaderManager.getAllDownloads).mockResolvedValue([
+        { id: "abc123", name: "Game A", status: "seeding", progress: 100 } as never,
+        { id: "xyz789", name: "Game B", status: "downloading", progress: 50 } as never,
+      ]);
+
+      const response = await request(app).get("/api/downloads");
+
+      expect(response.status).toBe(200);
+      const downloads = response.body.downloads;
+      expect(downloads.find((d: { id: string }) => d.id === "abc123").gameStatus).toBe("owned");
+      expect(downloads.find((d: { id: string }) => d.id === "xyz789").gameStatus).toBeUndefined();
+    });
+
+    it("should resolve gameStatus via case-insensitive hash fallback", async () => {
+      vi.mocked(storage.getEnabledDownloaders).mockResolvedValue([
+        { id: "dl-1", name: "My rTorrent" } as unknown as Downloader,
+      ]);
+      vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(new Set(["dl-1:abc123"]));
+      vi.mocked(storage.getTrackedDownloadGameStatuses).mockResolvedValue(
+        new Map([["dl-1:abc123", "owned"]])
+      );
+      vi.mocked(DownloaderManager.getAllDownloads).mockResolvedValue([
+        { id: "ABC123", name: "Game A", status: "seeding", progress: 100 } as never,
+      ]);
+
+      const response = await request(app).get("/api/downloads");
+
+      expect(response.status).toBe(200);
+      expect(response.body.downloads[0].gameStatus).toBe("owned");
+    });
+
+    it("should return downloads without gameStatus when getTrackedDownloadGameStatuses fails", async () => {
+      vi.mocked(storage.getEnabledDownloaders).mockResolvedValue([
+        { id: "dl-1", name: "My qBit" } as unknown as Downloader,
+      ]);
+      vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(new Set());
+      vi.mocked(storage.getTrackedDownloadGameStatuses).mockRejectedValue(new Error("DB error"));
+      vi.mocked(DownloaderManager.getAllDownloads).mockResolvedValue([
+        { id: "abc123", name: "Game A", status: "downloading", progress: 50 } as never,
+      ]);
+
+      const response = await request(app).get("/api/downloads");
+
+      expect(response.status).toBe(200);
+      expect(response.body.downloads[0].gameStatus).toBeUndefined();
     });
   });
 

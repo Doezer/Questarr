@@ -202,6 +202,10 @@ describe("GameDetailsModal", () => {
     const removeButton = screen.getByTestId(`button-remove-game-quick-${mockGame.id}`);
     fireEvent.click(removeButton);
 
+    const dialog = await screen.findByRole("alertdialog");
+    const confirmButton = within(dialog).getByRole("button", { name: "Remove" });
+    fireEvent.click(confirmButton);
+
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith(
         expect.stringContaining("/api/games/1"),

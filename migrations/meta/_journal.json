@@ -127,6 +127,20 @@
       "when": 1780821300000,
       "tag": "0017_game_download_error_message",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1776958941578,
+      "tag": "0018_fluffy_black_queen",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1748736000000,
+      "tag": "0019_auto_delete_import",
+      "breakpoints": true
     }
   ]
 }

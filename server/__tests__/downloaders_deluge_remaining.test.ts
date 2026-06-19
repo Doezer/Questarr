@@ -55,6 +55,69 @@ describe("DelugeClient — remaining coverage edge cases", () => {
   });
 
   describe("status mapping", () => {
+    it('does not treat "OK" tracker message as an error — regression for #568', async () => {
+      // Deluge reports message:"OK" for healthy torrents; this must NOT set status to "error"
+      const client = new DelugeClient(createDownloader());
+      setupAuthAndConnect();
+
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          result: {
+            name: "My Game",
+            state: "Seeding",
+            progress: 100,
+            download_payload_rate: 0,
+            upload_payload_rate: 1024,
+            eta: 0,
+            total_size: 5000000,
+            all_time_download: 5000000,
+            ratio: 1.5,
+            num_peers: 3,
+            num_seeds: 5,
+            message: "OK",
+          },
+          error: null,
+        }),
+        headers: new Headers(),
+      } as Response);
+
+      const status = await client.getDownloadStatus("abc123");
+      expect(status?.status).toBe("seeding");
+      expect(status?.error).toBeUndefined();
+    });
+
+    it("reports error message only when Deluge state is Error", async () => {
+      const client = new DelugeClient(createDownloader());
+      setupAuthAndConnect();
+
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          result: {
+            name: "Broken Torrent",
+            state: "Error",
+            progress: 0,
+            download_payload_rate: 0,
+            upload_payload_rate: 0,
+            eta: 0,
+            total_size: 1000,
+            all_time_download: 0,
+            ratio: 0,
+            num_peers: 0,
+            num_seeds: 0,
+            message: "Can't read the tracker response",
+          },
+          error: null,
+        }),
+        headers: new Headers(),
+      } as Response);
+
+      const status = await client.getDownloadStatus("def456");
+      expect(status?.status).toBe("error");
+      expect(status?.error).toBe("Can't read the tracker response");
+    });
+
     it("warns on unknown state and maps to paused", async () => {
       const client = new DelugeClient(createDownloader());
       setupAuthAndConnect();

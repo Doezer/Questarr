@@ -485,7 +485,7 @@ describe("DelugeClient", () => {
       expect(status?.progress).toBe(100);
     });
 
-    it("should map error status from message", async () => {
+    it("should map error status from Deluge Error state with message", async () => {
       const client = new DelugeClient(createDownloader());
 
       setupAuthAndConnect();
@@ -495,7 +495,7 @@ describe("DelugeClient", () => {
         json: async () => ({
           result: {
             name: "Broken",
-            state: "Downloading",
+            state: "Error",
             progress: 0.1,
             download_payload_rate: 0,
             upload_payload_rate: 0,

@@ -90,6 +90,8 @@ import { SUPPORT_WORKER_ORIGIN } from "../shared/support-config.js";
 import archiver from "archiver";
 import helmet from "helmet";
 import { steamRoutes } from "./steam-routes.js";
+import { importRouter } from "./routes/import.js";
+import { systemRouter } from "./routes/system.js";
 import { pcgamingwikiRouter } from "./pcgamingwiki-router.js";
 
 // Cache-Control header values for IGDB discovery endpoints
@@ -854,6 +856,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Just applying authenticateToken middleware
     authenticateToken(req, res, next);
   });
+
+  // Mount Feature Routers (explicitly protected)
+  app.use("/api/imports", authenticateToken, importRouter);
+  app.use("/api/system", authenticateToken, systemRouter);
 
   // Sync indexers from Prowlarr
   app.post("/api/indexers/prowlarr/sync", sensitiveEndpointLimiter, async (req, res, next) => {
@@ -2241,7 +2247,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/downloads", async (req, res) => {
     try {
       const enabledDownloaders = await storage.getEnabledDownloaders();
-      const trackedKeys = await storage.getTrackedDownloadKeys();
+      const [trackedKeys, gameStatuses] = await Promise.all([
+        storage.getTrackedDownloadKeys(),
+        storage.getTrackedDownloadGameStatuses().catch((err) => {
+          routesLogger.error({ err }, "Failed to fetch tracked download game statuses");
+          return new Map<string, string>();
+        }),
+      ]);
       // ⚡ Bolt: Fetch downloads from all downloaders in parallel to reduce latency.
       const results = await Promise.all(
         enabledDownloaders.map(async (downloader) => {
@@ -2249,15 +2261,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const downloads = await DownloaderManager.getAllDownloads(downloader);
             return {
               success: true as const,
-              data: downloads.map((download) => ({
-                ...download,
-                downloaderId: downloader.id,
-                downloaderName: downloader.name,
-                trackedByQuestarr:
-                  trackedKeys.has(`${downloader.id}:${download.id}`) ||
-                  trackedKeys.has(`${downloader.id}:${download.id.toLowerCase()}`),
-                downloaderCategory: downloader.category ?? undefined,
-              })),
+              data: downloads.map((download) => {
+                const keyNormal = `${downloader.id}:${download.id}`;
+                const keyLower = `${downloader.id}:${download.id.toLowerCase()}`;
+                return {
+                  ...download,
+                  downloaderId: downloader.id,
+                  downloaderName: downloader.name,
+                  trackedByQuestarr: trackedKeys.has(keyNormal) || trackedKeys.has(keyLower),
+                  gameStatus: gameStatuses.get(keyNormal) ?? gameStatuses.get(keyLower),
+                  downloaderCategory: downloader.category ?? undefined,
+                };
+              }),
             };
           } catch (error) {
             return {

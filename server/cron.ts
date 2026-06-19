@@ -9,6 +9,7 @@ import { searchAllIndexers, filterBlacklistedReleases, type SearchItem } from ".
 import { xrelClient, DEFAULT_XREL_BASE } from "./xrel.js";
 import { steamService } from "./steam.js";
 import { appriseClient } from "./apprise.js";
+import { importManager } from "./services/index.js";
 import {
   downloadRulesSchema,
   DEFAULT_NOTIFICATION_PREFERENCES,
@@ -58,6 +59,16 @@ function resolvePrefs(
     );
     return DEFAULT_NOTIFICATION_PREFERENCES;
   }
+}
+
+function buildRemoteImportPath(downloadDir: string, name: string): string {
+  const normalizedDir = downloadDir.replace(/[\\/]+$/, "");
+  const normalizedName = name.replace(/^[\\/]+/, "");
+  const lastSegment = normalizedDir.split(/[\\/]/).pop()?.toLowerCase();
+  if (lastSegment && lastSegment === normalizedName.toLowerCase()) {
+    return normalizedDir;
+  }
+  return `${normalizedDir}/${normalizedName}`;
 }
 
 type DownloadSortBy = "seeders" | "date" | "size";
@@ -582,11 +593,14 @@ export async function checkDownloadStatus() {
             "Checking download status"
           );
 
-          // Check for completion
+          // Check for completion — exclude post-processing statuses so usenet
+          // downloads in "moving"/"unpacking" phase don't trigger import early.
           const isComplete =
             remoteDownload.status === "completed" ||
             remoteDownload.status === "seeding" ||
-            remoteDownload.progress >= 100;
+            (remoteDownload.progress >= 100 &&
+              remoteDownload.status !== "unpacking" &&
+              remoteDownload.status !== "repairing");
 
           if (isComplete) {
             igdbLogger.info(
@@ -598,30 +612,58 @@ export async function checkDownloadStatus() {
               "Download completed"
             );
 
-            // Update DB - mark as completed
-            await storage.updateGameDownloadStatus(download.id, "completed", null);
+            // Fetch game title for notification
+            const game = await storage.getGame(download.gameId);
+            const gameTitle = game ? game.title : download.downloadTitle;
+            const importConfig = await storage.getImportConfig(game?.userId ?? undefined);
 
-            // Update Game status to 'owned' (which means we have the files)
-            await storage.updateGameStatus(download.gameId, { status: "owned" });
+            let shouldSendCompletionNotification = true;
 
-            igdbLogger.info(
-              { gameId: download.gameId, downloadId: download.id },
-              "Updated game status to 'owned' after completion"
-            );
+            if (importConfig.enablePostProcessing) {
+              const details = await DownloaderManager.getDownloadDetails(
+                downloader,
+                download.downloadHash
+              );
+              if (details?.downloadDir) {
+                const remoteImportPath = buildRemoteImportPath(details.downloadDir, details.name);
+                try {
+                  await importManager.processImport(download.id, remoteImportPath);
+                } catch (error) {
+                  igdbLogger.error(
+                    { error, downloadId: download.id, remoteImportPath },
+                    "Failed to start import pipeline after download completion"
+                  );
+                }
+              } else {
+                shouldSendCompletionNotification = false;
+                await storage.updateGameDownloadStatus(download.id, "manual_review_required");
+                igdbLogger.warn(
+                  { downloadId: download.id, downloadHash: download.downloadHash, downloaderId },
+                  "Download completed but no remote path was available for import"
+                );
+              }
+            } else {
+              // Update DB - mark as completed
+              await storage.updateGameDownloadStatus(download.id, "completed");
+
+              // Update Game status to 'owned' (which means we have the files)
+              await storage.updateGameStatus(download.gameId, { status: "owned" });
+
+              igdbLogger.info(
+                { gameId: download.gameId, downloadId: download.id },
+                "Updated game status to 'owned' after completion"
+              );
+            }
 
             // Notify frontend to refresh downloads for this game.
             // TODO: scope this to a per-user socket room once multi-user socket auth is wired up.
             notifyUser("downloadUpdate", download.gameId);
 
-            // Fetch game title for notification
-            const game = await storage.getGame(download.gameId);
-            const gameTitle = game ? game.title : download.downloadTitle;
-
             // Send notification
             const message = `Download finished for ${gameTitle}`;
             const dlSettings = await storage.getUserSettings(game?.userId ?? "");
             const dlPrefs = resolvePrefs(dlSettings);
-            if (dlPrefs.downloadCompleted.inApp) {
+            if (shouldSendCompletionNotification && dlPrefs.downloadCompleted.inApp) {
               const notification = await storage.addNotification({
                 type: "success",
                 title: "Download Completed",

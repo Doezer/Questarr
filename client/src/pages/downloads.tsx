@@ -23,6 +23,7 @@ import {
   type DownloadStatusType,
   type DownloadType,
 } from "@/lib/downloads-utils";
+import type { GameStatus } from "@shared/schema";
 import {
   Play,
   Pause,
@@ -83,6 +84,7 @@ interface DownloadStatus {
   grabs?: number;
   // Questarr tracking fields
   trackedByQuestarr?: boolean;
+  gameStatus?: GameStatus;
   downloaderCategory?: string;
 }
 
@@ -143,6 +145,10 @@ export default function Downloads() {
   } = useQuery<DownloadsResponse>({
     queryKey: ["/api/downloads"],
     refetchInterval: 30_000,
+  });
+
+  const { data: importConfig } = useQuery<{ enablePostProcessing: boolean }>({
+    queryKey: ["/api/imports/config"],
   });
 
   const downloads = useMemo(() => downloadsData?.downloads || [], [downloadsData?.downloads]);
@@ -785,6 +791,16 @@ export default function Downloads() {
                               Ratio: {download.ratio?.toFixed(2) ?? "0.00"}
                             </Badge>
                           )}
+                        {importConfig?.enablePostProcessing && download.gameStatus === "owned" && (
+                          <Badge
+                            className="text-xs bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                            data-testid={`badge-imported-${download.id}`}
+                            aria-label="Files have been imported to your library"
+                            title="Files have been imported to your library"
+                          >
+                            Imported
+                          </Badge>
+                        )}
                       </div>
                     </CardDescription>
                   </div>

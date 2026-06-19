@@ -168,10 +168,13 @@ export default function SearchPage() {
     for (let i = 0; i < allItems.length; i++) {
       const item = allItems[i];
       const time = new Date(item.pubDate).getTime();
-      if (isNaN(time)) continue;
-      if (fromTime !== null && time < fromTime) continue;
-      if (toTime !== null && time > toTime) continue;
-      mapped.push({ item, time });
+      if (
+        !isNaN(time) &&
+        (fromTime === null || time >= fromTime) &&
+        (toTime === null || time <= toTime)
+      ) {
+        mapped.push({ item, time });
+      }
     }
     return mapped.sort((a, b) => b.time - a.time).map(({ item }) => item);
   }, [allItems, dateFrom, dateTo]);

@@ -144,7 +144,7 @@ export default function SearchPage() {
   const removeGameMutation = useMutation({
     mutationFn: (gameId: string) => apiRequest("DELETE", `/api/games/${gameId}`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/games"] });
       toast({ title: "Game removed from library" });
     },
     onError: () => {
@@ -187,7 +187,7 @@ export default function SearchPage() {
         const filterActive = !!(dateFrom || dateTo);
         const listIsEmpty = filteredAndSortedItems.length === 0;
         if (
-          entries[0].isIntersecting &&
+          entries[0]?.isIntersecting &&
           hasNextPage &&
           !isFetchingNextPage &&
           !(filterActive && listIsEmpty)

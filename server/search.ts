@@ -51,8 +51,12 @@ export async function searchAllIndexers(
     return { items: [], total: 0, offset: options.offset || 0, errors: ["No indexers configured"] };
   }
 
-  const torznabIndexers = enabledIndexers.filter((i) => i.protocol !== "newznab");
+  const torznabIndexers = enabledIndexers.filter(
+    (i) => i.protocol !== "newznab" && i.protocol !== "g4u"
+  );
   const newznabIndexers = enabledIndexers.filter((i) => i.protocol === "newznab");
+  // g4u.to uses the Newznab protocol but requires Scene-style dot-separated queries
+  const g4uIndexers = enabledIndexers.filter((i) => i.protocol === "g4u");
 
   const searchParams = {
     query: options.query,

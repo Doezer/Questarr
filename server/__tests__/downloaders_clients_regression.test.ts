@@ -550,6 +550,7 @@ describe("downloader client regression coverage", () => {
 
     expect(result).toMatchObject({ success: true, id: "dbid_1" });
     expect(uploadBody.get("destination")).toBe("/volume1/downloads");
+    expect(uploadBody.get("type")).toBe("torrent");
     expect(uploadOptions?.httpMethod).toBe("POST");
 
     await expect(client.getFreeSpace()).resolves.toBe(8192);

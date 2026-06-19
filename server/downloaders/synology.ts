@@ -753,6 +753,10 @@ export class SynologyDownloadStationClient implements DownloaderClient {
         formData.append("destination", destination);
       }
 
+      if (apiName === "SYNO.DownloadStation2.Task") {
+        formData.append("type", request.downloadType === "usenet" ? "nzb" : "torrent");
+      }
+
       const uploadResponse = await this.requestTaskApi<SynologyTaskResponse>("create", {
         httpMethod: "POST",
         body: formData,

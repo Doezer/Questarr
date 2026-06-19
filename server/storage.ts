@@ -1865,14 +1865,6 @@ export class DatabaseStorage implements IStorage {
       updates.errorMessage = errorMessage;
     }
     await db.update(gameDownloads).set(updates).where(eq(gameDownloads.id, id));
-  async updateGameDownloadStatus(id: string, status: string): Promise<void> {
-    await db
-      .update(gameDownloads)
-      .set({
-        status: status as InsertGameDownload["status"],
-        completedAt: status === "completed" ? new Date() : null,
-      })
-      .where(eq(gameDownloads.id, id));
   }
 
   async addGameDownload(insertGameDownload: InsertGameDownload): Promise<GameDownload> {

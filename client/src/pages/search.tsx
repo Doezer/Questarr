@@ -156,9 +156,11 @@ export default function SearchPage() {
     // Parse YYYY-MM-DD date inputs as local midnight so the filter matches
     // what the user sees in toLocaleDateString(), not UTC midnight which would
     // shift boundaries by the user's UTC offset.
-    const parseLocalDay = (s: string) => {
-      const parts = s.split("-");
-      return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])).getTime();
+    const parseLocalDay = (s: string): number => {
+      const year = parseInt(s.substring(0, 4), 10);
+      const month = parseInt(s.substring(5, 7), 10);
+      const day = parseInt(s.substring(8, 10), 10);
+      return new Date(year, month - 1, day).getTime();
     };
     const fromTime = dateFrom ? parseLocalDay(dateFrom) : null;
     const toTime = dateTo ? parseLocalDay(dateTo) + 86399999 : null;

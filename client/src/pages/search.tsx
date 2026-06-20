@@ -183,7 +183,7 @@ export default function SearchPage() {
     const el = sentinelRef.current;
     const Io = window.IntersectionObserver; // NOSONAR
     if (!el || !Io) return;
-    const observer = new Io(
+    const observer = new Io( // NOSONAR
       (entries) => {
         // Don't auto-fetch when an active date filter yields zero visible results —
         // that would spam the backend with rapid consecutive requests until hasNextPage

@@ -414,7 +414,7 @@ export default function SearchPage() {
               data-testid="input-date-to"
             />
           </div>
-          {(dateFrom || dateTo) && (
+          {!!(dateFrom || dateTo) && (
             <Button
               type="button"
               variant="ghost"
@@ -432,7 +432,7 @@ export default function SearchPage() {
       )}
 
       {/* Search error */}
-      {searchError && (
+      {!!searchError && (
         <Card className="mb-6" data-testid="card-search-error">
           <CardHeader>
             <CardTitle className="text-destructive" data-testid="text-search-error-title">
@@ -447,12 +447,12 @@ export default function SearchPage() {
         </Card>
       )}
 
-      {data && (
+      {!!data && (
         <div>
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-base font-semibold" data-testid="text-search-results-count">
               {totalResults} result{totalResults !== 1 ? "s" : ""} found
-              {(dateFrom || dateTo) && filteredAndSortedItems.length !== allItems.length && (
+              {!!(dateFrom || dateTo) && filteredAndSortedItems.length !== allItems.length && (
                 <span className="text-muted-foreground font-normal text-sm ml-2">
                   ({filteredAndSortedItems.length} shown with filter)
                 </span>
@@ -596,7 +596,7 @@ export default function SearchPage() {
                               <span>peers</span>
                             </div>
                           )}
-                          {download.description && (
+                          {!!download.description && (
                             <>
                               <span>•</span>
                               <span className="truncate max-w-[300px]" title={download.description}>

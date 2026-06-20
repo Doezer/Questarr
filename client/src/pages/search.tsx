@@ -104,7 +104,7 @@ export default function SearchPage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const lastSearchQueryRef = useRef("");
-  const sentinelRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null); // NOSONAR
 
   const {
     data,

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, type FormEvent } from "react";
 import { useQuery, useInfiniteQuery, useMutation } from "@tanstack/react-query";
 import type { InfiniteData } from "@tanstack/react-query";
 import { useDebounce } from "@/hooks/use-debounce";
@@ -287,7 +287,7 @@ export default function SearchPage() {
     },
   });
 
-  const handleSearch = (e: React.FormEvent) => {
+  const handleSearch = (e: FormEvent) => {
     e.preventDefault();
   };
 

@@ -181,8 +181,9 @@ export default function SearchPage() {
 
   useEffect(() => {
     const el = sentinelRef.current;
-    if (!el || typeof IntersectionObserver === "undefined") return;
-    const observer = new IntersectionObserver(
+    const Io = window.IntersectionObserver;
+    if (!el || !Io) return;
+    const observer = new Io(
       (entries) => {
         // Don't auto-fetch when an active date filter yields zero visible results —
         // that would spam the backend with rapid consecutive requests until hasNextPage

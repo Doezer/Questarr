@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import os from "os";
+import path from "path";
 
 // Isolated test for the db.ts open-failure error path.
 // Kept in a separate file so module-cache resets don't interfere with other suites
@@ -18,9 +20,10 @@ describe("Database - open failure error handling", () => {
   });
 
   it("logs UID, GID and calls process.exit(1) when the database cannot be opened", async () => {
-    // Use a path whose parent (/tmp) already exists so no mkdir is attempted,
+    // Use os.tmpdir() so the parent directory exists (no mkdir attempted),
     // but the file itself won't exist so no file-stat branch runs either.
-    process.env.SQLITE_DB_PATH = "/tmp/db-open-failure-questarr-test.db";
+    const testDbPath = path.join(os.tmpdir(), "db-open-failure-questarr-test.db");
+    process.env.SQLITE_DB_PATH = testDbPath;
 
     const mockError = vi.fn();
     vi.doMock("../logger.js", () => ({
@@ -43,7 +46,7 @@ describe("Database - open failure error handling", () => {
 
     expect(exitSpy).toHaveBeenCalledWith(1);
     expect(mockError).toHaveBeenCalledWith(
-      expect.objectContaining({ dbPath: "/tmp/db-open-failure-questarr-test.db" }),
+      expect.objectContaining({ dbPath: testDbPath }),
       expect.stringContaining("Cannot open SQLite database")
     );
   });

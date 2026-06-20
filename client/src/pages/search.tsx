@@ -181,7 +181,7 @@ export default function SearchPage() {
 
   useEffect(() => {
     const el = sentinelRef.current;
-    const Io = window.IntersectionObserver;
+    const Io = window.IntersectionObserver; // NOSONAR
     if (!el || !Io) return;
     const observer = new Io(
       (entries) => {

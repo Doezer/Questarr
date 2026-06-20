@@ -153,15 +153,10 @@ export default function SearchPage() {
   const allItems = useMemo(() => data?.pages.flatMap((p) => p.items) ?? [], [data]);
 
   const filteredAndSortedItems = useMemo(() => {
-    // Parse YYYY-MM-DD date inputs as local midnight so the filter matches
-    // what the user sees in toLocaleDateString(), not UTC midnight which would
-    // shift boundaries by the user's UTC offset.
-    const parseLocalDay = (s: string): number => {
-      const year = parseInt(s.substring(0, 4), 10);
-      const month = parseInt(s.substring(5, 7), 10);
-      const day = parseInt(s.substring(8, 10), 10);
-      return new Date(year, month - 1, day).getTime();
-    };
+    // Append T00:00:00 so the browser parses as local midnight, not UTC midnight.
+    // Date-only strings ("YYYY-MM-DD") are UTC by spec; datetime strings without
+    // a timezone suffix are local.
+    const parseLocalDay = (s: string): number => new Date(`${s}T00:00:00`).getTime();
     const fromTime = dateFrom ? parseLocalDay(dateFrom) : null;
     const toTime = dateTo ? parseLocalDay(dateTo) + 86399999 : null;
     const mapped: { item: DownloadItem; time: number }[] = [];

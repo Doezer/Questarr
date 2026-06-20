@@ -260,8 +260,8 @@ export default function SearchPage() {
         toast({ title: "Download started successfully" });
         setIsDownloadDialogOpen(false);
         setSelectedDownload(null);
-        queryClient.invalidateQueries({ queryKey: ["/api/downloads"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/downloads/summary"] });
+        void queryClient.invalidateQueries({ queryKey: ["/api/downloads"] });
+        void queryClient.invalidateQueries({ queryKey: ["/api/downloads/summary"] });
       } else {
         toast({ title: result.message || "Failed to start download", variant: "destructive" });
       }

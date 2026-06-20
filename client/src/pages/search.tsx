@@ -185,7 +185,7 @@ export default function SearchPage() {
         const filterActive = !!(dateFrom || dateTo);
         const listIsEmpty = filteredAndSortedItems.length === 0;
         if (
-          entries[0]?.isIntersecting &&
+          entries.at(0)?.isIntersecting &&
           hasNextPage &&
           !isFetchingNextPage &&
           !(filterActive && listIsEmpty)
@@ -219,7 +219,7 @@ export default function SearchPage() {
           variant: "destructive",
         });
       } else if (data) {
-        const total = data.pages[0]?.total ?? 0;
+        const total = data.pages.at(0)?.total ?? 0;
         if (total > 0) {
           toast({
             title: "Search completed",
@@ -228,7 +228,7 @@ export default function SearchPage() {
         } else {
           toast({ title: "No results found", description: "Try a different search query" });
         }
-        const errors = data.pages[0]?.errors;
+        const errors = data.pages.at(0)?.errors;
         if (errors && errors.length > 0) {
           toast({
             title: "Some indexers failed",
@@ -324,7 +324,7 @@ export default function SearchPage() {
       )
     : downloaders;
 
-  const firstPage = data?.pages[0];
+  const firstPage = data?.pages.at(0);
   const totalResults = firstPage?.total ?? 0;
   const indexerErrors = firstPage?.errors;
 

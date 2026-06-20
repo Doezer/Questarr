@@ -485,7 +485,7 @@ describe("DelugeClient", () => {
       expect(status?.progress).toBe(100);
     });
 
-    it("should map error status from message", async () => {
+    it("should map error status from Deluge Error state with message", async () => {
       const client = new DelugeClient(createDownloader());
 
       setupAuthAndConnect();
@@ -495,7 +495,7 @@ describe("DelugeClient", () => {
         json: async () => ({
           result: {
             name: "Broken",
-            state: "Downloading",
+            state: "Error",
             progress: 0.1,
             download_payload_rate: 0,
             upload_payload_rate: 0,
@@ -516,6 +516,38 @@ describe("DelugeClient", () => {
 
       expect(status?.status).toBe("error");
       expect(status?.error).toBe("Tracker error");
+    });
+
+    it("should not treat innocuous tracker message 'OK' as an error — regression for #568", async () => {
+      const client = new DelugeClient(createDownloader());
+
+      setupAuthAndConnect();
+
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          result: {
+            name: "My Game",
+            state: "Seeding",
+            progress: 100,
+            download_payload_rate: 0,
+            upload_payload_rate: 1024,
+            eta: 0,
+            total_size: 5000000,
+            all_time_download: 5000000,
+            ratio: 1.5,
+            num_peers: 3,
+            num_seeds: 5,
+            message: "OK",
+          },
+          error: null,
+        }),
+        headers: new Headers(),
+      } as Response);
+
+      const status = await client.getDownloadStatus("abc123");
+      expect(status?.status).toBe("seeding");
+      expect(status?.error).toBeUndefined();
     });
 
     it("should return null when torrent not found", async () => {

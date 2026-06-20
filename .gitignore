@@ -41,3 +41,4 @@ pr_status.json
 .sonarlint/connectedMode.json
 data_test/
 docker-compose.test.yml
+.eslintcache

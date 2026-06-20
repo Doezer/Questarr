@@ -290,7 +290,6 @@ export class DelugeClient implements DownloaderClient {
 
       let torrentFileBuffer: Buffer;
       let torrentFileName = "torrent.torrent";
-      const parsedInfoHash: string | null = null;
 
       try {
         const { response: torrentResponse, magnetLink } = await fetchWithMagnetDetection(
@@ -723,12 +722,12 @@ export class DelugeClient implements DownloaderClient {
       }
     }
 
-    // Override with error message
-    if (status.message && status.message.length > 0) {
-      downloadStatus = "error";
-    }
-
     const eta = status.eta ?? undefined;
+
+    // Only surface the tracker message as an error when Deluge itself reports an Error state.
+    // The message field is also used for normal tracker responses (e.g. "OK") and must not
+    // override the status — doing so caused every seeding torrent to appear as "Error: OK".
+    const errorMessage = downloadStatus === "error" ? status.message || undefined : undefined;
 
     return {
       id: hash.toLowerCase(),
@@ -746,7 +745,7 @@ export class DelugeClient implements DownloaderClient {
       seeders: status.num_seeds ?? 0,
       leechers: (status.num_peers ?? 0) - (status.num_seeds ?? 0),
       ratio: status.ratio ?? 0,
-      error: status.message || undefined,
+      error: errorMessage,
       category: status.label || undefined,
     };
   }

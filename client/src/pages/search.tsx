@@ -458,14 +458,14 @@ export default function SearchPage() {
                 </span>
               )}
             </h2>
-            {indexerErrors && indexerErrors.length > 0 && (
+            {!!indexerErrors && indexerErrors.length > 0 && (
               <Badge variant="destructive" data-testid="badge-indexer-errors">
                 {indexerErrors.length} indexer error(s)
               </Badge>
             )}
           </div>
 
-          {indexerErrors && indexerErrors.length > 0 && (
+          {!!indexerErrors && indexerErrors.length > 0 && (
             <Card className="mb-4" data-testid="card-indexer-errors">
               <CardHeader>
                 <CardTitle

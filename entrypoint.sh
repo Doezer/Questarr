@@ -63,5 +63,14 @@ if ! su-exec questarr sh -c "test -w /app/data" 2>/dev/null; then
   exit 1
 fi
 
+# If the database file already exists, verify it is writable too.
+# A recursive chown on the directory won't help if the file itself has a mode like 400.
+_DB_FILE="${SQLITE_DB_PATH:-/app/data/sqlite.db}"
+if [ -f "$_DB_FILE" ] && ! su-exec questarr sh -c "test -w \"$_DB_FILE\"" 2>/dev/null; then
+  echo "ERROR: questarr (UID ${QUESTARR_UID}) cannot write to existing database file ${_DB_FILE}."
+  echo "  Fix on the host: sudo chown ${QUESTARR_UID}:${QUESTARR_GID} \"${_DB_FILE}\""
+  exit 1
+fi
+
 # Drop root privileges and exec the CMD as questarr
 exec su-exec questarr "$@"

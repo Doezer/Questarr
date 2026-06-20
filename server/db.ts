@@ -37,11 +37,12 @@ try {
   sqlite = new Database(dbPath);
 } catch (err) {
   const uid = process.getuid?.() ?? "unknown";
+  const gid = process.getgid?.() ?? "unknown";
   logger.error(
-    { err, dbPath, uid },
+    { err, dbPath, uid, gid },
     `Cannot open SQLite database at ${dbPath}. ` +
-      `Process is running as UID ${uid}. ` +
-      `Ensure the directory ${dbDir} exists and is writable by that UID. ` +
+      `Process is running as UID ${uid} GID ${gid}. ` +
+      `Ensure the directory ${path.dirname(dbPath)} exists and is writable. ` +
       `In Docker: set PUID/PGID in your compose environment to match the host volume owner, ` +
       `or run: sudo chown -R <UID>:<GID> ./data on the host.`
   );

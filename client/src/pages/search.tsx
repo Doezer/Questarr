@@ -125,9 +125,7 @@ export default function SearchPage() {
       // Use "received a full page" as the continuation signal rather than comparing
       // against lastPage.total, which equals the current batch size for Torznab
       // indexers and would always terminate pagination after the first page.
-      return (lastPage.items ?? []).length >= PAGE_SIZE
-        ? lastPageParam + (lastPage.items ?? []).length
-        : undefined;
+      return lastPage.items.length >= PAGE_SIZE ? lastPageParam + lastPage.items.length : undefined;
     },
     enabled: debouncedSearchQuery.trim().length > 0,
   });
@@ -152,7 +150,7 @@ export default function SearchPage() {
     },
   });
 
-  const allItems = useMemo(() => data?.pages.flatMap((p) => p.items ?? []) ?? [], [data]);
+  const allItems = useMemo(() => data?.pages.flatMap((p) => p.items) ?? [], [data]);
 
   const filteredAndSortedItems = useMemo(() => {
     // Parse YYYY-MM-DD date inputs as local midnight so the filter matches
@@ -530,7 +528,7 @@ export default function SearchPage() {
               <>
                 {filteredAndSortedItems.map((download, index) => {
                   const isUsenet = isUsenetItem(download);
-                  const itemKey = download.guid ?? download.link ?? index;
+                  const itemKey = download.guid ?? download.link;
                   return (
                     <div
                       key={itemKey}

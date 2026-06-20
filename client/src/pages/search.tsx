@@ -157,17 +157,16 @@ export default function SearchPage() {
     // what the user sees in toLocaleDateString(), not UTC midnight which would
     // shift boundaries by the user's UTC offset.
     const parseLocalDay = (s: string) => {
-      const [y, m, d] = s.split("-").map(Number);
-      return new Date(y, m - 1, d).getTime();
+      const parts = s.split("-");
+      return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])).getTime();
     };
     const fromTime = dateFrom ? parseLocalDay(dateFrom) : null;
     const toTime = dateTo ? parseLocalDay(dateTo) + 86399999 : null;
     const mapped: { item: DownloadItem; time: number }[] = [];
-    for (let i = 0; i < allItems.length; i++) {
-      const item = allItems[i];
+    for (const item of allItems) {
       const time = new Date(item.pubDate).getTime();
       if (
-        !isNaN(time) &&
+        !Number.isNaN(time) &&
         (fromTime === null || time >= fromTime) &&
         (toTime === null || time <= toTime)
       ) {

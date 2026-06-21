@@ -175,9 +175,22 @@ export default function SearchPage() {
 
   useEffect(() => {
     const el = sentinelRef.current;
-    const Io = window.IntersectionObserver as typeof IntersectionObserver | undefined; // NOSONAR
-    if (!el || !Io) return;
-    const observer = new Io( // NOSONAR
+    if (!el) return;
+
+    const G = globalThis as Record<string, unknown>;
+    if (typeof G["IntersectionObserver"] !== "function") return;
+
+    type IOCallback = (entries: { isIntersecting: boolean }[]) => void;
+    type IOCtor = new (
+      cb: IOCallback,
+      opts?: { threshold?: number }
+    ) => {
+      observe(target: unknown): void;
+      disconnect(): void;
+    };
+
+    const IOClass = G["IntersectionObserver"] as IOCtor;
+    const observer = new IOClass(
       (entries) => {
         // Don't auto-fetch when an active date filter yields zero visible results —
         // that would spam the backend with rapid consecutive requests until hasNextPage

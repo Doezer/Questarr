@@ -10,20 +10,21 @@ import { createTestQueryClient } from "./test-utils";
 const toastSpy = vi.fn();
 const mockApiRequest = vi.fn();
 
+type IOCallback = (entries: { isIntersecting: boolean }[], observer: object) => void;
+
 // Capture IntersectionObserver callback so tests can trigger it manually
-let capturedIntersectionCallback: IntersectionObserverCallback | null = null;
+let capturedIntersectionCallback: IOCallback | null = null;
 const mockObserve = vi.fn();
 const mockDisconnect = vi.fn();
 class CapturingIntersectionObserver {
   observe = mockObserve;
   unobserve = vi.fn();
   disconnect = mockDisconnect;
-  constructor(callback: IntersectionObserverCallback, _options?: IntersectionObserverInit) {
+  constructor(callback: IOCallback, _options?: object) {
     capturedIntersectionCallback = callback;
   }
 }
-global.IntersectionObserver =
-  CapturingIntersectionObserver as unknown as typeof IntersectionObserver;
+(globalThis as Record<string, unknown>).IntersectionObserver = CapturingIntersectionObserver;
 
 // Bypass debounce so search queries fire immediately
 vi.mock("@/hooks/use-debounce", () => ({
@@ -132,7 +133,7 @@ function setupApiRequest({
   globalThis.fetch = vi.fn(async () => ({
     ok: true,
     json: async () => downloaders,
-  })) as typeof fetch;
+  })) as unknown as typeof globalThis.fetch;
 }
 
 function renderSearch() {
@@ -389,7 +390,10 @@ describe("SearchPage", () => {
         if (url.startsWith("/api/games")) return Promise.resolve({ json: async () => [game] });
         return Promise.resolve({ json: async () => [] });
       });
-      globalThis.fetch = vi.fn(async () => ({ ok: true, json: async () => [] })) as typeof fetch;
+      globalThis.fetch = vi.fn(async () => ({
+        ok: true,
+        json: async () => [],
+      })) as unknown as typeof globalThis.fetch;
       renderSearch();
       typeSearch("game");
 
@@ -426,10 +430,7 @@ describe("SearchPage", () => {
       await waitFor(() => expect(capturedIntersectionCallback).not.toBeNull());
 
       void act(() => {
-        capturedIntersectionCallback?.(
-          [{ isIntersecting: true } as IntersectionObserverEntry],
-          {} as IntersectionObserver
-        );
+        capturedIntersectionCallback?.([{ isIntersecting: true }], {});
       });
 
       // With only 1 item (< PAGE_SIZE=50), hasNextPage is false — no extra fetch
@@ -450,10 +451,7 @@ describe("SearchPage", () => {
       await waitFor(() => expect(screen.getByTestId("card-torrent-0")).toBeInTheDocument());
 
       void act(() => {
-        capturedIntersectionCallback?.(
-          [{ isIntersecting: true } as IntersectionObserverEntry],
-          {} as IntersectionObserver
-        );
+        capturedIntersectionCallback?.([{ isIntersecting: true }], {});
       });
 
       await waitFor(() => {
@@ -483,10 +481,7 @@ describe("SearchPage", () => {
 
       const callCountBefore = mockApiRequest.mock.calls.length;
       void act(() => {
-        capturedIntersectionCallback?.(
-          [{ isIntersecting: true } as IntersectionObserverEntry],
-          {} as IntersectionObserver
-        );
+        capturedIntersectionCallback?.([{ isIntersecting: true }], {});
       });
 
       // No additional fetch should happen: filterActive=true and listIsEmpty=true

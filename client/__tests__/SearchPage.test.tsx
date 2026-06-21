@@ -122,10 +122,10 @@ function setupApiRequest({
   mockApiRequest.mockImplementation((_method: string, url: string) => {
     if (url.startsWith("/api/search"))
       return Promise.resolve(makeSearchResult(items, total, errors));
+    if (url.startsWith("/api/games/")) return Promise.resolve({ ok: true, json: async () => ({}) });
     if (url.startsWith("/api/games")) return Promise.resolve({ json: async () => libraryGames });
     if (url.startsWith("/api/downloaders/") && url.includes("/downloads"))
       return Promise.resolve({ json: async () => ({ success: true }) });
-    if (url.startsWith("/api/games/")) return Promise.resolve({ ok: true, json: async () => ({}) });
     return Promise.resolve({ json: async () => [] });
   });
   // Downloaders uses the QueryClient default queryFn which calls fetch

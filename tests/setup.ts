@@ -5,7 +5,7 @@ import { vi } from "vitest";
 process.env.NODE_ENV = "test";
 process.env.SQLITE_DB_PATH = ":memory:";
 
-global.ResizeObserver = vi.fn().mockImplementation(() => ({
+(globalThis as Record<string, unknown>).ResizeObserver = vi.fn().mockImplementation(() => ({
   observe: vi.fn(),
   unobserve: vi.fn(),
   disconnect: vi.fn(),
@@ -18,8 +18,7 @@ class MockResizeObserver {
   disconnect = vi.fn();
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-global.ResizeObserver = MockResizeObserver as any;
+(globalThis as Record<string, unknown>).ResizeObserver = MockResizeObserver;
 
 class MockIntersectionObserver {
   observe = vi.fn();

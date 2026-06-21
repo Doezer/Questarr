@@ -254,7 +254,7 @@ export default function SearchPage() {
         downloadPath: formData.downloadPath,
         priority: formData.priority,
         downloadType: isUsenetItem(download) ? "usenet" : "torrent",
-      }).then((r) => r.json()),
+      }).then((r): Promise<{ success: boolean; message?: string }> => r.json()),
     onSuccess: (result) => {
       if (result.success) {
         toast({ title: "Download started successfully" });

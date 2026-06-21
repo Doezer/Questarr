@@ -25,11 +25,10 @@ class MockIntersectionObserver {
   observe = vi.fn();
   unobserve = vi.fn();
   disconnect = vi.fn();
-  constructor(_callback: IntersectionObserverCallback, _options?: IntersectionObserverInit) {}
+  constructor(_callback: (_entries: unknown[], _observer: unknown) => void, _options?: object) {}
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-global.IntersectionObserver = MockIntersectionObserver as any;
+(globalThis as Record<string, unknown>).IntersectionObserver = MockIntersectionObserver;
 
 // jsdom does not implement scrollIntoView; stub it to prevent errors in cmdk/Radix popups
 if (typeof window !== "undefined") {

@@ -119,7 +119,7 @@ export default function SearchPage() {
       apiRequest(
         "GET",
         `/api/search?query=${encodeURIComponent(debouncedSearchQuery)}&limit=${PAGE_SIZE}&offset=${pageParam}`
-      ).then((r) => r.json()),
+      ).then((r): Promise<SearchResult> => r.json()),
     initialPageParam: 0,
     getNextPageParam: (lastPage, _allPages, lastPageParam) => {
       // Use "received a full page" as the continuation signal rather than comparing
@@ -133,8 +133,8 @@ export default function SearchPage() {
   const { data: libraryGames = [] } = useQuery<Game[]>({
     queryKey: ["/api/games", debouncedSearchQuery],
     queryFn: () =>
-      apiRequest("GET", `/api/games?search=${encodeURIComponent(debouncedSearchQuery)}`).then((r) =>
-        r.json()
+      apiRequest("GET", `/api/games?search=${encodeURIComponent(debouncedSearchQuery)}`).then(
+        (r): Promise<Game[]> => r.json()
       ),
     enabled: debouncedSearchQuery.trim().length > 0,
   });
@@ -175,7 +175,7 @@ export default function SearchPage() {
 
   useEffect(() => {
     const el = sentinelRef.current;
-    const Io = window.IntersectionObserver; // NOSONAR
+    const Io = window.IntersectionObserver as typeof IntersectionObserver | undefined; // NOSONAR
     if (!el || !Io) return;
     const observer = new Io( // NOSONAR
       (entries) => {

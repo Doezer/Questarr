@@ -426,7 +426,7 @@ describe("SearchPage", () => {
       await waitFor(() => expect(capturedIntersectionCallback).not.toBeNull());
 
       void act(() => {
-        capturedIntersectionCallback!(
+        capturedIntersectionCallback?.(
           [{ isIntersecting: true } as IntersectionObserverEntry],
           {} as IntersectionObserver
         );
@@ -450,7 +450,7 @@ describe("SearchPage", () => {
       await waitFor(() => expect(screen.getByTestId("card-torrent-0")).toBeInTheDocument());
 
       void act(() => {
-        capturedIntersectionCallback!(
+        capturedIntersectionCallback?.(
           [{ isIntersecting: true } as IntersectionObserverEntry],
           {} as IntersectionObserver
         );
@@ -483,7 +483,7 @@ describe("SearchPage", () => {
 
       const callCountBefore = mockApiRequest.mock.calls.length;
       void act(() => {
-        capturedIntersectionCallback!(
+        capturedIntersectionCallback?.(
           [{ isIntersecting: true } as IntersectionObserverEntry],
           {} as IntersectionObserver
         );

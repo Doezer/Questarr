@@ -469,6 +469,8 @@ export class SABnzbdClient implements DownloaderClient {
           { error, id, useFilter: useFilter },
           "Failed to get SABnzbd history"
         );
+        // If the filtered request failed, retry with a full history scan
+        if (useFilter) continue;
         return null;
       }
     }
@@ -476,14 +478,40 @@ export class SABnzbdClient implements DownloaderClient {
     return null;
   }
 
+  private async getHistoryDownloadDir(id: string): Promise<string | undefined> {
+    for (const useFilter of [true, false]) {
+      try {
+        const params: Record<string, string> = useFilter ? { nzo_ids: id } : {};
+        const url = this.getApiUrl("history", params);
+        const response = await this.fetchWithFallback(url);
+        const data = await response.json();
+        const history: SABnzbdHistory = data.history;
+        if (!history?.slots) return undefined;
+        const item = history.slots.find((slot) => slot.nzo_id === id);
+        if (!item) {
+          if (useFilter) continue;
+          return undefined;
+        }
+        // Normalize SABnzbd's /incomplete/ paths to /complete/
+        return item.path?.replace(/\/incomplete\//g, "/complete/");
+      } catch {
+        if (useFilter) continue;
+        return undefined;
+      }
+    }
+    return undefined;
+  }
+
   async getDownloadDetails(id: string): Promise<DownloadDetails | null> {
     const status = await this.getDownloadStatus(id);
     if (!status) return null;
 
-    // SABnzbd doesn't provide detailed file information in the same way
-    // Return minimal details based on status
+    const downloadDir =
+      status.status === "completed" ? await this.getHistoryDownloadDir(id) : undefined;
+
     return {
       ...status,
+      downloadDir,
       files: [],
       filesSupport: "unsupported",
       filesSupportReason: "SABnzbd API does not expose per-file details for queue/history items.",

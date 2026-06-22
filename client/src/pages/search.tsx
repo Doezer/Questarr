@@ -115,11 +115,13 @@ export default function SearchPage() {
     fetchNextPage,
   } = useInfiniteQuery<SearchResult, Error, InfiniteData<SearchResult>, string[], number>({
     queryKey: ["/api/search", debouncedSearchQuery],
-    queryFn: ({ pageParam }) =>
-      apiRequest(
+    queryFn: async ({ pageParam }): Promise<SearchResult> => {
+      const r = await apiRequest(
         "GET",
         `/api/search?query=${encodeURIComponent(debouncedSearchQuery)}&limit=${PAGE_SIZE}&offset=${pageParam}`
-      ).then((r): Promise<SearchResult> => r.json()),
+      );
+      return r.json();
+    },
     initialPageParam: 0,
     getNextPageParam: (lastPage, _allPages, lastPageParam) => {
       // Use "received a full page" as the continuation signal rather than comparing
@@ -132,10 +134,13 @@ export default function SearchPage() {
 
   const { data: libraryGames = [] } = useQuery<Game[]>({
     queryKey: ["/api/games", debouncedSearchQuery],
-    queryFn: () =>
-      apiRequest("GET", `/api/games?search=${encodeURIComponent(debouncedSearchQuery)}`).then(
-        (r): Promise<Game[]> => r.json()
-      ),
+    queryFn: async (): Promise<Game[]> => {
+      const r = await apiRequest(
+        "GET",
+        `/api/games?search=${encodeURIComponent(debouncedSearchQuery)}`
+      );
+      return r.json();
+    },
     enabled: debouncedSearchQuery.trim().length > 0,
   });
 
@@ -246,15 +251,23 @@ export default function SearchPage() {
   });
 
   const downloadMutation = useMutation({
-    mutationFn: ({ download, formData }: { download: DownloadItem; formData: DownloadForm }) =>
-      apiRequest("POST", `/api/downloaders/${formData.downloaderId}/downloads`, {
+    mutationFn: async ({
+      download,
+      formData,
+    }: {
+      download: DownloadItem;
+      formData: DownloadForm;
+    }): Promise<{ success: boolean; message?: string }> => {
+      const r = await apiRequest("POST", `/api/downloaders/${formData.downloaderId}/downloads`, {
         url: download.link,
         title: download.title,
         category: formData.category || undefined,
         downloadPath: formData.downloadPath,
         priority: formData.priority,
         downloadType: isUsenetItem(download) ? "usenet" : "torrent",
-      }).then((r): Promise<{ success: boolean; message?: string }> => r.json()),
+      });
+      return r.json();
+    },
     onSuccess: (result) => {
       if (result.success) {
         toast({ title: "Download started successfully" });

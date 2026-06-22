@@ -175,10 +175,8 @@ export default function SearchPage() {
 
   useEffect(() => {
     const el = sentinelRef.current;
-    if (!el) return;
-
     const G = globalThis as Record<string, unknown>;
-    if (typeof G["IntersectionObserver"] !== "function") return;
+    if (!el || typeof G["IntersectionObserver"] !== "function") return undefined;
 
     type IOCallback = (entries: { isIntersecting: boolean }[]) => void;
     type IOCtor = new (

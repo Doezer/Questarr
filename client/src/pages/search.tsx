@@ -170,7 +170,7 @@ export default function SearchPage() {
         mapped.push({ item, time });
       }
     }
-    return mapped.sort((a, b) => b.time - a.time).map(({ item }) => item);
+    return mapped.toSorted((a, b) => b.time - a.time).map(({ item }) => item);
   }, [allItems, dateFrom, dateTo]);
 
   useEffect(() => {

@@ -620,7 +620,7 @@ export class DelugeClient implements DownloaderClient {
     try {
       await this.authenticate();
       await this.ensureConnected();
-      await this.makeRequest("core.pause_torrent", [[id]]);
+      await this.makeRequest("core.pause_torrent", [id]);
       return { success: true, message: "Download paused successfully" };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
@@ -632,7 +632,7 @@ export class DelugeClient implements DownloaderClient {
     try {
       await this.authenticate();
       await this.ensureConnected();
-      await this.makeRequest("core.resume_torrent", [[id]]);
+      await this.makeRequest("core.resume_torrent", [id]);
       return { success: true, message: "Download resumed successfully" };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";

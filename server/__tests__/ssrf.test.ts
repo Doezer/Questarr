@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
-import { isSafeUrl, safeFetch } from "../ssrf";
+import { isSafeUrl, safeFetch, resolveSafeAddress } from "../ssrf";
 import dns from "dns/promises";
 
 // Mock dns module
@@ -243,5 +243,54 @@ describe("safeFetch", () => {
 
     const calledHeaders = (fetch as Mock).mock.calls[0][1].headers as Headers;
     expect(calledHeaders.get("Host")).toBe("[::1]:8080");
+  });
+});
+
+describe("resolveSafeAddress", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("returns address and family for a safe IP", async () => {
+    const result = await resolveSafeAddress("192.168.1.1");
+    expect(result).toEqual({ address: "192.168.1.1", family: 4 });
+  });
+
+  it("strips IPv6 brackets and returns the bare address", async () => {
+    const result = await resolveSafeAddress("[::1]");
+    expect(result).toEqual({ address: "::1", family: 6 });
+  });
+
+  it("throws for an unsafe IP (link-local) passed directly", async () => {
+    await expect(resolveSafeAddress("169.254.169.254")).rejects.toThrow("Invalid or unsafe URL");
+  });
+
+  it("resolves a hostname and returns the first address", async () => {
+    vi.mocked(dns.lookup as unknown as import("node:dns").LookupAddress[]).mockResolvedValueOnce([
+      { address: "1.2.3.4", family: 4 },
+    ]);
+    const result = await resolveSafeAddress("example.com");
+    expect(result).toEqual({ address: "1.2.3.4", family: 4 });
+  });
+
+  it("throws when DNS returns an empty address list", async () => {
+    vi.mocked(dns.lookup as unknown as import("node:dns").LookupAddress[]).mockResolvedValueOnce(
+      []
+    );
+    await expect(resolveSafeAddress("empty.example.com")).rejects.toThrow("Invalid or unsafe URL");
+  });
+
+  it("throws when a resolved address is unsafe", async () => {
+    vi.mocked(dns.lookup as unknown as import("node:dns").LookupAddress[]).mockResolvedValueOnce([
+      { address: "169.254.169.254", family: 4 },
+    ]);
+    await expect(resolveSafeAddress("evil.example.com")).rejects.toThrow("Invalid or unsafe URL");
+  });
+
+  it("throws a descriptive error when DNS resolution fails", async () => {
+    vi.mocked(dns.lookup as unknown as import("node:dns").LookupAddress[]).mockRejectedValueOnce(
+      new Error("ENOTFOUND")
+    );
+    await expect(resolveSafeAddress("no-such-host.example.com")).rejects.toThrow(
+      "Failed to resolve hostname: no-such-host.example.com"
+    );
   });
 });

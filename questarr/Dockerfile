@@ -1,6 +1,5 @@
-ARG BUILD_FROM=ghcr.io/doezer/questarr:1.4.0
+FROM ghcr.io/doezer/questarr:1.4.0
 ARG BUILD_ARCH=amd64
-FROM ${BUILD_FROM}
 
 LABEL \
     io.hass.name="Questarr" \

@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [1.4.0] - 2026-xx-xx
 
+### Added
+
+- **Code of Conduct**: Added Contributor Covenant Code of Conduct.
+
+### Changed
+
+- **Docker**: Rewrote `entrypoint.sh` with PUID/PGID support (LinuxServer.io / \*Arr convention) so mounted volumes adopt the host user's UID/GID automatically.
+- **Docker**: `SQLITE_DB_PATH` is now exported with a default of `/app/data/sqlite.db`, ensuring the database is always placed inside the persistent volume when the variable is unset.
+- **Docker**: Improved healthcheck — added `.on('error', ...)` handler to prevent noisy stack traces during container startup.
+- **CI**: Pinned GitHub Actions to commit SHAs; fixed Codecov test-results upload to correctly locate the JUnit XML report.
+- **Dependencies**: Removed duplicate `@types/multer` entry from `package.json`; updated Radix UI, semver, and other minor dependencies.
+
 ### Removed
 
 - Removed the HLTB integration from Questarr (no API or stable service).

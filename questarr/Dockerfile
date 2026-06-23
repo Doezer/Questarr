@@ -7,3 +7,9 @@ RUN mkdir -p /data
 RUN if [ -d /app/data ] && [ ! -L /app/data ]; then cp -a /app/data/. /data/ && rm -rf /app/data; fi
 
 RUN ln -sfn /data /app/data
+
+COPY ha-entrypoint.sh /ha-entrypoint.sh
+RUN chmod +x /ha-entrypoint.sh
+
+ENTRYPOINT ["/ha-entrypoint.sh"]
+CMD ["npm", "run", "start"]

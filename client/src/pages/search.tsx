@@ -180,7 +180,7 @@ export default function SearchPage() {
 
   useEffect(() => {
     const el = sentinelRef.current;
-    if (!el) return;
+    if (!el) return () => {};
 
     const observer = new IntersectionObserver(
       (entries) => {

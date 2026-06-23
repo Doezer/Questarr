@@ -784,6 +784,30 @@ describe("DelugeClient — coverage gaps", () => {
       const result = await client.testConnection();
       expect(result.success).toBe(true);
     });
+
+    it("does not set cookie when Set-Cookie header contains no extractable value", async () => {
+      const client = new DelugeClient(createDownloader());
+
+      // Both regexes return null when the cookie header is just ";" (no name=value before it)
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ result: true, error: null, id: 1 }),
+        headers: new Headers({ "set-cookie": ";" }),
+      } as Response);
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ result: true, error: null, id: 2 }),
+        headers: new Headers(),
+      } as Response);
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ result: "2.0.0", error: null, id: 3 }),
+        headers: new Headers(),
+      } as Response);
+
+      const result = await client.testConnection();
+      expect(result.success).toBe(true);
+    });
   });
 
   describe("makeRequest — RPC error without message (line 826)", () => {

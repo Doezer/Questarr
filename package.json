@@ -159,6 +159,7 @@
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-react": "^7.37.2",
     "eslint-plugin-react-hooks": "^5.0.0",
+    "eslint-plugin-sonarjs": "^4.1.0",
     "jsdom": "^27.3.0",
     "lint-staged": "^16.4.0",
     "pino-pretty": "^13.1.3",

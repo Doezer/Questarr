@@ -1,0 +1,16 @@
+name: Questarr
+version: "1.4.0"
+slug: questarr
+description: Video game management for your Home Assistant stack.
+url: "https://github.com/Doezer/Questarr"
+arch:
+  - amd64
+startup: application
+boot: auto
+# Questarr image already provides its own entrypoint and process model.
+init: false
+webui: "http://[HOST]:[PORT:5000]"
+ports:
+  5000/tcp: 5000
+ports_description:
+  5000/tcp: Questarr web interface

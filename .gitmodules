@@ -1,3 +1,6 @@
 [submodule "repo-wiki"]
 	path = .github/wiki
 	url = git@github.com:Doezer/Questarr.wiki.git
+[submodule ".github/wiki"]
+	path = .github/wiki
+	url = git@github.com:Doezer/Questarr.wiki.git

@@ -835,6 +835,7 @@ export default function Downloads() {
                         <Button
                           variant="outline"
                           size="icon"
+                          aria-label={`Options for ${download.name || "download"}`}
                           data-testid={`button-menu-${download.id}`}
                         >
                           <MoreHorizontal className="h-4 w-4" />

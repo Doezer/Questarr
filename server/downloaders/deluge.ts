@@ -743,7 +743,7 @@ export class DelugeClient implements DownloaderClient {
       size: status.total_size ?? 0,
       downloaded: status.all_time_download ?? 0,
       seeders: status.num_seeds ?? 0,
-      leechers: (status.num_peers ?? 0) - (status.num_seeds ?? 0),
+      leechers: status.num_peers ?? 0,
       ratio: status.ratio ?? 0,
       error: errorMessage,
       category: status.label || undefined,
@@ -789,6 +789,7 @@ export class DelugeClient implements DownloaderClient {
     if (!response.ok) {
       const errorText = await response.text().catch(() => "No error details available");
       if (response.status === 401) {
+        this.cookie = null;
         downloadersLogger.error(
           {
             status: response.status,

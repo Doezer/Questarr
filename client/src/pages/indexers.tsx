@@ -506,10 +506,14 @@ export default function IndexersPage() {
                       {indexer.name}
                     </CardTitle>
                     <Badge
-                      variant={indexer.protocol === "newznab" ? "secondary" : "default"}
+                      variant={indexer.protocol === "torznab" ? "default" : "secondary"}
                       className="uppercase"
                     >
-                      {indexer.protocol === "newznab" ? "Newznab" : "Torznab"}
+                      {indexer.protocol === "newznab"
+                        ? "Newznab"
+                        : indexer.protocol === "g4u"
+                          ? "g4u.to"
+                          : "Torznab"}
                     </Badge>
                     <Badge
                       variant={indexer.enabled ? "default" : "secondary"}
@@ -652,10 +656,12 @@ export default function IndexersPage() {
                       <SelectContent>
                         <SelectItem value="torznab">Torznab (Torrent)</SelectItem>
                         <SelectItem value="newznab">Newznab (Usenet)</SelectItem>
+                        <SelectItem value="g4u">g4u.to (Usenet)</SelectItem>
                       </SelectContent>
                     </Select>
                     <FormDescription>
-                      Torznab for torrent indexers, Newznab for Usenet indexers
+                      Torznab for torrent indexers, Newznab for Usenet indexers, g4u.to for the
+                      g4u.to VIP API
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -667,14 +673,20 @@ export default function IndexersPage() {
                 render={({ field }) => (
                   <FormItem>
                     <RequiredFormLabel required>
-                      {form.watch("protocol") === "newznab" ? "Newznab URL" : "Torznab URL"}
+                      {form.watch("protocol") === "newznab"
+                        ? "Newznab URL"
+                        : form.watch("protocol") === "g4u"
+                          ? "g4u.to URL"
+                          : "Torznab URL"}
                     </RequiredFormLabel>
                     <FormControl>
                       <Input
                         placeholder={
                           form.watch("protocol") === "newznab"
                             ? "http://localhost:8080/api"
-                            : "http://localhost:9117/api/v2.0/indexers/all/results/torznab/"
+                            : form.watch("protocol") === "g4u"
+                              ? "https://api.g4u.to/api"
+                              : "http://localhost:9117/api/v2.0/indexers/all/results/torznab/"
                         }
                         required
                         {...field}

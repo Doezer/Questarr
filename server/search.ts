@@ -65,6 +65,12 @@ export async function searchAllIndexers(
     offset: options.offset || 0,
   };
 
+  // g4u.to uses Scene-style dot-separated names (e.g. "Game.Name.v1.0")
+  const g4uSearchParams = {
+    ...searchParams,
+    query: options.query ? options.query.replace(/ /g, ".") : options.query,
+  };
+
   const promises = [];
 
   if (torznabIndexers.length > 0) {
@@ -96,6 +102,23 @@ export async function searchAllIndexers(
             type: "newznab" as const,
             results: { items: [], total: 0, offset: 0 },
             errors: [{ indexer: "newznab", error: message }],
+          };
+        })
+    );
+  }
+
+  if (g4uIndexers.length > 0) {
+    promises.push(
+      newznabClient
+        .searchMultipleIndexers(g4uIndexers, g4uSearchParams)
+        .then((res) => ({ type: "newznab" as const, ...res }))
+        .catch((err: unknown) => {
+          const message = err instanceof Error ? err.message : String(err);
+          searchLogger.error({ error: message }, "g4u client failed");
+          return {
+            type: "newznab" as const,
+            results: { items: [], total: 0, offset: 0 },
+            errors: [{ indexer: "g4u", error: message }],
           };
         })
     );

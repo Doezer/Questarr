@@ -755,4 +755,51 @@ describe("DelugeClient — coverage gaps", () => {
       expect(authCalls.length).toBe(2);
     });
   });
+
+  describe("makeRequest — cookie fallback (line 783)", () => {
+    it("extracts first cookie when no _session_id cookie is present", async () => {
+      const client = new DelugeClient(createDownloader());
+
+      // auth.login returns a non-_session_id cookie (e.g. from a reverse proxy)
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ result: true, error: null, id: 1 }),
+        headers: new Headers({ "set-cookie": "proxy_session=xyz789; Path=/" }),
+      } as Response);
+
+      // web.connected
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ result: true, error: null, id: 2 }),
+        headers: new Headers(),
+      } as Response);
+
+      // daemon.get_version
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ result: "2.0.0", error: null, id: 3 }),
+        headers: new Headers(),
+      } as Response);
+
+      const result = await client.testConnection();
+      expect(result.success).toBe(true);
+    });
+  });
+
+  describe("makeRequest — RPC error without message (line 826)", () => {
+    it("falls back to generic RPC error when error object has no message", async () => {
+      const client = new DelugeClient(createDownloader());
+
+      // auth.login returns an error object with no message field
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ result: null, error: { code: 99 }, id: 1 }),
+        headers: new Headers(),
+      } as Response);
+
+      const result = await client.testConnection();
+      expect(result.success).toBe(false);
+      expect(result.message).toContain("Deluge RPC error");
+    });
+  });
 });

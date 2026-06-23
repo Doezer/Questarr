@@ -26,6 +26,7 @@ import {
 } from "../shared/schema.js";
 import { isUsenetDownloaderType } from "../shared/downloader-types.js";
 import { torznabClient } from "./torznab.js";
+import { newznabClient } from "./newznab.js";
 import { rssService } from "./rss.js";
 import { DownloaderManager } from "./downloaders.js";
 import { z } from "zod";
@@ -203,6 +204,10 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
  * @param query - The query parameters object
  * @returns Validated limit and offset values
  */
+function isUsenetProtocol(protocol: string): boolean {
+  return protocol === "newznab" || protocol === "g4u";
+}
+
 function validatePaginationParams(query: { limit?: string; offset?: string }): {
   limit: number;
   offset: number;
@@ -1882,8 +1887,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Test indexer connection with provided configuration (doesn't require saving first)
   app.post("/api/indexers/test", async (req, res) => {
     try {
-      const { name, url, apiKey, enabled, priority, categories, rssEnabled, autoSearchEnabled } =
-        req.body;
+      const {
+        name,
+        url,
+        apiKey,
+        protocol,
+        enabled,
+        priority,
+        categories,
+        rssEnabled,
+        autoSearchEnabled,
+      } = req.body;
 
       if (!url || !apiKey) {
         return res.status(400).json({ error: "URL and API key are required" });
@@ -1893,13 +1907,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Invalid or unsafe URL" });
       }
 
+      const resolvedProtocol: string = protocol || "torznab";
+
       // Create a temporary indexer object for testing
       const tempIndexer: Indexer = {
         id: "test",
         name: name || "Test Connection",
         url,
         apiKey,
-        protocol: "torznab",
+        protocol: resolvedProtocol,
         enabled: enabled ?? true,
         priority: priority ?? 1,
         categories: categories || [],
@@ -1909,7 +1925,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         updatedAt: new Date(),
       };
 
-      const result = await torznabClient.testConnection(tempIndexer);
+      const client = isUsenetProtocol(resolvedProtocol) ? newznabClient : torznabClient;
+      const result = await client.testConnection(tempIndexer);
       res.json(result);
     } catch (error) {
       routesLogger.error({ error }, "error testing indexer");
@@ -1929,7 +1946,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Indexer not found" });
       }
 
-      const result = await torznabClient.testConnection(indexer);
+      const testClient = isUsenetProtocol(indexer.protocol) ? newznabClient : torznabClient;
+      const result = await testClient.testConnection(indexer);
       res.json(result);
     } catch (error) {
       routesLogger.error({ error }, "error testing indexer");
@@ -1949,7 +1967,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Indexer not found" });
       }
 
-      const categories = await torznabClient.getCategories(indexer);
+      const categoriesClient = isUsenetProtocol(indexer.protocol) ? newznabClient : torznabClient;
+      const categories = await categoriesClient.getCategories(indexer);
       res.json(categories);
     } catch (error) {
       routesLogger.error({ error }, "error getting categories");
@@ -1972,14 +1991,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Indexer not found" });
       }
 
+      const trimmedQuery = query.trim();
+      const isG4u = indexer.protocol === "g4u";
       const searchParams = {
-        query: query.trim(),
+        query: isG4u ? trimmedQuery.replace(/ /g, ".") : trimmedQuery,
         category: parseCategories(category || cat),
         limit: parseInt(limit as string) || 50,
         offset: parseInt(offset as string) || 0,
       };
 
-      const results = await torznabClient.searchGames(indexer, searchParams);
+      let results;
+      if (isUsenetProtocol(indexer.protocol)) {
+        results = await newznabClient.search(indexer, searchParams);
+      } else {
+        results = await torznabClient.searchGames(indexer, searchParams);
+      }
       res.json(results);
     } catch (error) {
       routesLogger.error({ error }, "error searching specific indexer");

@@ -205,7 +205,11 @@ export const sanitizeIndexerData = [
     .trim()
     .isLength({ max: 500 })
     .withMessage("API key must be at most 500 characters"),
-  body("protocol").optional().trim().isIn(["torznab", "newznab"]).withMessage("Invalid protocol"),
+  body("protocol")
+    .optional()
+    .trim()
+    .isIn(["torznab", "newznab", "g4u"])
+    .withMessage("Invalid protocol"),
   body("enabled").optional().isBoolean().withMessage("Enabled must be a boolean").toBoolean(),
 ];
 
@@ -235,7 +239,11 @@ export const sanitizeIndexerUpdateData = [
     .trim()
     .isLength({ max: 500 })
     .withMessage("API key must be at most 500 characters"),
-  body("protocol").optional().trim().isIn(["torznab", "newznab"]).withMessage("Invalid protocol"),
+  body("protocol")
+    .optional()
+    .trim()
+    .isIn(["torznab", "newznab", "g4u"])
+    .withMessage("Invalid protocol"),
   body("enabled").optional().isBoolean().withMessage("Enabled must be a boolean").toBoolean(),
   body("priority")
     .optional()

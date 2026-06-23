@@ -5,6 +5,6 @@ set -e
 # The base entrypoint's find-based chown only scans children of /data, not /data
 # itself, so a fresh empty mount is never fixed and Questarr can't write sqlite.db.
 # Explicitly fix the directory ownership here before handing off to the base entrypoint.
-chown "${PUID:-1000}:${PGID:-1000}" /data 2>/dev/null || true
+chown -R "${PUID:-1000}:${PGID:-1000}" /data 2>/dev/null || true
 
 exec /entrypoint.sh "$@"

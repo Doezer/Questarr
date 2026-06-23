@@ -1,5 +1,13 @@
 ARG BUILD_FROM=ghcr.io/doezer/questarr:1.4.0
+ARG BUILD_ARCH=amd64
 FROM ${BUILD_FROM}
+
+LABEL \
+    io.hass.name="Questarr" \
+    io.hass.description="Video game management for your Home Assistant stack." \
+    io.hass.arch="${BUILD_ARCH}" \
+    io.hass.type="addon" \
+    io.hass.version="1.4.0"
 
 RUN mkdir -p /data
 

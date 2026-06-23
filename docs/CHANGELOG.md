@@ -13,6 +13,7 @@ All notable changes to this project will be documented in this file.
 - **Docker**: Rewrote `entrypoint.sh` with PUID/PGID support (LinuxServer.io / \*Arr convention) so mounted volumes adopt the host user's UID/GID automatically.
 - **Docker**: `SQLITE_DB_PATH` is now exported with a default of `/app/data/sqlite.db`, ensuring the database is always placed inside the persistent volume when the variable is unset.
 - **Docker**: Improved healthcheck — added `.on('error', ...)` handler to prevent noisy stack traces during container startup.
+- **Docker** ⚠️: The `PORT` variable in `docker-compose.yml` has been split into two: `HOST_SIDE_PORT` (host-side binding, default `5000`) and `CONTAINER_INTERNAL_SIDE_PORT` (internal container port, default `5000`). If you had `PORT` set in your `.env` to customize the host port, rename it to `HOST_SIDE_PORT`.
 - **CI**: Pinned GitHub Actions to commit SHAs; fixed Codecov test-results upload to correctly locate the JUnit XML report.
 - **Dependencies**: Removed duplicate `@types/multer` entry from `package.json`; updated Radix UI, semver, and other minor dependencies.
 

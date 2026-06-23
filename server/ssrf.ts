@@ -17,11 +17,47 @@ interface SafeFetchTarget {
   isHttps: boolean;
 }
 
-function normalizeHostname(hostname: string): string {
+export function normalizeHostname(hostname: string): string {
   if (hostname.startsWith("[") && hostname.endsWith("]")) {
     return hostname.slice(1, -1);
   }
   return hostname;
+}
+
+export async function resolveSafeAddress(
+  hostname: string,
+  allowPrivate = true
+): Promise<{ address: string; family: 4 | 6 }> {
+  const normalizedHostname = normalizeHostname(hostname);
+  const ipVersion = isIP(normalizedHostname);
+
+  if (ipVersion !== 0) {
+    if (!isSafeIp(normalizedHostname, allowPrivate)) {
+      throw new Error("Invalid or unsafe URL");
+    }
+    return { address: normalizedHostname, family: ipVersion as 4 | 6 };
+  }
+
+  try {
+    const addresses = await dns.lookup(normalizedHostname, { all: true });
+    if (!addresses || addresses.length === 0) {
+      throw new Error("Invalid or unsafe URL");
+    }
+    for (const { address } of addresses) {
+      if (!isSafeIp(address, allowPrivate)) {
+        throw new Error("Invalid or unsafe URL");
+      }
+    }
+    return {
+      address: addresses[0].address,
+      family: addresses[0].family as 4 | 6,
+    };
+  } catch (error) {
+    if (error instanceof Error && error.message === "Invalid or unsafe URL") {
+      throw error;
+    }
+    throw new Error(`Failed to resolve hostname: ${normalizedHostname}`);
+  }
 }
 
 function buildFetchSignal(
@@ -129,7 +165,8 @@ async function fetchValidatedOnce(
   safeUrl.hostname = target.family === 6 ? `[${target.address}]` : target.address;
 
   const headers = new Headers(fetchOptions.headers ?? {});
-  headers.set("Host", target.hostname);
+  // Use url.host (not normalized) to preserve IPv6 brackets and include non-default port per RFC 7230
+  headers.set("Host", url.host);
 
   return fetch(safeUrl.toString(), {
     ...fetchOptions,

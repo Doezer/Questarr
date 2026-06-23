@@ -577,6 +577,20 @@ describe("Search Module - g4u.to indexers", () => {
       expect.objectContaining({ query: undefined })
     );
   });
+
+  it("aggregates errors from g4u client failure into combined errors", async () => {
+    const g4uIndexer = makeG4uIndexer();
+    vi.mocked(storage.getEnabledIndexers).mockResolvedValue([g4uIndexer]);
+    vi.mocked(newznabClient.searchMultipleIndexers).mockRejectedValue(
+      new Error("g4u connection refused")
+    );
+
+    const result = await searchAllIndexers({ query: "game" });
+
+    expect(result.items).toHaveLength(0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toContain("g4u connection refused");
+  });
 });
 
 describe("filterBlacklistedReleases", () => {

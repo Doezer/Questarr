@@ -90,38 +90,30 @@ export async function searchAllIndexers(
     );
   }
 
+  const makeNewznabPromise = (
+    indexers: typeof newznabIndexers,
+    params: typeof searchParams,
+    label: string
+  ) =>
+    newznabClient
+      .searchMultipleIndexers(indexers, params)
+      .then((res) => ({ type: "newznab" as const, ...res }))
+      .catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        searchLogger.error({ error: message }, `${label} client failed`);
+        return {
+          type: "newznab" as const,
+          results: { items: [], total: 0, offset: 0 },
+          errors: [{ indexer: label, error: message }],
+        };
+      });
+
   if (newznabIndexers.length > 0) {
-    promises.push(
-      newznabClient
-        .searchMultipleIndexers(newznabIndexers, searchParams)
-        .then((res) => ({ type: "newznab" as const, ...res }))
-        .catch((err: unknown) => {
-          const message = err instanceof Error ? err.message : String(err);
-          searchLogger.error({ error: message }, "newznab client failed");
-          return {
-            type: "newznab" as const,
-            results: { items: [], total: 0, offset: 0 },
-            errors: [{ indexer: "newznab", error: message }],
-          };
-        })
-    );
+    promises.push(makeNewznabPromise(newznabIndexers, searchParams, "newznab"));
   }
 
   if (g4uIndexers.length > 0) {
-    promises.push(
-      newznabClient
-        .searchMultipleIndexers(g4uIndexers, g4uSearchParams)
-        .then((res) => ({ type: "newznab" as const, ...res }))
-        .catch((err: unknown) => {
-          const message = err instanceof Error ? err.message : String(err);
-          searchLogger.error({ error: message }, "g4u client failed");
-          return {
-            type: "newznab" as const,
-            results: { items: [], total: 0, offset: 0 },
-            errors: [{ indexer: "g4u", error: message }],
-          };
-        })
-    );
+    promises.push(makeNewznabPromise(g4uIndexers, g4uSearchParams, "g4u"));
   }
 
   const results = await Promise.all(promises);

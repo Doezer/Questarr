@@ -76,7 +76,7 @@ describe("SABnzbdClient SSL fallback", () => {
       expect(requestUrl).toBe("https://127.0.0.1:8080/api?apikey=api-key&mode=version&output=json");
       expect(requestOptions.rejectUnauthorized).toBe(false);
       expect(requestOptions.headers).toMatchObject({
-        host: "sab.local",
+        host: "sab.local:8080",
       });
 
       const request = new EventEmitter() as EventEmitter & {

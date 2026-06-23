@@ -131,7 +131,7 @@ export class SABnzbdClient implements DownloaderClient {
     safeUrl.hostname = family === 6 ? `[${address}]` : address;
 
     const headers = new Headers(options.headers || {});
-    headers.set("Host", parsedUrl.hostname);
+    headers.set("Host", parsedUrl.host);
 
     return new Promise((resolve, reject) => {
       const req = https.request(

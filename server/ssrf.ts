@@ -165,8 +165,8 @@ async function fetchValidatedOnce(
   safeUrl.hostname = target.family === 6 ? `[${target.address}]` : target.address;
 
   const headers = new Headers(fetchOptions.headers ?? {});
-  // Use url.hostname (not normalized) to preserve IPv6 brackets in the Host header per RFC 7230
-  headers.set("Host", url.hostname);
+  // Use url.host (not normalized) to preserve IPv6 brackets and include non-default port per RFC 7230
+  headers.set("Host", url.host);
 
   return fetch(safeUrl.toString(), {
     ...fetchOptions,

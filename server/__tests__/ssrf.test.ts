@@ -242,6 +242,6 @@ describe("safeFetch", () => {
     );
 
     const calledHeaders = (fetch as Mock).mock.calls[0][1].headers as Headers;
-    expect(calledHeaders.get("Host")).toBe("[::1]");
+    expect(calledHeaders.get("Host")).toBe("[::1]:8080");
   });
 });

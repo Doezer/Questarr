@@ -22,7 +22,7 @@ Five weighted dimensions. Max score: **100**.
 
 ---
 
-## Current Score: 73/100
+## Current Score: 76/100
 
 ### Automation — 26/30
 
@@ -83,9 +83,7 @@ Functional. Mobile and accessibility are the gaps.
 - [ ] Notification granularity (per-event control)
 - [ ] Search result ranking and release group filtering improvements
 
-### Code health — 14/15
-
-Good foundation. Performance work and a CI coverage gate remain.
+### Code health — 15/15
 
 - [x] TypeScript strict mode throughout (no `any`)
 - [x] 53 server test files (unit + integration)
@@ -95,7 +93,7 @@ Good foundation. Performance work and a CI coverage gate remain.
 - [x] In-memory SQLite for tests (no real DB in CI)
 - [x] Drizzle migrations
 - [x] E2E tests for main user journeys (Playwright, port 5100)
-- [ ] Test coverage gate in CI
+- [x] Test coverage gate in CI (73% statements / 68% branches / 67% functions / 74% lines)
 - [ ] Pagination on heavy list endpoints
 - [ ] Advanced caching for search results
 
@@ -117,7 +115,7 @@ Active and growing. Response time is good; structured community artifacts are th
 ## Key Known Issues
 
 1. **Mobile is untested.** The UI was built desktop-first; touch targets, density, and navigation haven't been validated on phone-sized screens.
-2. **E2E coverage is smoke-level.** Journey specs cover the main flows (library, discover, search, downloads) but the full add → auto-search → download → post-process pipeline has no end-to-end test yet.
+2. **E2E coverage is smoke-level.** Journey specs cover the main flows (library, discover, search, downloads) but the full add → auto-search → download → post-process pipeline has no end-to-end test yet. A coverage gate now enforces the floor at 73% statements / 68% branches.
 3. **Accessibility gaps remain.** ARIA label hardening is ongoing (recent commits) but there's no automated audit in CI to prevent regressions.
 
 ---

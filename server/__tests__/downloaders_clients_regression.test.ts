@@ -557,6 +557,86 @@ describe("downloader client regression coverage", () => {
     expect(safeFetch).toHaveBeenCalled();
   });
 
+  it("falls back to blob() when arrayBuffer is unavailable on the fetched response", async () => {
+    const client = new SynologyDownloadStationClient(
+      createDownloader({
+        type: "synology",
+        url: "http://nas.local:5000",
+        username: "admin",
+        password: "pw",
+      })
+    );
+    vi.spyOn(
+      client as unknown as { ensureApiInfo: () => Promise<void> },
+      "ensureApiInfo"
+    ).mockResolvedValue(undefined);
+    vi.spyOn(
+      client as unknown as {
+        getTaskApiDescriptor: () => { apiName: string; descriptor: { path: string } };
+      },
+      "getTaskApiDescriptor"
+    ).mockReturnValue({ apiName: "SYNO.DownloadStation.Task", descriptor: { path: "entry.cgi" } });
+    vi.spyOn(
+      client as unknown as {
+        requestTaskApi: () => Promise<{ success: boolean; data?: { task_id?: string[] } }>;
+      },
+      "requestTaskApi"
+    ).mockResolvedValue({ success: true, data: { task_id: ["blob-id"] } });
+
+    vi.mocked(safeFetch).mockResolvedValueOnce({
+      ok: true,
+      headers: { get: () => null },
+      blob: async () => ({ arrayBuffer: async () => new TextEncoder().encode("blob-data").buffer }),
+    } as unknown as Response);
+
+    const result = await client.addDownload({
+      url: "http://indexer.local/game.torrent",
+      title: "Game",
+      downloadType: "torrent",
+    });
+    expect(result).toMatchObject({ success: true, id: "blob-id" });
+  });
+
+  it("falls back to text() when neither arrayBuffer nor blob is available on the fetched response", async () => {
+    const client = new SynologyDownloadStationClient(
+      createDownloader({
+        type: "synology",
+        url: "http://nas.local:5000",
+        username: "admin",
+        password: "pw",
+      })
+    );
+    vi.spyOn(
+      client as unknown as { ensureApiInfo: () => Promise<void> },
+      "ensureApiInfo"
+    ).mockResolvedValue(undefined);
+    vi.spyOn(
+      client as unknown as {
+        getTaskApiDescriptor: () => { apiName: string; descriptor: { path: string } };
+      },
+      "getTaskApiDescriptor"
+    ).mockReturnValue({ apiName: "SYNO.DownloadStation.Task", descriptor: { path: "entry.cgi" } });
+    vi.spyOn(
+      client as unknown as {
+        requestTaskApi: () => Promise<{ success: boolean; data?: { task_id?: string[] } }>;
+      },
+      "requestTaskApi"
+    ).mockResolvedValue({ success: true, data: { task_id: ["text-id"] } });
+
+    vi.mocked(safeFetch).mockResolvedValueOnce({
+      ok: true,
+      headers: { get: () => null },
+      text: async () => "text-data",
+    } as unknown as Response);
+
+    const result = await client.addDownload({
+      url: "http://indexer.local/game.torrent",
+      title: "Game",
+      downloadType: "torrent",
+    });
+    expect(result).toMatchObject({ success: true, id: "text-id" });
+  });
+
   it("fetches a missing Transmission hashString and falls back to the numeric id when that lookup fails", async () => {
     const client = new TransmissionClient(createDownloader({ type: "transmission" }));
 

@@ -53,5 +53,27 @@ if find /app/data \( ! -uid "$QUESTARR_UID" -o ! -gid "$QUESTARR_GID" \) -print 
   chown -R questarr:questarr /app/data
 fi
 
+# Verify the questarr user can actually write to /app/data before dropping privileges.
+# If this fails, the DB would crash at startup with an unhelpful SQLite error.
+if ! su-exec questarr test -w /app/data 2>/dev/null; then
+  echo "ERROR: questarr (UID ${QUESTARR_UID}) cannot write to /app/data."
+  echo "  The chown above may have failed due to filesystem restrictions (e.g. rootless Docker, NFS)."
+  echo "  Fix on the host: sudo chown -R ${QUESTARR_UID}:${QUESTARR_GID} ./data"
+  echo "  Or match the data directory's owner by setting PUID/PGID in your compose environment."
+  exit 1
+fi
+
+# If the database file already exists, verify it is writable too.
+# A recursive chown on the directory won't help if the file itself has a mode like 400.
+if [ -z "$SQLITE_DB_PATH" ]; then
+  export SQLITE_DB_PATH="/app/data/sqlite.db"
+fi
+_DB_FILE="$SQLITE_DB_PATH"
+if [ -f "$_DB_FILE" ] && ! su-exec questarr test -w "$_DB_FILE" 2>/dev/null; then
+  echo "ERROR: questarr (UID ${QUESTARR_UID}) cannot write to existing database file ${_DB_FILE}."
+  echo "  Fix on the host: sudo chown ${QUESTARR_UID}:${QUESTARR_GID} \"${_DB_FILE}\""
+  exit 1
+fi
+
 # Drop root privileges and exec the CMD as questarr
 exec su-exec questarr "$@"

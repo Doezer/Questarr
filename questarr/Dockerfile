@@ -1,3 +1,4 @@
+# NOSONAR - ha-entrypoint.sh must run as root to chown /data before su-exec drops to questarr
 FROM ghcr.io/doezer/questarr:1.4.0
 ARG BUILD_ARCH=amd64
 

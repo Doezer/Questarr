@@ -43,3 +43,4 @@ pr_status.json
 data_test/
 docker-compose.test.yml
 check-sonar.mjs
+.eslintcache

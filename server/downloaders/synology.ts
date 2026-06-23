@@ -728,41 +728,7 @@ export class SynologyDownloadStationClient implements DownloaderClient {
         };
       }
 
-      const response = fetchResult.response;
-      const contentDisposition = response.headers.get("content-disposition") || "";
-      const fileNameMatch = contentDisposition.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i);
-      const fileName =
-        fileNameMatch?.[1] != null
-          ? decodeURIComponent(fileNameMatch[1].replace(/"/g, ""))
-          : `${request.title || "download"}.${request.downloadType === "usenet" ? "nzb" : "torrent"}`;
-
-      const fileContents =
-        typeof response.arrayBuffer === "function"
-          ? await response.arrayBuffer()
-          : typeof response.blob === "function"
-            ? await (await response.blob()).arrayBuffer()
-            : Buffer.from(await response.text());
-
-      const fileBlob = new Blob([fileContents], {
-        type: response.headers.get("content-type") || "application/octet-stream",
-      });
-      const formData = new FormData();
-      formData.append("file", fileBlob, fileName);
-
-      if (destination) {
-        formData.append("destination", destination);
-      }
-
-      const uploadResponse = await this.requestTaskApi<SynologyTaskResponse>("create", {
-        httpMethod: "POST",
-        body: formData,
-      });
-
-      return {
-        success: true,
-        id: uploadResponse.data?.task_id?.[0],
-        message: "Download added successfully",
-      };
+      return this.addFileUpload(request, destination, apiName, fetchResult.response);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       return {
@@ -770,6 +736,52 @@ export class SynologyDownloadStationClient implements DownloaderClient {
         message: `Failed to add download to Synology Download Station: ${errorMessage}`,
       };
     }
+  }
+
+  private async addFileUpload(
+    request: DownloadRequest,
+    destination: string | undefined,
+    apiName: string,
+    response: Response
+  ): Promise<{ success: boolean; id?: string; message: string }> {
+    const contentDisposition = response.headers.get("content-disposition") || "";
+    const fileNameMatch = contentDisposition.match(/filename\*?=(?:UTF-8''|")?([^";]+)/i);
+    const fileName =
+      fileNameMatch?.[1] != null
+        ? decodeURIComponent(fileNameMatch[1].replace(/"/g, ""))
+        : `${request.title || "download"}.${request.downloadType === "usenet" ? "nzb" : "torrent"}`;
+
+    const fileContents =
+      typeof response.arrayBuffer === "function"
+        ? await response.arrayBuffer()
+        : typeof response.blob === "function"
+          ? await (await response.blob()).arrayBuffer()
+          : Buffer.from(await response.text());
+
+    const fileBlob = new Blob([fileContents], {
+      type: response.headers.get("content-type") || "application/octet-stream",
+    });
+    const formData = new FormData();
+    formData.append("file", fileBlob, fileName);
+
+    if (destination) {
+      formData.append("destination", destination);
+    }
+
+    if (apiName === "SYNO.DownloadStation2.Task") {
+      formData.append("type", "file");
+    }
+
+    const uploadResponse = await this.requestTaskApi<SynologyTaskResponse>("create", {
+      httpMethod: "POST",
+      body: formData,
+    });
+
+    return {
+      success: true,
+      id: uploadResponse.data?.task_id?.[0],
+      message: "Download added successfully",
+    };
   }
 
   async getDownloadStatus(id: string): Promise<DownloadStatus | null> {

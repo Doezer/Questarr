@@ -25,6 +25,7 @@ vi.mock("../logger.js", () => ({
 vi.mock("../ssrf.js", () => ({
   isSafeUrl: vi.fn().mockResolvedValue(true),
   safeFetch: safeFetchMock,
+  resolveSafeAddress: vi.fn().mockResolvedValue({ address: "127.0.0.1", family: 4 }),
 }));
 
 global.fetch = fetchMock as unknown as typeof fetch;

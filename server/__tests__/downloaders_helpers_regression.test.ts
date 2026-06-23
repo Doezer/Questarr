@@ -11,6 +11,12 @@ import { SABnzbdClient } from "../downloaders/sabnzbd.js";
 import { SynologyDownloadStationClient } from "../downloaders/synology.js";
 import { TransmissionClient } from "../downloaders/transmission.js";
 
+vi.mock("dns/promises", () => ({
+  default: {
+    lookup: vi.fn().mockResolvedValue([{ address: "127.0.0.1", family: 4 }]),
+  },
+}));
+
 vi.mock("../logger.js", () => ({
   downloadersLogger: {
     debug: vi.fn(),

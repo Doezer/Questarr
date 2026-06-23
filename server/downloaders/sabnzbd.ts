@@ -1,7 +1,7 @@
 import type { Downloader, DownloadStatus, DownloadDetails } from "../../shared/schema.js";
 import { downloadersLogger } from "../logger.js";
 import https from "https";
-import { isSafeUrl, safeFetch } from "../ssrf.js";
+import { isSafeUrl, resolveSafeAddress, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
 import { fixNzbUrlEncoding } from "./utils.js";
 
@@ -103,7 +103,7 @@ export class SABnzbdClient implements DownloaderClient {
 
   private async fetchWithFallback(url: string, options: RequestInit = {}): Promise<Response> {
     try {
-      return await fetch(url, options);
+      return await safeFetch(url, { ...options, allowPrivate: true });
     } catch (error) {
       const isSslError =
         error instanceof Error &&
@@ -124,13 +124,21 @@ export class SABnzbdClient implements DownloaderClient {
     }
   }
 
-  private fetchInsecure(url: string, options: RequestInit): Promise<Response> {
+  private async fetchInsecure(url: string, options: RequestInit): Promise<Response> {
+    const parsedUrl = new URL(url);
+    const { address, family } = await resolveSafeAddress(parsedUrl.hostname, true);
+    const safeUrl = new URL(url);
+    safeUrl.hostname = family === 6 ? `[${address}]` : address;
+
+    const headers = new Headers(options.headers || {});
+    headers.set("Host", parsedUrl.hostname);
+
     return new Promise((resolve, reject) => {
       const req = https.request(
-        url,
+        safeUrl.toString(),
         {
           method: options.method || "GET",
-          headers: options.headers as unknown as import("http").OutgoingHttpHeaders,
+          headers: Object.fromEntries(headers.entries()) as import("http").OutgoingHttpHeaders,
           rejectUnauthorized: false,
           timeout: 30000,
         },

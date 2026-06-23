@@ -204,6 +204,10 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
  * @param query - The query parameters object
  * @returns Validated limit and offset values
  */
+function isUsenetProtocol(protocol: string): boolean {
+  return protocol === "newznab" || protocol === "g4u";
+}
+
 function validatePaginationParams(query: { limit?: string; offset?: string }): {
   limit: number;
   offset: number;
@@ -1921,9 +1925,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         updatedAt: new Date(),
       };
 
-      const client = resolvedProtocol === "newznab" || resolvedProtocol === "g4u"
-        ? newznabClient
-        : torznabClient;
+      const client = isUsenetProtocol(resolvedProtocol) ? newznabClient : torznabClient;
       const result = await client.testConnection(tempIndexer);
       res.json(result);
     } catch (error) {
@@ -1944,10 +1946,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Indexer not found" });
       }
 
-      const testClient =
-        indexer.protocol === "newznab" || indexer.protocol === "g4u"
-          ? newznabClient
-          : torznabClient;
+      const testClient = isUsenetProtocol(indexer.protocol) ? newznabClient : torznabClient;
       const result = await testClient.testConnection(indexer);
       res.json(result);
     } catch (error) {
@@ -1968,10 +1967,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Indexer not found" });
       }
 
-      const categoriesClient =
-        indexer.protocol === "newznab" || indexer.protocol === "g4u"
-          ? newznabClient
-          : torznabClient;
+      const categoriesClient = isUsenetProtocol(indexer.protocol) ? newznabClient : torznabClient;
       const categories = await categoriesClient.getCategories(indexer);
       res.json(categories);
     } catch (error) {
@@ -2005,7 +2001,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
 
       let results;
-      if (indexer.protocol === "newznab" || isG4u) {
+      if (isUsenetProtocol(indexer.protocol)) {
         results = await newznabClient.search(indexer, searchParams);
       } else {
         results = await torznabClient.searchGames(indexer, searchParams);

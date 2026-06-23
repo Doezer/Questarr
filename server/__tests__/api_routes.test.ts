@@ -8,6 +8,7 @@ import { igdbClient, type IGDBGame } from "../igdb.js";
 import { type Game, type User, type Indexer, type Downloader } from "../../shared/schema.js";
 import { DownloaderManager } from "../downloaders.js";
 import { torznabClient } from "../torznab.js";
+import { newznabClient } from "../newznab.js";
 import { rssService } from "../rss.js";
 import { comparePassword } from "../auth.js";
 import { db } from "../db.js";
@@ -192,6 +193,17 @@ vi.mock("../torznab.js", () => ({
     testConnection: vi.fn().mockResolvedValue({ success: true }),
     searchGames: vi.fn().mockResolvedValue({ items: [], total: 0 }),
     getCategories: vi.fn().mockResolvedValue([]),
+  },
+}));
+
+vi.mock("../newznab.js", () => ({
+  newznabClient: {
+    testConnection: vi.fn().mockResolvedValue({ success: true }),
+    search: vi.fn().mockResolvedValue([]),
+    getCategories: vi.fn().mockResolvedValue([]),
+    searchMultipleIndexers: vi
+      .fn()
+      .mockResolvedValue({ results: { items: [], total: 0, offset: 0 }, errors: [] }),
   },
 }));
 
@@ -1027,6 +1039,18 @@ describe("API Routes - Extended Coverage", () => {
         const response = await request(app).get("/api/indexers/nonexistent/categories");
         expect(response.status).toBe(404);
       });
+
+      it("should use newznabClient for g4u indexer categories", async () => {
+        vi.mocked(storage.getIndexer).mockResolvedValue({
+          id: "g4u-1",
+          protocol: "g4u",
+        } as unknown as Indexer);
+        vi.mocked(newznabClient.getCategories).mockResolvedValue([]);
+        const response = await request(app).get("/api/indexers/g4u-1/categories");
+        expect(response.status).toBe(200);
+        expect(newznabClient.getCategories).toHaveBeenCalled();
+        expect(torznabClient.getCategories).not.toHaveBeenCalled();
+      });
     });
 
     describe("GET /api/indexers/:id/search", () => {
@@ -1045,6 +1069,35 @@ describe("API Routes - Extended Coverage", () => {
         vi.mocked(storage.getIndexer).mockResolvedValue(null as any);
         const response = await request(app).get("/api/indexers/nonexistent/search?query=test");
         expect(response.status).toBe(404);
+      });
+
+      it("should use newznabClient with dot-separated query for g4u indexer", async () => {
+        vi.mocked(storage.getIndexer).mockResolvedValue({
+          id: "g4u-1",
+          protocol: "g4u",
+        } as unknown as Indexer);
+        vi.mocked(newznabClient.search).mockResolvedValue([]);
+        const response = await request(app).get("/api/indexers/g4u-1/search?query=The+Witcher+3");
+        expect(response.status).toBe(200);
+        expect(newznabClient.search).toHaveBeenCalledWith(
+          expect.any(Object),
+          expect.objectContaining({ query: "The.Witcher.3" })
+        );
+        expect(torznabClient.searchGames).not.toHaveBeenCalled();
+      });
+
+      it("should use newznabClient for plain newznab indexer search without dot transformation", async () => {
+        vi.mocked(storage.getIndexer).mockResolvedValue({
+          id: "nzb-1",
+          protocol: "newznab",
+        } as unknown as Indexer);
+        vi.mocked(newznabClient.search).mockResolvedValue([]);
+        const response = await request(app).get("/api/indexers/nzb-1/search?query=The+Witcher+3");
+        expect(response.status).toBe(200);
+        expect(newznabClient.search).toHaveBeenCalledWith(
+          expect.any(Object),
+          expect.objectContaining({ query: "The Witcher 3" })
+        );
       });
     });
   });
@@ -1675,6 +1728,46 @@ describe("API Routes - Extended Coverage", () => {
     it("should return 400 for missing url/apiKey", async () => {
       const response = await request(app).post("/api/indexers/test").send({});
       expect(response.status).toBe(400);
+    });
+
+    it("should use torznabClient when protocol is torznab", async () => {
+      vi.mocked(torznabClient.testConnection).mockResolvedValue({ success: true, message: "ok" });
+      const response = await request(app)
+        .post("/api/indexers/test")
+        .send({ url: "https://example.com", apiKey: "key", protocol: "torznab" });
+      expect(response.status).toBe(200);
+      expect(torznabClient.testConnection).toHaveBeenCalled();
+      expect(newznabClient.testConnection).not.toHaveBeenCalled();
+    });
+
+    it("should use newznabClient when protocol is g4u", async () => {
+      vi.mocked(newznabClient.testConnection).mockResolvedValue({ success: true, message: "ok" });
+      const response = await request(app)
+        .post("/api/indexers/test")
+        .send({ url: "https://api.g4u.to/api", apiKey: "key", protocol: "g4u" });
+      expect(response.status).toBe(200);
+      expect(newznabClient.testConnection).toHaveBeenCalled();
+      expect(torznabClient.testConnection).not.toHaveBeenCalled();
+    });
+
+    it("should use newznabClient when protocol is newznab", async () => {
+      vi.mocked(newznabClient.testConnection).mockResolvedValue({ success: true, message: "ok" });
+      const response = await request(app)
+        .post("/api/indexers/test")
+        .send({ url: "https://nzb.example.com/api", apiKey: "key", protocol: "newznab" });
+      expect(response.status).toBe(200);
+      expect(newznabClient.testConnection).toHaveBeenCalled();
+      expect(torznabClient.testConnection).not.toHaveBeenCalled();
+    });
+
+    it("should default to torznabClient when no protocol is given", async () => {
+      vi.mocked(torznabClient.testConnection).mockResolvedValue({ success: true, message: "ok" });
+      const response = await request(app)
+        .post("/api/indexers/test")
+        .send({ url: "https://example.com", apiKey: "key" });
+      expect(response.status).toBe(200);
+      expect(torznabClient.testConnection).toHaveBeenCalled();
+      expect(newznabClient.testConnection).not.toHaveBeenCalled();
     });
   });
 

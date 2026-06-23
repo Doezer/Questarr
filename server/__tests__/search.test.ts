@@ -440,6 +440,145 @@ describe("Search Module - searchAllIndexers", () => {
   });
 });
 
+describe("Search Module - g4u.to indexers", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const makeG4uIndexer = (overrides: Partial<Indexer> = {}): Indexer => ({
+    id: "g4u-1",
+    name: "g4u.to Indexer",
+    url: "https://api.g4u.to/api",
+    apiKey: "g4ukey",
+    protocol: "g4u",
+    enabled: true,
+    priority: 1,
+    categories: ["4000"],
+    rssEnabled: true,
+    autoSearchEnabled: true,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...overrides,
+  });
+
+  it("routes g4u indexers through newznabClient, not torznabClient", async () => {
+    const g4uIndexer = makeG4uIndexer();
+    vi.mocked(storage.getEnabledIndexers).mockResolvedValue([g4uIndexer]);
+    vi.mocked(newznabClient.searchMultipleIndexers).mockResolvedValue(makeNewznabResponse([]));
+
+    await searchAllIndexers({ query: "test game" });
+
+    expect(newznabClient.searchMultipleIndexers).toHaveBeenCalled();
+    expect(torznabClient.searchMultipleIndexers).not.toHaveBeenCalled();
+  });
+
+  it("transforms spaces to dots in query for g4u indexers", async () => {
+    const g4uIndexer = makeG4uIndexer();
+    vi.mocked(storage.getEnabledIndexers).mockResolvedValue([g4uIndexer]);
+    vi.mocked(newznabClient.searchMultipleIndexers).mockResolvedValue(makeNewznabResponse([]));
+
+    await searchAllIndexers({ query: "The Witcher 3" });
+
+    expect(newznabClient.searchMultipleIndexers).toHaveBeenCalledWith(
+      [g4uIndexer],
+      expect.objectContaining({ query: "The.Witcher.3" })
+    );
+  });
+
+  it("does not transform query for plain newznab indexers", async () => {
+    const newznabIndexer = makeNewznabIndexer();
+    vi.mocked(storage.getEnabledIndexers).mockResolvedValue([newznabIndexer]);
+    vi.mocked(newznabClient.searchMultipleIndexers).mockResolvedValue(makeNewznabResponse([]));
+
+    await searchAllIndexers({ query: "The Witcher 3" });
+
+    expect(newznabClient.searchMultipleIndexers).toHaveBeenCalledWith(
+      [newznabIndexer],
+      expect.objectContaining({ query: "The Witcher 3" })
+    );
+  });
+
+  it("excludes g4u indexers from torznab search", async () => {
+    const g4uIndexer = makeG4uIndexer();
+    vi.mocked(storage.getEnabledIndexers).mockResolvedValue([g4uIndexer]);
+    vi.mocked(newznabClient.searchMultipleIndexers).mockResolvedValue(makeNewznabResponse([]));
+
+    await searchAllIndexers({ query: "game" });
+
+    expect(torznabClient.searchMultipleIndexers).not.toHaveBeenCalled();
+  });
+
+  it("searches all three protocol types when present", async () => {
+    const torznabIndexer = makeTorznabIndexer();
+    const newznabIndexer = makeNewznabIndexer();
+    const g4uIndexer = makeG4uIndexer();
+    vi.mocked(storage.getEnabledIndexers).mockResolvedValue([
+      torznabIndexer,
+      newznabIndexer,
+      g4uIndexer,
+    ]);
+    vi.mocked(torznabClient.searchMultipleIndexers).mockResolvedValue(makeTorznabResponse([]));
+    vi.mocked(newznabClient.searchMultipleIndexers).mockResolvedValue(makeNewznabResponse([]));
+
+    await searchAllIndexers({ query: "some game" });
+
+    expect(torznabClient.searchMultipleIndexers).toHaveBeenCalledWith(
+      [torznabIndexer],
+      expect.any(Object)
+    );
+    // newznab and g4u each make a separate call
+    expect(newznabClient.searchMultipleIndexers).toHaveBeenCalledTimes(2);
+    expect(newznabClient.searchMultipleIndexers).toHaveBeenCalledWith(
+      [newznabIndexer],
+      expect.objectContaining({ query: "some game" })
+    );
+    expect(newznabClient.searchMultipleIndexers).toHaveBeenCalledWith(
+      [g4uIndexer],
+      expect.objectContaining({ query: "some.game" })
+    );
+  });
+
+  it("returns g4u results as usenet downloadType", async () => {
+    const g4uIndexer = makeG4uIndexer();
+    vi.mocked(storage.getEnabledIndexers).mockResolvedValue([g4uIndexer]);
+    vi.mocked(newznabClient.searchMultipleIndexers).mockResolvedValue(
+      makeNewznabResponse([
+        {
+          title: "Game.Title.v1.0-SCENE",
+          link: "http://g4u.to/nzb/123",
+          publishDate: "2024-03-01T00:00:00Z",
+          size: 5000000,
+          grabs: 20,
+          age: 1,
+          category: ["4000"],
+          guid: "g4u-guid-1",
+          indexerId: "g4u-1",
+          indexerName: "g4u.to Indexer",
+        },
+      ])
+    );
+
+    const result = await searchAllIndexers({ query: "Game Title" });
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].downloadType).toBe("usenet");
+    expect(result.items[0].title).toBe("Game.Title.v1.0-SCENE");
+  });
+
+  it("handles undefined query gracefully for g4u", async () => {
+    const g4uIndexer = makeG4uIndexer();
+    vi.mocked(storage.getEnabledIndexers).mockResolvedValue([g4uIndexer]);
+    vi.mocked(newznabClient.searchMultipleIndexers).mockResolvedValue(makeNewznabResponse([]));
+
+    await searchAllIndexers({ query: undefined });
+
+    expect(newznabClient.searchMultipleIndexers).toHaveBeenCalledWith(
+      [g4uIndexer],
+      expect.objectContaining({ query: undefined })
+    );
+  });
+});
+
 describe("filterBlacklistedReleases", () => {
   const makeItem = (title: string) => ({
     title,

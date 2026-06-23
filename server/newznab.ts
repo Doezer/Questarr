@@ -322,8 +322,7 @@ class NewznabClient {
         throw new Error(`Unsafe URL detected: ${indexer.url}`);
       }
 
-      const url = new URL(indexer.url);
-      url.pathname = url.pathname.endsWith("/") ? `${url.pathname}api` : `${url.pathname}/api`;
+      const url = this.buildApiUrl(indexer.url);
       url.searchParams.set("apikey", indexer.apiKey);
       url.searchParams.set("t", "caps"); // Get capabilities
 
@@ -384,8 +383,7 @@ class NewznabClient {
         return { success: false, message: "Unsafe URL detected" };
       }
 
-      const url = new URL(indexer.url);
-      url.pathname = url.pathname.endsWith("/") ? `${url.pathname}api` : `${url.pathname}/api`;
+      const url = this.buildApiUrl(indexer.url);
       url.searchParams.set("apikey", indexer.apiKey);
       url.searchParams.set("t", "caps");
 

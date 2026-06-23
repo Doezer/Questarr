@@ -121,9 +121,23 @@ File: `iterations.jsonl` (append-only, one JSON object per line)
 
 ```
 Starting score: 73.0
-Ending score:   NN.N
-Iterations:     N
-Changes made:   (list)
-Remaining gaps: (list)
-Next actions:   (what a future agent or human should tackle next)
+Ending score:   100.0
+Iterations:     2
+Changes made:
+  - Iteration 1: Remove live DNS dependency from Synology downloader route tests; add
+    GOAL loop infrastructure (goal-score.mjs, GOAL.md) — score 63→73
+  - Iteration 2: Add page-level tests for Discover, Search, Settings, Stats, Calendar,
+    Downloads, Library (mobile), Wishlist (mobile), Logs; add full LogsPage
+    implementation; add E2E journey specs for Discover, Search, Library, Downloads
+    — score 73→100
+Remaining gaps:
+  - SearchPage test covers the date-filter and infinite-scroll flows but not every edge
+    case; expand as the feature matures
+  - WishlistPage mobile test covers stacked sections; tab-layout interaction tests could
+    be added for deeper mobile confidence
+Next actions:
+  - Add a test coverage gate in CI so regressions in coverage are caught automatically
+  - Expand E2E journeys to cover the full pipeline (add game → auto-search → download
+    → post-process)
+  - Mobile responsiveness pass once thumb-first layout work lands
 ```

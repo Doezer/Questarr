@@ -22,7 +22,7 @@ Five weighted dimensions. Max score: **100**.
 
 ---
 
-## Current Score: 70/100
+## Current Score: 73/100
 
 ### Automation — 26/30
 
@@ -83,9 +83,9 @@ Functional. Mobile and accessibility are the gaps.
 - [ ] Notification granularity (per-event control)
 - [ ] Search result ranking and release group filtering improvements
 
-### Code health — 11/15
+### Code health — 14/15
 
-Good foundation. E2E coverage and performance work remain.
+Good foundation. Performance work and a CI coverage gate remain.
 
 - [x] TypeScript strict mode throughout (no `any`)
 - [x] 53 server test files (unit + integration)
@@ -94,7 +94,7 @@ Good foundation. E2E coverage and performance work remain.
 - [x] SSRF-protected outbound fetch
 - [x] In-memory SQLite for tests (no real DB in CI)
 - [x] Drizzle migrations
-- [ ] E2E tests for main user journeys (Playwright, port 5100)
+- [x] E2E tests for main user journeys (Playwright, port 5100)
 - [ ] Test coverage gate in CI
 - [ ] Pagination on heavy list endpoints
 - [ ] Advanced caching for search results
@@ -117,7 +117,7 @@ Active and growing. Response time is good; structured community artifacts are th
 ## Key Known Issues
 
 1. **Mobile is untested.** The UI was built desktop-first; touch targets, density, and navigation haven't been validated on phone-sized screens.
-2. **No E2E test coverage.** The Playwright setup exists but the tests aren't written yet. A regression in a full user journey (add game → auto-search → download → post-process) would go undetected.
+2. **E2E coverage is smoke-level.** Journey specs cover the main flows (library, discover, search, downloads) but the full add → auto-search → download → post-process pipeline has no end-to-end test yet.
 3. **Accessibility gaps remain.** ARIA label hardening is ongoing (recent commits) but there's no automated audit in CI to prevent regressions.
 
 ---
@@ -145,4 +145,4 @@ In priority order:
 
 ---
 
-_Score last updated: 2026-06-18_
+_Score last updated: 2026-06-23_

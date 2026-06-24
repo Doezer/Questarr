@@ -27,6 +27,9 @@ test-report.junit.xml
 
 data/*
 
+# SOFA credentials
+.sofa/
+
 # Project specific
 .gemini/
 gemini.md

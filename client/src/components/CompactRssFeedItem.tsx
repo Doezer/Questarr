@@ -65,9 +65,16 @@ const CompactRssFeedItem = ({ item }: CompactRssFeedItemProps) => {
       {/* Actions */}
       <div className="flex items-center gap-2 self-center">
         <Button variant="outline" size="sm" className="h-8 gap-2" asChild>
-          <a href={safeUrl(item.link)} target="_blank" rel="noopener noreferrer">
-            <ExternalLink className="w-4 h-4" />
-            <span className="hidden sm:inline">View</span>
+          <a
+            href={safeUrl(item.link)}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={`View original article for ${item.title}`}
+          >
+            <ExternalLink className="w-4 h-4" aria-hidden="true" />
+            <span className="hidden sm:inline" aria-hidden="true">
+              View
+            </span>
           </a>
         </Button>
       </div>

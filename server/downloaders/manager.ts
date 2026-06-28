@@ -13,6 +13,7 @@ import { QBittorrentClient } from "./qbittorrent.js";
 import { SABnzbdClient } from "./sabnzbd.js";
 import { NZBGetClient } from "./nzbget.js";
 import { SynologyDownloadStationClient } from "./synology.js";
+import { DelugeClient } from "./deluge.js";
 
 // To add a new downloader:
 // 1. Create server/downloaders/mynewclient.ts — implement DownloaderClient from ./types.js
@@ -36,6 +37,8 @@ export class DownloaderManager {
         return new NZBGetClient(downloader);
       case "synology":
         return new SynologyDownloadStationClient(downloader);
+      case "deluge":
+        return new DelugeClient(downloader);
       default:
         throw new Error(`Unsupported downloader type: ${downloader.type}`);
     }

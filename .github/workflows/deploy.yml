@@ -74,7 +74,7 @@ jobs:
           echo "REPO_NAME_LC=$REPO_NAME_LC" >> $GITHUB_ENV
 
       - name: Set up QEMU
-        if: env.ENVIRONMENT == 'production' && inputs.build_arm64 == true
+        if: inputs.build_arm64 == true
         uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
 
       - name: Set up Docker Buildx

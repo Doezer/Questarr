@@ -243,10 +243,51 @@ export class QBittorrentClient implements DownloaderClient {
           "qBittorrent URL add response"
         );
 
+        // qBittorrent v5+ returns JSON on the /api/v2/torrents/add endpoint (HTTP 202).
+        // Older versions return plain text "Ok." / "Fails.".
+        try {
+          const contentType = urlAddResponse.headers.get("content-type") ?? "";
+          if (contentType.includes("application/json")) {
+            const parsed = JSON.parse(urlAddResponseText) as {
+              failure_count?: number;
+              pending_count?: number;
+              success_count?: number;
+            };
+            const isPending = (parsed.pending_count ?? 0) >= 1 && (parsed.failure_count ?? 0) === 0;
+            const isSuccess = (parsed.success_count ?? 0) >= 1;
+            if (isPending || isSuccess) {
+              downloadersLogger.info(
+                { url: request.url, parsed },
+                isPending
+                  ? "qBittorrent accepted URL for async processing"
+                  : "qBittorrent added torrent immediately via URL"
+              );
+              return {
+                success: true,
+                message: isPending
+                  ? "Download queued in qBittorrent"
+                  : "Download added successfully",
+              };
+            }
+            // failure_count >= 1 with no pending/success → fall through to file-upload fallback
+          }
+        } catch {
+          // Not JSON — fall through to plain-text checks below
+        }
+
         const urlAddOk = urlAddResponseText === "Ok." || urlAddResponseText === "";
         const urlAddFails = urlAddResponseText === "Fails.";
+        // 409 Conflict = torrent already exists in qBittorrent; treat as success
+        const urlAddDuplicate = urlAddResponse.status === 409;
 
-        if (urlAddOk || urlAddFails) {
+        if (urlAddOk || urlAddFails || urlAddDuplicate) {
+          if (urlAddDuplicate) {
+            return {
+              success: true,
+              message: "Download already exists (qBittorrent)",
+            };
+          }
+
           const hashFromUrl = extractHashFromUrl(request.url);
 
           if (hashFromUrl) {
@@ -586,6 +627,15 @@ export class QBittorrentClient implements DownloaderClient {
         return {
           success: true,
           message: "Download already exists or invalid download (qBittorrent)",
+        };
+      } else if (response.status === 409) {
+        downloadersLogger.warn(
+          { url: request.url },
+          "qBittorrent reports torrent already exists (409 Conflict)"
+        );
+        return {
+          success: true,
+          message: "Download already exists (qBittorrent)",
         };
       } else {
         downloadersLogger.error({ responseText }, "Unexpected response from qBittorrent");
@@ -1219,7 +1269,7 @@ export class QBittorrentClient implements DownloaderClient {
         signal: AbortSignal.timeout(30000),
       });
 
-      if (!response.ok) {
+      if (!response.ok && response.status !== 409) {
         const errorText = await response.text().catch(() => "No error details available");
         downloadersLogger.error(
           { status: response.status, statusText: response.statusText, errorText, path },
@@ -1229,7 +1279,7 @@ export class QBittorrentClient implements DownloaderClient {
       }
     }
 
-    if (!response.ok) {
+    if (!response.ok && response.status !== 409) {
       const errorText = await response.text().catch(() => "No error details available");
       throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
     }

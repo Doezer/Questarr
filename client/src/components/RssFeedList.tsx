@@ -143,7 +143,7 @@ export default function RssFeedList() {
                   aria-label={`View original article for ${item.title}`}
                 >
                   <ExternalLink className="h-3 w-3" aria-hidden="true" />
-                  <span aria-hidden="true">View Original</span>
+                  View Original
                 </a>
               </CardContent>
             </Card>

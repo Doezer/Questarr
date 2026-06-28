@@ -72,7 +72,7 @@ const CompactRssFeedItem = ({ item }: CompactRssFeedItemProps) => {
             aria-label={`View original article for ${item.title}`}
           >
             <ExternalLink className="w-4 h-4" aria-hidden="true" />
-            <span className="hidden sm:inline" aria-hidden="true">
+            <span className="hidden sm:inline">
               View
             </span>
           </a>

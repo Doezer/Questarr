@@ -9,5 +9,5 @@
 **Action:** Always include the item's unique identifier (e.g., title) in the aria-label for actions within a list item (e.g., `aria-label={\`View details for ${game.title}\`}`).
 ## 2025-02-22 - [Redundant text in parent components]
 
-**Learning:** When adding context-rich `aria-labels` to parent interactive elements (like a `button` or `a` tag) that already contain visually rendered text or icons inside them, screen readers may redundantly announce both the parent label AND the internal text/icons, causing confusing duplication for the user.
-**Action:** When adding a consolidated or context-rich `aria-label` to a parent interactive element, any child decorative elements, status icons, or visually rendered text (e.g., a responsive `span`) within it must be explicitly marked with `aria-hidden="true"` to prevent redundant screen reader announcements.
+**Learning:** When adding context-rich ARIA labels to parent interactive elements (like a button or anchor tag), the ARIA label completely overrides the text content of its children for screen readers. However, marking all children (including visual text) as hidden from ARIA is an anti-pattern that can cause some screen readers to treat the element as empty or skip it.
+**Action:** When adding an ARIA label to a parent interactive element, only mark purely decorative elements (like icons) as hidden. Do not apply aria-hidden to visual text spans inside the interactive element.

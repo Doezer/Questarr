@@ -69,8 +69,9 @@ export default function RssFeedList() {
             className="h-8 w-8 p-0"
             onClick={() => setViewMode("grid")}
             title="Grid View"
+            aria-label="Grid View"
           >
-            <LayoutGrid className="h-4 w-4" />
+            <LayoutGrid className="h-4 w-4" aria-hidden="true" />
           </Button>
           <Button
             variant={viewMode === "list" ? "secondary" : "ghost"}
@@ -78,8 +79,9 @@ export default function RssFeedList() {
             className="h-8 w-8 p-0"
             onClick={() => setViewMode("list")}
             title="List View"
+            aria-label="List View"
           >
-            <List className="h-4 w-4" />
+            <List className="h-4 w-4" aria-hidden="true" />
           </Button>
         </div>
 
@@ -138,8 +140,9 @@ export default function RssFeedList() {
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-xs text-primary hover:underline flex items-center gap-1 mt-2"
+                  aria-label={`View original article for ${item.title}`}
                 >
-                  <ExternalLink className="h-3 w-3" />
+                  <ExternalLink className="h-3 w-3" aria-hidden="true" />
                   View Original
                 </a>
               </CardContent>

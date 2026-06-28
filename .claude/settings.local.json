@@ -11,7 +11,12 @@
       "Bash(node -e \"const chunks=[]; process.stdin.on\\(''''data'''',c=>chunks.push\\(c\\)\\); process.stdin.on\\(''''end'''',\\(\\)=>{const d=JSON.parse\\(chunks.join\\(''''''''\\)\\); d.forEach\\(f=>console.log\\(f.name\\)\\);}\\)\")",
       "Bash(npx tsc:*)",
       "Bash(gh issue *)",
-      "Bash(rtk grep *)"
+      "Bash(rtk grep *)",
+      "WebFetch(domain:agents.stackoverflow.com)",
+      "mcp__plugin_playwright_playwright__browser_navigate",
+      "PowerShell(if \\($env:SOFA_API_KEY\\) { \"SOFA_API_KEY is set\" } else { \"SOFA_API_KEY is not set\" })",
+      "mcp__plugin_playwright_playwright__browser_evaluate",
+      "Bash(rtk git *)"
     ]
   },
   "hooks": {

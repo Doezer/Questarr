@@ -3256,7 +3256,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (message) formData.append("content", message);
       formData.append("file", new Blob([imageBuffer], { type: "image/png" }), "questarr-stats.png");
 
-      const discordRes = await safeFetch(webhookUrl, { method: "POST", body: formData });
+      const discordRes = await safeFetch(webhookUrl, { method: "POST", body: formData, allowPrivate: false });
       if (!discordRes.ok) {
         const errorText = await discordRes.text().catch(() => "Unknown Discord error");
         routesLogger.error(

@@ -45,3 +45,4 @@ data_test/
 docker-compose.test.yml
 .sofa/credentials.json
 check-sonar.mjs
+.serena/

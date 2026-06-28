@@ -16,7 +16,9 @@
       "mcp__plugin_playwright_playwright__browser_navigate",
       "PowerShell(if \\($env:SOFA_API_KEY\\) { \"SOFA_API_KEY is set\" } else { \"SOFA_API_KEY is not set\" })",
       "mcp__plugin_playwright_playwright__browser_evaluate",
-      "Bash(rtk git *)"
+      "Bash(rtk git *)",
+      "Bash(rtk tsc *)",
+      "Bash(rtk gh *)"
     ]
   },
   "hooks": {

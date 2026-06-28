@@ -1,4 +1,5 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import { withBasePath } from "@/lib/app-path";
 
 export class ApiError extends Error {
   status: number;
@@ -32,22 +33,58 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
+function withAuthorization(headers?: HeadersInit): HeadersInit | undefined {
+  const token = localStorage.getItem("token");
+  if (!token) {
+    return headers;
+  }
+
+  const authorization = `Bearer ${token}`;
+
+  if (!headers) {
+    return { Authorization: authorization };
+  }
+
+  if (headers instanceof Headers) {
+    const newHeaders = new Headers(headers);
+    if (!newHeaders.has("Authorization")) {
+      newHeaders.set("Authorization", authorization);
+    }
+    return newHeaders;
+  }
+
+  if (Array.isArray(headers)) {
+    const hasAuthorization = headers.some(([key]) => key.toLowerCase() === "authorization");
+    return hasAuthorization ? headers : [...headers, ["Authorization", authorization]];
+  }
+
+  const hasAuthorization = Object.keys(headers).some(
+    (key) => key.toLowerCase() === "authorization"
+  );
+  return hasAuthorization ? headers : { ...headers, Authorization: authorization };
+}
+
+export function apiFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  const headers = withAuthorization(init.headers);
+
+  return fetch(withBasePath(url), {
+    ...init,
+    headers,
+    credentials: init.credentials ?? "include",
+  });
+}
+
 export async function apiRequest(
   method: string,
   url: string,
   data?: unknown | undefined
 ): Promise<Response> {
-  const token = localStorage.getItem("token");
   const headers: Record<string, string> = data ? { "Content-Type": "application/json" } : {};
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
 
-  const res = await fetch(url, {
+  const res = await apiFetch(url, {
     method,
     headers,
     body: data ? JSON.stringify(data) : undefined,
-    credentials: "include",
   });
 
   await throwIfResNotOk(res);
@@ -58,15 +95,8 @@ type UnauthorizedBehavior = "returnNull" | "throw";
 export const getQueryFn: <T>(options: { on401: UnauthorizedBehavior }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const token = localStorage.getItem("token");
-    const headers: Record<string, string> = {};
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-    }
-
-    const res = await fetch(queryKey.join("/") as string, {
-      headers,
-      credentials: "include",
+    const res = await apiFetch(queryKey.join("/") as string, {
+      headers: {},
     });
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {

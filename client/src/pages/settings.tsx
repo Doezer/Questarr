@@ -31,6 +31,7 @@ import { Label } from "@/components/ui/label";
 import { PathBrowser } from "@/components/PathBrowser";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { apiFetch, apiRequest, clearSearchCache } from "@/lib/queryClient";
 import {
   Select,
   SelectContent,
@@ -42,7 +43,6 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest, clearSearchCache } from "@/lib/queryClient";
 import AutoDownloadRulesSettings from "@/components/AutoDownloadRulesSettings";
 import PreferredReleaseGroupsSettings from "@/components/PreferredReleaseGroupsSettings";
 import PasswordSettings from "@/components/PasswordSettings";
@@ -57,6 +57,7 @@ import type {
 import { downloadRulesSchema, DEFAULT_NOTIFICATION_PREFERENCES } from "@shared/schema";
 import { parseJsonStringArray, CANONICAL_PLATFORMS } from "@shared/title-utils";
 import { useState, useEffect, useRef, useMemo } from "react";
+import ImportSettings from "@/components/ImportSettings";
 
 interface CertInfo {
   subject: string;
@@ -393,7 +394,7 @@ export default function SettingsPage() {
       formData.append("cert", selectedCert);
       formData.append("key", selectedKey);
 
-      const res = await fetch("/api/settings/ssl/upload", {
+      const res = await apiFetch("/api/settings/ssl/upload", {
         method: "POST",
         body: formData,
         headers: {
@@ -764,6 +765,7 @@ export default function SettingsPage() {
             <TabsTrigger value="rules">Rules</TabsTrigger>
             <TabsTrigger value="notifications">Notifications</TabsTrigger>
             <TabsTrigger value="services">Services</TabsTrigger>
+            <TabsTrigger value="import">Import</TabsTrigger>
             <TabsTrigger value="account">Account</TabsTrigger>
             <TabsTrigger value="security">Security</TabsTrigger>
             <TabsTrigger value="system">System</TabsTrigger>
@@ -1594,6 +1596,10 @@ export default function SettingsPage() {
 
           <TabsContent value="account" className="space-y-6">
             <PasswordSettings />
+          </TabsContent>
+
+          <TabsContent value="import" className="space-y-6">
+            <ImportSettings />
           </TabsContent>
 
           <TabsContent value="system" className="space-y-6">

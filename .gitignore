@@ -9,6 +9,7 @@ server/public/
 # OS and IDE
 .DS_Store
 .vscode/
+.claude/settings.local.json
 
 # Environment and secrets
 .env
@@ -21,6 +22,7 @@ gha-creds-*.json
 coverage/
 playwright*/
 test-results/
+test-report.junit.xml
 
 # SQLite
 
@@ -42,3 +44,4 @@ pr_status.json
 data_test/
 docker-compose.test.yml
 .sofa/credentials.json
+check-sonar.mjs

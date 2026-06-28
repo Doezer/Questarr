@@ -1,4 +1,4 @@
-import { Switch, Route, useLocation } from "wouter";
+import { Router as WouterRouter, Switch, Route, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -13,6 +13,8 @@ import { AuthProvider } from "@/lib/auth";
 import { Suspense, lazy } from "react";
 import LoadingFallback from "@/components/LoadingFallback";
 import { ThemeProvider } from "next-themes";
+import { routerBase } from "@/lib/app-path";
+import { routePaths } from "@/lib/routes";
 
 // ⚡ Bolt: Code splitting with React.lazy
 // This reduces the initial bundle size by loading pages only when needed.
@@ -37,21 +39,21 @@ function Router() {
   return (
     <Suspense fallback={<LoadingFallback />}>
       <Switch>
-        <Route path="/login" component={LoginPage} />
-        <Route path="/setup" component={SetupPage} />
-        <Route path="/" component={Library} />
-        <Route path="/discover" component={DiscoverPage} />
-        <Route path="/search" component={SearchPage} />
-        <Route path="/downloads" component={DownloadsPage} />
-        <Route path="/indexers" component={IndexersPage} />
-        <Route path="/downloaders" component={DownloadersPage} />
-        <Route path="/settings" component={SettingsPage} />
-        <Route path="/calendar" component={CalendarPage} />
-        <Route path="/wishlist" component={WishlistPage} />
-        <Route path="/xrel" component={XrelReleasesPage} />
-        <Route path="/rss" component={RssPage} />
-        <Route path="/stats" component={StatsPage} />
-        <Route path="/logs" component={LogsPage} />
+        <Route path={routePaths.login} component={LoginPage} />
+        <Route path={routePaths.setup} component={SetupPage} />
+        <Route path={routePaths.library} component={Library} />
+        <Route path={routePaths.discover} component={DiscoverPage} />
+        <Route path={routePaths.search} component={SearchPage} />
+        <Route path={routePaths.downloads} component={DownloadsPage} />
+        <Route path={routePaths.indexers} component={IndexersPage} />
+        <Route path={routePaths.downloaders} component={DownloadersPage} />
+        <Route path={routePaths.settings} component={SettingsPage} />
+        <Route path={routePaths.calendar} component={CalendarPage} />
+        <Route path={routePaths.wishlist} component={WishlistPage} />
+        <Route path={routePaths.xrel} component={XrelReleasesPage} />
+        <Route path={routePaths.rss} component={RssPage} />
+        <Route path={routePaths.stats} component={StatsPage} />
+        <Route path={routePaths.logs} component={LogsPage} />
         <Route component={NotFound} />
       </Switch>
     </Suspense>
@@ -65,7 +67,7 @@ function AppContent() {
   return <Router />;
 }
 
-function App() {
+function AppShell() {
   const [location, navigate] = useLocation();
 
   // Custom sidebar width for the application
@@ -75,7 +77,7 @@ function App() {
   };
 
   // If on login or setup page, render simplified layout without sidebar/header
-  if (location === "/login" || location === "/setup") {
+  if (location === routePaths.login || location === routePaths.setup) {
     return (
       <QueryClientProvider client={queryClient}>
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
@@ -110,6 +112,14 @@ function App() {
         </AuthProvider>
       </ThemeProvider>
     </QueryClientProvider>
+  );
+}
+
+function App() {
+  return (
+    <WouterRouter base={routerBase}>
+      <AppShell />
+    </WouterRouter>
   );
 }
 

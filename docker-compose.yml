@@ -2,16 +2,26 @@ services:
   app:
     image: ghcr.io/doezer/questarr:latest
     ports:
-      - "${PORT:-5000}:5000"
+      - "${HOST_SIDE_PORT:-5000}:${CONTAINER_INTERNAL_SIDE_PORT:-5000}"
       - "${SSL_PORT:-9898}:${SSL_PORT:-9898}"
-    # environment:
-    #   - SQLITE_DB_PATH=/app/data/sqlite.db  # Default path for sqlite db, uncomment and change if needed
+    environment:
+      - PORT=${CONTAINER_INTERNAL_SIDE_PORT:-5000}
+      # - SQLITE_DB_PATH=/app/data/sqlite.db  # Default path for sqlite db, uncomment and change if needed
     volumes:
       # Persist SQLite database and other data
       - ./data:/app/data
+      # Mount your root media/downloads folder here to allow atomic moves.
+      # Example (uncomment and adjust):
+      # - /mnt/user/data:/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:5000/api/health"]
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://localhost:' + (process.env.PORT || 5000) + '/api/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3

@@ -210,6 +210,16 @@ If you are upgrading from an older version that used PostgreSQL, you need to mig
 
 See [docs/MIGRATION.md](docs/MIGRATION.md) for more details.
 
+### Home Assistant Add-on
+
+You can install Questarr as a Home Assistant add-on from this repository:
+
+1. In Home Assistant, open **Settings → Add-ons → Add-on Store**.
+2. Click the menu (⋮) and choose **Repositories**.
+3. Add this repository URL: `https://github.com/Doezer/Questarr`
+4. Install the **Questarr** add-on and start it.
+5. Open `http://<home-assistant-host>:5000` to access the UI.
+
 ## Configuration
 
 1. **First-time setup:**
@@ -343,3 +353,13 @@ GPL3 License - see [COPYING](COPYING) file for details.
 - Inspired by [Sonarr](https://sonarr.tv/) and [GamezServer](https://github.com/05sonicblue/GamezServer)
 - Game metadata powered by [IGDB API](https://www.igdb.com/)
 - UI components from [shadcn/ui](https://ui.shadcn.com/)
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=doezer%2Fquestarr&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=doezer/questarr&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=doezer/questarr&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=doezer/questarr&type=date&legend=top-left" />
+ </picture>
+</a>

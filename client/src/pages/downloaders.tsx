@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient } from "@/lib/queryClient";
+import { apiFetch, queryClient } from "@/lib/queryClient";
 import { asZodType, cn, compareEnabledPriorityName } from "@/lib/utils";
 import { Plus, Edit, Trash2, Check, X, Activity } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -167,7 +167,7 @@ export default function DownloadersPage() {
       if (token) {
         headers["Authorization"] = `Bearer ${token}`;
       }
-      const response = await fetch("/api/downloaders", {
+      const response = await apiFetch("/api/downloaders", {
         method: "POST",
         headers,
         body: JSON.stringify(data),
@@ -193,7 +193,7 @@ export default function DownloadersPage() {
       if (token) {
         headers["Authorization"] = `Bearer ${token}`;
       }
-      const response = await fetch(`/api/downloaders/${id}`, {
+      const response = await apiFetch(`/api/downloaders/${id}`, {
         method: "PATCH",
         headers,
         body: JSON.stringify(data),
@@ -219,7 +219,7 @@ export default function DownloadersPage() {
       if (token) {
         headers["Authorization"] = `Bearer ${token}`;
       }
-      const response = await fetch(`/api/downloaders/${id}`, {
+      const response = await apiFetch(`/api/downloaders/${id}`, {
         method: "DELETE",
         headers,
       });
@@ -241,7 +241,7 @@ export default function DownloadersPage() {
       if (token) {
         headers["Authorization"] = `Bearer ${token}`;
       }
-      const response = await fetch(`/api/downloaders/${id}`, {
+      const response = await apiFetch(`/api/downloaders/${id}`, {
         method: "PATCH",
         headers,
         body: JSON.stringify({ enabled }),
@@ -261,7 +261,7 @@ export default function DownloadersPage() {
       if (token) {
         headers["Authorization"] = `Bearer ${token}`;
       }
-      const response = await fetch(`/api/downloaders/${id}`, {
+      const response = await apiFetch(`/api/downloaders/${id}`, {
         method: "PATCH",
         headers,
         body: JSON.stringify({ priority }),
@@ -283,7 +283,7 @@ export default function DownloadersPage() {
       }
       if (data.id) {
         // Test existing downloader by ID
-        const response = await fetch(`/api/downloaders/${data.id}/test`, {
+        const response = await apiFetch(`/api/downloaders/${data.id}/test`, {
           method: "POST",
           headers,
         });
@@ -294,7 +294,7 @@ export default function DownloadersPage() {
         return response.json() as Promise<{ success: boolean; message: string }>;
       } else if (data.formData) {
         // Test with form data (new downloader)
-        const response = await fetch(`/api/downloaders/test`, {
+        const response = await apiFetch(`/api/downloaders/test`, {
           method: "POST",
           headers,
           body: JSON.stringify(data.formData),

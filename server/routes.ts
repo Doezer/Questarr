@@ -26,6 +26,7 @@ import {
 } from "../shared/schema.js";
 import { isUsenetDownloaderType } from "../shared/downloader-types.js";
 import { torznabClient } from "./torznab.js";
+import { newznabClient } from "./newznab.js";
 import { rssService } from "./rss.js";
 import { DownloaderManager } from "./downloaders.js";
 import { z } from "zod";
@@ -90,6 +91,8 @@ import { SUPPORT_WORKER_ORIGIN } from "../shared/support-config.js";
 import archiver from "archiver";
 import helmet from "helmet";
 import { steamRoutes } from "./steam-routes.js";
+import { importRouter } from "./routes/import.js";
+import { systemRouter } from "./routes/system.js";
 import { pcgamingwikiRouter } from "./pcgamingwiki-router.js";
 
 // Cache-Control header values for IGDB discovery endpoints
@@ -201,6 +204,10 @@ async function handleAggregatedIndexerSearch(req: Request, res: Response) {
  * @param query - The query parameters object
  * @returns Validated limit and offset values
  */
+function isUsenetProtocol(protocol: string): boolean {
+  return protocol === "newznab" || protocol === "g4u";
+}
+
 function validatePaginationParams(query: { limit?: string; offset?: string }): {
   limit: number;
   offset: number;
@@ -854,6 +861,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Just applying authenticateToken middleware
     authenticateToken(req, res, next);
   });
+
+  // Mount Feature Routers (explicitly protected)
+  app.use("/api/imports", authenticateToken, importRouter);
+  app.use("/api/system", authenticateToken, systemRouter);
 
   // Sync indexers from Prowlarr
   app.post("/api/indexers/prowlarr/sync", sensitiveEndpointLimiter, async (req, res, next) => {
@@ -1876,8 +1887,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Test indexer connection with provided configuration (doesn't require saving first)
   app.post("/api/indexers/test", async (req, res) => {
     try {
-      const { name, url, apiKey, enabled, priority, categories, rssEnabled, autoSearchEnabled } =
-        req.body;
+      const {
+        name,
+        url,
+        apiKey,
+        protocol,
+        enabled,
+        priority,
+        categories,
+        rssEnabled,
+        autoSearchEnabled,
+      } = req.body;
 
       if (!url || !apiKey) {
         return res.status(400).json({ error: "URL and API key are required" });
@@ -1887,13 +1907,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Invalid or unsafe URL" });
       }
 
+      const resolvedProtocol: string = protocol || "torznab";
+
       // Create a temporary indexer object for testing
       const tempIndexer: Indexer = {
         id: "test",
         name: name || "Test Connection",
         url,
         apiKey,
-        protocol: "torznab",
+        protocol: resolvedProtocol,
         enabled: enabled ?? true,
         priority: priority ?? 1,
         categories: categories || [],
@@ -1903,7 +1925,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         updatedAt: new Date(),
       };
 
-      const result = await torznabClient.testConnection(tempIndexer);
+      const client = isUsenetProtocol(resolvedProtocol) ? newznabClient : torznabClient;
+      const result = await client.testConnection(tempIndexer);
       res.json(result);
     } catch (error) {
       routesLogger.error({ error }, "error testing indexer");
@@ -1923,7 +1946,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Indexer not found" });
       }
 
-      const result = await torznabClient.testConnection(indexer);
+      const testClient = isUsenetProtocol(indexer.protocol) ? newznabClient : torznabClient;
+      const result = await testClient.testConnection(indexer);
       res.json(result);
     } catch (error) {
       routesLogger.error({ error }, "error testing indexer");
@@ -1943,7 +1967,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Indexer not found" });
       }
 
-      const categories = await torznabClient.getCategories(indexer);
+      const categoriesClient = isUsenetProtocol(indexer.protocol) ? newznabClient : torznabClient;
+      const categories = await categoriesClient.getCategories(indexer);
       res.json(categories);
     } catch (error) {
       routesLogger.error({ error }, "error getting categories");
@@ -1966,14 +1991,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Indexer not found" });
       }
 
+      const trimmedQuery = query.trim();
+      const isG4u = indexer.protocol === "g4u";
       const searchParams = {
-        query: query.trim(),
+        query: isG4u ? trimmedQuery.replace(/ /g, ".") : trimmedQuery,
         category: parseCategories(category || cat),
         limit: parseInt(limit as string) || 50,
         offset: parseInt(offset as string) || 0,
       };
 
-      const results = await torznabClient.searchGames(indexer, searchParams);
+      let results;
+      if (isUsenetProtocol(indexer.protocol)) {
+        results = await newznabClient.search(indexer, searchParams);
+      } else {
+        results = await torznabClient.searchGames(indexer, searchParams);
+      }
       res.json(results);
     } catch (error) {
       routesLogger.error({ error }, "error searching specific indexer");
@@ -2241,7 +2273,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/downloads", async (req, res) => {
     try {
       const enabledDownloaders = await storage.getEnabledDownloaders();
-      const trackedKeys = await storage.getTrackedDownloadKeys();
+      const [trackedKeys, gameStatuses] = await Promise.all([
+        storage.getTrackedDownloadKeys(),
+        storage.getTrackedDownloadGameStatuses().catch((err) => {
+          routesLogger.error({ err }, "Failed to fetch tracked download game statuses");
+          return new Map<string, string>();
+        }),
+      ]);
       // ⚡ Bolt: Fetch downloads from all downloaders in parallel to reduce latency.
       const results = await Promise.all(
         enabledDownloaders.map(async (downloader) => {
@@ -2249,15 +2287,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const downloads = await DownloaderManager.getAllDownloads(downloader);
             return {
               success: true as const,
-              data: downloads.map((download) => ({
-                ...download,
-                downloaderId: downloader.id,
-                downloaderName: downloader.name,
-                trackedByQuestarr:
-                  trackedKeys.has(`${downloader.id}:${download.id}`) ||
-                  trackedKeys.has(`${downloader.id}:${download.id.toLowerCase()}`),
-                downloaderCategory: downloader.category ?? undefined,
-              })),
+              data: downloads.map((download) => {
+                const keyNormal = `${downloader.id}:${download.id}`;
+                const keyLower = `${downloader.id}:${download.id.toLowerCase()}`;
+                return {
+                  ...download,
+                  downloaderId: downloader.id,
+                  downloaderName: downloader.name,
+                  trackedByQuestarr: trackedKeys.has(keyNormal) || trackedKeys.has(keyLower),
+                  gameStatus: gameStatuses.get(keyNormal) ?? gameStatuses.get(keyLower),
+                  downloaderCategory: downloader.category ?? undefined,
+                };
+              }),
             };
           } catch (error) {
             return {

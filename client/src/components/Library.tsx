@@ -42,6 +42,7 @@ import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 import { setAddGamePendingQuery, clearAddGamePendingQuery } from "@/lib/add-game-store";
 import { useDownloadSummary } from "@/hooks/use-download-summary";
 import GameFilterPills from "./GameFilterPills";
+import PendingImportsCard from "./PendingImportsCard";
 
 export default function Library() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -277,6 +278,8 @@ export default function Library() {
             </div>
           )}
         </div>
+
+        <PendingImportsCard />
 
         {/* Toolbar: search + filter pills + view controls + filter toggle + grid settings */}
         <PageToolbar

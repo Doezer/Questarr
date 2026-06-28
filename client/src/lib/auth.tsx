@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { apiRequest } from "./queryClient";
+import { apiFetch, apiRequest } from "./queryClient";
 import { useToast } from "@/hooks/use-toast";
 
 type User = {
@@ -37,7 +37,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   } = useQuery({
     queryKey: ["/api/auth/status"],
     queryFn: async () => {
-      const res = await fetch("/api/auth/status");
+      const res = await apiFetch("/api/auth/status");
       if (!res.ok) {
         throw new Error("Failed to check setup status");
       }
@@ -63,7 +63,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const currentToken = localStorage.getItem("token");
       if (!currentToken) return null;
 
-      const res = await fetch("/api/auth/me", {
+      const res = await apiFetch("/api/auth/me", {
         headers: { Authorization: `Bearer ${currentToken}` },
       });
 

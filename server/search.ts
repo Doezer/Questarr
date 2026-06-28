@@ -51,14 +51,24 @@ export async function searchAllIndexers(
     return { items: [], total: 0, offset: options.offset || 0, errors: ["No indexers configured"] };
   }
 
-  const torznabIndexers = enabledIndexers.filter((i) => i.protocol !== "newznab");
+  const torznabIndexers = enabledIndexers.filter(
+    (i) => i.protocol !== "newznab" && i.protocol !== "g4u"
+  );
   const newznabIndexers = enabledIndexers.filter((i) => i.protocol === "newznab");
+  // g4u.to uses the Newznab protocol but requires Scene-style dot-separated queries
+  const g4uIndexers = enabledIndexers.filter((i) => i.protocol === "g4u");
 
   const searchParams = {
     query: options.query,
     category: options.category,
     limit: options.limit || 50,
     offset: options.offset || 0,
+  };
+
+  // g4u.to uses Scene-style dot-separated names (e.g. "Game.Name.v1.0")
+  const g4uSearchParams = {
+    ...searchParams,
+    query: options.query ? options.query.replace(/ /g, ".") : options.query,
   };
 
   const promises = [];
@@ -80,21 +90,30 @@ export async function searchAllIndexers(
     );
   }
 
+  const makeNewznabPromise = (
+    indexers: typeof newznabIndexers,
+    params: typeof searchParams,
+    label: string
+  ) =>
+    newznabClient
+      .searchMultipleIndexers(indexers, params)
+      .then((res) => ({ type: "newznab" as const, ...res }))
+      .catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        searchLogger.error({ error: message }, `${label} client failed`);
+        return {
+          type: "newznab" as const,
+          results: { items: [], total: 0, offset: 0 },
+          errors: [{ indexer: label, error: message }],
+        };
+      });
+
   if (newznabIndexers.length > 0) {
-    promises.push(
-      newznabClient
-        .searchMultipleIndexers(newznabIndexers, searchParams)
-        .then((res) => ({ type: "newznab" as const, ...res }))
-        .catch((err: unknown) => {
-          const message = err instanceof Error ? err.message : String(err);
-          searchLogger.error({ error: message }, "newznab client failed");
-          return {
-            type: "newznab" as const,
-            results: { items: [], total: 0, offset: 0 },
-            errors: [{ indexer: "newznab", error: message }],
-          };
-        })
-    );
+    promises.push(makeNewznabPromise(newznabIndexers, searchParams, "newznab"));
+  }
+
+  if (g4uIndexers.length > 0) {
+    promises.push(makeNewznabPromise(g4uIndexers, g4uSearchParams, "g4u"));
   }
 
   const results = await Promise.all(promises);

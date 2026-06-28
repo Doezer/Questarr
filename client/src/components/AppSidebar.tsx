@@ -18,6 +18,7 @@ import { type Game, type DownloadStatus } from "@shared/schema";
 import { useAuth } from "@/lib/auth";
 import { GitHubVersionLink } from "@/components/GitHubVersionLink";
 import { managementNavigation, primaryNavigation } from "@/components/navigation-items";
+import { withBasePath } from "@/lib/app-path";
 
 interface AppSidebarProps {
   activeItem?: string;
@@ -63,7 +64,7 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: Readonly<Ap
       <SidebarHeader className="p-4">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 flex items-center justify-center">
-            <img src="/Questarr.svg" alt="Questarr Logo" className="w-8 h-8" />
+            <img src={withBasePath("/Questarr.svg")} alt="Questarr Logo" className="w-8 h-8" />
           </div>
           <div>
             <span className="truncate font-semibold">Questarr</span>

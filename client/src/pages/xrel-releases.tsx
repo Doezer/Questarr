@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
+import { apiFetch } from "@/lib/queryClient";
 
 interface XrelRelease {
   id: string;
@@ -66,7 +67,7 @@ export default function XrelReleasesPage() {
     queryKey: ["/api/xrel/latest", page],
     queryFn: async () => {
       const params = new URLSearchParams({ page: String(page) });
-      const res = await fetch(`/api/xrel/latest?${params}`, {
+      const res = await apiFetch(`/api/xrel/latest?${params}`, {
         headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
       });
       if (!res.ok) throw new Error("Failed to fetch xREL latest");
@@ -83,7 +84,7 @@ export default function XrelReleasesPage() {
 
   const addGameMutation = useMutation({
     mutationFn: async (title: string) => {
-      const res = await fetch("/api/games/match-and-add", {
+      const res = await apiFetch("/api/games/match-and-add", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

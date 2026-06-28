@@ -1,7 +1,7 @@
 import type { Downloader, DownloadStatus, DownloadDetails } from "../../shared/schema.js";
 import { downloadersLogger } from "../logger.js";
 import https from "https";
-import { isSafeUrl, safeFetch } from "../ssrf.js";
+import { isSafeUrl, resolveSafeAddress, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
 import { fixNzbUrlEncoding } from "./utils.js";
 
@@ -103,7 +103,7 @@ export class SABnzbdClient implements DownloaderClient {
 
   private async fetchWithFallback(url: string, options: RequestInit = {}): Promise<Response> {
     try {
-      return await fetch(url, options);
+      return await safeFetch(url, { ...options, allowPrivate: true });
     } catch (error) {
       const isSslError =
         error instanceof Error &&
@@ -124,13 +124,21 @@ export class SABnzbdClient implements DownloaderClient {
     }
   }
 
-  private fetchInsecure(url: string, options: RequestInit): Promise<Response> {
+  private async fetchInsecure(url: string, options: RequestInit): Promise<Response> {
+    const parsedUrl = new URL(url);
+    const { address, family } = await resolveSafeAddress(parsedUrl.hostname, true);
+    const safeUrl = new URL(url);
+    safeUrl.hostname = family === 6 ? `[${address}]` : address;
+
+    const headers = new Headers(options.headers || {});
+    headers.set("Host", parsedUrl.host);
+
     return new Promise((resolve, reject) => {
       const req = https.request(
-        url,
+        safeUrl.toString(),
         {
           method: options.method || "GET",
-          headers: options.headers as unknown as import("http").OutgoingHttpHeaders,
+          headers: Object.fromEntries(headers.entries()) as import("http").OutgoingHttpHeaders,
           rejectUnauthorized: false,
           timeout: 30000,
         },
@@ -469,6 +477,8 @@ export class SABnzbdClient implements DownloaderClient {
           { error, id, useFilter: useFilter },
           "Failed to get SABnzbd history"
         );
+        // If the filtered request failed, retry with a full history scan
+        if (useFilter) continue;
         return null;
       }
     }
@@ -476,14 +486,40 @@ export class SABnzbdClient implements DownloaderClient {
     return null;
   }
 
+  private async getHistoryDownloadDir(id: string): Promise<string | undefined> {
+    for (const useFilter of [true, false]) {
+      try {
+        const params: Record<string, string> = useFilter ? { nzo_ids: id } : {};
+        const url = this.getApiUrl("history", params);
+        const response = await this.fetchWithFallback(url);
+        const data = await response.json();
+        const history: SABnzbdHistory = data.history;
+        if (!history?.slots) return undefined;
+        const item = history.slots.find((slot) => slot.nzo_id === id);
+        if (!item) {
+          if (useFilter) continue;
+          return undefined;
+        }
+        // Normalize SABnzbd's /incomplete/ paths to /complete/
+        return item.path?.replace(/\/incomplete\//g, "/complete/");
+      } catch {
+        if (useFilter) continue;
+        return undefined;
+      }
+    }
+    return undefined;
+  }
+
   async getDownloadDetails(id: string): Promise<DownloadDetails | null> {
     const status = await this.getDownloadStatus(id);
     if (!status) return null;
 
-    // SABnzbd doesn't provide detailed file information in the same way
-    // Return minimal details based on status
+    const downloadDir =
+      status.status === "completed" ? await this.getHistoryDownloadDir(id) : undefined;
+
     return {
       ...status,
+      downloadDir,
       files: [],
       filesSupport: "unsupported",
       filesSupportReason: "SABnzbd API does not expose per-file details for queue/history items.",

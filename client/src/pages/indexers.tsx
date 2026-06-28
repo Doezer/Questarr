@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, clearSearchCache } from "@/lib/queryClient";
+import { apiFetch, queryClient, clearSearchCache } from "@/lib/queryClient";
 import { refreshIndexerQueries } from "@/lib/indexers-cache";
 import { asZodType, cn, compareEnabledPriorityName } from "@/lib/utils";
 import { Plus, Edit, Trash2, Check, X, Activity, RefreshCw } from "lucide-react";
@@ -122,7 +122,7 @@ export default function IndexersPage() {
       if (token) {
         headers["Authorization"] = `Bearer ${token}`;
       }
-      const response = await fetch("/api/indexers/prowlarr/sync", {
+      const response = await apiFetch("/api/indexers/prowlarr/sync", {
         method: "POST",
         headers,
         body: JSON.stringify({ url: prowlarrUrl, apiKey: prowlarrApiKey }),
@@ -158,7 +158,7 @@ export default function IndexersPage() {
       if (token) {
         headers["Authorization"] = `Bearer ${token}`;
       }
-      const response = await fetch("/api/indexers", {
+      const response = await apiFetch("/api/indexers", {
         method: "POST",
         headers,
         body: JSON.stringify(data),
@@ -185,7 +185,7 @@ export default function IndexersPage() {
       if (token) {
         headers["Authorization"] = `Bearer ${token}`;
       }
-      const response = await fetch(`/api/indexers/${id}`, {
+      const response = await apiFetch(`/api/indexers/${id}`, {
         method: "PATCH",
         headers,
         body: JSON.stringify(data),
@@ -212,7 +212,7 @@ export default function IndexersPage() {
       if (token) {
         headers["Authorization"] = `Bearer ${token}`;
       }
-      const response = await fetch(`/api/indexers/${id}`, {
+      const response = await apiFetch(`/api/indexers/${id}`, {
         method: "DELETE",
         headers,
       });
@@ -235,7 +235,7 @@ export default function IndexersPage() {
       if (token) {
         headers["Authorization"] = `Bearer ${token}`;
       }
-      const response = await fetch(`/api/indexers/${id}`, {
+      const response = await apiFetch(`/api/indexers/${id}`, {
         method: "PATCH",
         headers,
         body: JSON.stringify({ enabled }),
@@ -256,7 +256,7 @@ export default function IndexersPage() {
       if (token) {
         headers["Authorization"] = `Bearer ${token}`;
       }
-      const response = await fetch(`/api/indexers/${id}`, {
+      const response = await apiFetch(`/api/indexers/${id}`, {
         method: "PATCH",
         headers,
         body: JSON.stringify({ priority }),
@@ -279,7 +279,7 @@ export default function IndexersPage() {
       }
       if (data.id) {
         // Test existing indexer by ID
-        const response = await fetch(`/api/indexers/${data.id}/test`, {
+        const response = await apiFetch(`/api/indexers/${data.id}/test`, {
           method: "POST",
           headers,
         });
@@ -290,7 +290,7 @@ export default function IndexersPage() {
         return response.json() as Promise<{ success: boolean; message: string }>;
       } else if (data.formData) {
         // Test with form data (new indexer)
-        const response = await fetch(`/api/indexers/test`, {
+        const response = await apiFetch(`/api/indexers/test`, {
           method: "POST",
           headers,
           body: JSON.stringify(data.formData),
@@ -356,7 +356,7 @@ export default function IndexersPage() {
       if (token) {
         headers["Authorization"] = `Bearer ${token}`;
       }
-      const response = await fetch(`/api/indexers/${indexerId}/categories`, { headers });
+      const response = await apiFetch(`/api/indexers/${indexerId}/categories`, { headers });
       if (response.ok) {
         const categories = (await response.json()) as { id: string; name: string }[];
         setAvailableCategories(
@@ -506,10 +506,14 @@ export default function IndexersPage() {
                       {indexer.name}
                     </CardTitle>
                     <Badge
-                      variant={indexer.protocol === "newznab" ? "secondary" : "default"}
+                      variant={indexer.protocol === "torznab" ? "default" : "secondary"}
                       className="uppercase"
                     >
-                      {indexer.protocol === "newznab" ? "Newznab" : "Torznab"}
+                      {indexer.protocol === "newznab"
+                        ? "Newznab"
+                        : indexer.protocol === "g4u"
+                          ? "g4u.to"
+                          : "Torznab"}
                     </Badge>
                     <Badge
                       variant={indexer.enabled ? "default" : "secondary"}
@@ -652,10 +656,12 @@ export default function IndexersPage() {
                       <SelectContent>
                         <SelectItem value="torznab">Torznab (Torrent)</SelectItem>
                         <SelectItem value="newznab">Newznab (Usenet)</SelectItem>
+                        <SelectItem value="g4u">g4u.to (Usenet)</SelectItem>
                       </SelectContent>
                     </Select>
                     <FormDescription>
-                      Torznab for torrent indexers, Newznab for Usenet indexers
+                      Torznab for torrent indexers, Newznab for Usenet indexers, g4u.to for the
+                      g4u.to VIP API
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -667,14 +673,20 @@ export default function IndexersPage() {
                 render={({ field }) => (
                   <FormItem>
                     <RequiredFormLabel required>
-                      {form.watch("protocol") === "newznab" ? "Newznab URL" : "Torznab URL"}
+                      {form.watch("protocol") === "newznab"
+                        ? "Newznab URL"
+                        : form.watch("protocol") === "g4u"
+                          ? "g4u.to URL"
+                          : "Torznab URL"}
                     </RequiredFormLabel>
                     <FormControl>
                       <Input
                         placeholder={
                           form.watch("protocol") === "newznab"
                             ? "http://localhost:8080/api"
-                            : "http://localhost:9117/api/v2.0/indexers/all/results/torznab/"
+                            : form.watch("protocol") === "g4u"
+                              ? "https://api.g4u.to/api"
+                              : "http://localhost:9117/api/v2.0/indexers/all/results/torznab/"
                         }
                         required
                         {...field}

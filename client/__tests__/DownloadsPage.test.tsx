@@ -199,19 +199,22 @@ describe("Downloads page", () => {
   });
 
   it("shows the loading skeleton before downloads resolve", async () => {
-    let resolveResponse: ((value: Response) => void) | undefined;
-    globalThis.fetch = vi.fn(
-      () =>
-        new Promise<Response>((resolve) => {
-          resolveResponse = resolve;
-        })
-    ) as typeof fetch;
+    let resolveDownloads: ((value: Response) => void) | undefined;
+    globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
+      const urlStr = typeof url === "string" ? url : url.toString();
+      if (urlStr.includes("/api/downloads")) {
+        return new Promise<Response>((resolve) => {
+          resolveDownloads = resolve;
+        });
+      }
+      return { ok: true, json: async () => ({}) } as Response;
+    }) as typeof fetch;
 
     renderPage();
 
     expect(await screen.findByTestId("loading-downloads")).toBeInTheDocument();
 
-    resolveResponse?.({
+    resolveDownloads?.({
       ok: true,
       json: async () => ({ downloads: [], errors: [] }),
     } as Response);

@@ -1,11 +1,13 @@
-import { useState, useEffect, useRef, useMemo } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useState, useEffect, useRef, useMemo, type FormEvent } from "react";
+import { useQuery, useInfiniteQuery, useMutation } from "@tanstack/react-query";
+import type { InfiniteData } from "@tanstack/react-query";
 import { useDebounce } from "@/hooks/use-debounce";
-import { queryClient } from "@/lib/queryClient";
+import { queryClient, apiRequest } from "@/lib/queryClient";
 import { formatBytes, formatAge, isUsenetItem, getDownloadTypeColor } from "@/lib/downloads-utils";
 import { isTorrentDownloaderType, isUsenetDownloaderType } from "@shared/downloader-types";
 import { cleanReleaseName } from "@shared/title-utils";
-import { Search, Download, Newspaper } from "lucide-react";
+import { Search, Download, Newspaper, ChevronDown, ChevronUp, Trash2 } from "lucide-react";
+import type { Game } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -53,7 +55,6 @@ interface DownloadItem {
   comments?: string;
   indexerId?: string;
   indexerName?: string;
-  // Usenet-specific fields
   grabs?: number;
   age?: number;
   poster?: string;
@@ -91,38 +92,126 @@ function formatDate(dateString: string): string {
   }
 }
 
+const PAGE_SIZE = 50;
+
 export default function SearchPage() {
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
   const debouncedSearchQuery = useDebounce(searchQuery, 500);
   const [selectedDownload, setSelectedDownload] = useState<DownloadItem | null>(null);
   const [isDownloadDialogOpen, setIsDownloadDialogOpen] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const lastSearchQueryRef = useRef("");
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
   const {
-    data: searchResults,
+    data,
     isLoading: isSearching,
     error: searchError,
-  } = useQuery<SearchResult>({
-    queryKey: [`/api/search?query=${encodeURIComponent(debouncedSearchQuery)}`],
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+  } = useInfiniteQuery<SearchResult, Error, InfiniteData<SearchResult>, string[], number>({
+    queryKey: ["/api/search", debouncedSearchQuery],
+    queryFn: async ({ pageParam }): Promise<SearchResult> => {
+      const r = await apiRequest(
+        "GET",
+        `/api/search?query=${encodeURIComponent(debouncedSearchQuery)}&limit=${PAGE_SIZE}&offset=${pageParam}`
+      );
+      return r.json();
+    },
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, _allPages, lastPageParam) => {
+      // Use "received a full page" as the continuation signal rather than comparing
+      // against lastPage.total, which equals the current batch size for Torznab
+      // indexers and would always terminate pagination after the first page.
+      return lastPage.items.length >= PAGE_SIZE ? lastPageParam + lastPage.items.length : undefined;
+    },
     enabled: debouncedSearchQuery.trim().length > 0,
   });
 
-  // ⚡ Bolt: Memoize the sorted search results to avoid O(n log n) date parsing
-  // and sorting on every render when interacting with the search page state
-  // (like opening the download dialog or typing). Dates are pre-parsed into
-  // timestamps once per item before sorting to avoid redundant Date instantiations
-  // inside the comparator.
-  const sortedItems = useMemo(() => {
-    return (searchResults?.items || [])
-      .map((item) => ({ item, time: new Date(item.pubDate).getTime() }))
-      .sort((a, b) => b.time - a.time)
-      .map(({ item }) => item);
-  }, [searchResults?.items]);
+  const { data: libraryGames = [] } = useQuery<Game[]>({
+    queryKey: ["/api/games", debouncedSearchQuery],
+    queryFn: async (): Promise<Game[]> => {
+      const r = await apiRequest(
+        "GET",
+        `/api/games?search=${encodeURIComponent(debouncedSearchQuery)}`
+      );
+      return r.json();
+    },
+    enabled: debouncedSearchQuery.trim().length > 0,
+  });
 
-  // Show toast notification when search completes
+  const removeGameMutation = useMutation({
+    mutationFn: (gameId: string) => apiRequest("DELETE", `/api/games/${gameId}`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+      toast({ title: "Game removed from library" });
+    },
+    onError: () => {
+      toast({ title: "Failed to remove game", variant: "destructive" });
+    },
+  });
+
+  const allItems = useMemo(() => data?.pages.flatMap((p) => p.items) ?? [], [data]);
+
+  const filteredAndSortedItems = useMemo(() => {
+    // Append T00:00:00 so the browser parses as local midnight, not UTC midnight.
+    // Date-only strings ("YYYY-MM-DD") are UTC by spec; datetime strings without
+    // a timezone suffix are local.
+    const parseLocalDay = (s: string): number => new Date(`${s}T00:00:00`).getTime();
+    const fromTime = dateFrom ? parseLocalDay(dateFrom) : null;
+    const toTime = dateTo ? parseLocalDay(dateTo) + 86399999 : null;
+    const mapped: { item: DownloadItem; time: number }[] = [];
+    for (const item of allItems) {
+      const time = new Date(item.pubDate).getTime();
+      if (
+        !Number.isNaN(time) &&
+        (fromTime === null || time >= fromTime) &&
+        (toTime === null || time <= toTime)
+      ) {
+        mapped.push({ item, time });
+      }
+    }
+    return mapped.toSorted((a, b) => b.time - a.time).map(({ item }) => item);
+  }, [allItems, dateFrom, dateTo]);
+
   useEffect(() => {
-    // Only show notification if we actually performed a search
+    const el = sentinelRef.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        // Don't auto-fetch when an active date filter yields zero visible results —
+        // that would spam the backend with rapid consecutive requests until hasNextPage
+        // is exhausted (sentinel always visible in an empty list).
+        const filterActive = !!(dateFrom || dateTo);
+        const listIsEmpty = filteredAndSortedItems.length === 0;
+        if (
+          entries[0]?.isIntersecting &&
+          hasNextPage &&
+          !isFetchingNextPage &&
+          !(filterActive && listIsEmpty)
+        ) {
+          void fetchNextPage();
+        }
+      },
+      { threshold: 0.1 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+    filteredAndSortedItems.length,
+    dateFrom,
+    dateTo,
+  ]);
+
+  useEffect(() => {
     if (
       debouncedSearchQuery &&
       debouncedSearchQuery !== lastSearchQueryRef.current &&
@@ -134,67 +223,58 @@ export default function SearchPage() {
           description: "Unable to search indexers. Please check your configuration.",
           variant: "destructive",
         });
-      } else if (searchResults) {
-        const itemCount = searchResults.items.length;
-        if (itemCount > 0) {
+      } else if (data) {
+        const total = data.pages.at(0)?.total ?? 0;
+        if (total > 0) {
           toast({
             title: "Search completed",
-            description: `Found ${itemCount} result${itemCount !== 1 ? "s" : ""}`,
+            description: `Found ${total} result${total !== 1 ? "s" : ""}`,
           });
         } else {
-          toast({
-            title: "No results found",
-            description: "Try a different search query",
-          });
+          toast({ title: "No results found", description: "Try a different search query" });
         }
-
-        // Show warning if there were indexer errors
-        if (searchResults.errors && searchResults.errors.length > 0) {
+        const errors = data.pages.at(0)?.errors;
+        if (errors && errors.length > 0) {
           toast({
             title: "Some indexers failed",
-            description: `${searchResults.errors.length} indexer(s) encountered errors`,
+            description: `${errors.length} indexer(s) encountered errors`,
             variant: "destructive",
           });
         }
       }
       lastSearchQueryRef.current = debouncedSearchQuery;
     }
-  }, [searchResults, isSearching, searchError, debouncedSearchQuery, toast]);
+  }, [data, isSearching, searchError, debouncedSearchQuery, toast]);
 
   const { data: downloaders = [] } = useQuery<Downloader[]>({
     queryKey: ["/api/downloaders/enabled"],
   });
 
   const downloadMutation = useMutation({
-    mutationFn: async (data: { download: DownloadItem; formData: DownloadForm }) => {
-      const token = localStorage.getItem("token");
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
-      const response = await fetch(`/api/downloaders/${data.formData.downloaderId}/downloads`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          url: data.download.link,
-          title: data.download.title,
-          category: data.formData.category || undefined,
-          downloadPath: data.formData.downloadPath,
-          priority: data.formData.priority,
-          downloadType: isUsenetItem(data.download) ? "usenet" : "torrent",
-        }),
+    mutationFn: async ({
+      download,
+      formData,
+    }: {
+      download: DownloadItem;
+      formData: DownloadForm;
+    }): Promise<{ success: boolean; message?: string }> => {
+      const r = await apiRequest("POST", `/api/downloaders/${formData.downloaderId}/downloads`, {
+        url: download.link,
+        title: download.title,
+        category: formData.category || undefined,
+        downloadPath: formData.downloadPath,
+        priority: formData.priority,
+        downloadType: isUsenetItem(download) ? "usenet" : "torrent",
       });
-      if (!response.ok) throw new Error("Failed to add download");
-      return response.json();
+      return r.json();
     },
     onSuccess: (result) => {
       if (result.success) {
         toast({ title: "Download started successfully" });
         setIsDownloadDialogOpen(false);
         setSelectedDownload(null);
-        // Refresh downloads
-        queryClient.invalidateQueries({ queryKey: ["/api/downloads"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/downloads/summary"] });
+        void queryClient.invalidateQueries({ queryKey: ["/api/downloads"] });
+        void queryClient.invalidateQueries({ queryKey: ["/api/downloads/summary"] });
       } else {
         toast({ title: result.message || "Failed to start download", variant: "destructive" });
       }
@@ -214,9 +294,8 @@ export default function SearchPage() {
     },
   });
 
-  const handleSearch = (e: React.FormEvent) => {
+  const handleSearch = (e: FormEvent) => {
     e.preventDefault();
-    // Query will automatically trigger due to the enabled condition
   };
 
   const handleDownload = (download: DownloadItem) => {
@@ -244,13 +323,12 @@ export default function SearchPage() {
     setIsDownloadDialogOpen(true);
   };
 
-  const onSubmitDownload = (data: DownloadForm) => {
+  const onSubmitDownload = (formValues: DownloadForm) => {
     if (selectedDownload) {
-      downloadMutation.mutate({ download: selectedDownload, formData: data });
+      downloadMutation.mutate({ download: selectedDownload, formData: formValues });
     }
   };
 
-  // Filter downloaders for the dialog dropdown
   const filteredDownloaders = selectedDownload
     ? downloaders.filter((d) =>
         isUsenetItem(selectedDownload)
@@ -258,6 +336,10 @@ export default function SearchPage() {
           : isTorrentDownloaderType(d.type)
       )
     : downloaders;
+
+  const firstPage = data?.pages.at(0);
+  const totalResults = firstPage?.total ?? 0;
+  const indexerErrors = firstPage?.errors;
 
   return (
     <div className="h-full overflow-auto p-6">
@@ -269,7 +351,11 @@ export default function SearchPage() {
       </div>
 
       {/* Search Form */}
-      <form onSubmit={handleSearch} className="flex gap-2 mb-6" data-testid="form-search">
+      <form
+        onSubmit={handleSearch}
+        className={`flex gap-2 ${showFilters ? "mb-3" : "mb-6"}`}
+        data-testid="form-search"
+      >
         <div className="flex-1">
           <Input
             placeholder="Enter game title..."
@@ -291,10 +377,69 @@ export default function SearchPage() {
             </>
           )}
         </Button>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => setShowFilters((v) => !v)}
+          aria-label="Toggle filters"
+          aria-expanded={showFilters}
+          data-testid="button-toggle-filters"
+        >
+          {showFilters ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        </Button>
       </form>
 
-      {/* Search Results */}
-      {searchError && (
+      {/* Collapsible date filter row */}
+      {showFilters && (
+        <div className="flex flex-wrap items-center gap-3 mb-6 p-3 rounded-md border bg-muted/30">
+          <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">
+            Release date:
+          </span>
+          <div className="flex items-center gap-2">
+            <label htmlFor="date-from" className="text-sm text-muted-foreground">
+              From
+            </label>
+            <Input
+              id="date-from"
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="w-40 h-8 text-sm"
+              data-testid="input-date-from"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <label htmlFor="date-to" className="text-sm text-muted-foreground">
+              To
+            </label>
+            <Input
+              id="date-to"
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="w-40 h-8 text-sm"
+              data-testid="input-date-to"
+            />
+          </div>
+          {!!(dateFrom || dateTo) && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setDateFrom("");
+                setDateTo("");
+              }}
+              data-testid="button-clear-dates"
+            >
+              Clear
+            </Button>
+          )}
+        </div>
+      )}
+
+      {/* Search error */}
+      {!!searchError && (
         <Card className="mb-6" data-testid="card-search-error">
           <CardHeader>
             <CardTitle className="text-destructive" data-testid="text-search-error-title">
@@ -309,20 +454,25 @@ export default function SearchPage() {
         </Card>
       )}
 
-      {searchResults && (
+      {!!data && (
         <div>
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-base font-semibold" data-testid="text-search-results-count">
-              {searchResults.total} result{searchResults.total !== 1 ? "s" : ""} found
+              {totalResults} result{totalResults !== 1 ? "s" : ""} found
+              {!!(dateFrom || dateTo) && filteredAndSortedItems.length !== allItems.length && (
+                <span className="text-muted-foreground font-normal text-sm ml-2">
+                  ({filteredAndSortedItems.length} shown with filter)
+                </span>
+              )}
             </h2>
-            {searchResults.errors && searchResults.errors.length > 0 && (
+            {!!indexerErrors && indexerErrors.length > 0 && (
               <Badge variant="destructive" data-testid="badge-indexer-errors">
-                {searchResults.errors.length} indexer error(s)
+                {indexerErrors.length} indexer error(s)
               </Badge>
             )}
           </div>
 
-          {searchResults.errors && searchResults.errors.length > 0 && (
+          {!!indexerErrors && indexerErrors.length > 0 && (
             <Card className="mb-4" data-testid="card-indexer-errors">
               <CardHeader>
                 <CardTitle
@@ -334,7 +484,7 @@ export default function SearchPage() {
               </CardHeader>
               <CardContent>
                 <ul className="text-sm space-y-1" data-testid="list-indexer-errors">
-                  {searchResults.errors.map((error, index) => (
+                  {indexerErrors.map((error, index) => (
                     <li
                       key={index}
                       className="text-muted-foreground"
@@ -348,134 +498,175 @@ export default function SearchPage() {
             </Card>
           )}
 
+          {/* Library match banner */}
+          {libraryGames.length > 0 && (
+            <div
+              className="mb-4 flex flex-wrap items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-4 py-2.5"
+              data-testid="banner-library-matches"
+            >
+              <span className="text-xs font-medium text-muted-foreground">In your library:</span>
+              {libraryGames.map((game) => (
+                <div
+                  key={game.id}
+                  className="flex items-center gap-1 rounded bg-muted px-2 py-0.5"
+                  data-testid={`library-game-${game.id}`}
+                >
+                  <span className="text-sm">{game.title}</span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-5 w-5 text-destructive/70 hover:text-destructive"
+                    onClick={() => removeGameMutation.mutate(game.id)}
+                    disabled={removeGameMutation.isPending}
+                    aria-label={`Remove ${game.title} from library`}
+                    data-testid={`button-remove-game-${game.id}`}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+
           <div className="border rounded-md divide-y overflow-hidden">
             <div className="bg-muted/50 p-2 text-xs font-medium flex justify-between items-center px-4">
               <div>Release Name</div>
               <div className="w-[40px] text-right">Action</div>
             </div>
-            {sortedItems.length > 0 ? (
-              sortedItems.map((download, index) => {
-                const isUsenet = isUsenetItem(download);
-                return (
-                  <div
-                    key={index}
-                    className="p-3 text-sm flex justify-between items-center hover:bg-muted/30 transition-colors gap-4 px-4"
-                    data-testid={`card-torrent-${index}`}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <div className="font-medium truncate flex-1" title={download.title}>
-                          {download.title}
+            {filteredAndSortedItems.length > 0 ? (
+              <>
+                {filteredAndSortedItems.map((download, index) => {
+                  const isUsenet = isUsenetItem(download);
+                  const itemKey = download.guid ?? download.link;
+                  return (
+                    <div
+                      key={itemKey}
+                      className="p-3 text-sm flex justify-between items-center hover:bg-muted/30 transition-colors gap-4 px-4"
+                      data-testid={`card-torrent-${index}`}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <div className="font-medium truncate flex-1" title={download.title}>
+                            {download.title}
+                          </div>
+                          <div className="text-[10px] text-muted-foreground/70 bg-muted px-1.5 py-0.5 rounded uppercase font-bold">
+                            {cleanReleaseName(download.title)}
+                          </div>
+                          <Badge
+                            className={`text-xs flex-shrink-0 border-none ${getDownloadTypeColor(isUsenet ? "usenet" : "torrent")}`}
+                          >
+                            {isUsenet ? (
+                              <>
+                                <Newspaper className="h-3 w-3 mr-1" />
+                                USENET
+                              </>
+                            ) : (
+                              <>
+                                <Download className="h-3 w-3 mr-1" />
+                                TORRENT
+                              </>
+                            )}
+                          </Badge>
                         </div>
-                        <div className="text-[10px] text-muted-foreground/70 bg-muted px-1.5 py-0.5 rounded uppercase font-bold">
-                          {cleanReleaseName(download.title)}
-                        </div>
-                        <Badge
-                          className={`text-xs flex-shrink-0 border-none ${getDownloadTypeColor(isUsenet ? "usenet" : "torrent")}`}
-                        >
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <span>{formatDate(download.pubDate)}</span>
+                          <span>•</span>
+                          <span>{download.size ? formatBytes(download.size) : "-"}</span>
+                          <span>•</span>
                           {isUsenet ? (
                             <>
-                              <Newspaper className="h-3 w-3 mr-1" />
-                              USENET
+                              {download.grabs !== undefined && (
+                                <>
+                                  <span className="text-primary font-medium">{download.grabs}</span>
+                                  <span>grabs</span>
+                                  {download.age !== undefined && <span>•</span>}
+                                </>
+                              )}
+                              {download.age !== undefined && (
+                                <>
+                                  <span className="text-muted-foreground font-medium">
+                                    {formatAge(download.age)}
+                                  </span>
+                                  <span>old</span>
+                                </>
+                              )}
                             </>
                           ) : (
+                            <div className="flex items-center gap-1">
+                              <span className="text-emerald-600 dark:text-emerald-400 font-medium">
+                                {download.seeders ?? 0}
+                              </span>
+                              <span>/</span>
+                              <span className="text-destructive font-medium">
+                                {download.leechers ?? 0}
+                              </span>
+                              <span>peers</span>
+                            </div>
+                          )}
+                          {!!download.description && (
                             <>
-                              <Download className="h-3 w-3 mr-1" />
-                              TORRENT
+                              <span>•</span>
+                              <span className="truncate max-w-[300px]" title={download.description}>
+                                {download.description}
+                              </span>
                             </>
                           )}
-                        </Badge>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <span>{formatDate(download.pubDate)}</span>
-                        <span>•</span>
-                        <span>{download.size ? formatBytes(download.size) : "-"}</span>
-                        <span>•</span>
-                        {isUsenet ? (
-                          <>
-                            {download.grabs !== undefined && (
-                              <>
-                                <span className="text-primary font-medium">{download.grabs}</span>
-                                <span>grabs</span>
-                                {download.age !== undefined && <span>•</span>}
-                              </>
-                            )}
-                            {download.age !== undefined && (
-                              <>
-                                <span className="text-muted-foreground font-medium">
-                                  {formatAge(download.age)}
-                                </span>
-                                <span>old</span>
-                              </>
-                            )}
-                          </>
-                        ) : (
-                          <div className="flex items-center gap-1">
-                            <span className="text-emerald-600 dark:text-emerald-400 font-medium">
-                              {download.seeders ?? 0}
-                            </span>
-                            <span>/</span>
-                            <span className="text-destructive font-medium">
-                              {download.leechers ?? 0}
-                            </span>
-                            <span>peers</span>
-                          </div>
-                        )}
-                        {download.description && (
-                          <>
-                            <span>•</span>
-                            <span className="truncate max-w-[300px]" title={download.description}>
-                              {download.description}
-                            </span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                    <div className="w-[40px] text-right flex-shrink-0">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <div
-                            className="inline-block"
-                            tabIndex={downloaders.length === 0 ? 0 : -1}
-                          >
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleDownload(download)}
-                              disabled={downloaders.length === 0}
-                              className="h-8 w-8"
-                              data-testid={`button-download-${index}`}
-                              aria-label="Start download"
+                      <div className="w-[40px] text-right flex-shrink-0">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div
+                              className="inline-block"
+                              tabIndex={downloaders.length === 0 ? 0 : -1}
                             >
-                              <Download className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>
-                            {downloaders.length === 0
-                              ? "Configure a downloader first"
-                              : "Start download"}
-                          </p>
-                        </TooltipContent>
-                      </Tooltip>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleDownload(download)}
+                                disabled={downloaders.length === 0}
+                                className="h-8 w-8"
+                                data-testid={`button-download-${index}`}
+                                aria-label="Start download"
+                              >
+                                <Download className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>
+                              {downloaders.length === 0
+                                ? "Configure a downloader first"
+                                : "Start download"}
+                            </p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
                     </div>
-                  </div>
-                );
-              })
+                  );
+                })}
+              </>
             ) : (
               <div className="p-8 text-center text-muted-foreground" data-testid="card-no-results">
                 <p className="font-medium text-foreground">No Results Found</p>
                 <p className="text-sm mt-1">
-                  Try adjusting your search terms or check if your indexers are properly configured.
+                  {dateFrom || dateTo
+                    ? "No releases match the selected date range. Try adjusting the filter."
+                    : "Try adjusting your search terms or check if your indexers are properly configured."}
                 </p>
               </div>
             )}
+            {/* Infinite scroll sentinel — always rendered so observer reattaches after filter changes */}
+            <div ref={sentinelRef} className="flex justify-center py-3">
+              {isFetchingNextPage && (
+                <Search className="h-4 w-4 animate-spin text-muted-foreground" />
+              )}
+            </div>
           </div>
         </div>
       )}
 
-      {!searchQuery && !searchResults && (
+      {!searchQuery && !data && (
         <Card data-testid="card-start-searching">
           <CardHeader>
             <CardTitle data-testid="text-start-searching-title">Start Searching</CardTitle>

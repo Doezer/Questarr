@@ -32,7 +32,22 @@ try {
 logger.info(`Initializing SQLite database at: ${dbPath}`);
 
 // Initialize the database connection
-const sqlite = new Database(dbPath);
+let sqlite: Database.Database;
+try {
+  sqlite = new Database(dbPath);
+} catch (err) {
+  const uid = process.getuid?.() ?? "unknown";
+  const gid = process.getgid?.() ?? "unknown";
+  logger.error(
+    { err, dbPath, uid, gid },
+    `Cannot open SQLite database at ${dbPath}. ` +
+      `Process is running as UID ${uid} GID ${gid}. ` +
+      `Ensure the directory ${path.dirname(dbPath)} exists and is writable. ` +
+      `In Docker: set PUID/PGID in your compose environment to match the host volume owner, ` +
+      `or run: sudo chown -R <UID>:<GID> ./data on the host.`
+  );
+  process.exit(1);
+}
 
 // Apply pragmas for performance and compatibility
 sqlite.pragma("journal_mode = WAL");

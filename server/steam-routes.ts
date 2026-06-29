@@ -38,7 +38,7 @@ router.post("/api/steam/wishlist/sync", authenticateToken, async (req, res) => {
   try {
     const user = req.user as User;
 
-    const result = await syncUserSteamWishlist(user.id);
+    const result = await syncUserSteamWishlist(user.id, "manual");
 
     if (!result) {
       return res.status(400).json({ error: "Steam ID not linked" });

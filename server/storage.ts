@@ -24,6 +24,11 @@ import {
   type InsertRssFeedItem,
   type ReleaseBlacklist,
   type InsertReleaseBlacklist,
+  type ImportTask,
+  type ImportTaskItem,
+  type ImportTaskType,
+  type ImportTaskItemResult,
+  type InsertImportTaskItem,
   users,
   games,
   indexers,
@@ -37,6 +42,8 @@ import {
   rssFeedItems,
   pathMappings,
   platformMappings,
+  importTasks,
+  importTaskItems,
   type PathMapping,
   type InsertPathMapping,
   type PlatformMapping,
@@ -111,6 +118,18 @@ function buildImportConfigFromSettings(
   };
 }
 
+type ImportTaskUpdate = Pick<
+  ImportTask,
+  | "status"
+  | "startedAt"
+  | "completedAt"
+  | "totalItems"
+  | "addedItems"
+  | "skippedItems"
+  | "failedItems"
+  | "errorMessage"
+>;
+
 export interface IStorage {
   // System Config methods
   getSystemConfig(key: string): Promise<string | undefined>;
@@ -175,7 +194,7 @@ export interface IStorage {
     gameId: string
   ): Promise<(GameDownload & { downloaderName: string | null })[]>;
   updateGameDownloadStatus(id: string, status: string, errorMessage?: string | null): Promise<void>;
-  addGameDownload(gameDownload: InsertGameDownload): Promise<GameDownload>;
+  addGameDownload(gameDownload: InsertGameDownload): Promise<GameDownload | undefined>;
   removeGameDownload(id: string, gameId: string): Promise<boolean>;
   getDownloadSummaryByGame(userId: string): Promise<Record<string, DownloadSummary>>;
   getTrackedDownloadKeys(): Promise<Set<string>>;
@@ -251,6 +270,20 @@ export interface IStorage {
   getAllReleaseBlacklists(userId: string): Promise<(ReleaseBlacklist & { gameTitle: string })[]>;
   removeReleaseBlacklist(id: string, gameId: string): Promise<boolean>;
   getReleaseBlacklistSet(gameId: string): Promise<Set<string>>;
+
+  // Import task history methods
+  createImportTask(data: {
+    userId: string;
+    taskType: ImportTaskType;
+    triggeredBy: "manual" | "system";
+  }): Promise<ImportTask>;
+  startImportTask(id: string): Promise<void>;
+  updateImportTask(id: string, updates: Partial<ImportTaskUpdate>): Promise<void>;
+  addImportTaskItem(item: InsertImportTaskItem): Promise<ImportTaskItem>;
+  getImportTasks(userId: string, limit?: number, offset?: number): Promise<ImportTask[]>;
+  getImportTask(id: string): Promise<ImportTask | undefined>;
+  getImportTaskItems(taskId: string): Promise<ImportTaskItem[]>;
+  deleteImportTasksOlderThan(cutoffMs: number): Promise<number>;
 }
 
 export class MemStorage implements IStorage {
@@ -1226,6 +1259,36 @@ export class MemStorage implements IStorage {
       .map((r) => r.releaseTitle);
     return new Set(titles);
   }
+
+  // Import task history — not implemented in MemStorage (tests use DatabaseStorage)
+  async createImportTask(_data: {
+    userId: string;
+    taskType: ImportTaskType;
+    triggeredBy: "manual" | "system";
+  }): Promise<ImportTask> {
+    throw new Error("Not implemented in MemStorage");
+  }
+  async startImportTask(_id: string): Promise<void> {
+    throw new Error("Not implemented in MemStorage");
+  }
+  async updateImportTask(_id: string, _updates: Partial<ImportTaskUpdate>): Promise<void> {
+    throw new Error("Not implemented in MemStorage");
+  }
+  async addImportTaskItem(_item: InsertImportTaskItem): Promise<ImportTaskItem> {
+    throw new Error("Not implemented in MemStorage");
+  }
+  async getImportTasks(_userId: string): Promise<ImportTask[]> {
+    return [];
+  }
+  async getImportTask(_id: string): Promise<ImportTask | undefined> {
+    return undefined;
+  }
+  async getImportTaskItems(_taskId: string): Promise<ImportTaskItem[]> {
+    return [];
+  }
+  async deleteImportTasksOlderThan(_cutoffMs: number): Promise<number> {
+    return 0;
+  }
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1867,11 +1930,12 @@ export class DatabaseStorage implements IStorage {
     await db.update(gameDownloads).set(updates).where(eq(gameDownloads.id, id));
   }
 
-  async addGameDownload(insertGameDownload: InsertGameDownload): Promise<GameDownload> {
+  async addGameDownload(insertGameDownload: InsertGameDownload): Promise<GameDownload | undefined> {
     const id = randomUUID();
     const [gameDownload] = await db
       .insert(gameDownloads)
       .values({ ...insertGameDownload, id })
+      .onConflictDoNothing()
       .returning();
     return gameDownload;
   }
@@ -2219,6 +2283,86 @@ export class DatabaseStorage implements IStorage {
       .from(releaseBlacklist)
       .where(eq(releaseBlacklist.gameId, gameId));
     return new Set(rows.map((r) => r.releaseTitle));
+  }
+
+  // Import task history methods
+  async createImportTask(data: {
+    userId: string;
+    taskType: ImportTaskType;
+    triggeredBy: "manual" | "system";
+  }): Promise<ImportTask> {
+    const id = randomUUID();
+    const [task] = await db
+      .insert(importTasks)
+      .values({
+        id,
+        userId: data.userId,
+        taskType: data.taskType,
+        triggeredBy: data.triggeredBy,
+        status: "pending",
+      })
+      .returning();
+    return task;
+  }
+
+  async startImportTask(id: string): Promise<void> {
+    await db
+      .update(importTasks)
+      .set({ status: "in_progress", startedAt: new Date() })
+      .where(eq(importTasks.id, id));
+  }
+
+  async updateImportTask(id: string, updates: Partial<ImportTaskUpdate>): Promise<void> {
+    await db.update(importTasks).set(updates).where(eq(importTasks.id, id));
+  }
+
+  async addImportTaskItem(item: InsertImportTaskItem): Promise<ImportTaskItem> {
+    const id = randomUUID();
+    const [row] = await db
+      .insert(importTaskItems)
+      .values({
+        id,
+        taskId: item.taskId,
+        itemName: item.itemName,
+        result: item.result as ImportTaskItemResult,
+        gameId: item.gameId ?? null,
+        gameTitle: item.gameTitle ?? null,
+        errorMessage: item.errorMessage ?? null,
+      })
+      .returning();
+    return row;
+  }
+
+  async getImportTasks(userId: string, limit = 50, offset = 0): Promise<ImportTask[]> {
+    return db
+      .select()
+      .from(importTasks)
+      .where(eq(importTasks.userId, userId))
+      .orderBy(desc(importTasks.createdAt))
+      .limit(limit)
+      .offset(offset);
+  }
+
+  async getImportTask(id: string): Promise<ImportTask | undefined> {
+    const [task] = await db.select().from(importTasks).where(eq(importTasks.id, id));
+    return task ?? undefined;
+  }
+
+  async getImportTaskItems(taskId: string): Promise<ImportTaskItem[]> {
+    return db
+      .select()
+      .from(importTaskItems)
+      .where(eq(importTaskItems.taskId, taskId))
+      .orderBy(importTaskItems.createdAt);
+  }
+
+  async deleteImportTasksOlderThan(cutoffMs: number): Promise<number> {
+    const result = await db
+      .delete(importTasks)
+      .where(
+        and(not(eq(importTasks.status, "in_progress")), sql`${importTasks.createdAt} < ${cutoffMs}`)
+      );
+    return result.changes;
   }
 }
 

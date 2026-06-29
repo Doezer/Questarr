@@ -220,25 +220,29 @@ export const downloaders = sqliteTable("downloaders", {
 });
 
 // Track downloads associated with games for completion monitoring
-export const gameDownloads = sqliteTable("game_downloads", {
-  id: text("id").primaryKey(),
-  gameId: text("game_id")
-    .notNull()
-    .references(() => games.id, { onDelete: "cascade" }),
-  downloaderId: text("downloader_id")
-    .notNull()
-    .references(() => downloaders.id, { onDelete: "cascade" }),
-  downloadType: text("download_type").notNull().default("torrent"),
-  downloadHash: text("download_hash").notNull(),
-  downloadTitle: text("download_title").notNull(),
-  status: text("status").notNull().default("downloading"),
-  errorMessage: text("error_message"),
-  fileSize: integer("file_size"), // bytes, stored at completion when available
-  addedAt: integer("added_at", { mode: "timestamp_ms" }).default(
-    sql`(strftime('%s', 'now') * 1000)`
-  ),
-  completedAt: integer("completed_at", { mode: "timestamp_ms" }),
-});
+export const gameDownloads = sqliteTable(
+  "game_downloads",
+  {
+    id: text("id").primaryKey(),
+    gameId: text("game_id")
+      .notNull()
+      .references(() => games.id, { onDelete: "cascade" }),
+    downloaderId: text("downloader_id")
+      .notNull()
+      .references(() => downloaders.id, { onDelete: "cascade" }),
+    downloadType: text("download_type").notNull().default("torrent"),
+    downloadHash: text("download_hash").notNull(),
+    downloadTitle: text("download_title").notNull(),
+    status: text("status").notNull().default("downloading"),
+    errorMessage: text("error_message"),
+    fileSize: integer("file_size"),
+    addedAt: integer("added_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+    completedAt: integer("completed_at", { mode: "timestamp_ms" }),
+  },
+  (t) => [uniqueIndex("game_downloads_downloader_hash_idx").on(t.downloaderId, t.downloadHash)]
+);
 
 // Legacy table name for backward compatibility during migration
 export const legacy_gameDownloads = gameDownloads;
@@ -719,3 +723,70 @@ export type InsertRssFeed = (typeof insertRssFeedSchema)["_output"];
 
 export type RssFeedItem = typeof rssFeedItems.$inferSelect;
 export type InsertRssFeedItem = (typeof insertRssFeedItemSchema)["_output"];
+
+// Import task history
+export const IMPORT_TASK_TYPES = ["steam_wishlist", "file_import", "bulk_add"] as const;
+export type ImportTaskType = (typeof IMPORT_TASK_TYPES)[number];
+
+export const IMPORT_TASK_STATUSES = [
+  "pending",
+  "in_progress",
+  "completed",
+  "completed_with_errors",
+  "failed",
+] as const;
+export type ImportTaskStatus = (typeof IMPORT_TASK_STATUSES)[number];
+
+export const IMPORT_TASK_ITEM_RESULTS = ["added", "skipped", "failed", "fuzzy_match"] as const;
+export type ImportTaskItemResult = (typeof IMPORT_TASK_ITEM_RESULTS)[number];
+
+export const importTasks = sqliteTable("import_tasks", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+  taskType: text("task_type").notNull().$type<ImportTaskType>(),
+  triggeredBy: text("triggered_by").notNull(), // "manual" | "system"
+  status: text("status").notNull().default("pending").$type<ImportTaskStatus>(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+    sql`(strftime('%s', 'now') * 1000)`
+  ),
+  startedAt: integer("started_at", { mode: "timestamp_ms" }),
+  completedAt: integer("completed_at", { mode: "timestamp_ms" }),
+  totalItems: integer("total_items").notNull().default(0),
+  addedItems: integer("added_items").notNull().default(0),
+  skippedItems: integer("skipped_items").notNull().default(0),
+  failedItems: integer("failed_items").notNull().default(0),
+  errorMessage: text("error_message"),
+});
+
+export const importTaskItems = sqliteTable("import_task_items", {
+  id: text("id").primaryKey(),
+  taskId: text("task_id")
+    .notNull()
+    .references(() => importTasks.id, { onDelete: "cascade" }),
+  itemName: text("item_name").notNull(),
+  result: text("result").notNull().$type<ImportTaskItemResult>(),
+  gameId: text("game_id"),
+  gameTitle: text("game_title"),
+  errorMessage: text("error_message"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+    sql`(strftime('%s', 'now') * 1000)`
+  ),
+});
+
+export const insertImportTaskSchema = createInsertSchema(importTasks).omit({
+  id: true,
+  createdAt: true,
+  startedAt: true,
+  completedAt: true,
+});
+
+export const insertImportTaskItemSchema = createInsertSchema(importTaskItems).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type ImportTask = typeof importTasks.$inferSelect;
+export type InsertImportTask = (typeof insertImportTaskSchema)["_output"];
+
+export type ImportTaskItem = typeof importTaskItems.$inferSelect;
+export type InsertImportTaskItem = (typeof insertImportTaskItemSchema)["_output"];

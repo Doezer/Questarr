@@ -141,6 +141,13 @@
       "when": 1748736000000,
       "tag": "0019_auto_delete_import",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1751242800000,
+      "tag": "0020_import_history",
+      "breakpoints": true
     }
   ]
 }

@@ -135,104 +135,58 @@ export default function ClaimBatchModal({ open, onOpenChange }: ClaimBatchModalP
 
       setProgress({ done: 0, total: toProcess.length });
 
-      let processedCount = 0;
-      const groupErrors: string[] = [];
-
-      for (let i = 0; i < toProcess.length; i++) {
-        const group = toProcess[i];
+      // Build all claim items upfront — IGDB groups send newGame for every download
+      // so the server's igdbId dedup handles game reuse within the same batch.
+      const items = toProcess.flatMap((group) => {
         const state = groupStates.get(group.baseTitle)!;
         const selectedGame = state.selectedGame!;
+        const isLibrary = selectedGame.source === "library";
+        const g = selectedGame.data;
 
-        try {
-          // Track the gameId returned by the first claim in this group so that
-          // subsequent downloads (updates, DLC, extras) link to the same game row
-          // instead of creating duplicate entries.
-          let resolvedGroupGameId: string | undefined =
-            selectedGame.source === "library" ? selectedGame.id : undefined;
-
-          const buildBody = (dl: (typeof group.downloads)[0], gid?: string) => {
-            const body: Record<string, unknown> = {
-              downloaderId: dl.downloaderId,
-              downloadHash: dl.downloadHash,
-              downloadTitle: dl.downloadTitle,
-              currentStatus: dl.status,
-              category: dl.category,
-            };
-            if (gid) {
-              body.gameId = gid;
-            } else {
-              const g = selectedGame.data;
-              body.newGame = {
-                igdbId: g.igdbId,
-                title: g.title,
-                coverUrl: g.coverUrl,
-                summary: g.summary,
-                releaseDate: g.releaseDate,
-                platforms: g.platforms,
-                genres: g.genres,
-                rating: g.rating,
-                aggregatedRating: g.aggregatedRating,
-                screenshots: g.screenshots,
-                igdbWebsites: g.igdbWebsites,
-              };
-            }
-            return body;
+        return group.downloads.map((dl) => {
+          const base = {
+            downloaderId: dl.downloaderId,
+            downloadHash: dl.downloadHash,
+            downloadTitle: dl.downloadTitle,
+            currentStatus: dl.status,
+            category: dl.category,
           };
-
-          if (!resolvedGroupGameId && group.downloads.length > 0) {
-            // Send the first download sequentially to obtain (or create) the game row,
-            // then parallelise the remaining downloads using the resolved game ID.
-            const first = group.downloads[0];
-            const firstResponse = await apiRequest(
-              "POST",
-              "/api/downloads/claim",
-              buildBody(first, undefined)
-            );
-            if (!firstResponse.ok) {
-              const errBody = (await firstResponse.json().catch(() => ({}))) as {
-                error?: string;
-              };
-              throw new Error(errBody.error ?? `Claim failed with status ${firstResponse.status}`);
-            }
-            const firstResult = (await firstResponse.json()) as { gameId: string };
-            resolvedGroupGameId = firstResult?.gameId;
-
-            if (!resolvedGroupGameId) {
-              throw new Error(`No gameId returned for group "${group.baseTitle}"`);
-            }
-
-            // Parallelize the remaining downloads now that we have a gameId
-            await Promise.all(
-              group.downloads
-                .slice(1)
-                .map((dl) =>
-                  apiRequest("POST", "/api/downloads/claim", buildBody(dl, resolvedGroupGameId))
-                )
-            );
-          } else {
-            // Library game: all downloads already have a gameId — parallelise immediately
-            await Promise.all(
-              group.downloads.map((dl) =>
-                apiRequest("POST", "/api/downloads/claim", buildBody(dl, resolvedGroupGameId))
-              )
-            );
+          if (isLibrary) {
+            return { ...base, gameId: selectedGame.id! };
           }
+          return {
+            ...base,
+            newGame: {
+              igdbId: g.igdbId,
+              title: g.title,
+              coverUrl: g.coverUrl,
+              summary: g.summary,
+              releaseDate: g.releaseDate,
+              platforms: g.platforms,
+              genres: g.genres,
+              rating: g.rating,
+              aggregatedRating: g.aggregatedRating,
+              screenshots: g.screenshots,
+              igdbWebsites: g.igdbWebsites,
+            },
+          };
+        });
+      });
 
-          processedCount++;
-        } catch (err) {
-          groupErrors.push(
-            `"${group.baseTitle}": ${err instanceof Error ? err.message : "unknown error"}`
-          );
-        }
-
-        setProgress({ done: i + 1, total: toProcess.length });
+      const response = await apiRequest("POST", "/api/downloads/claim-batch", { items });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? `Batch claim failed with status ${response.status}`);
       }
+      const result = (await response.json()) as {
+        addedCount: number;
+        failedCount: number;
+        skippedCount: number;
+      };
 
-      if (groupErrors.length > 0 && processedCount === 0) {
-        throw new Error(`All groups failed: ${groupErrors[0]}`);
-      }
+      setProgress({ done: toProcess.length, total: toProcess.length });
 
-      return { count: processedCount, hadErrors: groupErrors.length > 0 };
+      return { count: result.addedCount, hadErrors: result.failedCount > 0 };
     },
     onSuccess: (result) => {
       const { count, hadErrors } = result ?? { count: 0, hadErrors: false };

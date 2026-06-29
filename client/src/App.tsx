@@ -34,6 +34,7 @@ const LoginPage = lazy(() => import("@/pages/auth/login"));
 const SetupPage = lazy(() => import("@/pages/auth/setup"));
 const StatsPage = lazy(() => import("@/pages/stats"));
 const LogsPage = lazy(() => import("@/pages/logs"));
+const ImportHistoryPage = lazy(() => import("@/pages/import-history"));
 
 function Router() {
   return (
@@ -54,6 +55,7 @@ function Router() {
         <Route path={routePaths.rss} component={RssPage} />
         <Route path={routePaths.stats} component={StatsPage} />
         <Route path={routePaths.logs} component={LogsPage} />
+        <Route path={routePaths.importHistory} component={ImportHistoryPage} />
         <Route component={NotFound} />
       </Switch>
     </Suspense>

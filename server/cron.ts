@@ -308,6 +308,15 @@ export function startCronJobs() {
   setInterval(() => {
     logClientVersions().catch((err) => igdbLogger.warn({ err }, "Error in logClientVersions"));
   }, CLIENT_VERSION_LOG_INTERVAL_MS);
+
+  const IMPORT_TASK_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+  const runImportTaskCleanup = () => {
+    const cutoff = Date.now() - IMPORT_TASK_RETENTION_MS;
+    storage
+      .deleteImportTasksOlderThan(cutoff)
+      .catch((err) => igdbLogger.warn({ err }, "Import task cleanup failed"));
+  };
+  setInterval(runImportTaskCleanup, 24 * 60 * 60 * 1000);
 }
 
 async function logClientVersions(): Promise<void> {
@@ -1288,7 +1297,7 @@ async function addNewSteamWishlistGames(
   newIgdbIds: Set<number>,
   ownedIgdbIds: Set<number>
 ) {
-  const addedGames: { title: string; igdbId: number; steamAppId: number }[] = [];
+  const addedGames: { title: string; igdbId: number; steamAppId: number; gameId: string }[] = [];
 
   const gameDetailsList = await igdbClient.getGamesByIds(Array.from(newIgdbIds));
   const gameDetailsMap = new Map(gameDetailsList.map((g) => [g.id, g]));
@@ -1301,7 +1310,7 @@ async function addNewSteamWishlistGames(
     if (!gameDetails) continue;
 
     const formatted = igdbClient.formatGameData(gameDetails);
-    await storage.addGame({
+    const game = await storage.addGame({
       userId,
       title: formatted.title as string,
       igdbId: formatted.igdbId as number,
@@ -1323,14 +1332,19 @@ async function addNewSteamWishlistGames(
       title: formatted.title as string,
       igdbId: formatted.igdbId as number,
       steamAppId,
+      gameId: game.id,
     });
   }
 
   return addedGames;
 }
 
-export async function syncUserSteamWishlist(userId: string) {
+export async function syncUserSteamWishlist(
+  userId: string,
+  triggeredBy: "manual" | "system" = "system"
+) {
   let steamSyncFailures = 0;
+  let taskId: string | undefined;
 
   try {
     const user = await storage.getUser(userId);
@@ -1346,6 +1360,15 @@ export async function syncUserSteamWishlist(userId: string) {
       igdbLogger.warn({ userId, steamSyncFailures }, message);
       return { success: false, message };
     }
+
+    const task = await storage.createImportTask({
+      userId,
+      taskType: "steam_wishlist",
+      triggeredBy,
+    });
+    taskId = task.id;
+    await storage.startImportTask(taskId);
+    notifyUser("importTaskUpdate", { taskId, status: "in_progress" });
 
     igdbLogger.info({ userId, steamId: user.steamId64 }, "Syncing Steam Wishlist");
 
@@ -1370,10 +1393,15 @@ export async function syncUserSteamWishlist(userId: string) {
       .filter((sg) => !gameSet.ownedSteamAppIds.has(sg.steamAppId))
       .map((sg) => sg.steamAppId);
 
-    let addedGames: { title: string; igdbId: number; steamAppId: number }[] = [];
+    const skippedCount = wishlistGames.length - pendingSteamAppIds.length;
+
+    let addedGames: { title: string; igdbId: number; steamAppId: number; gameId: string }[] = [];
+    let failedSteamAppIds: number[] = [];
 
     if (pendingSteamAppIds.length > 0) {
       const steamToIgdbMap = await igdbClient.getGameIdsBySteamAppIds(pendingSteamAppIds);
+      failedSteamAppIds = pendingSteamAppIds.filter((id) => !steamToIgdbMap.has(id));
+
       const newIgdbIds = await linkExistingGamesToSteam(
         pendingSteamAppIds,
         steamToIgdbMap,
@@ -1390,6 +1418,45 @@ export async function syncUserSteamWishlist(userId: string) {
         );
       }
     }
+
+    // Log task items for added and failed games — chunked to avoid overwhelming the DB
+    const importItemFns = [
+      ...addedGames.map(
+        (g) => () =>
+          storage.addImportTaskItem({
+            taskId: taskId!,
+            itemName: `Steam App ${g.steamAppId}`,
+            result: "added",
+            gameId: g.gameId,
+            gameTitle: g.title,
+          })
+      ),
+      ...failedSteamAppIds.map(
+        (id) => () =>
+          storage.addImportTaskItem({
+            taskId: taskId!,
+            itemName: `Steam App ${id}`,
+            result: "failed",
+            errorMessage: "No IGDB match found",
+          })
+      ),
+    ];
+    const CHUNK_SIZE = 20;
+    for (let i = 0; i < importItemFns.length; i += CHUNK_SIZE) {
+      await Promise.all(importItemFns.slice(i, i + CHUNK_SIZE).map((fn) => fn()));
+    }
+
+    const finalStatus = failedSteamAppIds.length > 0 ? "completed_with_errors" : "completed";
+
+    await storage.updateImportTask(taskId, {
+      status: finalStatus,
+      completedAt: new Date(),
+      totalItems: wishlistGames.length,
+      addedItems: addedGames.length,
+      skippedItems: skippedCount,
+      failedItems: failedSteamAppIds.length,
+    });
+    notifyUser("importTaskUpdate", { taskId, status: finalStatus });
 
     const steamPrefs = resolvePrefs(settings);
     if (addedGames.length > 0 && steamPrefs.steamSync.inApp) {
@@ -1409,6 +1476,18 @@ export async function syncUserSteamWishlist(userId: string) {
     await storage.updateUserSettings(userId, { steamSyncFailures: nextSteamSyncFailures });
     igdbLogger.error({ userId, error }, "Steam Sync Failed");
     const errMessage = error instanceof Error ? error.message : "Unknown error";
+
+    if (taskId) {
+      await storage
+        .updateImportTask(taskId, {
+          status: "failed",
+          completedAt: new Date(),
+          errorMessage: errMessage,
+        })
+        .catch(() => undefined);
+      notifyUser("importTaskUpdate", { taskId, status: "failed" });
+    }
+
     return { success: false, message: errMessage };
   }
 }

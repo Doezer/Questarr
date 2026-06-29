@@ -23,6 +23,7 @@ import {
   type Game,
   type Indexer,
   type Downloader,
+  type InsertImportTaskItem,
 } from "../shared/schema.js";
 import { isUsenetDownloaderType } from "../shared/downloader-types.js";
 import { torznabClient } from "./torznab.js";
@@ -2608,11 +2609,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const trackedKeys = await storage.getTrackedDownloadKeys();
     let addedCount = 0;
     let failedCount = 0;
+    const taskItemsToInsert: InsertImportTaskItem[] = [];
+    const igdbIdToGameId = new Map<number, string>();
 
     for (const item of parsedItems) {
       const key = `${item.downloaderId}:${item.downloadHash.toLowerCase()}`;
       if (trackedKeys.has(key)) {
-        await storage.addImportTaskItem({
+        taskItemsToInsert.push({
           taskId: task.id,
           itemName: item.downloadTitle,
           result: "skipped",
@@ -2635,7 +2638,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (item.gameId) {
           const existing = await storage.getGame(item.gameId);
           if (!existing || existing.userId !== userId) {
-            await storage.addImportTaskItem({
+            taskItemsToInsert.push({
               taskId: task.id,
               itemName: item.downloadTitle,
               result: "failed",
@@ -2657,17 +2660,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         } else if (item.newGame) {
           if (item.newGame.igdbId != null) {
-            const existing = await storage.getGameByIgdbId(item.newGame.igdbId);
-            if (existing && existing.userId === userId) {
-              resolvedGameId = existing.id;
-              if (item.category === "main") {
-                const targetStatus = downloadStatus === "completed" ? "owned" : "downloading";
-                if (
-                  (targetStatus === "downloading" && existing.status === "wanted") ||
-                  (targetStatus === "owned" &&
-                    (existing.status === "wanted" || existing.status === "downloading"))
-                ) {
-                  await storage.updateGameStatus(existing.id, { status: targetStatus });
+            const cached = igdbIdToGameId.get(item.newGame.igdbId);
+            if (cached) {
+              resolvedGameId = cached;
+            } else {
+              const existing = await storage.getGameByIgdbId(item.newGame.igdbId);
+              if (existing && existing.userId === userId) {
+                resolvedGameId = existing.id;
+                igdbIdToGameId.set(item.newGame.igdbId, existing.id);
+                if (item.category === "main") {
+                  const targetStatus = downloadStatus === "completed" ? "owned" : "downloading";
+                  if (
+                    (targetStatus === "downloading" && existing.status === "wanted") ||
+                    (targetStatus === "owned" &&
+                      (existing.status === "wanted" || existing.status === "downloading"))
+                  ) {
+                    await storage.updateGameStatus(existing.id, { status: targetStatus });
+                  }
                 }
               }
             }
@@ -2683,11 +2692,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
               insertGameSchema.parse({ ...item.newGame, userId, status: initialStatus })
             );
             resolvedGameId = game.id;
+            if (item.newGame.igdbId != null) {
+              igdbIdToGameId.set(item.newGame.igdbId, game.id);
+            }
           }
         }
 
         if (!resolvedGameId) {
-          await storage.addImportTaskItem({
+          taskItemsToInsert.push({
             taskId: task.id,
             itemName: item.downloadTitle,
             result: "failed",
@@ -2699,7 +2711,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         const downloader = await storage.getDownloader(item.downloaderId);
         if (!downloader) {
-          await storage.addImportTaskItem({
+          taskItemsToInsert.push({
             taskId: task.id,
             itemName: item.downloadTitle,
             result: "failed",
@@ -2722,7 +2734,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await storage.updateGameSearchResultsAvailable(resolvedGameId, false);
 
         trackedKeys.add(key);
-        await storage.addImportTaskItem({
+        taskItemsToInsert.push({
           taskId: task.id,
           itemName: item.downloadTitle,
           result: "added",
@@ -2731,7 +2743,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         addedCount++;
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : "Unknown error";
-        await storage.addImportTaskItem({
+        taskItemsToInsert.push({
           taskId: task.id,
           itemName: item.downloadTitle,
           result: "failed",
@@ -2741,6 +2753,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     }
 
+    await storage.addImportTaskItemsBatch(taskItemsToInsert);
     const skippedCount = parsedItems.length - addedCount - failedCount;
     const finalStatus = failedCount > 0 ? "completed_with_errors" : "completed";
     await storage.updateImportTask(task.id, {

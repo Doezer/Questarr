@@ -80,19 +80,31 @@ function ResultBadge({ result }: { result: string }) {
   );
 }
 
-function formatDuration(startedAt: number | null, completedAt: number | null): string {
-  if (!startedAt) return "—";
-  const end = completedAt ?? Date.now();
-  const secs = Math.round((end - startedAt) / 1000);
+function toMs(val: Date | string | number | null | undefined): number | null {
+  if (val == null) return null;
+  if (val instanceof Date) return val.getTime();
+  if (typeof val === "number") return val;
+  return new Date(val).getTime();
+}
+
+function formatDuration(
+  startedAt: Date | string | number | null | undefined,
+  completedAt: Date | string | number | null | undefined
+): string {
+  const start = toMs(startedAt);
+  if (!start) return "—";
+  const end = toMs(completedAt) ?? Date.now();
+  const secs = Math.round((end - start) / 1000);
   if (secs < 60) return `${secs}s`;
   const mins = Math.floor(secs / 60);
   const rem = secs % 60;
   return rem > 0 ? `${mins}m ${rem}s` : `${mins}m`;
 }
 
-function formatDate(ts: number | null): string {
-  if (!ts) return "—";
-  return new Date(ts).toLocaleString();
+function formatDate(ts: Date | string | number | null | undefined): string {
+  const ms = toMs(ts);
+  if (!ms) return "—";
+  return new Date(ms).toLocaleString();
 }
 
 type TaskWithItems = ImportTask & { items: ImportTaskItem[] };
@@ -122,15 +134,12 @@ export default function ImportHistoryPage() {
     const socket = getSocket();
     const handler = () => {
       queryClient.invalidateQueries({ queryKey: ["/api/import-tasks"] });
-      if (selectedTaskId) {
-        queryClient.invalidateQueries({ queryKey: ["/api/import-tasks", selectedTaskId] });
-      }
     };
     socket.on("importTaskUpdate", handler);
     return () => {
       socket.off("importTaskUpdate", handler);
     };
-  }, [queryClient, selectedTaskId]);
+  }, [queryClient]);
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -181,16 +190,13 @@ export default function ImportHistoryPage() {
                       <StatusBadge status={task.status} />
                     </td>
                     <td className="px-4 py-3 text-slate-400 text-xs">
-                      {formatDate(task.startedAt ? Number(task.startedAt) : null)}
+                      {formatDate(task.startedAt)}
                     </td>
                     <td className="px-4 py-3 text-slate-400 text-xs">
-                      {formatDate(task.createdAt ? Number(task.createdAt) : null)}
+                      {formatDate(task.createdAt)}
                     </td>
                     <td className="px-4 py-3 text-slate-400 text-xs">
-                      {formatDuration(
-                        task.startedAt ? Number(task.startedAt) : null,
-                        task.completedAt ? Number(task.completedAt) : null
-                      )}
+                      {formatDuration(task.startedAt, task.completedAt)}
                     </td>
                     <td className="px-4 py-3 text-right text-emerald-400">{task.addedItems}</td>
                     <td className="px-4 py-3 text-right text-slate-400">{task.skippedItems}</td>

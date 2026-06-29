@@ -1419,31 +1419,23 @@ export async function syncUserSteamWishlist(
       }
     }
 
-    // Log task items for added and failed games — chunked to avoid overwhelming the DB
-    const importItemFns = [
-      ...addedGames.map(
-        (g) => () =>
-          storage.addImportTaskItem({
-            taskId: taskId!,
-            itemName: `Steam App ${g.steamAppId}`,
-            result: "added",
-            gameId: g.gameId,
-            gameTitle: g.title,
-          })
-      ),
-      ...failedSteamAppIds.map(
-        (id) => () =>
-          storage.addImportTaskItem({
-            taskId: taskId!,
-            itemName: `Steam App ${id}`,
-            result: "failed",
-            errorMessage: "No IGDB match found",
-          })
-      ),
+    const importItems = [
+      ...addedGames.map((g) => ({
+        taskId: taskId!,
+        itemName: `Steam App ${g.steamAppId}`,
+        result: "added" as const,
+        gameId: g.gameId,
+        gameTitle: g.title,
+      })),
+      ...failedSteamAppIds.map((id) => ({
+        taskId: taskId!,
+        itemName: `Steam App ${id}`,
+        result: "failed" as const,
+        errorMessage: "No IGDB match found",
+      })),
     ];
-    const CHUNK_SIZE = 20;
-    for (let i = 0; i < importItemFns.length; i += CHUNK_SIZE) {
-      await Promise.all(importItemFns.slice(i, i + CHUNK_SIZE).map((fn) => fn()));
+    if (importItems.length > 0) {
+      await storage.addImportTaskItemsBatch(importItems);
     }
 
     const finalStatus = failedSteamAppIds.length > 0 ? "completed_with_errors" : "completed";

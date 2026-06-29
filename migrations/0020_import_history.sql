@@ -27,4 +27,6 @@ CREATE TABLE `import_task_items` (
 --> statement-breakpoint
 CREATE INDEX `import_tasks_user_created_idx` ON `import_tasks` (`user_id`, `created_at` DESC);
 --> statement-breakpoint
+CREATE INDEX `import_task_items_task_id_idx` ON `import_task_items` (`task_id`);
+--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS `game_downloads_downloader_hash_idx` ON `game_downloads` (`downloader_id`,`download_hash`);

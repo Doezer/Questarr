@@ -280,6 +280,7 @@ export interface IStorage {
   startImportTask(id: string): Promise<void>;
   updateImportTask(id: string, updates: Partial<ImportTaskUpdate>): Promise<void>;
   addImportTaskItem(item: InsertImportTaskItem): Promise<ImportTaskItem>;
+  addImportTaskItemsBatch(items: InsertImportTaskItem[]): Promise<ImportTaskItem[]>;
   getImportTasks(userId: string, limit?: number, offset?: number): Promise<ImportTask[]>;
   getImportTask(id: string): Promise<ImportTask | undefined>;
   getImportTaskItems(taskId: string): Promise<ImportTaskItem[]>;
@@ -1276,6 +1277,9 @@ export class MemStorage implements IStorage {
   }
   async addImportTaskItem(_item: InsertImportTaskItem): Promise<ImportTaskItem> {
     throw new Error("Not implemented in MemStorage");
+  }
+  async addImportTaskItemsBatch(_items: InsertImportTaskItem[]): Promise<ImportTaskItem[]> {
+    return [];
   }
   async getImportTasks(_userId: string): Promise<ImportTask[]> {
     return [];
@@ -2331,6 +2335,20 @@ export class DatabaseStorage implements IStorage {
       })
       .returning();
     return row;
+  }
+
+  async addImportTaskItemsBatch(items: InsertImportTaskItem[]): Promise<ImportTaskItem[]> {
+    if (items.length === 0) return [];
+    const values = items.map((item) => ({
+      id: randomUUID(),
+      taskId: item.taskId,
+      itemName: item.itemName,
+      result: item.result as ImportTaskItemResult,
+      gameId: item.gameId ?? null,
+      gameTitle: item.gameTitle ?? null,
+      errorMessage: item.errorMessage ?? null,
+    }));
+    return db.insert(importTaskItems).values(values).returning();
   }
 
   async getImportTasks(userId: string, limit = 50, offset = 0): Promise<ImportTask[]> {

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { sqliteTable, text, integer, real, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, uniqueIndex, index } from "drizzle-orm/sqlite-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -758,20 +758,24 @@ export const importTasks = sqliteTable("import_tasks", {
   errorMessage: text("error_message"),
 });
 
-export const importTaskItems = sqliteTable("import_task_items", {
-  id: text("id").primaryKey(),
-  taskId: text("task_id")
-    .notNull()
-    .references(() => importTasks.id, { onDelete: "cascade" }),
-  itemName: text("item_name").notNull(),
-  result: text("result").notNull().$type<ImportTaskItemResult>(),
-  gameId: text("game_id"),
-  gameTitle: text("game_title"),
-  errorMessage: text("error_message"),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
-    sql`(strftime('%s', 'now') * 1000)`
-  ),
-});
+export const importTaskItems = sqliteTable(
+  "import_task_items",
+  {
+    id: text("id").primaryKey(),
+    taskId: text("task_id")
+      .notNull()
+      .references(() => importTasks.id, { onDelete: "cascade" }),
+    itemName: text("item_name").notNull(),
+    result: text("result").notNull().$type<ImportTaskItemResult>(),
+    gameId: text("game_id"),
+    gameTitle: text("game_title"),
+    errorMessage: text("error_message"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+  },
+  (t) => [index("import_task_items_task_id_idx").on(t.taskId)]
+);
 
 export const insertImportTaskSchema = createInsertSchema(importTasks).omit({
   id: true,

@@ -72,7 +72,7 @@ describe("syncUserSteamWishlist", () => {
     vi.mocked(storage.createImportTask).mockResolvedValue({ id: "task-id" } as any);
     vi.mocked(storage.startImportTask).mockResolvedValue(undefined);
     vi.mocked(storage.updateImportTask).mockResolvedValue(undefined);
-    vi.mocked(storage.addImportTaskItem).mockResolvedValue(undefined);
+    vi.mocked(storage.addImportTaskItemsBatch).mockResolvedValue([]);
     vi.mocked(storage.addNotification).mockResolvedValue({ id: "notif-id" } as any);
     vi.mocked(storage.addGame).mockResolvedValue({ id: "game-id" } as any);
   });

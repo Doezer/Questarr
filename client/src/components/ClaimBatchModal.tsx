@@ -11,7 +11,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
 import { Search, Link2, CheckCircle2, AlertCircle, Loader2, ChevronDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -464,7 +463,7 @@ function GroupRow({
                   onCheckedChange={(showUndatedGames) => onUpdate({ showUndatedGames })}
                 />
               </div>
-              <ScrollArea className="max-h-36">
+              <div className="max-h-36 overflow-y-auto">
                 <div className="space-y-1">
                   {searchingIgdb ? (
                     <p className="text-xs text-muted-foreground py-1 px-1">Searching…</p>
@@ -522,7 +521,7 @@ function GroupRow({
                     ))
                   )}
                 </div>
-              </ScrollArea>
+              </div>
             </div>
           )}
         </div>

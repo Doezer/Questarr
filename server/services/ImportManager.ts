@@ -142,7 +142,9 @@ export class ImportManager {
     if (!stats.isDirectory()) return sourcePath;
 
     const entries = await fs.readdir(sourcePath);
-    const archiveEntries = entries.filter((name) => this.archiveService.isArchive(name)).sort();
+    const archiveEntries = entries
+      .filter((name: string) => this.archiveService.isArchive(name))
+      .sort();
     if (archiveEntries.length === 0) return sourcePath;
 
     // 7zip handles multi-part archives when given the first part
@@ -150,6 +152,24 @@ export class ImportManager {
     const extractDir = sourcePath + "_extracted";
     await this.archiveService.extract(mainArchive, extractDir);
     return extractDir;
+  }
+
+  private async readSourceFiles(
+    sourcePath: string
+  ): Promise<Array<{ name: string; isArchive: boolean }>> {
+    try {
+      const stats = await fs.stat(sourcePath);
+      if (stats.isDirectory()) {
+        const entries = await fs.readdir(sourcePath);
+        return entries
+          .sort()
+          .map((name: string) => ({ name, isArchive: this.archiveService.isArchive(name) }));
+      }
+      const name = path.basename(sourcePath);
+      return [{ name, isArchive: this.archiveService.isArchive(name) }];
+    } catch {
+      return [];
+    }
   }
 
   private extractRemoteHost(downloaderUrl: string): string | undefined {
@@ -407,7 +427,11 @@ export class ImportManager {
     downloadId: string,
     overrideSourcePath?: string,
     callerUserId?: string
-  ): Promise<{ originalPath: string | null; proposedPath: string }> {
+  ): Promise<{
+    originalPath: string | null;
+    proposedPath: string;
+    files: Array<{ name: string; isArchive: boolean }>;
+  }> {
     const download = await this.storage.getGameDownload(downloadId, callerUserId);
     if (!download) throw new Error(`Download ${downloadId} not found`);
 
@@ -429,6 +453,7 @@ export class ImportManager {
     const fallbackProposedPath = path.join(libraryRoot, platformDir, sanitizeFsName(game.title));
 
     if (resolvedOriginalPath) {
+      const files = await this.readSourceFiles(resolvedOriginalPath);
       try {
         const strategy = new PCImportStrategy();
         const plan = await strategy.planImport(
@@ -438,14 +463,14 @@ export class ImportManager {
           config,
           platformDir
         );
-        return { originalPath: resolvedOriginalPath, proposedPath: plan.proposedPath };
+        return { originalPath: resolvedOriginalPath, proposedPath: plan.proposedPath, files };
       } catch {
         // Source not yet accessible (e.g. still in incomplete folder) — path is known but can't be stat'd
-        return { originalPath: resolvedOriginalPath, proposedPath: fallbackProposedPath };
+        return { originalPath: resolvedOriginalPath, proposedPath: fallbackProposedPath, files };
       }
     }
 
-    return { originalPath: null, proposedPath: fallbackProposedPath };
+    return { originalPath: null, proposedPath: fallbackProposedPath, files: [] };
   }
 
   async confirmImport(

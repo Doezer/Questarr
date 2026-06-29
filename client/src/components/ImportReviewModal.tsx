@@ -20,7 +20,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, FolderOpen } from "lucide-react";
+import { Loader2, FolderOpen, Package, File } from "lucide-react";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
 import { FileBrowser } from "./FileBrowser";
@@ -58,7 +59,11 @@ export default function ImportReviewModal({
 
   const planApplied = useRef(false);
 
-  const { data: planData } = useQuery<{ originalPath: string; proposedPath: string }>({
+  const { data: planData } = useQuery<{
+    originalPath: string;
+    proposedPath: string;
+    files: Array<{ name: string; isArchive: boolean }>;
+  }>({
     queryKey: [`/api/imports/${downloadId}/plan`],
     enabled: open,
     retry: false,
@@ -203,6 +208,33 @@ export default function ImportReviewModal({
                 </Button>
               </div>
             </div>
+
+            {planData?.files && planData.files.length > 0 && (
+              <div className="space-y-1.5">
+                <Label>Download Contents</Label>
+                <ScrollArea className="h-32 rounded-md border p-2">
+                  <div className="space-y-0.5">
+                    {planData.files.map((f) => (
+                      <div key={f.name} className="flex items-center gap-1.5 text-xs">
+                        {f.isArchive ? (
+                          <Package className="h-3.5 w-3.5 shrink-0 text-amber-400" />
+                        ) : (
+                          <File className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        )}
+                        <span className={f.isArchive ? "text-amber-400" : "text-muted-foreground"}>
+                          {f.name}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+                {planData.files.some((f) => f.isArchive) && (
+                  <p className="text-xs text-amber-400/80">
+                    Archive files detected — consider enabling Unpack Archive below.
+                  </p>
+                )}
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label>Transfer Mode</Label>

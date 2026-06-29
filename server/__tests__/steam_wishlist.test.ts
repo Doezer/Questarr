@@ -28,6 +28,18 @@ vi.mock("../logger.js", () => {
   };
 });
 
+vi.mock("../socket.js", () => ({
+  notifyUser: vi.fn(),
+}));
+
+vi.mock("../apprise.js", () => ({
+  appriseClient: { send: vi.fn() },
+}));
+
+vi.mock("../services/index.js", () => ({
+  importManager: { processImport: vi.fn() },
+}));
+
 function setupUser(steamSyncFailures = 0) {
   vi.mocked(storage.getUser).mockResolvedValue({
     id: "user-1",
@@ -57,6 +69,12 @@ function makeFormattedGame(title: string, igdbId: number) {
 describe("syncUserSteamWishlist", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(storage.createImportTask).mockResolvedValue({ id: "task-id" } as any);
+    vi.mocked(storage.startImportTask).mockResolvedValue(undefined);
+    vi.mocked(storage.updateImportTask).mockResolvedValue(undefined);
+    vi.mocked(storage.addImportTaskItemsBatch).mockResolvedValue([]);
+    vi.mocked(storage.addNotification).mockResolvedValue({ id: "notif-id" } as any);
+    vi.mocked(storage.addGame).mockResolvedValue({ id: "game-id" } as any);
   });
 
   it("should return failure and skip sync when steamSyncFailures >= MAX_STEAM_SYNC_FAILURES", async () => {

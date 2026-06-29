@@ -23,6 +23,7 @@ import {
   type Game,
   type Indexer,
   type Downloader,
+  type InsertImportTaskItem,
 } from "../shared/schema.js";
 import { isUsenetDownloaderType } from "../shared/downloader-types.js";
 import { torznabClient } from "./torznab.js";
@@ -92,6 +93,7 @@ import archiver from "archiver";
 import helmet from "helmet";
 import { steamRoutes } from "./steam-routes.js";
 import { importRouter } from "./routes/import.js";
+import { importTasksRouter } from "./routes/import-tasks.js";
 import { systemRouter } from "./routes/system.js";
 import { pcgamingwikiRouter } from "./pcgamingwiki-router.js";
 
@@ -864,6 +866,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Mount Feature Routers (explicitly protected)
   app.use("/api/imports", authenticateToken, importRouter);
+  app.use("/api/import-tasks", authenticateToken, importTasksRouter);
   app.use("/api/system", authenticateToken, systemRouter);
 
   // Sync indexers from Prowlarr
@@ -2571,6 +2574,202 @@ export async function registerRoutes(app: Express): Promise<Server> {
       routesLogger.error({ error }, "error claiming download");
       res.status(500).json({ error: "Failed to claim download" });
     }
+  });
+
+  // Batch-claim multiple unlinked downloads in a single tracked import task
+  app.post("/api/downloads/claim-batch", authenticateToken, async (req, res) => {
+    const userId = req.user!.id;
+    const rawItems = req.body?.items;
+    if (!Array.isArray(rawItems) || rawItems.length === 0) {
+      return res.status(400).json({ error: "items must be a non-empty array" });
+    }
+
+    const parsedItems: (typeof claimDownloadRequestSchema._output)[] = [];
+    for (const raw of rawItems) {
+      const parsed = claimDownloadRequestSchema.safeParse(raw);
+      if (!parsed.success) {
+        return res
+          .status(400)
+          .json({ error: "Invalid item in batch", details: parsed.error.errors });
+      }
+      parsedItems.push(parsed.data);
+    }
+
+    const task = await storage.createImportTask({
+      userId,
+      taskType: "bulk_add",
+      triggeredBy: "manual",
+    });
+    await storage.startImportTask(task.id);
+    (await import("./socket.js")).notifyUser("importTaskUpdate", {
+      taskId: task.id,
+      status: "in_progress",
+    });
+
+    const trackedKeys = await storage.getTrackedDownloadKeys();
+    let addedCount = 0;
+    let failedCount = 0;
+    const taskItemsToInsert: InsertImportTaskItem[] = [];
+    const igdbIdToGameId = new Map<number, string>();
+
+    for (const item of parsedItems) {
+      const key = `${item.downloaderId}:${item.downloadHash.toLowerCase()}`;
+      if (trackedKeys.has(key)) {
+        taskItemsToInsert.push({
+          taskId: task.id,
+          itemName: item.downloadTitle,
+          result: "skipped",
+          errorMessage: "Already linked",
+        });
+        continue;
+      }
+      try {
+        const downloadStatus =
+          item.currentStatus === "completed" || item.currentStatus === "seeding"
+            ? "completed"
+            : item.currentStatus === "downloading"
+              ? "downloading"
+              : item.currentStatus === "paused"
+                ? "paused"
+                : "downloading";
+
+        let resolvedGameId: string | undefined;
+
+        if (item.gameId) {
+          const existing = await storage.getGame(item.gameId);
+          if (!existing || existing.userId !== userId) {
+            taskItemsToInsert.push({
+              taskId: task.id,
+              itemName: item.downloadTitle,
+              result: "failed",
+              errorMessage: "Game not found",
+            });
+            failedCount++;
+            continue;
+          }
+          resolvedGameId = item.gameId;
+          if (item.category === "main") {
+            const targetStatus = downloadStatus === "completed" ? "owned" : "downloading";
+            if (
+              (targetStatus === "downloading" && existing.status === "wanted") ||
+              (targetStatus === "owned" &&
+                (existing.status === "wanted" || existing.status === "downloading"))
+            ) {
+              await storage.updateGameStatus(existing.id, { status: targetStatus });
+            }
+          }
+        } else if (item.newGame) {
+          if (item.newGame.igdbId != null) {
+            const cached = igdbIdToGameId.get(item.newGame.igdbId);
+            if (cached) {
+              resolvedGameId = cached;
+            } else {
+              const existing = await storage.getGameByIgdbId(item.newGame.igdbId);
+              if (existing && existing.userId === userId) {
+                resolvedGameId = existing.id;
+                igdbIdToGameId.set(item.newGame.igdbId, existing.id);
+                if (item.category === "main") {
+                  const targetStatus = downloadStatus === "completed" ? "owned" : "downloading";
+                  if (
+                    (targetStatus === "downloading" && existing.status === "wanted") ||
+                    (targetStatus === "owned" &&
+                      (existing.status === "wanted" || existing.status === "downloading"))
+                  ) {
+                    await storage.updateGameStatus(existing.id, { status: targetStatus });
+                  }
+                }
+              }
+            }
+          }
+          if (!resolvedGameId) {
+            const initialStatus =
+              item.category === "main"
+                ? downloadStatus === "completed"
+                  ? "owned"
+                  : "downloading"
+                : "wanted";
+            const game = await storage.addGame(
+              insertGameSchema.parse({ ...item.newGame, userId, status: initialStatus })
+            );
+            resolvedGameId = game.id;
+            if (item.newGame.igdbId != null) {
+              igdbIdToGameId.set(item.newGame.igdbId, game.id);
+            }
+          }
+        }
+
+        if (!resolvedGameId) {
+          taskItemsToInsert.push({
+            taskId: task.id,
+            itemName: item.downloadTitle,
+            result: "failed",
+            errorMessage: "Could not resolve game",
+          });
+          failedCount++;
+          continue;
+        }
+
+        const downloader = await storage.getDownloader(item.downloaderId);
+        if (!downloader) {
+          taskItemsToInsert.push({
+            taskId: task.id,
+            itemName: item.downloadTitle,
+            result: "failed",
+            errorMessage: "Downloader not found",
+          });
+          failedCount++;
+          continue;
+        }
+
+        await storage.addGameDownload(
+          insertGameDownloadSchema.parse({
+            gameId: resolvedGameId,
+            downloaderId: item.downloaderId,
+            downloadHash: item.downloadHash.toLowerCase(),
+            downloadTitle: item.downloadTitle,
+            downloadType: isUsenetDownloaderType(downloader.type) ? "usenet" : "torrent",
+            status: downloadStatus,
+          })
+        );
+        await storage.updateGameSearchResultsAvailable(resolvedGameId, false);
+
+        trackedKeys.add(key);
+        taskItemsToInsert.push({
+          taskId: task.id,
+          itemName: item.downloadTitle,
+          result: "added",
+          gameId: resolvedGameId,
+        });
+        addedCount++;
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : "Unknown error";
+        taskItemsToInsert.push({
+          taskId: task.id,
+          itemName: item.downloadTitle,
+          result: "failed",
+          errorMessage: errMsg,
+        });
+        failedCount++;
+      }
+    }
+
+    await storage.addImportTaskItemsBatch(taskItemsToInsert);
+    const skippedCount = parsedItems.length - addedCount - failedCount;
+    const finalStatus = failedCount > 0 ? "completed_with_errors" : "completed";
+    await storage.updateImportTask(task.id, {
+      status: finalStatus,
+      completedAt: new Date(),
+      totalItems: parsedItems.length,
+      addedItems: addedCount,
+      skippedItems: skippedCount,
+      failedItems: failedCount,
+    });
+    (await import("./socket.js")).notifyUser("importTaskUpdate", {
+      taskId: task.id,
+      status: finalStatus,
+    });
+
+    res.json({ success: true, taskId: task.id, addedCount, failedCount, skippedCount });
   });
 
   // Remove a linked download record from a game

@@ -17,7 +17,11 @@ import { useQuery } from "@tanstack/react-query";
 import { type Game, type DownloadStatus } from "@shared/schema";
 import { useAuth } from "@/lib/auth";
 import { GitHubVersionLink } from "@/components/GitHubVersionLink";
-import { managementNavigation, primaryNavigation } from "@/components/navigation-items";
+import {
+  activityNavigation,
+  managementNavigation,
+  primaryNavigation,
+} from "@/components/navigation-items";
 import { withBasePath } from "@/lib/app-path";
 
 interface AppSidebarProps {
@@ -123,6 +127,31 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: Readonly<Ap
                     asChild
                     isActive={activeItem === item.url}
                     data-testid={`nav-${item.title.toLowerCase()}`}
+                  >
+                    <button
+                      onClick={() => handleNavigation(item.url)}
+                      className="flex items-center gap-2 w-full"
+                    >
+                      <item.icon className="w-4 h-4" aria-hidden="true" />
+                      <span>{item.title}</span>
+                    </button>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
+          <SidebarGroupLabel>Activity</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {activityNavigation.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={activeItem === item.url}
+                    data-testid={`nav-${item.title.toLowerCase().replace(/\s+/g, "-")}`}
                   >
                     <button
                       onClick={() => handleNavigation(item.url)}

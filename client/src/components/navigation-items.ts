@@ -1,5 +1,6 @@
 import {
   Calendar,
+  ClipboardList,
   Compass,
   Database,
   Download,
@@ -38,7 +39,11 @@ export const managementNavigation: AppNavItem[] = [
   { title: "Indexers", url: "/indexers", icon: Database },
   { title: "Downloaders", url: "/downloaders", icon: HardDrive },
   { title: "Settings", url: "/settings", icon: Settings },
+];
+
+export const activityNavigation: AppNavItem[] = [
   { title: "Logs", url: "/logs", icon: ScrollText },
+  { title: "Import History", url: "/activity/imports", icon: ClipboardList },
 ];
 
 export const mobileBottomNavigation: AppNavItem[] = [
@@ -51,6 +56,7 @@ export const mobileBottomNavigation: AppNavItem[] = [
 const allNavigation: AppNavItem[] = [
   ...primaryNavigation,
   ...managementNavigation,
+  ...activityNavigation,
   { title: "Search", url: "/search", icon: Search },
 ];
 

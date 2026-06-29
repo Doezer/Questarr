@@ -104,6 +104,11 @@ vi.mock("../storage.js", () => ({
     getAllReleaseBlacklists: vi.fn().mockResolvedValue([]),
     removeReleaseBlacklist: vi.fn(),
     getReleaseBlacklistSet: vi.fn().mockResolvedValue(new Set()),
+    createImportTask: vi.fn(),
+    startImportTask: vi.fn().mockResolvedValue(undefined),
+    updateImportTask: vi.fn().mockResolvedValue(undefined),
+    addImportTaskItemsBatch: vi.fn().mockResolvedValue([]),
+    getGameByIgdbId: vi.fn(),
   },
 }));
 
@@ -2092,6 +2097,177 @@ describe("API Routes - Extended Coverage", () => {
       expect(response.status).toBe(200);
       expect(response.body.items).toHaveLength(1);
       expect(storage.getReleaseBlacklistSet).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── POST /api/downloads/claim-batch ───
+  describe("POST /api/downloads/claim-batch", () => {
+    const validItem = {
+      downloaderId: "dl-1",
+      downloadHash: "abc123",
+      downloadTitle: "My Game",
+      currentStatus: "completed",
+      category: "main",
+      gameId: "game-1",
+    };
+
+    beforeEach(() => {
+      vi.mocked(storage.createImportTask).mockResolvedValue({ id: "task-1" } as any);
+      vi.mocked(storage.startImportTask).mockResolvedValue(undefined);
+      vi.mocked(storage.updateImportTask).mockResolvedValue(undefined);
+      vi.mocked(storage.addImportTaskItemsBatch).mockResolvedValue([]);
+      vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(new Set());
+      vi.mocked(storage.getDownloader).mockResolvedValue({
+        id: "dl-1",
+        type: "qbittorrent",
+      } as any);
+      vi.mocked(storage.addGameDownload).mockResolvedValue(undefined);
+    });
+
+    it("returns 400 when items is missing", async () => {
+      const res = await request(app).post("/api/downloads/claim-batch").send({});
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("items must be a non-empty array");
+    });
+
+    it("returns 400 when items is an empty array", async () => {
+      const res = await request(app).post("/api/downloads/claim-batch").send({ items: [] });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("items must be a non-empty array");
+    });
+
+    it("returns 400 when an item fails schema validation", async () => {
+      const res = await request(app)
+        .post("/api/downloads/claim-batch")
+        .send({
+          items: [
+            {
+              downloaderId: "",
+              downloadHash: "x",
+              downloadTitle: "x",
+              currentStatus: "x",
+              category: "main",
+            },
+          ],
+        });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("Invalid item in batch");
+    });
+
+    it("returns success when gameId resolves and download is added", async () => {
+      vi.mocked(storage.getGame).mockResolvedValue({
+        id: "game-1",
+        userId: "user-1",
+        status: "wanted",
+      } as any);
+
+      const res = await request(app)
+        .post("/api/downloads/claim-batch")
+        .send({ items: [validItem] });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.addedCount).toBe(1);
+      expect(res.body.failedCount).toBe(0);
+      expect(storage.addGameDownload).toHaveBeenCalled();
+    });
+
+    it("marks item skipped when download hash is already tracked", async () => {
+      vi.mocked(storage.getTrackedDownloadKeys).mockResolvedValue(new Set(["dl-1:abc123"]));
+
+      const res = await request(app)
+        .post("/api/downloads/claim-batch")
+        .send({ items: [validItem] });
+
+      expect(res.status).toBe(200);
+      expect(res.body.skippedCount).toBe(1);
+      expect(res.body.addedCount).toBe(0);
+      expect(storage.addGameDownload).not.toHaveBeenCalled();
+    });
+
+    it("marks item failed when gameId game is not found", async () => {
+      vi.mocked(storage.getGame).mockResolvedValue(undefined);
+
+      const res = await request(app)
+        .post("/api/downloads/claim-batch")
+        .send({ items: [validItem] });
+
+      expect(res.status).toBe(200);
+      expect(res.body.failedCount).toBe(1);
+      expect(res.body.addedCount).toBe(0);
+    });
+
+    it("marks item failed when game belongs to a different user", async () => {
+      vi.mocked(storage.getGame).mockResolvedValue({
+        id: "game-1",
+        userId: "other-user",
+        status: "owned",
+      } as any);
+
+      const res = await request(app)
+        .post("/api/downloads/claim-batch")
+        .send({ items: [validItem] });
+
+      expect(res.status).toBe(200);
+      expect(res.body.failedCount).toBe(1);
+    });
+
+    it("marks item failed when downloader is not found", async () => {
+      vi.mocked(storage.getGame).mockResolvedValue({
+        id: "game-1",
+        userId: "user-1",
+        status: "wanted",
+      } as any);
+      vi.mocked(storage.getDownloader).mockResolvedValue(undefined);
+
+      const res = await request(app)
+        .post("/api/downloads/claim-batch")
+        .send({ items: [validItem] });
+
+      expect(res.status).toBe(200);
+      expect(res.body.failedCount).toBe(1);
+    });
+
+    it("links existing game when newGame igdbId matches a game in the collection", async () => {
+      vi.mocked(storage.getGameByIgdbId).mockResolvedValue({
+        id: "existing-game",
+        userId: "user-1",
+        status: "wanted",
+      } as any);
+
+      const res = await request(app)
+        .post("/api/downloads/claim-batch")
+        .send({
+          items: [
+            {
+              downloaderId: "dl-1",
+              downloadHash: "abc123",
+              downloadTitle: "Known Game",
+              currentStatus: "completed",
+              category: "main",
+              newGame: { igdbId: 9999, title: "Known Game" },
+            },
+          ],
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.addedCount).toBe(1);
+      expect(storage.addGame).not.toHaveBeenCalled();
+      expect(storage.addGameDownload).toHaveBeenCalled();
+    });
+
+    it("updates game status to owned when category is main and download is completed", async () => {
+      vi.mocked(storage.getGame).mockResolvedValue({
+        id: "game-1",
+        userId: "user-1",
+        status: "downloading",
+      } as any);
+
+      await request(app)
+        .post("/api/downloads/claim-batch")
+        .send({ items: [{ ...validItem, currentStatus: "completed" }] });
+
+      expect(storage.updateGameStatus).toHaveBeenCalledWith("game-1", { status: "owned" });
     });
   });
 

@@ -14,6 +14,7 @@ export const routePaths = {
   rss: "/rss",
   stats: "/stats",
   logs: "/logs",
+  importHistory: "/activity/imports",
 } as const;
 
 export const appRoutePaths = [
@@ -32,4 +33,5 @@ export const appRoutePaths = [
   routePaths.rss,
   routePaths.stats,
   routePaths.logs,
+  routePaths.importHistory,
 ] as const;

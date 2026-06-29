@@ -119,7 +119,7 @@ describe("steamRoutes", () => {
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
       expect(response.body.addedCount).toBe(2);
-      expect(syncUserSteamWishlist).toHaveBeenCalledWith("user-1");
+      expect(syncUserSteamWishlist).toHaveBeenCalledWith("user-1", "manual");
     });
 
     it("returns 500 when sync throws", async () => {

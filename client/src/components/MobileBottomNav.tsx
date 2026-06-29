@@ -5,6 +5,7 @@ import {
   mobileBottomNavigation,
   primaryNavigation,
   managementNavigation,
+  activityNavigation,
   type AppNavItem,
 } from "@/components/navigation-items";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -125,6 +126,34 @@ export default function MobileBottomNav({
               </p>
               <div className="grid grid-cols-1 gap-0.5">
                 {managementNavigation.map((item) => {
+                  const isActive = activeItem === item.url;
+                  return (
+                    <button
+                      key={item.url}
+                      type="button"
+                      onClick={() => handleNavigate(item.url)}
+                      className={cn(
+                        "flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors",
+                        isActive
+                          ? "bg-primary text-primary-foreground"
+                          : "text-foreground hover:bg-muted/60"
+                      )}
+                      aria-current={isActive ? "page" : undefined}
+                    >
+                      <item.icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                      {item.title}
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section aria-label="Activity">
+              <p className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Activity
+              </p>
+              <div className="grid grid-cols-1 gap-0.5">
+                {activityNavigation.map((item) => {
                   const isActive = activeItem === item.url;
                   return (
                     <button

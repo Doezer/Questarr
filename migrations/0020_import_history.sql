@@ -13,7 +13,7 @@ CREATE TABLE `import_tasks` (
   `failed_items` integer NOT NULL DEFAULT 0,
   `error_message` text
 );
-
+--> statement-breakpoint
 CREATE TABLE `import_task_items` (
   `id` text PRIMARY KEY NOT NULL,
   `task_id` text NOT NULL REFERENCES `import_tasks`(`id`) ON DELETE CASCADE,
@@ -24,7 +24,7 @@ CREATE TABLE `import_task_items` (
   `error_message` text,
   `created_at` integer DEFAULT (strftime('%s', 'now') * 1000)
 );
-
+--> statement-breakpoint
 CREATE INDEX `import_tasks_user_created_idx` ON `import_tasks` (`user_id`, `created_at` DESC);
-
+--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS `game_downloads_downloader_hash_idx` ON `game_downloads` (`downloader_id`,`download_hash`);

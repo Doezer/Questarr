@@ -48,3 +48,4 @@ check-sonar.mjs
 .serena/
 .eslintcache
 graphify-out/
+todo.md

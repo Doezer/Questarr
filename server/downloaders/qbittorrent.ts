@@ -991,6 +991,7 @@ export class QBittorrentClient implements DownloaderClient {
         status = "downloading";
         break;
       case "pausedDL":
+      case "stoppedDL": // qBittorrent v5+ equivalent of pausedDL
         status = "paused";
         break;
       case "error":

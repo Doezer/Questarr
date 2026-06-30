@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import type { ImportConfig } from "@shared/schema";
 import {
@@ -59,15 +59,22 @@ export default function ImportReviewModal({
 
   const planApplied = useRef(false);
 
+  const planUrl = sourcePath
+    ? `/api/imports/${downloadId}/plan?sourcePath=${encodeURIComponent(sourcePath)}`
+    : `/api/imports/${downloadId}/plan`;
+
   const { data: planData } = useQuery<{
     originalPath: string;
     proposedPath: string;
     files: Array<{ name: string; isArchive: boolean }>;
+    hasArchive: boolean;
+    totalCount: number;
   }>({
-    queryKey: [`/api/imports/${downloadId}/plan`],
+    queryKey: [planUrl],
     enabled: open,
     retry: false,
     staleTime: 30_000,
+    placeholderData: keepPreviousData,
   });
 
   // Reset state on open, defaulting transfer mode to the user's configured setting
@@ -226,9 +233,15 @@ export default function ImportReviewModal({
                         </span>
                       </div>
                     ))}
+                    {planData.totalCount > planData.files.length && (
+                      <p className="text-xs text-muted-foreground pt-0.5">
+                        …and {planData.totalCount - planData.files.length} more file
+                        {planData.totalCount - planData.files.length === 1 ? "" : "s"} not shown
+                      </p>
+                    )}
                   </div>
                 </ScrollArea>
-                {planData.files.some((f) => f.isArchive) && (
+                {planData.hasArchive && (
                   <p className="text-xs text-amber-400/80">
                     Archive files detected — consider enabling Unpack Archive below.
                   </p>

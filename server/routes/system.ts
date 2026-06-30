@@ -3,6 +3,7 @@ import fs from "fs-extra";
 import path from "node:path";
 import { storage } from "../storage.js";
 import { routesLogger as logger } from "../logger.js";
+import { isSensitivePath } from "../path-security.js";
 
 // Allow browsing the entire container filesystem
 // Security is maintained by container isolation and explicit volume mounts
@@ -80,13 +81,7 @@ systemRouter.get("/browse", async (req, res) => {
       return res.status(400).json({ error: "Invalid path: traversal detected" });
     }
 
-    const SENSITIVE_PATH_PREFIXES = ["/proc", "/sys", "/dev", "/run/secrets", "/etc", "/root"];
-    const normalizedValid = validPath.replaceAll("\\", "/");
-    if (
-      SENSITIVE_PATH_PREFIXES.some(
-        (prefix) => normalizedValid === prefix || normalizedValid.startsWith(prefix + "/")
-      )
-    ) {
+    if (isSensitivePath(validPath)) {
       return res.status(403).json({ error: "Access to this path is not allowed" });
     }
 

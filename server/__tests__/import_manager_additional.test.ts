@@ -19,6 +19,11 @@ const { fsMock, downloadersMock } = vi.hoisted(() => ({
 vi.mock("fs-extra", () => ({ default: fsMock }));
 vi.mock("../downloaders.js", () => ({ DownloaderManager: downloadersMock }));
 
+const isSensitivePathMock = vi.hoisted(() =>
+  vi.fn<(path: string) => boolean>().mockReturnValue(false)
+);
+vi.mock("../path-security.js", () => ({ isSensitivePath: isSensitivePathMock }));
+
 import { ImportManager } from "../services/ImportManager.js";
 import { PCImportStrategy } from "../services/ImportStrategies.js";
 import { makeImportConfig } from "./helpers/import-test-helpers.js";
@@ -276,6 +281,108 @@ describe("ImportManager - planConfirmImport", () => {
 
     expect(result.originalPath).toBeNull();
     expect(result.proposedPath).toContain("Graceful Game");
+  });
+});
+
+// ─── readSourceFiles behavior (via planConfirmImport) ─────────────────────────
+
+describe("ImportManager - readSourceFiles (via planConfirmImport)", () => {
+  function makeBaseStorage() {
+    const s = makeStorage();
+    s.getGameDownload.mockResolvedValue({
+      id: "dl-1",
+      gameId: "g1",
+      downloaderId: "d1",
+      downloadHash: "abc",
+    });
+    s.getGame.mockResolvedValue({
+      id: "g1",
+      title: "My Game",
+      userId: "u1",
+      status: "wanted",
+      platforms: [],
+    });
+    s.getImportConfig.mockResolvedValue(makeImportConfig({ libraryRoot: "/games" }));
+    return s;
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    isSensitivePathMock.mockReturnValue(false);
+    fsMock.stat.mockResolvedValue({ isDirectory: () => true });
+    fsMock.readdir.mockResolvedValue([]);
+  });
+
+  it("caps the file list at 100 entries and reports the full totalCount", async () => {
+    const allFiles = Array.from(
+      { length: 150 },
+      (_, i) => `file-${String(i).padStart(3, "0")}.bin`
+    );
+    fsMock.readdir.mockResolvedValue(allFiles);
+
+    const planSpy = vi
+      .spyOn(PCImportStrategy.prototype, "planImport")
+      .mockRejectedValue(new Error("ENOENT"));
+
+    const manager = makeManager(makeBaseStorage());
+    const result = await manager.planConfirmImport("dl-1", "/data/downloads/big-game");
+
+    expect(result.files).toHaveLength(100);
+    expect(result.totalCount).toBe(150);
+    expect(result.hasArchive).toBe(false);
+
+    planSpy.mockRestore();
+  });
+
+  it("reports hasArchive=true even when the archive falls beyond the 100-file cap", async () => {
+    // Use zero-padded names so lexicographic sort keeps all 100 "file-*" entries
+    // before "zzz-archive.zip", which then lands beyond the cap at index 100.
+    const regularFiles = Array.from(
+      { length: 100 },
+      (_, i) => `file-${String(i).padStart(3, "0")}.bin`
+    );
+    const allFiles = [...regularFiles, "zzz-archive.zip", "zzz-extra.bin"];
+    fsMock.readdir.mockResolvedValue(allFiles);
+
+    const archiveService = {
+      isArchive: vi.fn().mockImplementation((name: string) => name.endsWith(".zip")),
+      extract: vi.fn(),
+    };
+    const planSpy = vi
+      .spyOn(PCImportStrategy.prototype, "planImport")
+      .mockRejectedValue(new Error("ENOENT"));
+
+    const manager = makeManager(makeBaseStorage(), { archiveService });
+    const result = await manager.planConfirmImport("dl-1", "/data/downloads/game");
+
+    expect(result.files).toHaveLength(100);
+    expect(result.files.every((f) => !f.isArchive)).toBe(true);
+    expect(result.hasArchive).toBe(true);
+    expect(result.totalCount).toBe(102);
+
+    planSpy.mockRestore();
+  });
+
+  it("returns empty file listing for sensitive source paths without touching the filesystem", async () => {
+    isSensitivePathMock.mockReturnValue(true);
+
+    const planSpy = vi.spyOn(PCImportStrategy.prototype, "planImport").mockResolvedValue({
+      needsReview: false,
+      strategy: "pc",
+      originalPath: "/etc",
+      proposedPath: "/games/PC/My Game",
+    });
+
+    const manager = makeManager(makeBaseStorage());
+    const result = await manager.planConfirmImport("dl-1", "/etc");
+
+    expect(result.files).toEqual([]);
+    expect(result.hasArchive).toBe(false);
+    expect(result.totalCount).toBe(0);
+    expect(fsMock.stat).not.toHaveBeenCalled();
+    expect(fsMock.readdir).not.toHaveBeenCalled();
+
+    planSpy.mockRestore();
   });
 });
 

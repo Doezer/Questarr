@@ -14,6 +14,7 @@ import path from "node:path";
 import { parseReleaseMetadata } from "../../shared/title-utils.js";
 import { logger } from "../logger.js";
 import { extractHostnameFromUrl } from "../url-utils.js";
+import { isSensitivePath } from "../path-security.js";
 
 const RELEASE_PLATFORM_TO_IGDB_ID: Record<string, number> = {
   nes: 18,
@@ -70,6 +71,7 @@ const IGDB_ID_TO_PLATFORM_KEY: Record<number, string> = Object.fromEntries(
 );
 
 const MAX_PATH_RETRY = 5;
+const MAX_LISTED_FILES = 100;
 
 export class ImportManager {
   private readonly pathRetryCount = new Map<string, number>();
@@ -154,21 +156,33 @@ export class ImportManager {
     return extractDir;
   }
 
-  private async readSourceFiles(
-    sourcePath: string
-  ): Promise<Array<{ name: string; isArchive: boolean }>> {
+  private async readSourceFiles(sourcePath: string): Promise<{
+    files: Array<{ name: string; isArchive: boolean }>;
+    hasArchive: boolean;
+    totalCount: number;
+  }> {
+    const empty = { files: [], hasArchive: false, totalCount: 0 };
+    if (isSensitivePath(sourcePath)) return empty;
     try {
-      const stats = await fs.stat(sourcePath);
+      const resolved = path.resolve(sourcePath);
+      const stats = await fs.stat(resolved);
+      let allNames: string[];
       if (stats.isDirectory()) {
-        const entries = await fs.readdir(sourcePath);
-        return entries
-          .sort()
-          .map((name: string) => ({ name, isArchive: this.archiveService.isArchive(name) }));
+        allNames = (await fs.readdir(resolved)).sort();
+      } else {
+        allNames = [path.basename(resolved)];
       }
-      const name = path.basename(sourcePath);
-      return [{ name, isArchive: this.archiveService.isArchive(name) }];
+      const totalCount = allNames.length;
+      const capped = allNames.slice(0, MAX_LISTED_FILES);
+      const files = capped.map((name) => ({
+        name,
+        isArchive: this.archiveService.isArchive(name),
+      }));
+      // Check hasArchive across all entries, not just the capped slice
+      const hasArchive = allNames.some((name) => this.archiveService.isArchive(name));
+      return { files, hasArchive, totalCount };
     } catch {
-      return [];
+      return empty;
     }
   }
 
@@ -431,6 +445,8 @@ export class ImportManager {
     originalPath: string | null;
     proposedPath: string;
     files: Array<{ name: string; isArchive: boolean }>;
+    hasArchive: boolean;
+    totalCount: number;
   }> {
     const download = await this.storage.getGameDownload(downloadId, callerUserId);
     if (!download) throw new Error(`Download ${downloadId} not found`);
@@ -453,7 +469,7 @@ export class ImportManager {
     const fallbackProposedPath = path.join(libraryRoot, platformDir, sanitizeFsName(game.title));
 
     if (resolvedOriginalPath) {
-      const files = await this.readSourceFiles(resolvedOriginalPath);
+      const { files, hasArchive, totalCount } = await this.readSourceFiles(resolvedOriginalPath);
       try {
         const strategy = new PCImportStrategy();
         const plan = await strategy.planImport(
@@ -463,14 +479,32 @@ export class ImportManager {
           config,
           platformDir
         );
-        return { originalPath: resolvedOriginalPath, proposedPath: plan.proposedPath, files };
+        return {
+          originalPath: resolvedOriginalPath,
+          proposedPath: plan.proposedPath,
+          files,
+          hasArchive,
+          totalCount,
+        };
       } catch {
         // Source not yet accessible (e.g. still in incomplete folder) — path is known but can't be stat'd
-        return { originalPath: resolvedOriginalPath, proposedPath: fallbackProposedPath, files };
+        return {
+          originalPath: resolvedOriginalPath,
+          proposedPath: fallbackProposedPath,
+          files,
+          hasArchive,
+          totalCount,
+        };
       }
     }
 
-    return { originalPath: null, proposedPath: fallbackProposedPath, files: [] };
+    return {
+      originalPath: null,
+      proposedPath: fallbackProposedPath,
+      files: [],
+      hasArchive: false,
+      totalCount: 0,
+    };
   }
 
   async confirmImport(

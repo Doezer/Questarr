@@ -690,8 +690,8 @@ export class SynologyDownloadStationClient implements DownloaderClient {
             apiName === "SYNO.DownloadStation2.Task"
               ? {
                   type: "url",
-                  url: downloadUrl,
-                  create_list: "false",
+                  url: JSON.stringify([downloadUrl]),
+                  create_list: false,
                   destination,
                 }
               : {

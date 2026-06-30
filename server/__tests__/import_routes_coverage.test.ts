@@ -57,6 +57,9 @@ beforeEach(() => {
   mockImportManager.planConfirmImport.mockResolvedValue({
     originalPath: "/local/game.iso",
     proposedPath: "/data/PC/My Game",
+    files: [],
+    hasArchive: false,
+    totalCount: 0,
   });
 });
 
@@ -315,6 +318,9 @@ describe("GET /api/imports/:id/plan", () => {
     mockImportManager.planConfirmImport.mockResolvedValue({
       originalPath: "/local/downloads/game.iso",
       proposedPath: "/data/PC/My Game",
+      files: [],
+      hasArchive: false,
+      totalCount: 0,
     });
 
     const res = await request(createApp()).get("/api/imports/dl-1/plan");

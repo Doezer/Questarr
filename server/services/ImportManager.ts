@@ -14,6 +14,7 @@ import path from "node:path";
 import { parseReleaseMetadata } from "../../shared/title-utils.js";
 import { logger } from "../logger.js";
 import { extractHostnameFromUrl } from "../url-utils.js";
+import { isSensitivePath } from "../path-security.js";
 
 const RELEASE_PLATFORM_TO_IGDB_ID: Record<string, number> = {
   nes: 18,
@@ -70,6 +71,7 @@ const IGDB_ID_TO_PLATFORM_KEY: Record<number, string> = Object.fromEntries(
 );
 
 const MAX_PATH_RETRY = 5;
+const MAX_LISTED_FILES = 100;
 
 export class ImportManager {
   private readonly pathRetryCount = new Map<string, number>();
@@ -142,7 +144,9 @@ export class ImportManager {
     if (!stats.isDirectory()) return sourcePath;
 
     const entries = await fs.readdir(sourcePath);
-    const archiveEntries = entries.filter((name) => this.archiveService.isArchive(name)).sort();
+    const archiveEntries = entries
+      .filter((name: string) => this.archiveService.isArchive(name))
+      .sort();
     if (archiveEntries.length === 0) return sourcePath;
 
     // 7zip handles multi-part archives when given the first part
@@ -150,6 +154,36 @@ export class ImportManager {
     const extractDir = sourcePath + "_extracted";
     await this.archiveService.extract(mainArchive, extractDir);
     return extractDir;
+  }
+
+  private async readSourceFiles(sourcePath: string): Promise<{
+    files: Array<{ name: string; isArchive: boolean }>;
+    hasArchive: boolean;
+    totalCount: number;
+  }> {
+    const empty = { files: [], hasArchive: false, totalCount: 0 };
+    if (isSensitivePath(sourcePath)) return empty;
+    try {
+      const resolved = path.resolve(sourcePath);
+      const stats = await fs.stat(resolved);
+      let allNames: string[];
+      if (stats.isDirectory()) {
+        allNames = (await fs.readdir(resolved)).sort();
+      } else {
+        allNames = [path.basename(resolved)];
+      }
+      const totalCount = allNames.length;
+      const capped = allNames.slice(0, MAX_LISTED_FILES);
+      const files = capped.map((name) => ({
+        name,
+        isArchive: this.archiveService.isArchive(name),
+      }));
+      // Check hasArchive across all entries, not just the capped slice
+      const hasArchive = allNames.some((name) => this.archiveService.isArchive(name));
+      return { files, hasArchive, totalCount };
+    } catch {
+      return empty;
+    }
   }
 
   private extractRemoteHost(downloaderUrl: string): string | undefined {
@@ -407,7 +441,13 @@ export class ImportManager {
     downloadId: string,
     overrideSourcePath?: string,
     callerUserId?: string
-  ): Promise<{ originalPath: string | null; proposedPath: string }> {
+  ): Promise<{
+    originalPath: string | null;
+    proposedPath: string;
+    files: Array<{ name: string; isArchive: boolean }>;
+    hasArchive: boolean;
+    totalCount: number;
+  }> {
     const download = await this.storage.getGameDownload(downloadId, callerUserId);
     if (!download) throw new Error(`Download ${downloadId} not found`);
 
@@ -429,6 +469,7 @@ export class ImportManager {
     const fallbackProposedPath = path.join(libraryRoot, platformDir, sanitizeFsName(game.title));
 
     if (resolvedOriginalPath) {
+      const { files, hasArchive, totalCount } = await this.readSourceFiles(resolvedOriginalPath);
       try {
         const strategy = new PCImportStrategy();
         const plan = await strategy.planImport(
@@ -438,14 +479,32 @@ export class ImportManager {
           config,
           platformDir
         );
-        return { originalPath: resolvedOriginalPath, proposedPath: plan.proposedPath };
+        return {
+          originalPath: resolvedOriginalPath,
+          proposedPath: plan.proposedPath,
+          files,
+          hasArchive,
+          totalCount,
+        };
       } catch {
         // Source not yet accessible (e.g. still in incomplete folder) — path is known but can't be stat'd
-        return { originalPath: resolvedOriginalPath, proposedPath: fallbackProposedPath };
+        return {
+          originalPath: resolvedOriginalPath,
+          proposedPath: fallbackProposedPath,
+          files,
+          hasArchive,
+          totalCount,
+        };
       }
     }
 
-    return { originalPath: null, proposedPath: fallbackProposedPath };
+    return {
+      originalPath: null,
+      proposedPath: fallbackProposedPath,
+      files: [],
+      hasArchive: false,
+      totalCount: 0,
+    };
   }
 
   async confirmImport(

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import type { ImportConfig } from "@shared/schema";
 import {
@@ -20,7 +20,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, FolderOpen } from "lucide-react";
+import { Loader2, FolderOpen, Package, File } from "lucide-react";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
 import { FileBrowser } from "./FileBrowser";
@@ -58,11 +59,22 @@ export default function ImportReviewModal({
 
   const planApplied = useRef(false);
 
-  const { data: planData } = useQuery<{ originalPath: string; proposedPath: string }>({
-    queryKey: [`/api/imports/${downloadId}/plan`],
+  const planUrl = sourcePath
+    ? `/api/imports/${downloadId}/plan?sourcePath=${encodeURIComponent(sourcePath)}`
+    : `/api/imports/${downloadId}/plan`;
+
+  const { data: planData } = useQuery<{
+    originalPath: string;
+    proposedPath: string;
+    files: Array<{ name: string; isArchive: boolean }>;
+    hasArchive: boolean;
+    totalCount: number;
+  }>({
+    queryKey: [planUrl],
     enabled: open,
     retry: false,
     staleTime: 30_000,
+    placeholderData: keepPreviousData,
   });
 
   // Reset state on open, defaulting transfer mode to the user's configured setting
@@ -203,6 +215,39 @@ export default function ImportReviewModal({
                 </Button>
               </div>
             </div>
+
+            {planData?.files && planData.files.length > 0 && (
+              <div className="space-y-1.5">
+                <Label>Download Contents</Label>
+                <ScrollArea className="h-32 rounded-md border p-2">
+                  <div className="space-y-0.5">
+                    {planData.files.map((f) => (
+                      <div key={f.name} className="flex items-center gap-1.5 text-xs">
+                        {f.isArchive ? (
+                          <Package className="h-3.5 w-3.5 shrink-0 text-amber-400" />
+                        ) : (
+                          <File className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        )}
+                        <span className={f.isArchive ? "text-amber-400" : "text-muted-foreground"}>
+                          {f.name}
+                        </span>
+                      </div>
+                    ))}
+                    {planData.totalCount > planData.files.length && (
+                      <p className="text-xs text-muted-foreground pt-0.5">
+                        …and {planData.totalCount - planData.files.length} more file
+                        {planData.totalCount - planData.files.length === 1 ? "" : "s"} not shown
+                      </p>
+                    )}
+                  </div>
+                </ScrollArea>
+                {planData.hasArchive && (
+                  <p className="text-xs text-amber-400/80">
+                    Archive files detected — consider enabling Unpack Archive below.
+                  </p>
+                )}
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label>Transfer Mode</Label>

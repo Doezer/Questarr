@@ -177,6 +177,18 @@ export default function ImportSettings() {
                     <div className="space-y-4 mb-6">
                       <div className="flex items-center justify-between">
                         <div className="space-y-0.5">
+                          <Label>Auto-Unpack Archives</Label>
+                          <p className="text-xs text-muted-foreground">
+                            Automatically extract zip, rar, and 7z archives before importing.
+                          </p>
+                        </div>
+                        <Switch
+                          checked={localConfig.autoUnpack}
+                          onCheckedChange={(c) => setLocalConfig({ ...localConfig, autoUnpack: c })}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-0.5">
                           <Label>Overwrite Existing Files</Label>
                           <p className="text-xs text-muted-foreground">
                             Replace files already present at the destination.
@@ -505,6 +517,10 @@ export default function ImportSettings() {
                     {
                       name: "Enable Post-Processing",
                       desc: "Master switch. When off, downloads are marked completed without any file being moved or organised. Turn this off if you manage your own file organisation externally.",
+                    },
+                    {
+                      name: "Auto-Unpack Archives",
+                      desc: "When enabled, zip, rar, and 7z archives are extracted before the files are transferred to the library. The extracted folder is what gets imported, not the archive itself.",
                     },
                     {
                       name: "Library Root",

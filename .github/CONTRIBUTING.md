@@ -55,10 +55,10 @@ npm run format
 
 ```bash
 # Run the full unit/integration suite once
-npm run test:run
+npm test
 
 # Watch mode while developing
-npm test
+npm run test:watch
 
 # Generate a coverage report (HTML output in coverage/)
 npm run test:coverage

@@ -91,7 +91,7 @@ export default function WishlistPage() {
 
       // Apply filters
       if (showSearchResultsOnly && !game.searchResultsAvailable) continue;
-      if (showDownloadsOnly && !downloadSummaries[game.id]) continue;
+      if (showDownloadsOnly && !downloadSummaries?.[game.id]) continue;
       if (searchQuery && !game.title.toLowerCase().includes(lowercaseQuery)) continue;
 
       count++;

@@ -36,8 +36,8 @@ export default function LibraryPage() {
       const game = games[i];
 
       if (showSearchResultsOnly && !game.searchResultsAvailable) continue;
-      if (showDownloadsOnly && !downloadSummaries[game.id]) continue;
-      if (showUpdateAvailableOnly && !downloadSummaries[game.id]?.hasUpdateDownload) continue;
+      if (showDownloadsOnly && !downloadSummaries?.[game.id]) continue;
+      if (showUpdateAvailableOnly && !downloadSummaries?.[game.id]?.hasUpdateDownload) continue;
       if (searchQuery && !game.title.toLowerCase().includes(lowercaseQuery)) continue;
 
       result.push(game);

@@ -258,7 +258,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/auth/setup", async (req, res) => {
+  app.post("/api/auth/setup", authRateLimiter, async (req, res) => {
     try {
       // Atomic setup check and creation
       const userCount = await storage.countUsers();

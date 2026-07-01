@@ -212,6 +212,8 @@ See [docs/MIGRATION.md](docs/MIGRATION.md) for more details.
 
 Every published image ships with a Software Bill of Materials — see [docs/SBOM.md](docs/SBOM.md) for how to get it.
 
+See [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) for how dependencies are selected, obtained, and tracked.
+
 ## Configuration
 
 1. **First-time setup:**

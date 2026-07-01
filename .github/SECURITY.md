@@ -41,6 +41,8 @@ Questarr uses SQLite, not PostgreSQL — the provided `docker-compose.yml` does 
 
 This policy governs how contributors are granted escalated permissions to this repository and its associated infrastructure. It is enforced by repository maintainers/admins for every access request — no escalation may be granted outside this process.
 
+The current list of project members holding escalated access is maintained in [MAINTAINERS.md](/MAINTAINERS.md).
+
 ### Scope
 
 "Escalated permissions" covers any of the following:

@@ -41,6 +41,12 @@ import { randomUUID } from "crypto";
 import { db } from "./db.js";
 import { eq, like, or, sql, desc, and, inArray, type SQL } from "drizzle-orm";
 import { categorizeDownload } from "../shared/download-categorizer.js";
+import {
+  encryptCredential,
+  decryptCredential,
+  encryptCredentialSync,
+  getCredentialsEncryptionKey,
+} from "./credential-crypto.js";
 
 const isUpdateDownload = (title: string): boolean =>
   categorizeDownload(title).category === "update";
@@ -1260,37 +1266,53 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Indexer methods
+  private async decryptIndexer(indexer: Indexer): Promise<Indexer> {
+    return { ...indexer, apiKey: await decryptCredential(indexer.apiKey) };
+  }
+
   async getAllIndexers(): Promise<Indexer[]> {
-    return db.select().from(indexers).orderBy(indexers.priority);
+    const rows = await db.select().from(indexers).orderBy(indexers.priority);
+    return Promise.all(rows.map((row) => this.decryptIndexer(row)));
   }
 
   async getIndexer(id: string): Promise<Indexer | undefined> {
     const [indexer] = await db.select().from(indexers).where(eq(indexers.id, id));
-    return indexer || undefined;
+    return indexer ? this.decryptIndexer(indexer) : undefined;
   }
 
   async getEnabledIndexers(): Promise<Indexer[]> {
-    return db.select().from(indexers).where(eq(indexers.enabled, true)).orderBy(indexers.priority);
+    const rows = await db
+      .select()
+      .from(indexers)
+      .where(eq(indexers.enabled, true))
+      .orderBy(indexers.priority);
+    return Promise.all(rows.map((row) => this.decryptIndexer(row)));
   }
 
   async addIndexer(insertIndexer: InsertIndexer): Promise<Indexer> {
     // Generate UUID manually
     const id = randomUUID();
+    const apiKey = await encryptCredential(insertIndexer.apiKey);
     const [indexer] = await db
       .insert(indexers)
-      .values({ ...insertIndexer, id })
+      .values({ ...insertIndexer, apiKey, id })
       .returning();
-    return indexer;
+    return this.decryptIndexer(indexer);
   }
 
   async updateIndexer(id: string, updates: Partial<InsertIndexer>): Promise<Indexer | undefined> {
+    const encryptedUpdates = { ...updates };
+    if (updates.apiKey !== undefined) {
+      encryptedUpdates.apiKey = await encryptCredential(updates.apiKey);
+    }
+
     const [updatedIndexer] = await db
       .update(indexers)
-      .set({ ...updates, updatedAt: new Date() })
+      .set({ ...encryptedUpdates, updatedAt: new Date() })
       .where(eq(indexers.id, id))
       .returning();
 
-    return updatedIndexer || undefined;
+    return updatedIndexer ? this.decryptIndexer(updatedIndexer) : undefined;
   }
 
   async removeIndexer(id: string): Promise<boolean> {
@@ -1308,6 +1330,10 @@ export class DatabaseStorage implements IStorage {
       errors: [] as string[],
     };
 
+    // Resolve the encryption key up front -- db.transaction()'s callback runs
+    // synchronously (better-sqlite3), so it can't await an async key lookup.
+    const encryptionKey = await getCredentialsEncryptionKey();
+
     db.transaction((tx) => {
       // Fetch all existing indexers within the transaction to compare against
       const existingIndexers = tx.select().from(indexers).all();
@@ -1322,6 +1348,7 @@ export class DatabaseStorage implements IStorage {
           }
 
           const existing = existingMap.get(idx.url);
+          const encryptedApiKey = encryptCredentialSync(idx.apiKey, encryptionKey);
 
           if (existing) {
             // Explicitly set allowed fields for update to prevent mass assignment
@@ -1329,7 +1356,7 @@ export class DatabaseStorage implements IStorage {
               .set({
                 name: idx.name,
                 url: idx.url,
-                apiKey: idx.apiKey,
+                apiKey: encryptedApiKey,
                 protocol: idx.protocol,
                 enabled: idx.enabled,
                 priority: idx.priority,
@@ -1348,7 +1375,7 @@ export class DatabaseStorage implements IStorage {
               id,
               name: idx.name,
               url: idx.url,
-              apiKey: idx.apiKey,
+              apiKey: encryptedApiKey,
               protocol: idx.protocol ?? "torznab",
               enabled: idx.enabled ?? true,
               priority: idx.priority ?? 1,
@@ -1375,43 +1402,63 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Downloader methods
+  private async decryptDownloader(downloader: Downloader): Promise<Downloader> {
+    return {
+      ...downloader,
+      username: await decryptCredential(downloader.username),
+      password: await decryptCredential(downloader.password),
+    };
+  }
+
   async getAllDownloaders(): Promise<Downloader[]> {
-    return db.select().from(downloaders).orderBy(downloaders.priority);
+    const rows = await db.select().from(downloaders).orderBy(downloaders.priority);
+    return Promise.all(rows.map((row) => this.decryptDownloader(row)));
   }
 
   async getDownloader(id: string): Promise<Downloader | undefined> {
     const [downloader] = await db.select().from(downloaders).where(eq(downloaders.id, id));
-    return downloader || undefined;
+    return downloader ? this.decryptDownloader(downloader) : undefined;
   }
 
   async getEnabledDownloaders(): Promise<Downloader[]> {
-    return db
+    const rows = await db
       .select()
       .from(downloaders)
       .where(eq(downloaders.enabled, true))
       .orderBy(downloaders.priority);
+    return Promise.all(rows.map((row) => this.decryptDownloader(row)));
   }
 
   async addDownloader(insertDownloader: InsertDownloader): Promise<Downloader> {
     const id = randomUUID();
+    const username = await encryptCredential(insertDownloader.username);
+    const password = await encryptCredential(insertDownloader.password);
     const [downloader] = await db
       .insert(downloaders)
-      .values({ ...insertDownloader, id })
+      .values({ ...insertDownloader, username, password, id })
       .returning();
-    return downloader;
+    return this.decryptDownloader(downloader);
   }
 
   async updateDownloader(
     id: string,
     updates: Partial<InsertDownloader>
   ): Promise<Downloader | undefined> {
+    const encryptedUpdates = { ...updates };
+    if (updates.username !== undefined) {
+      encryptedUpdates.username = await encryptCredential(updates.username);
+    }
+    if (updates.password !== undefined) {
+      encryptedUpdates.password = await encryptCredential(updates.password);
+    }
+
     const [updatedDownloader] = await db
       .update(downloaders)
-      .set({ ...updates, updatedAt: new Date() })
+      .set({ ...encryptedUpdates, updatedAt: new Date() })
       .where(eq(downloaders.id, id))
       .returning();
 
-    return updatedDownloader || undefined;
+    return updatedDownloader ? this.decryptDownloader(updatedDownloader) : undefined;
   }
 
   async removeDownloader(id: string): Promise<boolean> {
@@ -1527,8 +1574,7 @@ export class DatabaseStorage implements IStorage {
             topStatus: row.topStatus as DownloadSummary["topStatus"],
             count: row.count,
             downloadTypes: (row.downloadTypes ?? "torrent").split(",").filter(Boolean) as (
-              | "torrent"
-              | "usenet"
+              "torrent" | "usenet"
             )[],
             hasUpdateDownload: row.hasUpdateDownload > 0,
           },

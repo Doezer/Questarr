@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
-import { users, downloaders, type InsertGame } from "../../shared/schema";
+import { eq } from "drizzle-orm";
+import { users, downloaders, indexers, type InsertGame } from "../../shared/schema";
 import { randomUUID } from "crypto";
 import type { DatabaseStorage } from "../storage";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
@@ -196,5 +197,157 @@ describe("DatabaseStorage Integration", () => {
     const keys = await storage.getTrackedDownloadKeys();
     expect(keys.has(`${downloaderId}:hash-x`)).toBe(true);
     expect(keys.size).toBe(1);
+  });
+
+  describe("credential encryption at rest", () => {
+    it("encrypts an indexer's apiKey in the DB but returns it decrypted", async () => {
+      const added = await storage.addIndexer({
+        name: "Test Indexer",
+        url: "http://localhost:9000",
+        apiKey: "fixture-value-alpha",
+      });
+      expect(added.apiKey).toBe("fixture-value-alpha");
+
+      const [rawRow] = await db.select().from(indexers).where(eq(indexers.id, added.id));
+      expect(rawRow.apiKey).not.toBe("fixture-value-alpha");
+      expect(rawRow.apiKey).toMatch(/^enc:v1:/);
+
+      const fetched = await storage.getIndexer(added.id);
+      expect(fetched?.apiKey).toBe("fixture-value-alpha");
+
+      const allFetched = await storage.getAllIndexers();
+      expect(allFetched.find((i) => i.id === added.id)?.apiKey).toBe("fixture-value-alpha");
+    });
+
+    it("re-encrypts the apiKey on updateIndexer", async () => {
+      const added = await storage.addIndexer({
+        name: "Test Indexer",
+        url: "http://localhost:9000",
+        apiKey: "fixture-value-before",
+      });
+
+      const updated = await storage.updateIndexer(added.id, { apiKey: "fixture-value-after" });
+      expect(updated?.apiKey).toBe("fixture-value-after");
+
+      const [rawRow] = await db.select().from(indexers).where(eq(indexers.id, added.id));
+      expect(rawRow.apiKey).toMatch(/^enc:v1:/);
+      expect(rawRow.apiKey).not.toBe("fixture-value-after");
+    });
+
+    it("reads a legacy plaintext apiKey row unchanged (no migration required)", async () => {
+      const id = randomUUID();
+      await db.insert(indexers).values({
+        id,
+        name: "Legacy Indexer",
+        url: "http://localhost:9001",
+        apiKey: "fixture-legacy-value",
+      });
+
+      const fetched = await storage.getIndexer(id);
+      expect(fetched?.apiKey).toBe("fixture-legacy-value");
+    });
+
+    it("encrypts a downloader's username/password in the DB but returns them decrypted", async () => {
+      const added = await storage.addDownloader({
+        name: "Test Client",
+        type: "qbittorrent",
+        url: "http://localhost:8080",
+        username: "fixture-login-name",
+        password: "fixture-secret-value",
+      });
+      expect(added.username).toBe("fixture-login-name");
+      expect(added.password).toBe("fixture-secret-value");
+
+      const [rawRow] = await db.select().from(downloaders).where(eq(downloaders.id, added.id));
+      expect(rawRow.username).toMatch(/^enc:v1:/);
+      expect(rawRow.password).toMatch(/^enc:v1:/);
+
+      const fetched = await storage.getDownloader(added.id);
+      expect(fetched?.username).toBe("fixture-login-name");
+      expect(fetched?.password).toBe("fixture-secret-value");
+    });
+
+    it("reads a legacy plaintext downloader row unchanged (no migration required)", async () => {
+      const id = randomUUID();
+      await db.insert(downloaders).values({
+        id,
+        name: "Legacy Client",
+        type: "qbittorrent",
+        url: "http://localhost:8081",
+        username: "fixture-legacy-login",
+        password: "fixture-legacy-secret",
+      });
+
+      const fetched = await storage.getDownloader(id);
+      expect(fetched?.username).toBe("fixture-legacy-login");
+      expect(fetched?.password).toBe("fixture-legacy-secret");
+    });
+
+    it("encrypts apiKey during syncIndexers", async () => {
+      const result = await storage.syncIndexers([
+        { name: "Synced Indexer", url: "http://localhost:9002", apiKey: "fixture-synced-value" },
+      ]);
+      expect(result.added).toBe(1);
+
+      const [rawRow] = await db
+        .select()
+        .from(indexers)
+        .where(eq(indexers.url, "http://localhost:9002"));
+      expect(rawRow.apiKey).toMatch(/^enc:v1:/);
+
+      const fetched = await storage.getIndexer(rawRow.id);
+      expect(fetched?.apiKey).toBe("fixture-synced-value");
+    });
+
+    it("decrypts apiKey via getEnabledIndexers", async () => {
+      await storage.addIndexer({
+        name: "Enabled Indexer",
+        url: "http://localhost:9003",
+        apiKey: "fixture-enabled-value",
+        enabled: true,
+      });
+
+      const enabled = await storage.getEnabledIndexers();
+      expect(enabled.find((i) => i.url === "http://localhost:9003")?.apiKey).toBe(
+        "fixture-enabled-value"
+      );
+    });
+
+    it("decrypts username/password via getEnabledDownloaders", async () => {
+      await storage.addDownloader({
+        name: "Enabled Client",
+        type: "qbittorrent",
+        url: "http://localhost:8082",
+        username: "fixture-enabled-login",
+        password: "fixture-enabled-secret",
+        enabled: true,
+      });
+
+      const enabled = await storage.getEnabledDownloaders();
+      const found = enabled.find((d) => d.url === "http://localhost:8082");
+      expect(found?.username).toBe("fixture-enabled-login");
+      expect(found?.password).toBe("fixture-enabled-secret");
+    });
+
+    it("re-encrypts username/password on updateDownloader", async () => {
+      const added = await storage.addDownloader({
+        name: "Test Client",
+        type: "qbittorrent",
+        url: "http://localhost:8083",
+        username: "fixture-login-before",
+        password: "fixture-secret-before",
+      });
+
+      const updated = await storage.updateDownloader(added.id, {
+        username: "fixture-login-after",
+        password: "fixture-secret-after",
+      });
+      expect(updated?.username).toBe("fixture-login-after");
+      expect(updated?.password).toBe("fixture-secret-after");
+
+      const [rawRow] = await db.select().from(downloaders).where(eq(downloaders.id, added.id));
+      expect(rawRow.username).toMatch(/^enc:v1:/);
+      expect(rawRow.password).toMatch(/^enc:v1:/);
+    });
   });
 });

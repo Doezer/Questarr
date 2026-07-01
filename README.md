@@ -227,6 +227,8 @@ Once logged-in:
 
 See [Configuration on the Wiki](https://github.com/Doezer/Questarr/wiki/Configuring-the-application#configure-app-behavior-in-settings--general) for more detailed info.
 
+See [docs/SECRETS.md](docs/SECRETS.md) for details on how API keys, indexer/downloader credentials, and other secrets are stored and managed.
+
 <details>
 <summary><b>Getting IGDB API Credentials</b></summary>
 

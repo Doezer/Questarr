@@ -2872,7 +2872,7 @@ export class QBittorrentClient implements DownloaderClient {
       // Try the newer getSetCookie() method first (Node 19.7+)
       if (setCookieHeaders.length > 0) {
         for (const cookie of setCookieHeaders) {
-          const match = cookie.match(/((?:QBT_)?SID(?:_[^=;]+)?)=([^;]+)/);
+          const match = /((?:QBT_)?SID(?:_[^=;]+)?)=([^;]+)/.exec(cookie);
           if (match) {
             sessionCookie = `${match[1]}=${match[2]}`;
             break;
@@ -2884,7 +2884,7 @@ export class QBittorrentClient implements DownloaderClient {
       if (!sessionCookie) {
         const setCookie = response.headers.get("set-cookie");
         if (setCookie) {
-          const match = setCookie.match(/((?:QBT_)?SID(?:_[^=;]+)?)=([^;]+)/);
+          const match = /((?:QBT_)?SID(?:_[^=;]+)?)=([^;]+)/.exec(setCookie);
           if (match) {
             sessionCookie = `${match[1]}=${match[2]}`;
           }

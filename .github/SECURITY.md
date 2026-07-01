@@ -8,6 +8,10 @@ Use the latest version of this project to ensure you have the latest security pa
 
 If you discover a security vulnerability within this project, please do not report it publicly. Instead, please report it via email to the maintainer directly.
 
+## Threat Model
+
+See [docs/THREAT_MODEL.md](../docs/THREAT_MODEL.md) for the system's attack surface analysis, trust boundaries, and known residual risks. This is the canonical reference for security-relevant architectural decisions, and should be updated alongside any change that adds a new external integration, trust boundary, or unauthenticated route.
+
 For a full inventory of how secrets and credentials are stored, accessed, and rotated throughout the codebase, see [docs/SECRETS.md](../docs/SECRETS.md).
 
 ## Deployment Security Guide

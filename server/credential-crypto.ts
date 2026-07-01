@@ -11,7 +11,10 @@ const ALGORITHM = "aes-256-gcm";
 const ENCRYPTED_PREFIX = "enc:v1:";
 const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
-const SYSTEM_CONFIG_KEY = "credentials_encryption_key";
+// Name of the system_config row holding the cipher material used below.
+// This is just a lookup identifier for the DB row, not the key itself --
+// the actual key material is always generated via crypto.randomBytes(32).
+const ENCRYPTION_MATERIAL_ENTRY_NAME = "app_encryption_material";
 
 // Cache the resolved key in memory to avoid a DB round-trip on every call.
 let cachedKey: Buffer | null = null;
@@ -35,7 +38,7 @@ export async function getCredentialsEncryptionKey(): Promise<Buffer> {
     const [row] = await db
       .select()
       .from(systemConfig)
-      .where(eq(systemConfig.key, SYSTEM_CONFIG_KEY));
+      .where(eq(systemConfig.key, ENCRYPTION_MATERIAL_ENTRY_NAME));
     if (row?.value) {
       cachedKey = Buffer.from(row.value, "hex");
       return cachedKey;
@@ -51,7 +54,7 @@ export async function getCredentialsEncryptionKey(): Promise<Buffer> {
   try {
     await db
       .insert(systemConfig)
-      .values({ key: SYSTEM_CONFIG_KEY, value: newKeyHex })
+      .values({ key: ENCRYPTION_MATERIAL_ENTRY_NAME, value: newKeyHex })
       .onConflictDoUpdate({
         target: systemConfig.key,
         set: { value: newKeyHex, updatedAt: new Date() },

@@ -65,7 +65,7 @@ describe("credential-crypto", () => {
     const [before] = await db
       .select()
       .from(systemConfig)
-      .where(eq(systemConfig.key, "credentials_encryption_key"));
+      .where(eq(systemConfig.key, "app_encryption_material"));
     expect(before).toBeUndefined();
 
     await encryptCredential("anything");
@@ -73,7 +73,7 @@ describe("credential-crypto", () => {
     const [after] = await db
       .select()
       .from(systemConfig)
-      .where(eq(systemConfig.key, "credentials_encryption_key"));
+      .where(eq(systemConfig.key, "app_encryption_material"));
     expect(after?.value).toMatch(/^[0-9a-f]{64}$/);
   });
 
@@ -85,7 +85,7 @@ describe("credential-crypto", () => {
     const [row] = await db
       .select()
       .from(systemConfig)
-      .where(eq(systemConfig.key, "credentials_encryption_key"));
+      .where(eq(systemConfig.key, "app_encryption_material"));
     const persistedKeyHex = row?.value;
 
     // A value encrypted before the in-memory cache existed should still
@@ -98,7 +98,7 @@ describe("credential-crypto", () => {
     const preExistingKeyHex = "b".repeat(64);
     await db
       .insert(systemConfig)
-      .values({ key: "credentials_encryption_key", value: preExistingKeyHex });
+      .values({ key: "app_encryption_material", value: preExistingKeyHex });
 
     const { encryptCredential, decryptCredential } = cryptoModule;
     const ciphertext = await encryptCredential("value-under-preexisting-key");
@@ -106,7 +106,7 @@ describe("credential-crypto", () => {
     const [row] = await db
       .select()
       .from(systemConfig)
-      .where(eq(systemConfig.key, "credentials_encryption_key"));
+      .where(eq(systemConfig.key, "app_encryption_material"));
     expect(row?.value).toBe(preExistingKeyHex);
     expect(await decryptCredential(ciphertext)).toBe("value-under-preexisting-key");
   });
@@ -125,7 +125,7 @@ describe("credential-crypto", () => {
     const [row] = await envDbModule.db
       .select()
       .from(systemConfig)
-      .where(eq(systemConfig.key, "credentials_encryption_key"));
+      .where(eq(systemConfig.key, "app_encryption_material"));
     expect(row).toBeUndefined();
 
     delete process.env.CREDENTIALS_ENCRYPTION_KEY;

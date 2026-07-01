@@ -21,6 +21,7 @@
     <a href="https://codecov.io/gh/Doezer/Questarr">
       <img src="https://codecov.io/gh/Doezer/Questarr/branch/main/graph/badge.svg" alt="Codecov">
     </a>
+    [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/microsoft/doezer/Questarr)](https://scorecard.dev/viewer/?uri=github.com/doezer/Questarr)
   </p>
 
   <p>

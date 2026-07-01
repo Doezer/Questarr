@@ -131,6 +131,10 @@ Changes that are typically **exempt** from new tests: pure styling/CSS tweaks, c
 - Open a new issue if you find a bug or have a feature request
 - Be respectful and constructive in all interactions
 
+## Collaborator Access
+
+Requests for elevated repository access (merge/write permissions, secrets, or infrastructure access) are subject to review and approval per our [Collaborator Access & Escalation Policy](./SECURITY.md#collaborator-access--escalation-policy). New contributors should start by submitting pull requests from a fork; escalated access is granted only after identity vetting and maintainer approval.
+
 ## Code of Conduct
 
 - Be respectful and inclusive

@@ -73,6 +73,10 @@ jobs:
           REPO_NAME_LC=$(echo "$REPO_SHOULD_BE_NAME" | tr '[:upper:]' '[:lower:]')
           echo "REPO_NAME_LC=$REPO_NAME_LC" >> $GITHUB_ENV
 
+          # Full owner/repo, lowercased (GHCR requires lowercase image references)
+          REPO_LC=$(echo "$REPOSITORY" | tr '[:upper:]' '[:lower:]')
+          echo "REPO_LC=$REPO_LC" >> $GITHUB_ENV
+
       - name: Set up QEMU
         if: inputs.build_arm64 == true
         uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
@@ -118,6 +122,7 @@ jobs:
             org.opencontainers.image.vendor=Doezer
 
       - name: Build and push Docker image
+        id: build
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         with:
           context: .
@@ -128,6 +133,21 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           target: production
+          sbom: true
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          image: ghcr.io/${{ env.REPO_LC }}@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          output-file: sbom-questarr-${{ env.VERSION }}.spdx.json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sbom-questarr-${{ env.VERSION }}-${{ env.ENVIRONMENT }}
+          path: sbom-questarr-${{ env.VERSION }}.spdx.json
+          retention-days: 90
 
       - name: Deployment summary
         id: summary
@@ -141,18 +161,24 @@ jobs:
           ## Deployment Summary
 
           - **Environment:** ${{ env.ENVIRONMENT }}
-          - **Image:** ghcr.io/${{ github.repository }}
+          - **Image:** ghcr.io/${{ env.REPO_LC }}
           - **Docker Hub:** doezer/${{ env.REPO_NAME_LC }}
           - **Tags:** ${{ steps.meta.outputs.tags }}
+          - **SBOM:** attached to the image as an attestation, and uploaded as the \`sbom-questarr-${{ env.VERSION }}-${{ env.ENVIRONMENT }}\` workflow artifact
 
           ### Pull and run the image:
           \`\`\`bash
-          docker pull ghcr.io/${{ github.repository }}:\$TAG
+          docker pull ghcr.io/${{ env.REPO_LC }}:\$TAG
           docker run -d -p 5000:5000 \\
             -e POSTGRES_PASSWORD=your_password \\
             -e IGDB_CLIENT_ID=your_client_id \\
             -e IGDB_CLIENT_SECRET=your_client_secret \\
-            ghcr.io/${{ github.repository }}:\$TAG
+            ghcr.io/${{ env.REPO_LC }}:\$TAG
+          \`\`\`
+
+          ### Inspect the SBOM attestation:
+          \`\`\`bash
+          docker buildx imagetools inspect ghcr.io/${{ env.REPO_LC }}:\$TAG --format '{{ json (index .SBOM "linux/amd64").SPDX }}'
           \`\`\`
           EOF
           )

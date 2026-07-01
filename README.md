@@ -210,6 +210,8 @@ If you are upgrading from an older version that used PostgreSQL, you need to mig
 
 See [docs/MIGRATION.md](docs/MIGRATION.md) for more details.
 
+Every published image ships with a Software Bill of Materials — see [docs/SBOM.md](docs/SBOM.md) for how to get it.
+
 ## Configuration
 
 1. **First-time setup:**

@@ -182,7 +182,7 @@
       "prettier --write"
     ],
     "*": [
-      "secretlint --maskSecrets"
+      "secretlint --maskSecrets --no-glob"
     ]
   },
   "engines": {

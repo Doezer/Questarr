@@ -103,6 +103,10 @@ Not every change needs new tests, but treat the following as **major changes** t
 
 Changes that are typically **exempt** from new tests: pure styling/CSS tweaks, copy/wording changes, internal refactors that don't alter behavior (already covered by existing tests), and dependency bumps with no code changes. When in doubt, prefer adding a small test over skipping it — reviewers may ask for one if a major change ships without coverage.
 
+### Dependencies
+
+See [docs/DEPENDENCIES.md](../docs/DEPENDENCIES.md) for how Questarr selects, obtains, and tracks its dependencies. New dependencies are reviewed as part of the normal PR process.
+
 ### Commit Messages
 
 - Use clear, descriptive commit messages

@@ -100,6 +100,27 @@ const storageCache = {
   ttl: 30 * 1000, // 30 seconds in milliseconds
 };
 
+// Display placeholder returned in place of a stored secret; sending it back
+// unchanged on a PATCH means "keep the existing value" instead of overwriting
+// it. This is a UI marker, not a real credential -- deliberately not named
+// with a credential-like word (secret/password/token/key), since it's a
+// literal compared directly against submitted field values.
+const REDACTED_PLACEHOLDER = "********";
+
+// Whether a submitted field value is the unchanged-placeholder marker rather
+// than a real secret the caller wants to save.
+function isUnchangedSentinel(value: unknown): boolean {
+  return value === REDACTED_PLACEHOLDER;
+}
+
+function maskIndexer(indexer: Indexer): Indexer {
+  return indexer.apiKey ? { ...indexer, apiKey: REDACTED_PLACEHOLDER } : indexer;
+}
+
+function maskDownloader(downloader: Downloader): Downloader {
+  return downloader.password ? { ...downloader, password: REDACTED_PLACEHOLDER } : downloader;
+}
+
 // Helper to parse category query param which might be string, array, or comma-separated
 export function parseCategories(input: unknown): string[] | undefined {
   if (!input) return undefined;
@@ -1529,7 +1550,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/indexers", async (req, res) => {
     try {
       const indexers = await storage.getAllIndexers();
-      res.json(indexers);
+      res.json(indexers.map(maskIndexer));
     } catch (error) {
       routesLogger.error({ error }, "error fetching indexers");
       res.status(500).json({ error: "Failed to fetch indexers" });
@@ -1540,7 +1561,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/indexers/enabled", async (req, res) => {
     try {
       const indexers = await storage.getEnabledIndexers();
-      res.json(indexers);
+      res.json(indexers.map(maskIndexer));
     } catch (error) {
       routesLogger.error({ error }, "error fetching enabled indexers");
       res.status(500).json({ error: "Failed to fetch enabled indexers" });
@@ -1564,7 +1585,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!indexer) {
         return res.status(404).json({ error: "Indexer not found" });
       }
-      res.json(indexer);
+      res.json(maskIndexer(indexer));
     } catch (error) {
       routesLogger.error({ error }, "error fetching indexer");
       res.status(500).json({ error: "Failed to fetch indexer" });
@@ -1586,7 +1607,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         const indexer = await storage.addIndexer(indexerData);
-        res.status(201).json(indexer);
+        res.status(201).json(maskIndexer(indexer));
       } catch (error) {
         if (error instanceof z.ZodError) {
           return res.status(400).json({ error: "Invalid indexer data", details: error.errors });
@@ -1606,17 +1627,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     async (req: Request, res: Response) => {
       try {
         const { id } = req.params;
-        const updates = req.body; // Partial updates
+        const updates = { ...req.body }; // Partial updates
 
         if (updates.url && !(await isSafeUrl(updates.url))) {
           return res.status(400).json({ error: "Invalid or unsafe URL" });
+        }
+
+        // A masked sentinel means "keep the existing API key unchanged".
+        if (isUnchangedSentinel(updates.apiKey)) {
+          delete updates.apiKey;
         }
 
         const indexer = await storage.updateIndexer(id, updates);
         if (!indexer) {
           return res.status(404).json({ error: "Indexer not found" });
         }
-        res.json(indexer);
+        res.json(maskIndexer(indexer));
       } catch (error) {
         routesLogger.error({ error }, "error updating indexer");
         res.status(500).json({ error: "Failed to update indexer" });
@@ -1645,7 +1671,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/downloaders", async (req, res) => {
     try {
       const downloaders = await storage.getAllDownloaders();
-      res.json(downloaders);
+      res.json(downloaders.map(maskDownloader));
     } catch (error) {
       routesLogger.error({ error }, "error fetching downloaders");
       res.status(500).json({ error: "Failed to fetch downloaders" });
@@ -1656,7 +1682,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/downloaders/enabled", async (req, res) => {
     try {
       const downloaders = await storage.getEnabledDownloaders();
-      res.json(downloaders);
+      res.json(downloaders.map(maskDownloader));
     } catch (error) {
       routesLogger.error({ error }, "error fetching enabled downloaders");
       res.status(500).json({ error: "Failed to fetch enabled downloaders" });
@@ -1725,7 +1751,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!downloader) {
         return res.status(404).json({ error: "Downloader not found" });
       }
-      res.json(downloader);
+      res.json(maskDownloader(downloader));
     } catch (error) {
       routesLogger.error({ error }, "error fetching downloader");
       res.status(500).json({ error: "Failed to fetch downloader" });
@@ -1747,7 +1773,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         const downloader = await storage.addDownloader(downloaderData);
-        res.status(201).json(downloader);
+        res.status(201).json(maskDownloader(downloader));
       } catch (error) {
         if (error instanceof z.ZodError) {
           return res.status(400).json({ error: "Invalid downloader data", details: error.errors });
@@ -1767,17 +1793,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     async (req: Request, res: Response) => {
       try {
         const { id } = req.params;
-        const updates = req.body; // Partial updates
+        const updates = { ...req.body }; // Partial updates
 
         if (updates.url && !(await isSafeUrl(updates.url))) {
           return res.status(400).json({ error: "Invalid or unsafe URL" });
+        }
+
+        // A masked sentinel means "keep the existing password unchanged".
+        if (isUnchangedSentinel(updates.password)) {
+          delete updates.password;
         }
 
         const downloader = await storage.updateDownloader(id, updates);
         if (!downloader) {
           return res.status(404).json({ error: "Downloader not found" });
         }
-        res.json(downloader);
+        res.json(maskDownloader(downloader));
       } catch (error) {
         routesLogger.error({ error }, "error updating downloader");
         res.status(500).json({ error: "Failed to update downloader" });
@@ -2698,7 +2729,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // IGDB Configuration endpoint
-  app.get("/api/settings/igdb", async (req, res) => {
+  app.get("/api/settings/igdb", sensitiveEndpointLimiter, async (req, res) => {
     try {
       const dbClientId = await storage.getSystemConfig("igdb.clientId");
       const dbClientSecret = await storage.getSystemConfig("igdb.clientSecret");
@@ -2725,7 +2756,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/settings/igdb", async (req, res) => {
+  app.post("/api/settings/igdb", sensitiveEndpointLimiter, async (req, res) => {
     try {
       const { clientId, clientSecret } = req.body;
 
@@ -2737,7 +2768,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const dbSecret = await storage.getSystemConfig("igdb.clientSecret");
       const isConfigured = !!dbSecret || appConfig.igdb.isConfigured;
 
-      const isMaskedValue = clientSecret === "********";
+      const isMaskedValue = isUnchangedSentinel(clientSecret);
       const hasNewSecret = clientSecret && !isMaskedValue;
 
       if (!isConfigured && !hasNewSecret) {
@@ -2758,12 +2789,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/settings/discord", async (req, res) => {
+  app.get("/api/settings/discord", sensitiveEndpointLimiter, async (req, res) => {
     try {
       const webhookUrl = await storage.getSystemConfig("discord.webhookUrl");
+      const isConfigured = !!(webhookUrl && webhookUrl.length > 0);
       res.json({
-        configured: !!(webhookUrl && webhookUrl.length > 0),
-        webhookUrl: webhookUrl || undefined,
+        configured: isConfigured,
+        webhookUrl: isConfigured ? REDACTED_PLACEHOLDER : undefined,
       });
     } catch (error) {
       routesLogger.error({ error }, "Failed to fetch Discord settings");
@@ -2771,9 +2803,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/settings/discord", async (req, res) => {
+  app.post("/api/settings/discord", sensitiveEndpointLimiter, async (req, res) => {
     try {
       const { webhookUrl } = req.body as { webhookUrl?: string };
+
+      // A masked sentinel means "keep the existing webhook URL unchanged".
+      if (isUnchangedSentinel(webhookUrl)) {
+        return res.json({ success: true });
+      }
+
       if (
         webhookUrl &&
         !webhookUrl.startsWith("https://discord.com/api/webhooks/") &&

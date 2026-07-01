@@ -27,6 +27,20 @@ const envSchema = z.object({
   IGDB_CLIENT_ID: z.string().optional(),
   IGDB_CLIENT_SECRET: z.string().optional(),
 
+  // NexusMods API configuration (optional)
+  NEXUSMODS_API_KEY: z.string().optional(),
+
+  // Encryption key for indexer/downloader credentials at rest (optional;
+  // auto-generated and persisted to the DB if unset). Must be a 64-char hex
+  // string (32 bytes) when provided, for use as an AES-256 key.
+  CREDENTIALS_ENCRYPTION_KEY: z
+    .string()
+    .optional()
+    .refine((value) => !value || /^[0-9a-fA-F]{64}$/.test(value), {
+      message:
+        "CREDENTIALS_ENCRYPTION_KEY must be a 64-character hex string (32 bytes) for AES-256.",
+    }),
+
   // Server configuration
   PORT: z
     .string()
@@ -85,6 +99,12 @@ export const config = {
     clientId: env.IGDB_CLIENT_ID,
     clientSecret: env.IGDB_CLIENT_SECRET,
     isConfigured: !!(env.IGDB_CLIENT_ID && env.IGDB_CLIENT_SECRET),
+  },
+  nexusmods: {
+    apiKey: env.NEXUSMODS_API_KEY,
+  },
+  credentials: {
+    encryptionKey: env.CREDENTIALS_ENCRYPTION_KEY,
   },
   server: {
     port: env.PORT,

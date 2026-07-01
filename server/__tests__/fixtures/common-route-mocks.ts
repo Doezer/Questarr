@@ -23,6 +23,9 @@ export const mockConfig = {
     clientId: "test-id",
     clientSecret: "test-secret",
   },
+  nexusmods: {
+    apiKey: undefined as string | undefined,
+  },
   auth: {
     jwtSecret: "test-secret",
   },

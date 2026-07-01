@@ -44,6 +44,20 @@ vi.mock("../xrel.js", () => createXrelMock());
 vi.mock("../downloaders.js", () => ({ DownloaderManager: createDownloaderManagerMock() }));
 vi.mock("../steam-routes.js", () => ({ steamRoutes: createSteamRoutesMock() }));
 vi.mock("../search.js", () => createSearchMock());
+
+// Neutralize the IP-keyed rate limiters so cumulative requests across this large
+// test file don't trip a shared 30-req/min counter; keep all other exports
+// (validators, sanitizers) real. Kept local to this file (not in the shared fixtures)
+// since server/__tests__/auth-setup-ratelimit.test.ts deliberately needs the real limiter.
+vi.mock("../middleware.js", async () => {
+  const actual = await vi.importActual<typeof import("../middleware.js")>("../middleware.js");
+  return {
+    ...actual,
+    sensitiveEndpointLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
+    authRateLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
+  };
+});
+
 vi.mock("../config.js", () => ({ config: mockConfig }));
 vi.mock("../config-loader.js", () => ({ configLoader: createConfigLoaderMock() }));
 vi.mock("../socket.js", () => createSocketMock());
@@ -726,6 +740,53 @@ describe("API Routes - Extended Coverage", () => {
         const response = await request(app).get("/api/indexers/nonexistent");
         expect(response.status).toBe(404);
       });
+
+      it("should mask the apiKey", async () => {
+        const mockIndexer = { id: "idx-1", name: "Test Indexer", apiKey: "fixture-existing-value" };
+        vi.mocked(storage.getIndexer).mockResolvedValue(mockIndexer as unknown as Indexer);
+
+        const response = await request(app).get("/api/indexers/idx-1");
+        expect(response.status).toBe(200);
+        expect(response.body.apiKey).toBe("********");
+      });
+    });
+
+    describe("PATCH /api/indexers/:id", () => {
+      it("should keep the existing apiKey unchanged when the masked sentinel is sent", async () => {
+        vi.mocked(storage.updateIndexer).mockResolvedValue({
+          id: "idx-1",
+          name: "Renamed",
+          apiKey: "fixture-existing-value",
+        } as unknown as Indexer);
+
+        const response = await request(app)
+          .patch("/api/indexers/idx-1")
+          .send({ name: "Renamed", apiKey: "********" });
+
+        expect(response.status).toBe(200);
+        expect(response.body.apiKey).toBe("********");
+        expect(storage.updateIndexer).toHaveBeenCalledWith(
+          "idx-1",
+          expect.not.objectContaining({ apiKey: expect.anything() })
+        );
+      });
+
+      it("should update the apiKey when a real value is sent", async () => {
+        vi.mocked(storage.updateIndexer).mockResolvedValue({
+          id: "idx-1",
+          apiKey: "fixture-updated-value",
+        } as unknown as Indexer);
+
+        const response = await request(app)
+          .patch("/api/indexers/idx-1")
+          .send({ apiKey: "fixture-updated-value" });
+
+        expect(response.status).toBe(200);
+        expect(storage.updateIndexer).toHaveBeenCalledWith(
+          "idx-1",
+          expect.objectContaining({ apiKey: "fixture-updated-value" })
+        );
+      });
     });
 
     describe("DELETE /api/indexers/:id", () => {
@@ -832,6 +893,53 @@ describe("API Routes - Extended Coverage", () => {
         vi.mocked(storage.getDownloader).mockResolvedValue(undefined as any);
         const response = await request(app).get("/api/downloaders/nonexistent");
         expect(response.status).toBe(404);
+      });
+
+      it("should mask the password", async () => {
+        const mockDl = { id: "dl-1", name: "Test DL", password: "fixture-existing-secret" };
+        vi.mocked(storage.getDownloader).mockResolvedValue(mockDl as unknown as Downloader);
+
+        const response = await request(app).get("/api/downloaders/dl-1");
+        expect(response.status).toBe(200);
+        expect(response.body.password).toBe("********");
+      });
+    });
+
+    describe("PATCH /api/downloaders/:id", () => {
+      it("should keep the existing password unchanged when the masked sentinel is sent", async () => {
+        vi.mocked(storage.updateDownloader).mockResolvedValue({
+          id: "dl-1",
+          name: "Renamed",
+          password: "fixture-existing-secret",
+        } as unknown as Downloader);
+
+        const response = await request(app)
+          .patch("/api/downloaders/dl-1")
+          .send({ name: "Renamed", password: "********" });
+
+        expect(response.status).toBe(200);
+        expect(response.body.password).toBe("********");
+        expect(storage.updateDownloader).toHaveBeenCalledWith(
+          "dl-1",
+          expect.not.objectContaining({ password: expect.anything() })
+        );
+      });
+
+      it("should update the password when a real value is sent", async () => {
+        vi.mocked(storage.updateDownloader).mockResolvedValue({
+          id: "dl-1",
+          password: "fixture-updated-secret",
+        } as unknown as Downloader);
+
+        const response = await request(app)
+          .patch("/api/downloaders/dl-1")
+          .send({ password: "fixture-updated-secret" });
+
+        expect(response.status).toBe(200);
+        expect(storage.updateDownloader).toHaveBeenCalledWith(
+          "dl-1",
+          expect.objectContaining({ password: "fixture-updated-secret" })
+        );
       });
     });
 
@@ -1616,15 +1724,15 @@ describe("API Routes - Extended Coverage", () => {
   // ─── Discord Settings ───
   describe("Discord settings", () => {
     describe("GET /api/settings/discord", () => {
-      it("should return configured: true when webhook URL is set", async () => {
+      it("should return configured: true and a masked webhook URL when set", async () => {
         vi.mocked(storage.getSystemConfig).mockResolvedValue(
           "https://discord.com/api/webhooks/123/abc"
         );
         const response = await request(app).get("/api/settings/discord");
         expect(response.status).toBe(200);
-        expect(response.body).toMatchObject({
+        expect(response.body).toEqual({
           configured: true,
-          webhookUrl: "https://discord.com/api/webhooks/123/abc",
+          webhookUrl: "********",
         });
       });
 
@@ -1686,6 +1794,15 @@ describe("API Routes - Extended Coverage", () => {
         const response = await request(app).post("/api/settings/discord").send({ webhookUrl: "" });
         expect(response.status).toBe(200);
         expect(storage.setSystemConfig).toHaveBeenCalledWith("discord.webhookUrl", "");
+      });
+
+      it("should keep the existing webhook URL unchanged when the masked sentinel is sent", async () => {
+        const response = await request(app)
+          .post("/api/settings/discord")
+          .send({ webhookUrl: "********" });
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({ success: true });
+        expect(storage.setSystemConfig).not.toHaveBeenCalled();
       });
 
       it("should return 500 on storage error", async () => {

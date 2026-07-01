@@ -214,6 +214,8 @@ Every published image ships with a Software Bill of Materials — see [docs/SBOM
 
 See [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) for the attack surface analysis and security architecture.
 
+See [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) for how dependencies are selected, obtained, and tracked.
+
 ## Configuration
 
 1. **First-time setup:**
@@ -228,6 +230,8 @@ Once logged-in:
 - Add games!
 
 See [Configuration on the Wiki](https://github.com/Doezer/Questarr/wiki/Configuring-the-application#configure-app-behavior-in-settings--general) for more detailed info.
+
+See [docs/SECRETS.md](docs/SECRETS.md) for details on how API keys, indexer/downloader credentials, and other secrets are stored and managed.
 
 <details>
 <summary><b>Getting IGDB API Credentials</b></summary>
@@ -329,6 +333,8 @@ See [Troubleshooting on the Wiki](https://github.com/Doezer/Questarr/wiki/Troubl
 ## Contributing
 
 See [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md) for guidelines on how to contribute to this project.
+
+See [MAINTAINERS.md](/MAINTAINERS.md) for the current list of project members with access to sensitive resources.
 
 ## Contributors
 

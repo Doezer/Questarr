@@ -38,7 +38,7 @@ a stale date is the signal that a review is overdue.
 flowchart LR
     Browser["Browser (React SPA)"]
     API["Express API"]
-    Gate{{"auth gate\napp.use('/api', authenticateToken)\nroutes.ts:810"}}
+    Gate{{"auth gate\napp.use('/api', authenticateToken)\nroutes.ts:845"}}
     Handlers["Route handlers"]
     DB[("SQLite\n(Drizzle ORM)")]
     Socket["Socket.io\n(unauthenticated broadcast)"]
@@ -76,7 +76,9 @@ Four named trust boundaries:
 ## 3. Assets
 
 - **Credentials:** user password hashes, the JWT signing secret, indexer API keys,
-  download-client passwords, the NexusMods API key.
+  download-client passwords, the NexusMods API key. See
+  [`docs/SECRETS.md`](./SECRETS.md) for the authoritative inventory of where each of these
+  lives and how it's protected.
 - **Library/download metadata:** game collections, download history — low sensitivity, but
   cross-user leakage is a privacy concern (see Socket.io note in Section 8).
 - **Server availability:** self-hosted, typically on a home server/NAS — denial of service
@@ -137,17 +139,17 @@ this matters because DNS can change between when a URL is saved and when it's ne
 
 ## 5. External Integration Trust Table
 
-| Integration                                                         | Host source                    | Auth surface                          | SSRF-checked?                                                                              | Notes                                           |
-| ------------------------------------------------------------------- | ------------------------------ | ------------------------------------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------- |
-| Indexers (Torznab/Newznab/Prowlarr)                                 | user-configured                | API key (plaintext at rest)           | Yes                                                                                        | highest risk — user-supplied host               |
-| Download clients (qBittorrent/Transmission/rTorrent/SABnzbd/NZBGet) | user-configured, typically LAN | username/password (plaintext at rest) | Payload-URL fetches: yes. Control-plane calls to the configured client: N/A (trust anchor) | see 4.1                                         |
-| RSS feeds                                                           | user-configured                | none                                  | Yes (`server/rss.ts`)                                                                      |                                                 |
-| IGDB / Twitch                                                       | hardcoded                      | client ID/secret (`system_config`)    | Yes (fixed in this revision)                                                               | see 4.2                                         |
-| Steam                                                               | hardcoded                      | none (public endpoint)                | Yes (`server/steam.ts`)                                                                    | wishlist import only                            |
-| HowLongToBeat                                                       | hardcoded                      | none                                  | Yes (`server/hltb.ts`)                                                                     |                                                 |
-| NexusMods                                                           | hardcoded                      | API key (`system_config`)             | Yes (`server/nexusmods.ts`)                                                                |                                                 |
-| xREL                                                                | hardcoded allowlist            | none                                  | Yes (`server/xrel.ts`)                                                                     | only `api.xrel.to`/`xrel-api.nfos.to` permitted |
-| PCGamingWiki                                                        | hardcoded                      | none                                  | Yes (`server/pcgamingwiki-router.ts`)                                                      |                                                 |
+| Integration                                                         | Host source                    | Auth surface                                      | SSRF-checked?                                                                              | Notes                                           |
+| ------------------------------------------------------------------- | ------------------------------ | ------------------------------------------------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------- |
+| Indexers (Torznab/Newznab/Prowlarr)                                 | user-configured                | API key (AES-256-GCM encrypted at rest)           | Yes                                                                                        | highest risk — user-supplied host               |
+| Download clients (qBittorrent/Transmission/rTorrent/SABnzbd/NZBGet) | user-configured, typically LAN | username/password (AES-256-GCM encrypted at rest) | Payload-URL fetches: yes. Control-plane calls to the configured client: N/A (trust anchor) | see 4.1                                         |
+| RSS feeds                                                           | user-configured                | none                                              | Yes (`server/rss.ts`)                                                                      |                                                 |
+| IGDB / Twitch                                                       | hardcoded                      | client ID/secret (`system_config`)                | Yes (fixed in this revision)                                                               | see 4.2                                         |
+| Steam                                                               | hardcoded                      | none (public endpoint)                            | Yes (`server/steam.ts`)                                                                    | wishlist import only                            |
+| HowLongToBeat                                                       | hardcoded                      | none                                              | Yes (`server/hltb.ts`)                                                                     |                                                 |
+| NexusMods                                                           | hardcoded                      | API key (`system_config`)                         | Yes (`server/nexusmods.ts`)                                                                |                                                 |
+| xREL                                                                | hardcoded allowlist            | none                                              | Yes (`server/xrel.ts`)                                                                     | only `api.xrel.to`/`xrel-api.nfos.to` permitted |
+| PCGamingWiki                                                        | hardcoded                      | none                                              | Yes (`server/pcgamingwiki-router.ts`)                                                      |                                                 |
 
 ---
 
@@ -163,14 +165,21 @@ linked file as the source of truth.
 - **Rate limiting:** `server/middleware.ts` (`igdbRateLimiter`, `authRateLimiter`,
   `sensitiveEndpointLimiter`, `generalApiLimiter`); `server/index.ts:34` (global mount)
 - **Authentication/session:** `server/auth.ts` (JWT issuance/verification); global gate at
-  `server/routes.ts:810`
+  `server/routes.ts:845`
 - **SQL injection:** not applicable by construction — Drizzle ORM parameterizes all
   application queries; the only raw SQL (`sql.raw`/`sql` template literals in
   `server/migrate.ts`) is hardcoded migration DDL with no user input.
+- **Secrets encryption at rest:** `server/credential-crypto.ts` (AES-256-GCM) — indexer API
+  keys and downloader username/passwords; see [`docs/SECRETS.md`](./SECRETS.md) §4 for the
+  full mechanism (key resolution, legacy-plaintext-row handling, masked-sentinel rotation)
 - **Secrets scanning / dependency hygiene:** `.github/workflows/ci.yml` (`secretlint`),
   `.github/dependabot.yml`
+- **SAST:** CodeQL (GitHub default setup, `javascript-typescript` + `actions` queries — no
+  workflow file needed, configured at the repo level)
+- **Supply-chain scoring:** `.github/workflows/scorecard.yml` (OpenSSF Scorecard)
 - **SBOM:** [`docs/SBOM.md`](./SBOM.md) — Syft-generated, attached to Docker releases
-- **Disclosure process / access governance:** [`.github/SECURITY.md`](../.github/SECURITY.md)
+- **Disclosure process / access governance:** [`.github/SECURITY.md`](../.github/SECURITY.md),
+  [`MAINTAINERS.md`](../MAINTAINERS.md)
 - **Test coverage:** `server/__tests__/ssrf.test.ts`, `ssrf_routes.test.ts`,
   `rss-ssrf.test.ts`, `downloaders_ssrf.test.ts`, `security.test.ts`,
   `security_error_handling.test.ts`, `auth-setup-ratelimit.test.ts`
@@ -179,7 +188,7 @@ linked file as the source of truth.
 
 ## 7. Unauthenticated Surface
 
-`server/routes.ts:810` registers `app.use("/api", authenticateToken)`, which gates every
+`server/routes.ts:845` registers `app.use("/api", authenticateToken)`, which gates every
 route registered **after** that line. The routes below are registered **before** it and are
 the actual unauthenticated surface:
 
@@ -201,15 +210,15 @@ authentication or a narrowly-scoped, low-sensitivity response.
 
 ## 8. Residual & Accepted Risks
 
-| Risk                                                                                                                                                                                                             | Status                                    | Rationale                                                                                                                                                                                                                                                                                                               |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `igdb.ts` bypassed `safeFetch`, used raw `fetch()` to hardcoded hosts                                                                                                                                            | **Fixed in this change**                  | Migrated both the Twitch OAuth call and the IGDB API call to `safeFetch()` for consistency with every other integration (defense in depth, since hosts are currently hardcoded and not user-influenceable).                                                                                                             |
-| `/api/auth/setup` had no rate limiter                                                                                                                                                                            | **Fixed in this change**                  | Added `authRateLimiter`, matching `/api/auth/login`.                                                                                                                                                                                                                                                                    |
-| Indexer API keys, downloader passwords, NexusMods API key, and an auto-generated JWT secret are stored in plaintext in SQLite                                                                                    | **Accepted risk**                         | Questarr is a self-hosted, single-machine deployment model; database file access already implies host compromise. Revisit if a hosted/multi-tenant deployment model is ever pursued.                                                                                                                                    |
-| Socket.io (`server/socket.ts`) has no per-connection authentication; `notifyUser()` broadcasts via plain `io.emit()` to every connected client regardless of which user owns the event                           | **Recommended follow-up**                 | Connections are restricted to configured origins (CORS), so this is a same-install, cross-account metadata leak (e.g. one user seeing another's download progress), not an externally exposed one. Low severity given current single-tenant-ish usage; worth scoping if multi-user usage grows. File a follow-up issue. |
-| Path-traversal checks in `sanitizeDownloaderData`/`sanitizeIndexerData` use a `!value.includes("..")` blocklist rather than the resolve-and-prefix-check pattern `server/routes.ts`'s file-browser endpoint uses | **Recommended follow-up**                 | Downstream consumers don't currently perform direct filesystem access with these values, so risk is low; migrating to the stronger pattern is still worthwhile for consistency. File a follow-up issue.                                                                                                                 |
-| No CodeQL/SAST and no container image scanning (Trivy/Grype) in CI — only `secretlint` + Dependabot                                                                                                              | **Recommended follow-up**                 | Not bundled with this document because it's a CI infrastructure change deserving its own review (tool choice, false-positive tuning, gating vs. advisory). File a follow-up issue against `.github/workflows/ci.yml`.                                                                                                   |
-| Flat, single-tier trust model — an authenticated user has full access with no RBAC/admin split                                                                                                                   | **Accepted risk / documented assumption** | Deliberate simplicity tradeoff for a small, self-hosted, multi-user app.                                                                                                                                                                                                                                                |
+| Risk                                                                                                                                                                                                             | Status                                              | Rationale                                                                                                                                                                                                                                                                                                                                                                              |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `igdb.ts` bypassed `safeFetch`, used raw `fetch()` to hardcoded hosts                                                                                                                                            | **Fixed in this change**                            | Migrated both the Twitch OAuth call and the IGDB API call to `safeFetch()` for consistency with every other integration (defense in depth, since hosts are currently hardcoded and not user-influenceable).                                                                                                                                                                            |
+| `/api/auth/setup` had no rate limiter                                                                                                                                                                            | **Fixed in this change**                            | Added `authRateLimiter`, matching `/api/auth/login`.                                                                                                                                                                                                                                                                                                                                   |
+| Indexer API keys and downloader passwords were stored in plaintext in SQLite                                                                                                                                     | **Fixed** (landed on `main` while this PR was open) | Now AES-256-GCM encrypted at rest via `server/credential-crypto.ts`; legacy plaintext rows are read transparently and re-encrypted on next save. See [`docs/SECRETS.md`](./SECRETS.md) §4. The NexusMods API key and auto-generated JWT secret remain unencrypted `system_config` values — same rationale as below, revisit if a hosted/multi-tenant deployment model is ever pursued. |
+| Socket.io (`server/socket.ts`) has no per-connection authentication; `notifyUser()` broadcasts via plain `io.emit()` to every connected client regardless of which user owns the event                           | **Recommended follow-up**                           | Connections are restricted to configured origins (CORS), so this is a same-install, cross-account metadata leak (e.g. one user seeing another's download progress), not an externally exposed one. Low severity given current single-tenant-ish usage; worth scoping if multi-user usage grows. File a follow-up issue.                                                                |
+| Path-traversal checks in `sanitizeDownloaderData`/`sanitizeIndexerData` use a `!value.includes("..")` blocklist rather than the resolve-and-prefix-check pattern `server/routes.ts`'s file-browser endpoint uses | **Recommended follow-up**                           | Downstream consumers don't currently perform direct filesystem access with these values, so risk is low; migrating to the stronger pattern is still worthwhile for consistency. File a follow-up issue.                                                                                                                                                                                |
+| No container image scanning (Trivy/Grype) in CI — `docker-build` builds the image but doesn't scan it                                                                                                            | **Recommended follow-up**                           | CodeQL SAST is now enabled (GitHub default setup) and OpenSSF Scorecard runs via `.github/workflows/scorecard.yml`, closing the SAST half of this gap; image scanning is a separate CI infrastructure change deserving its own review (tool choice, false-positive tuning, gating vs. advisory). File a follow-up issue against `.github/workflows/ci.yml`.                            |
+| Flat, single-tier trust model — an authenticated user has full access with no RBAC/admin split                                                                                                                   | **Accepted risk / documented assumption**           | Deliberate simplicity tradeoff for a small, self-hosted, multi-user app.                                                                                                                                                                                                                                                                                                               |
 
 ---
 
@@ -219,7 +228,7 @@ Re-review triggers, rather than a calendar chore that tends to get skipped:
 
 - A new external integration is added.
 - A new unauthenticated route is introduced (i.e., anything registered before the
-  `routes.ts:810` gate).
+  `routes.ts:845` gate).
 - Authentication/session/authorization behavior changes.
 - A major version bump.
 

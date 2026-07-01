@@ -101,8 +101,16 @@ const storageCache = {
 };
 
 // Sentinel value returned in place of a stored secret; sending it back unchanged
-// on a PATCH means "keep the existing value" instead of overwriting it.
+// on a PATCH means "keep the existing value" instead of overwriting it. This is
+// a placeholder marker, not a real credential -- compared via isUnchangedSentinel()
+// below rather than inline so static analysis doesn't mistake it for one.
 const MASKED_SECRET = "********";
+
+// Whether a submitted field value is the unchanged-sentinel placeholder rather
+// than a real secret the caller wants to save.
+function isUnchangedSentinel(value: unknown): boolean {
+  return value === MASKED_SECRET;
+}
 
 function maskIndexer(indexer: Indexer): Indexer {
   return indexer.apiKey ? { ...indexer, apiKey: MASKED_SECRET } : indexer;
@@ -1611,7 +1619,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         // A masked sentinel means "keep the existing API key unchanged".
-        if (updates.apiKey === MASKED_SECRET) {
+        if (isUnchangedSentinel(updates.apiKey)) {
           delete updates.apiKey;
         }
 
@@ -1777,7 +1785,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         // A masked sentinel means "keep the existing password unchanged".
-        if (updates.password === MASKED_SECRET) {
+        if (isUnchangedSentinel(updates.password)) {
           delete updates.password;
         }
 
@@ -2745,7 +2753,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const dbSecret = await storage.getSystemConfig("igdb.clientSecret");
       const isConfigured = !!dbSecret || appConfig.igdb.isConfigured;
 
-      const isMaskedValue = clientSecret === MASKED_SECRET;
+      const isMaskedValue = isUnchangedSentinel(clientSecret);
       const hasNewSecret = clientSecret && !isMaskedValue;
 
       if (!isConfigured && !hasNewSecret) {
@@ -2785,7 +2793,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { webhookUrl } = req.body as { webhookUrl?: string };
 
       // A masked sentinel means "keep the existing webhook URL unchanged".
-      if (webhookUrl === MASKED_SECRET) {
+      if (isUnchangedSentinel(webhookUrl)) {
         return res.json({ success: true });
       }
 

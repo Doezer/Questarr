@@ -105,9 +105,10 @@ export async function decryptCredential<T extends string | null | undefined>(val
 }
 
 /**
- * Synchronous variants for use inside better-sqlite3's synchronous
- * db.transaction() callbacks. Callers must resolve the key beforehand via
- * getCredentialsEncryptionKey() since it may need an async DB read.
+ * Synchronous variant for use inside better-sqlite3's synchronous
+ * db.transaction() callbacks (see syncIndexers in storage.ts). The caller
+ * must resolve the key beforehand via getCredentialsEncryptionKey() since
+ * that may need an async DB read.
  */
 export function encryptCredentialSync<T extends string | null | undefined>(
   plaintext: T,
@@ -115,12 +116,4 @@ export function encryptCredentialSync<T extends string | null | undefined>(
 ): T {
   if (!plaintext) return plaintext;
   return encryptWithKey(plaintext, key) as T;
-}
-
-export function decryptCredentialSync<T extends string | null | undefined>(
-  value: T,
-  key: Buffer
-): T {
-  if (!value || !value.startsWith(ENCRYPTED_PREFIX)) return value;
-  return decryptWithKey(value, key) as T;
 }

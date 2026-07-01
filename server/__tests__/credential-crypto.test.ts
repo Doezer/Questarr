@@ -94,6 +94,23 @@ describe("credential-crypto", () => {
     expect(await decryptCredential(ciphertext)).toBe("stored-key-value");
   });
 
+  it("reads a pre-existing key from system_config on first use instead of generating one", async () => {
+    const preExistingKeyHex = "b".repeat(64);
+    await db
+      .insert(systemConfig)
+      .values({ key: "credentials_encryption_key", value: preExistingKeyHex });
+
+    const { encryptCredential, decryptCredential } = cryptoModule;
+    const ciphertext = await encryptCredential("value-under-preexisting-key");
+
+    const [row] = await db
+      .select()
+      .from(systemConfig)
+      .where(eq(systemConfig.key, "credentials_encryption_key"));
+    expect(row?.value).toBe(preExistingKeyHex);
+    expect(await decryptCredential(ciphertext)).toBe("value-under-preexisting-key");
+  });
+
   it("prefers the CREDENTIALS_ENCRYPTION_KEY env var over the database", async () => {
     process.env.CREDENTIALS_ENCRYPTION_KEY = "a".repeat(64);
     vi.resetModules();

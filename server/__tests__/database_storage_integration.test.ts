@@ -298,5 +298,54 @@ describe("DatabaseStorage Integration", () => {
       const fetched = await storage.getIndexer(rawRow.id);
       expect(fetched?.apiKey).toBe("synced-key");
     });
+
+    it("decrypts apiKey via getEnabledIndexers", async () => {
+      await storage.addIndexer({
+        name: "Enabled Indexer",
+        url: "http://localhost:9003",
+        apiKey: "enabled-key",
+        enabled: true,
+      });
+
+      const enabled = await storage.getEnabledIndexers();
+      expect(enabled.find((i) => i.url === "http://localhost:9003")?.apiKey).toBe("enabled-key");
+    });
+
+    it("decrypts username/password via getEnabledDownloaders", async () => {
+      await storage.addDownloader({
+        name: "Enabled Client",
+        type: "qbittorrent",
+        url: "http://localhost:8082",
+        username: "enabled-user",
+        password: "enabled-pass",
+        enabled: true,
+      });
+
+      const enabled = await storage.getEnabledDownloaders();
+      const found = enabled.find((d) => d.url === "http://localhost:8082");
+      expect(found?.username).toBe("enabled-user");
+      expect(found?.password).toBe("enabled-pass");
+    });
+
+    it("re-encrypts username/password on updateDownloader", async () => {
+      const added = await storage.addDownloader({
+        name: "Test Client",
+        type: "qbittorrent",
+        url: "http://localhost:8083",
+        username: "old-user",
+        password: "old-pass",
+      });
+
+      const updated = await storage.updateDownloader(added.id, {
+        username: "new-user",
+        password: "new-pass",
+      });
+      expect(updated?.username).toBe("new-user");
+      expect(updated?.password).toBe("new-pass");
+
+      const [rawRow] = await db.select().from(downloaders).where(eq(downloaders.id, added.id));
+      expect(rawRow.username).toMatch(/^enc:v1:/);
+      expect(rawRow.password).toMatch(/^enc:v1:/);
+    });
   });
 });

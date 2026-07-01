@@ -2760,12 +2760,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/settings/discord", async (req, res) => {
     try {
       const { webhookUrl } = req.body as { webhookUrl?: string };
-      if (
-        webhookUrl &&
-        !webhookUrl.startsWith("https://discord.com/api/webhooks/") &&
-        !webhookUrl.startsWith("https://discordapp.com/api/webhooks/")
-      ) {
-        return res.status(400).json({ error: "Invalid Discord webhook URL" });
+      if (webhookUrl) {
+        try {
+          const url = new URL(webhookUrl);
+          if (
+            (url.hostname !== "discord.com" && url.hostname !== "discordapp.com") ||
+            !url.pathname.startsWith("/api/webhooks/")
+          ) {
+            return res.status(400).json({ error: "Invalid Discord webhook URL" });
+          }
+        } catch {
+          return res.status(400).json({ error: "Invalid Discord webhook URL" });
+        }
       }
       await storage.setSystemConfig("discord.webhookUrl", webhookUrl?.trim() ?? "");
       res.json({ success: true });
@@ -3228,10 +3234,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      if (
-        !webhookUrl.startsWith("https://discord.com/api/webhooks/") &&
-        !webhookUrl.startsWith("https://discordapp.com/api/webhooks/")
-      ) {
+      try {
+        const url = new URL(webhookUrl);
+        if (
+          (url.hostname !== "discord.com" && url.hostname !== "discordapp.com") ||
+          !url.pathname.startsWith("/api/webhooks/")
+        ) {
+          throw new Error("Invalid webhook domain or path");
+        }
+      } catch {
         routesLogger.error(
           { webhookUrl },
           "Attempted to use an invalid Discord webhook URL for sharing."

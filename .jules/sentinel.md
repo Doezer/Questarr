@@ -21,3 +21,8 @@
 **Vulnerability:** The `/api/stats/discord-share` endpoint was vulnerable to Server-Side Request Forgery (SSRF) because it validated webhook URLs using `startsWith("https://discord.com/api/webhooks/")` and then fetched them using the standard `fetch` API.
 **Learning:** Checking for string prefixes on URLs is insufficient for security because the userinfo component (e.g. `https://discord.com/api/webhooks/@127.0.0.1`) can be used to bypass the check. The `fetch` API and URL parsers will interpret `127.0.0.1` as the hostname and `discord.com` as the credentials.
 **Prevention:** Never rely on string prefix matching for URL validation. Always use the project's `safeFetch` utility which properly resolves and validates the target IP address to prevent SSRF and DNS rebinding attacks.
+
+## $(date +%Y-%m-%d) - Prevent SSRF by validating parsed URL components instead of prefix matching
+**Vulnerability:** The application validated Discord webhook URLs (and potentially other external URLs) by matching the string prefix (`url.startsWith("https://discord.com")`). This is vulnerable to SSRF bypasses via the userinfo component (e.g., `https://discord.com@127.0.0.1/api/webhooks/`).
+**Learning:** Checking string prefixes for URL validation is fundamentally insecure because parts of the prefix might be interpreted as the username/password in a URL with a different domain. Attackers can leverage this to bypass domain allowlists.
+**Prevention:** Always use the `URL` object (e.g., `new URL()`) to parse URLs and explicitly validate the `hostname` and `pathname` properties instead of checking raw string prefixes.

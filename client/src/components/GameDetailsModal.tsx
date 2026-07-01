@@ -884,7 +884,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                                 variant="ghost"
                                 size="icon"
                                 className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                                aria-label="Remove download record"
+                                aria-label={`Remove download record ${dl.downloadTitle}`}
                                 disabled={
                                   removeDownloadMutation.isPending &&
                                   removeDownloadMutation.variables === dl.id

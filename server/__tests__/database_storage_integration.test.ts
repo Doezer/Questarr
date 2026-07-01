@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
-import { users, downloaders, type InsertGame } from "../../shared/schema";
+import { eq } from "drizzle-orm";
+import { users, downloaders, indexers, type InsertGame } from "../../shared/schema";
 import { randomUUID } from "crypto";
 import type { DatabaseStorage } from "../storage";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
@@ -196,5 +197,106 @@ describe("DatabaseStorage Integration", () => {
     const keys = await storage.getTrackedDownloadKeys();
     expect(keys.has(`${downloaderId}:hash-x`)).toBe(true);
     expect(keys.size).toBe(1);
+  });
+
+  describe("credential encryption at rest", () => {
+    it("encrypts an indexer's apiKey in the DB but returns it decrypted", async () => {
+      const added = await storage.addIndexer({
+        name: "Test Indexer",
+        url: "http://localhost:9000",
+        apiKey: "plain-api-key",
+      });
+      expect(added.apiKey).toBe("plain-api-key");
+
+      const [rawRow] = await db.select().from(indexers).where(eq(indexers.id, added.id));
+      expect(rawRow.apiKey).not.toBe("plain-api-key");
+      expect(rawRow.apiKey).toMatch(/^enc:v1:/);
+
+      const fetched = await storage.getIndexer(added.id);
+      expect(fetched?.apiKey).toBe("plain-api-key");
+
+      const allFetched = await storage.getAllIndexers();
+      expect(allFetched.find((i) => i.id === added.id)?.apiKey).toBe("plain-api-key");
+    });
+
+    it("re-encrypts the apiKey on updateIndexer", async () => {
+      const added = await storage.addIndexer({
+        name: "Test Indexer",
+        url: "http://localhost:9000",
+        apiKey: "old-key",
+      });
+
+      const updated = await storage.updateIndexer(added.id, { apiKey: "new-key" });
+      expect(updated?.apiKey).toBe("new-key");
+
+      const [rawRow] = await db.select().from(indexers).where(eq(indexers.id, added.id));
+      expect(rawRow.apiKey).toMatch(/^enc:v1:/);
+      expect(rawRow.apiKey).not.toBe("new-key");
+    });
+
+    it("reads a legacy plaintext apiKey row unchanged (no migration required)", async () => {
+      const id = randomUUID();
+      await db.insert(indexers).values({
+        id,
+        name: "Legacy Indexer",
+        url: "http://localhost:9001",
+        apiKey: "legacy-plaintext-key",
+      });
+
+      const fetched = await storage.getIndexer(id);
+      expect(fetched?.apiKey).toBe("legacy-plaintext-key");
+    });
+
+    it("encrypts a downloader's username/password in the DB but returns them decrypted", async () => {
+      const added = await storage.addDownloader({
+        name: "Test Client",
+        type: "qbittorrent",
+        url: "http://localhost:8080",
+        username: "admin",
+        password: "hunter2",
+      });
+      expect(added.username).toBe("admin");
+      expect(added.password).toBe("hunter2");
+
+      const [rawRow] = await db.select().from(downloaders).where(eq(downloaders.id, added.id));
+      expect(rawRow.username).toMatch(/^enc:v1:/);
+      expect(rawRow.password).toMatch(/^enc:v1:/);
+
+      const fetched = await storage.getDownloader(added.id);
+      expect(fetched?.username).toBe("admin");
+      expect(fetched?.password).toBe("hunter2");
+    });
+
+    it("reads a legacy plaintext downloader row unchanged (no migration required)", async () => {
+      const id = randomUUID();
+      await db.insert(downloaders).values({
+        id,
+        name: "Legacy Client",
+        type: "qbittorrent",
+        url: "http://localhost:8081",
+        username: "legacy-user",
+        password: "legacy-pass",
+      });
+
+      const fetched = await storage.getDownloader(id);
+      expect(fetched?.username).toBe("legacy-user");
+      expect(fetched?.password).toBe("legacy-pass");
+    });
+
+    it("encrypts apiKey during syncIndexers", async () => {
+      const result = await storage.syncIndexers([
+        { name: "Synced Indexer", url: "http://localhost:9002", apiKey: "synced-key" },
+      ]);
+      expect(result.added).toBe(1);
+
+      const [rawRow] = await db
+        .select()
+        .from(indexers)
+        .where(eq(indexers.url, "http://localhost:9002"));
+      expect(rawRow.apiKey).toMatch(/^enc:v1:/);
+
+      const fetched = await storage.getIndexer(rawRow.id);
+      expect(fetched?.apiKey).toBe("synced-key");
+    });
   });
 });

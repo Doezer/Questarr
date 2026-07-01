@@ -1,6 +1,23 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import express, { type Request, type Response, type NextFunction } from "express";
+import express from "express";
 import request from "supertest";
+import {
+  mockConfig,
+  createStorageMock,
+  createIgdbMock,
+  createAuthMock,
+  createDbMock,
+  createLoggerMocks,
+  createRssMock,
+  createTorznabMock,
+  createProwlarrMock,
+  createXrelMock,
+  createDownloaderManagerMock,
+  createSteamRoutesMock,
+  createSearchMock,
+  createConfigLoaderMock,
+  createSocketMock,
+} from "./fixtures/common-route-mocks.js";
 import { registerRoutes, parseCategories } from "../routes.js";
 import { storage } from "../storage.js";
 import { searchAllIndexers } from "../search.js";
@@ -13,232 +30,25 @@ import { comparePassword } from "../auth.js";
 import { db } from "../db.js";
 import { prowlarrClient } from "../prowlarr.js";
 
-// Use vi.hoisted to create the mock object
-const { mockConfig } = vi.hoisted(() => {
-  return {
-    mockConfig: {
-      server: {
-        isProduction: false,
-        allowedOrigins: [],
-      },
-      igdb: {
-        isConfigured: true,
-        clientId: "test-id",
-        clientSecret: "test-secret",
-      },
-      nexusmods: {
-        apiKey: undefined,
-      },
-      auth: {
-        jwtSecret: "test-secret",
-      },
-      database: {
-        url: "test.db",
-      },
-      ssl: {
-        enabled: false,
-        port: 5000,
-        certPath: "",
-        keyPath: "",
-        redirectHttp: false,
-      },
-    },
-  };
-});
-
-// Mock dependencies
-vi.mock("../storage.js", () => ({
-  storage: {
-    getUserGames: vi.fn().mockResolvedValue([]),
-    getUserGamesByStatus: vi.fn().mockResolvedValue([]),
-    searchUserGames: vi.fn().mockResolvedValue([]),
-    addGame: vi.fn(),
-    removeGame: vi.fn(),
-    getUser: vi.fn(),
-    getUserByUsername: vi.fn(),
-    countUsers: vi.fn().mockResolvedValue(1),
-    registerSetupUser: vi.fn(),
-    setSystemConfig: vi.fn(),
-    getSystemConfig: vi.fn(),
-    assignOrphanGamesToUser: vi.fn(),
-    getUserSettings: vi.fn().mockResolvedValue({}),
-    createUserSettings: vi.fn().mockResolvedValue({}),
-    updateUserSettings: vi.fn().mockResolvedValue({}),
-    updateGameStatus: vi.fn(),
-    updateGameHidden: vi.fn(),
-    updateGameUserRating: vi.fn(),
-    updateGameSearchResultsAvailable: vi.fn().mockResolvedValue(undefined),
-    updateUserPassword: vi.fn(),
-    updateGamesBatch: vi.fn(),
-    getAllGames: vi.fn().mockResolvedValue([]),
-    getAllIndexers: vi.fn().mockResolvedValue([]),
-    getEnabledIndexers: vi.fn().mockResolvedValue([]),
-    getIndexer: vi.fn(),
-    addIndexer: vi.fn(),
-    updateIndexer: vi.fn(),
-    removeIndexer: vi.fn(),
-    getAllDownloaders: vi.fn().mockResolvedValue([]),
-    getEnabledDownloaders: vi.fn().mockResolvedValue([]),
-    getDownloader: vi.fn(),
-    addDownloader: vi.fn(),
-    updateDownloader: vi.fn(),
-    removeDownloader: vi.fn(),
-    getNotifications: vi.fn().mockResolvedValue([]),
-    getUnreadNotificationsCount: vi.fn().mockResolvedValue(0),
-    addNotification: vi.fn(),
-    markNotificationAsRead: vi.fn(),
-    markAllNotificationsAsRead: vi.fn(),
-    deleteReadNotifications: vi.fn().mockResolvedValue(undefined),
-    syncIndexers: vi.fn().mockResolvedValue({ added: 0, updated: 0 }),
-    addGameDownload: vi.fn(),
-    getDownloadsByGameId: vi.fn().mockResolvedValue([]),
-    getDownloadSummaryByGame: vi.fn().mockResolvedValue({}),
-    getTrackedDownloadKeys: vi.fn().mockResolvedValue(new Set()),
-    getAllRssFeeds: vi.fn().mockResolvedValue([]),
-    addRssFeed: vi.fn(),
-    updateRssFeed: vi.fn(),
-    removeRssFeed: vi.fn(),
-    getAllRssFeedItems: vi.fn().mockResolvedValue([]),
-    updateUserSteamId: vi.fn(),
-    getGame: vi.fn(),
-    addReleaseBlacklist: vi.fn(),
-    getReleaseBlacklist: vi.fn().mockResolvedValue([]),
-    getAllReleaseBlacklists: vi.fn().mockResolvedValue([]),
-    removeReleaseBlacklist: vi.fn(),
-    getReleaseBlacklistSet: vi.fn().mockResolvedValue(new Set()),
-  },
-}));
-
-vi.mock("../igdb.js", () => ({
-  igdbClient: {
-    searchGames: vi.fn().mockResolvedValue([]),
-    formatGameData: vi.fn((game) => game),
-    getPopularGames: vi.fn().mockResolvedValue([]),
-    getRecentReleases: vi.fn().mockResolvedValue([]),
-    getUpcomingReleases: vi.fn().mockResolvedValue([]),
-    getRecommendations: vi.fn().mockResolvedValue([]),
-    getGamesByGenre: vi.fn().mockResolvedValue([]),
-    getGamesByPlatform: vi.fn().mockResolvedValue([]),
-    getGenres: vi.fn().mockResolvedValue([]),
-    getPlatforms: vi.fn().mockResolvedValue([]),
-    getGameById: vi.fn(),
-    getGamesByIds: vi.fn().mockResolvedValue([]),
-    batchSearchGames: vi.fn().mockResolvedValue(new Map()),
-  },
-}));
-
-vi.mock("../auth.js", async () => {
-  const actual = await vi.importActual("../auth.js");
-  return {
-    ...actual,
-    authenticateToken: (req: Request, res: Response, next: NextFunction) => {
-      (req as Request).user = { id: "user-1", username: "testuser" } as unknown as User;
-      next();
-    },
-    generateToken: vi.fn().mockResolvedValue("mock-token"),
-    comparePassword: vi.fn().mockResolvedValue(true),
-    hashPassword: vi.fn().mockResolvedValue("hashed-password"),
-  };
-});
-
-vi.mock("../db.js", () => ({
-  db: {
-    select: vi.fn(),
-    from: vi.fn(),
-    where: vi.fn(),
-    get: vi.fn(),
-  },
-}));
-
-vi.mock("../logger.js", () => ({
-  routesLogger: {
-    info: vi.fn(),
-    debug: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    child: vi.fn().mockReturnThis(),
-  },
-  logger: {
-    info: vi.fn(),
-    error: vi.fn(),
-    child: vi.fn().mockReturnThis(),
-  },
-  expressLogger: {
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    child: vi.fn().mockReturnThis(),
-  },
-  downloadersLogger: {
-    info: vi.fn(),
-    error: vi.fn(),
-    child: vi.fn().mockReturnThis(),
-  },
-}));
-
-vi.mock("../rss.js", () => ({
-  rssService: {
-    start: vi.fn(),
-    stop: vi.fn(),
-    refreshFeed: vi.fn().mockResolvedValue(undefined),
-    refreshFeeds: vi.fn().mockResolvedValue(undefined),
-  },
-}));
-
-vi.mock("../torznab.js", () => ({
-  torznabClient: {
-    testConnection: vi.fn().mockResolvedValue({ success: true }),
-    searchGames: vi.fn().mockResolvedValue({ items: [], total: 0 }),
-    getCategories: vi.fn().mockResolvedValue([]),
-  },
-}));
-
-vi.mock("../prowlarr.js", () => ({
-  prowlarrClient: {
-    getIndexers: vi.fn().mockResolvedValue([]),
-  },
-}));
-
-vi.mock("../xrel.js", () => ({
-  xrelClient: {
-    getLatestGames: vi.fn().mockResolvedValue({ list: [], total: 0 }),
-    searchReleases: vi.fn().mockResolvedValue([]),
-  },
-  DEFAULT_XREL_BASE: "https://api.xrel.to",
-  ALLOWED_XREL_DOMAINS: ["api.xrel.to", "xrel-api.nfos.to"],
-}));
-
-vi.mock("../downloaders.js", () => ({
-  DownloaderManager: {
-    initialize: vi.fn(),
-    testDownloader: vi.fn().mockResolvedValue({ success: true }),
-    getAllDownloads: vi.fn().mockResolvedValue([]),
-    getDownloadStatus: vi.fn(),
-    getDownloadDetails: vi.fn(),
-    addDownload: vi.fn().mockResolvedValue({ success: true }),
-    addDownloadWithFallback: vi
-      .fn()
-      .mockResolvedValue({ success: true, id: "dl-1", downloaderId: "d-1" }),
-    pauseDownload: vi.fn().mockResolvedValue({ success: true }),
-    resumeDownload: vi.fn().mockResolvedValue({ success: true }),
-    removeDownload: vi.fn().mockResolvedValue({ success: true }),
-    getFreeSpace: vi.fn().mockResolvedValue(1000000000),
-  },
-}));
-
-vi.mock("../steam-routes.js", () => ({
-  steamRoutes: (_req: unknown, _res: unknown, next: () => void) => next(),
-}));
-
-vi.mock("../search.js", () => ({
-  searchAllIndexers: vi.fn().mockResolvedValue({ items: [], total: 0, errors: [] }),
-  filterBlacklistedReleases: (items: { title: string }[], blacklisted: Set<string>) =>
-    blacklisted.size > 0 ? items.filter((item) => !blacklisted.has(item.title)) : items,
-}));
+// Mock dependencies (factory bodies live in ./fixtures/common-route-mocks.ts so they can be
+// shared with other test files that also boot the full app via registerRoutes())
+vi.mock("../storage.js", () => ({ storage: createStorageMock() }));
+vi.mock("../igdb.js", () => ({ igdbClient: createIgdbMock() }));
+vi.mock("../auth.js", () => createAuthMock());
+vi.mock("../db.js", () => ({ db: createDbMock() }));
+vi.mock("../logger.js", () => createLoggerMocks());
+vi.mock("../rss.js", () => ({ rssService: createRssMock() }));
+vi.mock("../torznab.js", () => ({ torznabClient: createTorznabMock() }));
+vi.mock("../prowlarr.js", () => ({ prowlarrClient: createProwlarrMock() }));
+vi.mock("../xrel.js", () => createXrelMock());
+vi.mock("../downloaders.js", () => ({ DownloaderManager: createDownloaderManagerMock() }));
+vi.mock("../steam-routes.js", () => ({ steamRoutes: createSteamRoutesMock() }));
+vi.mock("../search.js", () => createSearchMock());
 
 // Neutralize the IP-keyed rate limiters so cumulative requests across this large
 // test file don't trip a shared 30-req/min counter; keep all other exports
-// (validators, sanitizers) real.
+// (validators, sanitizers) real. Kept local to this file (not in the shared fixtures)
+// since server/__tests__/auth-setup-ratelimit.test.ts deliberately needs the real limiter.
 vi.mock("../middleware.js", async () => {
   const actual = await vi.importActual<typeof import("../middleware.js")>("../middleware.js");
   return {
@@ -248,27 +58,9 @@ vi.mock("../middleware.js", async () => {
   };
 });
 
-vi.mock("../config.js", () => ({
-  config: mockConfig,
-}));
-
-vi.mock("../config-loader.js", () => ({
-  configLoader: {
-    getSslConfig: vi.fn().mockReturnValue({
-      enabled: false,
-      port: 5000,
-      certPath: "",
-      keyPath: "",
-      redirectHttp: false,
-    }),
-    saveConfig: vi.fn(),
-    getConfigDir: vi.fn().mockReturnValue("/tmp/config"),
-  },
-}));
-
-vi.mock("../socket.js", () => ({
-  notifyUser: vi.fn(),
-}));
+vi.mock("../config.js", () => ({ config: mockConfig }));
+vi.mock("../config-loader.js", () => ({ configLoader: createConfigLoaderMock() }));
+vi.mock("../socket.js", () => createSocketMock());
 
 describe("API Routes - Extended Coverage", () => {
   let app: express.Express;
@@ -1992,6 +1784,24 @@ describe("API Routes - Extended Coverage", () => {
         const response = await request(app)
           .post("/api/settings/discord")
           .send({ webhookUrl: "https://evil.com/steal" });
+        expect(response.status).toBe(400);
+        expect(response.body.error).toMatch(/invalid/i);
+        expect(storage.setSystemConfig).not.toHaveBeenCalled();
+      });
+
+      it("should reject SSRF payload bypassing string matching", async () => {
+        const response = await request(app)
+          .post("/api/settings/discord")
+          .send({ webhookUrl: "https://discord.com@127.0.0.1/api/webhooks/123/abc" });
+        expect(response.status).toBe(400);
+        expect(response.body.error).toMatch(/invalid/i);
+        expect(storage.setSystemConfig).not.toHaveBeenCalled();
+      });
+
+      it("should reject a non-HTTPS webhook URL", async () => {
+        const response = await request(app)
+          .post("/api/settings/discord")
+          .send({ webhookUrl: "http://discord.com/api/webhooks/123/abc" });
         expect(response.status).toBe(400);
         expect(response.body.error).toMatch(/invalid/i);
         expect(storage.setSystemConfig).not.toHaveBeenCalled();

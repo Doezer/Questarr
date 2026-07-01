@@ -73,42 +73,46 @@ export default function WishlistPage() {
     queryKey: ["/api/games", "?status=wanted"],
   });
 
-  const wishlistGames = useMemo(() => {
-    let result = games;
-    if (showSearchResultsOnly) result = result.filter((g) => g.searchResultsAvailable);
-    return result;
-  }, [games, showSearchResultsOnly]);
+  const { releasedGames, upcomingGames, tbaGames, filteredCount } = useMemo(() => {
+    // ⚡ Bolt: Use a string comparison for dates instead of new Date() allocations
+    // Since releaseDate is an ISO string like "2024-05-23T00:00:00Z"
+    const nowStr = new Date().toISOString();
 
-  const filteredGames = useMemo(() => {
-    let result = showDownloadsOnly
-      ? wishlistGames.filter((g) => downloadSummaries[g.id])
-      : wishlistGames;
-    if (searchQuery)
-      result = result.filter((g) => g.title.toLowerCase().includes(searchQuery.toLowerCase()));
-    return result;
-  }, [wishlistGames, showDownloadsOnly, downloadSummaries, searchQuery]);
-
-  const { releasedGames, upcomingGames, tbaGames } = useMemo(() => {
-    const now = new Date();
     const released: Game[] = [];
     const upcoming: Game[] = [];
     const tba: Game[] = [];
+    let count = 0;
 
-    filteredGames.forEach((game) => {
+    const lowercaseQuery = searchQuery?.toLowerCase() || "";
+
+    // ⚡ Bolt: Consolidate multiple O(N) filters into a single manual traversal
+    for (let i = 0; i < games.length; i++) {
+      const game = games[i];
+
+      // Apply filters
+      if (showSearchResultsOnly && !game.searchResultsAvailable) continue;
+      if (showDownloadsOnly && !downloadSummaries?.[game.id]) continue;
+      if (searchQuery && !game.title.toLowerCase().includes(lowercaseQuery)) continue;
+
+      count++;
+
+      // Bucketize
       if (!game.releaseDate) {
         tba.push(game);
+      } else if (game.releaseDate <= nowStr) {
+        released.push(game);
       } else {
-        const releaseDate = new Date(game.releaseDate);
-        if (releaseDate <= now) {
-          released.push(game);
-        } else {
-          upcoming.push(game);
-        }
+        upcoming.push(game);
       }
-    });
+    }
 
-    return { releasedGames: released, upcomingGames: upcoming, tbaGames: tba };
-  }, [filteredGames]);
+    return {
+      releasedGames: released,
+      upcomingGames: upcoming,
+      tbaGames: tba,
+      filteredCount: count,
+    };
+  }, [games, showSearchResultsOnly, showDownloadsOnly, downloadSummaries, searchQuery]);
 
   // ⚡ Bolt: Memoize the sorted arrays to prevent re-sorting on every render
   const sortedUpcomingGames = useMemo(() => {
@@ -201,7 +205,7 @@ export default function WishlistPage() {
             actionLabel="Find Games"
             actionLink="/discover"
           />
-        ) : !isLoading && filteredGames.length === 0 ? (
+        ) : !isLoading && filteredCount === 0 ? (
           <EmptyState
             icon={Star}
             title={

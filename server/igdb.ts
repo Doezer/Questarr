@@ -5,6 +5,7 @@ import { storage } from "./storage.js";
 import { db } from "./db.js";
 import { userSettings } from "../shared/schema.js";
 import { logger } from "./logger.js";
+import { safeFetch } from "./ssrf.js";
 
 // Configuration constants for search limits
 const MAX_SEARCH_ATTEMPTS = 5;
@@ -195,7 +196,7 @@ class IGDBClient {
       throw new Error("IGDB credentials not configured");
     }
 
-    const response = await fetch(
+    const response = await safeFetch(
       `https://id.twitch.tv/oauth2/token?client_id=${clientId}&client_secret=${clientSecret}&grant_type=client_credentials`,
       {
         method: "POST",
@@ -226,7 +227,7 @@ class IGDBClient {
 
     let attempt = 0;
     while (true) {
-      const response = await fetch(`https://api.igdb.com/v4/${endpoint}`, {
+      const response = await safeFetch(`https://api.igdb.com/v4/${endpoint}`, {
         method: "POST",
         headers: {
           Accept: "application/json",

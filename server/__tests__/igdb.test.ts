@@ -29,16 +29,22 @@ vi.mock("../storage.js", () => ({
   },
 }));
 
+// igdb.ts fetches through the SSRF-safe wrapper rather than global fetch; mock it here
+// the same way steam.ts/hltb.ts/nexusmods.ts tests do.
+vi.mock("../ssrf.js", () => ({
+  safeFetch: vi.fn(),
+}));
+
 // Mock the IGDBClient by testing the fallback behavior
 describe("IGDBClient - Fallback Mechanism", { timeout: 20000 }, () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     // Reset mocks and modules before each test to ensure fresh IGDBClient instance
     vi.clearAllMocks();
     vi.resetModules();
-    fetchMock = vi.fn();
-    global.fetch = fetchMock;
+    const { safeFetch } = await import("../ssrf.js");
+    fetchMock = vi.mocked(safeFetch);
   });
 
   // Helper function to count IGDB API search calls (excluding auth calls)
@@ -293,11 +299,11 @@ describe("IGDBClient - Fallback Mechanism", { timeout: 20000 }, () => {
 describe("IGDBClient - Batch Operations", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     vi.resetModules();
-    fetchMock = vi.fn();
-    global.fetch = fetchMock;
+    const { safeFetch } = await import("../ssrf.js");
+    fetchMock = vi.mocked(safeFetch);
   });
 
   it("should batch steam app ID lookups correctly", async () => {
@@ -354,11 +360,11 @@ describe("IGDBClient - Batch Operations", () => {
 describe("IGDBClient - formatGameData metadata fields", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     vi.resetModules();
-    fetchMock = vi.fn();
-    global.fetch = fetchMock;
+    const { safeFetch } = await import("../ssrf.js");
+    fetchMock = vi.mocked(safeFetch);
   });
 
   function mockAuthAndGame(igdbGame: Record<string, unknown>) {

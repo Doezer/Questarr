@@ -27,21 +27,31 @@ export default function LibraryPage() {
     queryKey: ["/api/games", "?status=owned,completed,downloading"],
   });
 
-  const libraryGames = useMemo(() => {
-    let result = games;
-    if (showSearchResultsOnly) result = result.filter((g) => g.searchResultsAvailable);
-    return result;
-  }, [games, showSearchResultsOnly]);
-
   const displayedGames = useMemo(() => {
-    let result = libraryGames;
-    if (showDownloadsOnly) result = result.filter((g) => downloadSummaries[g.id]);
-    if (showUpdateAvailableOnly)
-      result = result.filter((g) => downloadSummaries[g.id]?.hasUpdateDownload);
-    if (searchQuery)
-      result = result.filter((g) => g.title.toLowerCase().includes(searchQuery.toLowerCase()));
+    const result: Game[] = [];
+    const lowercaseQuery = searchQuery?.toLowerCase() || "";
+
+    // ⚡ Bolt: Consolidate multiple O(N) filters into a single manual traversal
+    for (let i = 0; i < games.length; i++) {
+      const game = games[i];
+
+      if (showSearchResultsOnly && !game.searchResultsAvailable) continue;
+      if (showDownloadsOnly && !downloadSummaries?.[game.id]) continue;
+      if (showUpdateAvailableOnly && !downloadSummaries?.[game.id]?.hasUpdateDownload) continue;
+      if (searchQuery && !game.title.toLowerCase().includes(lowercaseQuery)) continue;
+
+      result.push(game);
+    }
+
     return result;
-  }, [libraryGames, showDownloadsOnly, showUpdateAvailableOnly, downloadSummaries, searchQuery]);
+  }, [
+    games,
+    showSearchResultsOnly,
+    showDownloadsOnly,
+    showUpdateAvailableOnly,
+    downloadSummaries,
+    searchQuery,
+  ]);
 
   const statusMutation = useMutation({
     mutationFn: async ({ gameId, status }: { gameId: string; status: GameStatus }) => {

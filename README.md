@@ -21,6 +21,7 @@
     <a href="https://codecov.io/gh/Doezer/Questarr">
       <img src="https://codecov.io/gh/Doezer/Questarr/branch/main/graph/badge.svg" alt="Codecov">
     </a>
+    <a href="https://www.bestpractices.dev/projects/13450"><img src="https://www.bestpractices.dev/projects/13450/baseline"></a>
   </p>
 
   <p>
@@ -211,6 +212,10 @@ If you are upgrading from an older version that used PostgreSQL, you need to mig
 See [docs/MIGRATION.md](docs/MIGRATION.md) for more details.
 
 Every published image ships with a Software Bill of Materials — see [docs/SBOM.md](docs/SBOM.md) for how to get it.
+
+See [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) for the attack surface analysis and security architecture.
+
+See [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) for how dependencies are selected, obtained, and tracked.
 
 ## Configuration
 

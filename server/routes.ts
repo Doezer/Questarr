@@ -113,6 +113,23 @@ function isUnchangedSentinel(value: unknown): boolean {
   return value === REDACTED_PLACEHOLDER;
 }
 
+// Validates that a Discord webhook URL uses HTTPS and points at a genuine
+// Discord webhook endpoint. Checking hostname/pathname/protocol on the parsed
+// URL (rather than a string prefix) prevents bypasses via the userinfo
+// component (e.g. "https://discord.com@evil.com/...").
+function isValidDiscordWebhook(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      (url.hostname === "discord.com" || url.hostname === "discordapp.com") &&
+      url.pathname.startsWith("/api/webhooks/")
+    );
+  } catch {
+    return false;
+  }
+}
+
 function maskIndexer(indexer: Indexer): Indexer {
   return indexer.apiKey ? { ...indexer, apiKey: REDACTED_PLACEHOLDER } : indexer;
 }
@@ -139,6 +156,59 @@ export function parseCategories(input: unknown): string[] | undefined {
   }
 
   return undefined;
+}
+
+// Helper to validate setup credentials, keeping the /api/auth/setup handler's own
+// cognitive complexity low
+export function validateSetupCredentials(
+  username: unknown,
+  password: unknown
+): { error: string } | { username: string; password: string } {
+  if (!username || !password) {
+    return { error: "Username and password required" };
+  }
+
+  if (typeof username !== "string" || typeof password !== "string") {
+    return { error: "Username and password must be strings" };
+  }
+
+  const trimmedUsername = username.trim();
+  const trimmedPassword = password.trim();
+
+  if (trimmedUsername.length < 3) {
+    return { error: "Username must be at least 3 characters" };
+  }
+
+  if (trimmedPassword.length < 6) {
+    return { error: "Password must be at least 6 characters" };
+  }
+
+  if (trimmedUsername.length > 50) {
+    return { error: "Username must be at most 50 characters" };
+  }
+
+  return { username: trimmedUsername, password: trimmedPassword };
+}
+
+// Helper to save IGDB credentials provided during setup, if they're valid. Kept separate
+// from the /api/auth/setup handler for the same reason as validateSetupCredentials above:
+// keeping the handler's own cognitive complexity low.
+async function saveIgdbCredentialsIfProvided(
+  igdbClientId: unknown,
+  igdbClientSecret: unknown
+): Promise<void> {
+  if (
+    typeof igdbClientId !== "string" ||
+    typeof igdbClientSecret !== "string" ||
+    igdbClientId.trim().length === 0 ||
+    igdbClientSecret.trim().length === 0
+  ) {
+    return;
+  }
+
+  await storage.setSystemConfig("igdb.clientId", igdbClientId.trim());
+  await storage.setSystemConfig("igdb.clientSecret", igdbClientSecret.trim());
+  routesLogger.info("IGDB credentials saved during setup");
 }
 
 // Helper function for aggregated indexer search
@@ -279,7 +349,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/auth/setup", async (req, res) => {
+  app.post("/api/auth/setup", authRateLimiter, async (req, res) => {
     try {
       // Atomic setup check and creation
       const userCount = await storage.countUsers();
@@ -289,29 +359,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const { username, password, igdbClientId, igdbClientSecret } = req.body;
 
-      // Validate input
-      if (!username || !password) {
-        return res.status(400).json({ error: "Username and password required" });
+      const validated = validateSetupCredentials(username, password);
+      if ("error" in validated) {
+        return res.status(400).json({ error: validated.error });
       }
-
-      if (typeof username !== "string" || typeof password !== "string") {
-        return res.status(400).json({ error: "Username and password must be strings" });
-      }
-
-      const trimmedUsername = username.trim();
-      const trimmedPassword = password.trim();
-
-      if (trimmedUsername.length < 3) {
-        return res.status(400).json({ error: "Username must be at least 3 characters" });
-      }
-
-      if (trimmedPassword.length < 6) {
-        return res.status(400).json({ error: "Password must be at least 6 characters" });
-      }
-
-      if (trimmedUsername.length > 50) {
-        return res.status(400).json({ error: "Username must be at most 50 characters" });
-      }
+      const { username: trimmedUsername, password: trimmedPassword } = validated;
 
       // Create first user
       // Create first user atomically
@@ -330,18 +382,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const token = await generateToken(user);
 
       // Save IGDB creds if provided
-      if (igdbClientId && igdbClientSecret) {
-        if (
-          typeof igdbClientId === "string" &&
-          typeof igdbClientSecret === "string" &&
-          igdbClientId.trim().length > 0 &&
-          igdbClientSecret.trim().length > 0
-        ) {
-          await storage.setSystemConfig("igdb.clientId", igdbClientId.trim());
-          await storage.setSystemConfig("igdb.clientSecret", igdbClientSecret.trim());
-          routesLogger.info("IGDB credentials saved during setup");
-        }
-      }
+      await saveIgdbCredentialsIfProvided(igdbClientId, igdbClientSecret);
 
       routesLogger.info({ username: trimmedUsername }, "Initial setup completed");
       res.json({ token, user: { id: user.id, username: user.username } });
@@ -2798,11 +2839,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json({ success: true });
       }
 
-      if (
-        webhookUrl &&
-        !webhookUrl.startsWith("https://discord.com/api/webhooks/") &&
-        !webhookUrl.startsWith("https://discordapp.com/api/webhooks/")
-      ) {
+      if (webhookUrl && !isValidDiscordWebhook(webhookUrl)) {
         return res.status(400).json({ error: "Invalid Discord webhook URL" });
       }
       await storage.setSystemConfig("discord.webhookUrl", webhookUrl?.trim() ?? "");
@@ -3266,10 +3303,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      if (
-        !webhookUrl.startsWith("https://discord.com/api/webhooks/") &&
-        !webhookUrl.startsWith("https://discordapp.com/api/webhooks/")
-      ) {
+      if (!isValidDiscordWebhook(webhookUrl)) {
         routesLogger.error(
           { webhookUrl },
           "Attempted to use an invalid Discord webhook URL for sharing."

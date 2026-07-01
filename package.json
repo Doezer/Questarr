@@ -189,10 +189,12 @@
     "node": ">=20"
   },
   "overrides": {
-    "socket.io-parser": "4.2.6"
+    "socket.io-parser": "4.2.6",
+    "@esbuild-kit/core-utils": {
+      "esbuild": "^0.25.0"
+    }
   },
   "allowScripts": {
-    "esbuild@0.18.20": true,
     "esbuild@0.25.12": true,
     "esbuild@0.28.1": true,
     "better-sqlite3@12.11.1": true,

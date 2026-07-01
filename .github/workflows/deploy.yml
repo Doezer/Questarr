@@ -73,6 +73,10 @@ jobs:
           REPO_NAME_LC=$(echo "$REPO_SHOULD_BE_NAME" | tr '[:upper:]' '[:lower:]')
           echo "REPO_NAME_LC=$REPO_NAME_LC" >> $GITHUB_ENV
 
+          # Full owner/repo, lowercased (GHCR requires lowercase image references)
+          REPO_LC=$(echo "$REPOSITORY" | tr '[:upper:]' '[:lower:]')
+          echo "REPO_LC=$REPO_LC" >> $GITHUB_ENV
+
       - name: Set up QEMU
         if: inputs.build_arm64 == true
         uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
@@ -134,7 +138,7 @@ jobs:
       - name: Generate SBOM
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
-          image: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
+          image: ghcr.io/${{ env.REPO_LC }}@${{ steps.build.outputs.digest }}
           format: spdx-json
           output-file: sbom-questarr-${{ env.VERSION }}.spdx.json
 
@@ -157,24 +161,24 @@ jobs:
           ## Deployment Summary
 
           - **Environment:** ${{ env.ENVIRONMENT }}
-          - **Image:** ghcr.io/${{ github.repository }}
+          - **Image:** ghcr.io/${{ env.REPO_LC }}
           - **Docker Hub:** doezer/${{ env.REPO_NAME_LC }}
           - **Tags:** ${{ steps.meta.outputs.tags }}
           - **SBOM:** attached to the image as an attestation, and uploaded as the \`sbom-questarr-${{ env.VERSION }}-${{ env.ENVIRONMENT }}\` workflow artifact
 
           ### Pull and run the image:
           \`\`\`bash
-          docker pull ghcr.io/${{ github.repository }}:\$TAG
+          docker pull ghcr.io/${{ env.REPO_LC }}:\$TAG
           docker run -d -p 5000:5000 \\
             -e POSTGRES_PASSWORD=your_password \\
             -e IGDB_CLIENT_ID=your_client_id \\
             -e IGDB_CLIENT_SECRET=your_client_secret \\
-            ghcr.io/${{ github.repository }}:\$TAG
+            ghcr.io/${{ env.REPO_LC }}:\$TAG
           \`\`\`
 
           ### Inspect the SBOM attestation:
           \`\`\`bash
-          docker buildx imagetools inspect ghcr.io/${{ github.repository }}:\$TAG --format '{{ json (index .SBOM "linux/amd64").SPDX }}'
+          docker buildx imagetools inspect ghcr.io/${{ env.REPO_LC }}:\$TAG --format '{{ json (index .SBOM "linux/amd64").SPDX }}'
           \`\`\`
           EOF
           )

@@ -148,7 +148,7 @@ sequenceDiagram
     S-->>R: normalized/merged/sorted results
     R-->>C: results list
     U->>C: Select a release to download
-    C->>R: POST /api/downloaders/:id/download
+    C->>R: POST /api/downloaders/:id/downloads
     R->>D: addDownload()
     D->>I: fetch magnet/NZB link (via safeFetch)
     R->>DB: persist game_downloads record

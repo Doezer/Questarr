@@ -110,7 +110,7 @@ export default function WishlistPage() {
       releasedGames: released,
       upcomingGames: upcoming,
       tbaGames: tba,
-      filteredCount: count
+      filteredCount: count,
     };
   }, [games, showSearchResultsOnly, showDownloadsOnly, downloadSummaries, searchQuery]);
 

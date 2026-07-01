@@ -113,6 +113,23 @@ function isUnchangedSentinel(value: unknown): boolean {
   return value === REDACTED_PLACEHOLDER;
 }
 
+// Validates that a Discord webhook URL uses HTTPS and points at a genuine
+// Discord webhook endpoint. Checking hostname/pathname/protocol on the parsed
+// URL (rather than a string prefix) prevents bypasses via the userinfo
+// component (e.g. "https://discord.com@evil.com/...").
+function isValidDiscordWebhook(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      (url.hostname === "discord.com" || url.hostname === "discordapp.com") &&
+      url.pathname.startsWith("/api/webhooks/")
+    );
+  } catch {
+    return false;
+  }
+}
+
 function maskIndexer(indexer: Indexer): Indexer {
   return indexer.apiKey ? { ...indexer, apiKey: REDACTED_PLACEHOLDER } : indexer;
 }
@@ -2798,11 +2815,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json({ success: true });
       }
 
-      if (
-        webhookUrl &&
-        !webhookUrl.startsWith("https://discord.com/api/webhooks/") &&
-        !webhookUrl.startsWith("https://discordapp.com/api/webhooks/")
-      ) {
+      if (webhookUrl && !isValidDiscordWebhook(webhookUrl)) {
         return res.status(400).json({ error: "Invalid Discord webhook URL" });
       }
       await storage.setSystemConfig("discord.webhookUrl", webhookUrl?.trim() ?? "");
@@ -3266,10 +3279,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      if (
-        !webhookUrl.startsWith("https://discord.com/api/webhooks/") &&
-        !webhookUrl.startsWith("https://discordapp.com/api/webhooks/")
-      ) {
+      if (!isValidDiscordWebhook(webhookUrl)) {
         routesLogger.error(
           { webhookUrl },
           "Attempted to use an invalid Discord webhook URL for sharing."

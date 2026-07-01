@@ -44,7 +44,14 @@ export default function LibraryPage() {
     }
 
     return result;
-  }, [games, showSearchResultsOnly, showDownloadsOnly, showUpdateAvailableOnly, downloadSummaries, searchQuery]);
+  }, [
+    games,
+    showSearchResultsOnly,
+    showDownloadsOnly,
+    showUpdateAvailableOnly,
+    downloadSummaries,
+    searchQuery,
+  ]);
 
   const statusMutation = useMutation({
     mutationFn: async ({ gameId, status }: { gameId: string; status: GameStatus }) => {

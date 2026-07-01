@@ -173,6 +173,27 @@ export function validateSetupCredentials(
   return { username: trimmedUsername, password: trimmedPassword };
 }
 
+// Helper to save IGDB credentials provided during setup, if they're valid. Kept separate
+// from the /api/auth/setup handler for the same reason as validateSetupCredentials above:
+// keeping the handler's own cognitive complexity low.
+async function saveIgdbCredentialsIfProvided(
+  igdbClientId: unknown,
+  igdbClientSecret: unknown
+): Promise<void> {
+  if (
+    typeof igdbClientId !== "string" ||
+    typeof igdbClientSecret !== "string" ||
+    igdbClientId.trim().length === 0 ||
+    igdbClientSecret.trim().length === 0
+  ) {
+    return;
+  }
+
+  await storage.setSystemConfig("igdb.clientId", igdbClientId.trim());
+  await storage.setSystemConfig("igdb.clientSecret", igdbClientSecret.trim());
+  routesLogger.info("IGDB credentials saved during setup");
+}
+
 // Helper function for aggregated indexer search
 async function handleAggregatedIndexerSearch(req: Request, res: Response) {
   try {
@@ -344,18 +365,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const token = await generateToken(user);
 
       // Save IGDB creds if provided
-      if (igdbClientId && igdbClientSecret) {
-        if (
-          typeof igdbClientId === "string" &&
-          typeof igdbClientSecret === "string" &&
-          igdbClientId.trim().length > 0 &&
-          igdbClientSecret.trim().length > 0
-        ) {
-          await storage.setSystemConfig("igdb.clientId", igdbClientId.trim());
-          await storage.setSystemConfig("igdb.clientSecret", igdbClientSecret.trim());
-          routesLogger.info("IGDB credentials saved during setup");
-        }
-      }
+      await saveIgdbCredentialsIfProvided(igdbClientId, igdbClientSecret);
 
       routesLogger.info({ username: trimmedUsername }, "Initial setup completed");
       res.json({ token, user: { id: user.id, username: user.username } });

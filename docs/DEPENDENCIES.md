@@ -19,7 +19,7 @@ Dependencies are added deliberately as part of normal development, via `npm inst
 [Dependabot](https://docs.github.com/en/code-security/dependabot) is configured in [`.github/dependabot.yml`](../.github/dependabot.yml) to check for updates weekly (Monday) for both npm dependencies and GitHub Actions used in CI:
 
 - Updates are opened as grouped pull requests (e.g. React-related packages, Radix UI components, dev vs. production dependencies, and all GitHub Actions bumps) to keep the PR volume manageable.
-- Automatic semver-major bumps are excluded and require a manual, reviewed update, since these are more likely to introduce breaking changes.
+- Semver-major bumps are proposed automatically like any other update rather than excluded, since silently skipping them meant a major-version-only security fix could go unnoticed; they aren't folded into the minor/patch groups, so they still land as their own PR and get individual review.
 - Every dependency-update PR runs through the same CI gate as any other change — lint, type check, the full test suite, and a Docker build (see [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)) — before it can be merged.
 
 ## Release-time visibility

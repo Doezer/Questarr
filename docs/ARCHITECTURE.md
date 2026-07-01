@@ -44,7 +44,7 @@ of the system — by writing data, triggering a request, or emitting an event.
 | Server — `socket.ts` (Socket.io)                                                                | Pushes real-time events                              | Client SPA (broadcast to all connected sockets)                                                                    |
 | Server — `search.ts`                                                                            | Orchestrates indexer search, applies filtering/dedup | Torznab/Newznab indexers (read), routes/cron (results)                                                             |
 | Server — `downloaders.ts` (`DownloaderManager`)                                                 | Abstracts the 5 download-client integrations         | qBittorrent/Transmission/rTorrent/SABnzbd/NZBGet (write: submit; read: status)                                     |
-| IGDB (via Twitch OAuth)                                                                         | External game-metadata provider                      | Server, via `server/igdb.ts` — read-only queries; also drives `cron.ts::checkGameUpdates`                          |
+| IGDB (via Twitch OAuth)                                                                         | External game-metadata provider                      | Server, via `server/igdb.ts` (through `safeFetch`) — read-only queries; also drives `cron.ts::checkGameUpdates`    |
 | HowLongToBeat                                                                                   | External gameplay-length provider                    | Server, via `server/hltb.ts` (through `safeFetch`)                                                                 |
 | NexusMods                                                                                       | External mod-listing provider                        | Server, via `server/nexusmods.ts` (through `safeFetch`)                                                            |
 | Steam Web API                                                                                   | External wishlist provider                           | Server, via `server/steam.ts` / `server/steam-routes.ts` (through `safeFetch`), keyed by user-supplied `steamId64` |
@@ -116,7 +116,7 @@ flowchart TB
     SSRF --> Nexus
     SSRF --> Steam
     SSRF --> PCGW
-    Routes -.->|raw fetch, hardcoded endpoint, no user input| IGDB
+    SSRF --> IGDB
 
     Cron --> Storage
     Cron -->|checkGameUpdates| IGDB
@@ -214,7 +214,11 @@ on this schedule — it only runs when a user explicitly triggers it via
   loopback ranges are reachable by design — Questarr is meant to be
   self-hosted alongside indexers/downloaders that often live on the same
   LAN.
-- **IGDB is an intentional exception**: `server/igdb.ts` calls `fetch`
-  directly against the hardcoded `api.igdb.com`/`id.twitch.tv` endpoints
-  rather than going through `safeFetch`, because the target host is never
-  derived from user input, so SSRF doesn't apply.
+- `server/igdb.ts` also routes its Twitch/IGDB requests through `safeFetch`,
+  consistent with every other integration, even though the target host
+  (`api.igdb.com`/`id.twitch.tv`) is hardcoded rather than user-supplied —
+  applied as defense in depth rather than out of SSRF necessity.
+
+See [`docs/THREAT_MODEL.md`](THREAT_MODEL.md) for a more detailed attack-surface
+analysis of these trust boundaries (per-integration trust table, high-risk
+data flows, and the unauthenticated-route inventory).

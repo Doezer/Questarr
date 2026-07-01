@@ -7,6 +7,7 @@
 
 **Learning:** List components (like GameCard/CompactGameCard) were using generic aria-labels (e.g., "View details") or no labels for icon-only buttons. This makes screen reader navigation confusing as users hear "View details" repeatedly without knowing which item it refers to.
 **Action:** Always include the item's unique identifier (e.g., title) in the aria-label for actions within a list item (e.g., `aria-label={\`View details for ${game.title}\`}`).
+
 ## 2025-02-22 - [Redundant text in parent components]
 
 **Learning:** When adding context-rich ARIA labels to parent interactive elements (like a button or anchor tag), the ARIA label completely overrides the text content of its children for screen readers. However, marking all children (including visual text) as hidden from ARIA is an anti-pattern that can cause some screen readers to treat the element as empty or skip it.

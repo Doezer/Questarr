@@ -15,7 +15,9 @@
 **Vulnerability:** The RSS feed creation and update endpoints (`POST /api/rss/feeds` and `PUT /api/rss/feeds/:id`) lacked `isSafeUrl` validation, allowing attackers to force the server to fetch arbitrary URLs, including cloud metadata services (`169.254.169.254`).
 **Learning:** Even if `isSafeUrl` exists, it must be applied to _all_ inputs that trigger server-side requests. RSS feeds are a common vector for SSRF because they inherently involve fetching remote content.
 **Prevention:** Apply `isSafeUrl` validation to all URL inputs in API routes. Implement defense-in-depth by also validating the URL at the point of use (in `rssService.refreshFeed`).
+
 ## 2024-05-24 - SSRF Bypass via URL Userinfo
+
 **Vulnerability:** The `/api/stats/discord-share` endpoint was vulnerable to Server-Side Request Forgery (SSRF) because it validated webhook URLs using `startsWith("https://discord.com/api/webhooks/")` and then fetched them using the standard `fetch` API.
 **Learning:** Checking for string prefixes on URLs is insufficient for security because the userinfo component (e.g. `https://discord.com/api/webhooks/@127.0.0.1`) can be used to bypass the check. The `fetch` API and URL parsers will interpret `127.0.0.1` as the hostname and `discord.com` as the credentials.
 **Prevention:** Never rely on string prefix matching for URL validation. Always use the project's `safeFetch` utility which properly resolves and validates the target IP address to prevent SSRF and DNS rebinding attacks.

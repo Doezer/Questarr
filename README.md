@@ -229,6 +229,8 @@ See [Configuration on the Wiki](https://github.com/Doezer/Questarr/wiki/Configur
 
 See [docs/SECRETS.md](docs/SECRETS.md) for details on how API keys, indexer/downloader credentials, and other secrets are stored and managed.
 
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for a system architecture and actor overview, [docs/API.md](docs/API.md) for the REST/Socket.io interface reference, and [docs/SECURITY_ASSESSMENT.md](docs/SECURITY_ASSESSMENT.md) for a security risk assessment.
+
 <details>
 <summary><b>Getting IGDB API Credentials</b></summary>
 

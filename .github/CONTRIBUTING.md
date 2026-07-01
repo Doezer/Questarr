@@ -103,6 +103,10 @@ Not every change needs new tests, but treat the following as **major changes** t
 
 Changes that are typically **exempt** from new tests: pure styling/CSS tweaks, copy/wording changes, internal refactors that don't alter behavior (already covered by existing tests), and dependency bumps with no code changes. When in doubt, prefer adding a small test over skipping it — reviewers may ask for one if a major change ships without coverage.
 
+#### Documentation policy for major changes
+
+The same categories of "major changes" listed above (new/changed API endpoints, new integrations, security-relevant changes, new cron jobs) also require updating the relevant design/interface/security documentation before merging: [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) (actors and data flow), [`docs/API.md`](../docs/API.md) (external interfaces), and/or [`docs/SECURITY_ASSESSMENT.md`](../docs/SECURITY_ASSESSMENT.md) (risk register).
+
 ### Commit Messages
 
 - Use clear, descriptive commit messages

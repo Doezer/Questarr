@@ -1,0 +1,55 @@
+name: DCO
+
+on:
+  pull_request:
+    branches: [main, release/*]
+  workflow_dispatch:
+
+jobs:
+  dco-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6.2.0
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Check DCO sign-off on every commit
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          merge_base="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
+          missing=0
+
+          while IFS= read -r sha; do
+            subject="$(git log -1 --format='%s' "$sha")"
+            if ! git log -1 --format='%B' "$sha" | grep -qiE '^Signed-off-by: .+ <[^ >]+@[^ >]+>$'; then
+              echo "::error::Commit $sha (\"$subject\") is missing a valid 'Signed-off-by' trailer."
+              missing=1
+            fi
+          done < <(git rev-list "$merge_base..$HEAD_SHA")
+
+          if [ "$missing" -ne 0 ]; then
+            echo ""
+            echo "One or more commits in this pull request are missing the required"
+            echo "Developer Certificate of Origin (DCO) sign-off."
+            echo ""
+            echo "Sign off commits with 'git commit -s', or amend/rebase existing ones:"
+            echo "  git commit --amend -s"
+            echo "  git rebase --signoff $BASE_SHA"
+            echo ""
+            echo "See DCO.md for details."
+            exit 1
+          fi
+
+          echo "All commits are signed off."

@@ -109,6 +109,20 @@ Changes that are typically **exempt** from new tests: pure styling/CSS tweaks, c
 - Start with a verb in the present tense (e.g., "Add", "Fix", "Update")
 - Reference issue numbers when applicable (e.g., "Fix #123: description")
 
+### Developer Certificate of Origin (DCO)
+
+Every commit must be signed off to certify that you have the right to submit
+it under the project's license, per the [Developer Certificate of Origin](../DCO.md).
+Sign off with the `-s` flag:
+
+```bash
+git commit -s -m "Add feature: description"
+```
+
+Pull requests are checked automatically by the `DCO` status check; any commit
+missing a `Signed-off-by` trailer will cause the check to fail. See
+[`DCO.md`](../DCO.md) for how to sign off commits you've already made.
+
 ### Pull Requests
 
 - Provide a clear description of what your PR does

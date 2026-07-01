@@ -690,8 +690,8 @@ export class SynologyDownloadStationClient implements DownloaderClient {
             apiName === "SYNO.DownloadStation2.Task"
               ? {
                   type: "url",
-                  url: downloadUrl,
-                  create_list: "false",
+                  url: JSON.stringify([downloadUrl]),
+                  create_list: false,
                   destination,
                 }
               : {
@@ -769,7 +769,8 @@ export class SynologyDownloadStationClient implements DownloaderClient {
     }
 
     if (apiName === "SYNO.DownloadStation2.Task") {
-      formData.append("type", "file");
+      const isNzb = request.downloadType === "usenet" || fileName.toLowerCase().endsWith(".nzb");
+      formData.append("type", isNzb ? "nzb" : "bt");
     }
 
     const uploadResponse = await this.requestTaskApi<SynologyTaskResponse>("create", {

@@ -224,6 +224,8 @@ You can install Questarr as a Home Assistant add-on from this repository:
 
 Every published image ships with a Software Bill of Materials — see [docs/SBOM.md](docs/SBOM.md) for how to get it.
 
+See [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) for the attack surface analysis and security architecture.
+
 See [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) for how dependencies are selected, obtained, and tracked.
 
 ## Configuration
@@ -242,6 +244,8 @@ Once logged-in:
 See [Configuration on the Wiki](https://github.com/Doezer/Questarr/wiki/Configuring-the-application#configure-app-behavior-in-settings--general) for more detailed info.
 
 See [docs/SECRETS.md](docs/SECRETS.md) for details on how API keys, indexer/downloader credentials, and other secrets are stored and managed.
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for a system architecture and actor overview, [docs/API.md](docs/API.md) for the REST/Socket.io interface reference, and [docs/SECURITY_ASSESSMENT.md](docs/SECURITY_ASSESSMENT.md) for a security risk assessment.
 
 <details>
 <summary><b>Getting IGDB API Credentials</b></summary>

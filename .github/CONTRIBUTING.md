@@ -97,11 +97,15 @@ Not every change needs new tests, but treat the following as **major changes** t
 - New API endpoints or changes to existing endpoint behavior (request/response shape, auth requirements, validation rules) in `server/routes.ts` — add/update a `server/__tests__/*.test.ts` file exercising the route via `supertest`.
 - New or modified database schema (`shared/schema.ts`), migrations, or storage-layer queries (`server/storage.ts`) — add/update tests covering the new fields or query paths.
 - New integrations or changes to existing ones (indexers, download clients, IGDB, Steam, HLTB, NexusMods, PCGamingWiki) — add/update tests, especially for error handling and any external input that touches SSRF validation.
-- Security-relevant changes (auth, input validation/sanitization, SSRF checks, rate limiting) — always add a regression test that fails without the fix.
+- Security-relevant changes (auth, input validation/sanitization, SSRF checks, rate limiting) — always add a regression test that fails without the fix, and update [docs/THREAT_MODEL.md](../docs/THREAT_MODEL.md) if the change adds a new external integration, trust boundary, or data flow, or materially changes an existing one.
 - New cron jobs or changes to scheduled job logic (`server/cron.ts`) — add/update tests covering the job's decision logic.
 - New user-facing flows or pages with meaningful interaction (forms, multi-step actions, navigation) — add a Playwright spec under `tests/e2e/`, or extend an existing one.
 
 Changes that are typically **exempt** from new tests: pure styling/CSS tweaks, copy/wording changes, internal refactors that don't alter behavior (already covered by existing tests), and dependency bumps with no code changes. When in doubt, prefer adding a small test over skipping it — reviewers may ask for one if a major change ships without coverage.
+
+#### Documentation policy for major changes
+
+The same categories of "major changes" listed above (new/changed API endpoints, new integrations, security-relevant changes, new cron jobs) also require updating the relevant design/interface/security documentation before merging: [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) (actors and data flow), [`docs/API.md`](../docs/API.md) (external interfaces), [`docs/SECURITY_ASSESSMENT.md`](../docs/SECURITY_ASSESSMENT.md) (risk register), and/or [`docs/THREAT_MODEL.md`](../docs/THREAT_MODEL.md) (attack surface analysis).
 
 ### Dependencies
 

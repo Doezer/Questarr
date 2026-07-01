@@ -26,14 +26,6 @@ rather than starting with an invalid configuration.
 | `NODE_ENV`                              | `development` \| `production` \| `test`         | No (defaults to `production`)                                                                                                                                                                                                 |
 | `SQLITE_DB_PATH`                        | Path to the SQLite database file                | No (default `sqlite.db`)                                                                                                                                                                                                      |
 
-> **Known inconsistency:** `.env.example` documents this variable as
-> `DB_PATH`, but `server/config.ts:12` actually reads `SQLITE_DB_PATH`. Use
-> `SQLITE_DB_PATH` — the `.env.example` name is stale and should be fixed.
-
-> **Note:** `.env.example`'s comment for `HOST` claims the default is
-> `localhost` (`0.0.0.0` only in Docker) — that comment is stale. The code
-> always defaults to `0.0.0.0` regardless of how the app is run.
-
 A legacy hardcoded default, `"questarr-default-secret-change-me"`, is
 explicitly rejected by a Zod `.refine()` (`server/config.ts:18-24`) so the
 app can never silently run with that well-known value.
@@ -135,7 +127,7 @@ If tightened credential handling is a priority, in rough priority order:
    with a key derived from `JWT_SECRET` or a dedicated
    `CREDENTIALS_ENCRYPTION_KEY`), decrypting only when building outbound
    requests.
-3. Fix the `.env.example` → `SQLITE_DB_PATH` naming mismatch noted above.
+3. Apply the same masked-GET treatment to the Discord webhook URL (§3).
 
 ## 5. User account passwords
 

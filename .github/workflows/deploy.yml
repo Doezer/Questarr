@@ -174,7 +174,7 @@ jobs:
 
           ### Inspect the SBOM attestation:
           \`\`\`bash
-          docker buildx imagetools inspect ghcr.io/${{ github.repository }}:\$TAG --format '{{ json .SBOM }}'
+          docker buildx imagetools inspect ghcr.io/${{ github.repository }}:\$TAG --format '{{ json (index .SBOM "linux/amd64").SPDX }}'
           \`\`\`
           EOF
           )

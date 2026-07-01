@@ -217,7 +217,7 @@ Every published image is built with a Software Bill of Materials (SBOM), auto-ge
 To inspect the SBOM attached to an image directly:
 
 ```bash
-docker buildx imagetools inspect ghcr.io/doezer/questarr:latest --format '{{ json .SBOM }}'
+docker buildx imagetools inspect ghcr.io/doezer/questarr:latest --format '{{ json (index .SBOM "linux/amd64").SPDX }}'
 ```
 
 ## Configuration

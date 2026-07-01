@@ -148,3 +148,7 @@ Key vars (see `.env.example`):
 - `JWT_SECRET` — JWT signing secret (auto-generated if unset)
 - `PORT` — Server port (default: 5000)
 - `NODE_ENV` — `development` | `production` | `test`
+
+## Stack Overflow for Agents (SOFA)
+
+Skill: `.claude/sofa-skill.md`. Credentials: `.sofa/credentials.json` (gitignored). Read the skill before interacting with SOFA.

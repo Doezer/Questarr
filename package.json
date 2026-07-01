@@ -18,6 +18,7 @@
     "lint:fix": "eslint . --ext .ts,.tsx,.js,.jsx --fix",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,css}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,css}\"",
+    "secretlint": "secretlint --maskSecrets \"**/*\"",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx server/run-migrations.ts",
     "db:push": "drizzle-kit push",
@@ -62,7 +63,7 @@
     "@radix-ui/react-toggle": "^1.1.12",
     "@radix-ui/react-toggle-group": "^1.1.13",
     "@radix-ui/react-tooltip": "^1.2.10",
-    "@tanstack/react-query": "^5.101.0",
+    "@tanstack/react-query": "^5.101.2",
     "@types/express-session": "^1.19.0",
     "@types/multer": "^2.1.0",
     "@types/pg": "^8.20.0",
@@ -90,11 +91,11 @@
     "html-to-image": "^1.11.13",
     "husky": "^9.1.7",
     "input-otp": "^1.4.2",
-    "js-yaml": "^4.2.0",
+    "js-yaml": "^4.3.0",
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^0.577.0",
     "multer": "^2.2.0",
-    "nanoid": "^5.1.15",
+    "nanoid": "^5.1.16",
     "next-themes": "^0.4.6",
     "node-7z": "^3.0.0",
     "node-forge": "^1.4.0",
@@ -124,7 +125,8 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
-    "@playwright/test": "^1.61.0",
+    "@playwright/test": "^1.61.1",
+    "@secretlint/secretlint-rule-preset-recommend": "^13.0.2",
     "@tailwindcss/typography": "^0.5.20",
     "@tailwindcss/vite": "^4.3.1",
     "@testing-library/dom": "^10.4.1",
@@ -139,7 +141,6 @@
     "@types/js-yaml": "^4.0.9",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^20.19.43",
-    "@types/node-7z": "^2.1.11",
     "@types/node-forge": "^1.3.14",
     "@types/parse-torrent": "^5.8.8",
     "@types/passport": "^1.0.17",
@@ -148,10 +149,10 @@
     "@types/react-dom": "^18.3.1",
     "@types/semver": "^7.7.1",
     "@types/supertest": "^6.0.3",
-    "@vitejs/plugin-react": "^6.0.2",
+    "@vitejs/plugin-react": "^6.0.3",
     "@vitest/coverage-v8": "4.1.9",
     "@vitest/ui": "4.1.9",
-    "autoprefixer": "10.5.0",
+    "autoprefixer": "10.5.2",
     "cross-env": "^10.1.0",
     "drizzle-kit": "^0.31.10",
     "esbuild": "^0.28.1",
@@ -163,14 +164,15 @@
     "jsdom": "^27.3.0",
     "lint-staged": "^16.4.0",
     "pino-pretty": "^13.1.3",
-    "postcss": "8.5.15",
-    "prettier": "3.8.4",
+    "postcss": "8.5.16",
+    "prettier": "3.9.1",
+    "secretlint": "^13.0.2",
     "supertest": "^7.2.2",
     "tailwindcss": "^4.0.0",
     "tsx": "^4.22.4",
     "typescript": "^5.9.3",
-    "typescript-eslint": "8.61.1",
-    "vite": "8.0.16",
+    "typescript-eslint": "8.62.0",
+    "vite": "8.1.0",
     "vitest": "4.1.9"
   },
   "optionalDependencies": {
@@ -182,17 +184,22 @@
       "prettier --cache --cache-strategy content --cache-location node_modules/.cache/prettier/.prettier-cache --write"
     ],
     "*.{json,css,md}": [
-      "prettier --cache --cache-strategy content --cache-location node_modules/.cache/prettier/.prettier-cache --write"
+      "prettier --write"
+    ],
+    "*": [
+      "secretlint --maskSecrets --no-glob"
     ]
   },
   "engines": {
     "node": ">=20"
   },
   "overrides": {
-    "socket.io-parser": "4.2.6"
+    "socket.io-parser": "4.2.6",
+    "@esbuild-kit/core-utils": {
+      "esbuild": "^0.25.0"
+    }
   },
   "allowScripts": {
-    "esbuild@0.18.20": true,
     "esbuild@0.25.12": true,
     "esbuild@0.28.1": true,
     "better-sqlite3@12.11.1": true,

@@ -46,11 +46,36 @@ jobs:
             });
 
             // Parse named args: /deploy environment=production tag=v1.0 build_arm64=true
-            const args = {};
+            const rawArgs = {};
             body.split(/\s+/).slice(1).forEach(part => {
               const [k, ...rest] = part.split('=');
-              if (k && rest.length) args[k] = rest.join('=');
+              if (k && rest.length) rawArgs[k] = rest.join('=');
             });
+
+            // Validate and sanitize the comment-supplied args before they are
+            // forwarded to deploy.yml. Even though the commenter has already
+            // been verified as an admin, untrusted comment text must not be
+            // passed through unvalidated into the deployment pipeline.
+            const ALLOWED_ENVIRONMENTS = ['production', 'dev', 'test'];
+            const TAG_PATTERN = /^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$/;
+
+            const environment = rawArgs.environment || 'test';
+            if (!ALLOWED_ENVIRONMENTS.includes(environment)) {
+              console.log(`Rejected /deploy: invalid environment "${environment}"`);
+              return;
+            }
+
+            const tag = rawArgs.tag || '';
+            if (tag !== '' && !TAG_PATTERN.test(tag)) {
+              console.log(`Rejected /deploy: invalid tag "${tag}"`);
+              return;
+            }
+
+            const buildArm64Raw = rawArgs.build_arm64 || 'false';
+            if (buildArm64Raw !== 'true' && buildArm64Raw !== 'false') {
+              console.log(`Rejected /deploy: invalid build_arm64 "${buildArm64Raw}"`);
+              return;
+            }
 
             await github.rest.actions.createWorkflowDispatch({
               owner: context.repo.owner,
@@ -58,9 +83,9 @@ jobs:
               workflow_id: 'deploy.yml',
               ref: pr.head.ref,
               inputs: {
-                environment: args.environment || 'test',
-                tag: args.tag || '',
-                build_arm64: args.build_arm64 || 'false',
+                environment,
+                tag,
+                build_arm64: buildArm64Raw,
                 'comment-id': String(context.payload.comment.id),
                 repository: `${context.repo.owner}/${context.repo.repo}`,
               },

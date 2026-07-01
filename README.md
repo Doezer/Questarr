@@ -21,6 +21,7 @@
     <a href="https://codecov.io/gh/Doezer/Questarr">
       <img src="https://codecov.io/gh/Doezer/Questarr/branch/main/graph/badge.svg" alt="Codecov">
     </a>
+    <a href="https://www.bestpractices.dev/projects/13450"><img src="https://www.bestpractices.dev/projects/13450/baseline"></a>
   </p>
 
   <p>
@@ -58,7 +59,7 @@ Your central hub for recent activity, collection overview and downloading availa
 
 <p float="left">
   <a href="images/Screenshots/game_details.png"><img src="images/Screenshots/game_details.png" width="49%" /></a>
-  <a href="images/Screenshots/download_modal.png"><img src="images/Screenshots/download_modal.png" width="49%" /></a> 
+  <a href="images/Screenshots/download_modal.png"><img src="images/Screenshots/download_modal.png" width="49%" /></a>
 </p>
 
 ### Discover Games
@@ -67,7 +68,7 @@ Browse and find new games to add to your collection.
 
 <p float="left">
   <a href="images/Screenshots/discover.png"><img src="images/Screenshots/discover.png" width="49%" /></a>
-  <a href="images/Screenshots/xrelto.png"><img src="images/Screenshots/xrelto.png" width="49%" /></a> 
+  <a href="images/Screenshots/xrelto.png"><img src="images/Screenshots/xrelto.png" width="49%" /></a>
 </p>
 
 ### Library & Wishlist
@@ -76,7 +77,7 @@ Manage your wanted and owned games.
 
 <p float="left">
   <a href="images/Screenshots/library.png"><img src="images/Screenshots/library.png" width="49%" /></a>
-  <a href="images/Screenshots/wishlist.png"><img src="images/Screenshots/wishlist.png" width="49%" /></a> 
+  <a href="images/Screenshots/wishlist.png"><img src="images/Screenshots/wishlist.png" width="49%" /></a>
 </p>
 
 ### Calendar
@@ -102,7 +103,7 @@ Custom RSS feeds and xRel.to flux matched to IGDB games directly into the app
 
 <p float="left">
   <a href="images/Screenshots/rss.png"><img src="images/Screenshots/rss.png" width="49%" /></a>
-  <a href="images/Screenshots/xrelto.png"><img src="images/Screenshots/xrelto.png" width="49%" /></a> 
+  <a href="images/Screenshots/xrelto.png"><img src="images/Screenshots/xrelto.png" width="49%" /></a>
 </p>
 
 ### Settings
@@ -111,7 +112,7 @@ Configure indexers, downloaders, and application preferences.
 
 <p float="left">
   <a href="images/Screenshots/indexers.png"><img src="images/Screenshots/indexers.png" width="49%" /></a>
-  <a href="images/Screenshots/downloaders.png"><img src="images/Screenshots/downloaders.png" width="49%" /></a> 
+  <a href="images/Screenshots/downloaders.png"><img src="images/Screenshots/downloaders.png" width="49%" /></a>
 </p>
 
 <a href="images/Screenshots/settings.png"><img src="images/Screenshots/settings.png" /></a>
@@ -184,29 +185,30 @@ docker run -d -p 5000:5000 -v ./data:/app/data --name questarr ghcr.io/doezer/qu
 
 If you are upgrading from an older version that used PostgreSQL, you need to migrate your data.
 
-1.  **Stop your current application:**
+1. **Stop your current application:**
 
-    ```bash
-    docker compose down
-    ```
+   ```bash
+   docker compose down
+   ```
 
-2.  **Get the migration tools:**
-    Download the [`docker-compose.migrate.yml`](https://raw.githubusercontent.com/Doezer/Questarr/main/docker-compose.migrate.yml) file to your directory.
+2. **Get the migration tools:**
+   Download the [`docker-compose.migrate.yml`](https://raw.githubusercontent.com/Doezer/Questarr/main/docker-compose.migrate.yml) file to your directory.
 
-3.  **Run the migration:**
-    This command spins up your old database and converts the data to the new format automatically.
+3. **Run the migration:**
+   This command spins up your old database and converts the data to the new format automatically.
 
-    ```bash
-    docker compose -f docker-compose.migrate.yml up --abort-on-container-exit
-    ```
+   ```bash
+   docker compose -f docker-compose.migrate.yml up --abort-on-container-exit
+   ```
 
-4.  **Update your deployment:**
-    Replace your `docker-compose.yml` with the new version (see "Fresh Install" above).
+4. **Update your deployment:**
+   Replace your `docker-compose.yml` with the new version (see "Fresh Install" above).
 
-5.  **Start the new version:**
-    ```bash
-    docker compose up -d
-    ```
+5. **Start the new version:**
+
+   ```bash
+   docker compose up -d
+   ```
 
 See [docs/MIGRATION.md](docs/MIGRATION.md) for more details.
 
@@ -219,6 +221,10 @@ You can install Questarr as a Home Assistant add-on from this repository:
 3. Add this repository URL: `https://github.com/Doezer/Questarr`
 4. Install the **Questarr** add-on and start it.
 5. Open `http://<home-assistant-host>:5000` to access the UI.
+
+Every published image ships with a Software Bill of Materials — see [docs/SBOM.md](docs/SBOM.md) for how to get it.
+
+See [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) for how dependencies are selected, obtained, and tracked.
 
 ## Configuration
 
@@ -234,6 +240,8 @@ Once logged-in:
 - Add games!
 
 See [Configuration on the Wiki](https://github.com/Doezer/Questarr/wiki/Configuring-the-application#configure-app-behavior-in-settings--general) for more detailed info.
+
+See [docs/SECRETS.md](docs/SECRETS.md) for details on how API keys, indexer/downloader credentials, and other secrets are stored and managed.
 
 <details>
 <summary><b>Getting IGDB API Credentials</b></summary>
@@ -301,23 +309,23 @@ git clone https://github.com/Doezer/Questarr.git
 npm install
 ```
 
-2. **Configure environment variables in `.env`:**
+1. **Configure environment variables in `.env`:**
    See the .env.example for available variables.
 
-3. **Initialize the database:**
+2. **Initialize the database:**
    This will run available migration files.
 
 ```bash
 npm run db:migrate
 ```
 
-5. **Development mode (with hot reload):**
+1. **Development mode (with hot reload):**
 
 ```bash
 npm run dev
 ```
 
-6. **Access the application:**
+1. **Access the application:**
    Open your browser to `http://localhost:5000`
 
 </details>
@@ -335,6 +343,8 @@ See [Troubleshooting on the Wiki](https://github.com/Doezer/Questarr/wiki/Troubl
 ## Contributing
 
 See [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md) for guidelines on how to contribute to this project.
+
+See [MAINTAINERS.md](/MAINTAINERS.md) for the current list of project members with access to sensitive resources.
 
 ## Contributors
 

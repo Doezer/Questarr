@@ -15,6 +15,9 @@ const { mockConfig } = vi.hoisted(() => {
         clientId: "test-id",
         clientSecret: "test-secret",
       },
+      nexusmods: {
+        apiKey: undefined,
+      },
       auth: {
         jwtSecret: "test-secret",
       },

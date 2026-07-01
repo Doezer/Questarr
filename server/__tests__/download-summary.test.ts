@@ -215,6 +215,7 @@ vi.mock("../config.js", () => ({
   config: {
     server: { isProduction: false, allowedOrigins: [] },
     igdb: { isConfigured: false, clientId: "test-id", clientSecret: "test-secret" },
+    nexusmods: { apiKey: undefined },
     auth: { jwtSecret: "test-secret" },
     database: { url: "test.db" },
     ssl: { enabled: false, port: 5000, certPath: "", keyPath: "", redirectHttp: false },

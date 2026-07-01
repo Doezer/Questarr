@@ -16,19 +16,23 @@ against a Zod schema in `server/config.ts:10-45`. If any variable fails
 validation, the server logs the error and exits (`server/config.ts:50-63`)
 rather than starting with an invalid configuration.
 
-| Variable                                | Purpose                                         | Required?                                                        |
-| --------------------------------------- | ----------------------------------------------- | ---------------------------------------------------------------- |
-| `JWT_SECRET`                            | Signs/verifies session JWTs                     | No — auto-generated and persisted to the DB if unset (§2)        |
-| `NEXUSMODS_API_KEY`                     | NexusMods mod lookups                           | No — can be set later in Settings → Services (§3)                |
-| `IGDB_CLIENT_ID` / `IGDB_CLIENT_SECRET` | Twitch/IGDB OAuth for game metadata & discovery | No env-wise, but one of env/DB must be set for discovery to work |
-| `PORT`                                  | HTTP port                                       | No (default `5000`)                                              |
-| `HOST`                                  | Bind address                                    | No (default `localhost`, `0.0.0.0` in Docker)                    |
-| `NODE_ENV`                              | `development` \| `production` \| `test`         | No (defaults to `production`)                                    |
-| `SQLITE_DB_PATH`                        | Path to the SQLite database file                | No (default `sqlite.db`)                                         |
+| Variable                                | Purpose                                         | Required?                                                                                                                                                                                                                     |
+| --------------------------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `JWT_SECRET`                            | Signs/verifies session JWTs                     | No — auto-generated and persisted to the DB if unset (§2)                                                                                                                                                                     |
+| `NEXUSMODS_API_KEY`                     | NexusMods mod lookups                           | No — validated by `envSchema`; can be set later in Settings → Services (§3)                                                                                                                                                   |
+| `IGDB_CLIENT_ID` / `IGDB_CLIENT_SECRET` | Twitch/IGDB OAuth for game metadata & discovery | No env-wise, but one of env/DB must be set for discovery to work                                                                                                                                                              |
+| `PORT`                                  | HTTP port                                       | No (default `5000`)                                                                                                                                                                                                           |
+| `HOST`                                  | Bind address                                    | No — **defaults to `0.0.0.0` (all interfaces) in every deployment mode**, not just Docker (`server/config.ts:41`). Set `HOST=127.0.0.1` explicitly if you don't want the server reachable from other machines on the network. |
+| `NODE_ENV`                              | `development` \| `production` \| `test`         | No (defaults to `production`)                                                                                                                                                                                                 |
+| `SQLITE_DB_PATH`                        | Path to the SQLite database file                | No (default `sqlite.db`)                                                                                                                                                                                                      |
 
 > **Known inconsistency:** `.env.example` documents this variable as
 > `DB_PATH`, but `server/config.ts:12` actually reads `SQLITE_DB_PATH`. Use
 > `SQLITE_DB_PATH` — the `.env.example` name is stale and should be fixed.
+
+> **Note:** `.env.example`'s comment for `HOST` claims the default is
+> `localhost` (`0.0.0.0` only in Docker) — that comment is stale. The code
+> always defaults to `0.0.0.0` regardless of how the app is run.
 
 A legacy hardcoded default, `"questarr-default-secret-change-me"`, is
 explicitly rejected by a Zod `.refine()` (`server/config.ts:18-24`) so the
@@ -72,6 +76,7 @@ existing session.
 | **NexusMods**                                    | `.env` (`NEXUSMODS_API_KEY`) or Settings → Services                   | DB `system_config` key `nexusmods.apiKey`; client reconfigured in-memory on save (`server/nexusmods.ts:45-68,175-181`)              | Manual — overwrite the key in Settings.                                                                                                                                                                                  |
 | **HowLongToBeat**, **PCGamingWiki**, **xREL.to** | N/A                                                                   | N/A                                                                                                                                 | These are unauthenticated public APIs; no credentials involved.                                                                                                                                                          |
 | **Steam** wishlist import                        | N/A (public Steam endpoints + user's `steamId64`)                     | N/A                                                                                                                                 | N/A                                                                                                                                                                                                                      |
+| **Discord** notification webhook                 | Settings → Services                                                   | DB `system_config` key `discord.webhookUrl`, plaintext (`server/routes.ts:2747-2776`)                                               | Manual — overwrite the URL in Settings.                                                                                                                                                                                  |
 
 The IGDB and NexusMods settings endpoints are the model for how credential
 endpoints should behave: `GET /api/settings/igdb` returns the `clientId`
@@ -80,6 +85,14 @@ ID is done by sending the sentinel string `"********"` for the unchanged
 field (`server/routes.ts:2687-2743`). `GET /api/settings/nexusmods` returns
 only `{ configured, source }` booleans, never the key itself
 (`server/routes.ts:3282-3313`).
+
+The **Discord webhook URL does not get this treatment**: a Discord webhook
+URL embeds the secret token needed to post to the channel, but
+`GET /api/settings/discord` (`server/routes.ts:2747-2758`) returns it
+unredacted, and neither the GET nor POST handler is behind
+`sensitiveEndpointLimiter`. This has the same exposure profile as the
+indexer/downloader credentials in §4, and should get the same masked-GET
+treatment as IGDB/NexusMods.
 
 ## 4. User-entered indexer & downloader credentials
 

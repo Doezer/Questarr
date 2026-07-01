@@ -27,6 +27,9 @@ const envSchema = z.object({
   IGDB_CLIENT_ID: z.string().optional(),
   IGDB_CLIENT_SECRET: z.string().optional(),
 
+  // NexusMods API configuration (optional)
+  NEXUSMODS_API_KEY: z.string().optional(),
+
   // Server configuration
   PORT: z
     .string()
@@ -85,6 +88,9 @@ export const config = {
     clientId: env.IGDB_CLIENT_ID,
     clientSecret: env.IGDB_CLIENT_SECRET,
     isConfigured: !!(env.IGDB_CLIENT_ID && env.IGDB_CLIENT_SECRET),
+  },
+  nexusmods: {
+    apiKey: env.NEXUSMODS_API_KEY,
   },
   server: {
     port: env.PORT,

@@ -26,6 +26,9 @@ const { mockConfig } = vi.hoisted(() => {
         clientId: "test-id",
         clientSecret: "test-secret",
       },
+      nexusmods: {
+        apiKey: undefined,
+      },
       auth: {
         jwtSecret: "test-secret",
       },
@@ -232,6 +235,18 @@ vi.mock("../search.js", () => ({
   filterBlacklistedReleases: (items: { title: string }[], blacklisted: Set<string>) =>
     blacklisted.size > 0 ? items.filter((item) => !blacklisted.has(item.title)) : items,
 }));
+
+// Neutralize the IP-keyed rate limiters so cumulative requests across this large
+// test file don't trip a shared 30-req/min counter; keep all other exports
+// (validators, sanitizers) real.
+vi.mock("../middleware.js", async () => {
+  const actual = await vi.importActual<typeof import("../middleware.js")>("../middleware.js");
+  return {
+    ...actual,
+    sensitiveEndpointLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
+    authRateLimiter: (_req: unknown, _res: unknown, next: () => void) => next(),
+  };
+});
 
 vi.mock("../config.js", () => ({
   config: mockConfig,

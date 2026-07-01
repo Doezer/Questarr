@@ -1,5 +1,6 @@
 import { logger } from "./logger.js";
 import { safeFetch } from "./ssrf.js";
+import { config } from "./config.js";
 
 const nexusLogger = logger.child({ module: "nexusmods" });
 
@@ -173,7 +174,7 @@ class NexusModsClient {
 export const nexusmodsClient = new NexusModsClient();
 
 // Initialize from environment variable if present
-const envApiKey = process.env.NEXUSMODS_API_KEY;
+const envApiKey = config.nexusmods.apiKey;
 if (envApiKey) {
   nexusmodsClient.configure(envApiKey);
   nexusLogger.info("NexusMods API key loaded from environment variable");

@@ -20,20 +20,18 @@ Never commit your `.env` file to version control. This file contains sensitive i
 
 Ensure you set the following environment variables in your production environment:
 
-- **`JWT_SECRET`**: This is used to sign authentication tokens. **You must change this from the default value.** Use a long, random string.
-- **`DATABASE_URL`**: Ensure your database connection string is secure and your database is not publicly accessible without authentication.
+- **`JWT_SECRET`**: This is used to sign authentication tokens. Set a long, random string so sessions survive restarts (if unset, one is auto-generated and stored in the database instead — see [docs/SECRETS.md](../docs/SECRETS.md)).
+- **`SQLITE_DB_PATH`**: Ensure the SQLite database file lives on a volume/path that isn't publicly accessible or served by the web server.
 - **`IGDB_CLIENT_SECRET`**: Your IGDB API secret.
 
 ### 2. Docker Compose
 
-The provided `docker-compose.yml` file contains default credentials for the PostgreSQL database (`POSTGRES_PASSWORD=password`).
-**Do not use these defaults in production.**
-Update the `docker-compose.yml` or use a `.env` file to set strong passwords for your database containers.
+Questarr uses SQLite, not PostgreSQL — the provided `docker-compose.yml` does not run a separate database container. Persist the `./data` volume (which holds `sqlite.db`) and never commit real credentials into `docker-compose.yml`; use a `.env` file or a git-ignored `docker-compose.*local.yml` override instead.
 
 ### 3. Network Security
 
 - Run the application behind a reverse proxy (like Nginx or Traefik) with SSL/TLS enabled (HTTPS).
-- Do not expose the database port (5432) directly to the internet.
+- `HOST` defaults to `0.0.0.0` (all network interfaces) in every deployment mode, not just Docker. Set `HOST=127.0.0.1` if the app should only be reachable through a local reverse proxy.
 
 ### 4. Authentication
 

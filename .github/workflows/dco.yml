@@ -5,6 +5,9 @@ on:
     branches: [main, release/*]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   dco-check:
     runs-on: ubuntu-latest

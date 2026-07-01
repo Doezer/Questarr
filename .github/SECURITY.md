@@ -8,6 +8,8 @@ Use the latest version of this project to ensure you have the latest security pa
 
 If you discover a security vulnerability within this project, please do not report it publicly. Instead, please report it via email to the maintainer directly.
 
+For a full inventory of how secrets and credentials are stored, accessed, and rotated throughout the codebase, see [docs/SECRETS.md](../docs/SECRETS.md).
+
 ## Deployment Security Guide
 
 When deploying this application, please ensure you follow these security best practices:

@@ -120,6 +120,38 @@ export function parseCategories(input: unknown): string[] | undefined {
   return undefined;
 }
 
+// Helper to validate setup credentials, keeping the /api/auth/setup handler's own
+// cognitive complexity low
+export function validateSetupCredentials(
+  username: unknown,
+  password: unknown
+): { error: string } | { username: string; password: string } {
+  if (!username || !password) {
+    return { error: "Username and password required" };
+  }
+
+  if (typeof username !== "string" || typeof password !== "string") {
+    return { error: "Username and password must be strings" };
+  }
+
+  const trimmedUsername = username.trim();
+  const trimmedPassword = password.trim();
+
+  if (trimmedUsername.length < 3) {
+    return { error: "Username must be at least 3 characters" };
+  }
+
+  if (trimmedPassword.length < 6) {
+    return { error: "Password must be at least 6 characters" };
+  }
+
+  if (trimmedUsername.length > 50) {
+    return { error: "Username must be at most 50 characters" };
+  }
+
+  return { username: trimmedUsername, password: trimmedPassword };
+}
+
 // Helper function for aggregated indexer search
 async function handleAggregatedIndexerSearch(req: Request, res: Response) {
   try {
@@ -268,29 +300,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const { username, password, igdbClientId, igdbClientSecret } = req.body;
 
-      // Validate input
-      if (!username || !password) {
-        return res.status(400).json({ error: "Username and password required" });
+      const validated = validateSetupCredentials(username, password);
+      if ("error" in validated) {
+        return res.status(400).json({ error: validated.error });
       }
-
-      if (typeof username !== "string" || typeof password !== "string") {
-        return res.status(400).json({ error: "Username and password must be strings" });
-      }
-
-      const trimmedUsername = username.trim();
-      const trimmedPassword = password.trim();
-
-      if (trimmedUsername.length < 3) {
-        return res.status(400).json({ error: "Username must be at least 3 characters" });
-      }
-
-      if (trimmedPassword.length < 6) {
-        return res.status(400).json({ error: "Password must be at least 6 characters" });
-      }
-
-      if (trimmedUsername.length > 50) {
-        return res.status(400).json({ error: "Username must be at most 50 characters" });
-      }
+      const { username: trimmedUsername, password: trimmedPassword } = validated;
 
       // Create first user
       // Create first user atomically

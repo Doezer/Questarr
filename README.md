@@ -330,6 +330,8 @@ See [Troubleshooting on the Wiki](https://github.com/Doezer/Questarr/wiki/Troubl
 
 See [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md) for guidelines on how to contribute to this project.
 
+See [MAINTAINERS.md](MAINTAINERS.md) for the current list of project members with access to sensitive resources.
+
 ## Contributors
 
 <a href="https://github.com/Doezer/Questarr/graphs/contributors">

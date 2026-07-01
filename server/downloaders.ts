@@ -1474,11 +1474,22 @@ export class RTorrentClient implements DownloaderClient {
     const qop = challenge.qop;
     const opaque = challenge.opaque;
 
+    // RFC 7616 lets a server negotiate SHA-256 instead of the legacy RFC 2617
+    // MD5 digest; honor whatever the server's challenge declares, only
+    // falling back to MD5 for servers that don't support the stronger option
+    // (most rTorrent/ruTorrent installs still only speak classic digest auth).
+    const hashAlgorithm: "sha256" | "md5" = algorithm.toUpperCase().startsWith("SHA-256")
+      ? "sha256"
+      : "md5";
+
     // A1 = username:realm:password
-    const ha1 = crypto.createHash("md5").update(`${username}:${realm}:${password}`).digest("hex");
+    const ha1 = crypto
+      .createHash(hashAlgorithm)
+      .update(`${username}:${realm}:${password}`)
+      .digest("hex");
 
     // A2 = method:uri
-    const ha2 = crypto.createHash("md5").update(`${method}:${uri}`).digest("hex");
+    const ha2 = crypto.createHash(hashAlgorithm).update(`${method}:${uri}`).digest("hex");
 
     // Response
     const nc = "00000001";
@@ -1487,11 +1498,11 @@ export class RTorrentClient implements DownloaderClient {
     let response: string;
     if (qop === "auth" || qop === "auth-int") {
       response = crypto
-        .createHash("md5")
+        .createHash(hashAlgorithm)
         .update(`${ha1}:${nonce}:${nc}:${cnonce}:${qop}:${ha2}`)
         .digest("hex");
     } else {
-      response = crypto.createHash("md5").update(`${ha1}:${nonce}:${ha2}`).digest("hex");
+      response = crypto.createHash(hashAlgorithm).update(`${ha1}:${nonce}:${ha2}`).digest("hex");
     }
 
     let auth = `Digest username="${username}", realm="${realm}", nonce="${nonce}", uri="${uri}", algorithm="${algorithm}", response="${response}"`;

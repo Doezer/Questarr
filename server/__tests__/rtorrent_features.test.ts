@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import crypto from "node:crypto";
 import { RTorrentClient } from "../downloaders";
 import type { Downloader } from "@shared/schema";
 
@@ -145,5 +146,61 @@ describe("RTorrentClient - magnet link handling", () => {
     expect(result.success).toBe(true);
     const body = fetchMock.mock.calls[0][1].body as string;
     expect(body).toContain("load.normal");
+  });
+});
+
+describe("RTorrentClient - digest auth header computation", () => {
+  let client: RTorrentClient & {
+    computeDigestHeader(
+      method: string,
+      uri: string,
+      authHeader: string,
+      username: string,
+      password: string
+    ): string;
+  };
+
+  beforeEach(() => {
+    client = new RTorrentClient(testDownloader) as typeof client;
+  });
+
+  it("falls back to MD5 for a classic RFC 2617 challenge with no algorithm", () => {
+    const authHeader = 'Digest realm="rtorrent", nonce="abc123", qop="auth"';
+    const auth = client.computeDigestHeader("POST", "/RPC2", authHeader, "user", "pass");
+
+    expect(auth).toContain('algorithm="MD5"');
+
+    const ha1 = crypto.createHash("md5").update("user:rtorrent:pass").digest("hex");
+    const ha2 = crypto.createHash("md5").update("POST:/RPC2").digest("hex");
+    const responseMatch = auth.match(/response="([a-f0-9]+)"/);
+    const cnonceMatch = auth.match(/cnonce="([a-f0-9]+)"/);
+    expect(responseMatch).not.toBeNull();
+    expect(cnonceMatch).not.toBeNull();
+    const nc = "00000001";
+    const expectedResponse = crypto
+      .createHash("md5")
+      .update(`${ha1}:abc123:${nc}:${cnonceMatch![1]}:auth:${ha2}`)
+      .digest("hex");
+    expect(responseMatch![1]).toBe(expectedResponse);
+  });
+
+  it("uses SHA-256 when the server's challenge declares algorithm=SHA-256 (RFC 7616)", () => {
+    const authHeader = 'Digest realm="rtorrent", nonce="abc123", qop="auth", algorithm="SHA-256"';
+    const auth = client.computeDigestHeader("POST", "/RPC2", authHeader, "user", "pass");
+
+    expect(auth).toContain('algorithm="SHA-256"');
+
+    const ha1 = crypto.createHash("sha256").update("user:rtorrent:pass").digest("hex");
+    const ha2 = crypto.createHash("sha256").update("POST:/RPC2").digest("hex");
+    const responseMatch = auth.match(/response="([a-f0-9]+)"/);
+    const cnonceMatch = auth.match(/cnonce="([a-f0-9]+)"/);
+    expect(responseMatch).not.toBeNull();
+    expect(cnonceMatch).not.toBeNull();
+    const nc = "00000001";
+    const expectedResponse = crypto
+      .createHash("sha256")
+      .update(`${ha1}:abc123:${nc}:${cnonceMatch![1]}:auth:${ha2}`)
+      .digest("hex");
+    expect(responseMatch![1]).toBe(expectedResponse);
   });
 });

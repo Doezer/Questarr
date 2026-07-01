@@ -45,3 +45,6 @@ pr_status.json
 .sonarlint/connectedMode.json
 data_test/
 docker-compose.test.yml
+graphify-out/
+.serena/
+todo.md

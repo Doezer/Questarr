@@ -210,15 +210,7 @@ If you are upgrading from an older version that used PostgreSQL, you need to mig
 
 See [docs/MIGRATION.md](docs/MIGRATION.md) for more details.
 
-#### Software Bill of Materials (SBOM)
-
-Every published image is built with a Software Bill of Materials (SBOM), auto-generated at build time with [Syft](https://github.com/anchore/syft). The SBOM is attached to the image as an attestation and is also published as a downloadable artifact on the corresponding [Deploy Web App workflow run](https://github.com/Doezer/Questarr/actions/workflows/deploy.yml).
-
-To inspect the SBOM attached to an image directly:
-
-```bash
-docker buildx imagetools inspect ghcr.io/doezer/questarr:latest --format '{{ json (index .SBOM "linux/amd64").SPDX }}'
-```
+Every published image ships with a Software Bill of Materials — see [docs/SBOM.md](docs/SBOM.md) for how to get it.
 
 ## Configuration
 

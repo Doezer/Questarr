@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("../config.js", () => ({
   config: {
     database: {
-      url: "postgresql://test:test@localhost/test",
+      url: "postgresql://test:password@localhost/test",
     },
     igdb: {
       clientId: "test-client-id",

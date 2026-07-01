@@ -204,34 +204,34 @@ describe("DatabaseStorage Integration", () => {
       const added = await storage.addIndexer({
         name: "Test Indexer",
         url: "http://localhost:9000",
-        apiKey: "plain-api-key",
+        apiKey: "fixture-value-alpha",
       });
-      expect(added.apiKey).toBe("plain-api-key");
+      expect(added.apiKey).toBe("fixture-value-alpha");
 
       const [rawRow] = await db.select().from(indexers).where(eq(indexers.id, added.id));
-      expect(rawRow.apiKey).not.toBe("plain-api-key");
+      expect(rawRow.apiKey).not.toBe("fixture-value-alpha");
       expect(rawRow.apiKey).toMatch(/^enc:v1:/);
 
       const fetched = await storage.getIndexer(added.id);
-      expect(fetched?.apiKey).toBe("plain-api-key");
+      expect(fetched?.apiKey).toBe("fixture-value-alpha");
 
       const allFetched = await storage.getAllIndexers();
-      expect(allFetched.find((i) => i.id === added.id)?.apiKey).toBe("plain-api-key");
+      expect(allFetched.find((i) => i.id === added.id)?.apiKey).toBe("fixture-value-alpha");
     });
 
     it("re-encrypts the apiKey on updateIndexer", async () => {
       const added = await storage.addIndexer({
         name: "Test Indexer",
         url: "http://localhost:9000",
-        apiKey: "old-key",
+        apiKey: "fixture-value-before",
       });
 
-      const updated = await storage.updateIndexer(added.id, { apiKey: "new-key" });
-      expect(updated?.apiKey).toBe("new-key");
+      const updated = await storage.updateIndexer(added.id, { apiKey: "fixture-value-after" });
+      expect(updated?.apiKey).toBe("fixture-value-after");
 
       const [rawRow] = await db.select().from(indexers).where(eq(indexers.id, added.id));
       expect(rawRow.apiKey).toMatch(/^enc:v1:/);
-      expect(rawRow.apiKey).not.toBe("new-key");
+      expect(rawRow.apiKey).not.toBe("fixture-value-after");
     });
 
     it("reads a legacy plaintext apiKey row unchanged (no migration required)", async () => {
@@ -240,11 +240,11 @@ describe("DatabaseStorage Integration", () => {
         id,
         name: "Legacy Indexer",
         url: "http://localhost:9001",
-        apiKey: "legacy-plaintext-key",
+        apiKey: "fixture-legacy-value",
       });
 
       const fetched = await storage.getIndexer(id);
-      expect(fetched?.apiKey).toBe("legacy-plaintext-key");
+      expect(fetched?.apiKey).toBe("fixture-legacy-value");
     });
 
     it("encrypts a downloader's username/password in the DB but returns them decrypted", async () => {
@@ -252,19 +252,19 @@ describe("DatabaseStorage Integration", () => {
         name: "Test Client",
         type: "qbittorrent",
         url: "http://localhost:8080",
-        username: "admin",
-        password: "hunter2",
+        username: "fixture-login-name",
+        password: "fixture-secret-value",
       });
-      expect(added.username).toBe("admin");
-      expect(added.password).toBe("hunter2");
+      expect(added.username).toBe("fixture-login-name");
+      expect(added.password).toBe("fixture-secret-value");
 
       const [rawRow] = await db.select().from(downloaders).where(eq(downloaders.id, added.id));
       expect(rawRow.username).toMatch(/^enc:v1:/);
       expect(rawRow.password).toMatch(/^enc:v1:/);
 
       const fetched = await storage.getDownloader(added.id);
-      expect(fetched?.username).toBe("admin");
-      expect(fetched?.password).toBe("hunter2");
+      expect(fetched?.username).toBe("fixture-login-name");
+      expect(fetched?.password).toBe("fixture-secret-value");
     });
 
     it("reads a legacy plaintext downloader row unchanged (no migration required)", async () => {
@@ -274,18 +274,18 @@ describe("DatabaseStorage Integration", () => {
         name: "Legacy Client",
         type: "qbittorrent",
         url: "http://localhost:8081",
-        username: "legacy-user",
-        password: "legacy-pass",
+        username: "fixture-legacy-login",
+        password: "fixture-legacy-secret",
       });
 
       const fetched = await storage.getDownloader(id);
-      expect(fetched?.username).toBe("legacy-user");
-      expect(fetched?.password).toBe("legacy-pass");
+      expect(fetched?.username).toBe("fixture-legacy-login");
+      expect(fetched?.password).toBe("fixture-legacy-secret");
     });
 
     it("encrypts apiKey during syncIndexers", async () => {
       const result = await storage.syncIndexers([
-        { name: "Synced Indexer", url: "http://localhost:9002", apiKey: "synced-key" },
+        { name: "Synced Indexer", url: "http://localhost:9002", apiKey: "fixture-synced-value" },
       ]);
       expect(result.added).toBe(1);
 
@@ -296,19 +296,21 @@ describe("DatabaseStorage Integration", () => {
       expect(rawRow.apiKey).toMatch(/^enc:v1:/);
 
       const fetched = await storage.getIndexer(rawRow.id);
-      expect(fetched?.apiKey).toBe("synced-key");
+      expect(fetched?.apiKey).toBe("fixture-synced-value");
     });
 
     it("decrypts apiKey via getEnabledIndexers", async () => {
       await storage.addIndexer({
         name: "Enabled Indexer",
         url: "http://localhost:9003",
-        apiKey: "enabled-key",
+        apiKey: "fixture-enabled-value",
         enabled: true,
       });
 
       const enabled = await storage.getEnabledIndexers();
-      expect(enabled.find((i) => i.url === "http://localhost:9003")?.apiKey).toBe("enabled-key");
+      expect(enabled.find((i) => i.url === "http://localhost:9003")?.apiKey).toBe(
+        "fixture-enabled-value"
+      );
     });
 
     it("decrypts username/password via getEnabledDownloaders", async () => {
@@ -316,15 +318,15 @@ describe("DatabaseStorage Integration", () => {
         name: "Enabled Client",
         type: "qbittorrent",
         url: "http://localhost:8082",
-        username: "enabled-user",
-        password: "enabled-pass",
+        username: "fixture-enabled-login",
+        password: "fixture-enabled-secret",
         enabled: true,
       });
 
       const enabled = await storage.getEnabledDownloaders();
       const found = enabled.find((d) => d.url === "http://localhost:8082");
-      expect(found?.username).toBe("enabled-user");
-      expect(found?.password).toBe("enabled-pass");
+      expect(found?.username).toBe("fixture-enabled-login");
+      expect(found?.password).toBe("fixture-enabled-secret");
     });
 
     it("re-encrypts username/password on updateDownloader", async () => {
@@ -332,16 +334,16 @@ describe("DatabaseStorage Integration", () => {
         name: "Test Client",
         type: "qbittorrent",
         url: "http://localhost:8083",
-        username: "old-user",
-        password: "old-pass",
+        username: "fixture-login-before",
+        password: "fixture-secret-before",
       });
 
       const updated = await storage.updateDownloader(added.id, {
-        username: "new-user",
-        password: "new-pass",
+        username: "fixture-login-after",
+        password: "fixture-secret-after",
       });
-      expect(updated?.username).toBe("new-user");
-      expect(updated?.password).toBe("new-pass");
+      expect(updated?.username).toBe("fixture-login-after");
+      expect(updated?.password).toBe("fixture-secret-after");
 
       const [rawRow] = await db.select().from(downloaders).where(eq(downloaders.id, added.id));
       expect(rawRow.username).toMatch(/^enc:v1:/);

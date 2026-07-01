@@ -950,7 +950,7 @@ describe("API Routes - Extended Coverage", () => {
       });
 
       it("should mask the apiKey", async () => {
-        const mockIndexer = { id: "idx-1", name: "Test Indexer", apiKey: "real-secret-key" };
+        const mockIndexer = { id: "idx-1", name: "Test Indexer", apiKey: "fixture-existing-value" };
         vi.mocked(storage.getIndexer).mockResolvedValue(mockIndexer as unknown as Indexer);
 
         const response = await request(app).get("/api/indexers/idx-1");
@@ -964,7 +964,7 @@ describe("API Routes - Extended Coverage", () => {
         vi.mocked(storage.updateIndexer).mockResolvedValue({
           id: "idx-1",
           name: "Renamed",
-          apiKey: "real-secret-key",
+          apiKey: "fixture-existing-value",
         } as unknown as Indexer);
 
         const response = await request(app)
@@ -982,17 +982,17 @@ describe("API Routes - Extended Coverage", () => {
       it("should update the apiKey when a real value is sent", async () => {
         vi.mocked(storage.updateIndexer).mockResolvedValue({
           id: "idx-1",
-          apiKey: "new-secret-key",
+          apiKey: "fixture-updated-value",
         } as unknown as Indexer);
 
         const response = await request(app)
           .patch("/api/indexers/idx-1")
-          .send({ apiKey: "new-secret-key" });
+          .send({ apiKey: "fixture-updated-value" });
 
         expect(response.status).toBe(200);
         expect(storage.updateIndexer).toHaveBeenCalledWith(
           "idx-1",
-          expect.objectContaining({ apiKey: "new-secret-key" })
+          expect.objectContaining({ apiKey: "fixture-updated-value" })
         );
       });
     });
@@ -1104,7 +1104,7 @@ describe("API Routes - Extended Coverage", () => {
       });
 
       it("should mask the password", async () => {
-        const mockDl = { id: "dl-1", name: "Test DL", password: "real-password" };
+        const mockDl = { id: "dl-1", name: "Test DL", password: "fixture-existing-secret" };
         vi.mocked(storage.getDownloader).mockResolvedValue(mockDl as unknown as Downloader);
 
         const response = await request(app).get("/api/downloaders/dl-1");
@@ -1118,7 +1118,7 @@ describe("API Routes - Extended Coverage", () => {
         vi.mocked(storage.updateDownloader).mockResolvedValue({
           id: "dl-1",
           name: "Renamed",
-          password: "real-password",
+          password: "fixture-existing-secret",
         } as unknown as Downloader);
 
         const response = await request(app)
@@ -1136,17 +1136,17 @@ describe("API Routes - Extended Coverage", () => {
       it("should update the password when a real value is sent", async () => {
         vi.mocked(storage.updateDownloader).mockResolvedValue({
           id: "dl-1",
-          password: "new-password",
+          password: "fixture-updated-secret",
         } as unknown as Downloader);
 
         const response = await request(app)
           .patch("/api/downloaders/dl-1")
-          .send({ password: "new-password" });
+          .send({ password: "fixture-updated-secret" });
 
         expect(response.status).toBe(200);
         expect(storage.updateDownloader).toHaveBeenCalledWith(
           "dl-1",
-          expect.objectContaining({ password: "new-password" })
+          expect.objectContaining({ password: "fixture-updated-secret" })
         );
       });
     });

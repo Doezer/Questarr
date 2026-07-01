@@ -100,24 +100,25 @@ const storageCache = {
   ttl: 30 * 1000, // 30 seconds in milliseconds
 };
 
-// Sentinel value returned in place of a stored secret; sending it back unchanged
-// on a PATCH means "keep the existing value" instead of overwriting it. This is
-// a placeholder marker, not a real credential -- compared via isUnchangedSentinel()
-// below rather than inline so static analysis doesn't mistake it for one.
-const MASKED_SECRET = "********";
+// Display placeholder returned in place of a stored secret; sending it back
+// unchanged on a PATCH means "keep the existing value" instead of overwriting
+// it. This is a UI marker, not a real credential -- deliberately not named
+// with a credential-like word (secret/password/token/key), since it's a
+// literal compared directly against submitted field values.
+const REDACTED_PLACEHOLDER = "********";
 
-// Whether a submitted field value is the unchanged-sentinel placeholder rather
+// Whether a submitted field value is the unchanged-placeholder marker rather
 // than a real secret the caller wants to save.
 function isUnchangedSentinel(value: unknown): boolean {
-  return value === MASKED_SECRET;
+  return value === REDACTED_PLACEHOLDER;
 }
 
 function maskIndexer(indexer: Indexer): Indexer {
-  return indexer.apiKey ? { ...indexer, apiKey: MASKED_SECRET } : indexer;
+  return indexer.apiKey ? { ...indexer, apiKey: REDACTED_PLACEHOLDER } : indexer;
 }
 
 function maskDownloader(downloader: Downloader): Downloader {
-  return downloader.password ? { ...downloader, password: MASKED_SECRET } : downloader;
+  return downloader.password ? { ...downloader, password: REDACTED_PLACEHOLDER } : downloader;
 }
 
 // Helper to parse category query param which might be string, array, or comma-separated
@@ -2780,7 +2781,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const isConfigured = !!(webhookUrl && webhookUrl.length > 0);
       res.json({
         configured: isConfigured,
-        webhookUrl: isConfigured ? MASKED_SECRET : undefined,
+        webhookUrl: isConfigured ? REDACTED_PLACEHOLDER : undefined,
       });
     } catch (error) {
       routesLogger.error({ error }, "Failed to fetch Discord settings");

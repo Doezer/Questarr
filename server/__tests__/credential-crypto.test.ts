@@ -25,12 +25,12 @@ describe("credential-crypto", () => {
   it("round-trips a plaintext value through encrypt/decrypt", async () => {
     const { encryptCredential, decryptCredential } = cryptoModule;
 
-    const ciphertext = await encryptCredential("my-secret-api-key");
-    expect(ciphertext).not.toBe("my-secret-api-key");
+    const ciphertext = await encryptCredential("fixture-plaintext-value");
+    expect(ciphertext).not.toBe("fixture-plaintext-value");
     expect(ciphertext?.startsWith("enc:v1:")).toBe(true);
 
     const plaintext = await decryptCredential(ciphertext);
-    expect(plaintext).toBe("my-secret-api-key");
+    expect(plaintext).toBe("fixture-plaintext-value");
   });
 
   it("produces different ciphertext for the same plaintext on each call (random IV)", async () => {

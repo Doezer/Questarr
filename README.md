@@ -21,6 +21,7 @@
     <a href="https://codecov.io/gh/Doezer/Questarr">
       <img src="https://codecov.io/gh/Doezer/Questarr/branch/main/graph/badge.svg" alt="Codecov">
     </a>
+    <a href="https://www.bestpractices.dev/projects/13450"><img src="https://www.bestpractices.dev/projects/13450/baseline"></a>
   </p>
 
   <p>

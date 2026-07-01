@@ -1789,6 +1789,24 @@ describe("API Routes - Extended Coverage", () => {
         expect(storage.setSystemConfig).not.toHaveBeenCalled();
       });
 
+      it("should reject SSRF payload bypassing string matching", async () => {
+        const response = await request(app)
+          .post("/api/settings/discord")
+          .send({ webhookUrl: "https://discord.com@127.0.0.1/api/webhooks/123/abc" });
+        expect(response.status).toBe(400);
+        expect(response.body.error).toMatch(/invalid/i);
+        expect(storage.setSystemConfig).not.toHaveBeenCalled();
+      });
+
+      it("should reject a non-HTTPS webhook URL", async () => {
+        const response = await request(app)
+          .post("/api/settings/discord")
+          .send({ webhookUrl: "http://discord.com/api/webhooks/123/abc" });
+        expect(response.status).toBe(400);
+        expect(response.body.error).toMatch(/invalid/i);
+        expect(storage.setSystemConfig).not.toHaveBeenCalled();
+      });
+
       it("should clear the webhook URL when empty string is sent", async () => {
         vi.mocked(storage.setSystemConfig).mockResolvedValue(undefined);
         const response = await request(app).post("/api/settings/discord").send({ webhookUrl: "" });

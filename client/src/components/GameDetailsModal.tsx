@@ -47,8 +47,8 @@ import {
   SiPcgamingwiki,
   SiMetacritic,
   SiItchdotio,
-  SiNexusmods,
 } from "react-icons/si";
+import { NexusModsIcon } from "./NexusModsIcon";
 import { io } from "socket.io-client";
 import { useToast } from "@/hooks/use-toast";
 import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
@@ -645,7 +645,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
               <TabsTrigger value="links">Links & Ratings</TabsTrigger>
               {nexusDomain && (
                 <TabsTrigger value="mods">
-                  <SiNexusmods className="h-3.5 w-3.5 text-amber-500 mr-1" />
+                  <NexusModsIcon className="h-3.5 w-3.5 text-amber-500 mr-1" />
                   Mods
                 </TabsTrigger>
               )}
@@ -1070,7 +1070,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                                   rel="noopener noreferrer"
                                 >
                                   <Button variant="outline" size="sm" className="gap-2">
-                                    <SiNexusmods size={16} className="text-amber-500" />
+                                    <NexusModsIcon size={16} className="text-amber-500" />
                                     <span className="hidden sm:inline">NexusMods</span>
                                   </Button>
                                 </a>
@@ -1088,7 +1088,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                                   rel="noopener noreferrer"
                                 >
                                   <Button variant="outline" size="sm" className="gap-2">
-                                    <SiNexusmods size={16} className="text-amber-500" />
+                                    <NexusModsIcon size={16} className="text-amber-500" />
                                     <span className="hidden sm:inline">NexusMods</span>
                                   </Button>
                                 </a>
@@ -1109,7 +1109,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                 <ScrollArea className="h-full">
                   <div className="space-y-4 pr-4 pb-2">
                     <h3 className="font-semibold flex items-center gap-2">
-                      <SiNexusmods className="w-4 h-4 text-amber-500" />
+                      <NexusModsIcon className="w-4 h-4 text-amber-500" />
                       Trending Mods on Nexus Mods
                     </h3>
                     {trendingLoading ? (
@@ -1142,7 +1142,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                                   />
                                 ) : (
                                   <div className="w-20 h-20 flex-shrink-0 bg-muted flex items-center justify-center">
-                                    <SiNexusmods className="w-6 h-6 text-muted-foreground" />
+                                    <NexusModsIcon className="w-6 h-6 text-muted-foreground" />
                                   </div>
                                 )}
                                 <div className="flex-1 min-w-0 py-2 pr-2">

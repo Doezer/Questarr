@@ -1,4 +1,4 @@
-# GOAL.md
+# Goal: project health
 
 Questarr's fitness function. A living document — update it when the score changes.
 

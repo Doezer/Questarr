@@ -21,7 +21,9 @@
     <a href="https://codecov.io/gh/Doezer/Questarr">
       <img src="https://codecov.io/gh/Doezer/Questarr/branch/main/graph/badge.svg" alt="Codecov">
     </a>
-    <a href="https://www.bestpractices.dev/projects/13450"><img src="https://www.bestpractices.dev/projects/13450/baseline"></a>
+    <a href="https://www.bestpractices.dev/projects/13450">
+      <img src="https://www.bestpractices.dev/projects/13450/baseline">
+      </a>
   </p>
 
   <p>
@@ -38,12 +40,12 @@
 
 - **🎮 Game Discovery**: Browse popular games, new releases, and upcoming titles via IGDB integration and xREL.to. Sync your Steam wishlist.
 - **📚 Library Management**: Track your game collection with status indicators (Wanted, Owned, Playing, Completed), user ratings, and Early Access badges.
-- **⬇️ Download Management**: Integrate with indexers (Prowlarr/Torznab/Newsznab), torrent/usenet downloaders (qBittorrent, Transmission, rTorrent / sabnzbd, nzbget), and optionally enable auto-download to get them right when they're there.
+- **⬇️ Download Management**: Integrate with indexers (Prowlarr/Torznab/Newsznab), torrent/usenet downloaders (qBittorrent, Transmission, rTorrent / sabnzbd, nzbget), and optionally enable auto-download to get them right when they're there. Import downloads automatically to your library folder.
 - **🔍 Search & Filter**: Find games by genre, platform, and search terms. Automatically search for added games until available on your indexers. Blacklist unwanted releases and set preferred release groups and platforms.
 - **🗂️ Rich Metadata**: Game details enriched with IGDB, Steam, PCGamingWiki links, and NexusMods pages, as well as trending mods (if applicable).
 - **📊 Stats Page**: Visualize your collection statistics, with Discord sharing support.
 - **📰 RSS Feeds**: Monitor releases from your favorite groups directly within the app.
-- **🔒 Privacy Focused**: No external dependencies (even google fonts are locally hosted) and hardened security (CSP, SSRF protection), as well as SSL support.
+- **🔒 Privacy Focused**: Hardened security (CSP, SSRF protection), as well as SSL support. The repo itself uses OpenSSF Best Practices, Aikido security checks, CodeQL, StepSecurity and SonarCloud.
 - **✨ Clean Interface**: UI optimized for browsing game covers and metadata, with light/dark mode.
 
 ## Screenshots
@@ -137,9 +139,9 @@ Configure indexers, downloaders, and application preferences.
 - **Database**: SQLite with Drizzle ORM
 - **APIs**: IGDB (game metadata), Torznab/Newznab (indexer search), PCGamingWiki, NexusMods, xREL.to
 - **AIs usage**:
-  - Claude and Github Copilot are used for AI-Assisted coding, internal code reviews, PR cleanup (Gemini previously). Eventually automated coding and troubleshooting for small tasks.
-  - Gemini & Codex are used for automated code reviews, and brainstorming from time to time.
-  - Google Jules was previously used for light periodical refactoring
+  - Claude and Github Copilot are used for AI-Assisted coding, internal code reviews, PR cleanup. Eventually automated coding and troubleshooting for small tasks and bug reports.
+  - Gemini & Codex are used for automated code reviews, and brainstorming from time to time (as well as Perplexity for this usage).
+  - Google Jules is used for light periodical refactoring.
 
 ## Installation
 
@@ -222,12 +224,6 @@ You can install Questarr as a Home Assistant add-on from this repository:
 4. Install the **Questarr** add-on and start it.
 5. Open `http://<home-assistant-host>:5000` to access the UI.
 
-Every published image ships with a Software Bill of Materials — see [docs/SBOM.md](docs/SBOM.md) for how to get it.
-
-See [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) for the attack surface analysis and security architecture.
-
-See [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) for how dependencies are selected, obtained, and tracked.
-
 ## Configuration
 
 1. **First-time setup:**
@@ -242,10 +238,6 @@ Once logged-in:
 - Add games!
 
 See [Configuration on the Wiki](https://github.com/Doezer/Questarr/wiki/Configuring-the-application#configure-app-behavior-in-settings--general) for more detailed info.
-
-See [docs/SECRETS.md](docs/SECRETS.md) for details on how API keys, indexer/downloader credentials, and other secrets are stored and managed.
-
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for a system architecture and actor overview, [docs/API.md](docs/API.md) for the REST/Socket.io interface reference, and [docs/SECURITY_ASSESSMENT.md](docs/SECURITY_ASSESSMENT.md) for a security risk assessment.
 
 <details>
 <summary><b>Getting IGDB API Credentials</b></summary>
@@ -344,13 +336,20 @@ See [Troubleshooting on the Wiki](https://github.com/Doezer/Questarr/wiki/Troubl
 - **Discussions**: [GitHub Discussions](https://github.com/Doezer/Questarr/discussions)
 - **Discord**: [Join our Server](https://discord.gg/STkp86wP9F)
 
+## Project Security & Documentation
+
+- Every published image ships with a Software Bill of Materials; see [docs/SBOM.md](docs/SBOM.md) for how to get it.
+- See [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) for the attack surface analysis and security architecture.
+- See [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) for how dependencies are selected, obtained, and tracked.
+- See [docs/SECRETS.md](docs/SECRETS.md) for details on how API keys, indexer/downloader credentials, and other secrets are stored and managed.
+- See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for a system architecture and actor overview, [docs/API.md](docs/API.md) for the REST/Socket.io interface reference, and [docs/SECURITY_ASSESSMENT.md](docs/SECURITY_ASSESSMENT.md) for a security risk assessment.
+
 ## Contributing
 
-See [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md) for guidelines on how to contribute to this project.
+- See [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md) for guidelines on how to contribute to this project.
+- See [MAINTAINERS.md](/MAINTAINERS.md) for the current list of project members with access to sensitive resources.
 
-See [MAINTAINERS.md](/MAINTAINERS.md) for the current list of project members with access to sensitive resources.
-
-## Contributors
+### Contributors
 
 <a href="https://github.com/Doezer/Questarr/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=Doezer/Questarr" />

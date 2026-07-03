@@ -66,8 +66,8 @@ jobs:
 
       - name: Check dependency licenses
         run: |
-          npx --yes license-checker --production --summary \
-            --onlyAllow "MIT;ISC;BSD-2-Clause;BSD-3-Clause;Apache-2.0;CC0-1.0;0BSD;Python-2.0;BlueOak-1.0.0;GPL-2.0;GPL-2.0-only;GPL-3.0;GPL-3.0-only;LGPL-2.1;LGPL-2.1-only;LGPL-3.0;LGPL-3.0-only;MPL-2.0"
+          npx --yes license-checker@25.0.1 --production --summary \
+            --onlyAllow "MIT;ISC;BSD-2-Clause;BSD-3-Clause;Apache-2.0;CC0-1.0;0BSD;Python-2.0;BlueOak-1.0.0;OFL-1.1;Unlicense;GPL-2.0;GPL-2.0-only;GPL-3.0;GPL-3.0-only;LGPL-2.1;LGPL-2.1-only;LGPL-3.0;LGPL-3.0-only;MPL-2.0"
 
   build-and-push:
     runs-on: ubuntu-latest

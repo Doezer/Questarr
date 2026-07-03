@@ -35,7 +35,11 @@ jobs:
         run: pip install semgrep
 
       # Blocking policy and suppression process documented in
-      # docs/VULNERABILITY_MANAGEMENT.md (OSPS-VM-06.02).
+      # docs/VULNERABILITY_MANAGEMENT.md (OSPS-VM-06.02). Scan is run
+      # unfiltered (all severities) so WARNING/INFO findings still reach the
+      # Code Scanning tab; the ERROR-only blocking gate is enforced as a
+      # separate step below rather than by filtering the scan itself, so it
+      # doesn't strip lower-severity findings from the SARIF upload.
       - name: Run Semgrep SAST scan
         run: |
           semgrep scan \
@@ -45,9 +49,8 @@ jobs:
             --config p/javascript \
             --config p/typescript \
             --config p/react \
-            --severity ERROR \
-            --error \
-            --sarif --output semgrep.sarif \
+            --json-output semgrep.json \
+            --sarif-output semgrep.sarif \
             .
 
       - name: Upload SARIF to code scanning
@@ -55,3 +58,12 @@ jobs:
         uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
         with:
           sarif_file: semgrep.sarif
+
+      - name: Enforce blocking policy (ERROR-severity findings fail the build)
+        run: |
+          error_count=$(jq '[.results[] | select(.extra.severity == "ERROR")] | length' semgrep.json)
+          echo "ERROR-severity findings: $error_count"
+          if [ "$error_count" -gt 0 ]; then
+            jq -r '.results[] | select(.extra.severity == "ERROR") | "\(.path):\(.start.line)  \(.check_id)"' semgrep.json
+            exit 1
+          fi

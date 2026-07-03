@@ -698,8 +698,9 @@ describe("SynologyDownloadStationClient", () => {
 
       const createCall = fetchMock.mock.calls[2];
       expect(createCall[0]).toContain("DownloadStation/task.cgi");
-      expect(createCall[1].body.toString()).toContain("uri=magnet%3A%3Fxt%3Durn%3Abtih");
-      expect(createCall[1].body.toString()).toContain("destination=video%2Fdownloads");
+      expect(createCall[0]).toContain("uri=magnet%3A%3Fxt%3Durn%3Abtih");
+      expect(createCall[0]).toContain("destination=video%2Fdownloads");
+      expect(createCall[1].method).toBe("GET");
       expect(result).toEqual({
         success: true,
         id: "dbid_123",

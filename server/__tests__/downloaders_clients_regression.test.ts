@@ -498,6 +498,8 @@ describe("downloader client regression coverage", () => {
             httpMethod?: "GET" | "POST";
             params?: Record<string, string | number | boolean | undefined>;
             body?: URLSearchParams | FormData;
+            sidInQuery?: boolean;
+            appendFileLast?: (formData: FormData) => void;
           }
         ) => Promise<{ success: boolean; data?: { task_id?: string[] } }>;
       },
@@ -546,12 +548,19 @@ describe("downloader client regression coverage", () => {
       downloadType: "torrent",
     });
     const uploadOptions = requestTaskApiSpy.mock.calls[0]?.[1];
-    const uploadBody = uploadOptions?.body as FormData;
 
     expect(result).toMatchObject({ success: true, id: "dbid_1" });
-    expect(uploadBody.get("destination")).toBe("/volume1/downloads");
-    expect(uploadBody.get("type")).toBe("bt");
+    expect(uploadOptions?.params).toMatchObject({
+      type: '"file"',
+      file: '["fileData"]',
+      create_list: false,
+      destination: '"/volume1/downloads"',
+    });
     expect(uploadOptions?.httpMethod).toBe("POST");
+    expect(uploadOptions?.sidInQuery).toBe(true);
+    const uploadBody = new FormData();
+    uploadOptions?.appendFileLast?.(uploadBody);
+    expect([...uploadBody.keys()]).toEqual(["fileData"]);
 
     await expect(client.getFreeSpace()).resolves.toBe(8192);
     expect(safeFetch).toHaveBeenCalled();

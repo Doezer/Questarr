@@ -428,4 +428,205 @@ describe("synology remaining regression coverage", () => {
     await expect(client.getFreeSpace()).resolves.toBe(5678);
     await expect(client.getFreeSpace()).resolves.toBe(0);
   });
+
+  it("sends a GET create request with the correct query params per API version for magnet task creation", async () => {
+    const client = new SynologyDownloadStationClient(createDownloader());
+    const privateClient = client as unknown as {
+      apiInfo: Record<string, { path: string; minVersion: number; maxVersion: number }> | null;
+      ensureApiInfo(): Promise<void>;
+      getTaskApiDescriptor(): { apiName: string; descriptor?: unknown };
+      requestTaskApi<T>(
+        methodName: string,
+        options?: {
+          httpMethod?: "GET" | "POST";
+          params?: Record<string, string | number | boolean | undefined>;
+          body?: URLSearchParams | FormData;
+        }
+      ): Promise<T>;
+    };
+
+    const magnetUrl = "magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12";
+    vi.spyOn(privateClient, "ensureApiInfo").mockResolvedValue(undefined);
+    const requestTaskApiSpy = vi
+      .spyOn(privateClient, "requestTaskApi")
+      .mockResolvedValue({ success: true, data: { task_id: ["task-1"] } } as never);
+
+    vi.spyOn(privateClient, "getTaskApiDescriptor").mockReturnValue({
+      apiName: "SYNO.DownloadStation2.Task",
+    });
+    await client.addDownload({ url: magnetUrl, title: "DS2 magnet" });
+    expect(requestTaskApiSpy).toHaveBeenLastCalledWith("create", {
+      httpMethod: "GET",
+      params: {
+        type: "url",
+        url: magnetUrl,
+        create_list: false,
+        destination: "/volume1/downloads",
+      },
+    });
+
+    vi.spyOn(privateClient, "getTaskApiDescriptor").mockReturnValue({
+      apiName: "SYNO.DownloadStation.Task",
+    });
+    await client.addDownload({ url: magnetUrl, title: "Legacy magnet" });
+    expect(requestTaskApiSpy).toHaveBeenLastCalledWith("create", {
+      httpMethod: "GET",
+      params: {
+        uri: magnetUrl,
+        destination: "/volume1/downloads",
+      },
+    });
+  });
+
+  it("uploads files with the file field appended last and the correct DS2/legacy multipart shape", async () => {
+    const client = new SynologyDownloadStationClient(createDownloader());
+    const privateClient = client as unknown as {
+      apiInfo: Record<string, { path: string; minVersion: number; maxVersion: number }> | null;
+      ensureApiInfo(): Promise<void>;
+      getTaskApiDescriptor(): { apiName: string; descriptor?: unknown };
+      requestTaskApi<T>(
+        methodName: string,
+        options?: {
+          httpMethod?: "GET" | "POST";
+          params?: Record<string, string | number | boolean | undefined>;
+          body?: URLSearchParams | FormData;
+          sidInQuery?: boolean;
+          appendFileLast?: (formData: FormData) => void;
+        }
+      ): Promise<T>;
+    };
+
+    vi.spyOn(privateClient, "ensureApiInfo").mockResolvedValue(undefined);
+    const requestTaskApiSpy = vi
+      .spyOn(privateClient, "requestTaskApi")
+      .mockResolvedValue({ success: true, data: { task_id: ["task-file"] } } as never);
+
+    const torrentUrl = "http://indexer.local/release.torrent";
+    fetchWithMagnetDetectionMock.mockResolvedValue({
+      response: {
+        ok: true,
+        headers: new Headers({
+          "content-disposition": 'attachment; filename="release.torrent"',
+          "content-type": "application/x-bittorrent",
+        }),
+        arrayBuffer: async () => new TextEncoder().encode("torrent-bytes").buffer,
+      } as unknown as Response,
+    });
+
+    vi.spyOn(privateClient, "getTaskApiDescriptor").mockReturnValue({
+      apiName: "SYNO.DownloadStation2.Task",
+    });
+    await client.addDownload({ url: torrentUrl, title: "DS2 file" });
+
+    let call = requestTaskApiSpy.mock.calls.at(-1)!;
+    expect(call[0]).toBe("create");
+    expect(call[1]).toMatchObject({
+      httpMethod: "POST",
+      sidInQuery: true,
+      params: {
+        type: '"file"',
+        file: '["fileData"]',
+        create_list: false,
+        destination: '"/volume1/downloads"',
+      },
+    });
+    let formData = new FormData();
+    call[1]!.appendFileLast!(formData);
+    expect([...formData.keys()]).toEqual(["fileData"]);
+
+    vi.spyOn(privateClient, "getTaskApiDescriptor").mockReturnValue({
+      apiName: "SYNO.DownloadStation.Task",
+    });
+    await client.addDownload({ url: torrentUrl, title: "Legacy file" });
+
+    call = requestTaskApiSpy.mock.calls.at(-1)!;
+    expect(call[1]).toMatchObject({
+      httpMethod: "POST",
+      sidInQuery: false,
+      params: {
+        destination: "/volume1/downloads",
+      },
+    });
+    formData = new FormData();
+    call[1]!.appendFileLast!(formData);
+    expect([...formData.keys()]).toEqual(["file"]);
+  });
+
+  it("appends the file field last in the real multipart body built by requestApi", async () => {
+    const client = new SynologyDownloadStationClient(createDownloader()) as unknown as {
+      apiInfo: Record<string, { path: string; minVersion: number; maxVersion: number }> | null;
+      sessionId: string | null;
+      authenticate(force?: boolean): Promise<void>;
+      fetchJson<T>(url: string, init: RequestInit, context: string): Promise<T>;
+      requestApi<T>(
+        apiName: string,
+        descriptor: { path: string; minVersion: number; maxVersion: number },
+        preferredVersion: number,
+        methodName: string,
+        options?: {
+          httpMethod?: "GET" | "POST";
+          params?: Record<string, string | number | boolean | undefined>;
+          body?: URLSearchParams | FormData;
+          sidInQuery?: boolean;
+          appendFileLast?: (formData: FormData) => void;
+        }
+      ): Promise<T>;
+    };
+
+    client.apiInfo = {
+      "SYNO.API.Auth": { path: "auth.cgi", minVersion: 1, maxVersion: 7 },
+      "SYNO.DownloadStation2.Task": { path: "entry.cgi", minVersion: 1, maxVersion: 2 },
+      "SYNO.DownloadStation.Task": { path: "task.cgi", minVersion: 1, maxVersion: 3 },
+    };
+    vi.spyOn(client, "authenticate").mockResolvedValue(undefined);
+    client.sessionId = "sid-real";
+
+    const fetchJsonSpy = vi
+      .spyOn(client, "fetchJson")
+      .mockResolvedValue({ success: true, data: { task_id: ["task-order"] } });
+
+    await client.requestApi(
+      "SYNO.DownloadStation2.Task",
+      { path: "entry.cgi", minVersion: 1, maxVersion: 2 },
+      2,
+      "create",
+      {
+        httpMethod: "POST",
+        params: { type: '"file"', file: '["fileData"]', create_list: false },
+        body: new FormData(),
+        sidInQuery: true,
+        appendFileLast: (formData) => {
+          formData.append("fileData", new Blob(["bytes"]), "release.torrent");
+        },
+      }
+    );
+
+    let [url, init] = fetchJsonSpy.mock.calls.at(-1)!;
+    let keys = [...(init.body as FormData).keys()];
+    expect(keys[0]).toBe("api");
+    expect(keys.at(-1)).toBe("fileData");
+    expect(keys).not.toContain("_sid");
+    expect(url).toContain("_sid=sid-real");
+
+    fetchJsonSpy.mockClear();
+    await client.requestApi(
+      "SYNO.DownloadStation.Task",
+      { path: "task.cgi", minVersion: 1, maxVersion: 3 },
+      2,
+      "create",
+      {
+        httpMethod: "POST",
+        body: new FormData(),
+        appendFileLast: (formData) => {
+          formData.append("file", new Blob(["bytes"]), "release.torrent");
+        },
+      }
+    );
+
+    [url, init] = fetchJsonSpy.mock.calls.at(-1)!;
+    keys = [...(init.body as FormData).keys()];
+    expect(keys[0]).toBe("api");
+    expect(keys.at(-1)).toBe("file");
+    expect(keys).toContain("_sid");
+  });
 });

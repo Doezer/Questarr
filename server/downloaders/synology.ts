@@ -354,11 +354,20 @@ export class SynologyDownloadStationClient implements DownloaderClient {
       body?: URLSearchParams | FormData;
       retryOnAuthFailure?: boolean;
       requiresAuth?: boolean;
+      /**
+       * Synology's DS2 task API (undocumented) sends `_sid` as a query param even on POST,
+       * keeping it out of the multipart body so a trailing file field stays last. See
+       * docs/synology-download-station-api-notes.md for why this only applies to DS2.
+       */
+      sidInQuery?: boolean;
+      /** Appends a field (e.g. the uploaded file) to a FormData body after all other params. */
+      appendFileLast?: (formData: FormData) => void;
     } = {}
   ): Promise<T> {
     const httpMethod = options.httpMethod ?? "GET";
     const requiresAuth = options.requiresAuth ?? true;
     const retryOnAuthFailure = options.retryOnAuthFailure ?? true;
+    const sidInQuery = options.sidInQuery ?? false;
 
     if (requiresAuth) {
       await this.authenticate();
@@ -373,11 +382,15 @@ export class SynologyDownloadStationClient implements DownloaderClient {
       ...(options.params ?? {}),
     };
 
-    if (requiresAuth) {
+    if (requiresAuth && !sidInQuery) {
       params._sid = this.sessionId ?? undefined;
     }
 
     const url = this.getWebApiUrl(descriptor.path);
+    const postUrl =
+      requiresAuth && sidInQuery && this.sessionId
+        ? `${url}?${new URLSearchParams({ _sid: this.sessionId }).toString()}`
+        : url;
     let body: BodyInit | undefined;
     const headers: Record<string, string> = {};
 
@@ -415,6 +428,7 @@ export class SynologyDownloadStationClient implements DownloaderClient {
     if (options.body instanceof FormData) {
       const formData = options.body;
       this.appendApiParams(formData, params);
+      options.appendFileLast?.(formData);
       body = formData;
     } else {
       const formBody =
@@ -425,7 +439,7 @@ export class SynologyDownloadStationClient implements DownloaderClient {
     }
 
     const response = await this.fetchJson<T>(
-      url,
+      postUrl,
       { method: httpMethod, body, headers },
       `Synology ${apiName}.${methodName} failed`
     );
@@ -458,11 +472,20 @@ export class SynologyDownloadStationClient implements DownloaderClient {
       params?: Record<string, string | number | boolean | undefined>;
       body?: URLSearchParams | FormData;
       retryOnAuthFailure?: boolean;
+      sidInQuery?: boolean;
+      appendFileLast?: (formData: FormData) => void;
+      /**
+       * Overrides the default API version. Prowlarr's verified contract uses v2 for legacy
+       * (SYNO.DownloadStation.Task) file uploads specifically, vs v3 for its other legacy
+       * calls. See docs/synology-download-station-api-notes.md.
+       */
+      preferredVersion?: number;
     } = {}
   ): Promise<T> {
     await this.ensureApiInfo();
     const { apiName, descriptor } = this.getTaskApiDescriptor();
-    const preferredVersion = apiName === "SYNO.DownloadStation2.Task" ? 2 : 3;
+    const preferredVersion =
+      options.preferredVersion ?? (apiName === "SYNO.DownloadStation2.Task" ? 2 : 3);
 
     return this.requestApi<T>(apiName, descriptor, preferredVersion, methodName, options);
   }
@@ -684,20 +707,21 @@ export class SynologyDownloadStationClient implements DownloaderClient {
       const isMagnet = request.url.startsWith("magnet:");
 
       const createUrlDownload = async (downloadUrl: string) => {
+        const trimmedDestination = destination?.trim();
+        const isDs2 = apiName === "SYNO.DownloadStation2.Task";
         const response = await this.requestTaskApi<SynologyTaskResponse>("create", {
-          httpMethod: "POST",
-          params:
-            apiName === "SYNO.DownloadStation2.Task"
-              ? {
-                  type: "url",
-                  url: JSON.stringify([downloadUrl]),
-                  create_list: false,
-                  destination,
-                }
-              : {
-                  uri: downloadUrl,
-                  destination,
-                },
+          httpMethod: "GET",
+          params: isDs2
+            ? {
+                type: "url",
+                url: downloadUrl,
+                create_list: false,
+                ...(trimmedDestination ? { destination: trimmedDestination } : {}),
+              }
+            : {
+                uri: downloadUrl,
+                ...(trimmedDestination ? { destination: trimmedDestination } : {}),
+              },
         });
 
         const id = response.data?.task_id?.[0];
@@ -761,21 +785,34 @@ export class SynologyDownloadStationClient implements DownloaderClient {
     const fileBlob = new Blob([fileContents], {
       type: response.headers.get("content-type") || "application/octet-stream",
     });
-    const formData = new FormData();
-    formData.append("file", fileBlob, fileName);
 
-    if (destination) {
-      formData.append("destination", destination);
-    }
-
-    if (apiName === "SYNO.DownloadStation2.Task") {
-      const isNzb = request.downloadType === "usenet" || fileName.toLowerCase().endsWith(".nzb");
-      formData.append("type", isNzb ? "nzb" : "bt");
-    }
+    const trimmedDestination = destination?.trim();
+    const isDs2 = apiName === "SYNO.DownloadStation2.Task";
+    // DS2's undocumented multipart contract expects type/file/destination as JSON-encoded
+    // string literals, with the actual bytes uploaded under "fileData" (referenced by the
+    // separate "file" param) rather than under "file" directly. See
+    // docs/synology-download-station-api-notes.md.
+    const fileFieldName = isDs2 ? "fileData" : "file";
+    const params: Record<string, string | number | boolean | undefined> = isDs2
+      ? {
+          type: '"file"',
+          file: '["fileData"]',
+          create_list: false,
+          ...(trimmedDestination ? { destination: JSON.stringify(trimmedDestination) } : {}),
+        }
+      : {
+          ...(trimmedDestination ? { destination: trimmedDestination } : {}),
+        };
 
     const uploadResponse = await this.requestTaskApi<SynologyTaskResponse>("create", {
       httpMethod: "POST",
-      body: formData,
+      params,
+      body: new FormData(),
+      sidInQuery: isDs2,
+      preferredVersion: isDs2 ? undefined : 2,
+      appendFileLast: (formData) => {
+        formData.append(fileFieldName, fileBlob, fileName);
+      },
     });
 
     return {

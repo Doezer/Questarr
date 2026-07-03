@@ -51,3 +51,8 @@ updates:
       all-actions:
         patterns:
           - "*"
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: daily

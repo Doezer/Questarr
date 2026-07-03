@@ -14,6 +14,8 @@ See [docs/THREAT_MODEL.md](../docs/THREAT_MODEL.md) for the system's attack surf
 
 For a full inventory of how secrets and credentials are stored, accessed, and rotated throughout the codebase, see [docs/SECRETS.md](../docs/SECRETS.md).
 
+For the policy governing dependency vulnerability/license findings (SCA) and static analysis findings (SAST) — remediation thresholds, triage process, and the automated status checks that enforce them before release — see [docs/VULNERABILITY_MANAGEMENT.md](../docs/VULNERABILITY_MANAGEMENT.md).
+
 ## Deployment Security Guide
 
 When deploying this application, please ensure you follow these security best practices:

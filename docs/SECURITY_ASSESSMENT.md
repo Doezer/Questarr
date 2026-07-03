@@ -9,9 +9,14 @@ cover adjacent ground and are linked rather than duplicated here:
   escalation policy.
 - [`docs/SECRETS.md`](SECRETS.md) — a full inventory of every secret/
   credential in the system, how each is stored, and how it's rotated.
+- [`docs/VEX.md`](/docs/VEX.md) — exploitability assessments for known
+  vulnerabilities (CVE/GHSA) reported against third-party components
+  Questarr ships. This document covers first-party design risk; VEX covers
+  third-party component vulnerabilities.
 
-Read those two first for the complete credential and access-control picture;
-this document analyzes _risk_, not inventory.
+Read those first for the complete credential, access-control, and
+component-vulnerability picture; this document analyzes _risk_, not
+inventory.
 
 **Update policy:** revisit this register whenever a PR touches
 authentication, SSRF protections, credential storage, rate limiting, or adds
@@ -48,6 +53,10 @@ this lighter table format matches the pragmatic tone of the rest of `docs/`.
   detail: [`docs/SECRETS.md`](SECRETS.md).
 - Vulnerability disclosure process and repository/infrastructure access
   escalation policy: [`.github/SECURITY.md`](../.github/SECURITY.md).
+- Exploitability assessments for known vulnerabilities in third-party
+  dependencies and the container base image (satisfies OSPS-VM-04.02):
+  [`docs/VEX.md`](/docs/VEX.md) and the feed itself at
+  [`security/vex/questarr.openvex.json`](/security/vex/questarr.openvex.json).
 - System actors and data-flow diagrams referenced throughout this register:
   [`docs/ARCHITECTURE.md`](ARCHITECTURE.md).
 - Formal attack-surface analysis (trust boundaries, high-risk data flows,

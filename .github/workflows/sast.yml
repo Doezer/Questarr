@@ -1,0 +1,69 @@
+name: SAST
+
+on:
+  push:
+    branches: [main, release/*]
+  pull_request:
+    branches: [main, release/*]
+  # Allow manual trigger
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  semgrep:
+    name: semgrep
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6.2.0
+
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+
+      - name: Install Semgrep
+        run: pip install semgrep
+
+      # Blocking policy and suppression process documented in
+      # docs/VULNERABILITY_MANAGEMENT.md (OSPS-VM-06.02). Scan is run
+      # unfiltered (all severities) so WARNING/INFO findings still reach the
+      # Code Scanning tab; the ERROR-only blocking gate is enforced as a
+      # separate step below rather than by filtering the scan itself, so it
+      # doesn't strip lower-severity findings from the SARIF upload.
+      - name: Run Semgrep SAST scan
+        run: |
+          semgrep scan \
+            --config p/security-audit \
+            --config p/secrets \
+            --config p/owasp-top-ten \
+            --config p/javascript \
+            --config p/typescript \
+            --config p/react \
+            --json-output semgrep.json \
+            --sarif-output semgrep.sarif \
+            .
+
+      - name: Upload SARIF to code scanning
+        if: ${{ !cancelled() }}
+        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+        with:
+          sarif_file: semgrep.sarif
+
+      - name: Enforce blocking policy (ERROR-severity findings fail the build)
+        run: |
+          error_count=$(jq '[.results[] | select(.extra.severity == "ERROR")] | length' semgrep.json)
+          echo "ERROR-severity findings: $error_count"
+          if [ "$error_count" -gt 0 ]; then
+            jq -r '.results[] | select(.extra.severity == "ERROR") | "\(.path):\(.start.line)  \(.check_id)"' semgrep.json
+            exit 1
+          fi

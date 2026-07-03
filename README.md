@@ -215,7 +215,7 @@ Every published image ships with a Software Bill of Materials — see [docs/SBOM
 
 See [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) for the attack surface analysis and security architecture.
 
-See [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) for how dependencies are selected, obtained, and tracked.
+See [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) for how dependencies are selected, obtained, and tracked, and [docs/VULNERABILITY_MANAGEMENT.md](/docs/VULNERABILITY_MANAGEMENT.md) for the SCA/SAST remediation policy and release gates.
 
 ## Configuration
 

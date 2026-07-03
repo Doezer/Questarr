@@ -16,6 +16,8 @@ For a full inventory of how secrets and credentials are stored, accessed, and ro
 
 Vulnerabilities reported against a component Questarr ships (an npm dependency or the container base image) that do not actually affect the project are tracked, with an exploitability justification, in the [VEX feed](/docs/VEX.md) rather than silently ignored.
 
+For the policy governing dependency vulnerability/license findings (SCA) and static analysis findings (SAST) — remediation thresholds, triage process, and the automated status checks that enforce them before release — see [docs/VULNERABILITY_MANAGEMENT.md](/docs/VULNERABILITY_MANAGEMENT.md).
+
 ## Deployment Security Guide
 
 When deploying this application, please ensure you follow these security best practices:

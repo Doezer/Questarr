@@ -28,7 +28,7 @@ may surface CVEs that don't actually affect Questarr — e.g. an OS package in
 the `node:22-alpine` base image that's present but never executed. Questarr
 publishes exploitability assessments for exactly this scenario as an
 [OpenVEX](https://github.com/openvex/spec) feed; see
-[docs/VEX.md](VEX.md) for the format and
-[`security/vex/questarr.openvex.json`](../security/vex/questarr.openvex.json)
+[docs/VEX.md](/docs/VEX.md) for the format and
+[`security/vex/questarr.openvex.json`](/security/vex/questarr.openvex.json)
 for the feed itself. Pass it to Trivy with `--vex` to suppress findings
 already assessed as not affecting the project.

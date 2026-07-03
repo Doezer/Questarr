@@ -14,7 +14,7 @@ See [docs/THREAT_MODEL.md](../docs/THREAT_MODEL.md) for the system's attack surf
 
 For a full inventory of how secrets and credentials are stored, accessed, and rotated throughout the codebase, see [docs/SECRETS.md](../docs/SECRETS.md).
 
-Vulnerabilities reported against a component Questarr ships (an npm dependency or the container base image) that do not actually affect the project are tracked, with an exploitability justification, in the [VEX feed](../docs/VEX.md) rather than silently ignored.
+Vulnerabilities reported against a component Questarr ships (an npm dependency or the container base image) that do not actually affect the project are tracked, with an exploitability justification, in the [VEX feed](/docs/VEX.md) rather than silently ignored.
 
 ## Deployment Security Guide
 

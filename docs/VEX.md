@@ -10,10 +10,10 @@ rather than silently ignored.
 
 This is distinct from two adjacent documents:
 
-- [`docs/SBOM.md`](SBOM.md) — the inventory of components (what's shipped).
+- [`docs/SBOM.md`](/docs/SBOM.md) — the inventory of components (what's shipped).
   The VEX feed makes exploitability statements _about_ entries in that
   inventory.
-- [`docs/SECURITY_ASSESSMENT.md`](SECURITY_ASSESSMENT.md) — a risk register
+- [`docs/SECURITY_ASSESSMENT.md`](/docs/SECURITY_ASSESSMENT.md) — a risk register
   of Questarr's _own_ architectural/design risks (e.g. session handling,
   SSRF surface). VEX only covers vulnerabilities in third-party
   dependencies (npm packages and the `node:22-alpine` base image), identified
@@ -63,7 +63,7 @@ that turns out not to apply.
 
 ## How the feed is generated and kept current
 
-1. **Scanning** — [`.github/workflows/vulnerability-scan.yml`](../.github/workflows/vulnerability-scan.yml)
+1. **Scanning** — [`.github/workflows/vulnerability-scan.yml`](/.github/workflows/vulnerability-scan.yml)
    runs on every push to `main`, on a weekly schedule, and on demand. It:
    - Runs `npm audit --omit=dev --json` against the committed
      `package-lock.json`.
@@ -118,4 +118,4 @@ Revisit this document, and add/update statements in the feed, whenever:
   justification no longer holds (re-verify or flip the statement to
   `fixed`).
 - The base image (`node:22-alpine`) digest pinned in
-  [`Dockerfile`](../Dockerfile) is bumped.
+  [`Dockerfile`](/Dockerfile) is bumped.

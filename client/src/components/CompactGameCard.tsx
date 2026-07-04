@@ -345,7 +345,7 @@ const CompactGameCard = ({
         )}
 
         {/* Title */}
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-center gap-2 min-w-0 overflow-hidden">
           <h3
             className={cn(
               "font-medium truncate",

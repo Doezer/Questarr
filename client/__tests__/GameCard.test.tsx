@@ -44,6 +44,7 @@ vi.mock("lucide-react", () => ({
   ChevronUp: () => <div data-testid="icon-chevron-up" />,
   ChevronLeft: () => <div data-testid="icon-chevron-left" />,
   ChevronRight: () => <div data-testid="icon-chevron-right" />,
+  Archive: () => <div data-testid="icon-archive" />,
 }));
 
 const mockGame = {

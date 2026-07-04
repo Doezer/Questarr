@@ -91,6 +91,8 @@ vi.mock("@/components/ui/tooltip", () => ({
 vi.mock("../src/components/StatusBadge", () => ({
   __esModule: true,
   default: ({ status }: { status: string }) => <span>{status}</span>,
+  getStatusLabel: (status: string) => status,
+  getStatusVisual: () => ({ Icon: null, iconColorClass: "" }),
 }));
 
 vi.mock("../src/components/DownloadIndicator", () => ({

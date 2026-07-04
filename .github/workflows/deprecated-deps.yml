@@ -1,0 +1,48 @@
+name: Deprecated Dependencies
+
+on:
+  # Weekly: catches a dependency that's been stuck deprecated becoming fixable upstream.
+  # (Detection reads the committed lockfile, so this can't catch a package becoming newly
+  # deprecated - that only shows up once the lockfile itself is regenerated.)
+  schedule:
+    - cron: "17 7 * * 1"
+  # On these paths a new "deprecated" entry in the updated lockfile is genuinely caused by the diff.
+  pull_request:
+    branches: [main, release/*]
+    paths:
+      - "package.json"
+      - "package-lock.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check-deprecated:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6.2.0
+
+      - name: Setup Node.js 26.x
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 26.x
+          cache: "npm"
+
+      # check-deprecated-deps.mjs only reads the lockfile plus `npm view`/`npm ls`; no native
+      # modules need building, so lifecycle scripts are skipped here.
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      # Fails if a deprecated dependency (direct or transitive) now has a non-deprecated
+      # newer version available. See scripts/check-deprecated-deps.mjs for what this can
+      # and can't detect.
+      - name: Check for actionable deprecated dependencies
+        run: npm run check:deprecated

@@ -658,6 +658,127 @@ export class SynologyDownloadStationClient implements DownloaderClient {
     return request.downloadPath || this.downloader.downloadPath || undefined;
   }
 
+  /**
+   * DS2's create-task request shape is unconfirmed against a real device (see
+   * docs/synology-download-station-api-notes.md) and two plausible sources disagree: Prowlarr's
+   * proxy (GET, bare values) vs. the dvcol/synology-download browser extension (POST, JSON-quoted
+   * values, `_sid` in the query string only). Rather than guess, we try each variant in order and
+   * log which one is attempted/succeeds/fails, so a real-device test run tells us definitively
+   * which contract this Synology's DSM version actually expects.
+   */
+  private buildDs2UrlCreateVariants(
+    downloadUrl: string,
+    trimmedDestination: string | undefined
+  ): {
+    name: string;
+    options: {
+      httpMethod: "GET" | "POST";
+      sidInQuery?: boolean;
+      params: Record<string, string | number | boolean | undefined>;
+    };
+  }[] {
+    return [
+      {
+        // Prowlarr's proxy contract (current default, verified byte-for-byte against Prowlarr's
+        // live client, but not yet against a real Synology device).
+        name: "ds2-get-bare",
+        options: {
+          httpMethod: "GET",
+          params: {
+            type: "url",
+            url: downloadUrl,
+            create_list: false,
+            ...(trimmedDestination ? { destination: trimmedDestination } : {}),
+          },
+        },
+      },
+      {
+        // dvcol/synology-download extension contract (a live, purpose-built Synology Download
+        // Station client). Mirrors our own DS2 file-upload path: `_sid` in the query string only,
+        // POST body values JSON-encoded.
+        name: "ds2-post-json-sid-query",
+        options: {
+          httpMethod: "POST",
+          sidInQuery: true,
+          params: {
+            type: '"url"',
+            url: JSON.stringify([downloadUrl]),
+            create_list: false,
+            ...(trimmedDestination ? { destination: JSON.stringify(trimmedDestination) } : {}),
+          },
+        },
+      },
+      {
+        // Superseded Phase 1 contract (see docs) — POST with the legacy `uri` field name, no JSON
+        // quoting. Kept as a last-resort fallback since it was confirmed to fix the originally
+        // reported error 120, just via a different field name than Prowlarr's.
+        name: "ds2-post-uri-bare",
+        options: {
+          httpMethod: "POST",
+          params: {
+            type: "url",
+            uri: downloadUrl,
+            ...(trimmedDestination ? { destination: trimmedDestination } : {}),
+          },
+        },
+      },
+    ];
+  }
+
+  private async createUrlTask(
+    apiName: string,
+    downloadUrl: string,
+    trimmedDestination: string | undefined
+  ): Promise<SynologyTaskResponse> {
+    if (apiName !== "SYNO.DownloadStation2.Task") {
+      return this.requestTaskApi<SynologyTaskResponse>("create", {
+        httpMethod: "GET",
+        params: {
+          uri: downloadUrl,
+          ...(trimmedDestination ? { destination: trimmedDestination } : {}),
+        },
+      });
+    }
+
+    const variants = this.buildDs2UrlCreateVariants(downloadUrl, trimmedDestination);
+    let lastError: unknown;
+
+    for (const variant of variants) {
+      downloadersLogger.info(
+        {
+          downloaderId: this.downloader.id,
+          variant: variant.name,
+          httpMethod: variant.options.httpMethod,
+          params: variant.options.params,
+        },
+        "Trying Synology DS2 create-task request variant"
+      );
+
+      try {
+        const response = await this.requestTaskApi<SynologyTaskResponse>("create", variant.options);
+        downloadersLogger.info(
+          { downloaderId: this.downloader.id, variant: variant.name },
+          "Synology DS2 create-task variant succeeded"
+        );
+        return response;
+      } catch (error) {
+        lastError = error;
+        downloadersLogger.warn(
+          {
+            downloaderId: this.downloader.id,
+            variant: variant.name,
+            error: error instanceof Error ? error.message : error,
+          },
+          "Synology DS2 create-task variant failed, trying next fallback"
+        );
+      }
+    }
+
+    throw lastError instanceof Error
+      ? lastError
+      : new Error("All Synology DS2 create-task variants failed");
+  }
+
   async testConnection(): Promise<{ success: boolean; message: string }> {
     try {
       await this.authenticate();
@@ -708,21 +829,7 @@ export class SynologyDownloadStationClient implements DownloaderClient {
 
       const createUrlDownload = async (downloadUrl: string) => {
         const trimmedDestination = destination?.trim();
-        const isDs2 = apiName === "SYNO.DownloadStation2.Task";
-        const response = await this.requestTaskApi<SynologyTaskResponse>("create", {
-          httpMethod: "GET",
-          params: isDs2
-            ? {
-                type: "url",
-                url: downloadUrl,
-                create_list: false,
-                ...(trimmedDestination ? { destination: trimmedDestination } : {}),
-              }
-            : {
-                uri: downloadUrl,
-                ...(trimmedDestination ? { destination: trimmedDestination } : {}),
-              },
-        });
+        const response = await this.createUrlTask(apiName, downloadUrl, trimmedDestination);
 
         const id = response.data?.task_id?.[0];
         return {

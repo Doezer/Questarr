@@ -15,15 +15,54 @@ Source: [`DownloadStationTaskProxyV2.cs`](https://github.com/Prowlarr/Prowlarr/b
 its shape is trusted over our own guesses — but it has not been tested against a real Synology
 device from inside this codebase. If a user reports error 101/120 again, re-check this first.
 
-### Add by URL/magnet — both API versions
+### Add by URL/magnet — v1 (legacy)
 
-Sent as **GET** (not POST) — everything is a query param, so there's no multipart ordering
-constraint to worry about:
+Sent as **GET**, bare string query params, no JSON quoting: `uri=<url>&destination=<dir>`
+(destination omitted if blank). Not in dispute — only DS2 has competing evidence (see below).
 
-- DS2: `type=url&url=<url>&create_list=false&destination=<dir>` (destination omitted if blank)
-- v1 (legacy): `uri=<url>&destination=<dir>` (destination omitted if blank)
+### Add by URL/magnet — DS2, three candidate contracts (runtime fallback chain)
 
-Values are bare strings — no JSON quoting for GET query params.
+Unlike every other call in this file, DS2's URL/magnet create request has **two independent,
+plausible-but-unconfirmed sources that disagree**, plus the earlier superseded guess. Rather than
+pick one, `createUrlTask` (in `server/downloaders/synology.ts`) tries all three in order at
+runtime, logging each attempt via `downloadersLogger` (`"Trying Synology DS2 create-task request
+variant"` / `"...succeeded"` / `"...failed, trying next fallback"`), so a real-device test run
+produces a definitive answer instead of another guess. First variant to succeed wins; if a variant
+throws (including a `success:false` Synology error response), the next is tried.
+
+1. **`ds2-get-bare`** (current default order — Prowlarr's proxy contract, unchanged from before):
+   `GET`, `type=url&url=<url>&create_list=false&destination=<dir>` (destination omitted if blank),
+   bare strings, no JSON quoting. Source: Prowlarr's `DownloadStationTaskProxyV2.cs` (see above).
+
+2. **`ds2-post-json-sid-query`** (new — dvcol/synology-download extension contract, fetched
+   2026-07-04 from
+   [`synology-download2.service.ts`](https://github.com/dvcol/synology-download/blob/main/src/services/http/synology-download2.service.ts)
+   and [`synology.service.ts`](https://github.com/dvcol/synology-download/blob/main/src/services/http/synology.service.ts)).
+   This is a live, purpose-built Synology Download Station browser extension — arguably a more
+   direct source than Prowlarr (a generic \*arr client juggling many download clients). Verified
+   in its actual `createTask()`/`query()` code, not just a user's paraphrase:
+   - **POST**, with `_sid` in the **query string only** (`_body_params = { _sid }`, kept out of the
+     body) — mirrors our own DS2 file-upload path's `sidInQuery: true`.
+   - All other params (`api`, `method`, `version`, `type`, `url`, `create_list`, `destination`) go
+     **url-encoded into the POST body**.
+   - `url` is **JSON-encoded as an array**: `JSON.stringify(urls.map(sanitizeUrl))` → literally
+     `["magnet:..."]` (brackets and quotes included, then url-encoded as a body value).
+     `type` is built via `stringifyKeys(_request, true)`, whose `true` flag strongly implies the
+     same JSON-encoded-string-literal treatment we already use for DS2 file uploads (`type` →
+     `"url"`, quotes included). `destination` is treated the same way in our implementation for
+     consistency with the file-upload path.
+   - This would make DS2's contract internally consistent — URL-add and file-upload both POST with
+     query-string-only `_sid` and JSON-quoted body values — instead of split across GET/POST as the
+     Prowlarr-only implementation was.
+
+3. **`ds2-post-uri-bare`** (superseded Phase 1 guess, kept as last-resort fallback — see "Phase 1"
+   below): `POST`, `type=url&uri=<url>&destination=<dir>`, bare strings, `_sid` in the body
+   (default). Confirmed to fix the originally reported error 120 for a real user, but uses `uri`
+   (not `url`) as the DS2 field name and was never cross-checked against the file-upload path.
+
+If a real device test shows one of these consistently winning (or all three failing with a new
+error code), collapse `buildDs2UrlCreateVariants` back down to just that one variant and fold the
+result into this doc.
 
 ### Add by file upload (torrent/NZB) — both API versions
 

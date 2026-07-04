@@ -51,7 +51,14 @@ RUN chmod +x /entrypoint.sh
 
 EXPOSE 5000
 
+# No USER instruction here by design: the container must start as root so
+# entrypoint.sh can chown/usermod /app and /app/data to the host-provided
+# PUID/PGID (LinuxServer.io convention for bind-mounted volumes), then it
+# drops privileges itself via `su-exec questarr` before exec'ing CMD (see
+# entrypoint.sh's final line).
+# nosemgrep: dockerfile.security.missing-user-entrypoint.missing-user-entrypoint -- see comment above
 ENTRYPOINT ["/entrypoint.sh"]
+# nosemgrep: dockerfile.security.missing-user.missing-user -- entrypoint.sh drops to the unprivileged questarr user via su-exec before this CMD ever runs
 CMD ["npm", "run", "start"]
 
 LABEL org.opencontainers.image.title="Questarr"

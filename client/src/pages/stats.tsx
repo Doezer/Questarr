@@ -149,7 +149,7 @@ export default function StatsPage() {
                   label={
                     isMobile
                       ? undefined
-                      : ({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`
+                      : ({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`
                   }
                 >
                   {pieData.map((entry, index) => (

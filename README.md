@@ -343,6 +343,7 @@ See [Troubleshooting on the Wiki](https://github.com/Doezer/Questarr/wiki/Troubl
 - See [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) for how dependencies are selected, obtained, and tracked.
 - See [docs/SECRETS.md](docs/SECRETS.md) for details on how API keys, indexer/downloader credentials, and other secrets are stored and managed.
 - See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for a system architecture and actor overview, [docs/API.md](docs/API.md) for the REST/Socket.io interface reference, and [docs/SECURITY_ASSESSMENT.md](docs/SECURITY_ASSESSMENT.md) for a security risk assessment.
+- See [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) for how dependencies are selected, obtained, and tracked, and [docs/VULNERABILITY_MANAGEMENT.md](/docs/VULNERABILITY_MANAGEMENT.md) for the SCA/SAST remediation policy and release gates.
 
 ## Contributing
 

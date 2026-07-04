@@ -16,7 +16,7 @@ const SearchResultsBadge = memo(({ visible, variant = "overlay" }: SearchResults
       <Tooltip>
         <TooltipTrigger asChild>
           <Badge
-            className="absolute bottom-2 left-2 bg-violet-500/90 hover:bg-violet-500/90 text-white border-violet-600 gap-1 text-[10px] py-0 px-1.5 cursor-default"
+            className="absolute bottom-2 left-2 bg-violet-500/90 hover:bg-violet-500/90 text-white border-violet-600 gap-1 text-[10px] py-0 px-1.5 cursor-default no-default-hover-elevate no-default-active-elevate"
             aria-label="Downloads available on indexers"
             role="status"
           >

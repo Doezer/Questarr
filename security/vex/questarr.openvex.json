@@ -1,0 +1,10 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "https://github.com/Doezer/questarr/blob/main/security/vex/questarr.openvex.json",
+  "author": "Doezer",
+  "role": "Project maintainer",
+  "timestamp": "2026-07-03T08:27:09Z",
+  "version": 1,
+  "tooling": "manual assessment, cross-referenced with npm audit and Anchore Grype/Trivy scans of the published container image",
+  "statements": []
+}

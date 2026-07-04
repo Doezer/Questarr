@@ -22,7 +22,7 @@ import {
   Trash2,
   Bell,
 } from "lucide-react";
-import { SiNexusmods } from "react-icons/si";
+import { NexusModsIcon } from "@/components/NexusModsIcon";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -1143,7 +1143,7 @@ export default function SettingsPage() {
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-3">
-                    <SiNexusmods className="h-5 w-5 text-amber-500" />
+                    <NexusModsIcon className="h-5 w-5 text-amber-500" />
                     <CardTitle className="text-lg">Nexus Mods</CardTitle>
                   </div>
                   {nexusmodsSettings?.configured ? (

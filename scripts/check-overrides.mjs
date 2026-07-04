@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+/* global console */
+/* global process */
 // Flags package.json "overrides" entries that have become redundant: an override exists to
 // force a patched version past a vulnerable range still declared by a direct/transitive
 // dependency. Once that dependency bumps its own declared range past the patched version,

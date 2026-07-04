@@ -20,3 +20,15 @@ This prints the full SPDX document, which you can redirect to a file or pipe int
 ```bash
 docker buildx imagetools inspect ghcr.io/doezer/questarr:latest --format '{{ json (index .SBOM "linux/amd64").SPDX }}' > sbom.spdx.json
 ```
+
+## Exploitability of reported vulnerabilities
+
+Scanning this SBOM (or the image directly) with a tool like Grype or Trivy
+may surface CVEs that don't actually affect Questarr — e.g. an OS package in
+the `node:22-alpine` base image that's present but never executed. Questarr
+publishes exploitability assessments for exactly this scenario as an
+[OpenVEX](https://github.com/openvex/spec) feed; see
+[docs/VEX.md](/docs/VEX.md) for the format and
+[`security/vex/questarr.openvex.json`](/security/vex/questarr.openvex.json)
+for the feed itself. Pass it to Trivy with `--vex` to suppress findings
+already assessed as not affecting the project.

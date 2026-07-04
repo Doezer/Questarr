@@ -172,7 +172,7 @@
     "secretlint": "^13.0.2",
     "supertest": "^7.2.2",
     "tailwindcss": "^4.0.0",
-    "tsx": "^4.22.5",
+    "tsx": "^4.23.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "8.62.1",
     "vite": "8.1.3",

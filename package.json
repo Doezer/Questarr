@@ -28,6 +28,7 @@
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
+    "check:overrides": "node scripts/check-overrides.mjs",
     "dev:test": "tsx scripts/clean-test-db.ts && cross-env SQLITE_DB_PATH=data/test.db PORT=5100 npm run dev",
     "prepare": "husky"
   },
@@ -140,7 +141,7 @@
     "@types/fs-extra": "^11.0.4",
     "@types/js-yaml": "^4.0.9",
     "@types/jsonwebtoken": "^9.0.10",
-    "@types/node": "^20.19.43",
+    "@types/node": "^26.0.0",
     "@types/node-7z": "^2.1.11",
     "@types/node-forge": "^1.3.14",
     "@types/parse-torrent": "^5.8.8",

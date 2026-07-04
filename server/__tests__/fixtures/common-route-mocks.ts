@@ -88,6 +88,12 @@ export function createStorageMock() {
     getDownloadsByGameId: vi.fn().mockResolvedValue([]),
     getDownloadSummaryByGame: vi.fn().mockResolvedValue({}),
     getTrackedDownloadKeys: vi.fn().mockResolvedValue(new Set()),
+    getTrackedDownloadGameStatuses: vi.fn().mockResolvedValue(new Map()),
+    getGameByIgdbId: vi.fn(),
+    createImportTask: vi.fn(),
+    startImportTask: vi.fn(),
+    updateImportTask: vi.fn(),
+    addImportTaskItemsBatch: vi.fn(),
     getAllRssFeeds: vi.fn().mockResolvedValue([]),
     addRssFeed: vi.fn(),
     updateRssFeed: vi.fn(),
@@ -185,6 +191,14 @@ export function createTorznabMock() {
   return {
     testConnection: vi.fn().mockResolvedValue({ success: true }),
     searchGames: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+    getCategories: vi.fn().mockResolvedValue([]),
+  };
+}
+
+export function createNewznabMock() {
+  return {
+    testConnection: vi.fn().mockResolvedValue({ success: true, message: "ok" }),
+    search: vi.fn().mockResolvedValue([]),
     getCategories: vi.fn().mockResolvedValue([]),
   };
 }

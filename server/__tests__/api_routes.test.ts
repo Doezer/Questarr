@@ -10,6 +10,7 @@ import {
   createLoggerMocks,
   createRssMock,
   createTorznabMock,
+  createNewznabMock,
   createProwlarrMock,
   createXrelMock,
   createDownloaderManagerMock,
@@ -39,6 +40,7 @@ vi.mock("../db.js", () => ({ db: createDbMock() }));
 vi.mock("../logger.js", () => createLoggerMocks());
 vi.mock("../rss.js", () => ({ rssService: createRssMock() }));
 vi.mock("../torznab.js", () => ({ torznabClient: createTorznabMock() }));
+vi.mock("../newznab.js", () => ({ newznabClient: createNewznabMock() }));
 vi.mock("../prowlarr.js", () => ({ prowlarrClient: createProwlarrMock() }));
 vi.mock("../xrel.js", () => createXrelMock());
 vi.mock("../downloaders.js", () => ({ DownloaderManager: createDownloaderManagerMock() }));

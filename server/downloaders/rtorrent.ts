@@ -596,12 +596,16 @@ export class RTorrentClient implements DownloaderClient {
     const algorithm = challenge.algorithm || "MD5";
     const qop = challenge.qop;
     const opaque = challenge.opaque;
+    const hashAlgo = algorithm.toUpperCase().startsWith("SHA-256") ? "sha256" : "md5";
 
     // A1 = username:realm:password
-    const ha1 = crypto.createHash("md5").update(`${username}:${realm}:${password}`).digest("hex");
+    const ha1 = crypto
+      .createHash(hashAlgo)
+      .update(`${username}:${realm}:${password}`)
+      .digest("hex");
 
     // A2 = method:uri
-    const ha2 = crypto.createHash("md5").update(`${method}:${uri}`).digest("hex");
+    const ha2 = crypto.createHash(hashAlgo).update(`${method}:${uri}`).digest("hex");
 
     // Response
     const nc = "00000001";
@@ -610,11 +614,11 @@ export class RTorrentClient implements DownloaderClient {
     let response: string;
     if (qop === "auth" || qop === "auth-int") {
       response = crypto
-        .createHash("md5")
+        .createHash(hashAlgo)
         .update(`${ha1}:${nonce}:${nc}:${cnonce}:${qop}:${ha2}`)
         .digest("hex");
     } else {
-      response = crypto.createHash("md5").update(`${ha1}:${nonce}:${ha2}`).digest("hex");
+      response = crypto.createHash(hashAlgo).update(`${ha1}:${nonce}:${ha2}`).digest("hex");
     }
 
     let auth = `Digest username="${username}", realm="${realm}", nonce="${nonce}", uri="${uri}", algorithm="${algorithm}", response="${response}"`;

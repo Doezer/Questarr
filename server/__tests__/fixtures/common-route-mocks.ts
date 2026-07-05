@@ -220,6 +220,20 @@ export function createXrelMock() {
   };
 }
 
+export async function createAppriseMock() {
+  const actual = await vi.importActual<typeof import("../../apprise.js")>("../../apprise.js");
+  return {
+    ...actual,
+    appriseClient: {
+      configure: vi.fn(),
+      getMode: vi.fn().mockReturnValue("api"),
+      isConfigured: vi.fn().mockReturnValue(true),
+      send: vi.fn().mockResolvedValue(undefined),
+      test: vi.fn().mockResolvedValue({ success: true }),
+    },
+  };
+}
+
 export function createDownloaderManagerMock() {
   return {
     initialize: vi.fn(),

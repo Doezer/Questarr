@@ -12,7 +12,7 @@ All notable changes to this project will be documented in this file.
 - **Import History**: New page listing import tasks (game claims, post-processing imports, Steam syncs) with a retention purge cron job to keep the history tidy (#714).
 - **Deluge Support**: Added Deluge as a supported downloader (#697).
 - **Synology Download Station**: Added support for Synology's built-in Download Station as a downloader (#567).
-- **Apprise Notifications**: Added Apprise support for sending notifications. Fire up your Apprise server and connect it. Set up your notifications in Questarr settings.
+- **Apprise Notifications**: Added Apprise API and CLI notification modes. Use API mode with a remote Apprise server or CLI mode with the local `apprise` binary from Questarr settings.
 - **Personal Notes**: Added the ability to attach personal notes to a game.
 - **Shelved Status**: Added a "shelved" status for games (#645).
 - **Mobile Experience**: Significant improvements to mobile layout and navigation (#644).
@@ -47,6 +47,7 @@ All notable changes to this project will be documented in this file.
   - `SQLITE_DB_PATH` is now exported with a default of `/app/data/sqlite.db`.
   - The `PORT` variable in `docker-compose.yml` has been split into two: `HOST_SIDE_PORT` (host-side binding, default `5000`) and `CONTAINER_INTERNAL_SIDE_PORT` (internal container port, default `5000`). If you had `PORT` set in your `.env` to customize the host port, rename it to `HOST_SIDE_PORT`.
 - **Dependencies**: multiple minor and major dependencies updates. Node 22 to 26.
+- **Docker**: Bundled Python and Apprise in the default image so CLI mode works without a separate image split.
 - **CI**: Pinned GitHub Actions to commit SHAs; fixed Codecov test-results upload to correctly locate the JUnit XML report; added a deprecated-dependencies check and npm overrides relevancy check; moved CI to Node 26.
 - **Dependencies**: Removed duplicate `@types/multer` entry from `package.json`; updated Radix UI, semver, and other minor dependencies; upgraded `codecov/codecov-action` from v5 to v7; updated numerous packages via Dependabot including `lucide-react`, `recharts`, `framer-motion`, `jsdom`, `express`, `express-rate-limit`, `@tanstack/react-query`, `react-hook-form`, and GitHub Actions.
 - **Discord**: Improved Discord webhook validation (#704).

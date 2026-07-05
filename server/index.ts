@@ -13,7 +13,7 @@ import { setupSocketIO } from "./socket.js";
 import { ensureDatabase } from "./migrate.js";
 import { rssService } from "./rss.js";
 import { nexusmodsClient } from "./nexusmods.js";
-import { appriseClient } from "./apprise.js";
+import { appriseClient, readAppriseSettings } from "./apprise.js";
 import { storage } from "./storage.js";
 
 const app = createApp();
@@ -34,12 +34,10 @@ const app = createApp();
     }
 
     // Initialize Apprise client from DB config
-    const appriseApiUrl = await storage.getSystemConfig("apprise.apiUrl");
-    if (appriseApiUrl && appriseApiUrl.length > 0) {
-      const appriseKey = await storage.getSystemConfig("apprise.key");
-      const appriseUrls = await storage.getSystemConfig("apprise.urls");
-      appriseClient.configure(appriseApiUrl, appriseKey || null, appriseUrls || null);
-      log("Apprise client configured from database");
+    const appriseSettings = await readAppriseSettings(storage);
+    appriseClient.configure(appriseSettings);
+    if (appriseClient.isConfigured()) {
+      log(`Apprise client configured from database (${appriseSettings.mode} mode)`);
     }
 
     const server = await registerRoutes(app);

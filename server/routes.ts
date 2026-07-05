@@ -62,7 +62,12 @@ import {
   optionalAuthenticateToken,
 } from "./auth.js";
 import { nexusmodsClient } from "./nexusmods.js";
-import { appriseClient } from "./apprise.js";
+import {
+  appriseClient,
+  isAppriseConfigured,
+  normalizeAppriseMode,
+  readAppriseSettings,
+} from "./apprise.js";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -3167,14 +3172,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Apprise settings
   app.get("/api/settings/apprise", async (_req, res) => {
     try {
-      const apiUrl = await storage.getSystemConfig("apprise.apiUrl");
-      const key = await storage.getSystemConfig("apprise.key");
-      const urls = await storage.getSystemConfig("apprise.urls");
+      const settings = await readAppriseSettings(storage);
       res.json({
-        configured: !!(apiUrl && apiUrl.length > 0),
-        apiUrl: apiUrl || null,
-        key: key || null,
-        urls: urls || null,
+        configured: isAppriseConfigured(settings),
+        mode: settings.mode,
+        apiUrl: settings.apiUrl,
+        key: settings.key,
+        urls: settings.urls,
       });
     } catch (error) {
       routesLogger.error({ error }, "Failed to fetch Apprise settings");
@@ -3185,11 +3189,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/settings/apprise", async (req, res) => {
     try {
       const { apiUrl, key, urls } = req.body as {
+        mode?: string;
         apiUrl?: string;
         key?: string;
         urls?: string;
       };
-      if (apiUrl) {
+      const mode = normalizeAppriseMode(
+        typeof req.body?.mode === "string" ? req.body.mode : undefined
+      );
+
+      if (
+        typeof req.body?.mode === "string" &&
+        req.body.mode !== "api" &&
+        req.body.mode !== "cli"
+      ) {
+        return res.status(400).json({ error: "Invalid Apprise mode" });
+      }
+
+      if (
+        (apiUrl !== undefined && typeof apiUrl !== "string") ||
+        (key !== undefined && typeof key !== "string") ||
+        (urls !== undefined && typeof urls !== "string")
+      ) {
+        return res.status(400).json({ error: "Invalid request payload types" });
+      }
+
+      if (mode === "api") {
+        if (!apiUrl || apiUrl.trim().length === 0) {
+          return res.status(400).json({ error: "API URL is required in API mode" });
+        }
+        if (!key?.trim() && !urls?.trim()) {
+          return res.status(400).json({ error: "Provide a config key or notification URLs" });
+        }
+      } else if (!urls || urls.trim().length === 0) {
+        return res.status(400).json({ error: "Notification URLs are required in CLI mode" });
+      }
+
+      if (apiUrl?.trim()) {
         try {
           const parsed = new URL(apiUrl.trim());
           if (!["http:", "https:"].includes(parsed.protocol)) {
@@ -3199,10 +3235,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ error: "API URL is not a valid URL" });
         }
       }
-      await storage.setSystemConfig("apprise.apiUrl", apiUrl?.trim() ?? "");
-      await storage.setSystemConfig("apprise.key", key?.trim() ?? "");
-      await storage.setSystemConfig("apprise.urls", urls?.trim() ?? "");
-      appriseClient.configure(apiUrl?.trim() || null, key?.trim() || null, urls?.trim() || null);
+      await storage.setSystemConfig("apprise.mode", mode);
+      if (apiUrl !== undefined) {
+        await storage.setSystemConfig("apprise.apiUrl", apiUrl.trim());
+      }
+      if (key !== undefined) {
+        await storage.setSystemConfig("apprise.key", key.trim());
+      }
+      if (urls !== undefined) {
+        await storage.setSystemConfig("apprise.urls", urls.trim());
+      }
+
+      appriseClient.configure(await readAppriseSettings(storage));
       res.json({ success: true });
     } catch (error) {
       routesLogger.error({ error }, "Failed to update Apprise settings");

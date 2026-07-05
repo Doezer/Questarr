@@ -42,6 +42,7 @@
 - **📚 Library Management**: Track your game collection with status indicators (Wanted, Owned, Playing, Completed), user ratings, and Early Access badges.
 - **⬇️ Download Management**: Integrate with indexers (Prowlarr/Torznab/Newsznab), torrent/usenet downloaders (qBittorrent, Transmission, rTorrent / sabnzbd, nzbget), and optionally enable auto-download to get them right when they're there. Import downloads automatically to your library folder.
 - **🔍 Search & Filter**: Find games by genre, platform, and search terms. Automatically search for added games until available on your indexers. Blacklist unwanted releases and set preferred release groups and platforms.
+- **Notifications**: thanks to Apprise, you can send notifications to 100+ providers.
 - **🗂️ Rich Metadata**: Game details enriched with IGDB, Steam, PCGamingWiki links, and NexusMods pages, as well as trending mods (if applicable).
 - **📊 Stats Page**: Visualize your collection statistics, with Discord sharing support.
 - **📰 RSS Feeds**: Monitor releases from your favorite groups directly within the app.

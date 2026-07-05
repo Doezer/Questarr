@@ -89,7 +89,7 @@ import {
 } from "../shared/title-utils.js";
 import { categorizeDownload } from "../shared/download-categorizer.js";
 import { SUPPORT_WORKER_ORIGIN } from "../shared/support-config.js";
-import archiver from "archiver";
+import { ZipArchive } from "archiver";
 import helmet from "helmet";
 import { steamRoutes } from "./steam-routes.js";
 import { importRouter } from "./routes/import.js";
@@ -2942,9 +2942,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "No downloads provided" });
       }
 
-      const archive = archiver("zip", {
-        zlib: { level: 9 },
-      });
+      const archive = new ZipArchive({ zlib: { level: 9 } });
 
       res.attachment("download-bundle.zip");
       archive.pipe(res);

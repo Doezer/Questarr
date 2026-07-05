@@ -23,8 +23,8 @@ npm run dev
 # Type check
 npm run check
 
-# Run tests
-npm test
+# Run tests (one-shot)
+npm run test:run
 
 # Lint code
 npm run lint
@@ -43,7 +43,7 @@ npm run format
 ### Testing
 
 - Add tests for new features when applicable
-- Run `npm test` to ensure all tests pass
+- Run `npm run test:run` to ensure all tests pass
 - Test UI changes in both light and dark themes (currently dark-first)
 
 #### What the tests cover
@@ -55,7 +55,7 @@ npm run format
 
 ```bash
 # Run the full unit/integration suite once
-npm test
+npm run test:run
 
 # Watch mode while developing
 npm run test:watch
@@ -124,14 +124,15 @@ See [docs/DEPENDENCIES.md](../docs/DEPENDENCIES.md) for how Questarr selects, ob
 - Ensure all checks pass before requesting review
 - Be responsive to feedback and questions
 
-### Installation
-
 ## Project Structure
 
 - `/client` - React frontend application
 - `/server` - Express backend application
 - `/shared` - Shared types and schemas
--
+
+## Documentation
+
+- Start with [`docs/GITHUB_DOCUMENTATION.md`](../docs/GITHUB_DOCUMENTATION.md) for the canonical documentation map.
 
 ## Need Help?
 

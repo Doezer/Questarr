@@ -153,6 +153,7 @@ export default function SettingsPage() {
   const [notifPrefs, setNotifPrefs] = useState<NotificationPreferences>(
     DEFAULT_NOTIFICATION_PREFERENCES
   );
+  const [appriseMode, setAppriseMode] = useState<"api" | "cli">("api");
   const [appriseApiUrl, setAppriseApiUrl] = useState("");
   const [appriseKey, setAppriseKey] = useState("");
   const [appriseUrls, setAppriseUrls] = useState("");
@@ -262,6 +263,7 @@ export default function SettingsPage() {
 
   const { data: appriseSettings } = useQuery<{
     configured: boolean;
+    mode: "api" | "cli";
     apiUrl: string | null;
     key: string | null;
     urls: string | null;
@@ -271,9 +273,10 @@ export default function SettingsPage() {
   });
 
   useEffect(() => {
-    if (appriseSettings?.apiUrl) setAppriseApiUrl(appriseSettings.apiUrl);
-    if (appriseSettings?.key) setAppriseKey(appriseSettings.key);
-    if (appriseSettings?.urls) setAppriseUrls(appriseSettings.urls);
+    if (appriseSettings?.mode) setAppriseMode(appriseSettings.mode);
+    if (appriseSettings?.apiUrl !== undefined) setAppriseApiUrl(appriseSettings.apiUrl ?? "");
+    if (appriseSettings?.key !== undefined) setAppriseKey(appriseSettings.key ?? "");
+    if (appriseSettings?.urls !== undefined) setAppriseUrls(appriseSettings.urls ?? "");
   }, [appriseSettings]);
 
   const { data: nexusmodsSettings } = useQuery<{
@@ -285,7 +288,12 @@ export default function SettingsPage() {
   });
 
   const updateAppriseMutation = useMutation({
-    mutationFn: async (data: { apiUrl: string; key: string; urls: string }) => {
+    mutationFn: async (data: {
+      mode: "api" | "cli";
+      apiUrl?: string;
+      key?: string;
+      urls?: string;
+    }) => {
       const res = await apiRequest("POST", "/api/settings/apprise", data);
       return res.json();
     },
@@ -297,6 +305,12 @@ export default function SettingsPage() {
       toast({ title: "Failed to save Apprise settings", variant: "destructive" });
     },
   });
+
+  const appriseSaveDisabled =
+    updateAppriseMutation.isPending ||
+    (appriseMode === "api"
+      ? !appriseApiUrl.trim() || (!appriseKey.trim() && !appriseUrls.trim())
+      : !appriseUrls.trim());
 
   const testAppriseMutation = useMutation({
     mutationFn: async () => {
@@ -948,44 +962,71 @@ export default function SettingsPage() {
                   )}
                 </div>
                 <CardDescription>
-                  Forward notifications to any service via a self-hosted{" "}
-                  <span className="font-medium">Apprise API</span> server — Telegram, Pushover,
-                  Slack, and 100+ others.
+                  Forward notifications through a self-hosted{" "}
+                  <span className="font-medium">Apprise API</span> server or the local{" "}
+                  <span className="font-medium">Apprise CLI</span>.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="apprise-api-url">
-                    API URL <span className="text-destructive">*</span>
-                  </Label>
-                  <Input
-                    id="apprise-api-url"
-                    type="text"
-                    placeholder="http://apprise:8000"
-                    value={appriseApiUrl}
-                    onChange={(e) => setAppriseApiUrl(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="apprise-key">
-                    Config Key{" "}
-                    <span className="text-xs text-muted-foreground font-normal">(optional)</span>
-                  </Label>
-                  <Input
-                    id="apprise-key"
-                    type="text"
-                    placeholder="my-config-key"
-                    value={appriseKey}
-                    onChange={(e) => setAppriseKey(e.target.value)}
-                  />
+                  <Label htmlFor="apprise-mode">Mode</Label>
+                  <Select
+                    value={appriseMode}
+                    onValueChange={(value) => {
+                      if (value === "api" || value === "cli") setAppriseMode(value);
+                    }}
+                  >
+                    <SelectTrigger id="apprise-mode" className="w-full sm:w-56">
+                      <SelectValue placeholder="Select mode" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="api">API</SelectItem>
+                      <SelectItem value="cli">CLI</SelectItem>
+                    </SelectContent>
+                  </Select>
                   <p className="text-xs text-muted-foreground">
-                    Persistent mode: a config key pre-configured in your Apprise API server.
+                    API mode sends notifications to a remote Apprise server. CLI mode runs the local{" "}
+                    <code className="px-1">apprise</code> command inside Questarr.
                   </p>
                 </div>
+                {appriseMode === "api" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="apprise-api-url">
+                      API URL <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      id="apprise-api-url"
+                      type="text"
+                      placeholder="http://apprise:8000"
+                      value={appriseApiUrl}
+                      onChange={(e) => setAppriseApiUrl(e.target.value)}
+                    />
+                  </div>
+                )}
+                {appriseMode === "api" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="apprise-key">
+                      Config Key{" "}
+                      <span className="text-xs text-muted-foreground font-normal">(optional)</span>
+                    </Label>
+                    <Input
+                      id="apprise-key"
+                      type="text"
+                      placeholder="my-config-key"
+                      value={appriseKey}
+                      onChange={(e) => setAppriseKey(e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Persistent mode: a config key pre-configured in your Apprise API server.
+                    </p>
+                  </div>
+                )}
                 <div className="space-y-2">
                   <Label htmlFor="apprise-urls">
                     Notification URLs{" "}
-                    <span className="text-xs text-muted-foreground font-normal">(optional)</span>
+                    <span className="text-xs text-muted-foreground font-normal">
+                      {appriseMode === "cli" ? "(required)" : "(optional)"}
+                    </span>
                   </Label>
                   <Textarea
                     id="apprise-urls"
@@ -996,20 +1037,33 @@ export default function SettingsPage() {
                     rows={4}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Stateless mode: one Apprise notification URL per line. Used when no Config Key
-                    is set.
+                    One Apprise URL per line. Build URLs at{" "}
+                    <a
+                      href="https://appriseit.com/url-builder"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-primary underline underline-offset-2"
+                    >
+                      appriseit.com/url-builder
+                    </a>
+                    .
                   </p>
                 </div>
                 <div className="flex flex-col sm:flex-row gap-2">
                   <Button
                     onClick={() =>
-                      updateAppriseMutation.mutate({
-                        apiUrl: appriseApiUrl,
-                        key: appriseKey,
-                        urls: appriseUrls,
-                      })
+                      updateAppriseMutation.mutate(
+                        appriseMode === "cli"
+                          ? { mode: appriseMode, urls: appriseUrls.trim() }
+                          : {
+                              mode: appriseMode,
+                              apiUrl: appriseApiUrl.trim(),
+                              key: appriseKey.trim(),
+                              urls: appriseUrls.trim(),
+                            }
+                      )
                     }
-                    disabled={updateAppriseMutation.isPending || !appriseApiUrl.trim()}
+                    disabled={appriseSaveDisabled}
                   >
                     {updateAppriseMutation.isPending ? "Saving..." : "Save"}
                   </Button>

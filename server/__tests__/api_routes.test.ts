@@ -13,6 +13,7 @@ import {
   createNewznabMock,
   createProwlarrMock,
   createXrelMock,
+  createAppriseMock,
   createDownloaderManagerMock,
   createSteamRoutesMock,
   createSearchMock,
@@ -30,6 +31,7 @@ import { newznabClient } from "../newznab.js";
 import { rssService } from "../rss.js";
 import { comparePassword } from "../auth.js";
 import { db } from "../db.js";
+import { appriseClient } from "../apprise.js";
 
 // Mock dependencies (factory bodies live in ./fixtures/common-route-mocks.ts so they can be
 // shared with other test files that also boot the full app via registerRoutes())
@@ -43,6 +45,7 @@ vi.mock("../torznab.js", () => ({ torznabClient: createTorznabMock() }));
 vi.mock("../newznab.js", () => ({ newznabClient: createNewznabMock() }));
 vi.mock("../prowlarr.js", () => ({ prowlarrClient: createProwlarrMock() }));
 vi.mock("../xrel.js", () => createXrelMock());
+vi.mock("../apprise.js", async () => createAppriseMock());
 vi.mock("../downloaders.js", () => ({ DownloaderManager: createDownloaderManagerMock() }));
 vi.mock("../steam-routes.js", () => ({ steamRoutes: createSteamRoutesMock() }));
 vi.mock("../search.js", () => createSearchMock());
@@ -2520,6 +2523,83 @@ describe("API Routes - Extended Coverage", () => {
 
       expect(response.status).toBe(500);
       expect(response.body.error).toMatch(/failed to fetch game downloads/i);
+    });
+  });
+
+  // ─── Apprise settings ───
+  describe("Apprise settings", () => {
+    const appriseState: Record<string, string | undefined> = {};
+
+    beforeEach(() => {
+      appriseState["apprise.mode"] = "api";
+      appriseState["apprise.apiUrl"] = "http://apprise:8000";
+      appriseState["apprise.key"] = "config-key";
+      appriseState["apprise.urls"] = "discord://webhook";
+
+      vi.mocked(storage.getSystemConfig).mockImplementation(
+        async (key: string) => appriseState[key]
+      );
+      vi.mocked(storage.setSystemConfig).mockImplementation(async (key: string, value: string) => {
+        appriseState[key] = value;
+      });
+      vi.mocked(appriseClient.configure).mockClear();
+      vi.mocked(appriseClient.test).mockResolvedValue({ success: true });
+    });
+
+    afterEach(() => {
+      vi.mocked(storage.getSystemConfig).mockReset();
+      vi.mocked(storage.setSystemConfig).mockReset();
+      vi.mocked(appriseClient.configure).mockReset();
+      vi.mocked(appriseClient.test).mockReset();
+    });
+
+    it("should return the saved mode and settings", async () => {
+      const response = await request(app).get("/api/settings/apprise");
+
+      expect(response.status).toBe(200);
+      expect(response.body.mode).toBe("api");
+      expect(response.body.apiUrl).toBe("http://apprise:8000");
+      expect(response.body.key).toBe("config-key");
+      expect(response.body.urls).toBe("discord://webhook");
+    });
+
+    it("should persist CLI mode and URLs", async () => {
+      const response = await request(app)
+        .post("/api/settings/apprise")
+        .send({ mode: "cli", urls: "discord://webhook" });
+
+      expect(response.status).toBe(200);
+      expect(storage.setSystemConfig).toHaveBeenCalledWith("apprise.mode", "cli");
+      expect(storage.setSystemConfig).toHaveBeenCalledWith("apprise.urls", "discord://webhook");
+      expect(appriseClient.configure).toHaveBeenCalled();
+      expect(appriseState["apprise.mode"]).toBe("cli");
+    });
+
+    it("should reject an invalid mode", async () => {
+      const response = await request(app)
+        .post("/api/settings/apprise")
+        .send({ mode: "invalid", apiUrl: "http://apprise:8000" });
+
+      expect(response.status).toBe(400);
+    });
+
+    it("should test the configured transport", async () => {
+      const response = await request(app).post("/api/settings/apprise/test");
+
+      expect(response.status).toBe(200);
+      expect(appriseClient.test).toHaveBeenCalledTimes(1);
+    });
+
+    it("should surface transport errors from the test endpoint", async () => {
+      vi.mocked(appriseClient.test).mockResolvedValueOnce({
+        success: false,
+        error: "CLI timed out",
+      });
+
+      const response = await request(app).post("/api/settings/apprise/test");
+
+      expect(response.status).toBe(502);
+      expect(response.body.error).toBe("CLI timed out");
     });
   });
 });

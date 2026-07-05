@@ -15,17 +15,18 @@ function SteamIcon({ className }: { className?: string }) {
     </svg>
   );
 }
-import AddGameModal from "./AddGameModal";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { NotificationCenter } from "./NotificationCenter";
 import { useTheme } from "next-themes";
-import { useEffect, useState } from "react";
+import { useEffect, useState, lazy, Suspense } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import type { Config } from "@shared/schema";
+
+const AddGameModal = lazy(() => import("./AddGameModal"));
 
 interface HeaderProps {
   title?: string;
@@ -172,17 +173,31 @@ export default function Header({ title = "Library" }: HeaderProps) {
             </div>
 
             <div className="flex items-center gap-2">
-              <AddGameModal>
-                <Button
-                  variant="default"
-                  size="sm"
-                  data-testid="button-add-game"
-                  className="h-10 gap-2 px-3 sm:h-9"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span className="hidden sm:inline">Add Game</span>
-                </Button>
-              </AddGameModal>
+              <Suspense
+                fallback={
+                  <Button
+                    variant="default"
+                    size="sm"
+                    data-testid="button-add-game"
+                    className="h-10 gap-2 px-3 sm:h-9"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span className="hidden sm:inline">Add Game</span>
+                  </Button>
+                }
+              >
+                <AddGameModal>
+                  <Button
+                    variant="default"
+                    size="sm"
+                    data-testid="button-add-game"
+                    className="h-10 gap-2 px-3 sm:h-9"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span className="hidden sm:inline">Add Game</span>
+                  </Button>
+                </AddGameModal>
+              </Suspense>
 
               {user?.steamId64 && (
                 <Button

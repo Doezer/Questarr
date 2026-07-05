@@ -2,24 +2,74 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.4.0] - 2026-xx-xx
+## [1.4.0] - 2026-07-xx
 
 ### Added
 
+- **Post-Processing Pipeline**: Added an automated post-processing pipeline that handles unpacking and organizing files after a download completes (#583)
+  - Files can be unpacked automatically by setting auto-unpack setting
+  - An import modal is displayed via an alert in the library when the system cannot find the input or output path.
+- **Import History**: New page listing import tasks (game claims, post-processing imports, Steam syncs) with a retention purge cron job to keep the history tidy (#714).
+- **Deluge Support**: Added Deluge as a supported downloader (#697).
+- **Synology Download Station**: Added support for Synology's built-in Download Station as a downloader (#567).
+- **Apprise Notifications**: Added Apprise support for sending notifications. Fire up your Apprise server and connect it. Set up your notifications in Questarr settings.
+- **Personal Notes**: Added the ability to attach personal notes to a game.
+- **Shelved Status**: Added a "shelved" status for games (#645).
+- **Mobile Experience**: Significant improvements to mobile layout and navigation (#644).
+- **Real-Time Logs**: Added a real-time log streaming page with configurable detail level and truncation for large payloads.
+- **Send Logs**: Added the ability to send logs directly from the app for troubleshooting (#648).
+- **Downloader/Indexer Version Logging**: Periodic logging of downloader and indexer versions to aid troubleshooting (#649).
+- **Search Improvements**: Added a date filter and infinite scroll to search, plus the ability to delete a result from the library directly from search (#673).
+- **Library Ratings**: Added a user rating filter and inline rating in the library's list view; the Stats page now shows average user rating.
+- **Release Date Sorting when adding a game**: IGDB results are not sorted by release date.
+- **Favorite groups**: Added favorite release groups for auto downloading releases, in the settings.
+- **List View**: Removed the ultra-compact view in favor of an updated column-based row view.
+- **Date displaye**: year-only release dates now display in full.
+- **G4U as indexer**: Added g4u.to as an indexer type, using their VIP API (#689).
+- **Aborted Downloads**: Definitive downloader failures are now surfaced as "Aborted" instead of an unclear stuck state.
+- **Genres & Platforms Display**: Overflow-safe tag list for genres and platforms on game cards (#680).
+- **Vite Base Path**: Added support for deploying behind a custom base path (#630).
 - **Code of Conduct**: Added Contributor Covenant Code of Conduct.
+- **Downloaders Compatibility doc**: Added a document detailing compatibility for supported downloaders.
+
+### Security
+
+- **SSRF**: Hardened outbound fetches with DNS rebinding protection (#698).
+- **Dependency Vulnerabilities**: Fixed 3 known vulnerabilities in `esbuild`, `form-data`, and `ws` (#734).
+- **CI Hardening**: Applied StepSecurity best practices, added a blocking Semgrep SAST gate and secretlint scanning, and added automatic SBOM generation to the Docker release pipeline.
+- **OpenSSF**: passed baseline 1, 2 and 3 security self-eval. Update to current checks and new ones for hardened security. New policies. See SECURITY.md on GitHub.
 
 ### Changed
 
-- **Docker**: Rewrote `entrypoint.sh` with PUID/PGID support (LinuxServer.io / \*Arr convention) so mounted volumes adopt the host user's UID/GID automatically.
-- **Docker**: `SQLITE_DB_PATH` is now exported with a default of `/app/data/sqlite.db`, ensuring the database is always placed inside the persistent volume when the variable is unset.
-- **Docker**: Improved healthcheck — added `.on('error', ...)` handler to prevent noisy stack traces during container startup.
-- **Docker** ⚠️: The `PORT` variable in `docker-compose.yml` has been split into two: `HOST_SIDE_PORT` (host-side binding, default `5000`) and `CONTAINER_INTERNAL_SIDE_PORT` (internal container port, default `5000`). If you had `PORT` set in your `.env` to customize the host port, rename it to `HOST_SIDE_PORT`.
-- **CI**: Pinned GitHub Actions to commit SHAs; fixed Codecov test-results upload to correctly locate the JUnit XML report.
-- **Dependencies**: Removed duplicate `@types/multer` entry from `package.json`; updated Radix UI, semver, and other minor dependencies.
+- **Dashboard**: Consolidated the Dashboard into the Library component, removing the separate Library page.
+- **Docker**:
+  - Refactoring of the entrypoint script.
+  - `SQLITE_DB_PATH` is now exported with a default of `/app/data/sqlite.db`.
+  - The `PORT` variable in `docker-compose.yml` has been split into two: `HOST_SIDE_PORT` (host-side binding, default `5000`) and `CONTAINER_INTERNAL_SIDE_PORT` (internal container port, default `5000`). If you had `PORT` set in your `.env` to customize the host port, rename it to `HOST_SIDE_PORT`.
+- **Dependencies**: multiple minor and major dependencies updates. Node 22 to 26.
+- **CI**: Pinned GitHub Actions to commit SHAs; fixed Codecov test-results upload to correctly locate the JUnit XML report; added a deprecated-dependencies check and npm overrides relevancy check; moved CI to Node 26.
+- **Dependencies**: Removed duplicate `@types/multer` entry from `package.json`; updated Radix UI, semver, and other minor dependencies; upgraded `codecov/codecov-action` from v5 to v7; updated numerous packages via Dependabot including `lucide-react`, `recharts`, `framer-motion`, `jsdom`, `express`, `express-rate-limit`, `@tanstack/react-query`, `react-hook-form`, and GitHub Actions.
+- **Discord**: Improved Discord webhook validation (#704).
+- **Accessibility**: Added ARIA labels to RSS feed controls, the download options button, and release group settings buttons (#672, #678, #703).
+- **Performance**: Optimized the Add Game modal's collection-status check with a Set lookup (#677); the downloads page now polls every 30 seconds.
+- **Downloaders Module**: Refactored `downloaders.ts` into smaller modules for easier maintenance (#627).
 
 ### Removed
 
 - Removed the HLTB integration from Questarr (no API or stable service).
+
+### Fixed
+
+- Fixed status switcher UI and badge positioning in game details (#764).
+- Fixed handling of the `stoppedDL` state in qBittorrent v5+.
+- Fixed an error when adding a torrent via qBittorrent.
+- Fixed a scrolling issue in the claim modal.
+- Fixed Torznab/Prowlarr download URL rewriting so proxied URLs are no longer double-wrapped on host aliases (#647).
+- Fixed the files view and missing seed/leech numbers in download details.
+- Hardened download status checks and migrated the Steam logger.
+- Addressed edge cases in auto-search download rules
+- Fixed the "Has results" badge that would create an offset in the game card.
+- Fixed the Home Assistant add-on: moved to the repo root and corrected /data permissions on fresh installs (#696). See [../questarr/README.md]
 
 ## [1.3.1] - 2026-05-13
 

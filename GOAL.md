@@ -130,13 +130,21 @@ Changes made:
     Downloads, Library (mobile), Wishlist (mobile), Logs; add full LogsPage
     implementation; add E2E journey specs for Discover, Search, Library, Downloads
     — score 73→100
+Re-verified: 2026-07-05 — score confirmed at 100.0. A local, uncommitted migration
+  (0021) duplicated table/column definitions already applied in earlier migrations
+  (0015/0016/0019/0020), which broke `npm run test:run` and dropped validation to
+  20/40 (score 80). Fixed by correcting the migration file; no code or test changes
+  were needed. Lesson: drizzle migrations generated against a stale local snapshot
+  can silently duplicate prior migrations — diff a freshly generated migration
+  against existing ones before committing.
 Remaining gaps:
   - SearchPage test covers the date-filter and infinite-scroll flows but not every edge
     case; expand as the feature matures
   - WishlistPage mobile test covers stacked sections; tab-layout interaction tests could
     be added for deeper mobile confidence
 Next actions:
-  - Add a test coverage gate in CI so regressions in coverage are caught automatically
+  - Coverage gate in CI: already in place (Codecov project/patch thresholds in
+    codecov.yml, wired into .github/workflows/ci.yml) — no action needed
   - Expand E2E journeys to cover the full pipeline (add game → auto-search → download
     → post-process)
   - Mobile responsiveness pass once thumb-first layout work lands

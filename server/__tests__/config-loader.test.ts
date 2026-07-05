@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import fs from "fs";
-import yaml from "js-yaml";
+import { load } from "js-yaml";
 import { ConfigLoader } from "../config-loader";
 
 // Mock modules
@@ -23,10 +23,8 @@ vi.mock("path", () => ({
 }));
 
 vi.mock("js-yaml", () => ({
-  default: {
-    load: vi.fn(),
-    dump: vi.fn(),
-  },
+  load: vi.fn(),
+  dump: vi.fn(),
 }));
 
 // Mock process.cwd
@@ -55,8 +53,8 @@ describe("ConfigLoader", () => {
       });
       // @ts-expect-error - mocking fs.readFileSync for test
       fs.readFileSync.mockReturnValue("ssl: { enabled: true }");
-      // @ts-expect-error - mocking yaml.load for test
-      yaml.load.mockReturnValue({ ssl: { enabled: true } });
+      // @ts-expect-error - mocking load for test
+      load.mockReturnValue({ ssl: { enabled: true } });
 
       const loader = new ConfigLoader();
       // Path join mock joins with / so we expect "/app/data"
@@ -70,8 +68,8 @@ describe("ConfigLoader", () => {
       });
       // @ts-expect-error - mocking fs.readFileSync for test
       fs.readFileSync.mockReturnValue("ssl: { enabled: true }");
-      // @ts-expect-error - mocking yaml.load for test
-      yaml.load.mockReturnValue({ ssl: { enabled: true } });
+      // @ts-expect-error - mocking load for test
+      load.mockReturnValue({ ssl: { enabled: true } });
 
       const loader = new ConfigLoader();
       expect(loader.getConfigDir()).toBe("/app");
@@ -80,8 +78,8 @@ describe("ConfigLoader", () => {
     it("should default to data/config.yaml for new instances if neither exists", () => {
       // @ts-expect-error - mocking fs.existsSync for test
       fs.existsSync.mockReturnValue(false);
-      // @ts-expect-error - mocking yaml.load for test
-      yaml.load.mockReturnValue({});
+      // @ts-expect-error - mocking load for test
+      load.mockReturnValue({});
 
       const loader = new ConfigLoader();
       expect(loader.getConfigDir()).toBe("/app/data");
@@ -93,7 +91,7 @@ describe("ConfigLoader", () => {
       process.env.SSL_PORT = "1234";
       vi.mocked(fs.existsSync).mockReturnValue(true);
       vi.mocked(fs.readFileSync).mockReturnValue("ssl: { port: 9898 }");
-      vi.mocked(yaml.load).mockReturnValue({ ssl: { port: 9898 } });
+      vi.mocked(load).mockReturnValue({ ssl: { port: 9898 } });
 
       const loader = new ConfigLoader("/app/config.yaml");
       expect(loader.getSslConfig().port).toBe(1234);
@@ -103,7 +101,7 @@ describe("ConfigLoader", () => {
       process.env.SSL_PORT = "5678";
       vi.mocked(fs.existsSync).mockReturnValue(true); // File exists
       vi.mocked(fs.readFileSync).mockReturnValue("invalid yaml");
-      vi.mocked(yaml.load).mockReturnValue("invalid"); // Simulate bad load
+      vi.mocked(load).mockReturnValue("invalid"); // Simulate bad load
 
       // Mock console.error to suppress output
       vi.spyOn(console, "error").mockImplementation(() => {});

@@ -1,4 +1,4 @@
-import yaml from "js-yaml";
+import { dump, load } from "js-yaml";
 import fs from "fs";
 import path from "path";
 import { z } from "zod";
@@ -46,7 +46,7 @@ export class ConfigLoader {
     try {
       if (fs.existsSync(this.configPath)) {
         const fileContents = fs.readFileSync(this.configPath, "utf8");
-        const doc = yaml.load(fileContents);
+        const doc = load(fileContents);
         const result = configSchema.safeParse(doc);
 
         if (result.success) {
@@ -99,7 +99,7 @@ export class ConfigLoader {
       }
 
       this.config = result.data;
-      const yamlStr = yaml.dump(this.config);
+      const yamlStr = dump(this.config);
       await fs.promises.writeFile(this.configPath, yamlStr, "utf8");
     } catch (error) {
       console.error("Error saving config.yaml:", error);

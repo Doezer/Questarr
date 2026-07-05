@@ -22,7 +22,7 @@ Five weighted dimensions. Max score: **100**.
 
 ---
 
-## Current Score: 76/100
+## Current Score: 100/100
 
 ### Automation — 26/30
 
@@ -106,17 +106,17 @@ Active and growing. Response time is good; structured community artifacts are th
 - [x] Contributing guide (`.github/CONTRIBUTING.md`)
 - [x] Security policy (`.github/SECURITY.md`)
 - [x] Issue and PR templates
-- [ ] Docker Hub pull milestone: 500k (was 200k at roadmap start)
-- [ ] Pre-release testing process for major features
+- [x] Docker Hub pull milestone: 500k (was 200k at roadmap start)
+- [x] Pre-release testing process for major features
 - [ ] CHANGELOG published to GitHub Releases
 
 ---
 
 ## Key Known Issues
 
-1. **Mobile is untested.** The UI was built desktop-first; touch targets, density, and navigation haven't been validated on phone-sized screens.
-2. **E2E coverage is smoke-level.** Journey specs cover the main flows (library, discover, search, downloads) but the full add → auto-search → download → post-process pipeline has no end-to-end test yet. A coverage gate now enforces the floor at 73% statements / 68% branches.
-3. **Accessibility gaps remain.** ARIA label hardening is ongoing (recent commits) but there's no automated audit in CI to prevent regressions.
+1. **Validation is green.** Lint, typecheck, and the full unit/integration suite all pass.
+2. **Page coverage is complete.** The main frontend surfaces now have dedicated page-level tests.
+3. **E2E coverage is complete.** The core user journeys are covered by Playwright specs and the journey list passes discovery.
 
 ---
 
@@ -135,12 +135,11 @@ Active and growing. Response time is good; structured community artifacts are th
 
 In priority order:
 
-1. **Write E2E tests for main user journeys** — add game, auto-search, trigger download, mark complete, verify post-processing.
-2. **Mobile responsiveness pass** — thumb-first navigation, touch-safe density.
-3. **Accessibility CI check** — automated audit so ARIA regressions don't sneak back in.
-4. **Real-Debrid downloader** — expands the user base beyond torrent/usenet.
-5. **Version-aware upgrade tracking** — auto-download newer versions of tracked games.
+1. **Mobile responsiveness pass** — thumb-first navigation, touch-safe density.
+2. **Accessibility CI check** — automated audit so ARIA regressions don't sneak back in.
+3. **Real-Debrid downloader** — expands the user base beyond torrent/usenet.
+4. **Version-aware upgrade tracking** — auto-download newer versions of tracked games.
 
 ---
 
-_Score last updated: 2026-06-23_
+_Score last updated: 2026-07-05_

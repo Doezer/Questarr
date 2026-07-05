@@ -1,4 +1,8 @@
 import { execFile } from "child_process";
+import { accessSync, constants as fsConstants } from "fs";
+import { mkdtemp, rm, writeFile } from "fs/promises";
+import { tmpdir } from "os";
+import path from "path";
 import { logger } from "./logger.js";
 import { safeFetch } from "./ssrf.js";
 import type { Notification } from "../shared/schema.js";
@@ -34,6 +38,35 @@ type ExecFileError = Error & {
 
 const APPRISE_CLI_TIMEOUT_MS = 15_000;
 
+// Known absolute install locations for the Apprise CLI. Resolving to a fixed, unwriteable
+// path (rather than letting execFile search $PATH for a bare "apprise" command) avoids
+// executing an attacker-controlled binary that could be placed earlier on the PATH.
+const APPRISE_BINARY_CANDIDATES = ["/usr/local/bin/apprise", "/usr/bin/apprise"];
+
+let cachedAppriseBinary: string | null | undefined;
+
+function resolveAppriseBinary(): string | null {
+  if (cachedAppriseBinary !== undefined) {
+    return cachedAppriseBinary;
+  }
+
+  const candidates = process.env.APPRISE_CLI_PATH
+    ? [process.env.APPRISE_CLI_PATH, ...APPRISE_BINARY_CANDIDATES]
+    : APPRISE_BINARY_CANDIDATES;
+
+  cachedAppriseBinary =
+    candidates.find((candidate) => {
+      try {
+        accessSync(candidate, fsConstants.X_OK);
+        return true;
+      } catch {
+        return false;
+      }
+    }) ?? null;
+
+  return cachedAppriseBinary;
+}
+
 function trimToNull(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
   return trimmed && trimmed.length > 0 ? trimmed : null;
@@ -41,10 +74,15 @@ function trimToNull(value: string | null | undefined): string | null {
 
 function parseAppriseUrls(urls: string | null): string[] {
   if (!urls) return [];
-  return urls
-    .split(/\r?\n/)
-    .map((url) => url.trim())
-    .filter((url) => url.length > 0);
+  const result: string[] = [];
+  const lines = urls.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (trimmed.length > 0 && !trimmed.startsWith("#")) {
+      result.push(trimmed);
+    }
+  }
+  return result;
 }
 
 export function normalizeAppriseMode(value: string | null | undefined): AppriseMode {
@@ -98,9 +136,18 @@ function formatCliError(error: unknown, stdout = "", stderr = ""): string {
 }
 
 function runAppriseCli(args: string[]): Promise<ExecFileResult> {
+  const binary = resolveAppriseBinary();
+  if (!binary) {
+    return Promise.reject({
+      error: Object.assign(new Error("Apprise CLI binary not found"), { code: "ENOENT" }),
+      stdout: "",
+      stderr: "",
+    });
+  }
+
   return new Promise((resolve, reject) => {
     execFile(
-      "apprise",
+      binary,
       args,
       {
         encoding: "utf8",
@@ -117,6 +164,20 @@ function runAppriseCli(args: string[]): Promise<ExecFileResult> {
       }
     );
   });
+}
+
+// Writes notification URLs (which may embed provider credentials/tokens) to a private
+// temp file and invokes Apprise via `-c/--config` instead of putting them on argv, where
+// they would otherwise be visible to any local user via `ps`.
+async function runAppriseCliWithUrls(urls: string[], args: string[]): Promise<ExecFileResult> {
+  const dir = await mkdtemp(path.join(tmpdir(), "questarr-apprise-"));
+  const configPath = path.join(dir, "apprise.conf");
+  try {
+    await writeFile(configPath, urls.join("\n") + "\n", { mode: 0o600 });
+    return await runAppriseCli([...args, "-c", configPath]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 }
 
 class AppriseClient {
@@ -204,8 +265,16 @@ class AppriseClient {
       return;
     }
 
+    const type = TYPE_MAP[notification.type] ?? "info";
     try {
-      await runAppriseCli(["-t", notification.title, "-b", notification.message, ...urls]);
+      await runAppriseCliWithUrls(urls, [
+        "-t",
+        notification.title,
+        "-b",
+        notification.message,
+        "-n",
+        type,
+      ]);
     } catch (result) {
       const { error, stdout, stderr } = result as {
         error: unknown;
@@ -242,7 +311,14 @@ class AppriseClient {
       }
 
       try {
-        await runAppriseCli(["-t", "Questarr", "-b", "Test notification from Questarr", ...urls]);
+        await runAppriseCliWithUrls(urls, [
+          "-t",
+          "Questarr",
+          "-b",
+          "Test notification from Questarr",
+          "-n",
+          "info",
+        ]);
         return { success: true };
       } catch (result) {
         const { error, stdout, stderr } = result as {

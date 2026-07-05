@@ -157,6 +157,7 @@ export default function SettingsPage() {
   const [appriseApiUrl, setAppriseApiUrl] = useState("");
   const [appriseKey, setAppriseKey] = useState("");
   const [appriseUrls, setAppriseUrls] = useState("");
+  const appriseLoadedRef = useRef(false);
 
   // Local state for Steam form
   const [steamIdInput, setSteamIdInput] = useState("");
@@ -273,10 +274,13 @@ export default function SettingsPage() {
   });
 
   useEffect(() => {
-    if (appriseSettings?.mode) setAppriseMode(appriseSettings.mode);
-    if (appriseSettings?.apiUrl !== undefined) setAppriseApiUrl(appriseSettings.apiUrl ?? "");
-    if (appriseSettings?.key !== undefined) setAppriseKey(appriseSettings.key ?? "");
-    if (appriseSettings?.urls !== undefined) setAppriseUrls(appriseSettings.urls ?? "");
+    if (appriseSettings && !appriseLoadedRef.current) {
+      if (appriseSettings.mode) setAppriseMode(appriseSettings.mode);
+      if (appriseSettings.apiUrl !== undefined) setAppriseApiUrl(appriseSettings.apiUrl ?? "");
+      if (appriseSettings.key !== undefined) setAppriseKey(appriseSettings.key ?? "");
+      if (appriseSettings.urls !== undefined) setAppriseUrls(appriseSettings.urls ?? "");
+      appriseLoadedRef.current = true;
+    }
   }, [appriseSettings]);
 
   const { data: nexusmodsSettings } = useQuery<{

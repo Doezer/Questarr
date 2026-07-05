@@ -2583,6 +2583,15 @@ describe("API Routes - Extended Coverage", () => {
       expect(response.status).toBe(400);
     });
 
+    it("should reject non-string payload fields instead of crashing", async () => {
+      const response = await request(app)
+        .post("/api/settings/apprise")
+        .send({ mode: "api", apiUrl: { malicious: true }, key: "config-key" });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toMatch(/invalid request payload/i);
+    });
+
     it("should test the configured transport", async () => {
       const response = await request(app).post("/api/settings/apprise/test");
 

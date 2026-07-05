@@ -3206,6 +3206,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Invalid Apprise mode" });
       }
 
+      if (
+        (apiUrl !== undefined && typeof apiUrl !== "string") ||
+        (key !== undefined && typeof key !== "string") ||
+        (urls !== undefined && typeof urls !== "string")
+      ) {
+        return res.status(400).json({ error: "Invalid request payload types" });
+      }
+
       if (mode === "api") {
         if (!apiUrl || apiUrl.trim().length === 0) {
           return res.status(400).json({ error: "API URL is required in API mode" });

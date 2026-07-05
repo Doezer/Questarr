@@ -159,7 +159,7 @@ jobs:
             type=sha,prefix=${{ env.ENVIRONMENT }}-sha-,format=short,enable=${{ env.ENVIRONMENT != 'dev' }}
           labels: |
             org.opencontainers.image.title=Questarr
-            org.opencontainers.image.description=A video game management application inspired by the -Arr apps. Track and organize your video game collection with automated discovery and download management.
+            org.opencontainers.image.description=Questarr is an *Arr-inspired game manager that helps you discover, track, and automatically download the games you want.
             org.opencontainers.image.vendor=Doezer
 
       - name: Build and push Docker image
@@ -175,6 +175,38 @@ jobs:
           cache-to: type=gha,mode=max
           target: production
           sbom: true
+
+      - name: Prune old GHCR package versions (keep 15 days)
+        if: github.event_name == 'schedule' && env.ENVIRONMENT == 'dev'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          PACKAGE_NAME: ${{ env.REPO_NAME_LC }}
+        run: |
+          set -euo pipefail
+
+          cutoff_epoch=$(date -u -d '15 days ago' +%s)
+          deleted_count=0
+
+          if gh api "/orgs/${OWNER}/packages/container/${PACKAGE_NAME}/versions?per_page=1" >/dev/null 2>&1; then
+            package_api="/orgs/${OWNER}/packages/container/${PACKAGE_NAME}"
+          else
+            package_api="/users/${OWNER}/packages/container/${PACKAGE_NAME}"
+          fi
+
+          while IFS=$'\t' read -r version_id created_at; do
+            created_epoch=$(date -u -d "${created_at}" +%s)
+            if [ "${created_epoch}" -lt "${cutoff_epoch}" ]; then
+              echo "Deleting untagged version ${version_id} (${created_at})"
+              gh api -X DELETE "${package_api}/versions/${version_id}"
+              deleted_count=$((deleted_count + 1))
+            fi
+          done < <(
+            gh api --paginate "${package_api}/versions?per_page=100" \
+              --jq '.[] | select(((.metadata.container.tags // []) | length) == 0) | "\(.id)\t\(.created_at)"'
+          )
+
+          echo "Pruned ${deleted_count} old GHCR package version(s)."
 
       - name: Generate SBOM
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0

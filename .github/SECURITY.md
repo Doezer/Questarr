@@ -6,7 +6,7 @@ Use the latest version of this project to ensure you have the latest security pa
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability within this project, please do not report it publicly. Instead, please report it via email to the maintainer directly.
+If you discover a security vulnerability within this project, please do not report it publicly. Instead, please report it via email to the maintainer directly, via this e-mail: iroise-ia-939b6a4c0f344b73ae2a9d1892fe8b97@plane.email.
 
 ## Threat Model
 

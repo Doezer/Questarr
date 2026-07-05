@@ -17,4 +17,4 @@ This file is the single entry point for GitHub-facing documentation in this repo
   - [`docs/SBOM.md`](./SBOM.md): Every published image ships with a Software Bill of Materials.
   - [`docs/VEX.md`](./VEX.md), for details on the Questar's Vulnerability Exploitability Exchange feed
   - [`docs/DEPENDENCIES.md`](./DEPENDENCIES.md), for how dependencies are selected, obtained, and tracked.
-- `CODE_OF_CONDUCT.md` (community health file)
+- `.github/CODE_OF_CONDUCT.md` (community health file)

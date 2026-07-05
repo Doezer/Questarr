@@ -179,7 +179,7 @@ linked file as the source of truth.
 - **Supply-chain scoring:** `.github/workflows/scorecard.yml` (OpenSSF Scorecard)
 - **SBOM:** [`docs/SBOM.md`](./SBOM.md) — Syft-generated, attached to Docker releases
 - **Disclosure process / access governance:** [`.github/SECURITY.md`](../.github/SECURITY.md),
-  [`MAINTAINERS.md`](../MAINTAINERS.md)
+  [`MAINTAINERS.md`](../.github/MAINTAINERS.md)
 - **Test coverage:** `server/__tests__/ssrf.test.ts`, `ssrf_routes.test.ts`,
   `rss-ssrf.test.ts`, `downloaders_ssrf.test.ts`, `security.test.ts`,
   `security_error_handling.test.ts`, `auth-setup-ratelimit.test.ts`

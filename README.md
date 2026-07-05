@@ -12,7 +12,7 @@
     <a href="https://github.com/Doezer/Questarr/pkgs/container/questarr">
       <img src="https://img.shields.io/badge/ghcr.io-questarr-blue?logo=github&logoColor=white" alt="GHCR">
     </a>
-    <a href="https://github.com/Doezer/Questarr/blob/main/COPYING">
+    <a href="https://github.com/Doezer/Questarr/blob/main/.github/COPYING">
       <img src="https://img.shields.io/github/license/Doezer/Questarr" alt="License">
     </a>
     <a href="https://github.com/Doezer/Questarr/actions/workflows/ci.yml">
@@ -343,7 +343,7 @@ See [Troubleshooting on the Wiki](https://github.com/Doezer/Questarr/wiki/Troubl
 ## Contributing
 
 - See [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md) for guidelines on how to contribute to this project.
-- See [MAINTAINERS.md](/MAINTAINERS.md) for the current list of project members with access to sensitive resources.
+- See [MAINTAINERS.md](/.github/MAINTAINERS.md) for the current list of project members with access to sensitive resources.
 
 ### Contributors
 
@@ -355,7 +355,7 @@ Made with [contrib.rocks](https://contrib.rocks).
 
 ## License
 
-GPL3 License - see [COPYING](COPYING) file for details.
+GPL3 License - see [COPYING](.github/COPYING) file for details.
 
 ## Acknowledgments
 

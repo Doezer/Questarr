@@ -15,7 +15,7 @@ those with escalated access — the sensitive resources they can reach, per the
   [SECURITY.md](/.github/SECURITY.md)).
 - Reviews and approves (or denies) requests for escalated collaborator access, per the
   [Collaborator Access & Escalation Policy](/.github/SECURITY.md#collaborator-access--escalation-policy).
-- Enforces the [Code of Conduct](/CODE_OF_CONDUCT.md) as the community leader responsible
+- Enforces the [Code of Conduct](/.github/CODE_OF_CONDUCT.md) as the community leader responsible
   for handling reports.
 
 There are currently no other maintainers, reviewers, or triagers with a formal role on

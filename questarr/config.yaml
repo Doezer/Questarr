@@ -1,7 +1,7 @@
 name: Questarr
 version: "1.4.0"
 slug: questarr
-description: Video game management for your Home Assistant stack.
+description: Questarr is an *Arr-inspired game manager that helps you discover, track, and automatically download the games you want.
 url: "https://github.com/Doezer/Questarr"
 arch:
   - amd64

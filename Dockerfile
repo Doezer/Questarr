@@ -62,7 +62,7 @@ ENTRYPOINT ["/entrypoint.sh"]
 CMD ["npm", "run", "start"]
 
 LABEL org.opencontainers.image.title="Questarr"
-LABEL org.opencontainers.image.description="A video game management application inspired by the -Arr apps. Track and organize your video game collection with automated discovery and download management."
+LABEL org.opencontainers.image.description="Questarr is a smart game library manager that automates discovery and downloads, inspired by the *Arr ecosystem."
 LABEL org.opencontainers.image.authors="Doezer"
 LABEL org.opencontainers.image.source="https://github.com/Doezer/questarr"
 LABEL org.opencontainers.image.licenses="GPL-3.0-or-later"

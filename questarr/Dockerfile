@@ -1,13 +1,14 @@
 # NOSONAR - ha-entrypoint.sh must run as root to chown /data before su-exec drops to questarr
-FROM ghcr.io/doezer/questarr:1.4.0
+ARG QUESTARR_VERSION=1.4.0
+FROM ghcr.io/doezer/questarr:${QUESTARR_VERSION}
 ARG BUILD_ARCH=amd64
 
 LABEL \
     io.hass.name="Questarr" \
-    io.hass.description="Video game management for your Home Assistant stack." \
+    io.hass.description="Arr-inspired game management with discovery, tracking, and automated downloads." \
     io.hass.arch="${BUILD_ARCH}" \
     io.hass.type="addon" \
-    io.hass.version="1.4.0"
+    io.hass.version="${QUESTARR_VERSION}"
 
 RUN mkdir -p /data
 

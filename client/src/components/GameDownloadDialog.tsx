@@ -652,19 +652,6 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     toast({ title: "Download started", description: "File download initiated" });
   };
 
-  // Unused currently, can this be removed?
-  const _handleDirectDownloadWithUpdates = async (mainDownload: DownloadItem) => {
-    if (categorizedDownloads.update.length === 0) {
-      downloadFile(mainDownload);
-      toast({ title: "Download started", description: "File download initiated" });
-      return;
-    }
-    setSelectedMainDownload(mainDownload);
-    setIsDirectDownloadMode(true);
-    setSelectedUpdateIndices(new Set(filteredCategorizedDownloads.update.map((_, i) => i)));
-    setShowBundleDialog(true);
-  };
-
   const handleBundleDirectDownload = async (includeUpdates: boolean) => {
     if (!selectedMainDownload) return;
     if (includeUpdates && selectedUpdateIndices.size > 0) {

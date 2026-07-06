@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Ensure "plane" label exists and add it to new issue
-        uses: actions/github-script@v9
+        uses: actions/github-script@8ade135a41bc03ea155e62e844d188df1ea18608 # v9
         with:
           script: |
             const owner = context.repo.owner;

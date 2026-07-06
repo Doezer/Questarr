@@ -175,7 +175,18 @@ file is currently tracked in git. Never commit real credentials in
 `docker-compose*.yml` — use `.env` or a local override file
 (`docker-compose.*local.yml`, also git-ignored) instead.
 
-## 8. Summary checklist for operators
+## 8. Credential exposure in operational scripts
+
+`scripts/pg-to-sqlite.ts:157` logs the full `DATABASE_URL` connection string
+via `console.log` before connecting. Per standard `postgres://` URL
+convention this string embeds `user:password@host`, so the credential is
+printed in plaintext. This is a one-shot migration script, not server
+runtime code, but its output can still land in CI logs or shell history.
+**Not yet fixed** — tracked as a follow-up to redact the credential before
+logging (e.g. parse with `new URL(pgUrl)` and print only `hostname`/
+`pathname`).
+
+## 9. Summary checklist for operators
 
 - [ ] Set `JWT_SECRET` explicitly in production so sessions survive
       restarts and DB resets.
@@ -190,3 +201,5 @@ file is currently tracked in git. Never commit real credentials in
       masked in responses and encrypted at rest, per §4).
 - [ ] Run behind HTTPS/a reverse proxy per `.github/SECURITY.md`.
 - [ ] Never commit `.env`, `sqlite.db`, or `docker-compose.local.yml`.
+- [ ] Avoid piping `scripts/pg-to-sqlite.ts` output to shared/CI logs until
+      the credential-redaction fix lands (§8).

@@ -168,7 +168,8 @@ export default function PreferredReleaseGroupsSettings({
                 Pre-filter Download Search
               </Label>
               <p className="text-xs text-muted-foreground">
-                Automatically filter the download dialog to show only preferred groups
+                Automatically filter the download dialog to show only preferred groups, and only
+                send availability/update notifications when a preferred group release is found
               </p>
             </div>
             <Switch

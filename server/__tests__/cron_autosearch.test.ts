@@ -1147,4 +1147,245 @@ describe("Cron - checkAutoSearch", () => {
       expect(mockUpdateGameSearchResultsAvailable).toHaveBeenCalledWith(game.id, true);
     });
   });
+
+  describe("Notification dedup (transition gating)", () => {
+    const SINGLE_ITEM_RESULT = {
+      items: [
+        {
+          title: "Test Game",
+          link: "https://example.com/1",
+          pubDate: FIXED_PUB_DATE,
+          seeders: 50,
+          size: 10_000,
+        },
+      ],
+      errors: [],
+      total: 1,
+    };
+    const TWO_ITEM_RESULT = {
+      items: [
+        {
+          title: "Test Game",
+          link: "https://example.com/1",
+          pubDate: FIXED_PUB_DATE,
+          seeders: 50,
+          size: 10_000,
+        },
+        {
+          title: "Test Game v2",
+          link: "https://example.com/2",
+          pubDate: FIXED_PUB_DATE,
+          seeders: 30,
+          size: 8_000,
+        },
+      ],
+      errors: [],
+      total: 2,
+    };
+
+    beforeEach(() => {
+      mockGetUserSettings.mockResolvedValue({ ...baseSettings, autoDownloadEnabled: false });
+    });
+
+    it("does not re-notify 'Game Available' while still available on the next cycle", async () => {
+      const game = {
+        ...baseGame,
+        status: "wanted" as const,
+        releaseStatus: "released" as const,
+        searchResultsAvailable: false,
+      };
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [game]]]));
+      mockSearchAllIndexers.mockResolvedValue(SINGLE_ITEM_RESULT);
+
+      await checkAutoSearch();
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Game Available" })
+      );
+      mockAddNotification.mockClear();
+
+      // Next cycle: same single result, but the game is already marked available from last cycle
+      const stillAvailable = { ...game, searchResultsAvailable: true };
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [stillAvailable]]]));
+
+      await checkAutoSearch();
+      expect(mockAddNotification).not.toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Game Available" })
+      );
+    });
+
+    it("does not re-notify 'Multiple Results Found' while still available on the next cycle", async () => {
+      const game = {
+        ...baseGame,
+        status: "wanted" as const,
+        releaseStatus: "released" as const,
+        searchResultsAvailable: false,
+      };
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [game]]]));
+      mockSearchAllIndexers.mockResolvedValue(TWO_ITEM_RESULT);
+
+      await checkAutoSearch();
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Multiple Results Found" })
+      );
+      mockAddNotification.mockClear();
+
+      const stillAvailable = { ...game, searchResultsAvailable: true };
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [stillAvailable]]]));
+
+      await checkAutoSearch();
+      expect(mockAddNotification).not.toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Multiple Results Found" })
+      );
+    });
+
+    it("does not re-notify 'Game Updates Available' while still available on the next cycle", async () => {
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, []]]));
+      mockSearchAllIndexers.mockResolvedValue({
+        items: [
+          {
+            title: "Test Game Update v1.1",
+            link: "https://example.com/update",
+            pubDate: FIXED_PUB_DATE,
+            seeders: 100,
+            size: 1024,
+          },
+        ],
+        errors: [],
+        total: 1,
+      });
+
+      const ownedGame = {
+        ...baseGame,
+        status: "owned" as const,
+        releaseStatus: "released" as const,
+        searchResultsAvailable: false,
+      };
+      mockGetUserGames.mockResolvedValue([ownedGame]);
+
+      await checkAutoSearch();
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Game Updates Available" })
+      );
+      mockAddNotification.mockClear();
+
+      const stillAvailable = { ...ownedGame, searchResultsAvailable: true };
+      mockGetUserGames.mockResolvedValue([stillAvailable]);
+
+      await checkAutoSearch();
+      expect(mockAddNotification).not.toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Game Updates Available" })
+      );
+    });
+
+    it("re-notifies 'Game Available' after a false→true→false→true flap", async () => {
+      let game = {
+        ...baseGame,
+        status: "wanted" as const,
+        releaseStatus: "released" as const,
+        searchResultsAvailable: false,
+      };
+
+      // Cycle 1: becomes available → notifies
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [game]]]));
+      mockSearchAllIndexers.mockResolvedValue(SINGLE_ITEM_RESULT);
+      await checkAutoSearch();
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Game Available" })
+      );
+      mockAddNotification.mockClear();
+
+      // Cycle 2: still available → no re-notify
+      game = { ...game, searchResultsAvailable: true };
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [game]]]));
+      await checkAutoSearch();
+      expect(mockAddNotification).not.toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Game Available" })
+      );
+
+      // Cycle 3: no results → flag clears, no notification either way
+      mockSearchAllIndexers.mockResolvedValue({ items: [], errors: [], total: 0 });
+      await checkAutoSearch();
+      expect(mockUpdateGameSearchResultsAvailable).toHaveBeenCalledWith(game.id, false);
+      mockAddNotification.mockClear();
+
+      // Cycle 4: becomes available again → notifies again
+      game = { ...game, searchResultsAvailable: false };
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [game]]]));
+      mockSearchAllIndexers.mockResolvedValue(SINGLE_ITEM_RESULT);
+      await checkAutoSearch();
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Game Available" })
+      );
+    });
+
+    it("only notifies when a preferred-group release appears (filterByPreferredGroups enabled), and dedups afterward", async () => {
+      mockGetUserSettings.mockResolvedValue({
+        ...baseSettings,
+        autoDownloadEnabled: false,
+        filterByPreferredGroups: true,
+        preferredReleaseGroups: '["SKIDROW"]',
+      });
+
+      const CODEX_ONLY = {
+        items: [
+          {
+            title: "Test Game CODEX",
+            link: "https://example.com/codex",
+            pubDate: FIXED_PUB_DATE,
+            seeders: 80,
+            size: 10_000,
+            group: "CODEX",
+          },
+        ],
+        errors: [],
+        total: 1,
+      };
+      const SKIDROW_ONLY = {
+        items: [
+          {
+            title: "Test Game SKIDROW",
+            link: "https://example.com/skidrow",
+            pubDate: FIXED_PUB_DATE,
+            seeders: 50,
+            size: 10_000,
+            group: "SKIDROW",
+          },
+        ],
+        errors: [],
+        total: 1,
+      };
+
+      let game = {
+        ...baseGame,
+        status: "wanted" as const,
+        releaseStatus: "released" as const,
+        searchResultsAvailable: false,
+      };
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [game]]]));
+
+      // Cycle 1: only a non-preferred group release exists → strict filter drops it → no notification
+      mockSearchAllIndexers.mockResolvedValue(CODEX_ONLY);
+      await checkAutoSearch();
+      expect(mockAddNotification).not.toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Game Available" })
+      );
+      expect(mockUpdateGameSearchResultsAvailable).toHaveBeenCalledWith(game.id, false);
+
+      // Cycle 2: preferred group release appears → notifies
+      mockSearchAllIndexers.mockResolvedValue(SKIDROW_ONLY);
+      await checkAutoSearch();
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Game Available" })
+      );
+      mockAddNotification.mockClear();
+
+      // Cycle 3: same preferred release still there → no re-notify
+      game = { ...game, searchResultsAvailable: true };
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [game]]]));
+      await checkAutoSearch();
+      expect(mockAddNotification).not.toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Game Available" })
+      );
+    });
+  });
 });

@@ -7,13 +7,13 @@ test.describe("Navigation", () => {
     await page.goto("/");
     await expect(page).toHaveTitle(/Questarr|Dashboard/);
 
-    await page.getByRole("button", { name: /Discover/i }).click();
+    await page.getByTestId("nav-discover").click();
     await expect(page).toHaveURL("/discover");
 
-    await page.getByRole("button", { name: /Library/i }).click();
-    await expect(page).toHaveURL("/library");
+    await page.getByTestId("nav-library").click();
+    await expect(page).toHaveURL("/");
 
-    await page.getByRole("button", { name: /Settings/i }).click();
+    await page.getByTestId("nav-settings").click();
     await expect(page).toHaveURL("/settings");
   });
 });

@@ -158,15 +158,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    // Fall back to meData directly: on the render where isFetchingUser first flips to
+    // false, the "derive user" effect above hasn't flushed its setUser call yet, so
+    // `user` can still be stale. Reading meData here avoids acting on that stale value.
+    const isAuthenticated = !!(user ?? meData);
+
     if (needsSetup && location !== "/setup") {
       setLocation("/setup");
-    } else if (!needsSetup && !user && location !== "/login" && location !== "/setup") {
+    } else if (!needsSetup && !isAuthenticated && location !== "/login" && location !== "/setup") {
       setLocation("/login");
-    } else if (user && (location === "/login" || location === "/setup")) {
+    } else if (isAuthenticated && (location === "/login" || location === "/setup")) {
       setLocation("/");
     }
   }, [
     user,
+    meData,
     needsSetup,
     location,
     setLocation,

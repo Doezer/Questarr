@@ -72,6 +72,22 @@ All notable changes to this project will be documented in this file.
 - Fixed the "Has results" badge that would create an offset in the game card.
 - Fixed the Home Assistant add-on: moved to the repo root and corrected /data permissions on fresh installs (#696). See [../questarr/README.md]
 
+### Vulnerabilities Addressed
+
+- **js-yaml** 4.1.1 → 5.2.1 — fixes **CVE-2026-53550** (GHSA-h67p-54hq-rp68, MODERATE) — quadratic-complexity DoS in merge-key handling via repeated aliases.
+- **multer** 2.1.1 → 2.2.0 — fixes the 2 CVEs left open in the v1.3.0
+  - **CVE-2026-5038** (GHSA-3p4h-7m6x-2hcm, MODERATE) — DoS via incomplete cleanup of aborted uploads
+  - **CVE-2026-5079** (GHSA-72gw-mp4g-v24j, HIGH) — DoS via deeply nested field names
+- **form-data** (transitive, resolved 4.0.5 → 4.0.6) — fixes **CVE-2026-12143** (GHSA-hmw2-7cc7-3qxx, HIGH) — CRLF injection via unescaped multipart field names/filenames.
+- **ws** (transitive, resolved 8.18.3 → 8.21.0) — fixes 2 CVEs:
+  - **CVE-2026-45736** (GHSA-58qx-3vcg-4xpx, MODERATE) — uninitialized memory disclosure
+  - **CVE-2026-48779** (GHSA-96hv-2xvq-fx4p, HIGH) — memory exhaustion DoS from tiny fragments/data chunks
+- **esbuild** (devDep) 0.28.0 → 0.28.1 — fixes GHSA-g7r4-m6w7-qqqr (no CVE assigned) — the Windows dev-server arbitrary-file-read issue flagged as still-open in the v1.2.1/v1.3.0 entries is now fixed.
+- **esbuild, nested copy** — the new npm `overrides` entry (`@esbuild-kit/core-utils` → `esbuild ^0.25.0`) bumps that dependency's bundled esbuild from 0.18.20 to 0.25.12, fixing GHSA-67mh-4wv8-2f99 (no CVE, MODERATE — dev server accepts arbitrary cross-origin requests). Separately, `tsx`'s own duplicate nested esbuild copy (0.27.7, carrying the same GHSA-g7r4-m6w7-qqqr as above) was deduped away entirely by this bump round rather than upgraded.
+- **vite** (devDep) 8.0.12 → 8.1.3 — fixes both issues left open in the v1.3.0:
+  - **CVE-2026-53571** (GHSA-fx2h-pf6j-xcff) — `server.fs.deny` bypass
+  - **CVE-2026-53632** (GHSA-v6wh-96g9-6wx3) — launch-editor NTLMv2 hash disclosure via UNC path on Windows
+
 ## [1.3.1] - 2026-05-13
 
 ### Fixed
@@ -90,6 +106,10 @@ All notable changes to this project will be documented in this file.
 - Add missing ARIA label to RSS feed delete button for screen reader accessibility.
 - Updated Docker Compose and Dockerfile configuration.
 - Dependency updates: React, express-rate-limit, fast-xml-parser, @types/express-session, and Docker CI actions.
+
+### Addressed Vulnerabilities
+
+- None
 
 ## [1.3.0] - 2026-04-11
 
@@ -164,6 +184,26 @@ All notable changes to this project will be documented in this file.
 - One-time IGDB retry on HTTP 429 to avoid hammering the API.
 - Download results table header not sticky during scroll.
 
+### Addressed Vulnerabilities
+
+- **fast-xml-parser** 5.3.7 → 5.7.1 — fixes 4 CVEs:
+  - **CVE-2026-33036** (GHSA-8gc5-j5rx-235r, HIGH) — numeric entity expansion bypassing all expansion limits (incomplete fix for CVE-2026-26278)
+  - **CVE-2026-27942** (GHSA-fj3w-jwp8-x2g3, LOW) — stack overflow in XMLBuilder with `preserveOrder`
+  - **CVE-2026-41650** (GHSA-gh4j-gqv2-49f6, MODERATE) — XML Comment/CDATA injection via unescaped delimiters
+  - **CVE-2026-33349** (GHSA-jp2q-39xq-3w4g, MODERATE) — entity expansion limit bypassed when set to `0` (JS falsy-evaluation bug)
+- **node-forge** 1.3.3 → 1.4.0 — fixes 4 CVEs:
+  - **CVE-2026-33896** (GHSA-2328-f5f3-gj25, HIGH) — `basicConstraints`/RFC 5280 cert-chain validation bypass
+  - **CVE-2026-33891** (GHSA-5m6q-g25r-mvwx, HIGH) — DoS via `BigInteger.modInverse(0)` infinite loop
+  - **CVE-2026-33894** (GHSA-ppp5-5v6c-4jwp, HIGH) — RSA-PKCS1 v1.5 signature forgery (Bleichenbacher-style)
+  - **CVE-2026-33895** (GHSA-q67f-28xg-22rw, HIGH) — Ed25519 signature malleability (missing canonical-scalar check)
+- **socket.io-parser** (npm `overrides` pin) 4.2.5 → 4.2.6 — fixes **CVE-2026-33151** (GHSA-677m-j7p3-52f9, HIGH) — unbounded binary attachments DoS
+- **drizzle-orm** 0.45.1 → 0.45.2 — fixes **CVE-2026-39356** (GHSA-gpj5-g38j-94v9, HIGH) — SQL injection via improperly escaped SQL identifiers
+- **express-rate-limit** 8.2.1 → 8.3.2 — fixes **CVE-2026-30827** (GHSA-46wh-pxpv-q5gq, HIGH) — IPv4-mapped IPv6 addresses bypass per-client rate limiting on dual-stack servers
+- **multer** 2.0.2 → 2.1.1 — fixes 3 of 5 CVEs present since multer's introduction in v1.2.1:
+  - **CVE-2026-3520** (GHSA-5528-5vmv-3xc2, HIGH) — DoS via uncontrolled recursion
+  - **CVE-2026-2359** (GHSA-v52c-386h-88mc, HIGH) — DoS via resource exhaustion
+  - **CVE-2026-3304** (GHSA-xf7r-hgr6-v32p, HIGH) — DoS via incomplete cleanup
+
 ---
 
 ## [1.2.2] - 2026-02-26
@@ -182,6 +222,10 @@ All notable changes to this project will be documented in this file.
 - Updated runtime dependencies: `react-hook-form` (#410), `pino` 10.3.0 → 10.3.1 (#412), `@tanstack/react-query` 5.90.20 → 5.90.21 (#413), `dotenv` 17.2.4 → 17.3.1 (#414).
 - Updated dev dependencies group (#411).
 
+### Addressed Vulnerabilities
+
+- **fast-xml-parser** 5.3.5 → 5.3.7 — fixes **CVE-2026-26278** (GHSA-jmr7-xgp7-cmfj, HIGH) — DoS via entity expansion in DOCTYPE (no expansion limit).
+
 ## [1.2.1] - 2026-02-21
 
 ### Added
@@ -197,6 +241,10 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - Fixed issue with tracked `sqlite.db` and updated `.gitignore`.
+
+### Addressed Vulnerabilities
+
+- **fast-xml-parser** 5.3.4 → 5.3.5 — fixes **CVE-2026-25896** (GHSA-m7jm-9gc2-mpf2, CRITICAL) — entity-encoding bypass via regex injection in DOCTYPE entity names.
 
 ## [1.2.0] - 2026-02-08
 
@@ -221,6 +269,10 @@ All notable changes to this project will be documented in this file.
 - Resolved UI issue where the close button overlaid the cover image in GameCard.
 - Fixed timestamp calculation issues affecting notification times.
 - Reduced log verbosity for SSL verification errors.
+
+### Addressed Vulnerabilities
+
+- **fast-xml-parser** 5.3.3 → 5.3.4 — fixes **CVE-2026-25128** (GHSA-37qj-frw5-hhjh, HIGH) — RangeError DoS via numeric entities.
 
 ## [1.1.0] - 2026-01-19
 

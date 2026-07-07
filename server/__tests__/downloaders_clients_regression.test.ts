@@ -573,6 +573,7 @@ describe("downloader client regression coverage", () => {
         url: "http://nas.local:5000",
         username: "admin",
         password: "pw",
+        downloadPath: "/volume1/downloads",
       })
     );
     vi.spyOn(
@@ -613,6 +614,7 @@ describe("downloader client regression coverage", () => {
         url: "http://nas.local:5000",
         username: "admin",
         password: "pw",
+        downloadPath: "/volume1/downloads",
       })
     );
     vi.spyOn(
@@ -1182,7 +1184,10 @@ describe("downloader client regression coverage", () => {
     const privateClient = client as unknown as {
       apiInfo: Record<string, { path: string; minVersion: number; maxVersion: number }> | null;
       getBaseUrlParts: () => { origin: string; prefix: string };
-      buildSynologyErrorMessage: (code: number | undefined, fallback: string) => string;
+      buildSynologyErrorMessage: (
+        error: { code?: number; errors?: { name?: string; reason?: string }[] } | undefined,
+        fallback: string
+      ) => string;
       normalizeSynologyStatus: (status: string | undefined, progress: number) => string;
       mapSynologyFilePriority: (priority: string | number | undefined) => string;
       mapSynologyTrackerStatus: (status: string | undefined, error: string | undefined) => string;
@@ -1208,7 +1213,7 @@ describe("downloader client regression coverage", () => {
       origin: "http://nas.local",
       prefix: "/base/downloads",
     });
-    expect(privateClient.buildSynologyErrorMessage(401, "fallback")).toBe(
+    expect(privateClient.buildSynologyErrorMessage({ code: 401 }, "fallback")).toBe(
       "Synology maximum task limit reached"
     );
     expect(privateClient.normalizeSynologyStatus("paused", 100)).toBe("completed");
@@ -1857,6 +1862,7 @@ describe("downloader client regression coverage", () => {
         type: "synology",
         username: "admin",
         password: "password",
+        downloadPath: "/volume1/downloads",
       })
     );
     const privateClient = client as unknown as {
@@ -1966,6 +1972,7 @@ describe("downloader client regression coverage", () => {
         type: "synology",
         username: "admin",
         password: "password",
+        downloadPath: "/volume1/downloads",
       })
     );
     const privateClient = client as unknown as {

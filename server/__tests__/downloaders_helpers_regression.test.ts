@@ -594,14 +594,17 @@ describe("downloaders helper regression coverage", () => {
         apiName: string;
         descriptor: { path: string; minVersion: number; maxVersion: number };
       };
-      buildSynologyErrorMessage(code: number | undefined, fallback: string): string;
+      buildSynologyErrorMessage(
+        error: { code?: number; errors?: { name?: string; reason?: string }[] } | undefined,
+        fallback: string
+      ): string;
       appendApiParams(
         target: URLSearchParams | FormData,
         params: Record<string, string | number | boolean | undefined>
       ): void;
       normalizeSynologyStatus(rawStatus: string | undefined, progress: number): string;
       mapSynologyDetails(task: Record<string, unknown>): Record<string, unknown>;
-      getSynologyDestination(request: { downloadPath?: string }): string | undefined;
+      getSynologyDestination(request: { downloadPath?: string }): Promise<string | undefined>;
     };
 
     expect(client.getBaseUrlParts()).toEqual({
@@ -619,7 +622,7 @@ describe("downloaders helper regression coverage", () => {
       "SYNO.DownloadStation.Task": { path: "entry.cgi", minVersion: 1, maxVersion: 1 },
     };
     expect(client.getTaskApiDescriptor().apiName).toBe("SYNO.DownloadStation.Task");
-    expect(client.buildSynologyErrorMessage(403, "Fallback")).toBe(
+    expect(client.buildSynologyErrorMessage({ code: 403 }, "Fallback")).toBe(
       "Synology destination was not found"
     );
     expect(client.buildSynologyErrorMessage(undefined, "Fallback")).toBe("Fallback");
@@ -696,8 +699,8 @@ describe("downloaders helper regression coverage", () => {
       expect.objectContaining({ status: "working", lastAnnounce: expect.any(String) }),
       expect.objectContaining({ status: "error", error: "timeout" }),
     ]);
-    expect(client.getSynologyDestination({ downloadPath: "/custom" })).toBe("/custom");
-    expect(client.getSynologyDestination({})).toBe("/volume1/downloads");
+    expect(await client.getSynologyDestination({ downloadPath: "/custom" })).toBe("/custom");
+    expect(await client.getSynologyDestination({})).toBe("/volume1/downloads");
   });
 
   it("covers Synology auth, retry, and logout helpers", async () => {

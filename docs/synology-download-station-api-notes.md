@@ -98,16 +98,50 @@ be the **last** parameter in the body — our client honors this for both versio
   use version 3. Prowlarr's proxy does the same version split; the reason isn't documented
   anywhere, just replicated.
 
-### Ordering is not guaranteed to survive a session-timeout retry
+### Ordering is fixed on a session-timeout retry
 
 `requestApi` retries once on error 106 (session expired) by re-authenticating and re-calling
-itself with the same `options` object — including the same `FormData` instance passed in by
-`addFileUpload`. Because `appendApiParams`/`appendFileLast` mutate that FormData in place rather
-than rebuilding it, a retry re-appends `api`/`version`/`method`/etc. a second time and appends the
-file field twice, so it's no longer strictly last. This is a pre-existing pattern (the pre-refactor
-code had the same same-object retry behavior), and a 106 landing mid-upload is rare, but it does mean the
-"file must be last" guarantee only holds on the first attempt. Rebuilding the FormData from scratch
-on retry would close this if it turns out to matter in practice.
+itself with the same `options` object. Previously this reused the same `FormData` instance passed
+in by `addFileUpload`, which `appendApiParams`/`appendFileLast` had already mutated in place — a
+retry would re-append `api`/`version`/`method`/etc. a second time and append the file field twice,
+so it was no longer strictly last. The retry path now rebuilds a fresh `FormData` before recursing
+whenever `options.body instanceof FormData`; `appendFileLast` is a closure over the file bytes, not
+over the FormData's prior state, so re-running it against a fresh instance is safe and restores the
+"file must be last" guarantee on retry too.
+
+## Missing `destination` causes an opaque error 120 on DS2 create
+
+A user report showed all three DS2 create-task variants above failing identically with Synology
+error 120. Log analysis of the actual request params showed **none of the three attempts included
+a `destination` field at all** — `getSynologyDestination()` only checked `request.downloadPath` and
+the downloader's configured `downloadPath`, both empty for that downloader, so `destination` was
+omitted entirely rather than falling back to anything. Community reports (a SickChill issue, a
+Prowlarr issue) show this exact shape of error 120 is Synology's generic parameter-validation
+rejection, and a missing required `destination` — with no NAS-side default configured — is a
+documented real-world cause.
+
+**Important:** this incident is not evidence about which of the three DS2 variants above is
+correct — all three failed for the identical missing-destination reason, so it can't discriminate
+between them. That question (which variant a real device actually accepts) is still open, pending a
+real-device retest with a destination present.
+
+Prowlarr's own proxy (`GetDownloadDirectory()` → `GetDefaultDir()`) doesn't stop at "no configured
+path" either — it queries the NAS's own Download Station default destination via
+`SYNO.DownloadStation.Info` `getconfig` before giving up. Our client now does the same:
+
+1. `request.downloadPath` (per-request override), then
+2. `this.downloader.downloadPath` (this downloader's configured path), then
+3. `getNasDefaultDestination()` — `SYNO.DownloadStation.Info.getconfig`'s `default_destination`,
+   cached for the life of the client instance (added to the `ensureApiInfo` API descriptor query).
+
+If none of the three resolve, `addDownload` now fails fast with an actionable
+`success: false` message instead of sending a request Synology will reject with an opaque code.
+
+Additionally, `SynologyErrorResponse` now captures the optional field-level `errors` array
+Synology returns for validation failures (`{ name, reason }` per field — e.g. `destination:
+required`), and `buildSynologyErrorMessage` surfaces that detail when present, plus has an explicit
+`case 120` fallback message when it isn't. This makes future validation failures self-diagnosing
+from the logged error alone, rather than requiring another round of log archaeology.
 
 ## Superseded approaches (kept for fallback reference)
 

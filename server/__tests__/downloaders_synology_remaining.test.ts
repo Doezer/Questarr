@@ -84,7 +84,10 @@ describe("synology remaining regression coverage", () => {
         apiName: string;
         descriptor: { path: string; minVersion: number; maxVersion: number };
       };
-      buildSynologyErrorMessage(code: number | undefined, fallback: string): string;
+      buildSynologyErrorMessage(
+        error: { code?: number; errors?: { name?: string; reason?: string }[] } | undefined,
+        fallback: string
+      ): string;
       fetchJson<T>(url: string, init: RequestInit, context: string): Promise<T>;
       ensureApiInfo(): Promise<void>;
       authenticate(force?: boolean): Promise<void>;
@@ -123,17 +126,30 @@ describe("synology remaining regression coverage", () => {
     expect(() => client.getTaskApiDescriptor()).toThrow(
       "Synology API information has not been loaded"
     );
-    expect(client.buildSynologyErrorMessage(101, "fallback")).toBe(
+    expect(client.buildSynologyErrorMessage({ code: 101 }, "fallback")).toBe(
       "Synology rejected the request parameters"
     );
-    expect(client.buildSynologyErrorMessage(105, "fallback")).toBe("Synology permission denied");
-    expect(client.buildSynologyErrorMessage(106, "fallback")).toBe("Synology session expired");
-    expect(client.buildSynologyErrorMessage(400, "fallback")).toBe(
+    expect(client.buildSynologyErrorMessage({ code: 105 }, "fallback")).toBe(
+      "Synology permission denied"
+    );
+    expect(client.buildSynologyErrorMessage({ code: 106 }, "fallback")).toBe(
+      "Synology session expired"
+    );
+    expect(client.buildSynologyErrorMessage({ code: 400 }, "fallback")).toBe(
       "Synology authentication failed"
     );
-    expect(client.buildSynologyErrorMessage(402, "fallback")).toBe(
+    expect(client.buildSynologyErrorMessage({ code: 402 }, "fallback")).toBe(
       "Synology destination access denied"
     );
+    expect(client.buildSynologyErrorMessage({ code: 120 }, "fallback")).toBe(
+      "Synology rejected the request — a destination folder is required"
+    );
+    expect(
+      client.buildSynologyErrorMessage(
+        { code: 120, errors: [{ name: "destination", reason: "required" }] },
+        "fallback"
+      )
+    ).toBe("fallback (code 120): destination: required");
 
     vi.mocked(isSafeUrl).mockResolvedValueOnce(false);
     await expect(
@@ -628,5 +644,116 @@ describe("synology remaining regression coverage", () => {
     expect(keys[0]).toBe("api");
     expect(keys.at(-1)).toBe("file");
     expect(keys).toContain("_sid");
+  });
+
+  it("fails fast when no destination is configured and the NAS has no default either", async () => {
+    const client = new SynologyDownloadStationClient(createDownloader({ downloadPath: null }));
+    const privateClient = client as unknown as {
+      apiInfo: Record<string, { path: string; minVersion: number; maxVersion: number }> | null;
+      ensureApiInfo(): Promise<void>;
+      getTaskApiDescriptor(): { apiName: string; descriptor?: unknown };
+      requestApi<T>(
+        apiName: string,
+        descriptor: { path: string; minVersion: number; maxVersion: number },
+        preferredVersion: number,
+        methodName: string,
+        options?: { httpMethod?: "GET" | "POST" }
+      ): Promise<T>;
+      requestTaskApi<T>(methodName: string): Promise<T>;
+    };
+
+    privateClient.apiInfo = {
+      "SYNO.DownloadStation2.Task": { path: "entry.cgi", minVersion: 1, maxVersion: 2 },
+      "SYNO.DownloadStation.Info": { path: "entry.cgi", minVersion: 1, maxVersion: 1 },
+    };
+    vi.spyOn(privateClient, "ensureApiInfo").mockResolvedValue(undefined);
+    vi.spyOn(privateClient, "getTaskApiDescriptor").mockReturnValue({
+      apiName: "SYNO.DownloadStation2.Task",
+    });
+    const requestApiSpy = vi
+      .spyOn(privateClient, "requestApi")
+      .mockResolvedValue({ success: true, data: { default_destination: "" } } as never);
+    const requestTaskApiSpy = vi.spyOn(privateClient, "requestTaskApi");
+
+    await expect(
+      client.addDownload({ url: "http://indexer.local/game.torrent", title: "Game" })
+    ).resolves.toEqual({
+      success: false,
+      message:
+        "No download destination configured. Set a Download Path for this downloader in " +
+        "Questarr, or configure a default destination in Synology Download Station settings.",
+    });
+
+    expect(requestApiSpy).toHaveBeenCalledWith(
+      "SYNO.DownloadStation.Info",
+      { path: "entry.cgi", minVersion: 1, maxVersion: 1 },
+      1,
+      "getconfig",
+      { httpMethod: "GET" }
+    );
+    expect(requestTaskApiSpy).not.toHaveBeenCalled();
+
+    // Cached: a second call must not re-query the NAS.
+    requestApiSpy.mockClear();
+    await client.addDownload({ url: "http://indexer.local/game2.torrent", title: "Game 2" });
+    expect(requestApiSpy).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the NAS default destination when no path is configured anywhere else", async () => {
+    const client = new SynologyDownloadStationClient(createDownloader({ downloadPath: null }));
+    const privateClient = client as unknown as {
+      apiInfo: Record<string, { path: string; minVersion: number; maxVersion: number }> | null;
+      ensureApiInfo(): Promise<void>;
+      getTaskApiDescriptor(): { apiName: string; descriptor?: unknown };
+      requestApi<T>(
+        apiName: string,
+        descriptor: { path: string; minVersion: number; maxVersion: number },
+        preferredVersion: number,
+        methodName: string,
+        options?: { httpMethod?: "GET" | "POST" }
+      ): Promise<T>;
+      requestTaskApi<T>(
+        methodName: string,
+        options?: {
+          httpMethod?: "GET" | "POST";
+          params?: Record<string, string | number | boolean | undefined>;
+        }
+      ): Promise<T>;
+    };
+
+    privateClient.apiInfo = {
+      "SYNO.DownloadStation2.Task": { path: "entry.cgi", minVersion: 1, maxVersion: 2 },
+      "SYNO.DownloadStation.Info": { path: "entry.cgi", minVersion: 1, maxVersion: 1 },
+    };
+    vi.spyOn(privateClient, "ensureApiInfo").mockResolvedValue(undefined);
+    vi.spyOn(privateClient, "getTaskApiDescriptor").mockReturnValue({
+      apiName: "SYNO.DownloadStation2.Task",
+    });
+    vi.spyOn(privateClient, "requestApi").mockResolvedValue({
+      success: true,
+      data: { default_destination: "/volume2/nas-default" },
+    } as never);
+    const requestTaskApiSpy = vi
+      .spyOn(privateClient, "requestTaskApi")
+      .mockResolvedValue({ success: true, data: { task_id: ["task-default"] } } as never);
+
+    const magnetUrl = "magnet:?xt=urn:btih:abcdef1234567890abcdef1234567890abcdef12";
+    await expect(
+      client.addDownload({ url: magnetUrl, title: "Magnet using NAS default" })
+    ).resolves.toEqual({
+      success: true,
+      id: "task-default",
+      message: "Download added successfully",
+    });
+
+    expect(requestTaskApiSpy).toHaveBeenLastCalledWith("create", {
+      httpMethod: "GET",
+      params: {
+        type: "url",
+        url: magnetUrl,
+        create_list: false,
+        destination: "/volume2/nas-default",
+      },
+    });
   });
 });

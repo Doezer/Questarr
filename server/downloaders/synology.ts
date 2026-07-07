@@ -18,6 +18,7 @@ interface SynologyApiDescriptor {
 
 interface SynologyErrorResponse {
   code?: number;
+  errors?: { name?: string; reason?: string }[];
 }
 
 interface SynologyApiResponse {
@@ -98,6 +99,12 @@ interface SynologyFileStationVolumeStatus {
   used?: number;
 }
 
+interface SynologyDownloadStationInfoResponse extends SynologyApiResponse {
+  data?: {
+    default_destination?: string;
+  };
+}
+
 interface SynologyFileStationResponse extends SynologyApiResponse {
   data?: {
     useable_space?: number;
@@ -109,6 +116,7 @@ export class SynologyDownloadStationClient implements DownloaderClient {
   private downloader: Downloader;
   private sessionId: string | null = null;
   private apiInfo: Record<string, SynologyApiDescriptor> | null = null;
+  private nasDefaultDestination: string | null | undefined;
 
   constructor(downloader: Downloader) {
     this.downloader = downloader;
@@ -185,7 +193,20 @@ export class SynologyDownloadStationClient implements DownloaderClient {
     throw new Error("Synology Download Station Task API is not available on this server");
   }
 
-  private buildSynologyErrorMessage(code: number | undefined, fallback: string): string {
+  private buildSynologyErrorMessage(
+    error: SynologyErrorResponse | undefined,
+    fallback: string
+  ): string {
+    const code = error?.code;
+    const fieldDetail = error?.errors
+      ?.filter((detail) => detail.name || detail.reason)
+      .map((detail) => [detail.name, detail.reason].filter(Boolean).join(": "))
+      .join(", ");
+
+    if (fieldDetail) {
+      return `${fallback} (code ${code}): ${fieldDetail}`;
+    }
+
     switch (code) {
       case 101:
         return "Synology rejected the request parameters";
@@ -193,6 +214,8 @@ export class SynologyDownloadStationClient implements DownloaderClient {
         return "Synology permission denied";
       case 106:
         return "Synology session expired";
+      case 120:
+        return "Synology rejected the request — a destination folder is required";
       case 400:
         return "Synology authentication failed";
       case 401:
@@ -252,7 +275,7 @@ export class SynologyDownloadStationClient implements DownloaderClient {
       version: "1",
       method: "query",
       query:
-        "SYNO.API.Auth,SYNO.DownloadStation.Task,SYNO.DownloadStation2.Task,SYNO.FileStation.Info",
+        "SYNO.API.Auth,SYNO.DownloadStation.Task,SYNO.DownloadStation2.Task,SYNO.DownloadStation.Info,SYNO.FileStation.Info",
     });
 
     const url = this.getWebApiUrl(`query.cgi?${queryParams.toString()}`);
@@ -264,7 +287,7 @@ export class SynologyDownloadStationClient implements DownloaderClient {
 
     if (!response.success || !response.data) {
       throw new Error(
-        this.buildSynologyErrorMessage(response.error?.code, "Failed to query Synology APIs")
+        this.buildSynologyErrorMessage(response.error, "Failed to query Synology APIs")
       );
     }
 
@@ -305,7 +328,7 @@ export class SynologyDownloadStationClient implements DownloaderClient {
     if (!response.success || !response.data?.sid) {
       throw new Error(
         this.buildSynologyErrorMessage(
-          response.error?.code,
+          response.error,
           "Failed to authenticate with Synology Download Station"
         )
       );
@@ -415,10 +438,7 @@ export class SynologyDownloadStationClient implements DownloaderClient {
 
       if (!response.success) {
         throw new Error(
-          this.buildSynologyErrorMessage(
-            response.error?.code,
-            `Synology ${apiName}.${methodName} failed`
-          )
+          this.buildSynologyErrorMessage(response.error, `Synology ${apiName}.${methodName} failed`)
         );
       }
 
@@ -449,16 +469,18 @@ export class SynologyDownloadStationClient implements DownloaderClient {
       await this.authenticate(true);
       return this.requestApi(apiName, descriptor, preferredVersion, methodName, {
         ...options,
+        // The FormData above was already mutated in place by appendApiParams/appendFileLast, so
+        // reusing it here would double-append params and lose the "file must be last" guarantee.
+        // appendFileLast is a closure over the file bytes, not the FormData's prior state, so it's
+        // safe to re-run against a fresh instance. See docs/synology-download-station-api-notes.md.
+        body: options.body instanceof FormData ? new FormData() : options.body,
         retryOnAuthFailure: false,
       });
     }
 
     if (!response.success) {
       throw new Error(
-        this.buildSynologyErrorMessage(
-          response.error?.code,
-          `Synology ${apiName}.${methodName} failed`
-        )
+        this.buildSynologyErrorMessage(response.error, `Synology ${apiName}.${methodName} failed`)
       );
     }
 
@@ -654,8 +676,49 @@ export class SynologyDownloadStationClient implements DownloaderClient {
     return response.data?.tasks?.[0] ?? null;
   }
 
-  private getSynologyDestination(request: DownloadRequest): string | undefined {
-    return request.downloadPath || this.downloader.downloadPath || undefined;
+  /**
+   * Mirrors Prowlarr's `GetDownloadDirectory()` -> `GetDefaultDir()` fallback: when neither the
+   * request nor the downloader config specifies a path, ask the NAS for its own Download Station
+   * default destination via `SYNO.DownloadStation.Info.getconfig` before giving up. Without this,
+   * DS2 create-task calls silently omit `destination` and Synology rejects them with an opaque
+   * error 120. See docs/synology-download-station-api-notes.md.
+   */
+  private async getNasDefaultDestination(): Promise<string | undefined> {
+    if (this.nasDefaultDestination !== undefined) {
+      return this.nasDefaultDestination ?? undefined;
+    }
+
+    try {
+      await this.ensureApiInfo();
+      const descriptor = this.apiInfo?.["SYNO.DownloadStation.Info"];
+      if (!descriptor) {
+        this.nasDefaultDestination = null;
+        return undefined;
+      }
+
+      const response = await this.requestApi<SynologyDownloadStationInfoResponse>(
+        "SYNO.DownloadStation.Info",
+        descriptor,
+        1,
+        "getconfig",
+        { httpMethod: "GET" }
+      );
+
+      this.nasDefaultDestination = response.data?.default_destination || null;
+      return this.nasDefaultDestination ?? undefined;
+    } catch (error) {
+      downloadersLogger.error({ error }, "Failed to get Synology default download destination");
+      this.nasDefaultDestination = null;
+      return undefined;
+    }
+  }
+
+  private async getSynologyDestination(request: DownloadRequest): Promise<string | undefined> {
+    return (
+      request.downloadPath ||
+      this.downloader.downloadPath ||
+      (await this.getNasDefaultDestination())
+    );
   }
 
   /**
@@ -824,7 +887,15 @@ export class SynologyDownloadStationClient implements DownloaderClient {
 
       await this.ensureApiInfo();
       const { apiName } = this.getTaskApiDescriptor();
-      const destination = this.getSynologyDestination(request);
+      const destination = await this.getSynologyDestination(request);
+      if (!destination?.trim()) {
+        return {
+          success: false,
+          message:
+            "No download destination configured. Set a Download Path for this downloader in " +
+            "Questarr, or configure a default destination in Synology Download Station settings.",
+        };
+      }
       const isMagnet = request.url.startsWith("magnet:");
 
       const createUrlDownload = async (downloadUrl: string) => {

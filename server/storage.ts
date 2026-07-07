@@ -477,10 +477,13 @@ export class MemStorage implements IStorage {
     const game = this.games.get(id);
     if (!game) return undefined;
 
+    const leavingWanted = game.status === "wanted" && statusUpdate.status !== "wanted";
+
     const updatedGame: Game = {
       ...game,
       status: statusUpdate.status,
       completedAt: statusUpdate.status === "completed" ? new Date() : null,
+      ...(leavingWanted ? { searchResultsAvailable: false } : {}),
     };
 
     this.games.set(id, updatedGame);
@@ -1603,11 +1606,15 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateGameStatus(id: string, statusUpdate: UpdateGameStatus): Promise<Game | undefined> {
+    const existingGame = await this.getGame(id);
+    const leavingWanted = existingGame?.status === "wanted" && statusUpdate.status !== "wanted";
+
     const [updatedGame] = await db
       .update(games)
       .set({
         status: statusUpdate.status,
         completedAt: statusUpdate.status === "completed" ? new Date() : null,
+        ...(leavingWanted ? { searchResultsAvailable: false } : {}),
       })
       .where(eq(games.id, id))
       .returning();

@@ -15,6 +15,9 @@
     <a href="https://github.com/Doezer/Questarr/blob/main/.github/COPYING">
       <img src="https://img.shields.io/github/license/Doezer/Questarr" alt="License">
     </a>
+  </p>
+
+  <p>
     <a href="https://github.com/Doezer/Questarr/actions/workflows/ci.yml">
       <img src="https://github.com/Doezer/Questarr/actions/workflows/ci.yml/badge.svg" alt="CI">
     </a>
@@ -24,6 +27,9 @@
     <a href="https://www.bestpractices.dev/projects/13450">
       <img src="https://www.bestpractices.dev/projects/13450/baseline">
       </a>
+    <a href="https://github.com/Doezer/Questarr/graphs/commit-activity" target="_blank">
+      <img alt="Maintenance" src="https://img.shields.io/badge/Maintained%3F-yes-green.svg" />
+    </a>
   </p>
 
   <p>

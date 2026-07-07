@@ -954,6 +954,10 @@ export async function checkAutoSearch() {
               continue;
             }
 
+            // Snapshot pre-cycle availability (fetched before any writes this cycle) to gate
+            // notifications on the false→true transition instead of firing every cycle.
+            const wasAvailable = game.searchResultsAvailable;
+
             // Apply platform filter first (strict), then preferred groups filter, then
             // de-duplicate releases that appear on multiple indexers (keep highest-priority indexer).
             const platformFilteredMain = applyPreferredPlatformFilter(
@@ -1030,8 +1034,8 @@ export async function checkAutoSearch() {
                   }
                 }
               } else {
-                // Just notify about availability
-                if (prefs.gameAvailable.inApp) {
+                // Just notify about availability (only on the false→true transition)
+                if (!wasAvailable && prefs.gameAvailable.inApp) {
                   const notification = await storage.addNotification({
                     userId,
                     type: "success",
@@ -1043,7 +1047,7 @@ export async function checkAutoSearch() {
                   if (prefs.gameAvailable.apprise) appriseClient.send(notification);
                 }
               }
-            } else if (mainItems.length > 1 && prefs.multipleResults.inApp) {
+            } else if (mainItems.length > 1 && !wasAvailable && prefs.multipleResults.inApp) {
               // Multiple results found, notify user to choose
               const notification = await storage.addNotification({
                 userId,
@@ -1077,6 +1081,8 @@ export async function checkAutoSearch() {
               continue;
             }
 
+            const wasUpdateAvailable = game.searchResultsAvailable;
+
             const platformFilteredUpdate = applyPreferredPlatformFilter(
               searchResult.updateItems,
               preferredPlatform
@@ -1090,7 +1096,7 @@ export async function checkAutoSearch() {
 
             await storage.updateGameSearchResultsAvailable(game.id, updateItems.length > 0);
 
-            if (updateItems.length > 0 && prefs.gameUpdates.inApp) {
+            if (updateItems.length > 0 && !wasUpdateAvailable && prefs.gameUpdates.inApp) {
               const notification = await storage.addNotification({
                 userId,
                 type: "info",

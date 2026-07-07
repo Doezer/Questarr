@@ -146,6 +146,51 @@ describe("MemStorage", () => {
       expect(retrieved?.status).toBe("downloading");
     });
 
+    it("should reset searchResultsAvailable when leaving 'wanted' status", async () => {
+      const game = await storage.addGame({
+        title: "Wanted Game",
+        igdbId: 3,
+        status: "wanted",
+        userId: "user-1",
+        hidden: null,
+      });
+      await storage.updateGameSearchResultsAvailable(game.id, true);
+
+      const updated = await storage.updateGameStatus(game.id, { status: "downloading" });
+      expect(updated?.searchResultsAvailable).toBe(false);
+
+      const retrieved = await storage.getGame(game.id);
+      expect(retrieved?.searchResultsAvailable).toBe(false);
+    });
+
+    it("should reset searchResultsAvailable when moving from 'wanted' straight to 'owned'", async () => {
+      const game = await storage.addGame({
+        title: "Wanted Game 2",
+        igdbId: 4,
+        status: "wanted",
+        userId: "user-1",
+        hidden: null,
+      });
+      await storage.updateGameSearchResultsAvailable(game.id, true);
+
+      const updated = await storage.updateGameStatus(game.id, { status: "owned" });
+      expect(updated?.searchResultsAvailable).toBe(false);
+    });
+
+    it("should preserve searchResultsAvailable when status is not leaving 'wanted'", async () => {
+      const game = await storage.addGame({
+        title: "Owned Game With Update",
+        igdbId: 5,
+        status: "downloading",
+        userId: "user-1",
+        hidden: null,
+      });
+      await storage.updateGameSearchResultsAvailable(game.id, true);
+
+      const updated = await storage.updateGameStatus(game.id, { status: "owned" });
+      expect(updated?.searchResultsAvailable).toBe(true);
+    });
+
     it("should remove a game", async () => {
       const gameData: InsertGame = {
         title: "Game to Remove",

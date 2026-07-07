@@ -573,7 +573,7 @@ describe("downloaders helper regression coverage", () => {
     randomBytesSpy.mockRestore();
   });
 
-  it("covers Synology helper methods and status mapping", () => {
+  it("covers Synology helper methods and status mapping", async () => {
     const client = new SynologyDownloadStationClient(
       createDownloader({
         type: "synology",

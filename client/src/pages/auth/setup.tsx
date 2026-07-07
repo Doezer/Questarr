@@ -28,8 +28,8 @@ type SetupForm = {
   username: string;
   password: string;
   confirmPassword: string;
-  igdbClientId?: string;
-  igdbClientSecret?: string;
+  igdbClientId: string | undefined;
+  igdbClientSecret: string | undefined;
 };
 
 export default function SetupPage() {

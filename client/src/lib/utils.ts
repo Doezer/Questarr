@@ -28,8 +28,8 @@ export function formatBytes(bytes: number): string {
  * @param schema - A drizzle-zod schema or any zod-compatible schema
  * @returns The schema cast to a standard zod type for use with zodResolver
  */
-export function asZodType<T>(schema: unknown): z.ZodType<T> {
-  return schema as z.ZodType<T>;
+export function asZodType<T>(schema: unknown): z.ZodType<T, T> {
+  return schema as z.ZodType<T, T>;
 }
 
 /**

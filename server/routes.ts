@@ -514,7 +514,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true, message: "Password updated successfully" });
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: "Invalid password data", details: error.errors });
+        return res.status(400).json({ error: "Invalid password data", details: error.issues });
       }
       routesLogger.error({ error }, "Failed to update password");
       res.status(500).json({ error: "Failed to update password" });
@@ -1097,8 +1097,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.status(201).json(game);
       } catch (error) {
         if (error instanceof z.ZodError) {
-          routesLogger.warn({ errors: error.errors }, "validation error");
-          return res.status(400).json({ error: "Invalid game data", details: error.errors });
+          routesLogger.warn({ errors: error.issues }, "validation error");
+          return res.status(400).json({ error: "Invalid game data", details: error.issues });
         }
         routesLogger.error({ error }, "error adding game");
         res.status(500).json({ error: "Failed to add game" });
@@ -1126,7 +1126,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.json(updatedGame);
       } catch (error) {
         if (error instanceof z.ZodError) {
-          return res.status(400).json({ error: "Invalid status data", details: error.errors });
+          return res.status(400).json({ error: "Invalid status data", details: error.issues });
         }
         routesLogger.error({ error }, "error updating game status");
         res.status(500).json({ error: "Failed to update game status" });
@@ -1153,7 +1153,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.json(updatedGame);
       } catch (error) {
         if (error instanceof z.ZodError) {
-          return res.status(400).json({ error: "Invalid hidden data", details: error.errors });
+          return res.status(400).json({ error: "Invalid hidden data", details: error.issues });
         }
         routesLogger.error({ error }, "error updating game visibility");
         res.status(500).json({ error: "Failed to update game visibility" });
@@ -1181,7 +1181,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.json(updatedGame);
       } catch (error) {
         if (error instanceof z.ZodError) {
-          return res.status(400).json({ error: "Invalid user rating data", details: error.errors });
+          return res.status(400).json({ error: "Invalid user rating data", details: error.issues });
         }
         routesLogger.error({ error }, "error updating game user rating");
         res.status(500).json({ error: "Failed to update user rating" });
@@ -1209,7 +1209,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.json(updatedGame);
       } catch (error) {
         if (error instanceof z.ZodError) {
-          return res.status(400).json({ error: "Invalid notes data", details: error.errors });
+          return res.status(400).json({ error: "Invalid notes data", details: error.issues });
         }
         routesLogger.error({ error }, "error updating game notes");
         res.status(500).json({ error: "Failed to update notes" });
@@ -1732,7 +1732,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.status(201).json(maskIndexer(indexer));
       } catch (error) {
         if (error instanceof z.ZodError) {
-          return res.status(400).json({ error: "Invalid indexer data", details: error.errors });
+          return res.status(400).json({ error: "Invalid indexer data", details: error.issues });
         }
         routesLogger.error({ error }, "error adding indexer");
         res.status(500).json({ error: "Failed to add indexer" });
@@ -1898,7 +1898,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.status(201).json(maskDownloader(downloader));
       } catch (error) {
         if (error instanceof z.ZodError) {
-          return res.status(400).json({ error: "Invalid downloader data", details: error.errors });
+          return res.status(400).json({ error: "Invalid downloader data", details: error.issues });
         }
         routesLogger.error({ error }, "error adding downloader");
         res.status(500).json({ error: "Failed to add downloader" });
@@ -2536,7 +2536,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const parsed = claimDownloadRequestSchema.safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
+        return res.status(400).json({ error: "Invalid request", details: parsed.error.issues });
       }
       const {
         downloaderId,
@@ -2667,7 +2667,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!parsed.success) {
         return res
           .status(400)
-          .json({ error: "Invalid item in batch", details: parsed.error.errors });
+          .json({ error: "Invalid item in batch", details: parsed.error.issues });
       }
       parsedItems.push(parsed.data);
     }
@@ -3033,7 +3033,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(notification);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: "Invalid notification data", details: error.errors });
+        return res.status(400).json({ error: "Invalid notification data", details: error.issues });
       }
       routesLogger.error({ error }, "error adding notification");
       res.status(500).json({ error: "Failed to add notification" });
@@ -3311,8 +3311,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(settings);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        routesLogger.error({ error: error.errors }, "validation error in settings update");
-        return res.status(400).json({ error: "Invalid settings data", details: error.errors });
+        routesLogger.error({ error: error.issues }, "validation error in settings update");
+        return res.status(400).json({ error: "Invalid settings data", details: error.issues });
       }
       next(error);
     }
@@ -3641,7 +3641,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(feed);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: error.errors });
+        return res.status(400).json({ error: error.issues });
       }
       // Fallback for when instanceof fails (e.g. different zod versions/contexts)
       if (

@@ -19,6 +19,10 @@ import { extractHostnameFromUrl } from "../url-utils.js";
 
 export const importRouter = Router();
 
+function zodErrorMessage(error: z.ZodError): string {
+  return error.issues.map((issue) => issue.message).join(", ");
+}
+
 importRouter.use((req, res, next) => {
   if (!req.user?.id) {
     return res.status(401).json({ error: "Unauthorized" });
@@ -204,8 +208,7 @@ importRouter.post("/mappings/platforms", async (req, res) => {
     const created = await storage.addPlatformMapping(mapping);
     res.json(created);
   } catch (error) {
-    if (error instanceof z.ZodError)
-      return res.status(400).json({ error: error.issues.map((e) => e.message).join(", ") });
+    if (error instanceof z.ZodError) return res.status(400).json({ error: zodErrorMessage(error) });
     res.status(500).json({ error: "Failed to create platform mapping" });
   }
 });
@@ -217,8 +220,7 @@ importRouter.patch("/mappings/platforms/:id", async (req, res) => {
     if (updated) res.json(updated);
     else res.status(404).json({ error: "Mapping not found" });
   } catch (error) {
-    if (error instanceof z.ZodError)
-      return res.status(400).json({ error: error.issues.map((e) => e.message).join(", ") });
+    if (error instanceof z.ZodError) return res.status(400).json({ error: zodErrorMessage(error) });
     res.status(500).json({ error: "Failed to update platform mapping" });
   }
 });
@@ -262,8 +264,7 @@ importRouter.post("/mappings/paths", async (req, res) => {
     const created = await storage.addPathMapping(mapping);
     res.json(created);
   } catch (error) {
-    if (error instanceof z.ZodError)
-      return res.status(400).json({ error: error.issues.map((e) => e.message).join(", ") });
+    if (error instanceof z.ZodError) return res.status(400).json({ error: zodErrorMessage(error) });
     res.status(500).json({ error: "Failed to create path mapping" });
   }
 });
@@ -278,8 +279,7 @@ importRouter.patch("/mappings/paths/:id", async (req, res) => {
       res.status(404).json({ error: "Mapping not found" });
     }
   } catch (error) {
-    if (error instanceof z.ZodError)
-      return res.status(400).json({ error: error.issues.map((e) => e.message).join(", ") });
+    if (error instanceof z.ZodError) return res.status(400).json({ error: zodErrorMessage(error) });
     logger.error({ error }, "Error updating path mapping");
     res.status(500).json({ error: "Failed to update path mapping" });
   }
@@ -338,8 +338,7 @@ importRouter.patch("/config", async (req, res) => {
     }
     res.json(newConfig);
   } catch (error) {
-    if (error instanceof z.ZodError)
-      return res.status(400).json({ error: error.issues.map((e) => e.message).join(", ") });
+    if (error instanceof z.ZodError) return res.status(400).json({ error: zodErrorMessage(error) });
     res.status(500).json({ error: "Failed to update import config" });
   }
 });

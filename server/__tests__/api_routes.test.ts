@@ -486,6 +486,16 @@ describe("API Routes - Extended Coverage", () => {
       const response = await request(app).post("/api/games").send(gameData);
       expect(response.status).toBe(409);
     });
+
+    it("should return 400 for a non-numeric steamAppId (fails schema, not sanitizer)", async () => {
+      vi.mocked(storage.getUserGames).mockResolvedValue([]);
+
+      const response = await request(app)
+        .post("/api/games")
+        .send({ title: "New Game", steamAppId: "not-a-number" });
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe("Invalid game data");
+    });
   });
 
   describe("PATCH /api/games/:id/status", () => {
@@ -541,6 +551,16 @@ describe("API Routes - Extended Coverage", () => {
         .patch(`/api/games/${gameId}/hidden`)
         .send({ hidden: true });
       expect(response.status).toBe(200);
+    });
+
+    it("should return 400 for a non-boolean hidden value (fails schema, not sanitizer)", async () => {
+      const gameId = "123e4567-e89b-12d3-a456-426614174000";
+
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/hidden`)
+        .send({ hidden: "yes" });
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe("Invalid hidden data");
     });
   });
 
@@ -615,6 +635,28 @@ describe("API Routes - Extended Coverage", () => {
         .patch(`/api/games/${gameId}/user-rating`)
         .send({ userRating: 5 });
       expect(response.status).toBe(404);
+    });
+  });
+
+  describe("PATCH /api/games/:id/notes", () => {
+    const gameId = "123e4567-e89b-12d3-a456-426614174000";
+
+    it("should update notes", async () => {
+      const updatedGame = { id: gameId, notes: "Great game" };
+      vi.mocked(storage.updateGameNotes).mockResolvedValue(updatedGame as unknown as Game);
+
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/notes`)
+        .send({ notes: "Great game" });
+      expect(response.status).toBe(200);
+    });
+
+    it("should return 400 for a non-string notes value (fails schema, not sanitizer)", async () => {
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/notes`)
+        .send({ notes: 12345 });
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe("Invalid notes data");
     });
   });
 
@@ -752,6 +794,17 @@ describe("API Routes - Extended Coverage", () => {
         vi.mocked(storage.getAllIndexers).mockRejectedValue(new Error("DB error"));
         const response = await request(app).get("/api/indexers");
         expect(response.status).toBe(500);
+      });
+    });
+
+    describe("POST /api/indexers", () => {
+      it("should return 400 when apiKey is missing (fails schema, not sanitizer)", async () => {
+        const response = await request(app).post("/api/indexers").send({
+          name: "New Indexer",
+          url: "https://example.com",
+        });
+        expect(response.status).toBe(400);
+        expect(response.body.error).toBe("Invalid indexer data");
       });
     });
 
@@ -963,6 +1016,17 @@ describe("API Routes - Extended Coverage", () => {
             url: "https://example.com",
           })
         );
+      });
+
+      it("should return 400 when SABnzbd downloader is missing its API key (fails schema refine)", async () => {
+        const response = await request(app).post("/api/downloaders").send({
+          name: "SABnzbd",
+          type: "sabnzbd",
+          url: "https://example.com",
+        });
+
+        expect(response.status).toBe(400);
+        expect(response.body.error).toBe("Invalid downloader data");
       });
     });
 
@@ -1389,6 +1453,14 @@ describe("API Routes - Extended Coverage", () => {
       });
     });
 
+    describe("POST /api/notifications", () => {
+      it("should return 400 when required fields are missing", async () => {
+        const response = await request(app).post("/api/notifications").send({});
+        expect(response.status).toBe(400);
+        expect(response.body.error).toBe("Invalid notification data");
+      });
+    });
+
     describe("GET /api/notifications/unread-count", () => {
       it("should return unread count", async () => {
         vi.mocked(storage.getUnreadNotificationsCount).mockResolvedValue(5);
@@ -1524,6 +1596,14 @@ describe("API Routes - Extended Coverage", () => {
 
         const response = await request(app).patch("/api/settings").send({});
         expect(response.status).toBe(200);
+      });
+
+      it("should return 400 for an invalid transferMode", async () => {
+        const response = await request(app)
+          .patch("/api/settings")
+          .send({ transferMode: "not-a-real-mode" });
+        expect(response.status).toBe(400);
+        expect(response.body.error).toBe("Invalid settings data");
       });
     });
   });
@@ -1972,6 +2052,20 @@ describe("API Routes - Extended Coverage", () => {
   });
 
   // ─── POST /api/downloads/claim-batch ───
+  describe("POST /api/downloads/claim", () => {
+    it("returns 400 when the request body fails schema validation", async () => {
+      const res = await request(app).post("/api/downloads/claim").send({
+        downloaderId: "",
+        downloadHash: "x",
+        downloadTitle: "x",
+        currentStatus: "x",
+        category: "main",
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("Invalid request");
+    });
+  });
+
   describe("POST /api/downloads/claim-batch", () => {
     const validItem = {
       downloaderId: "dl-1",

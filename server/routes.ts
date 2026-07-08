@@ -152,6 +152,10 @@ function maskDownloader(downloader: Downloader): Downloader {
   return downloader.password ? { ...downloader, password: REDACTED_PLACEHOLDER } : downloader;
 }
 
+function respondWithZodError(res: Response, error: z.ZodError, message: string): Response {
+  return res.status(400).json({ error: message, details: error.issues });
+}
+
 // Helper to parse category query param which might be string, array, or comma-separated
 export function parseCategories(input: unknown): string[] | undefined {
   if (!input) return undefined;
@@ -514,7 +518,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true, message: "Password updated successfully" });
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: "Invalid password data", details: error.errors });
+        return respondWithZodError(res, error, "Invalid password data");
       }
       routesLogger.error({ error }, "Failed to update password");
       res.status(500).json({ error: "Failed to update password" });
@@ -1097,8 +1101,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.status(201).json(game);
       } catch (error) {
         if (error instanceof z.ZodError) {
-          routesLogger.warn({ errors: error.errors }, "validation error");
-          return res.status(400).json({ error: "Invalid game data", details: error.errors });
+          routesLogger.warn({ errors: error.issues }, "validation error");
+          return respondWithZodError(res, error, "Invalid game data");
         }
         routesLogger.error({ error }, "error adding game");
         res.status(500).json({ error: "Failed to add game" });
@@ -1126,7 +1130,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.json(updatedGame);
       } catch (error) {
         if (error instanceof z.ZodError) {
-          return res.status(400).json({ error: "Invalid status data", details: error.errors });
+          return respondWithZodError(res, error, "Invalid status data");
         }
         routesLogger.error({ error }, "error updating game status");
         res.status(500).json({ error: "Failed to update game status" });
@@ -1153,7 +1157,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.json(updatedGame);
       } catch (error) {
         if (error instanceof z.ZodError) {
-          return res.status(400).json({ error: "Invalid hidden data", details: error.errors });
+          return respondWithZodError(res, error, "Invalid hidden data");
         }
         routesLogger.error({ error }, "error updating game visibility");
         res.status(500).json({ error: "Failed to update game visibility" });
@@ -1181,7 +1185,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.json(updatedGame);
       } catch (error) {
         if (error instanceof z.ZodError) {
-          return res.status(400).json({ error: "Invalid user rating data", details: error.errors });
+          return respondWithZodError(res, error, "Invalid user rating data");
         }
         routesLogger.error({ error }, "error updating game user rating");
         res.status(500).json({ error: "Failed to update user rating" });
@@ -1209,7 +1213,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.json(updatedGame);
       } catch (error) {
         if (error instanceof z.ZodError) {
-          return res.status(400).json({ error: "Invalid notes data", details: error.errors });
+          return respondWithZodError(res, error, "Invalid notes data");
         }
         routesLogger.error({ error }, "error updating game notes");
         res.status(500).json({ error: "Failed to update notes" });
@@ -1382,7 +1386,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         const parsed = insertReleaseBlacklistSchema.safeParse({ ...req.body, gameId });
         if (!parsed.success) {
-          return res.status(400).json({ error: "Invalid data", details: parsed.error.issues });
+          return respondWithZodError(res, parsed.error, "Invalid data");
         }
         const { releaseTitle } = parsed.data;
         if (!releaseTitle || releaseTitle.length > 500) {
@@ -1732,7 +1736,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.status(201).json(maskIndexer(indexer));
       } catch (error) {
         if (error instanceof z.ZodError) {
-          return res.status(400).json({ error: "Invalid indexer data", details: error.errors });
+          return respondWithZodError(res, error, "Invalid indexer data");
         }
         routesLogger.error({ error }, "error adding indexer");
         res.status(500).json({ error: "Failed to add indexer" });
@@ -1898,7 +1902,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.status(201).json(maskDownloader(downloader));
       } catch (error) {
         if (error instanceof z.ZodError) {
-          return res.status(400).json({ error: "Invalid downloader data", details: error.errors });
+          return respondWithZodError(res, error, "Invalid downloader data");
         }
         routesLogger.error({ error }, "error adding downloader");
         res.status(500).json({ error: "Failed to add downloader" });
@@ -2536,7 +2540,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const parsed = claimDownloadRequestSchema.safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ error: "Invalid request", details: parsed.error.errors });
+        return respondWithZodError(res, parsed.error, "Invalid request");
       }
       const {
         downloaderId,
@@ -2665,9 +2669,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     for (const raw of rawItems) {
       const parsed = claimDownloadRequestSchema.safeParse(raw);
       if (!parsed.success) {
-        return res
-          .status(400)
-          .json({ error: "Invalid item in batch", details: parsed.error.errors });
+        return respondWithZodError(res, parsed.error, "Invalid item in batch");
       }
       parsedItems.push(parsed.data);
     }
@@ -3033,7 +3035,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(notification);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: "Invalid notification data", details: error.errors });
+        return respondWithZodError(res, error, "Invalid notification data");
       }
       routesLogger.error({ error }, "error adding notification");
       res.status(500).json({ error: "Failed to add notification" });
@@ -3311,8 +3313,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(settings);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        routesLogger.error({ error: error.errors }, "validation error in settings update");
-        return res.status(400).json({ error: "Invalid settings data", details: error.errors });
+        routesLogger.error({ error: error.issues }, "validation error in settings update");
+        return respondWithZodError(res, error, "Invalid settings data");
       }
       next(error);
     }
@@ -3641,7 +3643,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json(feed);
     } catch (error) {
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ error: error.errors });
+        return res.status(400).json({ error: error.issues });
       }
       // Fallback for when instanceof fails (e.g. different zod versions/contexts)
       if (

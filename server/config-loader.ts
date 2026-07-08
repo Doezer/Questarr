@@ -13,7 +13,7 @@ const configSchema = z.object({
       keyPath: z.string().optional(),
       redirectHttp: z.boolean().default(false),
     })
-    .default({}),
+    .default({ enabled: false, port: 9898, redirectHttp: false }),
 });
 
 export type AppConfig = z.infer<typeof configSchema>;

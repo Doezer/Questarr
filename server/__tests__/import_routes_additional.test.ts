@@ -133,6 +133,17 @@ describe("importRouter additional coverage", () => {
     });
   });
 
+  it("returns 400 for invalid PATCH /mappings/paths/:id payload", async () => {
+    const app = createApp();
+
+    const response = await request(app).patch("/api/imports/mappings/paths/map-1").send({
+      remotePath: "/downloads",
+      // localPath is required and missing
+    });
+
+    expect(response.status).toBe(400);
+  });
+
   it("returns 404 when patching a missing path mapping", async () => {
     mockStorage.updatePathMapping.mockResolvedValue(undefined);
     const app = createApp();
@@ -217,6 +228,14 @@ describe("importRouter additional coverage", () => {
 
     expect(response.status).toBe(400);
     expect(response.body.error).toMatch(/invalid proposed path/i);
+  });
+
+  it("POST /:id/confirm returns 400 when required fields are missing", async () => {
+    const app = createApp();
+    const response = await request(app).post("/api/imports/dl-1/confirm").send({});
+
+    expect(response.status).toBe(400);
+    expect(Array.isArray(response.body.error)).toBe(true);
   });
 
   // --- GET /api/imports/pending — empty array ---

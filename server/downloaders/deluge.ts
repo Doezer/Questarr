@@ -139,7 +139,8 @@ export class DelugeClient implements DownloaderClient {
 
     const hostsResponse = await this.makeRequest("web.get_hosts", []);
     const hosts = hostsResponse.result as
-      Array<[string, string, number, string, string]> | undefined;
+      | Array<[string, string, number, string, string]>
+      | undefined;
 
     if (!hosts || hosts.length === 0) {
       throw new Error("No Deluge daemon hosts configured in Web UI");
@@ -413,7 +414,8 @@ export class DelugeClient implements DownloaderClient {
       ]);
 
       const torrents = response.result as
-        Record<string, { name?: string; time_added?: number }> | undefined;
+        | Record<string, { name?: string; time_added?: number }>
+        | undefined;
       if (!torrents || Object.keys(torrents).length === 0) return null;
 
       const entries = Object.entries(torrents);

@@ -2067,7 +2067,8 @@ export class DatabaseStorage implements IStorage {
             topStatus: row.topStatus as DownloadSummary["topStatus"],
             count: row.count,
             downloadTypes: (row.downloadTypes ?? "torrent").split(",").filter(Boolean) as (
-              "torrent" | "usenet"
+              | "torrent"
+              | "usenet"
             )[],
             hasUpdateDownload: row.hasUpdateDownload > 0,
           },

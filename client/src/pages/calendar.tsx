@@ -101,41 +101,37 @@ export default function CalendarPage() {
   // Games with year-only release dates use YYYY-12-31 as a placeholder
   const isYearOnlyDate = (releaseDate: string) => releaseDate.endsWith("-12-31");
 
-  // Filter wanted games with a known specific release date
-  const wantedGames = useMemo(() => {
-    return games.filter(
-      (g) =>
-        g.status === "wanted" &&
-        g.releaseDate &&
-        !isYearOnlyDate(g.releaseDate) &&
-        (!searchQuery || g.title.toLowerCase().includes(searchQuery.toLowerCase()))
-    );
-  }, [games, searchQuery]);
-
-  // Games with only a year-level release date (IGDB placeholder: YYYY-12-31)
-  const undatedGames = useMemo(() => {
-    return games.filter(
-      (g) =>
-        g.status === "wanted" &&
-        g.releaseDate &&
-        isYearOnlyDate(g.releaseDate) &&
-        (!searchQuery || g.title.toLowerCase().includes(searchQuery.toLowerCase()))
-    );
-  }, [games, searchQuery]);
-
-  // Group games by date
-  const gamesByDate = useMemo(() => {
+  // ⚡ Bolt: Consolidate multiple O(N) array traversals (filter, filter, forEach)
+  // into a single manual loop to optimize render performance and reduce allocations.
+  const { wantedGames, undatedGames, gamesByDate } = useMemo(() => {
+    const wanted: Game[] = [];
+    const undated: Game[] = [];
     const grouped: GamesByDate = {};
-    wantedGames.forEach((game) => {
-      if (game.releaseDate) {
-        if (!grouped[game.releaseDate]) {
-          grouped[game.releaseDate] = [];
+    const lowercaseQuery = searchQuery?.toLowerCase() || "";
+
+    for (let i = 0; i < games.length; i++) {
+      const g = games[i];
+
+      if (g.status === "wanted" && g.releaseDate) {
+        if (lowercaseQuery && !g.title.toLowerCase().includes(lowercaseQuery)) {
+          continue;
         }
-        grouped[game.releaseDate].push(game);
+
+        if (isYearOnlyDate(g.releaseDate)) {
+          undated.push(g);
+        } else {
+          wanted.push(g);
+
+          if (!grouped[g.releaseDate]) {
+            grouped[g.releaseDate] = [];
+          }
+          grouped[g.releaseDate].push(g);
+        }
       }
-    });
-    return grouped;
-  }, [wantedGames]);
+    }
+
+    return { wantedGames: wanted, undatedGames: undated, gamesByDate: grouped };
+  }, [games, searchQuery]);
 
   const navigatePrevious = () => {
     const newDate = new Date(currentDate);

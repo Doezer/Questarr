@@ -63,6 +63,15 @@ function useKonamiCode(onActivate: () => void) {
   useEffect(() => {
     let progress = 0;
     const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable || target.matches("input, textarea, select"))
+      ) {
+        progress = 0;
+        return;
+      }
+
       if (event.code === KONAMI_CODE[progress]) {
         progress++;
       } else {

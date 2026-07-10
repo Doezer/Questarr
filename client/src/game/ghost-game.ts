@@ -148,6 +148,7 @@ export class GhostGame {
     window.removeEventListener("keyup", this.handleKeyUp);
     this.resizeObserver.disconnect();
     this.controls.unlock();
+    this.controls.dispose();
     this.clearScene();
     this.renderer.dispose();
   }
@@ -513,6 +514,7 @@ export class GhostGame {
     guard.stateTimer = 1.4;
     this.caughtCooldown = 1.6;
     this.hackProgress = 0;
+    this.velocity.set(0, 0);
 
     const spawnWorld = gridToWorld(this.level.spawn, this.level);
     this.camera.position.set(spawnWorld.x, PLAYER_EYE_HEIGHT, spawnWorld.z);

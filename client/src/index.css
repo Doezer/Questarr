@@ -288,7 +288,7 @@
 }
 
 /* Cosmetic flair unlocked by finding the "Ghost the Terminal" easter egg (see /play). */
-.dark.theme-ghost {
+.theme-ghost {
   --primary: 152 85% 45%;
   --primary-foreground: 210 24% 10%;
   --secondary: 189 90% 50%;

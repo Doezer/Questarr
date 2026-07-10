@@ -10,7 +10,7 @@ import MobileBottomNav from "@/components/MobileBottomNav";
 import { getPageTitle } from "@/components/navigation-items";
 import { useBackgroundNotifications } from "@/hooks/use-background-notifications";
 import { AuthProvider } from "@/lib/auth";
-import { Suspense, lazy, useEffect } from "react";
+import { Suspense, lazy, useEffect, useRef } from "react";
 import LoadingFallback from "@/components/LoadingFallback";
 import { ThemeProvider } from "next-themes";
 import { routerBase } from "@/lib/app-path";
@@ -53,18 +53,30 @@ const KONAMI_CODE = [
 ];
 
 function useKonamiCode(onActivate: () => void) {
+  // Keep the listener bound once; read the latest callback through a ref instead of
+  // re-subscribing every render (onActivate is typically a fresh inline closure).
+  const onActivateRef = useRef(onActivate);
+  useEffect(() => {
+    onActivateRef.current = onActivate;
+  }, [onActivate]);
+
   useEffect(() => {
     let progress = 0;
     const handleKeyDown = (event: KeyboardEvent) => {
-      progress = event.code === KONAMI_CODE[progress] ? progress + 1 : 0;
+      if (event.code === KONAMI_CODE[progress]) {
+        progress++;
+      } else {
+        // A mistyped repeat of the first key shouldn't force restarting the whole sequence.
+        progress = event.code === KONAMI_CODE[0] ? 1 : 0;
+      }
       if (progress === KONAMI_CODE.length) {
         progress = 0;
-        onActivate();
+        onActivateRef.current();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onActivate]);
+  }, []);
 }
 
 function Router() {

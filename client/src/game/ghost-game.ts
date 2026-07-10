@@ -85,7 +85,13 @@ export class GhostGame {
     this.camera = new THREE.PerspectiveCamera(75, 1, 0.1, 100);
     this.controls = new PointerLockControls(this.camera, canvas);
     this.controls.addEventListener("lock", () => this.callbacks.onLockChange?.(true));
-    this.controls.addEventListener("unlock", () => this.callbacks.onLockChange?.(false));
+    this.controls.addEventListener("unlock", () => {
+      // Keys held when the player pauses (Esc) may never see their keyup, so clear
+      // input state or the player would start moving on their own after resuming.
+      this.keys.clear();
+      this.velocity.set(0, 0);
+      this.callbacks.onLockChange?.(false);
+    });
 
     this.scene.fog = new THREE.Fog(0x05070a, 12, 32);
     this.scene.background = new THREE.Color(0x05070a);
@@ -101,13 +107,22 @@ export class GhostGame {
 
   /** Tears down everything and regenerates the room from a fresh seed, keeping the same renderer/camera. */
   regenerate(seed: number) {
-    for (const guard of this.guards) this.scene.remove(guard.group);
-    for (const projectile of this.projectiles) this.scene.remove(projectile.mesh);
     this.guards = [];
     this.projectiles = [];
-    while (this.scene.children.length) this.scene.remove(this.scene.children[0]);
+    this.clearScene();
     this.hackProgress = 0;
     this.buildLevel(seed);
+  }
+
+  /** Removes and disposes every scene child so replays don't leak GPU geometry/material memory. */
+  private clearScene() {
+    this.scene.traverse((object) => {
+      if (!(object instanceof THREE.Mesh)) return;
+      object.geometry.dispose();
+      const materials = Array.isArray(object.material) ? object.material : [object.material];
+      for (const material of materials) material.dispose();
+    });
+    while (this.scene.children.length) this.scene.remove(this.scene.children[0]);
   }
 
   lock() {
@@ -133,6 +148,7 @@ export class GhostGame {
     window.removeEventListener("keyup", this.handleKeyUp);
     this.resizeObserver.disconnect();
     this.controls.unlock();
+    this.clearScene();
     this.renderer.dispose();
   }
 
@@ -244,8 +260,10 @@ export class GhostGame {
           side: THREE.DoubleSide,
         })
       );
-      cone.rotation.x = Math.PI / 2;
-      cone.position.set(0, 0.9, -VISION_RANGE / 2);
+      // Cone apex sits at the guard's eyes (local Z=0) and widens outward along +Z,
+      // matching the forward vector used by checkVision.
+      cone.rotation.x = -Math.PI / 2;
+      cone.position.set(0, 0.9, VISION_RANGE / 2);
       group.add(body, cone);
       group.position.copy(waypoints[0]);
       this.scene.add(group);
@@ -397,6 +415,8 @@ export class GhostGame {
       projectile.life -= dt;
       if (projectile.life <= 0) {
         this.scene.remove(projectile.mesh);
+        projectile.mesh.geometry.dispose();
+        (projectile.mesh.material as THREE.Material).dispose();
         this.projectiles.splice(i, 1);
       }
     }

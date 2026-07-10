@@ -7,7 +7,9 @@ import { GhostGame } from "@/game/ghost-game";
 import { GHOST_UNLOCK_KEY } from "@/lib/ghost-mode";
 
 function randomSeed() {
-  return Math.floor(Math.random() * 0xffffffff);
+  // A fresh procedural layout per run isn't security-sensitive, but crypto.getRandomValues
+  // avoids Math.random() static-analysis flags for no real cost.
+  return crypto.getRandomValues(new Uint32Array(1))[0];
 }
 
 export default function PlayPage() {
@@ -32,14 +34,22 @@ export default function PlayPage() {
     setGhostUnlocked(true);
   }, [setGhostUnlocked]);
 
+  // The game engine effect below intentionally mounts once (recreating it would tear down and
+  // rebuild the WebGL context). Route its callbacks through a ref so it always calls the latest
+  // handlers rather than closing over whatever was current at mount time.
+  const callbacksRef = useRef({ onCaught: handleCaught, onWin: handleWin });
+  useEffect(() => {
+    callbacksRef.current = { onCaught: handleCaught, onWin: handleWin };
+  }, [handleCaught, handleWin]);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     const game = new GhostGame(canvas, randomSeed(), {
       onLockChange: setLocked,
-      onCaught: handleCaught,
-      onWin: handleWin,
+      onCaught: () => callbacksRef.current.onCaught(),
+      onWin: () => callbacksRef.current.onWin(),
       onHackProgress: (progress, canInteract) => {
         if (progressFillRef.current) {
           progressFillRef.current.style.width = `${progress * 100}%`;
@@ -56,9 +66,6 @@ export default function PlayPage() {
       game.dispose();
       gameRef.current = null;
     };
-    // Callbacks are stable across the page's lifetime; re-running this effect would tear down
-    // and rebuild the WebGL context, so intentionally only depend on mount.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handlePlay = () => {

@@ -108,16 +108,24 @@ export function generateLevel(seed: number, overrides: Partial<LevelConfig> = {}
     }
   }
 
-  const reachableCells = Array.from(reachable.keys()).map((key) => {
+  // Waypoints stay a few cells (by walkable BFS distance) from spawn so a guard
+  // can't be patrolling right on top of the player when they spawn or respawn.
+  const MIN_WAYPOINT_DISTANCE_FROM_SPAWN = 3;
+  const reachableCells: GridPos[] = [];
+  const waypointCandidates: GridPos[] = [];
+  for (const [key, dist] of Array.from(reachable)) {
     const [x, z] = key.split(",").map(Number);
-    return { x, z };
-  });
+    const cell = { x, z };
+    reachableCells.push(cell);
+    if (dist > MIN_WAYPOINT_DISTANCE_FROM_SPAWN) waypointCandidates.push(cell);
+  }
+  const waypointPool = waypointCandidates.length > 0 ? waypointCandidates : reachableCells;
 
   const guards: { waypoints: GridPos[] }[] = [];
   for (let g = 0; g < config.guardCount; g++) {
     const waypoints: GridPos[] = [];
     for (let i = 0; i < config.waypointsPerGuard; i++) {
-      waypoints.push(reachableCells[Math.floor(rand() * reachableCells.length)]);
+      waypoints.push(waypointPool[Math.floor(rand() * waypointPool.length)]);
     }
     guards.push({ waypoints });
   }

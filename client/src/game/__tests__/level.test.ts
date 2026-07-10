@@ -36,6 +36,17 @@ describe("generateLevel", () => {
       }
     }
   });
+
+  it("never places a guard waypoint on the player's spawn cell", () => {
+    for (let seed = 0; seed < 50; seed++) {
+      const level = generateLevel(seed);
+      for (const guard of level.guards) {
+        for (const wp of guard.waypoints) {
+          expect(wp).not.toEqual(level.spawn);
+        }
+      }
+    }
+  });
 });
 
 describe("gridToWorld", () => {

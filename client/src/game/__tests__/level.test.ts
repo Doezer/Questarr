@@ -47,6 +47,30 @@ describe("generateLevel", () => {
       }
     }
   });
+
+  it("excludes spawn from the waypoint fallback pool when any other cell is reachable", () => {
+    // gridSize 4 -> a 2x2 interior where every cell is within MIN_WAYPOINT_DISTANCE_FROM_SPAWN,
+    // forcing pickWaypointPool's fallback branch (previously included spawn there).
+    for (let seed = 0; seed < 20; seed++) {
+      const level = generateLevel(seed, { gridSize: 4, crateDensity: 0 });
+      for (const guard of level.guards) {
+        for (const wp of guard.waypoints) {
+          expect(wp).not.toEqual(level.spawn);
+        }
+      }
+    }
+  });
+
+  it("falls back to the spawn cell as a waypoint only when it's the sole reachable cell", () => {
+    // gridSize 3 -> a 1x1 interior: spawn is the only reachable cell, so there's
+    // nowhere else a waypoint could go.
+    const level = generateLevel(1, { gridSize: 3, crateDensity: 0 });
+    for (const guard of level.guards) {
+      for (const wp of guard.waypoints) {
+        expect(wp).toEqual(level.spawn);
+      }
+    }
+  });
 });
 
 describe("gridToWorld", () => {

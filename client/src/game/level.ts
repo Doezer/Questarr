@@ -118,17 +118,25 @@ function pickTerminal(reachable: Map<string, number>, spawn: GridPos): GridPos {
   return terminal;
 }
 
-/** Reachable cells far enough from spawn to patrol, falling back to all reachable cells. */
-function pickWaypointPool(reachable: Map<string, number>): GridPos[] {
+/**
+ * Reachable cells far enough from spawn to patrol, falling back to any other
+ * reachable cell, and only ever including spawn itself if it's the sole
+ * reachable cell (e.g. a degenerately small overridden grid size).
+ */
+function pickWaypointPool(reachable: Map<string, number>, spawn: GridPos): GridPos[] {
+  const spawnKey = cellKey(spawn);
   const reachableCells: GridPos[] = [];
   const waypointCandidates: GridPos[] = [];
   for (const [key, dist] of Array.from(reachable)) {
+    if (key === spawnKey) continue;
     const [x, z] = key.split(",").map(Number);
     const cell = { x, z };
     reachableCells.push(cell);
     if (dist > MIN_WAYPOINT_DISTANCE_FROM_SPAWN) waypointCandidates.push(cell);
   }
-  return waypointCandidates.length > 0 ? waypointCandidates : reachableCells;
+  if (waypointCandidates.length > 0) return waypointCandidates;
+  if (reachableCells.length > 0) return reachableCells;
+  return [spawn];
 }
 
 function assignGuardWaypoints(
@@ -160,7 +168,7 @@ export function generateLevel(seed: number, overrides: Partial<LevelConfig> = {}
 
   const { crates, reachable } = placeCrates(config, spawn, rand);
   const terminal = pickTerminal(reachable, spawn);
-  const waypointPool = pickWaypointPool(reachable);
+  const waypointPool = pickWaypointPool(reachable, spawn);
   const guards = assignGuardWaypoints(config, waypointPool, rand);
 
   return {

@@ -37,7 +37,7 @@ const downloaders: Downloader[] = [
 ];
 
 function mockFetch(mappings: PathMapping[], downloadersData: Downloader[] = downloaders) {
-  globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (url: RequestInfo | URL) => {
     const u = getRequestUrl(url);
     if (u.includes("/api/imports/mappings/paths")) return createJsonResponse(mappings);
     if (u.includes("/api/downloaders")) return createJsonResponse(downloadersData);
@@ -132,6 +132,10 @@ describe("PathMappingSettings", () => {
         "/api/imports/mappings/paths",
         expect.objectContaining({ remotePath: "/downloads", localPath: "/mnt/downloads" })
       );
+    });
+
+    await waitFor(() => {
+      expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({ title: "Mapping Added" }));
     });
   });
 

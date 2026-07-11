@@ -105,14 +105,16 @@ describe("toast() and useToast()", () => {
 
   it("update() mutates the toast in place", () => {
     const { result } = renderHook(() => useToast());
-    let handle: ReturnType<typeof toast>;
+    let handle: ReturnType<typeof toast> | undefined;
 
     act(() => {
       handle = toast({ title: "First" });
     });
 
+    if (!handle) throw new Error("toast() did not return a handle");
+
     act(() => {
-      handle.update({ id: handle.id, title: "Second", open: true });
+      handle!.update({ id: handle!.id, title: "Second", open: true });
     });
 
     expect(result.current.toasts[0].title).toBe("Second");
@@ -120,14 +122,16 @@ describe("toast() and useToast()", () => {
 
   it("dismiss() closes the toast via onOpenChange", () => {
     const { result } = renderHook(() => useToast());
-    let handle: ReturnType<typeof toast>;
+    let handle: ReturnType<typeof toast> | undefined;
 
     act(() => {
       handle = toast({ title: "Closable" });
     });
 
+    if (!handle) throw new Error("toast() did not return a handle");
+
     act(() => {
-      handle.dismiss();
+      handle!.dismiss();
     });
 
     expect(result.current.toasts[0].open).toBe(false);

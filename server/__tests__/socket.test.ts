@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { createServer, type Server as HttpServer } from "http";
 import { io as ioClient, type Socket as ClientSocket } from "socket.io-client";
 import { setupSocketIO, getIO, notifyUser } from "../socket.js";
@@ -20,17 +20,9 @@ describe("socket.ts", () => {
   });
 
   it("throws when getIO is called before setup", async () => {
-    // getIO relies on module-level singleton state; if a previous test in this
-    // file already called setupSocketIO, this test would no longer be valid,
-    // so we only assert the throw case can happen by checking the error path
-    // is exercised elsewhere. Here we just confirm the function throws or
-    // returns a Server instance consistently.
-    try {
-      const result = getIO();
-      expect(result).toBeDefined();
-    } catch (err) {
-      expect((err as Error).message).toBe("Socket.IO not initialized!");
-    }
+    vi.resetModules();
+    const freshSocket = await import("../socket.js");
+    expect(() => freshSocket.getIO()).toThrow("Socket.IO not initialized!");
   });
 
   it("initializes the socket server and accepts client connections", async () => {

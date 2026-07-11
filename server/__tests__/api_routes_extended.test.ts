@@ -67,8 +67,8 @@ const testDownloader: Downloader = {
   enabled: true,
   priority: 1,
   categories: [],
-  createdAt: new Date(),
-  updatedAt: new Date(),
+  createdAt: new Date("2024-01-01T00:00:00.000Z"),
+  updatedAt: new Date("2024-01-01T00:00:00.000Z"),
 } as unknown as Downloader;
 
 const testIndexer: Indexer = {
@@ -82,8 +82,8 @@ const testIndexer: Indexer = {
   categories: [],
   rssEnabled: true,
   autoSearchEnabled: true,
-  createdAt: new Date(),
-  updatedAt: new Date(),
+  createdAt: new Date("2024-01-01T00:00:00.000Z"),
+  updatedAt: new Date("2024-01-01T00:00:00.000Z"),
 } as unknown as Indexer;
 
 describe("API Routes - Additional Coverage", () => {

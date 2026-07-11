@@ -107,6 +107,7 @@ describe("Toaster", () => {
   it("renders a toast without a title or description", () => {
     mockToasts.current = [{ id: "t2", open: true }];
     render(<Toaster />);
-    expect(document.querySelectorAll("li").length).toBeGreaterThanOrEqual(0);
+    expect(screen.queryByRole("heading")).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("undefined");
   });
 });

@@ -53,7 +53,7 @@ function mockFetch({
   appConfig?: unknown;
   hardlink?: unknown;
 } = {}) {
-  globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (url: RequestInfo | URL) => {
     const u = getRequestUrl(url);
     if (u.includes("/api/imports/config")) return createJsonResponse(config);
     if (u.includes("/api/igdb/platforms")) return createJsonResponse(platforms);
@@ -140,7 +140,7 @@ describe("ImportSettings", () => {
   });
 
   it("shows an error state and retry button when platforms fail to load", async () => {
-    globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url: RequestInfo | URL) => {
       const u = getRequestUrl(url);
       if (u.includes("/api/igdb/platforms")) {
         return { ok: false, json: async () => ({}) } as Response;
@@ -177,7 +177,7 @@ describe("ImportSettings", () => {
   });
 
   it("switches to the path mappings tab", async () => {
-    globalThis.fetch = vi.fn(async (url: RequestInfo | URL) => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url: RequestInfo | URL) => {
       const u = getRequestUrl(url);
       if (u.includes("/api/imports/mappings/paths")) return createJsonResponse([]);
       if (u.includes("/api/downloaders")) return createJsonResponse([]);
@@ -195,7 +195,7 @@ describe("ImportSettings", () => {
     await screen.findByText("Enable Post-Processing");
 
     fireEvent.mouseDown(screen.getByRole("tab", { name: "Path Mappings" }));
-    expect(await screen.findByText("Path Mappings")).toBeInTheDocument();
+    expect(await screen.findByText("No mappings defined")).toBeInTheDocument();
   });
 
   it("shows an amber warning when hardlink is not supported for all sources", async () => {
@@ -226,10 +226,11 @@ describe("ImportSettings", () => {
 
   it("disables inner controls visually when post-processing is turned off", async () => {
     mockFetch({ config: { ...baseConfig, enablePostProcessing: false } });
-    renderComponent();
+    const { container } = renderComponent();
     await screen.findByText("Enable Post-Processing");
     expect(
       screen.queryByText(/If your download client runs on a different machine/)
     ).not.toBeInTheDocument();
+    expect(container.querySelector(".pointer-events-none")).toBeInTheDocument();
   });
 });

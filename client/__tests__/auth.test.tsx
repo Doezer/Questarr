@@ -98,7 +98,7 @@ describe("AuthProvider", () => {
     });
   });
 
-  it("does not redirect when already on /login or /setup", async () => {
+  it("does not redirect when already on /login", async () => {
     currentLocation = "/login";
     renderAuth(createClient());
 
@@ -106,6 +106,20 @@ describe("AuthProvider", () => {
       expect(screen.getByTestId("needs-setup")).toHaveTextContent("false");
     });
     expect(setLocationMock).not.toHaveBeenCalledWith("/login");
+  });
+
+  it("does not redirect when already on /setup", async () => {
+    currentLocation = "/setup";
+    mockApiFetch.mockImplementation(async (url: string) => {
+      if (url.includes("/api/auth/status")) return jsonResponse(200, { hasUsers: false });
+      return jsonResponse(200, null);
+    });
+    renderAuth(createClient());
+
+    await waitFor(() => {
+      expect(screen.getByTestId("needs-setup")).toHaveTextContent("true");
+    });
+    expect(setLocationMock).not.toHaveBeenCalledWith("/setup");
   });
 
   it("loads the authenticated user from /api/auth/me when a token exists", async () => {

@@ -162,7 +162,7 @@ describe("IGDBClient - extended coverage", { timeout: 20000 }, () => {
     const { igdbClient } = await import("../igdb.js");
     const results = await igdbClient.getRecommendations([{ genres: ["Action"] }], 3);
 
-    expect(results.some((g) => g.name === "Fallback Popular") || results.length === 0).toBe(true);
+    expect(results.map((g) => g.name)).toContain("Fallback Popular");
   });
 
   it("getGamesByGenre returns [] when the sanitized genre is empty", async () => {

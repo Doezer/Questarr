@@ -498,6 +498,8 @@ describe("downloader client regression coverage", () => {
             httpMethod?: "GET" | "POST";
             params?: Record<string, string | number | boolean | undefined>;
             body?: URLSearchParams | FormData;
+            sidInQuery?: boolean;
+            appendFileLast?: (formData: FormData) => void;
           }
         ) => Promise<{ success: boolean; data?: { task_id?: string[] } }>;
       },
@@ -546,12 +548,19 @@ describe("downloader client regression coverage", () => {
       downloadType: "torrent",
     });
     const uploadOptions = requestTaskApiSpy.mock.calls[0]?.[1];
-    const uploadBody = uploadOptions?.body as FormData;
 
     expect(result).toMatchObject({ success: true, id: "dbid_1" });
-    expect(uploadBody.get("destination")).toBe("/volume1/downloads");
-    expect(uploadBody.get("type")).toBe("file");
+    expect(uploadOptions?.params).toMatchObject({
+      type: '"file"',
+      file: '["fileData"]',
+      create_list: false,
+      destination: '"/volume1/downloads"',
+    });
     expect(uploadOptions?.httpMethod).toBe("POST");
+    expect(uploadOptions?.sidInQuery).toBe(true);
+    const uploadBody = new FormData();
+    uploadOptions?.appendFileLast?.(uploadBody);
+    expect([...uploadBody.keys()]).toEqual(["fileData"]);
 
     await expect(client.getFreeSpace()).resolves.toBe(8192);
     expect(safeFetch).toHaveBeenCalled();
@@ -564,6 +573,7 @@ describe("downloader client regression coverage", () => {
         url: "http://nas.local:5000",
         username: "admin",
         password: "pw",
+        downloadPath: "/volume1/downloads",
       })
     );
     vi.spyOn(
@@ -604,6 +614,7 @@ describe("downloader client regression coverage", () => {
         url: "http://nas.local:5000",
         username: "admin",
         password: "pw",
+        downloadPath: "/volume1/downloads",
       })
     );
     vi.spyOn(
@@ -1173,7 +1184,10 @@ describe("downloader client regression coverage", () => {
     const privateClient = client as unknown as {
       apiInfo: Record<string, { path: string; minVersion: number; maxVersion: number }> | null;
       getBaseUrlParts: () => { origin: string; prefix: string };
-      buildSynologyErrorMessage: (code: number | undefined, fallback: string) => string;
+      buildSynologyErrorMessage: (
+        error: { code?: number; errors?: { name?: string; reason?: string }[] } | undefined,
+        fallback: string
+      ) => string;
       normalizeSynologyStatus: (status: string | undefined, progress: number) => string;
       mapSynologyFilePriority: (priority: string | number | undefined) => string;
       mapSynologyTrackerStatus: (status: string | undefined, error: string | undefined) => string;
@@ -1199,7 +1213,7 @@ describe("downloader client regression coverage", () => {
       origin: "http://nas.local",
       prefix: "/base/downloads",
     });
-    expect(privateClient.buildSynologyErrorMessage(401, "fallback")).toBe(
+    expect(privateClient.buildSynologyErrorMessage({ code: 401 }, "fallback")).toBe(
       "Synology maximum task limit reached"
     );
     expect(privateClient.normalizeSynologyStatus("paused", 100)).toBe("completed");
@@ -1848,6 +1862,7 @@ describe("downloader client regression coverage", () => {
         type: "synology",
         username: "admin",
         password: "password",
+        downloadPath: "/volume1/downloads",
       })
     );
     const privateClient = client as unknown as {
@@ -1957,6 +1972,7 @@ describe("downloader client regression coverage", () => {
         type: "synology",
         username: "admin",
         password: "password",
+        downloadPath: "/volume1/downloads",
       })
     );
     const privateClient = client as unknown as {

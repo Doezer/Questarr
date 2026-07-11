@@ -18,6 +18,7 @@ interface SynologyApiDescriptor {
 
 interface SynologyErrorResponse {
   code?: number;
+  errors?: { name?: string; reason?: string }[];
 }
 
 interface SynologyApiResponse {
@@ -98,6 +99,12 @@ interface SynologyFileStationVolumeStatus {
   used?: number;
 }
 
+interface SynologyDownloadStationInfoResponse extends SynologyApiResponse {
+  data?: {
+    default_destination?: string;
+  };
+}
+
 interface SynologyFileStationResponse extends SynologyApiResponse {
   data?: {
     useable_space?: number;
@@ -105,10 +112,21 @@ interface SynologyFileStationResponse extends SynologyApiResponse {
   };
 }
 
+/**
+ * Thrown only when Synology itself responded with `success: false` (an explicit API-level
+ * rejection, e.g. "invalid parameter" or "destination not found"). Transport-level failures
+ * (timeouts, non-2xx HTTP, JSON parse errors) surface as plain `Error`s instead, so callers can
+ * tell "the NAS understood the request and rejected it" apart from "we don't know what happened."
+ * This matters for createUrlTask's DS2 variant fallback: retrying after a transport failure risks
+ * creating a duplicate task if the NAS actually received and processed the first request.
+ */
+class SynologyApiError extends Error {}
+
 export class SynologyDownloadStationClient implements DownloaderClient {
   private downloader: Downloader;
   private sessionId: string | null = null;
   private apiInfo: Record<string, SynologyApiDescriptor> | null = null;
+  private nasDefaultDestination: string | null | undefined;
 
   constructor(downloader: Downloader) {
     this.downloader = downloader;
@@ -185,7 +203,20 @@ export class SynologyDownloadStationClient implements DownloaderClient {
     throw new Error("Synology Download Station Task API is not available on this server");
   }
 
-  private buildSynologyErrorMessage(code: number | undefined, fallback: string): string {
+  private buildSynologyErrorMessage(
+    error: SynologyErrorResponse | undefined,
+    fallback: string
+  ): string {
+    const code = error?.code;
+    const fieldDetail = error?.errors
+      ?.filter((detail) => detail.name || detail.reason)
+      .map((detail) => [detail.name, detail.reason].filter(Boolean).join(": "))
+      .join(", ");
+
+    if (fieldDetail) {
+      return `${fallback} (code ${code}): ${fieldDetail}`;
+    }
+
     switch (code) {
       case 101:
         return "Synology rejected the request parameters";
@@ -193,6 +224,8 @@ export class SynologyDownloadStationClient implements DownloaderClient {
         return "Synology permission denied";
       case 106:
         return "Synology session expired";
+      case 120:
+        return "Synology rejected the request — a destination folder is required";
       case 400:
         return "Synology authentication failed";
       case 401:
@@ -252,7 +285,7 @@ export class SynologyDownloadStationClient implements DownloaderClient {
       version: "1",
       method: "query",
       query:
-        "SYNO.API.Auth,SYNO.DownloadStation.Task,SYNO.DownloadStation2.Task,SYNO.FileStation.Info",
+        "SYNO.API.Auth,SYNO.DownloadStation.Task,SYNO.DownloadStation2.Task,SYNO.DownloadStation.Info,SYNO.FileStation.Info",
     });
 
     const url = this.getWebApiUrl(`query.cgi?${queryParams.toString()}`);
@@ -264,7 +297,7 @@ export class SynologyDownloadStationClient implements DownloaderClient {
 
     if (!response.success || !response.data) {
       throw new Error(
-        this.buildSynologyErrorMessage(response.error?.code, "Failed to query Synology APIs")
+        this.buildSynologyErrorMessage(response.error, "Failed to query Synology APIs")
       );
     }
 
@@ -305,7 +338,7 @@ export class SynologyDownloadStationClient implements DownloaderClient {
     if (!response.success || !response.data?.sid) {
       throw new Error(
         this.buildSynologyErrorMessage(
-          response.error?.code,
+          response.error,
           "Failed to authenticate with Synology Download Station"
         )
       );
@@ -354,11 +387,20 @@ export class SynologyDownloadStationClient implements DownloaderClient {
       body?: URLSearchParams | FormData;
       retryOnAuthFailure?: boolean;
       requiresAuth?: boolean;
+      /**
+       * Synology's DS2 task API (undocumented) sends `_sid` as a query param even on POST,
+       * keeping it out of the multipart body so a trailing file field stays last. See
+       * docs/synology-download-station-api-notes.md for why this only applies to DS2.
+       */
+      sidInQuery?: boolean;
+      /** Appends a field (e.g. the uploaded file) to a FormData body after all other params. */
+      appendFileLast?: (formData: FormData) => void;
     } = {}
   ): Promise<T> {
     const httpMethod = options.httpMethod ?? "GET";
     const requiresAuth = options.requiresAuth ?? true;
     const retryOnAuthFailure = options.retryOnAuthFailure ?? true;
+    const sidInQuery = options.sidInQuery ?? false;
 
     if (requiresAuth) {
       await this.authenticate();
@@ -373,11 +415,15 @@ export class SynologyDownloadStationClient implements DownloaderClient {
       ...(options.params ?? {}),
     };
 
-    if (requiresAuth) {
+    if (requiresAuth && !sidInQuery) {
       params._sid = this.sessionId ?? undefined;
     }
 
     const url = this.getWebApiUrl(descriptor.path);
+    const postUrl =
+      requiresAuth && sidInQuery && this.sessionId
+        ? `${url}?${new URLSearchParams({ _sid: this.sessionId }).toString()}`
+        : url;
     let body: BodyInit | undefined;
     const headers: Record<string, string> = {};
 
@@ -401,11 +447,8 @@ export class SynologyDownloadStationClient implements DownloaderClient {
       }
 
       if (!response.success) {
-        throw new Error(
-          this.buildSynologyErrorMessage(
-            response.error?.code,
-            `Synology ${apiName}.${methodName} failed`
-          )
+        throw new SynologyApiError(
+          this.buildSynologyErrorMessage(response.error, `Synology ${apiName}.${methodName} failed`)
         );
       }
 
@@ -415,6 +458,7 @@ export class SynologyDownloadStationClient implements DownloaderClient {
     if (options.body instanceof FormData) {
       const formData = options.body;
       this.appendApiParams(formData, params);
+      options.appendFileLast?.(formData);
       body = formData;
     } else {
       const formBody =
@@ -425,7 +469,7 @@ export class SynologyDownloadStationClient implements DownloaderClient {
     }
 
     const response = await this.fetchJson<T>(
-      url,
+      postUrl,
       { method: httpMethod, body, headers },
       `Synology ${apiName}.${methodName} failed`
     );
@@ -435,16 +479,18 @@ export class SynologyDownloadStationClient implements DownloaderClient {
       await this.authenticate(true);
       return this.requestApi(apiName, descriptor, preferredVersion, methodName, {
         ...options,
+        // The FormData above was already mutated in place by appendApiParams/appendFileLast, so
+        // reusing it here would double-append params and lose the "file must be last" guarantee.
+        // appendFileLast is a closure over the file bytes, not the FormData's prior state, so it's
+        // safe to re-run against a fresh instance. See docs/synology-download-station-api-notes.md.
+        body: options.body instanceof FormData ? new FormData() : options.body,
         retryOnAuthFailure: false,
       });
     }
 
     if (!response.success) {
-      throw new Error(
-        this.buildSynologyErrorMessage(
-          response.error?.code,
-          `Synology ${apiName}.${methodName} failed`
-        )
+      throw new SynologyApiError(
+        this.buildSynologyErrorMessage(response.error, `Synology ${apiName}.${methodName} failed`)
       );
     }
 
@@ -458,11 +504,20 @@ export class SynologyDownloadStationClient implements DownloaderClient {
       params?: Record<string, string | number | boolean | undefined>;
       body?: URLSearchParams | FormData;
       retryOnAuthFailure?: boolean;
+      sidInQuery?: boolean;
+      appendFileLast?: (formData: FormData) => void;
+      /**
+       * Overrides the default API version. Prowlarr's verified contract uses v2 for legacy
+       * (SYNO.DownloadStation.Task) file uploads specifically, vs v3 for its other legacy
+       * calls. See docs/synology-download-station-api-notes.md.
+       */
+      preferredVersion?: number;
     } = {}
   ): Promise<T> {
     await this.ensureApiInfo();
     const { apiName, descriptor } = this.getTaskApiDescriptor();
-    const preferredVersion = apiName === "SYNO.DownloadStation2.Task" ? 2 : 3;
+    const preferredVersion =
+      options.preferredVersion ?? (apiName === "SYNO.DownloadStation2.Task" ? 2 : 3);
 
     return this.requestApi<T>(apiName, descriptor, preferredVersion, methodName, options);
   }
@@ -631,8 +686,178 @@ export class SynologyDownloadStationClient implements DownloaderClient {
     return response.data?.tasks?.[0] ?? null;
   }
 
-  private getSynologyDestination(request: DownloadRequest): string | undefined {
-    return request.downloadPath || this.downloader.downloadPath || undefined;
+  /**
+   * Mirrors Prowlarr's `GetDownloadDirectory()` -> `GetDefaultDir()` fallback: when neither the
+   * request nor the downloader config specifies a path, ask the NAS for its own Download Station
+   * default destination via `SYNO.DownloadStation.Info.getconfig` before giving up. Without this,
+   * DS2 create-task calls silently omit `destination` and Synology rejects them with an opaque
+   * error 120. See docs/synology-download-station-api-notes.md.
+   */
+  private async getNasDefaultDestination(): Promise<string | undefined> {
+    if (this.nasDefaultDestination !== undefined) {
+      return this.nasDefaultDestination ?? undefined;
+    }
+
+    try {
+      await this.ensureApiInfo();
+      const descriptor = this.apiInfo?.["SYNO.DownloadStation.Info"];
+      if (!descriptor) {
+        this.nasDefaultDestination = null;
+        return undefined;
+      }
+
+      const response = await this.requestApi<SynologyDownloadStationInfoResponse>(
+        "SYNO.DownloadStation.Info",
+        descriptor,
+        1,
+        "getconfig",
+        { httpMethod: "GET" }
+      );
+
+      this.nasDefaultDestination = response.data?.default_destination || null;
+      return this.nasDefaultDestination ?? undefined;
+    } catch (error) {
+      downloadersLogger.error({ error }, "Failed to get Synology default download destination");
+      this.nasDefaultDestination = null;
+      return undefined;
+    }
+  }
+
+  private async getSynologyDestination(request: DownloadRequest): Promise<string | undefined> {
+    return (
+      request.downloadPath ||
+      this.downloader.downloadPath ||
+      (await this.getNasDefaultDestination())
+    );
+  }
+
+  /**
+   * DS2's create-task request shape is unconfirmed against a real device (see
+   * docs/synology-download-station-api-notes.md) and two plausible sources disagree: Prowlarr's
+   * proxy (GET, bare values) vs. the dvcol/synology-download browser extension (POST, JSON-quoted
+   * values, `_sid` in the query string only). Rather than guess, we try each variant in order and
+   * log which one is attempted/succeeds/fails, so a real-device test run tells us definitively
+   * which contract this Synology's DSM version actually expects.
+   */
+  private buildDs2UrlCreateVariants(
+    downloadUrl: string,
+    trimmedDestination: string | undefined
+  ): {
+    name: string;
+    options: {
+      httpMethod: "GET" | "POST";
+      sidInQuery?: boolean;
+      params: Record<string, string | number | boolean | undefined>;
+    };
+  }[] {
+    return [
+      {
+        // Prowlarr's proxy contract (current default, verified byte-for-byte against Prowlarr's
+        // live client, but not yet against a real Synology device).
+        name: "ds2-get-bare",
+        options: {
+          httpMethod: "GET",
+          params: {
+            type: "url",
+            url: downloadUrl,
+            create_list: false,
+            ...(trimmedDestination ? { destination: trimmedDestination } : {}),
+          },
+        },
+      },
+      {
+        // dvcol/synology-download extension contract (a live, purpose-built Synology Download
+        // Station client). Mirrors our own DS2 file-upload path: `_sid` in the query string only,
+        // POST body values JSON-encoded.
+        name: "ds2-post-json-sid-query",
+        options: {
+          httpMethod: "POST",
+          sidInQuery: true,
+          params: {
+            type: '"url"',
+            url: JSON.stringify([downloadUrl]),
+            create_list: false,
+            ...(trimmedDestination ? { destination: JSON.stringify(trimmedDestination) } : {}),
+          },
+        },
+      },
+      {
+        // Superseded Phase 1 contract (see docs) — POST with the legacy `uri` field name, no JSON
+        // quoting. Kept as a last-resort fallback since it was confirmed to fix the originally
+        // reported error 120, just via a different field name than Prowlarr's.
+        name: "ds2-post-uri-bare",
+        options: {
+          httpMethod: "POST",
+          params: {
+            type: "url",
+            uri: downloadUrl,
+            ...(trimmedDestination ? { destination: trimmedDestination } : {}),
+          },
+        },
+      },
+    ];
+  }
+
+  private async createUrlTask(
+    apiName: string,
+    downloadUrl: string,
+    trimmedDestination: string | undefined
+  ): Promise<SynologyTaskResponse> {
+    if (apiName !== "SYNO.DownloadStation2.Task") {
+      return this.requestTaskApi<SynologyTaskResponse>("create", {
+        httpMethod: "GET",
+        params: {
+          uri: downloadUrl,
+          ...(trimmedDestination ? { destination: trimmedDestination } : {}),
+        },
+      });
+    }
+
+    const variants = this.buildDs2UrlCreateVariants(downloadUrl, trimmedDestination);
+    let lastError: unknown;
+
+    for (const variant of variants) {
+      downloadersLogger.info(
+        {
+          downloaderId: this.downloader.id,
+          variant: variant.name,
+          httpMethod: variant.options.httpMethod,
+          params: variant.options.params,
+        },
+        "Trying Synology DS2 create-task request variant"
+      );
+
+      try {
+        const response = await this.requestTaskApi<SynologyTaskResponse>("create", variant.options);
+        downloadersLogger.info(
+          { downloaderId: this.downloader.id, variant: variant.name },
+          "Synology DS2 create-task variant succeeded"
+        );
+        return response;
+      } catch (error) {
+        // Only an explicit Synology rejection (success: false) tells us the NAS understood the
+        // request and refused it, so it's safe to retry with a different variant. A transport
+        // failure (timeout, non-2xx, JSON parse error) leaves it unknown whether the task was
+        // already created; retrying then risks creating a duplicate, so fail fast instead.
+        if (!(error instanceof SynologyApiError)) {
+          throw error;
+        }
+
+        lastError = error;
+        downloadersLogger.warn(
+          {
+            downloaderId: this.downloader.id,
+            variant: variant.name,
+            error: error.message,
+          },
+          "Synology DS2 create-task variant failed, trying next fallback"
+        );
+      }
+    }
+
+    throw lastError instanceof Error
+      ? lastError
+      : new Error("All Synology DS2 create-task variants failed");
   }
 
   async testConnection(): Promise<{ success: boolean; message: string }> {
@@ -680,25 +905,20 @@ export class SynologyDownloadStationClient implements DownloaderClient {
 
       await this.ensureApiInfo();
       const { apiName } = this.getTaskApiDescriptor();
-      const destination = this.getSynologyDestination(request);
+      const destination = await this.getSynologyDestination(request);
+      if (!destination?.trim()) {
+        return {
+          success: false,
+          message:
+            "No download destination configured. Set a Download Path for this downloader in " +
+            "Questarr, or configure a default destination in Synology Download Station settings.",
+        };
+      }
       const isMagnet = request.url.startsWith("magnet:");
 
       const createUrlDownload = async (downloadUrl: string) => {
-        const response = await this.requestTaskApi<SynologyTaskResponse>("create", {
-          httpMethod: "POST",
-          params:
-            apiName === "SYNO.DownloadStation2.Task"
-              ? {
-                  type: "url",
-                  url: downloadUrl,
-                  create_list: "false",
-                  destination,
-                }
-              : {
-                  uri: downloadUrl,
-                  destination,
-                },
-        });
+        const trimmedDestination = destination?.trim();
+        const response = await this.createUrlTask(apiName, downloadUrl, trimmedDestination);
 
         const id = response.data?.task_id?.[0];
         return {
@@ -761,20 +981,34 @@ export class SynologyDownloadStationClient implements DownloaderClient {
     const fileBlob = new Blob([fileContents], {
       type: response.headers.get("content-type") || "application/octet-stream",
     });
-    const formData = new FormData();
-    formData.append("file", fileBlob, fileName);
 
-    if (destination) {
-      formData.append("destination", destination);
-    }
-
-    if (apiName === "SYNO.DownloadStation2.Task") {
-      formData.append("type", "file");
-    }
+    const trimmedDestination = destination?.trim();
+    const isDs2 = apiName === "SYNO.DownloadStation2.Task";
+    // DS2's undocumented multipart contract expects type/file/destination as JSON-encoded
+    // string literals, with the actual bytes uploaded under "fileData" (referenced by the
+    // separate "file" param) rather than under "file" directly. See
+    // docs/synology-download-station-api-notes.md.
+    const fileFieldName = isDs2 ? "fileData" : "file";
+    const params: Record<string, string | number | boolean | undefined> = isDs2
+      ? {
+          type: '"file"',
+          file: '["fileData"]',
+          create_list: false,
+          ...(trimmedDestination ? { destination: JSON.stringify(trimmedDestination) } : {}),
+        }
+      : {
+          ...(trimmedDestination ? { destination: trimmedDestination } : {}),
+        };
 
     const uploadResponse = await this.requestTaskApi<SynologyTaskResponse>("create", {
       httpMethod: "POST",
-      body: formData,
+      params,
+      body: new FormData(),
+      sidInQuery: isDs2,
+      preferredVersion: isDs2 ? undefined : 2,
+      appendFileLast: (formData) => {
+        formData.append(fileFieldName, fileBlob, fileName);
+      },
     });
 
     return {

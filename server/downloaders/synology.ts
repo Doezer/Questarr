@@ -112,6 +112,16 @@ interface SynologyFileStationResponse extends SynologyApiResponse {
   };
 }
 
+/**
+ * Thrown only when Synology itself responded with `success: false` (an explicit API-level
+ * rejection, e.g. "invalid parameter" or "destination not found"). Transport-level failures
+ * (timeouts, non-2xx HTTP, JSON parse errors) surface as plain `Error`s instead, so callers can
+ * tell "the NAS understood the request and rejected it" apart from "we don't know what happened."
+ * This matters for createUrlTask's DS2 variant fallback: retrying after a transport failure risks
+ * creating a duplicate task if the NAS actually received and processed the first request.
+ */
+class SynologyApiError extends Error {}
+
 export class SynologyDownloadStationClient implements DownloaderClient {
   private downloader: Downloader;
   private sessionId: string | null = null;
@@ -437,7 +447,7 @@ export class SynologyDownloadStationClient implements DownloaderClient {
       }
 
       if (!response.success) {
-        throw new Error(
+        throw new SynologyApiError(
           this.buildSynologyErrorMessage(response.error, `Synology ${apiName}.${methodName} failed`)
         );
       }
@@ -479,7 +489,7 @@ export class SynologyDownloadStationClient implements DownloaderClient {
     }
 
     if (!response.success) {
-      throw new Error(
+      throw new SynologyApiError(
         this.buildSynologyErrorMessage(response.error, `Synology ${apiName}.${methodName} failed`)
       );
     }
@@ -825,12 +835,20 @@ export class SynologyDownloadStationClient implements DownloaderClient {
         );
         return response;
       } catch (error) {
+        // Only an explicit Synology rejection (success: false) tells us the NAS understood the
+        // request and refused it, so it's safe to retry with a different variant. A transport
+        // failure (timeout, non-2xx, JSON parse error) leaves it unknown whether the task was
+        // already created; retrying then risks creating a duplicate, so fail fast instead.
+        if (!(error instanceof SynologyApiError)) {
+          throw error;
+        }
+
         lastError = error;
         downloadersLogger.warn(
           {
             downloaderId: this.downloader.id,
             variant: variant.name,
-            error: error instanceof Error ? error.message : error,
+            error: error.message,
           },
           "Synology DS2 create-task variant failed, trying next fallback"
         );

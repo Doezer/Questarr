@@ -21,6 +21,7 @@ import {
   Ban,
   Trash2,
   Bell,
+  Ghost,
 } from "lucide-react";
 import { NexusModsIcon } from "@/components/NexusModsIcon";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -45,6 +46,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import AutoDownloadRulesSettings from "@/components/AutoDownloadRulesSettings";
 import PreferredReleaseGroupsSettings from "@/components/PreferredReleaseGroupsSettings";
+import { useLocalStorageState } from "@/hooks/use-local-storage-state";
+import { GHOST_THEME_KEY, GHOST_UNLOCK_KEY } from "@/lib/ghost-mode";
 import PasswordSettings from "@/components/PasswordSettings";
 import type {
   Config,
@@ -83,6 +86,12 @@ const NOTIFICATION_EVENT_ROWS: { key: NotificationEvent; label: string; group: s
 export default function SettingsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  const [ghostUnlocked] = useLocalStorageState(GHOST_UNLOCK_KEY, false);
+  const [ghostThemeEnabled, setGhostThemeEnabled] = useLocalStorageState(GHOST_THEME_KEY, false);
+  useEffect(() => {
+    document.documentElement.classList.toggle("theme-ghost", ghostThemeEnabled);
+  }, [ghostThemeEnabled]);
 
   const {
     data: config,
@@ -791,6 +800,37 @@ export default function SettingsPage() {
           </TabsList>
 
           <TabsContent value="general" className="space-y-6">
+            {ghostUnlocked && (
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center space-x-3">
+                    <Ghost className="h-5 w-5 text-emerald-400" />
+                    <CardTitle className="text-lg">Ghost Mode</CardTitle>
+                  </div>
+                  <CardDescription>
+                    A cosmetic accent color, unlocked by hacking the terminal in Ghost the Terminal.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="ghost-theme" className="text-sm font-medium">
+                        Enable Ghost Mode accent
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        Purely cosmetic &mdash; swaps the accent color, nothing else changes
+                      </p>
+                    </div>
+                    <Switch
+                      id="ghost-theme"
+                      checked={ghostThemeEnabled}
+                      onCheckedChange={setGhostThemeEnabled}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Auto-Search Settings */}
             <Card>
               <CardHeader>

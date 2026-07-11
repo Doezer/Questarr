@@ -10,11 +10,12 @@ import MobileBottomNav from "@/components/MobileBottomNav";
 import { getPageTitle } from "@/components/navigation-items";
 import { useBackgroundNotifications } from "@/hooks/use-background-notifications";
 import { AuthProvider } from "@/lib/auth";
-import { Suspense, lazy } from "react";
+import { Suspense, lazy, useEffect, useRef } from "react";
 import LoadingFallback from "@/components/LoadingFallback";
 import { ThemeProvider } from "next-themes";
 import { routerBase } from "@/lib/app-path";
 import { routePaths } from "@/lib/routes";
+import { GHOST_THEME_KEY } from "@/lib/ghost-mode";
 
 // ⚡ Bolt: Code splitting with React.lazy
 // This reduces the initial bundle size by loading pages only when needed.
@@ -35,6 +36,57 @@ const SetupPage = lazy(() => import("@/pages/auth/setup"));
 const StatsPage = lazy(() => import("@/pages/stats"));
 const LogsPage = lazy(() => import("@/pages/logs"));
 const ImportHistoryPage = lazy(() => import("@/pages/import-history"));
+const PlayPage = lazy(() => import("@/pages/play"));
+
+// Konami code: an undocumented shortcut into the /play easter egg.
+const KONAMI_CODE = [
+  "ArrowUp",
+  "ArrowUp",
+  "ArrowDown",
+  "ArrowDown",
+  "ArrowLeft",
+  "ArrowRight",
+  "ArrowLeft",
+  "ArrowRight",
+  "KeyB",
+  "KeyA",
+];
+
+function useKonamiCode(onActivate: () => void) {
+  // Keep the listener bound once; read the latest callback through a ref instead of
+  // re-subscribing every render (onActivate is typically a fresh inline closure).
+  const onActivateRef = useRef(onActivate);
+  useEffect(() => {
+    onActivateRef.current = onActivate;
+  }, [onActivate]);
+
+  useEffect(() => {
+    let progress = 0;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable || target.matches("input, textarea, select"))
+      ) {
+        progress = 0;
+        return;
+      }
+
+      if (event.code === KONAMI_CODE[progress]) {
+        progress++;
+      } else {
+        // A mistyped repeat of the first key shouldn't force restarting the whole sequence.
+        progress = event.code === KONAMI_CODE[0] ? 1 : 0;
+      }
+      if (progress === KONAMI_CODE.length) {
+        progress = 0;
+        onActivateRef.current();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+}
 
 function Router() {
   return (
@@ -42,6 +94,7 @@ function Router() {
       <Switch>
         <Route path={routePaths.login} component={LoginPage} />
         <Route path={routePaths.setup} component={SetupPage} />
+        <Route path={routePaths.play} component={PlayPage} />
         <Route path={routePaths.library} component={Library} />
         <Route path={routePaths.discover} component={DiscoverPage} />
         <Route path={routePaths.search} component={SearchPage} />
@@ -72,14 +125,26 @@ function AppContent() {
 function AppShell() {
   const [location, navigate] = useLocation();
 
+  useKonamiCode(() => navigate(routePaths.play));
+
+  // Re-apply the cosmetic Ghost Mode accent (if the player unlocked and enabled it) on load.
+  useEffect(() => {
+    const enabled = localStorage.getItem(GHOST_THEME_KEY) === "true";
+    document.documentElement.classList.toggle("theme-ghost", enabled);
+  }, []);
+
   // Custom sidebar width for the application
   const style = {
     "--sidebar-width": "16rem", // 256px for navigation
     "--sidebar-width-icon": "4rem", // default icon width
   };
 
-  // If on login or setup page, render simplified layout without sidebar/header
-  if (location === routePaths.login || location === routePaths.setup) {
+  // If on login, setup, or the hidden /play easter egg, render simplified layout without sidebar/header
+  if (
+    location === routePaths.login ||
+    location === routePaths.setup ||
+    location === routePaths.play
+  ) {
     return (
       <QueryClientProvider client={queryClient}>
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>

@@ -295,3 +295,88 @@ describe("TorznabClient — download link rewriting", () => {
     );
   });
 });
+
+describe("TorznabClient — testConnection", () => {
+  let client: InstanceType<typeof TorznabClient>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    client = new TorznabClient();
+  });
+
+  it("reports success when the search succeeds", async () => {
+    mockIsSafeUrl.mockResolvedValue(true);
+    mockFetchResponse(
+      `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>Test</title></channel></rss>`
+    );
+
+    const result = await client.testConnection(makeIndexer());
+    expect(result.success).toBe(true);
+    expect(result.message).toContain("Successfully connected");
+  });
+
+  it("reports failure with the underlying error message", async () => {
+    mockSafeFetch.mockRejectedValue(new Error("connection refused"));
+
+    const result = await client.testConnection(makeIndexer());
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("connection refused");
+  });
+});
+
+describe("TorznabClient — getCategories", () => {
+  let client: InstanceType<typeof TorznabClient>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    client = new TorznabClient();
+  });
+
+  it("throws when the indexer is disabled", async () => {
+    await expect(client.getCategories(makeIndexer({ enabled: false }))).rejects.toThrow(
+      "is disabled"
+    );
+  });
+
+  it("parses a single category from the caps response", async () => {
+    mockFetchResponse(
+      `<?xml version="1.0"?><caps><categories><category id="2000" name="Movies"/></categories></caps>`
+    );
+
+    const categories = await client.getCategories(makeIndexer());
+    expect(categories).toEqual([{ id: "2000", name: "Movies" }]);
+  });
+
+  it("parses multiple categories and falls back to a default name", async () => {
+    mockFetchResponse(
+      `<?xml version="1.0"?><caps><categories>` +
+        `<category id="2000" name="Movies"/>` +
+        `<category id="3000"/>` +
+        `</categories></caps>`
+    );
+
+    const categories = await client.getCategories(makeIndexer());
+    expect(categories).toEqual([
+      { id: "2000", name: "Movies" },
+      { id: "3000", name: "Category 3000" },
+    ]);
+  });
+
+  it("returns an empty array when there are no categories", async () => {
+    mockFetchResponse(`<?xml version="1.0"?><caps></caps>`);
+
+    const categories = await client.getCategories(makeIndexer());
+    expect(categories).toEqual([]);
+  });
+
+  it("throws a descriptive error when the response is not ok", async () => {
+    mockSafeFetch.mockResolvedValue({
+      ok: false,
+      status: 500,
+      statusText: "Internal Server Error",
+      text: async () => "boom",
+    } as Response);
+
+    await expect(client.getCategories(makeIndexer())).rejects.toThrow("Failed to get categories");
+  });
+});

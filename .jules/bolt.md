@@ -32,3 +32,8 @@
 
 **Learning:** Found multiple O(n) array traversals (filter, map, reduce, flatMap) within a React useMemo hook processing game statistics. Replacing these multiple array methods with a single manual loop significantly improves performance on the hot path (re-evaluating stats) by reducing redundant iterations and object allocations.
 **Action:** Always scrutinize React useMemo hooks operating on collections for unnecessary or repeated iterations, and consider combining loops.
+
+## 2025-05-23 - Consolidating Multiple Array Traversals in Render Cycles
+
+**Learning:** Extracting multiple derived states (e.g., separating games into `wanted`, `undated`, and grouping by date) using separate `useMemo` hooks with multiple array methods (`filter`, `filter`, `forEach`) iterates over the same list multiple times (O(3N)). When the source array changes (like `searchQuery` updates), it causes redundant iteration and object allocation, which can cause frame drops on large collections.
+**Action:** When computing multiple derived states from the same dependency array, consolidate the logic into a single manual `for` loop inside a single `useMemo` block to achieve a single pass (O(N)). Also, always ensure invariant derivations (like `.toLowerCase()`) are evaluated outside the loop.

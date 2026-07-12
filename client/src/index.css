@@ -287,6 +287,19 @@
   --shadow-2xl: 0px 2px 0px 0px hsl(210 20% 8% / 0);
 }
 
+/* Cosmetic flair unlocked by finding the "Ghost the Terminal" easter egg (see /play). */
+.theme-ghost {
+  --primary: 152 85% 45%;
+  --primary-foreground: 210 24% 10%;
+  --secondary: 189 90% 50%;
+  --secondary-foreground: 210 24% 10%;
+  --accent: 152 85% 45%;
+  --accent-foreground: 210 24% 10%;
+  --ring: 152 85% 45%;
+  --sidebar-primary: 152 85% 45%;
+  --sidebar-ring: 152 85% 45%;
+}
+
 @layer base {
   * {
     border-color: hsl(var(--border));

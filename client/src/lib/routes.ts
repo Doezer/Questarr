@@ -1,6 +1,7 @@
 export const routePaths = {
   login: "/login",
   setup: "/setup",
+  play: "/play",
   library: "/",
   discover: "/discover",
   search: "/search",

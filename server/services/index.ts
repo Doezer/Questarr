@@ -15,14 +15,3 @@ export const importManager = new ImportManager(
   platformMappingService,
   archiveService
 );
-
-// Initialize any defaults
-if (typeof (storage as { getPlatformMappings?: unknown }).getPlatformMappings === "function") {
-  void (async () => {
-    try {
-      await platformMappingService.initializeDefaults();
-    } catch (err) {
-      console.error("Failed to initialize platform mappings:", err);
-    }
-  })();
-}

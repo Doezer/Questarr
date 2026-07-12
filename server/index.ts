@@ -15,6 +15,7 @@ import { rssService } from "./rss.js";
 import { nexusmodsClient } from "./nexusmods.js";
 import { appriseClient, readAppriseSettings } from "./apprise.js";
 import { storage } from "./storage.js";
+import { platformMappingService } from "./services/index.js";
 
 const app = createApp();
 
@@ -22,6 +23,13 @@ const app = createApp();
   try {
     // Ensure database is ready before starting server
     await ensureDatabase();
+
+    // Seed default platform mappings (must run after migrations create the table)
+    try {
+      await platformMappingService.initializeDefaults();
+    } catch (err) {
+      log("Failed to initialize platform mappings: " + String(err));
+    }
 
     // Initialize RSS service (seeding default feeds)
     await rssService.initialize();

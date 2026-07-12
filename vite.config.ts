@@ -9,12 +9,11 @@ const { version } = JSON.parse(
 ) as { version: string };
 
 const configuredBase = process.env.QUESTARR_BASE_PATH;
-const base =
-  configuredBase && configuredBase.length > 0
-    ? configuredBase.endsWith("/")
-      ? configuredBase
-      : `${configuredBase}/`
-    : "./";
+function resolveBase(value: string | undefined): string {
+  if (!value || value.length === 0) return "./";
+  return value.endsWith("/") ? value : `${value}/`;
+}
+const base = resolveBase(configuredBase);
 
 export default defineConfig({
   base,

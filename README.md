@@ -292,6 +292,8 @@ docker-compose build --no-cache
 docker-compose up -d
 ```
 
+</details>
+
 ## Troubleshooting
 
 See [Troubleshooting on the Wiki](https://github.com/Doezer/Questarr/wiki/Troubleshooting)

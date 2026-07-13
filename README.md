@@ -45,8 +45,8 @@
 ## Features
 
 - **🎮 Game Discovery**: Browse popular games, new releases, and upcoming titles via IGDB integration and xREL.to. Sync your Steam wishlist.
-- **📚 Library Management**: Track your game collection with status indicators (Wanted, Owned, Playing, Completed), user ratings, and Early Access badges.
-- **⬇️ Download Management**: Integrate with indexers (Prowlarr/Torznab/Newsznab), torrent/usenet downloaders (qBittorrent, Transmission, rTorrent / sabnzbd, nzbget), and optionally enable auto-download to get them right when they're there. Import downloads automatically to your library folder.
+- **📚 Library Management**: Track your game collection with status indicators (Wanted, Owned, Playing, Completed, Shelved), user ratings, personal notes, and Early Access badges.
+- **⬇️ Download Management**: Integrate with indexers (Prowlarr/Torznab/Newsznab), torrent/usenet downloaders (qBittorrent, Transmission, rTorrent, Deluge, Synology Download Station / sabnzbd, nzbget), and optionally enable auto-download to get them right when they're there. Downloads are imported automatically through a post-processing pipeline that unpacks and organizes files, with a full import history page to track the results.
 - **🔍 Search & Filter**: Find games by genre, platform, and search terms. Automatically search for added games until available on your indexers. Blacklist unwanted releases and set preferred release groups and platforms.
 - **Notifications**: thanks to Apprise, you can send notifications to 100+ providers.
 - **🗂️ Rich Metadata**: Game details enriched with IGDB, Steam, PCGamingWiki links, and NexusMods pages, as well as trending mods (if applicable).
@@ -60,39 +60,39 @@
 <details open>
 <summary><b>👀 See the app in action</b></summary>
 
-### Dashboard
+### Library
 
-Your central hub for recent activity, collection overview and downloading available games.
+Your central hub for recent activity, collection overview and downloading available games. Manage your owned and wanted games.
 
-<a href="images/Screenshots/dashboard.png"><img src="images/Screenshots/dashboard.png" /></a>
+<a href="images/Screenshots/dashboard.png"><img src="images/Screenshots/library.png" /></a>
 
 <p float="left">
   <a href="images/Screenshots/game_details.png"><img src="images/Screenshots/game_details.png" width="49%" /></a>
   <a href="images/Screenshots/download_modal.png"><img src="images/Screenshots/download_modal.png" width="49%" /></a>
 </p>
 
+### Wishlist & Release calendar
+
+Manage your wanted games and when they release.
+<p float="left">
+  <a href="images/Screenshots/wishlist.png"><img src="images/Screenshots/wishlist.png" width="49%" /></a>
+  <a href="images/Screenshots/calendar.png"><img src="images/Screenshots/calendar.png" width="49%" /></a>
+</p>
+
 ### Discover Games
 
 Browse and find new games to add to your collection.
 
+<a href="images/Screenshots/discover.png"><img src="images/Screenshots/discover.png" /></a>
+
+#### RSS & xRel.to feeds
+
+Custom RSS feeds and xRel.to flux matched to IGDB games directly into the app. Default RSS is set to fitgirl site.
+
 <p float="left">
-  <a href="images/Screenshots/discover.png"><img src="images/Screenshots/discover.png" width="49%" /></a>
+  <a href="images/Screenshots/rss.png"><img src="images/Screenshots/rss.png" width="49%" /></a>
   <a href="images/Screenshots/xrelto.png"><img src="images/Screenshots/xrelto.png" width="49%" /></a>
 </p>
-
-### Library & Wishlist
-
-Manage your wanted and owned games.
-
-<p float="left">
-  <a href="images/Screenshots/library.png"><img src="images/Screenshots/library.png" width="49%" /></a>
-  <a href="images/Screenshots/wishlist.png"><img src="images/Screenshots/wishlist.png" width="49%" /></a>
-</p>
-
-### Calendar
-
-Keep track of upcoming releases.
-<a href="images/Screenshots/calendar.png"><img src="images/Screenshots/calendar.png" /></a>
 
 ### Downloads Queue
 
@@ -105,15 +105,6 @@ Monitor your downloaders' active downloads and history.
 Check out your library statistics.
 
 <a href="images/Screenshots/stats.png"><img src="images/Screenshots/stats.png" /></a>
-
-### RSS & xRel.to feeds
-
-Custom RSS feeds and xRel.to flux matched to IGDB games directly into the app
-
-<p float="left">
-  <a href="images/Screenshots/rss.png"><img src="images/Screenshots/rss.png" width="49%" /></a>
-  <a href="images/Screenshots/xrelto.png"><img src="images/Screenshots/xrelto.png" width="49%" /></a>
-</p>
 
 ### Settings
 
@@ -300,38 +291,6 @@ docker-compose down
 docker-compose build --no-cache
 docker-compose up -d
 ```
-
-### Manual Installation (npm) - NOT RECOMMENDED
-
-For development or custom deployments without Docker.
-
-1. **Clone and install dependencies:**
-
-```bash
-git clone https://github.com/Doezer/Questarr.git
-npm install
-```
-
-1. **Configure environment variables in `.env`:**
-   See the .env.example for available variables.
-
-2. **Initialize the database:**
-   This will run available migration files.
-
-```bash
-npm run db:migrate
-```
-
-1. **Development mode (with hot reload):**
-
-```bash
-npm run dev
-```
-
-1. **Access the application:**
-   Open your browser to `http://localhost:5000`
-
-</details>
 
 ## Troubleshooting
 

@@ -10,10 +10,16 @@ server/public/
 .DS_Store
 .vscode/
 .claude/settings.local.json
+.gemini/
+gemini.md
+.omc/
+.serena/
+graphify-out/
 
 # Environment and secrets
 .env
 gha-creds-*.json
+.sofa/
 
 # Logs
 *.log
@@ -23,33 +29,19 @@ coverage/
 playwright*/
 test-results/
 test-report.junit.xml
-
-# SQLite
-
-data/*
-
-# SOFA credentials
-.sofa/
-
-# Project specific
-.gemini/
-gemini.md
-infrastructure/
 vite.config.ts.*
-docker-compose.*local.yml
-notes/
-sqlite.db*
-.omc/
-.sonarlint/connectedMode.json
-pr_status.json
-.omc/
 .sonarlint/connectedMode.json
 data_test/
 docker-compose.test.yml
-.sofa/credentials.json
-check-sonar.mjs
-.serena/
 .eslintcache
-graphify-out/
+
+# SQLite
+data/*
+sqlite.db*
+
+
+# Project specific
+infrastructure/
+docker-compose.*local.yml
+notes/
 todo.md
-.claude/settings.local.json

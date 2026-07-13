@@ -59,3 +59,9 @@ updates:
     target-branch: "release/1.4.1"
     schedule:
       interval: daily
+
+  - package-ecosystem: docker
+    directory: /questarr
+    target-branch: "release/1.4.1"
+    schedule:
+      interval: daily

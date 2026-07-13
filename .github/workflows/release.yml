@@ -55,7 +55,7 @@ jobs:
           } >> changelog-section.md
 
       - name: Create draft release
-        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
+        uses: step-security/action-gh-release@d2093dbdaf0c6507874908247e14bbc4dee6a72d # v3.0.1
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}

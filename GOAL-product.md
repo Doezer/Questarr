@@ -40,8 +40,9 @@ The full end-to-end pipeline now works. The remaining gap is version-aware upgra
   - [x] Custom post-processing script hook
   - [x] Per-download post-processing status
 - [ ] Version-aware upgrade tracking (P1)
-  - [ ] Parse version from release title
-  - [ ] Notify/auto-download when newer version found
+  - [x] Parse version from release title
+  - [x] Notify when newer version found
+  - [ ] Optional Auto update when newer version found
 
 ### Integrations — 15/25
 
@@ -58,7 +59,7 @@ Solid core. Direct download and library sync are the missing pieces.
 - [x] Steam wishlist import
 - [x] PCGamingWiki integration
 - [x] NexusMods trending mods
-- [x] HowLongToBeat
+- [ ] HowLongToBeat
 - [ ] Real-Debrid / debrid download client (P2)
 - [ ] Steam library import (owned games) (P3)
 - [ ] GOG library import (P3)
@@ -66,11 +67,11 @@ Solid core. Direct download and library sync are the missing pieces.
 - [ ] Webhook outbound events (P4)
 - [ ] Playnite / Gameyfin / RomM integrations (P4)
 - [ ] Indexer page links ("View on indexer") (P5)
-- [ ] PostgreSQL backend (P6)
+- [ ] DB system agnostic backend (P6)
 
-### UX quality — 12/20
+### UX quality — 13.3/20
 
-Functional. Mobile and accessibility are the gaps.
+Functional. Mobile responsiveness is the main gap.
 
 - [x] Dark-themed visual design with game cover art
 - [x] Library, discover, search, wishlist, calendar, downloads, stats pages
@@ -79,8 +80,7 @@ Functional. Mobile and accessibility are the gaps.
 - [x] ARIA labels on most interactive elements (ongoing hardening)
 - [x] Semantic HTML on most components
 - [ ] Mobile responsiveness (thumb-first, touch-safe density)
-- [ ] Full accessibility audit + CI check
-- [ ] Notification granularity (per-event control)
+- [x] Notification granularity (per-event control)
 - [ ] Search result ranking and release group filtering improvements
 
 ### Code health — 15/15
@@ -108,7 +108,7 @@ Active and growing. Response time is good; structured community artifacts are th
 - [x] Issue and PR templates
 - [x] Docker Hub pull milestone: 500k (was 200k at roadmap start)
 - [x] Pre-release testing process for major features
-- [ ] CHANGELOG published to GitHub Releases
+- [x] CHANGELOG published to GitHub Releases
 
 ---
 
@@ -136,9 +136,8 @@ Active and growing. Response time is good; structured community artifacts are th
 In priority order:
 
 1. **Mobile responsiveness pass** — thumb-first navigation, touch-safe density.
-2. **Accessibility CI check** — automated audit so ARIA regressions don't sneak back in.
-3. **Real-Debrid downloader** — expands the user base beyond torrent/usenet.
-4. **Version-aware upgrade tracking** — auto-download newer versions of tracked games.
+2. **Real-Debrid downloader** — expands the user base beyond torrent/usenet.
+3. **Version-aware upgrade tracking** — auto-download newer versions of tracked games.
 
 ---
 

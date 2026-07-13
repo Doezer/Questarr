@@ -9,14 +9,15 @@ export default defineConfig({
     environment: "jsdom",
     environmentMatchGlobs: [["server/**", "node"]],
     setupFiles: ["./tests/setup.ts"],
+    testTimeout: 20000,
     coverage: {
       provider: "v8",
-      reporter: ["text", "json", "html"],
+      reporter: ["text", "json", "json-summary", "html"],
       thresholds: {
-        statements: 80,
-        branches: 73,
-        functions: 76,
-        lines: 81,
+        statements: 81,
+        branches: 74,
+        functions: 77,
+        lines: 82,
       },
     },
     exclude: [

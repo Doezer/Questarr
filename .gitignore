@@ -52,3 +52,4 @@ check-sonar.mjs
 .eslintcache
 graphify-out/
 todo.md
+.claude/settings.local.json

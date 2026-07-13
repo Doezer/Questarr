@@ -3,7 +3,7 @@ updates:
   # Enable version updates for npm
   - package-ecosystem: "npm"
     directory: "/"
-    target-branch: "release/1.4.0"
+    target-branch: "release/1.4.1"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -39,7 +39,7 @@ updates:
   # Enable version updates for GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"
-    target-branch: "release/1.4.0"
+    target-branch: "release/1.4.1"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -56,6 +56,6 @@ updates:
 
   - package-ecosystem: docker
     directory: /
-    target-branch: "release/1.4.0"
+    target-branch: "release/1.4.1"
     schedule:
       interval: daily

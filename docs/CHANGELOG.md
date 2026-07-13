@@ -12,7 +12,7 @@ All notable changes to this project will be documented in this file.
 - **Import History**: New page listing import tasks (game claims, post-processing imports, Steam syncs) with a retention purge cron job to keep the history tidy (#714).
 - **Deluge Support**: Added Deluge as a supported downloader (#697).
 - **Synology Download Station**: Added support for Synology's built-in Download Station as a downloader (#567).
-- **Apprise Notifications**: Added Apprise API and CLI notification modes. Use API mode with a remote Apprise server or CLI mode with the local `apprise` binary from Questarr settings.
+- **Apprise Notifications**: Added Apprise API and CLI notification modes. Use API mode with a remote Apprise server or CLI mode with the local `apprise` binary (packaged into the image) from Questarr settings.
 - **Personal Notes**: Added the ability to attach personal notes to a game.
 - **Shelved Status**: Added a "shelved" status for games (#645).
 - **Mobile Experience**: Significant improvements to mobile layout and navigation (#644).
@@ -54,6 +54,7 @@ All notable changes to this project will be documented in this file.
 - **Accessibility**: Added ARIA labels to RSS feed controls, the download options button, and release group settings buttons (#672, #678, #703).
 - **Performance**: Optimized the Add Game modal's collection-status check with a Set lookup (#677); the downloads page now polls every 30 seconds.
 - **Downloaders Module**: Refactored `downloaders.ts` into smaller modules for easier maintenance (#627).
+- **Notifications Behaviour**: the notifications now trigger only once per event, instead of once per cron job.
 
 ### Removed
 

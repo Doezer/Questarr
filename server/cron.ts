@@ -448,7 +448,7 @@ export async function checkGameUpdates() {
 
     // Check if released status changed to released
     if (newReleaseStatus === "released" && game.releaseStatus !== "released") {
-      const message = `${game.title} is now available!`;
+      const message = `${game.title} has been released!`;
       const prefs = await getGameUpdatePrefs(game.userId!);
       if (prefs.gameReleased.inApp) {
         notificationsToSend.push({

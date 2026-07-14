@@ -154,7 +154,7 @@ async function migrate() {
     return;
   }
 
-  console.log(`Connecting to Postgres: ${pgUrl}`);
+  console.log(`Connecting to Postgres`);
   const pool = new Pool({ connectionString: pgUrl });
 
   const sqlitePath = process.env.SQLITE_DB_PATH || path.join(process.cwd(), "sqlite.db");

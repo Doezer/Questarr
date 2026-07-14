@@ -55,6 +55,19 @@ export class PathMappingService {
       const localBasePath = path.resolve(bestMatch.localPath);
       const localPath = path.join(localBasePath, cleanRelative);
 
+      // The remote path segment past the mapping prefix is reported by the download
+      // client and can carry attacker-influenced "../" sequences (e.g. from a release
+      // name); confine the joined result to the mapped base so it can't escape it.
+      const isWithinBase =
+        localPath === localBasePath || localPath.startsWith(localBasePath + path.sep);
+      if (!isWithinBase) {
+        logger.warn(
+          { remotePath, remoteHost, localPath, localBasePath },
+          "[PathMappingService] Translated path escaped mapping base — falling back to base path"
+        );
+        return localBasePath;
+      }
+
       logger.debug(
         {
           remotePath,

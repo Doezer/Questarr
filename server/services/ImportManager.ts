@@ -133,6 +133,10 @@ export class ImportManager {
   }
 
   private async extractIfArchive(sourcePath: string): Promise<string> {
+    if (isSensitivePath(sourcePath)) {
+      throw new Error("Refusing to process a sensitive system path");
+    }
+
     if (this.archiveService.isArchive(sourcePath)) {
       const extractDir = sourcePath + "_extracted";
       await this.archiveService.extract(sourcePath, extractDir);

@@ -2,6 +2,7 @@ import { Game, ImportConfig } from "../../shared/schema.js";
 import fs from "fs-extra";
 import path from "node:path";
 import { logger } from "../logger.js";
+import { isSensitivePath } from "../path-security.js";
 export type TransferMode = "copy" | "move" | "hardlink" | "symlink";
 
 export function sanitizeFsName(name: string | null | undefined): string {
@@ -118,6 +119,10 @@ export class PCImportStrategy implements ImportStrategy {
     config: ImportConfig,
     platformDir?: string
   ): Promise<ImportReview> {
+    if (isSensitivePath(sourcePath)) {
+      throw new Error("Refusing to process a sensitive system path");
+    }
+
     const stats = await fs.stat(sourcePath);
     const cleanTitle = sanitizeFsName(game.title);
     const ext = stats.isDirectory() ? "" : path.extname(sourcePath);

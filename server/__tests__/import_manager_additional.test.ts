@@ -28,6 +28,10 @@ import { ImportManager } from "../services/ImportManager.js";
 import { PCImportStrategy } from "../services/ImportStrategies.js";
 import { makeImportConfig } from "./helpers/import-test-helpers.js";
 
+beforeEach(() => {
+  isSensitivePathMock.mockReturnValue(false);
+});
+
 function makeStorage() {
   return {
     getGameDownload: vi.fn(),

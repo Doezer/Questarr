@@ -730,13 +730,13 @@ class IGDBClient {
         const cleanGenre = sanitizeIgdbInput(genre);
         return cleanGenre ? `genres.name ~ *"${cleanGenre}"*` : null;
       })
-      .filter(Boolean);
+      .filter((condition): condition is string => Boolean(condition));
 
     if (genreConditions.length === 0) return [];
 
     // ⚡ Bolt: Sort conditions alphabetically to ensure a consistent cache key
     // regardless of the original order of genres.
-    const genreCondition = genreConditions.sort().join(" | ");
+    const genreCondition = genreConditions.sort((a, b) => a.localeCompare(b)).join(" | ");
     const excludeCondition = excludeIds.length > 0 ? ` & id != (${excludeIds.join(",")})` : "";
 
     const igdbQuery = `
@@ -784,13 +784,13 @@ class IGDBClient {
         const cleanPlatform = sanitizeIgdbInput(platform);
         return cleanPlatform ? `platforms.name ~ *"${cleanPlatform}"*` : null;
       })
-      .filter(Boolean);
+      .filter((condition): condition is string => Boolean(condition));
 
     if (platformConditions.length === 0) return [];
 
     // ⚡ Bolt: Sort conditions alphabetically to ensure a consistent cache key
     // regardless of the original order of platforms.
-    const platformCondition = platformConditions.sort().join(" | ");
+    const platformCondition = platformConditions.sort((a, b) => a.localeCompare(b)).join(" | ");
     const excludeCondition = excludeIds.length > 0 ? ` & id != (${excludeIds.join(",")})` : "";
 
     const igdbQuery = `

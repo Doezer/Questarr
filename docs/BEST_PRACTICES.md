@@ -145,7 +145,7 @@ Full policy and results table: [`docs/VULNERABILITY_MANAGEMENT.md` §3.3](/docs/
 - That finding was fixed the same day it was confirmed, not left to run out §3.2's 90-day SLA:
   Helmet's default `font-src`/`style-src` permit any `https:` origin, which is broader than
   Questarr needs since fonts/styles are all self-hosted; both are now scoped to `'self'`
-  (`server/routes.ts:326-337`). A second, Low-severity finding (missing `Permissions-Policy`)
+  (`server/routes.ts:360-361`). A second, Low-severity finding (missing `Permissions-Policy`)
   was fixed alongside it as a quick win even though it didn't need to be under the SLA.
 - The remaining three findings (all Low/Informational, none crossing the "medium or higher"
   bar this criterion sets) were reviewed and explicitly accepted with reasoning recorded in

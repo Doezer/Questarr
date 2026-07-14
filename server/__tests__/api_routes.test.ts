@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import express from "express";
 import request from "supertest";
+import path from "path";
 import {
   mockConfig,
   createStorageMock,
@@ -32,6 +33,7 @@ import { rssService } from "../rss.js";
 import { comparePassword } from "../auth.js";
 import { db } from "../db.js";
 import { appriseClient } from "../apprise.js";
+import fsExtra from "fs-extra";
 
 // Mock dependencies (factory bodies live in ./fixtures/common-route-mocks.ts so they can be
 // shared with other test files that also boot the full app via registerRoutes())
@@ -49,6 +51,9 @@ vi.mock("../apprise.js", async () => createAppriseMock());
 vi.mock("../downloaders.js", () => ({ DownloaderManager: createDownloaderManagerMock() }));
 vi.mock("../steam-routes.js", () => ({ steamRoutes: createSteamRoutesMock() }));
 vi.mock("../search.js", () => createSearchMock());
+vi.mock("fs-extra", () => ({
+  default: { remove: vi.fn(), pathExists: vi.fn(), readdir: vi.fn() },
+}));
 
 // Neutralize the IP-keyed rate limiters so cumulative requests across this large
 // test file don't trip a shared 30-req/min counter; keep all other exports
@@ -666,7 +671,8 @@ describe("API Routes - Extended Coverage", () => {
       vi.mocked(storage.removeGame).mockResolvedValue(true);
 
       const response = await request(app).delete(`/api/games/${gameId}`);
-      expect(response.status).toBe(204);
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ success: true, fileDeletion: null });
     });
 
     it("should return 404 if game not found", async () => {
@@ -675,6 +681,151 @@ describe("API Routes - Extended Coverage", () => {
 
       const response = await request(app).delete(`/api/games/${gameId}`);
       expect(response.status).toBe(404);
+    });
+
+    it("should delete library files when deleteFiles=true and path is inside library root", async () => {
+      const gameId = "123e4567-e89b-12d3-a456-426614174000";
+      vi.mocked(storage.getGame).mockResolvedValue({
+        id: gameId,
+        userId: "user-1",
+        libraryPath: "/data/library/MyGame",
+      } as unknown as Game);
+      vi.mocked(storage.getImportConfig).mockResolvedValue({
+        libraryRoot: "/data/library",
+      } as any);
+      vi.mocked(storage.removeGame).mockResolvedValue(true);
+      vi.mocked(fsExtra.remove).mockResolvedValue(undefined as never);
+
+      const response = await request(app).delete(`/api/games/${gameId}?deleteFiles=true`);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({
+        success: true,
+        fileDeletion: { deleted: true, path: "/data/library/MyGame" },
+      });
+      expect(fsExtra.remove).toHaveBeenCalledWith(path.resolve("/data/library/MyGame"));
+    });
+
+    it("should skip deleting library files when path is outside the library root", async () => {
+      const gameId = "123e4567-e89b-12d3-a456-426614174000";
+      vi.mocked(storage.getGame).mockResolvedValue({
+        id: gameId,
+        userId: "user-1",
+        libraryPath: "/etc/passwd",
+      } as unknown as Game);
+      vi.mocked(storage.getImportConfig).mockResolvedValue({
+        libraryRoot: "/data/library",
+      } as any);
+      vi.mocked(storage.removeGame).mockResolvedValue(true);
+
+      const response = await request(app).delete(`/api/games/${gameId}?deleteFiles=true`);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({
+        success: true,
+        fileDeletion: { deleted: false, reason: "outside-library-root", path: "/etc/passwd" },
+      });
+      expect(fsExtra.remove).not.toHaveBeenCalled();
+    });
+
+    it("should report deletion failure when fs-extra.remove throws", async () => {
+      const gameId = "123e4567-e89b-12d3-a456-426614174000";
+      vi.mocked(storage.getGame).mockResolvedValue({
+        id: gameId,
+        userId: "user-1",
+        libraryPath: "/data/library/MyGame",
+      } as unknown as Game);
+      vi.mocked(storage.getImportConfig).mockResolvedValue({
+        libraryRoot: "/data/library",
+      } as any);
+      vi.mocked(storage.removeGame).mockResolvedValue(true);
+      vi.mocked(fsExtra.remove).mockRejectedValue(new Error("EPERM") as never);
+
+      const response = await request(app).delete(`/api/games/${gameId}?deleteFiles=true`);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({
+        success: true,
+        fileDeletion: { deleted: false, reason: "delete-failed", path: "/data/library/MyGame" },
+      });
+    });
+
+    it("should report deleted:true with null path when no libraryPath was recorded", async () => {
+      const gameId = "123e4567-e89b-12d3-a456-426614174000";
+      vi.mocked(storage.getGame).mockResolvedValue({
+        id: gameId,
+        userId: "user-1",
+        libraryPath: null,
+      } as unknown as Game);
+      vi.mocked(storage.removeGame).mockResolvedValue(true);
+
+      const response = await request(app).delete(`/api/games/${gameId}?deleteFiles=true`);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ success: true, fileDeletion: { deleted: true, path: null } });
+      expect(fsExtra.remove).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("POST /api/games/library-health-check", () => {
+    it("should flag a game whose libraryPath no longer exists on disk as drifted", async () => {
+      vi.mocked(storage.getUserGames).mockResolvedValue([
+        {
+          id: "game-1",
+          title: "Missing Game",
+          libraryPath: "/data/library/PC/Missing Game",
+        },
+      ] as unknown as Game[]);
+      vi.mocked(storage.getImportConfig).mockResolvedValue({
+        libraryRoot: "/data/library",
+      } as any);
+      vi.mocked(fsExtra.pathExists).mockImplementation(async (p: unknown) => {
+        if (p === "/data/library/PC/Missing Game") return false as never;
+        return true as never;
+      });
+      vi.mocked(fsExtra.readdir).mockResolvedValue([] as never);
+
+      const response = await request(app).post("/api/games/library-health-check");
+
+      expect(response.status).toBe(200);
+      expect(response.body.drifted).toEqual([
+        { id: "game-1", title: "Missing Game", libraryPath: "/data/library/PC/Missing Game" },
+      ]);
+      expect(response.body.orphaned).toEqual([]);
+    });
+
+    it("should flag a folder on disk with no matching game as orphaned", async () => {
+      const resolvedRoot = path.resolve("/data/library");
+      const platformPath = path.join(resolvedRoot, "PC");
+      const knownPath = path.join(platformPath, "Known Game");
+      const orphanPath = path.resolve(path.join(platformPath, "Orphan Folder"));
+
+      vi.mocked(storage.getUserGames).mockResolvedValue([
+        {
+          id: "game-1",
+          title: "Known Game",
+          libraryPath: knownPath,
+        },
+      ] as unknown as Game[]);
+      vi.mocked(storage.getImportConfig).mockResolvedValue({
+        libraryRoot: "/data/library",
+      } as any);
+      vi.mocked(fsExtra.pathExists).mockResolvedValue(true as never);
+      vi.mocked(fsExtra.readdir).mockImplementation(async (dirPath: unknown, opts?: unknown) => {
+        if (dirPath === resolvedRoot && (opts as { withFileTypes?: boolean })?.withFileTypes) {
+          return [{ name: "PC", isDirectory: () => true }] as never;
+        }
+        if (dirPath === platformPath) {
+          return ["Known Game", "Orphan Folder"] as never;
+        }
+        return [] as never;
+      });
+
+      const response = await request(app).post("/api/games/library-health-check");
+
+      expect(response.status).toBe(200);
+      expect(response.body.drifted).toEqual([]);
+      expect(response.body.orphaned).toEqual([{ path: orphanPath }]);
     });
   });
 

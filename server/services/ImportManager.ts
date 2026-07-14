@@ -232,9 +232,11 @@ export class ImportManager {
 
   private async finalizeImport(
     downloadId: string,
-    game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>
+    game: NonNullable<Awaited<ReturnType<IStorage["getGame"]>>>,
+    libraryPath: string
   ): Promise<void> {
     await this.storage.updateGameDownloadStatus(downloadId, "imported");
+    await this.storage.updateGame(game.id, { libraryPath });
     if (game.status !== "owned") {
       await this.storage.updateGameStatus(game.id, { status: "owned" });
     }
@@ -393,13 +395,13 @@ export class ImportManager {
       }
 
       await this.storage.updateGameDownloadStatus(downloadId, "completed_pending_import");
-      await strategy.executeImport(plan, config.transferMode);
+      const result = await strategy.executeImport(plan, config.transferMode);
 
       if (processingPath !== localPath) {
         await fs.remove(processingPath);
       }
 
-      await this.finalizeImport(downloadId, game);
+      await this.finalizeImport(downloadId, game, result.destDir);
 
       if (
         config.autoDeleteAfterImport &&
@@ -568,9 +570,9 @@ export class ImportManager {
 
     try {
       const strategy = new PCImportStrategy();
-      await strategy.executeImport(planToExecute, transferMode);
+      const result = await strategy.executeImport(planToExecute, transferMode);
 
-      await this.finalizeImport(downloadId, game);
+      await this.finalizeImport(downloadId, game, result.destDir);
     } catch (err) {
       logger.error({ err, downloadId }, "[ImportManager] confirmImport failed");
       try {

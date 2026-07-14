@@ -466,6 +466,7 @@ export class MemStorage implements IStorage {
       searchResultsAvailable: false,
       userRating: null,
       notes: null,
+      libraryPath: null,
       addedAt: new Date(),
       completedAt: null,
     };

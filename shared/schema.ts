@@ -164,6 +164,7 @@ export const games = sqliteTable("games", {
   hidden: integer("hidden", { mode: "boolean" }).notNull().default(false),
   userRating: real("user_rating"),
   notes: text("notes"),
+  libraryPath: text("library_path"),
   searchResultsAvailable: integer("search_results_available", { mode: "boolean" })
     .default(false)
     .notNull(),

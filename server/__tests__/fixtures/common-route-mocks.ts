@@ -107,6 +107,7 @@ export function createStorageMock() {
     getAllReleaseBlacklists: vi.fn().mockResolvedValue([]),
     removeReleaseBlacklist: vi.fn(),
     getReleaseBlacklistSet: vi.fn().mockResolvedValue(new Set()),
+    getImportConfig: vi.fn(),
   };
 }
 

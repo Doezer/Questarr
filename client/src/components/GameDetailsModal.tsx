@@ -80,6 +80,10 @@ interface GameDetailsModalProps {
 
 type GameDownloadWithDownloader = GameDownload & { downloaderName: string | null };
 
+type FileDeletionResult =
+  | { deleted: true; path: string | null }
+  | { deleted: false; reason: "outside-library-root" | "delete-failed"; path: string };
+
 interface NexusMod {
   mod_id: number;
   name: string;
@@ -436,11 +440,24 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
             )
         );
       }
-      await apiRequest("DELETE", `/api/games/${gameId}`);
+      const res = await apiRequest("DELETE", `/api/games/${gameId}?deleteFiles=${deleteFiles}`);
+      const data = await res.json();
+      return { fileDeletion: data.fileDeletion as FileDeletionResult | null };
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/games"] });
-      toast({ description: "Game removed from collection" });
+      if (data?.fileDeletion?.deleted === false) {
+        const reasonText =
+          data.fileDeletion.reason === "outside-library-root"
+            ? "stored path is outside your configured library folder"
+            : "deletion failed, check server logs";
+        toast({
+          description: `Game removed, but files were not deleted (${reasonText}): ${data.fileDeletion.path}`,
+          variant: "destructive",
+        });
+      } else {
+        toast({ description: "Game removed from collection" });
+      }
       onOpenChange(false);
     },
     onError: () => {
@@ -1282,42 +1299,36 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
               be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          {gameDownloads.some((dl) => dl.downloaderId && dl.downloadHash) && (
+          {(gameDownloads.some((dl) => dl.downloaderId && dl.downloadHash) ||
+            game?.libraryPath) && (
             <div className="space-y-3 py-1">
+              {gameDownloads.some((dl) => dl.downloaderId && dl.downloadHash) && (
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <Checkbox
+                    checked={removeFromClient}
+                    onCheckedChange={(checked) => setRemoveFromClient(!!checked)}
+                  />
+                  <div>
+                    <div className="text-sm font-medium leading-none">
+                      Remove from download client
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      Removes the{" "}
+                      {gameDownloads.some((dl) => dl.downloadType === "usenet") &&
+                      gameDownloads.some((dl) => dl.downloadType !== "usenet")
+                        ? "torrent/NZB"
+                        : gameDownloads.some((dl) => dl.downloadType === "usenet")
+                          ? ".nzb"
+                          : ".torrent"}{" "}
+                      metadata from your downloader
+                    </div>
+                  </div>
+                </label>
+              )}
               <label className="flex items-start gap-3 cursor-pointer">
-                <Checkbox
-                  checked={removeFromClient}
-                  onCheckedChange={(checked) => {
-                    setRemoveFromClient(!!checked);
-                    if (!checked) setDeleteFiles(false);
-                  }}
-                />
-                <div>
-                  <div className="text-sm font-medium leading-none">
-                    Remove from download client
-                  </div>
-                  <div className="text-xs text-muted-foreground mt-1">
-                    Removes the{" "}
-                    {gameDownloads.some((dl) => dl.downloadType === "usenet") &&
-                    gameDownloads.some((dl) => dl.downloadType !== "usenet")
-                      ? "torrent/NZB"
-                      : gameDownloads.some((dl) => dl.downloadType === "usenet")
-                        ? ".nzb"
-                        : ".torrent"}{" "}
-                    metadata from your downloader
-                  </div>
-                </div>
-              </label>
-              <label
-                className={cn(
-                  "flex items-start gap-3",
-                  removeFromClient ? "cursor-pointer" : "opacity-50 cursor-not-allowed"
-                )}
-              >
                 <Checkbox
                   checked={deleteFiles}
                   onCheckedChange={(checked) => setDeleteFiles(!!checked)}
-                  disabled={!removeFromClient}
                 />
                 <div>
                   <div className="text-sm font-medium leading-none">

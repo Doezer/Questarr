@@ -642,6 +642,35 @@ export default function SettingsPage() {
     },
   });
 
+  const [libraryHealthResult, setLibraryHealthResult] = useState<{
+    drifted: Array<{ id: string; title: string; libraryPath: string }>;
+    orphaned: Array<{ path: string }>;
+  } | null>(null);
+
+  const libraryHealthMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/games/library-health-check");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setLibraryHealthResult({ drifted: data.drifted, orphaned: data.orphaned });
+      toast({
+        title: "Library Health Check",
+        description:
+          data.drifted.length === 0 && data.orphaned.length === 0
+            ? "Library is in sync."
+            : `${data.drifted.length} drifted, ${data.orphaned.length} orphaned`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Library Health Check Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const isLoading = configLoading || settingsLoading;
   const error = configError;
 
@@ -1761,6 +1790,63 @@ export default function SettingsPage() {
                       Refresh All
                     </Button>
                   </div>
+                </div>
+                <div className="flex flex-col space-y-2">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm font-medium">Check Library Health</p>
+                      <p className="text-xs text-muted-foreground">
+                        Find games whose library files have gone missing, and library folders that
+                        no longer match any game.
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => libraryHealthMutation.mutate()}
+                      disabled={libraryHealthMutation.isPending}
+                      className="gap-2 w-full sm:w-auto shrink-0"
+                    >
+                      {libraryHealthMutation.isPending ? (
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-4 w-4" />
+                      )}
+                      Check Library
+                    </Button>
+                  </div>
+                  {libraryHealthResult &&
+                    (libraryHealthResult.drifted.length > 0 ||
+                      libraryHealthResult.orphaned.length > 0) && (
+                      <div className="mt-2 space-y-3 rounded-md border border-border p-3 text-xs">
+                        {libraryHealthResult.drifted.length > 0 && (
+                          <div>
+                            <p className="font-medium text-amber-500">
+                              Drifted ({libraryHealthResult.drifted.length})
+                            </p>
+                            <ul className="mt-1 space-y-1 text-muted-foreground">
+                              {libraryHealthResult.drifted.map((g) => (
+                                <li key={g.id}>
+                                  {g.title} — {g.libraryPath}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {libraryHealthResult.orphaned.length > 0 && (
+                          <div>
+                            <p className="font-medium text-amber-500">
+                              Orphaned ({libraryHealthResult.orphaned.length})
+                            </p>
+                            <ul className="mt-1 space-y-1 text-muted-foreground">
+                              {libraryHealthResult.orphaned.map((o) => (
+                                <li key={o.path}>{o.path}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    )}
                 </div>
               </CardContent>
             </Card>

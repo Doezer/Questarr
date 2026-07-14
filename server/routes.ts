@@ -71,6 +71,7 @@ import {
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import fsExtra from "fs-extra";
 import { readLastLogLines } from "./log-file.js";
 
 // Root directory for the file system browser; restrict browsing to this tree
@@ -1311,7 +1312,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Check library health: drifted libraryPaths and orphaned folders on disk
+  app.post("/api/games/library-health-check", sensitiveEndpointLimiter, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const userGames = await storage.getUserGames(userId, true);
+      const config = await storage.getImportConfig(userId);
+      const resolvedRoot = path.resolve(config.libraryRoot);
+
+      const gamesWithPath = userGames.filter(
+        (g): g is typeof g & { libraryPath: string } => !!g.libraryPath
+      );
+      const driftedChecks = await Promise.all(
+        gamesWithPath.map(async (game) => ({
+          game,
+          exists: await fsExtra.pathExists(game.libraryPath),
+        }))
+      );
+      const drifted = driftedChecks
+        .filter(({ exists }) => !exists)
+        .map(({ game }) => ({ id: game.id, title: game.title, libraryPath: game.libraryPath }));
+
+      const knownPaths = new Set(gamesWithPath.map((g) => path.resolve(g.libraryPath)));
+      const orphaned: Array<{ path: string }> = [];
+
+      if (await fsExtra.pathExists(resolvedRoot)) {
+        let platformDirs: string[] = [];
+        try {
+          platformDirs = (await fsExtra.readdir(resolvedRoot, { withFileTypes: true }))
+            .filter((entry) => entry.isDirectory())
+            .map((entry) => entry.name);
+        } catch (dirError) {
+          routesLogger.warn(
+            { dirError, resolvedRoot },
+            "failed to read library root during health check"
+          );
+        }
+
+        for (const platformDir of platformDirs) {
+          const platformPath = path.join(resolvedRoot, platformDir);
+          try {
+            const children = await fsExtra.readdir(platformPath);
+            for (const child of children) {
+              const childPath = path.resolve(path.join(platformPath, child));
+              if (!knownPaths.has(childPath)) {
+                orphaned.push({ path: childPath });
+              }
+            }
+          } catch (dirError) {
+            routesLogger.warn(
+              { dirError, platformPath },
+              "failed to read platform dir during health check"
+            );
+          }
+        }
+      }
+
+      res.json({ drifted, orphaned, libraryRoot: resolvedRoot });
+    } catch (error) {
+      routesLogger.error({ error }, "error running library health check");
+      res.status(500).json({ error: "Failed to run library health check" });
+    }
+  });
+
   // Remove game from collection
+  type FileDeletionResult =
+    | { deleted: true; path: string | null }
+    | { deleted: false; reason: "outside-library-root" | "delete-failed"; path: string };
+
   app.delete(
     "/api/games/:id",
     sensitiveEndpointLimiter,
@@ -1320,13 +1388,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
     async (req: Request, res: Response) => {
       try {
         const { id } = req.params;
+        const deleteFiles = req.query.deleteFiles === "true";
+
+        let fileDeletion: FileDeletionResult | null = null;
+
+        if (deleteFiles) {
+          const game = await storage.getGame(id);
+          if (game?.libraryPath) {
+            const config = await storage.getImportConfig(game.userId ?? undefined);
+            const resolvedRoot = path.resolve(config.libraryRoot);
+            const resolvedTarget = path.resolve(game.libraryPath);
+            const insideRoot =
+              resolvedTarget === resolvedRoot || resolvedTarget.startsWith(resolvedRoot + path.sep);
+
+            if (insideRoot) {
+              try {
+                await fsExtra.remove(resolvedTarget);
+                fileDeletion = { deleted: true, path: game.libraryPath };
+              } catch (fileError) {
+                routesLogger.warn(
+                  { fileError, gameId: id, libraryPath: game.libraryPath },
+                  "failed to delete library files for game"
+                );
+                fileDeletion = { deleted: false, reason: "delete-failed", path: game.libraryPath };
+              }
+            } else {
+              routesLogger.warn(
+                { gameId: id, libraryPath: game.libraryPath },
+                "skipped deleting library files: path outside configured library root"
+              );
+              fileDeletion = {
+                deleted: false,
+                reason: "outside-library-root",
+                path: game.libraryPath,
+              };
+            }
+          } else {
+            fileDeletion = { deleted: true, path: null };
+          }
+        }
+
         const success = await storage.removeGame(id);
 
         if (!success) {
           return res.status(404).json({ error: "Game not found" });
         }
 
-        res.status(204).send();
+        res.status(200).json({ success: true, fileDeletion });
       } catch (error) {
         routesLogger.error({ error }, "error removing game");
         res.status(500).json({ error: "Failed to remove game" });

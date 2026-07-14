@@ -1,0 +1,1 @@
+ALTER TABLE `games` ADD `library_path` text;

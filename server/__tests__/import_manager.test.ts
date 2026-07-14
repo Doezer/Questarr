@@ -34,6 +34,7 @@ describe("ImportManager", () => {
     getDownloader: vi.fn(),
     updateGameDownloadStatus: vi.fn(),
     updateGameStatus: vi.fn(),
+    updateGame: vi.fn(),
     addNotification: vi.fn().mockResolvedValue(undefined),
   };
 

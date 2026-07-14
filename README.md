@@ -14,7 +14,6 @@ A video game management application inspired by the -Arr apps (Sonarr, Radarr, P
 [![security rating](https://sonarcloud.io/api/project_badges/measure?project=Doezer_Questarr&metric=security_rating)](https://sonarcloud.io/summary/overall?id=Doezer_Questarr)
 [![reliability rating](https://sonarcloud.io/api/project_badges/measure?project=Doezer_Questarr&metric=reliability_rating)](https://sonarcloud.io/summary/overall?id=Doezer_Questarr)
 [![maintainability rating](https://sonarcloud.io/api/project_badges/measure?project=Doezer_Questarr&metric=sqale_rating)](https://sonarcloud.io/summary/overall?id=Doezer_Questarr)
-
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13450/baseline)](https://www.bestpractices.dev/projects/13450)
 [![OpenSSF Best Practices Badge](https://www.bestpractices.dev/projects/13450/badge)](https://www.bestpractices.dev/projects/13450)
 

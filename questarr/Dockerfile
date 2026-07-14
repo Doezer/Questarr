@@ -1,7 +1,7 @@
 # NOSONAR - ha-entrypoint.sh must run as root to chown /data before su-exec drops to questarr
-ARG QUESTARR_VERSION=1.4.0
 FROM ghcr.io/doezer/questarr:latest
 ARG BUILD_ARCH=amd64
+ARG QUESTARR_VERSION=1.4.0
 
 LABEL \
     io.hass.name="Questarr" \

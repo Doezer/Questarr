@@ -19,6 +19,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -68,6 +69,7 @@ import { NexusModsIcon } from "./NexusModsIcon";
 import { getSocket } from "@/lib/socket";
 import { useToast } from "@/hooks/use-toast";
 import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { type Game, type GameDownload } from "@shared/schema";
 import StatusBadge, { getStatusLabel } from "./StatusBadge";
 import { apiRequest } from "@/lib/queryClient";
@@ -339,6 +341,7 @@ function StarRatingInput({
 }
 
 export default function GameDetailsModal({ game, open, onOpenChange }: GameDetailsModalProps) {
+  const isMobile = useIsMobile();
   const [selectedScreenshot, setSelectedScreenshot] = useState<string | null>(null);
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
@@ -559,743 +562,730 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     ? (userRatingMutation.variables?.userRating ?? null)
     : (game.userRating ?? null);
 
-  return (
-    <TooltipProvider>
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent
-          className="max-w-4xl max-h-[95svh] sm:max-h-[90vh] flex flex-col overflow-hidden"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {/* ── Header ── */}
-          <DialogHeader className="flex-shrink-0 pb-0 pr-8 text-left">
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex-1 min-w-0">
-                <DialogTitle
-                  className="text-2xl font-bold mb-2 leading-tight"
-                  data-testid={`text-game-title-${game.id}`}
-                >
-                  {game.title}
-                </DialogTitle>
-                <DialogDescription className="sr-only">
-                  Detailed information about {game.title}
-                </DialogDescription>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="cursor-default">
-                        <StatusBadge status={game.status} />
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent className="sm:hidden">
-                      {getStatusLabel(game.status)}
-                    </TooltipContent>
-                  </Tooltip>
-                  {game.earlyAccess && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <span className="cursor-default">
-                          <Badge className="text-xs bg-amber-500 border-amber-600 text-white gap-1">
-                            <FlaskConical className="w-3 h-3" />
-                            <span className="hidden sm:inline">Early Access</span>
-                          </Badge>
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent className="sm:hidden">Early Access</TooltipContent>
-                    </Tooltip>
-                  )}
-                  {game.rating ? (
-                    <div className="flex items-center gap-1 text-sm">
-                      <Star className="w-4 h-4 text-accent" />
-                      <span data-testid={`text-rating-${game.id}`}>{game.rating}/10</span>
-                    </div>
-                  ) : null}
-                  {game.releaseDate && (
-                    <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                      <Calendar className="w-4 h-4" />
-                      <span data-testid={`text-release-date-${game.id}`}>
-                        {new Date(game.releaseDate).toLocaleDateString(undefined, {
-                          year: "numeric",
-                          month: "short",
-                          day: "numeric",
-                        })}
-                      </span>
-                    </div>
-                  )}
-                  {game.searchResultsAvailable && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Badge
-                          variant="outline"
-                          className="gap-1 border-violet-500 text-violet-400 cursor-default"
-                          data-testid={`badge-search-results-${game.id}`}
-                        >
-                          <Search className="w-3 h-3" />
-                          <span className="hidden sm:inline">Results available</span>
-                        </Badge>
-                      </TooltipTrigger>
-                      <TooltipContent className="sm:hidden">
-                        Downloads found on indexers
-                      </TooltipContent>
-                    </Tooltip>
-                  )}
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="cursor-default">
-                        <SourceBadge source={game.source} />
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent className="sm:hidden">
-                      {getSourceLabel(game.source)}
-                    </TooltipContent>
-                  </Tooltip>
-                </div>
-              </div>
-              {game.coverUrl && (
-                <div className="flex-shrink-0">
-                  <img
-                    src={game.coverUrl}
-                    alt={`${game.title} cover`}
-                    className="w-20 sm:w-32 object-cover rounded-lg shadow-md"
-                    style={{ aspectRatio: "3/4" }}
-                    data-testid={`img-cover-${game.id}`}
-                  />
-                </div>
-              )}
-            </div>
-
-            {/* Personal notes */}
-            <div className="mt-3">
-              <Textarea
-                value={notesValue}
-                onChange={(e) => setNotesValue(e.target.value)}
-                onBlur={() => {
-                  const trimmed = notesValue.trim() || null;
-                  if (trimmed !== (game.notes ?? null)) {
-                    notesMutation.mutate(trimmed);
-                  }
-                }}
-                placeholder="Personal notes..."
-                className="resize-none min-h-[56px] sm:min-h-[72px] text-sm"
-                maxLength={10000}
-                aria-label="Personal notes for this game"
-                disabled={notesMutation.isPending}
-              />
-              {notesMutation.isPending && (
-                <p className="text-xs text-muted-foreground mt-1">Saving...</p>
-              )}
-            </div>
-
-            {/* Quick Actions */}
-            <div className="flex gap-2 mt-3">
+  const detailsBody = (
+    <>
+      {/* ── Header ── */}
+      <DialogHeader className="flex-shrink-0 pb-0 pr-8 text-left">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex-1 min-w-0">
+            <DialogTitle
+              className="text-2xl font-bold mb-2 leading-tight"
+              data-testid={`text-game-title-${game.id}`}
+            >
+              {game.title}
+            </DialogTitle>
+            <DialogDescription className="sr-only">
+              Detailed information about {game.title}
+            </DialogDescription>
+            <div className="flex flex-wrap items-center gap-2">
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-10 w-10 sm:h-9 sm:w-auto sm:px-3 sm:gap-2"
-                    aria-label="Download"
-                    onClick={() => setDownloadOpen(true)}
-                    data-testid="button-download-game"
-                  >
-                    <Download className="w-4 h-4" />
-                    <span className="hidden sm:inline">Download</span>
-                  </Button>
+                  <span className="cursor-default">
+                    <StatusBadge status={game.status} />
+                  </span>
                 </TooltipTrigger>
-                <TooltipContent className="sm:hidden">Download</TooltipContent>
+                <TooltipContent className="sm:hidden">{getStatusLabel(game.status)}</TooltipContent>
               </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => hiddenMutation.mutate({ gameId: game.id, hidden: !game.hidden })}
-                    disabled={hiddenMutation.isPending}
-                    className="h-10 w-10 sm:h-9 sm:w-auto sm:px-3 sm:gap-2"
-                    aria-label={game.hidden ? "Unhide" : "Hide"}
-                    data-testid={`button-toggle-hidden-quick-${game.id}`}
-                  >
-                    {game.hidden ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                    <span className="hidden sm:inline">
-                      {hiddenMutation.isPending ? "Updating..." : game.hidden ? "Unhide" : "Hide"}
-                    </span>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent className="sm:hidden">
-                  {game.hidden ? "Unhide" : "Hide"}
-                </TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={() => setShowRemoveConfirm(true)}
-                    disabled={removeGameMutation.isPending}
-                    className="h-10 w-10 sm:h-9 sm:w-auto sm:px-3 sm:gap-2"
-                    aria-label="Remove"
-                    data-testid={`button-remove-game-quick-${game.id}`}
-                  >
-                    <X className="w-4 h-4" />
-                    <span className="hidden sm:inline">
-                      {removeGameMutation.isPending ? "Removing..." : "Remove"}
-                    </span>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent className="sm:hidden">Remove</TooltipContent>
-              </Tooltip>
-            </div>
-          </DialogHeader>
-
-          {/* ── Tabs ── */}
-          <Tabs defaultValue="overview" className="flex-1 flex flex-col min-h-0 mt-4">
-            <TabsList className="flex-shrink-0 w-full justify-start overflow-x-auto">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <TabsTrigger value="overview" aria-label="Overview" className="gap-1.5">
-                    <Info className="h-3.5 w-3.5 sm:hidden" />
-                    <span className="hidden sm:inline">Overview</span>
-                  </TabsTrigger>
-                </TooltipTrigger>
-                <TooltipContent className="sm:hidden">Overview</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <TabsTrigger value="downloads" aria-label="Downloads" className="gap-1.5">
-                    <Download className="h-3.5 w-3.5 sm:hidden" />
-                    <span className="hidden sm:inline">Downloads</span>
-                    {gameDownloads.length > 0 && (
-                      <Badge variant="secondary" className="ml-0.5 px-1.5 py-0 text-xs">
-                        {gameDownloads.length}
-                      </Badge>
-                    )}
-                  </TabsTrigger>
-                </TooltipTrigger>
-                <TooltipContent className="sm:hidden">Downloads</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <TabsTrigger value="media" aria-label="Media" className="gap-1.5">
-                    <Image className="h-3.5 w-3.5 sm:hidden" />
-                    <span className="hidden sm:inline">Media</span>
-                    {game.screenshots && game.screenshots.length > 0 && (
-                      <Badge variant="secondary" className="ml-0.5 px-1.5 py-0 text-xs">
-                        {game.screenshots.length}
-                      </Badge>
-                    )}
-                  </TabsTrigger>
-                </TooltipTrigger>
-                <TooltipContent className="sm:hidden">Media</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <TabsTrigger value="links" aria-label="Links & Ratings" className="gap-1.5">
-                    <Link className="h-3.5 w-3.5 sm:hidden" />
-                    <span className="hidden sm:inline">Links &amp; Ratings</span>
-                  </TabsTrigger>
-                </TooltipTrigger>
-                <TooltipContent className="sm:hidden">Links &amp; Ratings</TooltipContent>
-              </Tooltip>
-              {nexusDomain && (
+              {game.earlyAccess && (
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <TabsTrigger value="mods" aria-label="Mods" className="gap-1.5">
-                      <NexusModsIcon className="h-3.5 w-3.5 text-amber-500 sm:mr-1" />
-                      <span className="hidden sm:inline">Mods</span>
-                    </TabsTrigger>
+                    <span className="cursor-default">
+                      <Badge className="text-xs bg-amber-500 border-amber-600 text-white gap-1">
+                        <FlaskConical className="w-3 h-3" />
+                        <span className="hidden sm:inline">Early Access</span>
+                      </Badge>
+                    </span>
                   </TooltipTrigger>
-                  <TooltipContent className="sm:hidden">Mods</TooltipContent>
+                  <TooltipContent className="sm:hidden">Early Access</TooltipContent>
                 </Tooltip>
               )}
-            </TabsList>
-
-            {/* ── Overview tab ── */}
-            <TabsContent value="overview" className="flex-1 min-h-0">
-              <ScrollArea className="h-full">
-                <div className="space-y-5 pr-4 pb-2">
-                  {/* Summary */}
-                  {game.summary && (
-                    <div>
-                      <h3 className="font-semibold mb-2 flex items-center gap-2">
-                        <Gamepad2 className="w-4 h-4" />
-                        About
-                      </h3>
-                      <p
-                        className={cn(
-                          "text-sm text-muted-foreground leading-relaxed break-words [overflow-wrap:anywhere]",
-                          !isSummaryExpanded && "line-clamp-3 sm:line-clamp-5"
-                        )}
-                        data-testid={`text-summary-${game.id}`}
-                      >
-                        {game.summary}
-                      </p>
-                      {isSummaryLong && (
-                        <Button
-                          variant="link"
-                          className="p-0 h-auto mt-1 font-semibold"
-                          onClick={() => setIsSummaryExpanded(!isSummaryExpanded)}
-                        >
-                          {isSummaryExpanded ? "Show less" : "Read more"}
-                        </Button>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Metadata grid */}
-                  <div className="grid grid-cols-2 gap-4">
-                    {game.rating && (
-                      <div>
-                        <h4 className="font-medium text-sm text-muted-foreground mb-1">
-                          IGDB score
-                        </h4>
-                        <div className="flex items-center gap-1">
-                          <Star className="w-4 h-4 text-accent fill-current" />
-                          <span className="text-sm font-medium">{game.rating}/10</span>
-                        </div>
-                      </div>
-                    )}
-                    {game.releaseDate && (
-                      <div>
-                        <h4 className="font-medium text-sm text-muted-foreground mb-1">
-                          Release Date
-                        </h4>
-                        <p className="text-sm" data-testid={`text-full-release-date-${game.id}`}>
-                          {new Date(game.releaseDate).toLocaleDateString()}
-                        </p>
-                      </div>
-                    )}
-                    {game.addedAt && (
-                      <div>
-                        <h4 className="font-medium text-sm text-muted-foreground mb-1">
-                          Added to Collection
-                        </h4>
-                        <p className="text-sm">{new Date(game.addedAt).toLocaleDateString()}</p>
-                      </div>
-                    )}
-                    {game.developers && game.developers.length > 0 && (
-                      <div>
-                        <h4 className="font-medium text-sm text-muted-foreground mb-1 flex items-center gap-1">
-                          <Building2 className="w-3.5 h-3.5" />
-                          Developer{game.developers.length > 1 ? "s" : ""}
-                        </h4>
-                        <p className="text-sm">{game.developers.join(", ")}</p>
-                      </div>
-                    )}
-                    {game.publishers && game.publishers.length > 0 && (
-                      <div>
-                        <h4 className="font-medium text-sm text-muted-foreground mb-1 flex items-center gap-1">
-                          <Building2 className="w-3.5 h-3.5" />
-                          Publisher{game.publishers.length > 1 ? "s" : ""}
-                        </h4>
-                        <p className="text-sm">{game.publishers.join(", ")}</p>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Genres and Platforms */}
-                  <div className="grid grid-cols-2 gap-4">
-                    {game.genres && game.genres.length > 0 && (
-                      <div>
-                        <h3 className="font-semibold mb-2 flex items-center gap-2">
-                          <Tag className="w-4 h-4" />
-                          Genres
-                        </h3>
-                        <TagList
-                          items={game.genres}
-                          variant="secondary"
-                          maxVisible={6}
-                          getTestId={(g) => `badge-genre-${g.toLowerCase().replace(/\s+/g, "-")}`}
-                        />
-                      </div>
-                    )}
-                    {game.platforms && game.platforms.length > 0 && (
-                      <div>
-                        <h3 className="font-semibold mb-2 flex items-center gap-2">
-                          <Monitor className="w-4 h-4" />
-                          Platforms
-                        </h3>
-                        <TagList
-                          items={game.platforms}
-                          variant="outline"
-                          maxVisible={8}
-                          getTestId={(p) =>
-                            `badge-platform-${p.toLowerCase().replace(/\s+/g, "-")}`
-                          }
-                        />
-                      </div>
-                    )}
-                  </div>
+              {game.rating ? (
+                <div className="flex items-center gap-1 text-sm">
+                  <Star className="w-4 h-4 text-accent" />
+                  <span data-testid={`text-rating-${game.id}`}>{game.rating}/10</span>
                 </div>
-              </ScrollArea>
-            </TabsContent>
+              ) : null}
+              {game.releaseDate && (
+                <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                  <Calendar className="w-4 h-4" />
+                  <span data-testid={`text-release-date-${game.id}`}>
+                    {new Date(game.releaseDate).toLocaleDateString(undefined, {
+                      year: "numeric",
+                      month: "short",
+                      day: "numeric",
+                    })}
+                  </span>
+                </div>
+              )}
+              {game.searchResultsAvailable && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Badge
+                      variant="outline"
+                      className="gap-1 border-violet-500 text-violet-400 cursor-default"
+                      data-testid={`badge-search-results-${game.id}`}
+                    >
+                      <Search className="w-3 h-3" />
+                      <span className="hidden sm:inline">Results available</span>
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent className="sm:hidden">Downloads found on indexers</TooltipContent>
+                </Tooltip>
+              )}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="cursor-default">
+                    <SourceBadge source={game.source} />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent className="sm:hidden">{getSourceLabel(game.source)}</TooltipContent>
+              </Tooltip>
+            </div>
+          </div>
+          {game.coverUrl && (
+            <div className="flex-shrink-0">
+              <img
+                src={game.coverUrl}
+                alt={`${game.title} cover`}
+                className="w-20 sm:w-32 object-cover rounded-lg shadow-md"
+                style={{ aspectRatio: "3/4" }}
+                data-testid={`img-cover-${game.id}`}
+              />
+            </div>
+          )}
+        </div>
 
-            {/* ── Downloads tab ── */}
-            <TabsContent
-              value="downloads"
-              forceMount
-              className="flex-1 min-h-0 data-[state=inactive]:hidden"
-            >
-              <ScrollArea className="h-full">
-                <div className="space-y-3 pr-4 pb-2">
-                  {downloadsLoading ? (
-                    <div className="flex items-center justify-center py-8 text-muted-foreground">
-                      <Loader2 className="w-5 h-5 animate-spin mr-2" />
-                      Loading downloads…
+        {/* Personal notes */}
+        <div className="mt-3">
+          <Textarea
+            value={notesValue}
+            onChange={(e) => setNotesValue(e.target.value)}
+            onBlur={() => {
+              const trimmed = notesValue.trim() || null;
+              if (trimmed !== (game.notes ?? null)) {
+                notesMutation.mutate(trimmed);
+              }
+            }}
+            placeholder="Personal notes..."
+            className="resize-none min-h-[56px] sm:min-h-[72px] text-sm"
+            maxLength={10000}
+            aria-label="Personal notes for this game"
+            disabled={notesMutation.isPending}
+          />
+          {notesMutation.isPending && (
+            <p className="text-xs text-muted-foreground mt-1">Saving...</p>
+          )}
+        </div>
+
+        {/* Quick Actions */}
+        <div className="flex gap-2 mt-3">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-10 w-10 sm:h-9 sm:w-auto sm:px-3 sm:gap-2"
+                aria-label="Download"
+                onClick={() => setDownloadOpen(true)}
+                data-testid="button-download-game"
+              >
+                <Download className="w-4 h-4" />
+                <span className="hidden sm:inline">Download</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent className="sm:hidden">Download</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => hiddenMutation.mutate({ gameId: game.id, hidden: !game.hidden })}
+                disabled={hiddenMutation.isPending}
+                className="h-10 w-10 sm:h-9 sm:w-auto sm:px-3 sm:gap-2"
+                aria-label={game.hidden ? "Unhide" : "Hide"}
+                data-testid={`button-toggle-hidden-quick-${game.id}`}
+              >
+                {game.hidden ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                <span className="hidden sm:inline">
+                  {hiddenMutation.isPending ? "Updating..." : game.hidden ? "Unhide" : "Hide"}
+                </span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent className="sm:hidden">{game.hidden ? "Unhide" : "Hide"}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => setShowRemoveConfirm(true)}
+                disabled={removeGameMutation.isPending}
+                className="h-10 w-10 sm:h-9 sm:w-auto sm:px-3 sm:gap-2"
+                aria-label="Remove"
+                data-testid={`button-remove-game-quick-${game.id}`}
+              >
+                <X className="w-4 h-4" />
+                <span className="hidden sm:inline">
+                  {removeGameMutation.isPending ? "Removing..." : "Remove"}
+                </span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent className="sm:hidden">Remove</TooltipContent>
+          </Tooltip>
+        </div>
+      </DialogHeader>
+
+      {/* ── Tabs ── */}
+      <Tabs defaultValue="overview" className="flex-1 flex flex-col min-h-0 mt-4">
+        <TabsList className="flex-shrink-0 w-full justify-start overflow-x-auto">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <TabsTrigger value="overview" aria-label="Overview" className="gap-1.5">
+                <Info className="h-3.5 w-3.5 sm:hidden" />
+                <span className="hidden sm:inline">Overview</span>
+              </TabsTrigger>
+            </TooltipTrigger>
+            <TooltipContent className="sm:hidden">Overview</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <TabsTrigger value="downloads" aria-label="Downloads" className="gap-1.5">
+                <Download className="h-3.5 w-3.5 sm:hidden" />
+                <span className="hidden sm:inline">Downloads</span>
+                {gameDownloads.length > 0 && (
+                  <Badge variant="secondary" className="ml-0.5 px-1.5 py-0 text-xs">
+                    {gameDownloads.length}
+                  </Badge>
+                )}
+              </TabsTrigger>
+            </TooltipTrigger>
+            <TooltipContent className="sm:hidden">Downloads</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <TabsTrigger value="media" aria-label="Media" className="gap-1.5">
+                <Image className="h-3.5 w-3.5 sm:hidden" />
+                <span className="hidden sm:inline">Media</span>
+                {game.screenshots && game.screenshots.length > 0 && (
+                  <Badge variant="secondary" className="ml-0.5 px-1.5 py-0 text-xs">
+                    {game.screenshots.length}
+                  </Badge>
+                )}
+              </TabsTrigger>
+            </TooltipTrigger>
+            <TooltipContent className="sm:hidden">Media</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <TabsTrigger value="links" aria-label="Links & Ratings" className="gap-1.5">
+                <Link className="h-3.5 w-3.5 sm:hidden" />
+                <span className="hidden sm:inline">Links &amp; Ratings</span>
+              </TabsTrigger>
+            </TooltipTrigger>
+            <TooltipContent className="sm:hidden">Links &amp; Ratings</TooltipContent>
+          </Tooltip>
+          {nexusDomain && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <TabsTrigger value="mods" aria-label="Mods" className="gap-1.5">
+                  <NexusModsIcon className="h-3.5 w-3.5 text-amber-500 sm:mr-1" />
+                  <span className="hidden sm:inline">Mods</span>
+                </TabsTrigger>
+              </TooltipTrigger>
+              <TooltipContent className="sm:hidden">Mods</TooltipContent>
+            </Tooltip>
+          )}
+        </TabsList>
+
+        {/* ── Overview tab ── */}
+        <TabsContent value="overview" className="flex-1 min-h-0">
+          <ScrollArea className="h-full">
+            <div className="space-y-5 pr-4 pb-2">
+              {/* Summary */}
+              {game.summary && (
+                <div>
+                  <h3 className="font-semibold mb-2 flex items-center gap-2">
+                    <Gamepad2 className="w-4 h-4" />
+                    About
+                  </h3>
+                  <p
+                    className={cn(
+                      "text-sm text-muted-foreground leading-relaxed break-words [overflow-wrap:anywhere]",
+                      !isSummaryExpanded && "line-clamp-3 sm:line-clamp-5"
+                    )}
+                    data-testid={`text-summary-${game.id}`}
+                  >
+                    {game.summary}
+                  </p>
+                  {isSummaryLong && (
+                    <Button
+                      variant="link"
+                      className="p-0 h-auto mt-1 font-semibold"
+                      onClick={() => setIsSummaryExpanded(!isSummaryExpanded)}
+                    >
+                      {isSummaryExpanded ? "Show less" : "Read more"}
+                    </Button>
+                  )}
+                </div>
+              )}
+
+              {/* Metadata grid */}
+              <div className="grid grid-cols-2 gap-4">
+                {game.rating && (
+                  <div>
+                    <h4 className="font-medium text-sm text-muted-foreground mb-1">IGDB score</h4>
+                    <div className="flex items-center gap-1">
+                      <Star className="w-4 h-4 text-accent fill-current" />
+                      <span className="text-sm font-medium">{game.rating}/10</span>
                     </div>
-                  ) : gameDownloads.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-8 text-muted-foreground gap-2">
-                      <HardDrive className="w-8 h-8 opacity-40" />
-                      <p className="text-sm">No downloads recorded for this game.</p>
-                    </div>
-                  ) : (
-                    gameDownloads.map((dl) => (
-                      <Card key={dl.id} className="bg-card/60">
-                        <CardContent className="p-4">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="flex items-start gap-2 min-w-0">
-                              <DownloadStatusIcon status={dl.status} />
-                              <div className="min-w-0">
-                                <p className="text-sm font-medium leading-snug truncate">
-                                  {dl.downloadTitle}
-                                </p>
-                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
-                                  {dl.downloaderName && (
-                                    <span className="text-xs text-muted-foreground">
-                                      via {dl.downloaderName}
-                                    </span>
-                                  )}
-                                  <Badge variant="outline" className="text-xs px-1.5 py-0">
-                                    {dl.downloadType}
-                                  </Badge>
-                                  <span className="text-xs text-muted-foreground capitalize">
-                                    {getTrackedDownloadStatusLabel(dl.status)}
-                                  </span>
-                                  {dl.errorMessage && (
-                                    <span className="text-xs text-red-400 break-words max-w-full">
-                                      {dl.errorMessage}
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                            <div className="flex items-start gap-3 flex-shrink-0">
-                              <div className="text-right">
-                                {dl.fileSize ? (
-                                  <p className="text-sm font-medium">{formatBytes(dl.fileSize)}</p>
-                                ) : null}
-                                <p className="text-xs text-muted-foreground mt-0.5">
-                                  {dl.addedAt ? new Date(dl.addedAt).toLocaleDateString() : "—"}
-                                </p>
-                                {dl.completedAt && (
-                                  <p className="text-xs text-emerald-400 mt-0.5">
-                                    Done {new Date(dl.completedAt).toLocaleDateString()}
-                                  </p>
-                                )}
-                              </div>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                                aria-label={`Remove download record ${dl.downloadTitle}`}
-                                disabled={
-                                  removeDownloadMutation.isPending &&
-                                  removeDownloadMutation.variables === dl.id
-                                }
-                                onClick={() => removeDownloadMutation.mutate(dl.id)}
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </Button>
+                  </div>
+                )}
+                {game.releaseDate && (
+                  <div>
+                    <h4 className="font-medium text-sm text-muted-foreground mb-1">Release Date</h4>
+                    <p className="text-sm" data-testid={`text-full-release-date-${game.id}`}>
+                      {new Date(game.releaseDate).toLocaleDateString()}
+                    </p>
+                  </div>
+                )}
+                {game.addedAt && (
+                  <div>
+                    <h4 className="font-medium text-sm text-muted-foreground mb-1">
+                      Added to Collection
+                    </h4>
+                    <p className="text-sm">{new Date(game.addedAt).toLocaleDateString()}</p>
+                  </div>
+                )}
+                {game.developers && game.developers.length > 0 && (
+                  <div>
+                    <h4 className="font-medium text-sm text-muted-foreground mb-1 flex items-center gap-1">
+                      <Building2 className="w-3.5 h-3.5" />
+                      Developer{game.developers.length > 1 ? "s" : ""}
+                    </h4>
+                    <p className="text-sm">{game.developers.join(", ")}</p>
+                  </div>
+                )}
+                {game.publishers && game.publishers.length > 0 && (
+                  <div>
+                    <h4 className="font-medium text-sm text-muted-foreground mb-1 flex items-center gap-1">
+                      <Building2 className="w-3.5 h-3.5" />
+                      Publisher{game.publishers.length > 1 ? "s" : ""}
+                    </h4>
+                    <p className="text-sm">{game.publishers.join(", ")}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Genres and Platforms */}
+              <div className="grid grid-cols-2 gap-4">
+                {game.genres && game.genres.length > 0 && (
+                  <div>
+                    <h3 className="font-semibold mb-2 flex items-center gap-2">
+                      <Tag className="w-4 h-4" />
+                      Genres
+                    </h3>
+                    <TagList
+                      items={game.genres}
+                      variant="secondary"
+                      maxVisible={6}
+                      getTestId={(g) => `badge-genre-${g.toLowerCase().replace(/\s+/g, "-")}`}
+                    />
+                  </div>
+                )}
+                {game.platforms && game.platforms.length > 0 && (
+                  <div>
+                    <h3 className="font-semibold mb-2 flex items-center gap-2">
+                      <Monitor className="w-4 h-4" />
+                      Platforms
+                    </h3>
+                    <TagList
+                      items={game.platforms}
+                      variant="outline"
+                      maxVisible={8}
+                      getTestId={(p) => `badge-platform-${p.toLowerCase().replace(/\s+/g, "-")}`}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+          </ScrollArea>
+        </TabsContent>
+
+        {/* ── Downloads tab ── */}
+        <TabsContent
+          value="downloads"
+          forceMount
+          className="flex-1 min-h-0 data-[state=inactive]:hidden"
+        >
+          <ScrollArea className="h-full">
+            <div className="space-y-3 pr-4 pb-2">
+              {downloadsLoading ? (
+                <div className="flex items-center justify-center py-8 text-muted-foreground">
+                  <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                  Loading downloads…
+                </div>
+              ) : gameDownloads.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-8 text-muted-foreground gap-2">
+                  <HardDrive className="w-8 h-8 opacity-40" />
+                  <p className="text-sm">No downloads recorded for this game.</p>
+                </div>
+              ) : (
+                gameDownloads.map((dl) => (
+                  <Card key={dl.id} className="bg-card/60">
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-start gap-2 min-w-0">
+                          <DownloadStatusIcon status={dl.status} />
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium leading-snug truncate">
+                              {dl.downloadTitle}
+                            </p>
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
+                              {dl.downloaderName && (
+                                <span className="text-xs text-muted-foreground">
+                                  via {dl.downloaderName}
+                                </span>
+                              )}
+                              <Badge variant="outline" className="text-xs px-1.5 py-0">
+                                {dl.downloadType}
+                              </Badge>
+                              <span className="text-xs text-muted-foreground capitalize">
+                                {getTrackedDownloadStatusLabel(dl.status)}
+                              </span>
+                              {dl.errorMessage && (
+                                <span className="text-xs text-red-400 break-words max-w-full">
+                                  {dl.errorMessage}
+                                </span>
+                              )}
                             </div>
                           </div>
-                        </CardContent>
-                      </Card>
-                    ))
-                  )}
-                </div>
-              </ScrollArea>
-            </TabsContent>
+                        </div>
+                        <div className="flex items-start gap-3 flex-shrink-0">
+                          <div className="text-right">
+                            {dl.fileSize ? (
+                              <p className="text-sm font-medium">{formatBytes(dl.fileSize)}</p>
+                            ) : null}
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {dl.addedAt ? new Date(dl.addedAt).toLocaleDateString() : "—"}
+                            </p>
+                            {dl.completedAt && (
+                              <p className="text-xs text-emerald-400 mt-0.5">
+                                Done {new Date(dl.completedAt).toLocaleDateString()}
+                              </p>
+                            )}
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                            aria-label={`Remove download record ${dl.downloadTitle}`}
+                            disabled={
+                              removeDownloadMutation.isPending &&
+                              removeDownloadMutation.variables === dl.id
+                            }
+                            onClick={() => removeDownloadMutation.mutate(dl.id)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))
+              )}
+            </div>
+          </ScrollArea>
+        </TabsContent>
 
-            {/* ── Media tab ── */}
-            <TabsContent
-              value="media"
-              forceMount
-              className="flex-1 min-h-0 data-[state=inactive]:hidden"
-            >
-              <ScrollArea className="h-full">
-                <div className="pr-4 pb-2">
-                  {game.screenshots && game.screenshots.length > 0 ? (
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                      {game.screenshots.map((screenshot, index) => (
-                        <Card
-                          key={index}
-                          className="overflow-hidden cursor-pointer hover-elevate"
-                          onClick={() => setSelectedScreenshot(screenshot)}
-                          data-testid={`screenshot-${index}`}
-                        >
-                          <CardContent className="p-0">
-                            <img
-                              src={screenshot}
-                              alt={`${game.title} screenshot ${index + 1}`}
-                              className="w-full h-24 object-cover"
-                            />
-                          </CardContent>
-                        </Card>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center py-8 text-muted-foreground gap-2">
-                      <Monitor className="w-8 h-8 opacity-40" />
-                      <p className="text-sm">No screenshots available.</p>
-                    </div>
-                  )}
+        {/* ── Media tab ── */}
+        <TabsContent
+          value="media"
+          forceMount
+          className="flex-1 min-h-0 data-[state=inactive]:hidden"
+        >
+          <ScrollArea className="h-full">
+            <div className="pr-4 pb-2">
+              {game.screenshots && game.screenshots.length > 0 ? (
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  {game.screenshots.map((screenshot, index) => (
+                    <Card
+                      key={index}
+                      className="overflow-hidden cursor-pointer hover-elevate"
+                      onClick={() => setSelectedScreenshot(screenshot)}
+                      data-testid={`screenshot-${index}`}
+                    >
+                      <CardContent className="p-0">
+                        <img
+                          src={screenshot}
+                          alt={`${game.title} screenshot ${index + 1}`}
+                          className="w-full h-24 object-cover"
+                        />
+                      </CardContent>
+                    </Card>
+                  ))}
                 </div>
-              </ScrollArea>
-            </TabsContent>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-8 text-muted-foreground gap-2">
+                  <Monitor className="w-8 h-8 opacity-40" />
+                  <p className="text-sm">No screenshots available.</p>
+                </div>
+              )}
+            </div>
+          </ScrollArea>
+        </TabsContent>
 
-            {/* ── Links & Ratings tab ── */}
-            <TabsContent
-              value="links"
-              forceMount
-              className="flex-1 min-h-0 data-[state=inactive]:hidden"
-            >
-              <ScrollArea className="h-full">
-                <div className="space-y-6 pr-4 pb-2">
-                  {/* Ratings */}
+        {/* ── Links & Ratings tab ── */}
+        <TabsContent
+          value="links"
+          forceMount
+          className="flex-1 min-h-0 data-[state=inactive]:hidden"
+        >
+          <ScrollArea className="h-full">
+            <div className="space-y-6 pr-4 pb-2">
+              {/* Ratings */}
+              <div>
+                <h3 className="font-semibold mb-3 flex items-center gap-2">
+                  <Star className="w-4 h-4" />
+                  Ratings
+                </h3>
+                <div className="flex flex-wrap gap-4 mb-4">
+                  {game.rating ? (
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`w-14 h-14 rounded-xl flex items-center justify-center text-lg font-bold ${scoreColor(game.rating)}`}
+                      >
+                        {game.rating.toFixed(1)}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-1.5 text-sm font-medium">
+                          <Users className="w-3.5 h-3.5" />
+                          IGDB Users
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5">Community score</p>
+                      </div>
+                    </div>
+                  ) : null}
+                  {game.aggregatedRating ? (
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`w-14 h-14 rounded-xl flex items-center justify-center text-lg font-bold ${scoreColor(game.aggregatedRating)}`}
+                      >
+                        {game.aggregatedRating.toFixed(1)}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-1.5 text-sm font-medium">
+                          <SiMetacritic size={14} />
+                          Critics
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5">Aggregate score</p>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+                <div data-testid="section-user-rating">
+                  <h4 className="font-medium text-sm text-muted-foreground mb-2">Your rating</h4>
+                  <StarRatingInput value={currentUserRating} onChange={handleUserRatingChange} />
+                </div>
+              </div>
+
+              <div>
+                {/* IGDB website links */}
+                {igdbWebsites.length > 0 && (
                   <div>
                     <h3 className="font-semibold mb-3 flex items-center gap-2">
-                      <Star className="w-4 h-4" />
-                      Ratings
+                      <ExternalLink className="w-4 h-4" />
+                      Official &amp; Store Pages
                     </h3>
-                    <div className="flex flex-wrap gap-4 mb-4">
-                      {game.rating ? (
-                        <div className="flex items-center gap-3">
-                          <div
-                            className={`w-14 h-14 rounded-xl flex items-center justify-center text-lg font-bold ${scoreColor(game.rating)}`}
-                          >
-                            {game.rating.toFixed(1)}
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-1.5 text-sm font-medium">
-                              <Users className="w-3.5 h-3.5" />
-                              IGDB Users
-                            </div>
-                            <p className="text-xs text-muted-foreground mt-0.5">Community score</p>
-                          </div>
-                        </div>
-                      ) : null}
-                      {game.aggregatedRating ? (
-                        <div className="flex items-center gap-3">
-                          <div
-                            className={`w-14 h-14 rounded-xl flex items-center justify-center text-lg font-bold ${scoreColor(game.aggregatedRating)}`}
-                          >
-                            {game.aggregatedRating.toFixed(1)}
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-1.5 text-sm font-medium">
-                              <SiMetacritic size={14} />
-                              Critics
-                            </div>
-                            <p className="text-xs text-muted-foreground mt-0.5">Aggregate score</p>
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
-                    <div data-testid="section-user-rating">
-                      <h4 className="font-medium text-sm text-muted-foreground mb-2">
-                        Your rating
-                      </h4>
-                      <StarRatingInput
-                        value={currentUserRating}
-                        onChange={handleUserRatingChange}
-                      />
+                    <div className="flex flex-wrap gap-2">
+                      {igdbWebsites
+                        .map((w) => ({ w, cfg: resolveWebsiteConfig(w) }))
+                        .filter(({ cfg }) => cfg !== null)
+                        .map(({ w, cfg }, i) => {
+                          const { Icon, colorClass, label } = cfg!;
+                          return (
+                            <Tooltip key={i}>
+                              <TooltipTrigger asChild>
+                                <a href={safeUrl(w.url)} target="_blank" rel="noopener noreferrer">
+                                  <Button variant="outline" size="sm" className="gap-2 h-10 sm:h-9">
+                                    <Icon size={16} className={colorClass} />
+                                    <span className="hidden sm:inline">{label}</span>
+                                  </Button>
+                                </a>
+                              </TooltipTrigger>
+                              <TooltipContent className="sm:hidden">{label}</TooltipContent>
+                            </Tooltip>
+                          );
+                        })}
                     </div>
                   </div>
+                )}
 
-                  <div>
-                    {/* IGDB website links */}
-                    {igdbWebsites.length > 0 && (
-                      <div>
-                        <h3 className="font-semibold mb-3 flex items-center gap-2">
-                          <ExternalLink className="w-4 h-4" />
-                          Official &amp; Store Pages
-                        </h3>
-                        <div className="flex flex-wrap gap-2">
-                          {igdbWebsites
-                            .map((w) => ({ w, cfg: resolveWebsiteConfig(w) }))
-                            .filter(({ cfg }) => cfg !== null)
-                            .map(({ w, cfg }, i) => {
-                              const { Icon, colorClass, label } = cfg!;
-                              return (
-                                <Tooltip key={i}>
-                                  <TooltipTrigger asChild>
-                                    <a
-                                      href={safeUrl(w.url)}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                    >
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="gap-2 h-10 sm:h-9"
-                                      >
-                                        <Icon size={16} className={colorClass} />
-                                        <span className="hidden sm:inline">{label}</span>
-                                      </Button>
-                                    </a>
-                                  </TooltipTrigger>
-                                  <TooltipContent className="sm:hidden">{label}</TooltipContent>
-                                </Tooltip>
-                              );
-                            })}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Derived community links */}
-                    <div>
-                      <h3 className="font-semibold mb-3 flex items-center gap-2">
-                        <TrendingUp className="w-4 h-4" />
-                        Community Resources
-                      </h3>
-                      <div className="flex flex-wrap gap-2">
-                        {derivedLinks.map((link, i) => (
-                          <Tooltip key={i}>
-                            <TooltipTrigger asChild>
-                              <a
-                                href={safeUrl(link.href)}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                              >
-                                <Button variant="outline" size="sm" className="gap-2 h-10 sm:h-9">
-                                  <link.Icon size={16} className={link.colorClass} />
-                                  <span className="hidden sm:inline">{link.label}</span>
-                                </Button>
-                              </a>
-                            </TooltipTrigger>
-                            <TooltipContent className="sm:hidden">{link.label}</TooltipContent>
-                          </Tooltip>
-                        ))}
-                        {/* NexusMods: direct link when configured + found, fallback search when unconfigured or on error */}
-                        {(nexusGameData || nexusDomainError) &&
-                          (nexusDomain ? (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <a
-                                  href={safeUrl(`https://www.nexusmods.com/${nexusDomain}/mods/`)}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                >
-                                  <Button variant="outline" size="sm" className="gap-2 h-10 sm:h-9">
-                                    <NexusModsIcon size={16} className="text-amber-500" />
-                                    <span className="hidden sm:inline">NexusMods</span>
-                                  </Button>
-                                </a>
-                              </TooltipTrigger>
-                              <TooltipContent className="sm:hidden">NexusMods</TooltipContent>
-                            </Tooltip>
-                          ) : !nexusGameData?.configured || nexusDomainError ? (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <a
-                                  href={safeUrl(
-                                    `https://www.nexusmods.com/games?keyword=${encodeURIComponent(game.title)}`
-                                  )}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                >
-                                  <Button variant="outline" size="sm" className="gap-2 h-10 sm:h-9">
-                                    <NexusModsIcon size={16} className="text-amber-500" />
-                                    <span className="hidden sm:inline">NexusMods</span>
-                                  </Button>
-                                </a>
-                              </TooltipTrigger>
-                              <TooltipContent className="sm:hidden">NexusMods</TooltipContent>
-                            </Tooltip>
-                          ) : null)}
-                      </div>
-                    </div>
+                {/* Derived community links */}
+                <div>
+                  <h3 className="font-semibold mb-3 flex items-center gap-2">
+                    <TrendingUp className="w-4 h-4" />
+                    Community Resources
+                  </h3>
+                  <div className="flex flex-wrap gap-2">
+                    {derivedLinks.map((link, i) => (
+                      <Tooltip key={i}>
+                        <TooltipTrigger asChild>
+                          <a href={safeUrl(link.href)} target="_blank" rel="noopener noreferrer">
+                            <Button variant="outline" size="sm" className="gap-2 h-10 sm:h-9">
+                              <link.Icon size={16} className={link.colorClass} />
+                              <span className="hidden sm:inline">{link.label}</span>
+                            </Button>
+                          </a>
+                        </TooltipTrigger>
+                        <TooltipContent className="sm:hidden">{link.label}</TooltipContent>
+                      </Tooltip>
+                    ))}
+                    {/* NexusMods: direct link when configured + found, fallback search when unconfigured or on error */}
+                    {(nexusGameData || nexusDomainError) &&
+                      (nexusDomain ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <a
+                              href={safeUrl(`https://www.nexusmods.com/${nexusDomain}/mods/`)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              <Button variant="outline" size="sm" className="gap-2 h-10 sm:h-9">
+                                <NexusModsIcon size={16} className="text-amber-500" />
+                                <span className="hidden sm:inline">NexusMods</span>
+                              </Button>
+                            </a>
+                          </TooltipTrigger>
+                          <TooltipContent className="sm:hidden">NexusMods</TooltipContent>
+                        </Tooltip>
+                      ) : !nexusGameData?.configured || nexusDomainError ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <a
+                              href={safeUrl(
+                                `https://www.nexusmods.com/games?keyword=${encodeURIComponent(game.title)}`
+                              )}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              <Button variant="outline" size="sm" className="gap-2 h-10 sm:h-9">
+                                <NexusModsIcon size={16} className="text-amber-500" />
+                                <span className="hidden sm:inline">NexusMods</span>
+                              </Button>
+                            </a>
+                          </TooltipTrigger>
+                          <TooltipContent className="sm:hidden">NexusMods</TooltipContent>
+                        </Tooltip>
+                      ) : null)}
                   </div>
                 </div>
-              </ScrollArea>
-            </TabsContent>
+              </div>
+            </div>
+          </ScrollArea>
+        </TabsContent>
 
-            {/* ── Mods tab ── */}
-            {nexusDomain && (
-              <TabsContent value="mods" className="flex-1 min-h-0">
-                <ScrollArea className="h-full">
-                  <div className="space-y-4 pr-4 pb-2">
-                    <h3 className="font-semibold flex items-center gap-2">
-                      <NexusModsIcon className="w-4 h-4 text-amber-500" />
-                      Trending Mods on Nexus Mods
-                    </h3>
-                    {trendingLoading ? (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {Array.from({ length: 4 }).map((_, i) => (
-                          <div key={i} className="h-24 rounded-lg bg-muted animate-pulse" />
-                        ))}
-                      </div>
-                    ) : trendingMods.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">No trending mods found.</p>
-                    ) : (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {trendingMods.map((mod) => (
-                          <a
-                            key={mod.mod_id}
-                            href={safeUrl(
-                              `https://www.nexusmods.com/${nexusDomain}/mods/${mod.mod_id}`
-                            )}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="group"
-                          >
-                            <Card className="overflow-hidden hover:ring-1 hover:ring-amber-500 transition-all">
-                              <CardContent className="p-0 flex gap-3">
-                                {mod.picture_url ? (
-                                  <img
-                                    src={mod.picture_url}
-                                    alt={mod.name}
-                                    className="w-20 h-20 object-cover flex-shrink-0"
-                                  />
-                                ) : (
-                                  <div className="w-20 h-20 flex-shrink-0 bg-muted flex items-center justify-center">
-                                    <NexusModsIcon className="w-6 h-6 text-muted-foreground" />
-                                  </div>
-                                )}
-                                <div className="flex-1 min-w-0 py-2 pr-2">
-                                  <p className="text-sm font-medium truncate group-hover:text-amber-400 transition-colors">
-                                    {mod.name}
-                                  </p>
-                                  {mod.summary && (
-                                    <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
-                                      {mod.summary}
-                                    </p>
-                                  )}
-                                  <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-                                    <span className="flex items-center gap-1">
-                                      <Download className="w-3 h-3" />
-                                      {(mod.mod_unique_downloads ?? 0).toLocaleString()}
-                                    </span>
-                                    <span className="flex items-center gap-1">
-                                      <ThumbsUp className="w-3 h-3" />
-                                      {(mod.endorsement_count ?? 0).toLocaleString()}
-                                    </span>
-                                    {mod.user?.name && (
-                                      <span className="truncate">by {mod.user.name}</span>
-                                    )}
-                                  </div>
-                                </div>
-                              </CardContent>
-                            </Card>
-                          </a>
-                        ))}
-                      </div>
-                    )}
+        {/* ── Mods tab ── */}
+        {nexusDomain && (
+          <TabsContent value="mods" className="flex-1 min-h-0">
+            <ScrollArea className="h-full">
+              <div className="space-y-4 pr-4 pb-2">
+                <h3 className="font-semibold flex items-center gap-2">
+                  <NexusModsIcon className="w-4 h-4 text-amber-500" />
+                  Trending Mods on Nexus Mods
+                </h3>
+                {trendingLoading ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {Array.from({ length: 4 }).map((_, i) => (
+                      <div key={i} className="h-24 rounded-lg bg-muted animate-pulse" />
+                    ))}
                   </div>
-                </ScrollArea>
-              </TabsContent>
-            )}
-          </Tabs>
-        </DialogContent>
-      </Dialog>
+                ) : trendingMods.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No trending mods found.</p>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {trendingMods.map((mod) => (
+                      <a
+                        key={mod.mod_id}
+                        href={safeUrl(
+                          `https://www.nexusmods.com/${nexusDomain}/mods/${mod.mod_id}`
+                        )}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="group"
+                      >
+                        <Card className="overflow-hidden hover:ring-1 hover:ring-amber-500 transition-all">
+                          <CardContent className="p-0 flex gap-3">
+                            {mod.picture_url ? (
+                              <img
+                                src={mod.picture_url}
+                                alt={mod.name}
+                                className="w-20 h-20 object-cover flex-shrink-0"
+                              />
+                            ) : (
+                              <div className="w-20 h-20 flex-shrink-0 bg-muted flex items-center justify-center">
+                                <NexusModsIcon className="w-6 h-6 text-muted-foreground" />
+                              </div>
+                            )}
+                            <div className="flex-1 min-w-0 py-2 pr-2">
+                              <p className="text-sm font-medium truncate group-hover:text-amber-400 transition-colors">
+                                {mod.name}
+                              </p>
+                              {mod.summary && (
+                                <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
+                                  {mod.summary}
+                                </p>
+                              )}
+                              <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                                <span className="flex items-center gap-1">
+                                  <Download className="w-3 h-3" />
+                                  {(mod.mod_unique_downloads ?? 0).toLocaleString()}
+                                </span>
+                                <span className="flex items-center gap-1">
+                                  <ThumbsUp className="w-3 h-3" />
+                                  {(mod.endorsement_count ?? 0).toLocaleString()}
+                                </span>
+                                {mod.user?.name && (
+                                  <span className="truncate">by {mod.user.name}</span>
+                                )}
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      </a>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </ScrollArea>
+          </TabsContent>
+        )}
+      </Tabs>
+    </>
+  );
+
+  return (
+    <TooltipProvider>
+      {isMobile ? (
+        <Sheet open={open} onOpenChange={onOpenChange}>
+          <SheetContent
+            side="fullscreen"
+            className="flex flex-col overflow-hidden gap-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {detailsBody}
+          </SheetContent>
+        </Sheet>
+      ) : (
+        <Dialog open={open} onOpenChange={onOpenChange}>
+          <DialogContent
+            className="max-w-4xl max-h-[95svh] sm:max-h-[90vh] flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {detailsBody}
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* Screenshot Lightbox */}
       {selectedScreenshot && (

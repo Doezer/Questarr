@@ -89,12 +89,13 @@ Assessed 2026-07-06 against `tsconfig.json`, `eslint.config.js`, and `.github/wo
   independent of the project's static coverage numbers.
 - Runs on every push to `main`/`release/*` (so it's applied ahead of any tag cut from those
   branches) plus a weekly schedule and manual dispatch, mirroring the cadence already used by
-  `vulnerability-scan.yml`.
+  [vulnerability-scan.yml](/.github/workflows/vulnerability-scan.yml).
 - `fail_action: false` for now: the scan runs unconditionally and its HTML/JSON/MD report is
   uploaded as the `zap-baseline-report` workflow artifact, but findings don't yet block CI.
   This is a deliberate first step — a baseline scan on a project this size typically surfaces
   a batch of informational/low findings (e.g. missing `Content-Security-Policy`) that need
-  triage before the job can enforce a severity gate the way `sast.yml` does for Semgrep.
+  triage before the job can enforce a severity gate the way
+  [sast.yml](/.github/workflows/sast.yml) does for Semgrep.
   Tightening to a blocking gate (tracked as follow-up work) should happen once that triage
   pass establishes which findings are expected/accepted vs. real.
 

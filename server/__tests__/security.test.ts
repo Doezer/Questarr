@@ -125,30 +125,18 @@ describe("Security Headers", () => {
     expect(csp).toContain("https://images.igdb.com");
   });
 
-  it("should set X-Frame-Options header", async () => {
+  it.each([
+    ["x-frame-options", "SAMEORIGIN"],
+    ["x-content-type-options", "nosniff"],
+    ["x-powered-by", undefined],
+    [
+      "permissions-policy",
+      "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()",
+    ],
+  ])("should set %s header to %j", async (headerName, expectedValue) => {
     const app = await createApp();
     const response = await request(app).get("/api/auth/status");
-    expect(response.headers["x-frame-options"]).toBe("SAMEORIGIN");
-  });
-
-  it("should set X-Content-Type-Options header", async () => {
-    const app = await createApp();
-    const response = await request(app).get("/api/auth/status");
-    expect(response.headers["x-content-type-options"]).toBe("nosniff");
-  });
-
-  it("should hide X-Powered-By header", async () => {
-    const app = await createApp();
-    const response = await request(app).get("/api/auth/status");
-    expect(response.headers["x-powered-by"]).toBeUndefined();
-  });
-
-  it("should set a restrictive Permissions-Policy header", async () => {
-    const app = await createApp();
-    const response = await request(app).get("/api/auth/status");
-    expect(response.headers["permissions-policy"]).toBe(
-      "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()"
-    );
+    expect(response.headers[headerName]).toBe(expectedValue);
   });
 });
 

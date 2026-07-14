@@ -23,7 +23,7 @@ export default function ViewControlsToolbar({
   return (
     <>
       {viewMode === "list" && (
-        <span className="hidden sm:contents">
+        <span className="contents">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={toggleDensity}>

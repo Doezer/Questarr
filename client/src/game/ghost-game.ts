@@ -93,8 +93,8 @@ export class GhostGame {
       this.callbacks.onLockChange?.(false);
     });
 
-    this.scene.fog = new THREE.Fog(0x05070a, 12, 32);
-    this.scene.background = new THREE.Color(0x05070a);
+    this.scene.fog = new THREE.Fog(0x141a24, 14, 36);
+    this.scene.background = new THREE.Color(0x141a24);
 
     this.buildLevel(seed);
 
@@ -160,15 +160,16 @@ export class GhostGame {
     this.roomHalfExtent = (this.level.gridSize * this.level.cellSize) / 2;
     this.crateBoxes = [];
 
-    this.scene.add(new THREE.HemisphereLight(0x8899ff, 0x0a0a12, 0.55));
-    const spot = new THREE.PointLight(0x6ee7ff, 6, 20, 2);
+    this.scene.add(new THREE.HemisphereLight(0x8899ff, 0x1a1f2e, 0.9));
+    const spot = new THREE.PointLight(0x6ee7ff, 9, 24, 2);
     spot.position.set(0, 3.2, 0);
     this.scene.add(spot);
+    this.scene.add(new THREE.AmbientLight(0xffffff, 0.35));
 
     const floorSize = this.level.gridSize * this.level.cellSize;
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(floorSize, floorSize),
-      new THREE.MeshStandardMaterial({ color: 0x11151c, roughness: 0.9 })
+      new THREE.MeshStandardMaterial({ color: 0x1a1f2b, roughness: 0.9 })
     );
     floor.rotation.x = -Math.PI / 2;
     this.scene.add(floor);
@@ -184,7 +185,7 @@ export class GhostGame {
   }
 
   private buildWalls(floorSize: number) {
-    const material = new THREE.MeshStandardMaterial({ color: 0x1c2230, roughness: 0.8 });
+    const material = new THREE.MeshStandardMaterial({ color: 0x272e3d, roughness: 0.8 });
     const half = floorSize / 2;
     const specs: [number, number, number, number][] = [
       [0, half, floorSize, 0.4], // north (thin in z)
@@ -203,7 +204,7 @@ export class GhostGame {
     const world = gridToWorld(gridPos, this.level);
     const crate = new THREE.Mesh(
       new THREE.BoxGeometry(CRATE_SIZE, CRATE_HEIGHT, CRATE_SIZE),
-      new THREE.MeshStandardMaterial({ color: 0x2a2f3a, roughness: 0.7 })
+      new THREE.MeshStandardMaterial({ color: 0x363d4d, roughness: 0.7 })
     );
     crate.position.set(world.x, CRATE_HEIGHT / 2, world.z);
     this.scene.add(crate);
@@ -219,22 +220,48 @@ export class GhostGame {
     const world = gridToWorld(this.level.terminal, this.level);
     this.terminalWorld.set(world.x, 0, world.z);
     const group = new THREE.Group();
-    const base = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.5, 0.6, 1.1, 8),
-      new THREE.MeshStandardMaterial({ color: 0x0e1a16 })
-    );
-    base.position.y = 0.55;
-    const glow = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.32, 0.32, 0.08, 16),
-      new THREE.MeshStandardMaterial({
-        color: 0x35f0b0,
-        emissive: 0x35f0b0,
-        emissiveIntensity: 1.4,
-      })
-    );
-    glow.position.y = 1.14;
-    group.add(base, glow);
+
+    const housingMaterial = new THREE.MeshStandardMaterial({
+      color: 0x161c26,
+      roughness: 0.55,
+      metalness: 0.35,
+    });
+
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.65, 0.12, 12), housingMaterial);
+    base.position.y = 0.06;
+
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 0.85, 10), housingMaterial);
+    pole.position.y = 0.12 + 0.85 / 2;
+
+    const deck = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.06, 0.34), housingMaterial);
+    deck.position.y = 0.95;
+
+    const screenMaterial = new THREE.MeshStandardMaterial({
+      color: 0x0b2a22,
+      emissive: 0x35f0b0,
+      emissiveIntensity: 1.6,
+    });
+    // BoxGeometry face-group order is [+x, -x, +y, -y, +z, -z]; only the front
+    // (+z, the group's forward direction) face gets the glowing screen material.
+    const screen = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.46, 0.06), [
+      housingMaterial,
+      housingMaterial,
+      housingMaterial,
+      housingMaterial,
+      screenMaterial,
+      housingMaterial,
+    ]);
+    screen.position.y = 1.28;
+    screen.rotation.x = -0.22;
+
+    group.add(base, pole, deck, screen);
     group.position.set(world.x, 0, world.z);
+
+    // Face the screen roughly back toward spawn, since that's the direction
+    // the player approaches from on their way to the terminal.
+    const spawnWorld = gridToWorld(this.level.spawn, this.level);
+    group.rotation.y = Math.atan2(spawnWorld.x - world.x, spawnWorld.z - world.z);
+
     this.scene.add(group);
   }
 

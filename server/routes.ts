@@ -576,19 +576,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (typeof port !== "number") return res.status(400).json({ error: "Invalid 'port' value" });
 
       // Security check for file paths
+      let resolvedCertPath: string | undefined = certPath;
+      let resolvedKeyPath: string | undefined = keyPath;
       if (certPath || keyPath) {
         const normalizedRoot = FILE_BROWSER_ROOT.endsWith(path.sep)
           ? FILE_BROWSER_ROOT
           : FILE_BROWSER_ROOT + path.sep;
 
         if (certPath) {
-          const resolvedCertPath = path.resolve(FILE_BROWSER_ROOT, certPath);
+          resolvedCertPath = path.resolve(FILE_BROWSER_ROOT, certPath);
           if (!resolvedCertPath.startsWith(normalizedRoot)) {
             return res.status(403).json({ error: "Access to cert path is not allowed" });
           }
         }
         if (keyPath) {
-          const resolvedKeyPath = path.resolve(FILE_BROWSER_ROOT, keyPath);
+          resolvedKeyPath = path.resolve(FILE_BROWSER_ROOT, keyPath);
           if (!resolvedKeyPath.startsWith(normalizedRoot)) {
             return res.status(403).json({ error: "Access to key path is not allowed" });
           }
@@ -630,8 +632,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ssl: {
           enabled,
           port,
-          certPath,
-          keyPath,
+          certPath: resolvedCertPath,
+          keyPath: resolvedKeyPath,
           redirectHttp,
         },
       });

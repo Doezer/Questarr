@@ -142,6 +142,14 @@ describe("Security Headers", () => {
     const response = await request(app).get("/api/auth/status");
     expect(response.headers["x-powered-by"]).toBeUndefined();
   });
+
+  it("should set a restrictive Permissions-Policy header", async () => {
+    const app = await createApp();
+    const response = await request(app).get("/api/auth/status");
+    expect(response.headers["permissions-policy"]).toBe(
+      "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()"
+    );
+  });
 });
 
 describe("Credential Exposure Prevention", () => {

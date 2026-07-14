@@ -145,7 +145,10 @@ Full policy and results table: [`docs/VULNERABILITY_MANAGEMENT.md` §3.3](/docs/
 - That finding was fixed the same day it was confirmed, not left to run out §3.2's 90-day SLA:
   Helmet's default `font-src`/`style-src` permit any `https:` origin, which is broader than
   Questarr needs since fonts/styles are all self-hosted; both are now scoped to `'self'`
-  (`server/routes.ts:360-361`). A second, Low-severity finding (missing `Permissions-Policy`)
+  (plus `data:` for fonts, and `'unsafe-inline'` still kept for styles — several components
+  render real inline `style="..."` attributes, so removing it would break rendering, not just
+  tighten policy) (`server/routes.ts:360-361`). A second, Low-severity finding (missing
+  `Permissions-Policy`)
   was fixed alongside it as a quick win even though it didn't need to be under the SLA.
 - The remaining three findings (all Low/Informational, none crossing the "medium or higher"
   bar this criterion sets) were reviewed and explicitly accepted with reasoning recorded in
@@ -154,8 +157,11 @@ Full policy and results table: [`docs/VULNERABILITY_MANAGEMENT.md` §3.3](/docs/
   [`docs/SECURITY_ASSESSMENT.md`](/docs/SECURITY_ASSESSMENT.md) risk register — the accept-risk
   path §3.2 defines, not a silently ignored finding.
 - With triage complete, `dast.yml` now runs with `fail_action: true`, so this is no longer a
-  one-time check — any _new_ medium+ finding on a future scan fails the build immediately,
-  which is what demonstrates ongoing compliance with this criterion going forward.
+  one-time check — any new, unignored WARN or FAIL alert on a future scan fails the build
+  immediately (ZAP doesn't distinguish severity for this gate; `.zap/rules.tsv` is what keeps
+  the accepted Low/Informational findings from recurring as false failures). That's stricter
+  than this criterion's "medium or higher" bar requires, which is what demonstrates ongoing
+  compliance with it going forward.
 
 **Update policy:** revisit each entry when the underlying tooling changes, or roughly every
 6 months to keep the 2-12 month evidence windows current.

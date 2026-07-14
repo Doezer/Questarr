@@ -1,0 +1,81 @@
+name: DAST
+
+on:
+  push:
+    branches: [main, release/*]
+  schedule:
+    # Weekly, so newly merged endpoints get scanned even between releases.
+    - cron: "0 7 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  zap-baseline:
+    name: OWASP ZAP baseline scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6.2.0
+
+      - name: Setup Node.js 22.x
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22.x
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build project
+        run: npm run build
+
+      # Runs the built production server directly on the runner (rather than
+      # in Docker) so the ZAP container, started by zaproxy/action-baseline
+      # with --network host, can reach it at http://localhost:5000.
+      - name: Start server
+        env:
+          NODE_ENV: production
+          PORT: "5000"
+          HOST: "127.0.0.1"
+          SQLITE_DB_PATH: "data/dast-test.db"
+        run: |
+          npm start > server.log 2>&1 &
+          echo $! > server.pid
+
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:5000/api/health > /dev/null; then
+              echo "Server is up"
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "Server did not become healthy in time" >&2
+          cat server.log >&2
+          exit 1
+
+      # Unauthenticated baseline scan: spiders the app and passively checks
+      # responses for common issues (missing security headers, verbose
+      # errors, cookie flags, etc.). Report-only for now (fail_action:
+      # false) while a baseline of expected findings is established; see
+      # docs/BEST_PRACTICES.md [dynamic_analysis] for the plan to tighten
+      # this once that baseline exists.
+      - name: Run OWASP ZAP baseline scan
+        uses: zaproxy/action-baseline@de8ad967d3548d44ef623df22cf95c3b0baf8b25 # v0.15.0
+        with:
+          target: "http://localhost:5000"
+          fail_action: false
+          allow_issue_writing: false
+          artifact_name: "zap-baseline-report"
+
+      - name: Stop server
+        if: always()
+        run: kill "$(cat server.pid)" 2>/dev/null || true

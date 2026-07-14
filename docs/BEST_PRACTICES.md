@@ -70,5 +70,38 @@ Assessed 2026-07-06 against `tsconfig.json`, `eslint.config.js`, and `.github/wo
 - `npm run lint` has no `--max-warnings 0`, so ESLint warnings don't fail CI — only hard
   errors do.
 
+## [dynamic_analysis]
+
+> It is SUGGESTED that at least one dynamic analysis tool be applied to any proposed major
+> production release of the software before its release.
+
+**Status: Met.**
+
+[`.github/workflows/dast.yml`](/.github/workflows/dast.yml) runs an
+[OWASP ZAP](https://www.zaproxy.org/) baseline scan against a live instance of the app:
+
+- Builds the production bundle, boots it on the runner (`npm start`), and waits on
+  `/api/health` before scanning — the same production code path that ships in the Docker
+  image, not a mock target.
+- `zaproxy/action-baseline` spiders the running app and passively checks every response for
+  common runtime issues (missing security headers, verbose error output, cookie flags,
+  outdated libraries, etc.) — varying inputs by construction, satisfying the criterion
+  independent of the project's static coverage numbers.
+- Runs on every push to `main`/`release/*` (so it's applied ahead of any tag cut from those
+  branches) plus a weekly schedule and manual dispatch, mirroring the cadence already used by
+  `vulnerability-scan.yml`.
+- `fail_action: false` for now: the scan runs unconditionally and its HTML/JSON/MD report is
+  uploaded as the `zap-baseline-report` workflow artifact, but findings don't yet block CI.
+  This is a deliberate first step — a baseline scan on a project this size typically surfaces
+  a batch of informational/low findings (e.g. missing `Content-Security-Policy`) that need
+  triage before the job can enforce a severity gate the way `sast.yml` does for Semgrep.
+  Tightening to a blocking gate (tracked as follow-up work) should happen once that triage
+  pass establishes which findings are expected/accepted vs. real.
+
+This is independent of `warnings_strict`'s test-coverage numbers above (branch coverage
+threshold is currently 74%, short of the criterion's 80% automated-test-suite alternative) —
+the ZAP scan satisfies `dynamic_analysis` on its own via the "tool that varies inputs" path,
+regardless of coverage.
+
 **Update policy:** revisit each entry when the underlying tooling changes, or roughly every
 6 months to keep the 2-12 month evidence windows current.

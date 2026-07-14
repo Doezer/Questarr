@@ -287,17 +287,59 @@
   --shadow-2xl: 0px 2px 0px 0px hsl(210 20% 8% / 0);
 }
 
-/* Cosmetic flair unlocked by finding the "Ghost the Terminal" easter egg (see /play). */
+/* Cosmetic flair unlocked by finding the "Ghost the Terminal" easter egg (see /play) —
+   a full high-contrast green-on-black CRT terminal palette, not just an accent swap. */
 .theme-ghost {
-  --primary: 152 85% 45%;
-  --primary-foreground: 210 24% 10%;
-  --secondary: 189 90% 50%;
-  --secondary-foreground: 210 24% 10%;
-  --accent: 152 85% 45%;
-  --accent-foreground: 210 24% 10%;
-  --ring: 152 85% 45%;
-  --sidebar-primary: 152 85% 45%;
-  --sidebar-ring: 152 85% 45%;
+  --button-outline: rgba(74, 222, 128, 0.25);
+  --badge-outline: rgba(74, 222, 128, 0.15);
+  --elevate-1: rgba(74, 222, 128, 0.08);
+  --elevate-2: rgba(74, 222, 128, 0.16);
+
+  --background: 140 40% 3%;
+  --foreground: 140 100% 60%;
+
+  --border: 140 60% 16%;
+
+  --card: 140 35% 5%;
+  --card-foreground: 140 100% 60%;
+  --card-border: 140 60% 16%;
+
+  --sidebar: 140 45% 2%;
+  --sidebar-foreground: 140 100% 60%;
+  --sidebar-border: 140 60% 16%;
+  --sidebar-primary: 140 100% 50%;
+  --sidebar-primary-foreground: 140 40% 3%;
+  --sidebar-accent: 140 50% 12%;
+  --sidebar-accent-foreground: 140 100% 65%;
+  --sidebar-ring: 140 100% 50%;
+
+  --popover: 140 40% 4%;
+  --popover-foreground: 140 100% 60%;
+  --popover-border: 140 60% 16%;
+
+  --primary: 140 100% 50%;
+  --primary-foreground: 140 40% 3%;
+
+  --secondary: 165 90% 40%;
+  --secondary-foreground: 140 40% 3%;
+
+  --muted: 140 30% 10%;
+  --muted-foreground: 140 55% 45%;
+
+  --accent: 140 100% 50%;
+  --accent-foreground: 140 40% 3%;
+
+  --destructive: 0 90% 55%;
+  --destructive-foreground: 140 40% 3%;
+
+  --input: 140 40% 12%;
+  --ring: 140 100% 50%;
+
+  --chart-1: 140 100% 55%;
+  --chart-2: 165 90% 45%;
+  --chart-3: 100 80% 50%;
+  --chart-4: 185 70% 40%;
+  --chart-5: 120 60% 35%;
 }
 
 @layer base {

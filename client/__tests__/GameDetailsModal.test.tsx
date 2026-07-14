@@ -64,6 +64,9 @@ vi.mock("lucide-react", () => ({
   Search: (props: Record<string, unknown>) => <div data-testid="icon-search" {...props} />,
   ThumbsUp: (props: Record<string, unknown>) => <div data-testid="icon-thumbs-up" {...props} />,
   Trash2: (props: Record<string, unknown>) => <div data-testid="icon-trash2" {...props} />,
+  Info: (props: Record<string, unknown>) => <div data-testid="icon-info" {...props} />,
+  Image: (props: Record<string, unknown>) => <div data-testid="icon-image" {...props} />,
+  Link: (props: Record<string, unknown>) => <div data-testid="icon-link" {...props} />,
 }));
 
 vi.mock("react-icons/fa", () => ({

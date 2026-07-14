@@ -123,16 +123,46 @@ describe("Downloader SSRF Protection", () => {
       expect(result.message).toContain("Unsafe URL blocked");
     });
 
-    it("should block unsafe URL in fetchWithMagnetDetection (internal helper)", async () => {
-      // This is harder to test directly as it's private, but we can trigger it via fallback logic
-      // But we already tested the main entry point above.
-      // The fetchWithMagnetDetection is called when fallback is triggered.
-      // If we want to test that specific line, we need to mock isSafeUrl to return true for the first call
-      // but false for the fallback call?
-      // Actually, if we mock isSafeUrl to true initially, we can test the fallback logic.
-      // Let's rely on the main check for now. The Coverage report likely flagged the `if (!isSafeUrl) throw` lines.
-      // The `addDownload` check covers the first one.
-      // There are other checks in `fetchWithMagnetDetection`.
+    it("should block unsafe redirect target inside fetchWithMagnetDetection fallback", async () => {
+      // The initial URL passes isSafeUrl, so addDownload proceeds past the entry check
+      // and falls back to downloading the .torrent file via fetchWithMagnetDetection,
+      // which re-validates the URL before fetching. Simulate that re-check failing
+      // (e.g. a redirect to an internal address) to prove the internal guard works too.
+      (isSafeUrl as Mock).mockResolvedValueOnce(true).mockResolvedValue(false);
+
+      const jsonHeaders = { get: () => null, entries: () => [] };
+      global.fetch = vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url.includes("/api/v2/auth/login")) {
+          return {
+            ok: true,
+            text: async () => "Ok.",
+            headers: { getSetCookie: () => [], get: () => null },
+          } as unknown as Response;
+        }
+        if (url.includes("/api/v2/torrents/add")) {
+          return {
+            ok: true,
+            status: 200,
+            text: async () => "Fails.",
+            headers: jsonHeaders,
+          } as unknown as Response;
+        }
+        if (url.includes("/api/v2/torrents/info")) {
+          return { ok: true, json: async () => [], headers: jsonHeaders } as unknown as Response;
+        }
+        return { ok: true, text: async () => "", headers: jsonHeaders } as unknown as Response;
+      });
+
+      const client = new QBittorrentClient({ ...mockDownloader, type: "qbittorrent" });
+      const result = await client.addDownload({
+        url: "http://redirect-source.com/file.torrent",
+        title: "Redirected Torrent",
+      });
+
+      expect(isSafeUrl).toHaveBeenCalledTimes(2);
+      expect(result.success).toBe(false);
+      expect(result.message).toContain("Unsafe URL blocked");
     });
   });
 

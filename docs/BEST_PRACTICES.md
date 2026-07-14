@@ -70,5 +70,88 @@ Assessed 2026-07-06 against `tsconfig.json`, `eslint.config.js`, and `.github/wo
 - `npm run lint` has no `--max-warnings 0`, so ESLint warnings don't fail CI — only hard
   errors do.
 
+## [dynamic_analysis]
+
+> It is SUGGESTED that at least one dynamic analysis tool be applied to any proposed major
+> production release of the software before its release.
+
+**Status: Met.**
+
+[`.github/workflows/dast.yml`](/.github/workflows/dast.yml) runs an
+[OWASP ZAP](https://www.zaproxy.org/) baseline scan against a live instance of the app:
+
+- Builds the production bundle, boots it on the runner (`npm start`), and waits on
+  `/api/health` before scanning — the same production code path that ships in the Docker
+  image, not a mock target.
+- `zaproxy/action-baseline` spiders the running app and passively checks every response for
+  common runtime issues (missing security headers, verbose error output, cookie flags,
+  outdated libraries, etc.) — varying inputs by construction, satisfying the criterion
+  independent of the project's static coverage numbers.
+- Runs on every push to `main`/`release/*` (so it's applied ahead of any tag cut from those
+  branches) plus a weekly schedule and manual dispatch, mirroring the cadence already used by
+  [vulnerability-scan.yml](/.github/workflows/vulnerability-scan.yml).
+- `fail_action: false` for now: the scan runs unconditionally and its HTML/JSON/MD report is
+  uploaded as the `zap-baseline-report` workflow artifact, but findings don't yet block CI.
+  This is a deliberate first step — a baseline scan on a project this size typically surfaces
+  a batch of informational/low findings (e.g. missing `Content-Security-Policy`) that need
+  triage before the job can enforce a severity gate the way
+  [sast.yml](/.github/workflows/sast.yml) does for Semgrep.
+  Tightening to a blocking gate (tracked as follow-up work) should happen once that triage
+  pass establishes which findings are expected/accepted vs. real.
+
+This is independent of `warnings_strict`'s test-coverage numbers above (branch coverage
+threshold is currently 74%, short of the criterion's 80% automated-test-suite alternative) —
+the ZAP scan satisfies `dynamic_analysis` on its own via the "tool that varies inputs" path,
+regardless of coverage.
+
+## [dynamic_analysis_enable_assertions]
+
+> It is SUGGESTED that the project use a configuration for at least some dynamic analysis
+> (such as testing or fuzzing) which enables many assertions. In many cases these assertions
+> should _not_ be enabled in production builds.
+
+**Status: Met.**
+
+Questarr's dynamic analysis is its Vitest suite (`server/__tests__/`, `client/__tests__/`),
+which is nothing but assertions — `expect()` calls that fail the run the moment observed
+behavior diverges from expected behavior:
+
+- 4,088+ `expect()` assertions across 153 test files (3,040 in `server/__tests__/`, 1,048 in
+  `client/__tests__/`) as of 2026-07-14, run on every push via the `build` job in
+  [`ci.yml`](/.github/workflows/ci.yml) (`npm test -- --coverage`).
+- This is the JS/TS analogue of the C/C++ `NDEBUG` concern the criterion warns about:
+  `vitest` and `supertest` are `devDependencies` only (never `dependencies`) in
+  `package.json`, and the production Docker image runs `npm prune --omit=dev`
+  ([`Dockerfile`](/Dockerfile)) before copying in the built `dist/` output — so the assertion
+  layer is structurally excluded from what ships, not just conventionally disabled.
+- There is no runtime `assert()`-equivalent left enabled in shipped code either: neither
+  `server/` nor `shared/` import Node's `assert` module outside of test files, so there's
+  nothing production-side that could throw on an assertion failure or leak internal state
+  the way the criterion warns about.
+- This is distinct from the request-input validation Questarr _does_ run in production
+  (express-validator, Zod schemas in `shared/schema.ts`) — that's boundary validation of
+  untrusted input, not the test-only correctness assertions this criterion is about.
+
+## [dynamic_analysis_fixed]
+
+> All medium and higher severity exploitable vulnerabilities discovered with dynamic code
+> analysis MUST be fixed in a timely way after they are confirmed.
+
+**Status: Met** — process defined, no findings yet to test it against.
+
+Full policy: [`docs/VULNERABILITY_MANAGEMENT.md` §3](/docs/VULNERABILITY_MANAGEMENT.md#3-dynamic-application-security-testing-dast).
+
+- §3.2 commits to a remediation SLA for every ZAP `High`/`Medium` finding (the criterion's
+  "medium or higher" bar) — 30 and 90 days respectively, matching the SLA already applied to
+  SCA (§1.2) and SAST (§2.2) findings in the same document.
+- The `dast.yml` workflow this policy covers ([`dynamic_analysis`](#dynamic_analysis) above)
+  only merged as of this revision, so as of 2026-07-14 no scan has yet run to completion
+  against `main` and no High/Medium finding has been confirmed — there is nothing to have
+  fixed yet, not an unaddressed backlog. §3.3 records this explicitly rather than silently
+  omitting it.
+- §3.4 tracks the two gaps that keep this from being a fully-enforced pipeline yet
+  (`fail_action` still `false`, findings not yet issue-tracked); revisit this entry once the
+  first confirmed finding exercises the SLA in practice.
+
 **Update policy:** revisit each entry when the underlying tooling changes, or roughly every
 6 months to keep the 2-12 month evidence windows current.

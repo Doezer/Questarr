@@ -9,6 +9,8 @@ Migration note:
 - The `PORT` variable in `docker-compose.yml` has been split into two: `HOST_SIDE_PORT` (host-side binding, default `5000`) and `CONTAINER_INTERNAL_SIDE_PORT` (internal container port, default `5000`). If you had `PORT` set in your `.env` to customize the host port, rename it to `HOST_SIDE_PORT`.
 - With Post-processing, don't forget to add your volume mapping to the docker compose file.
 
+An easter egg has been added to the app; shouldn't be too hard to find if you think about the very famous easter eggs in gaming! Let me know what you think.
+
 ### Added
 
 - **Post-Processing Pipeline**: Added an automated post-processing pipeline that handles unpacking and organizing files after a download completes (#583)

@@ -354,6 +354,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
             "https://staticdelivery.nexusmods.com",
           ],
           "connect-src": connectSrc,
+          // Narrower than helmet's defaults (which allow any "https:" origin): fonts and
+          // styles are all self-hosted (@fontsource-variable, Tailwind), so there's no
+          // third-party font/style CDN to allow for.
+          "font-src": ["'self'", "data:"],
+          "style-src": ["'self'", "'unsafe-inline'"],
           "upgrade-insecure-requests": isSslEnabled ? [] : null,
         },
       },
@@ -361,6 +366,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
     })
   );
+  // Permissions-Policy: helmet dropped built-in support (spec churn), so set it directly.
+  // Questarr uses none of these browser APIs; deny them by default for every response.
+  app.use((_req, res, next) => {
+    res.setHeader(
+      "Permissions-Policy",
+      "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()"
+    );
+    next();
+  });
   // Use Steam Routes
   app.use(steamRoutes);
   // Use PCGamingWiki Routes

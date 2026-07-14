@@ -1,0 +1,11 @@
+# ZAP baseline scan alert-level overrides for Questarr.
+# Format: <rule id>	<PASS|IGNORE|INFO|WARN|FAIL>	<comment>
+# (fields are tab-separated; see zap_common.py's load_config for the parser)
+#
+# Each entry below is a specific alert reviewed and accepted per the
+# remediation process in docs/VULNERABILITY_MANAGEMENT.md §3.2 item 2 --
+# do not add an entry here without a reviewed reason recorded alongside it.
+
+10049	IGNORE	Storable but Non-Cacheable Content: fires on static SPA assets (index.html, robots.txt, sitemap.xml) served with standard cache headers. Not exploitable; no user-controlled or sensitive content involved.
+10109	IGNORE	Modern Web Application: informational-only rule that flags SPA characteristics (client-side routing, fetch-based APIs). Not a vulnerability.
+90004	IGNORE	Cross-Origin-Embedder-Policy Header Missing: accepted risk, not fixed. Enabling COEP (require-corp) would block cross-origin image loading from the IGDB and NexusMods CDNs, which Questarr does not control and which don't set Cross-Origin-Resource-Policy/CORS headers for this. See docs/SECURITY_ASSESSMENT.md, "CORS/CSP/HSTS posture" row.

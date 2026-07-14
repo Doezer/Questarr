@@ -90,14 +90,12 @@ Assessed 2026-07-06 against `tsconfig.json`, `eslint.config.js`, and `.github/wo
 - Runs on every push to `main`/`release/*` (so it's applied ahead of any tag cut from those
   branches) plus a weekly schedule and manual dispatch, mirroring the cadence already used by
   [vulnerability-scan.yml](/.github/workflows/vulnerability-scan.yml).
-- `fail_action: false` for now: the scan runs unconditionally and its HTML/JSON/MD report is
-  uploaded as the `zap-baseline-report` workflow artifact, but findings don't yet block CI.
-  This is a deliberate first step — a baseline scan on a project this size typically surfaces
-  a batch of informational/low findings (e.g. missing `Content-Security-Policy`) that need
-  triage before the job can enforce a severity gate the way
-  [sast.yml](/.github/workflows/sast.yml) does for Semgrep.
-  Tightening to a blocking gate (tracked as follow-up work) should happen once that triage
-  pass establishes which findings are expected/accepted vs. real.
+- `fail_action: true`, `rules_file_name: .zap/rules.tsv`: blocking, matching the gate
+  [sast.yml](/.github/workflows/sast.yml) already has for Semgrep. This was intentionally
+  report-only (`fail_action: false`) for the very first run so a real scan — not a guess —
+  could establish which findings were expected/accepted vs. real; see
+  [`dynamic_analysis_fixed`](#dynamic_analysis_fixed) below for that run's results and what
+  changed as a result.
 
 This is independent of `warnings_strict`'s test-coverage numbers above (branch coverage
 threshold is currently 74%, short of the criterion's 80% automated-test-suite alternative) —
@@ -137,21 +135,27 @@ behavior diverges from expected behavior:
 > All medium and higher severity exploitable vulnerabilities discovered with dynamic code
 > analysis MUST be fixed in a timely way after they are confirmed.
 
-**Status: Met** — process defined, no findings yet to test it against.
+**Status: Met.**
 
-Full policy: [`docs/VULNERABILITY_MANAGEMENT.md` §3](/docs/VULNERABILITY_MANAGEMENT.md#3-dynamic-application-security-testing-dast).
+Full policy and results table: [`docs/VULNERABILITY_MANAGEMENT.md` §3.3](/docs/VULNERABILITY_MANAGEMENT.md#33-first-scan-and-current-enforcement-status).
 
-- §3.2 commits to a remediation SLA for every ZAP `High`/`Medium` finding (the criterion's
-  "medium or higher" bar) — 30 and 90 days respectively, matching the SLA already applied to
-  SCA (§1.2) and SAST (§2.2) findings in the same document.
-- The `dast.yml` workflow this policy covers ([`dynamic_analysis`](#dynamic_analysis) above)
-  only merged as of this revision, so as of 2026-07-14 no scan has yet run to completion
-  against `main` and no High/Medium finding has been confirmed — there is nothing to have
-  fixed yet, not an unaddressed backlog. §3.3 records this explicitly rather than silently
-  omitting it.
-- §3.4 tracks the two gaps that keep this from being a fully-enforced pipeline yet
-  (`fail_action` still `false`, findings not yet issue-tracked); revisit this entry once the
-  first confirmed finding exercises the SLA in practice.
+- The first completed `dast.yml` run (2026-07-14, from the merge that introduced this
+  workflow) found 0 High-severity (`FAIL-NEW`) alerts and 5 lower-severity ones, of which one
+  (`CSP: Wildcard Directive`, ZAP-rated Medium) met this criterion's "medium or higher" bar.
+- That finding was fixed the same day it was confirmed, not left to run out §3.2's 90-day SLA:
+  Helmet's default `font-src`/`style-src` permit any `https:` origin, which is broader than
+  Questarr needs since fonts/styles are all self-hosted; both are now scoped to `'self'`
+  (`server/routes.ts:326-337`). A second, Low-severity finding (missing `Permissions-Policy`)
+  was fixed alongside it as a quick win even though it didn't need to be under the SLA.
+- The remaining three findings (all Low/Informational, none crossing the "medium or higher"
+  bar this criterion sets) were reviewed and explicitly accepted with reasoning recorded in
+  [`.zap/rules.tsv`](/.zap/rules.tsv) and, for the one with real security tradeoffs (disabling
+  Cross-Origin-Embedder-Policy would break cross-origin IGDB/NexusMods image loading), in the
+  [`docs/SECURITY_ASSESSMENT.md`](/docs/SECURITY_ASSESSMENT.md) risk register — the accept-risk
+  path §3.2 defines, not a silently ignored finding.
+- With triage complete, `dast.yml` now runs with `fail_action: true`, so this is no longer a
+  one-time check — any _new_ medium+ finding on a future scan fails the build immediately,
+  which is what demonstrates ongoing compliance with this criterion going forward.
 
 **Update policy:** revisit each entry when the underlying tooling changes, or roughly every
 6 months to keep the 2-12 month evidence windows current.

@@ -71,15 +71,18 @@ jobs:
 
       # Unauthenticated baseline scan: spiders the app and passively checks
       # responses for common issues (missing security headers, verbose
-      # errors, cookie flags, etc.). Report-only for now (fail_action:
-      # false) while a baseline of expected findings is established; see
-      # docs/BEST_PRACTICES.md [dynamic_analysis] for the plan to tighten
-      # this once that baseline exists.
+      # errors, cookie flags, etc.). Blocking as of the first completed run
+      # (2026-07-14): that run had 0 FAIL-level alerts and 5 WARN-level
+      # alerts, all since either fixed (server/routes.ts CSP/Permissions-
+      # Policy) or explicitly accepted in .zap/rules.tsv. See
+      # docs/VULNERABILITY_MANAGEMENT.md §3 and docs/BEST_PRACTICES.md
+      # [dynamic_analysis_fixed] for the findings and remediation record.
       - name: Run OWASP ZAP baseline scan
         uses: zaproxy/action-baseline@de8ad967d3548d44ef623df22cf95c3b0baf8b25 # v0.15.0
         with:
           target: "http://localhost:5000"
-          fail_action: false
+          rules_file_name: ".zap/rules.tsv"
+          fail_action: true
           allow_issue_writing: false
           artifact_name: "zap-baseline-report"
 

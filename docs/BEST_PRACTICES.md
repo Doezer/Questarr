@@ -132,5 +132,26 @@ behavior diverges from expected behavior:
   (express-validator, Zod schemas in `shared/schema.ts`) — that's boundary validation of
   untrusted input, not the test-only correctness assertions this criterion is about.
 
+## [dynamic_analysis_fixed]
+
+> All medium and higher severity exploitable vulnerabilities discovered with dynamic code
+> analysis MUST be fixed in a timely way after they are confirmed.
+
+**Status: Met** — process defined, no findings yet to test it against.
+
+Full policy: [`docs/VULNERABILITY_MANAGEMENT.md` §3](/docs/VULNERABILITY_MANAGEMENT.md#3-dynamic-application-security-testing-dast).
+
+- §3.2 commits to a remediation SLA for every ZAP `High`/`Medium` finding (the criterion's
+  "medium or higher" bar) — 30 and 90 days respectively, matching the SLA already applied to
+  SCA (§1.2) and SAST (§2.2) findings in the same document.
+- The `dast.yml` workflow this policy covers ([`dynamic_analysis`](#dynamic_analysis) above)
+  only merged as of this revision, so as of 2026-07-14 no scan has yet run to completion
+  against `main` and no High/Medium finding has been confirmed — there is nothing to have
+  fixed yet, not an unaddressed backlog. §3.3 records this explicitly rather than silently
+  omitting it.
+- §3.4 tracks the two gaps that keep this from being a fully-enforced pipeline yet
+  (`fail_action` still `false`, findings not yet issue-tracked); revisit this entry once the
+  first confirmed finding exercises the SLA in practice.
+
 **Update policy:** revisit each entry when the underlying tooling changes, or roughly every
 6 months to keep the 2-12 month evidence windows current.

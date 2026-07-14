@@ -104,5 +104,33 @@ threshold is currently 74%, short of the criterion's 80% automated-test-suite al
 the ZAP scan satisfies `dynamic_analysis` on its own via the "tool that varies inputs" path,
 regardless of coverage.
 
+## [dynamic_analysis_enable_assertions]
+
+> It is SUGGESTED that the project use a configuration for at least some dynamic analysis
+> (such as testing or fuzzing) which enables many assertions. In many cases these assertions
+> should _not_ be enabled in production builds.
+
+**Status: Met.**
+
+Questarr's dynamic analysis is its Vitest suite (`server/__tests__/`, `client/__tests__/`),
+which is nothing but assertions — `expect()` calls that fail the run the moment observed
+behavior diverges from expected behavior:
+
+- 4,088+ `expect()` assertions across 153 test files (3,040 in `server/__tests__/`, 1,048 in
+  `client/__tests__/`) as of 2026-07-14, run on every push via the `build` job in
+  [`ci.yml`](/.github/workflows/ci.yml) (`npm test -- --coverage`).
+- This is the JS/TS analogue of the C/C++ `NDEBUG` concern the criterion warns about:
+  `vitest` and `supertest` are `devDependencies` only (never `dependencies`) in
+  `package.json`, and the production Docker image runs `npm prune --omit=dev`
+  ([`Dockerfile`](/Dockerfile)) before copying in the built `dist/` output — so the assertion
+  layer is structurally excluded from what ships, not just conventionally disabled.
+- There is no runtime `assert()`-equivalent left enabled in shipped code either: neither
+  `server/` nor `shared/` import Node's `assert` module outside of test files, so there's
+  nothing production-side that could throw on an assertion failure or leak internal state
+  the way the criterion warns about.
+- This is distinct from the request-input validation Questarr _does_ run in production
+  (express-validator, Zod schemas in `shared/schema.ts`) — that's boundary validation of
+  untrusted input, not the test-only correctness assertions this criterion is about.
+
 **Update policy:** revisit each entry when the underlying tooling changes, or roughly every
 6 months to keep the 2-12 month evidence windows current.

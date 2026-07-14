@@ -51,6 +51,9 @@ import {
   Building2,
   ThumbsUp,
   FlaskConical,
+  Info,
+  Image,
+  Link,
 } from "lucide-react";
 import { FaSteam, FaRedditAlien, FaDiscord, FaWikipediaW, FaTwitch } from "react-icons/fa";
 import {
@@ -746,32 +749,62 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
           {/* ── Tabs ── */}
           <Tabs defaultValue="overview" className="flex-1 flex flex-col min-h-0 mt-4">
             <TabsList className="flex-shrink-0 w-full justify-start overflow-x-auto">
-              <TabsTrigger value="overview">Overview</TabsTrigger>
-              <TabsTrigger value="downloads">
-                Downloads
-                {gameDownloads.length > 0 && (
-                  <Badge variant="secondary" className="ml-1.5 px-1.5 py-0 text-xs">
-                    {gameDownloads.length}
-                  </Badge>
-                )}
-              </TabsTrigger>
-              <TabsTrigger value="media">
-                Media
-                {game.screenshots && game.screenshots.length > 0 && (
-                  <Badge variant="secondary" className="ml-1.5 px-1.5 py-0 text-xs">
-                    {game.screenshots.length}
-                  </Badge>
-                )}
-              </TabsTrigger>
-              <TabsTrigger value="links">
-                <span className="sm:hidden">Links</span>
-                <span className="hidden sm:inline">Links &amp; Ratings</span>
-              </TabsTrigger>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <TabsTrigger value="overview" aria-label="Overview" className="gap-1.5">
+                    <Info className="h-3.5 w-3.5 sm:hidden" />
+                    <span className="hidden sm:inline">Overview</span>
+                  </TabsTrigger>
+                </TooltipTrigger>
+                <TooltipContent className="sm:hidden">Overview</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <TabsTrigger value="downloads" aria-label="Downloads" className="gap-1.5">
+                    <Download className="h-3.5 w-3.5 sm:hidden" />
+                    <span className="hidden sm:inline">Downloads</span>
+                    {gameDownloads.length > 0 && (
+                      <Badge variant="secondary" className="ml-0.5 px-1.5 py-0 text-xs">
+                        {gameDownloads.length}
+                      </Badge>
+                    )}
+                  </TabsTrigger>
+                </TooltipTrigger>
+                <TooltipContent className="sm:hidden">Downloads</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <TabsTrigger value="media" aria-label="Media" className="gap-1.5">
+                    <Image className="h-3.5 w-3.5 sm:hidden" />
+                    <span className="hidden sm:inline">Media</span>
+                    {game.screenshots && game.screenshots.length > 0 && (
+                      <Badge variant="secondary" className="ml-0.5 px-1.5 py-0 text-xs">
+                        {game.screenshots.length}
+                      </Badge>
+                    )}
+                  </TabsTrigger>
+                </TooltipTrigger>
+                <TooltipContent className="sm:hidden">Media</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <TabsTrigger value="links" aria-label="Links & Ratings" className="gap-1.5">
+                    <Link className="h-3.5 w-3.5 sm:hidden" />
+                    <span className="hidden sm:inline">Links &amp; Ratings</span>
+                  </TabsTrigger>
+                </TooltipTrigger>
+                <TooltipContent className="sm:hidden">Links &amp; Ratings</TooltipContent>
+              </Tooltip>
               {nexusDomain && (
-                <TabsTrigger value="mods">
-                  <NexusModsIcon className="h-3.5 w-3.5 text-amber-500 mr-1" />
-                  Mods
-                </TabsTrigger>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <TabsTrigger value="mods" aria-label="Mods" className="gap-1.5">
+                      <NexusModsIcon className="h-3.5 w-3.5 text-amber-500 sm:mr-1" />
+                      <span className="hidden sm:inline">Mods</span>
+                    </TabsTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent className="sm:hidden">Mods</TooltipContent>
+                </Tooltip>
               )}
             </TabsList>
 

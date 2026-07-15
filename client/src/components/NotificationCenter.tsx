@@ -4,6 +4,7 @@ import { Bell, CheckCheck, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { NotificationItem } from "./NotificationItem";
 import { Notification, Game } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
@@ -164,28 +165,40 @@ export function NotificationCenter() {
           <div className="flex items-center justify-between p-4 border-b">
             <h4 className="font-semibold leading-none">Notifications</h4>
             <div className="flex gap-1">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                title="Mark all as read"
-                aria-label="Mark all notifications as read"
-                onClick={() => markAllAsReadMutation.mutate()}
-                disabled={unreadCount === 0}
-              >
-                <CheckCheck className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 text-destructive hover:text-destructive"
-                title="Clear all"
-                aria-label="Clear all notifications"
-                onClick={() => clearAllMutation.mutate()}
-                disabled={notifications.length === 0}
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    aria-label="Mark all notifications as read"
+                    onClick={() => markAllAsReadMutation.mutate()}
+                    disabled={unreadCount === 0}
+                  >
+                    <CheckCheck className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Mark all as read</p>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-destructive hover:text-destructive"
+                    aria-label="Clear all notifications"
+                    onClick={() => clearAllMutation.mutate()}
+                    disabled={notifications.length === 0}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Clear all</p>
+                </TooltipContent>
+              </Tooltip>
             </div>
           </div>
           <ScrollArea className="h-[600px]">

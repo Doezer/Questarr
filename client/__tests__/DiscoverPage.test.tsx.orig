@@ -104,8 +104,8 @@ describe("DiscoverPage", () => {
     ];
     // Override the mock temporarily for this test to hit all logic branches
     vi.mocked(apiRequest).mockImplementation((method: string, url: string) => {
-      // Specifically mock the includeHidden=true route again
-      if (url.includes("/api/games?includeHidden=true")) {
+      // Mock multiple routes to hit more coverage
+      if (url.includes("/api/games")) {
         return Promise.resolve({ json: async () => games }) as any;
       }
       return Promise.resolve({ json: async () => ({ configured: true }) }) as any;

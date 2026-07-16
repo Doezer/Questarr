@@ -12,6 +12,7 @@
 
 **Learning:** When adding context-rich ARIA labels to parent interactive elements (like a button or anchor tag), the ARIA label completely overrides the text content of its children for screen readers. However, marking all children (including visual text) as hidden from ARIA is an anti-pattern that can cause some screen readers to treat the element as empty or skip it.
 **Action:** When adding an ARIA label to a parent interactive element, only mark purely decorative elements (like icons) as hidden. Do not apply aria-hidden to visual text spans inside the interactive element.
+
 ## 2026-07-15 - UI Tooltips over Native Titles
 
 **Learning:** Native `title` attributes on icon-only buttons suffer from unpredictable delay and poor visual integration compared to UI tooltips.

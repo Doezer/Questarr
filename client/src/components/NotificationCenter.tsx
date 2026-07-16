@@ -167,16 +167,18 @@ export function NotificationCenter() {
             <div className="flex gap-1">
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    aria-label="Mark all notifications as read"
-                    onClick={() => markAllAsReadMutation.mutate()}
-                    disabled={unreadCount === 0}
-                  >
-                    <CheckCheck className="h-4 w-4" />
-                  </Button>
+                  <span className="inline-block" tabIndex={unreadCount === 0 ? 0 : undefined}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      aria-label="Mark all notifications as read"
+                      onClick={() => markAllAsReadMutation.mutate()}
+                      disabled={unreadCount === 0}
+                    >
+                      <CheckCheck className="h-4 w-4" />
+                    </Button>
+                  </span>
                 </TooltipTrigger>
                 <TooltipContent>
                   <p>Mark all as read</p>
@@ -184,16 +186,21 @@ export function NotificationCenter() {
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-destructive hover:text-destructive"
-                    aria-label="Clear all notifications"
-                    onClick={() => clearAllMutation.mutate()}
-                    disabled={notifications.length === 0}
+                  <span
+                    className="inline-block"
+                    tabIndex={notifications.length === 0 ? 0 : undefined}
                   >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-destructive hover:text-destructive"
+                      aria-label="Clear all notifications"
+                      onClick={() => clearAllMutation.mutate()}
+                      disabled={notifications.length === 0}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </span>
                 </TooltipTrigger>
                 <TooltipContent>
                   <p>Clear all</p>

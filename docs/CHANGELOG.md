@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.4.0] - 2026-07-13
+## [1.4.0] - 2026-07-16
 
 Migration note:
 

@@ -167,7 +167,9 @@ Full policy and results table: [`docs/VULNERABILITY_MANAGEMENT.md` §3.3](/docs/
   same plugin as the wildcard-directive finding fixed above, but a different check under it).
   It was triaged the same way — Low risk, a documented functional tradeoff (removing it would
   break components that render real inline styles), added to `.zap/rules.tsv` with that
-  reasoning — rather than left red or silently suppressed. See §3.3 for the full record.
+  reasoning — rather than left red or silently suppressed. See
+  [§3.3](/docs/VULNERABILITY_MANAGEMENT.md#33-first-scan-and-current-enforcement-status) for
+  the full record.
 
 **Update policy:** revisit each entry when the underlying tooling changes, or roughly every
 6 months to keep the 2-12 month evidence windows current.

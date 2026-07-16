@@ -140,6 +140,9 @@ describe("Security Headers", () => {
     mockConfig.server.isProduction = true;
     const app = await createApp();
     const response = await request(app).get("/api/auth/status");
+
+    expect(response.status).toBe(200);
+    expect(response.headers["content-security-policy"]).toBeDefined();
     const csp = response.headers["content-security-policy"] as string;
 
     for (const directive of csp.split(";")) {

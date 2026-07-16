@@ -162,6 +162,12 @@ Full policy and results table: [`docs/VULNERABILITY_MANAGEMENT.md` §3.3](/docs/
   the accepted Low/Informational findings from recurring as false failures). That's stricter
   than this criterion's "medium or higher" bar requires, which is what demonstrates ongoing
   compliance with it going forward.
+- This isn't theoretical: the gate's first two post-triage runs (2026-07-14/15) both failed on
+  a real, previously-unassessed alert (`CSP: style-src unsafe-inline`, ZAP rule 10055 — the
+  same plugin as the wildcard-directive finding fixed above, but a different check under it).
+  It was triaged the same way — Low risk, a documented functional tradeoff (removing it would
+  break components that render real inline styles), added to `.zap/rules.tsv` with that
+  reasoning — rather than left red or silently suppressed. See §3.3 for the full record.
 
 **Update policy:** revisit each entry when the underlying tooling changes, or roughly every
 6 months to keep the 2-12 month evidence windows current.

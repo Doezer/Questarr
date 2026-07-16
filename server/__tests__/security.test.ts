@@ -125,6 +125,34 @@ describe("Security Headers", () => {
     expect(csp).toContain("https://images.igdb.com");
   });
 
+  // ZAP's baseline scan flags a bare scheme (e.g. "https:") in any directive as a
+  // wildcard-directive alert (rule 10055) -- it permits loading from *any* host on that
+  // scheme. This was fixed once already (font-src/style-src inherited it from helmet's
+  // defaults); .zap/rules.tsv now also IGNOREs a *different* alert under the same plugin
+  // ID (style-src unsafe-inline, kept deliberately -- see docs/SECURITY_ASSESSMENT.md),
+  // and ZAP's IGNORE granularity is per-plugin, not per-alert, so a regression of the
+  // wildcard-directive issue specifically would no longer fail the DAST scan. This test
+  // is the compensating control for that gap.
+  it("should not reintroduce a bare scheme wildcard into any CSP directive", async () => {
+    // Production mode is what dast.yml actually scans; dev mode legitimately adds "ws:"/
+    // "wss:" to connect-src for Vite HMR, which isn't the wildcard pattern being guarded
+    // against here.
+    mockConfig.server.isProduction = true;
+    const app = await createApp();
+    const response = await request(app).get("/api/auth/status");
+
+    expect(response.status).toBe(200);
+    expect(response.headers["content-security-policy"]).toBeDefined();
+    const csp = response.headers["content-security-policy"] as string;
+
+    for (const directive of csp.split(";")) {
+      const values = directive.trim().split(/\s+/).slice(1);
+      for (const value of values) {
+        expect(value).not.toMatch(/^(https?|ftp):$/);
+      }
+    }
+  });
+
   it.each([
     ["x-frame-options", "SAMEORIGIN"],
     ["x-content-type-options", "nosniff"],

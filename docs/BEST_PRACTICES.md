@@ -91,11 +91,9 @@ Assessed 2026-07-06 against `tsconfig.json`, `eslint.config.js`, and `.github/wo
   branches) plus a weekly schedule and manual dispatch, mirroring the cadence already used by
   [vulnerability-scan.yml](/.github/workflows/vulnerability-scan.yml).
 - `fail_action: true`, `rules_file_name: .zap/rules.tsv`: blocking, matching the gate
-  [sast.yml](/.github/workflows/sast.yml) already has for Semgrep. This was intentionally
-  report-only (`fail_action: false`) for the very first run so a real scan — not a guess —
-  could establish which findings were expected/accepted vs. real; see
-  [`dynamic_analysis_fixed`](#dynamic_analysis_fixed) below for that run's results and what
-  changed as a result.
+  [sast.yml](/.github/workflows/sast.yml) already has for Semgrep. See
+  [`dynamic_analysis_fixed`](#dynamic_analysis_fixed) below for current findings and their
+  disposition.
 
 This is independent of `warnings_strict`'s test-coverage numbers above (branch coverage
 threshold is currently 74%, short of the criterion's 80% automated-test-suite alternative) —
@@ -139,29 +137,21 @@ behavior diverges from expected behavior:
 
 Full policy and results table: [`docs/VULNERABILITY_MANAGEMENT.md` §3.3](/docs/VULNERABILITY_MANAGEMENT.md#33-first-scan-and-current-enforcement-status).
 
-- The first completed `dast.yml` run (2026-07-14, from the merge that introduced this
-  workflow) found 0 High-severity (`FAIL-NEW`) alerts and 5 lower-severity ones, of which one
-  (`CSP: Wildcard Directive`, ZAP-rated Medium) met this criterion's "medium or higher" bar.
-- That finding was fixed the same day it was confirmed, not left to run out §3.2's 90-day SLA:
-  Helmet's default `font-src`/`style-src` permit any `https:` origin, which is broader than
-  Questarr needs since fonts/styles are all self-hosted; both are now scoped to `'self'`
-  (plus `data:` for fonts, and `'unsafe-inline'` still kept for styles — several components
-  render real inline `style="..."` attributes, so removing it would break rendering, not just
-  tighten policy) (`server/routes.ts:360-361`). A second, Low-severity finding (missing
-  `Permissions-Policy`)
-  was fixed alongside it as a quick win even though it didn't need to be under the SLA.
-- The remaining three findings (all Low/Informational, none crossing the "medium or higher"
-  bar this criterion sets) were reviewed and explicitly accepted with reasoning recorded in
-  [`.zap/rules.tsv`](/.zap/rules.tsv) and, for the one with real security tradeoffs (disabling
-  Cross-Origin-Embedder-Policy would break cross-origin IGDB/NexusMods image loading), in the
-  [`docs/SECURITY_ASSESSMENT.md`](/docs/SECURITY_ASSESSMENT.md) risk register — the accept-risk
-  path §3.2 defines, not a silently ignored finding.
-- With triage complete, `dast.yml` now runs with `fail_action: true`, so this is no longer a
-  one-time check — any new, unignored WARN or FAIL alert on a future scan fails the build
-  immediately (ZAP doesn't distinguish severity for this gate; `.zap/rules.tsv` is what keeps
-  the accepted Low/Informational findings from recurring as false failures). That's stricter
-  than this criterion's "medium or higher" bar requires, which is what demonstrates ongoing
-  compliance with it going forward.
+- `dast.yml` runs with `fail_action: true`: any unignored WARN or FAIL alert fails the build,
+  stricter than this criterion's "medium or higher" bar.
+- The one Medium-severity finding to date (`CSP: Wildcard Directive`) is fixed, not merely
+  accepted: `font-src`/`style-src` are scoped to `'self'` rather than Helmet's default
+  `https:` wildcard (`server/routes.ts:360-361`).
+- Three Low/Informational findings are accepted with reasoning recorded in
+  [`.zap/rules.tsv`](/.zap/rules.tsv), and, for the one with a real security tradeoff (COEP), in
+  the [`docs/SECURITY_ASSESSMENT.md`](/docs/SECURITY_ASSESSMENT.md) risk register per the
+  accept-risk path §3.2 defines.
+- One finding (`CSP: style-src unsafe-inline`) shares a ZAP plugin ID with the fixed
+  wildcard-directive check, so its `.zap/rules.tsv` entry also suppresses that check's DAST
+  coverage; a dedicated Vitest assertion
+  (`server/__tests__/security.test.ts`) covers that regression instead. See
+  [§3.3](/docs/VULNERABILITY_MANAGEMENT.md#33-first-scan-and-current-enforcement-status) for
+  the full results table and reasoning.
 
 **Update policy:** revisit each entry when the underlying tooling changes, or roughly every
 6 months to keep the 2-12 month evidence windows current.

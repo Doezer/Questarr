@@ -33,12 +33,12 @@ RUN apk add --no-cache su-exec shadow python3 py3-pip && \
 # Reuse node_modules from base and prune dev dependencies (avoids a second npm ci)
 COPY --from=base /app/node_modules ./node_modules
 COPY package*.json ./
-RUN npm prune --omit=dev
 
-# npm's tarball extraction doesn't reliably preserve the executable bit on
-# package-bundled binaries, so 7zip-bin's 7za can land non-executable and
-# fail extraction with EACCES at runtime. Force it explicitly.
-RUN find node_modules/7zip-bin -type f -name "7z*" -exec chmod +x {} +
+# npm's tarball extraction doesn't reliably preserve the executable bit on  
+# package-bundled binaries, so 7zip-bin's 7za can land non-executable and  
+# fail extraction with EACCES at runtime. Force it explicitly.  
+RUN npm prune --omit=dev && \  
+    find node_modules/7zip-bin -type f -name "7z*" -exec chmod +x {} +  
 
 # Copy necessary files from build stage
 COPY --from=builder /app/dist ./dist

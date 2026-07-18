@@ -191,6 +191,7 @@ export default function SettingsPage() {
   const [preferredPlatform, setPreferredPlatform] = useState<string>("");
   const [xrelSceneReleases, setXrelSceneReleases] = useState(true);
   const [xrelP2pReleases, setXrelP2pReleases] = useState(false);
+  const [hideAdultContent, setHideAdultContent] = useState(true);
   const [xrelApiBase, setXrelApiBase] = useState("");
   const [discordWebhookUrl, setDiscordWebhookUrl] = useState("");
   const [showDiscordWebhook, setShowDiscordWebhook] = useState(false);
@@ -242,6 +243,7 @@ export default function SettingsPage() {
       setXrelP2pReleases(userSettings.xrelP2pReleases ?? false);
       setSteamSyncEnabled(userSettings.steamSyncEnabled ?? false);
       setSteamSyncIntervalHours(userSettings.steamSyncIntervalHours ?? 24);
+      setHideAdultContent(userSettings.hideAdultContent ?? true);
       settingsLoadedRef.current = true;
     }
     if (config?.xrel?.apiBase !== undefined) {
@@ -702,6 +704,15 @@ export default function SettingsPage() {
     });
   };
 
+  const handleSaveContentFilter = () => {
+    updateSettingsMutation.mutate({
+      updates: {
+        hideAdultContent,
+      },
+      successMessage: "Content filtering preferences have been saved.",
+    });
+  };
+
   const handleSaveAdvanced = () => {
     updateAdvancedSettingsMutation.mutate({
       updates: {
@@ -1047,6 +1058,56 @@ export default function SettingsPage() {
                       <>
                         <Download className="h-4 w-4" />
                         Save Auto-Search
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Content Filtering */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center space-x-3">
+                  <EyeOff className="h-5 w-5 text-muted-foreground" />
+                  <CardTitle className="text-lg">Content Filtering</CardTitle>
+                </div>
+                <CardDescription>
+                  Control which games appear in your library and discovery results
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="hide-adult-content" className="text-sm font-medium">
+                      Hide adult content
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Hide games flagged as erotic or adults-only from your library, search, and
+                      discovery pages
+                    </p>
+                  </div>
+                  <Switch
+                    id="hide-adult-content"
+                    checked={hideAdultContent}
+                    onCheckedChange={setHideAdultContent}
+                  />
+                </div>
+                <div className="flex justify-end pt-4 border-t">
+                  <Button
+                    onClick={handleSaveContentFilter}
+                    disabled={updateSettingsMutation.isPending}
+                    className="gap-2"
+                  >
+                    {updateSettingsMutation.isPending ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <EyeOff className="h-4 w-4" />
+                        Save Content Filtering
                       </>
                     )}
                   </Button>

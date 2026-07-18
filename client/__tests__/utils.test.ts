@@ -91,6 +91,7 @@ describe("mapGameToInsertGame", () => {
       source: "api",
       status: "wanted",
       hidden: undefined,
+      isAdultContent: undefined,
       earlyAccess: undefined,
     });
 
@@ -103,12 +104,14 @@ describe("mapGameToInsertGame", () => {
       rating: 9,
       platforms: ["PC"],
       genres: ["Action"],
+      themes: undefined,
       screenshots: ["shot"],
       igdbWebsites: ["site"],
       aggregatedRating: 88,
       source: "api",
       status: "wanted",
       hidden: false,
+      isAdultContent: false,
       earlyAccess: false,
     });
   });

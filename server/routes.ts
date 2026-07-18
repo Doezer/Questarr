@@ -104,8 +104,9 @@ import { systemRouter } from "./routes/system.js";
 import { pcgamingwikiRouter } from "./pcgamingwiki-router.js";
 
 // Cache-Control header values for IGDB discovery endpoints
-const CC_IGDB_GAME_LIST = "public, max-age=3600, stale-while-revalidate=600";
 const CC_IGDB_METADATA = "public, max-age=86400, stale-while-revalidate=3600";
+// Adult-content filtering makes game-list responses vary per user, so they must not be shared-cacheable
+const CC_IGDB_GAME_LIST_PRIVATE = "private, max-age=3600, stale-while-revalidate=600";
 
 // ⚡ Bolt: Simple in-memory cache implementation to avoid external dependencies
 // Caches storage info for 30 seconds to prevent spamming downloaders
@@ -318,6 +319,15 @@ function validatePaginationParams(query: { limit?: string; offset?: string }): {
   const limit = Math.min(Math.max(1, Number.parseInt(query.limit as string, 10) || 20), 100);
   const offset = Math.max(0, Number.parseInt(query.offset as string, 10) || 0);
   return { limit, offset };
+}
+
+async function shouldHideAdultContent(userId: string): Promise<boolean> {
+  const settings = await storage.getUserSettings(userId);
+  return settings?.hideAdultContent ?? true;
+}
+
+function excludeAdultContent<T>(games: T[]): T[] {
+  return games.filter((g) => (g as { isAdultContent?: boolean }).isAdultContent !== true);
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -1041,6 +1051,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         games = await storage.getUserGames(userId, showHidden, statuses);
       }
 
+      if (await shouldHideAdultContent(userId)) {
+        games = excludeAdultContent(games);
+      }
+
       res.json(games);
     } catch (error) {
       routesLogger.error({ error }, "error fetching games");
@@ -1057,7 +1071,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.user!.id;
       const showHidden = includeHidden === "true";
 
-      const games = await storage.getUserGamesByStatus(userId, status, showHidden);
+      let games = await storage.getUserGamesByStatus(userId, status, showHidden);
+      if (await shouldHideAdultContent(userId)) {
+        games = excludeAdultContent(games);
+      }
       res.json(games);
     } catch (error) {
       routesLogger.error({ error }, "error fetching games by status");
@@ -1080,7 +1097,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!q || typeof q !== "string") {
           return res.status(400).json({ error: "Search query required" });
         }
-        const games = await storage.searchUserGames(userId, q, showHidden);
+        let games = await storage.searchUserGames(userId, q, showHidden);
+        if (await shouldHideAdultContent(userId)) {
+          games = excludeAdultContent(games);
+        }
         res.json(games);
       } catch (error) {
         routesLogger.error({ error }, "error searching games");
@@ -1281,6 +1301,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   summary: updatedData.summary as string,
                   rating: updatedData.rating as number | null,
                   genres: updatedData.genres as string[],
+                  themes: updatedData.themes as string[],
+                  isAdultContent: updatedData.isAdultContent as boolean,
                   platforms: updatedData.platforms as string[],
                   coverUrl: updatedData.coverUrl as string,
                   screenshots: updatedData.screenshots as string[],
@@ -1605,7 +1627,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             ? { includeUndated, undatedFirst: includeUndated }
             : {};
         const igdbGames = await igdbClient.searchGames(q, limitNum, searchOptions);
-        const formattedGames = igdbGames.map((game) => igdbClient.formatGameData(game));
+        let formattedGames = igdbGames.map((game) => igdbClient.formatGameData(game));
+        if (await shouldHideAdultContent(req.user!.id)) {
+          formattedGames = excludeAdultContent(formattedGames);
+        }
 
         res.json(formattedGames);
       } catch (error) {
@@ -1633,7 +1658,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         })),
         limit
       );
-      const formattedGames = igdbGames.map((game) => igdbClient.formatGameData(game));
+      let formattedGames = igdbGames.map((game) => igdbClient.formatGameData(game));
+      if (await shouldHideAdultContent(userId)) {
+        formattedGames = excludeAdultContent(formattedGames);
+      }
 
       res.json(formattedGames);
     } catch (error) {
@@ -1649,9 +1677,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const limitNum = limit ? parseInt(limit as string) : 20;
 
       const igdbGames = await igdbClient.getPopularGames(limitNum);
-      const formattedGames = igdbGames.map((game) => igdbClient.formatGameData(game));
+      let formattedGames = igdbGames.map((game) => igdbClient.formatGameData(game));
+      if (await shouldHideAdultContent(req.user!.id)) {
+        formattedGames = excludeAdultContent(formattedGames);
+      }
 
-      res.set("Cache-Control", CC_IGDB_GAME_LIST);
+      res.set("Cache-Control", CC_IGDB_GAME_LIST_PRIVATE);
       res.json(formattedGames);
     } catch (error) {
       routesLogger.error({ error }, "error fetching popular games");
@@ -1666,9 +1697,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const limitNum = limit ? parseInt(limit as string) : 20;
 
       const igdbGames = await igdbClient.getRecentReleases(limitNum);
-      const formattedGames = igdbGames.map((game) => igdbClient.formatGameData(game));
+      let formattedGames = igdbGames.map((game) => igdbClient.formatGameData(game));
+      if (await shouldHideAdultContent(req.user!.id)) {
+        formattedGames = excludeAdultContent(formattedGames);
+      }
 
-      res.set("Cache-Control", CC_IGDB_GAME_LIST);
+      res.set("Cache-Control", CC_IGDB_GAME_LIST_PRIVATE);
       res.json(formattedGames);
     } catch (error) {
       routesLogger.error({ error }, "error fetching recent releases");
@@ -1683,9 +1717,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const limitNum = limit ? parseInt(limit as string) : 20;
 
       const igdbGames = await igdbClient.getUpcomingReleases(limitNum);
-      const formattedGames = igdbGames.map((game) => igdbClient.formatGameData(game));
+      let formattedGames = igdbGames.map((game) => igdbClient.formatGameData(game));
+      if (await shouldHideAdultContent(req.user!.id)) {
+        formattedGames = excludeAdultContent(formattedGames);
+      }
 
-      res.set("Cache-Control", CC_IGDB_GAME_LIST);
+      res.set("Cache-Control", CC_IGDB_GAME_LIST_PRIVATE);
       res.json(formattedGames);
     } catch (error) {
       routesLogger.error({ error }, "error fetching upcoming releases");
@@ -1707,9 +1744,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const igdbGames = await igdbClient.getGamesByGenre(genre, limit, offset);
-      const formattedGames = igdbGames.map((game) => igdbClient.formatGameData(game));
+      let formattedGames = igdbGames.map((game) => igdbClient.formatGameData(game));
+      if (await shouldHideAdultContent(req.user!.id)) {
+        formattedGames = excludeAdultContent(formattedGames);
+      }
 
-      res.set("Cache-Control", CC_IGDB_GAME_LIST);
+      res.set("Cache-Control", CC_IGDB_GAME_LIST_PRIVATE);
       res.json(formattedGames);
     } catch (error) {
       console.error("Error fetching games by genre:", error);
@@ -1731,9 +1771,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const igdbGames = await igdbClient.getGamesByPlatform(platform, limit, offset);
-      const formattedGames = igdbGames.map((game) => igdbClient.formatGameData(game));
+      let formattedGames = igdbGames.map((game) => igdbClient.formatGameData(game));
+      if (await shouldHideAdultContent(req.user!.id)) {
+        formattedGames = excludeAdultContent(formattedGames);
+      }
 
-      res.set("Cache-Control", CC_IGDB_GAME_LIST);
+      res.set("Cache-Control", CC_IGDB_GAME_LIST_PRIVATE);
       res.json(formattedGames);
     } catch (error) {
       console.error("Error fetching games by platform:", error);
@@ -3708,6 +3751,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         platform: "PC", // Default platform, user can change later
         platforms: formattedMatch.platforms,
         genres: formattedMatch.genres,
+        themes: formattedMatch.themes,
+        isAdultContent: formattedMatch.isAdultContent,
         coverUrl: formattedMatch.coverUrl,
         releaseDate: formattedMatch.releaseDate,
         summary: formattedMatch.summary,

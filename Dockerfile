@@ -35,6 +35,11 @@ COPY --from=base /app/node_modules ./node_modules
 COPY package*.json ./
 RUN npm prune --omit=dev
 
+# npm's tarball extraction doesn't reliably preserve the executable bit on
+# package-bundled binaries, so 7zip-bin's 7za can land non-executable and
+# fail extraction with EACCES at runtime. Force it explicitly.
+RUN find node_modules/7zip-bin -type f -name "7z*" -exec chmod +x {} +
+
 # Copy necessary files from build stage
 COPY --from=builder /app/dist ./dist
 

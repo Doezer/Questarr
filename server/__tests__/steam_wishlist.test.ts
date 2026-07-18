@@ -509,9 +509,20 @@ describe("checkSteamWishlist", () => {
 
     // The second call should return immediately without waiting on getAllUsers.
     await secondRun;
+    expect(storage.getAllUsers).toHaveBeenCalledTimes(1);
     expect(storage.getUserSettings).not.toHaveBeenCalled();
 
     resolveGetAllUsers!([]);
     await firstRun;
+  });
+
+  it("does not throw and clears the in-progress guard when getAllUsers fails", async () => {
+    vi.mocked(storage.getAllUsers).mockRejectedValueOnce(new Error("DB unavailable"));
+
+    await expect(checkSteamWishlist()).resolves.not.toThrow();
+
+    // The in-progress guard must have been cleared, so a subsequent run proceeds normally.
+    vi.mocked(storage.getAllUsers).mockResolvedValueOnce([]);
+    await expect(checkSteamWishlist()).resolves.not.toThrow();
   });
 });

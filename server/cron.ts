@@ -1286,6 +1286,8 @@ export async function checkSteamWishlist() {
         igdbLogger.error({ userId: user.id, error }, "Error during scheduled Steam Wishlist sync");
       }
     }
+  } catch (error) {
+    igdbLogger.error({ error }, "Failed scheduled Steam Wishlist auto-sync check");
   } finally {
     steamWishlistCheckInProgress = false;
   }

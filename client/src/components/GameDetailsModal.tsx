@@ -365,10 +365,19 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
 
   useEffect(() => {
     setIsSummaryExpanded(false);
+    setSelectedScreenshotIndex(null);
     setNotesValue(game?.notes ?? "");
   }, [game?.id, game?.notes]);
 
   const screenshots = game?.screenshots ?? [];
+
+  // Clear the selection if it falls outside the current screenshots list
+  // (e.g. the list shrinks while the lightbox is open).
+  useEffect(() => {
+    setSelectedScreenshotIndex((index) =>
+      index !== null && (index < 0 || index >= screenshots.length) ? null : index
+    );
+  }, [screenshots.length]);
 
   const showPreviousScreenshot = React.useCallback(() => {
     if (screenshots.length === 0) return;

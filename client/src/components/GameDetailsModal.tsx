@@ -365,9 +365,12 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
 
   useEffect(() => {
     setIsSummaryExpanded(false);
-    setSelectedScreenshotIndex(null);
     setNotesValue(game?.notes ?? "");
   }, [game?.id, game?.notes]);
+
+  useEffect(() => {
+    setSelectedScreenshotIndex(null);
+  }, [game?.id]);
 
   const screenshots = game?.screenshots ?? [];
 
@@ -408,19 +411,26 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isLightboxOpen, showPreviousScreenshot, showNextScreenshot]);
 
-  const touchStartX = useRef<number | null>(null);
+  const touchStart = useRef<{ x: number; y: number } | null>(null);
 
   const handleScreenshotTouchStart = (e: React.TouchEvent) => {
-    touchStartX.current = e.touches[0].clientX;
+    const touch = e.touches[0];
+    touchStart.current = touch ? { x: touch.clientX, y: touch.clientY } : null;
+  };
+
+  const handleScreenshotTouchCancel = () => {
+    touchStart.current = null;
   };
 
   const handleScreenshotTouchEnd = (e: React.TouchEvent) => {
-    if (touchStartX.current === null) return;
+    if (touchStart.current === null) return;
     const touch = e.changedTouches[0];
     if (!touch) return;
-    const deltaX = touch.clientX - touchStartX.current;
-    touchStartX.current = null;
+    const deltaX = touch.clientX - touchStart.current.x;
+    const deltaY = touch.clientY - touchStart.current.y;
+    touchStart.current = null;
     const SWIPE_THRESHOLD = 50;
+    if (Math.abs(deltaX) <= Math.abs(deltaY)) return;
     if (deltaX > SWIPE_THRESHOLD) {
       showPreviousScreenshot();
     } else if (deltaX < -SWIPE_THRESHOLD) {
@@ -1079,13 +1089,11 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                       onClick={() => setSelectedScreenshotIndex(index)}
                       data-testid={`screenshot-${index}`}
                     >
-                      <CardContent className="p-0">
-                        <img
-                          src={screenshot}
-                          alt={`${game.title} screenshot ${index + 1}`}
-                          className="w-full h-24 object-cover"
-                        />
-                      </CardContent>
+                      <img
+                        src={screenshot}
+                        alt={`${game.title} screenshot ${index + 1}`}
+                        className="w-full h-24 object-cover"
+                      />
                     </button>
                   ))}
                 </div>
@@ -1368,6 +1376,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
               className="relative flex justify-center items-center"
               onTouchStart={handleScreenshotTouchStart}
               onTouchEnd={handleScreenshotTouchEnd}
+              onTouchCancel={handleScreenshotTouchCancel}
             >
               {screenshots.length > 1 && (
                 <Button
@@ -1407,6 +1416,8 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
               <p
                 className="text-center text-sm text-muted-foreground"
                 data-testid="screenshot-lightbox-counter"
+                aria-live="polite"
+                role="status"
               >
                 {selectedScreenshotIndex + 1} / {screenshots.length}
               </p>

@@ -342,6 +342,80 @@
   --chart-5: 120 60% 35%;
 }
 
+/* "Windows 2000" nostalgia skin — classic silver ButtonFace chrome, navy title bars and
+   selection highlight, square corners, and beveled 3D controls. Purely cosmetic. */
+.theme-win2k {
+  --button-outline: rgba(0, 0, 0, 0.4);
+  --badge-outline: rgba(0, 0, 0, 0.3);
+  --elevate-1: rgba(0, 0, 0, 0.06);
+  --elevate-2: rgba(0, 0, 0, 0.14);
+
+  --background: 0 0% 100%;
+  --foreground: 0 0% 0%;
+
+  --border: 0 0% 50%;
+
+  --card: 0 0% 75%;
+  --card-foreground: 0 0% 0%;
+  --card-border: 0 0% 50%;
+
+  --sidebar: 0 0% 75%;
+  --sidebar-foreground: 0 0% 0%;
+  --sidebar-border: 0 0% 50%;
+  --sidebar-primary: 220 84% 23%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 220 84% 23%;
+  --sidebar-accent-foreground: 0 0% 100%;
+  --sidebar-ring: 220 84% 23%;
+
+  --popover: 0 0% 75%;
+  --popover-foreground: 0 0% 0%;
+  --popover-border: 0 0% 50%;
+
+  --primary: 0 0% 75%;
+  --primary-foreground: 0 0% 0%;
+
+  --secondary: 0 0% 75%;
+  --secondary-foreground: 0 0% 0%;
+
+  --muted: 0 0% 82%;
+  --muted-foreground: 0 0% 25%;
+
+  --accent: 220 84% 23%;
+  --accent-foreground: 0 0% 100%;
+
+  --destructive: 0 100% 33%;
+  --destructive-foreground: 0 0% 100%;
+
+  --input: 0 0% 50%;
+  --ring: 220 84% 23%;
+
+  --chart-1: 220 84% 23%;
+  --chart-2: 0 100% 33%;
+  --chart-3: 120 60% 25%;
+  --chart-4: 45 100% 40%;
+  --chart-5: 300 50% 35%;
+
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --radius-2xl: 0px;
+  --radius-3xl: 0px;
+  --radius: 0px;
+
+  --font-sans: Tahoma, "Segoe UI", "MS Sans Serif", Geneva, Verdana, sans-serif;
+
+  --shadow-2xs: none;
+  --shadow-xs: none;
+  --shadow-sm: none;
+  --shadow: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+  --shadow-xl: none;
+  --shadow-2xl: none;
+}
+
 @layer base {
   * {
     border-color: hsl(var(--border));
@@ -476,5 +550,134 @@
     aspect-ratio: 3 / 4;
     object-fit: cover;
     display: block;
+  }
+
+  /* Windows 2000 skin: beveled 3D controls, navy title bar, classic scrollbars. */
+  .theme-win2k ::selection {
+    background-color: #0a246a;
+    color: #fff;
+  }
+
+  .theme-win2k header {
+    background: linear-gradient(90deg, #0a246a 0%, #1e50a2 60%, #a6caf0 100%);
+    border-bottom: 2px solid #000;
+  }
+
+  .theme-win2k header h1,
+  .theme-win2k header svg {
+    color: #fff;
+  }
+
+  .theme-win2k
+    button:not([role="switch"]):not([role="checkbox"]):not([role="radio"]):not(.rounded-full) {
+    border-radius: 0;
+  }
+
+  .theme-win2k
+    button.border:not(.border-transparent):not([role="switch"]):not([role="checkbox"]):not(
+      [role="radio"]
+    ):not(.rounded-full) {
+    border-width: 2px;
+    border-style: solid;
+    border-top-color: #fff;
+    border-left-color: #fff;
+    border-right-color: #404040;
+    border-bottom-color: #404040;
+  }
+
+  .theme-win2k
+    button.border:not(.border-transparent):not([role="switch"]):not([role="checkbox"]):not(
+      [role="radio"]
+    ):not(.rounded-full):active {
+    border-top-color: #404040;
+    border-left-color: #404040;
+    border-right-color: #fff;
+    border-bottom-color: #fff;
+  }
+
+  .theme-win2k button.border-transparent:not([role="switch"]):hover:not(:disabled) {
+    border-style: solid;
+    border-top-color: #fff;
+    border-left-color: #fff;
+    border-right-color: #404040;
+    border-bottom-color: #404040;
+  }
+
+  .theme-win2k button.border-transparent:not([role="switch"]):active:not(:disabled) {
+    border-top-color: #404040;
+    border-left-color: #404040;
+    border-right-color: #fff;
+    border-bottom-color: #fff;
+  }
+
+  .theme-win2k input:not([type="checkbox"]):not([type="radio"]),
+  .theme-win2k textarea,
+  .theme-win2k select {
+    border-width: 2px;
+    border-style: solid;
+    border-top-color: #404040;
+    border-left-color: #404040;
+    border-right-color: #fff;
+    border-bottom-color: #fff;
+    background-color: #fff;
+    border-radius: 0;
+  }
+
+  .theme-win2k [role="checkbox"],
+  .theme-win2k [role="radio"] {
+    border-width: 2px;
+    border-style: solid;
+    border-top-color: #404040;
+    border-left-color: #404040;
+    border-right-color: #fff;
+    border-bottom-color: #fff;
+    background-color: #fff;
+  }
+
+  .theme-win2k .shadcn-card {
+    border-width: 2px;
+    border-style: solid;
+    border-top-color: #fff;
+    border-left-color: #fff;
+    border-right-color: #808080;
+    border-bottom-color: #808080;
+  }
+
+  .theme-win2k [role="dialog"],
+  .theme-win2k [data-radix-popper-content-wrapper] > * {
+    border-radius: 0 !important;
+  }
+
+  .theme-win2k ::-webkit-scrollbar {
+    width: 16px;
+    height: 16px;
+  }
+
+  .theme-win2k ::-webkit-scrollbar-track {
+    background-color: #c0c0c0;
+  }
+
+  .theme-win2k ::-webkit-scrollbar-thumb {
+    background-color: #c0c0c0;
+    border-width: 2px;
+    border-style: solid;
+    border-top-color: #fff;
+    border-left-color: #fff;
+    border-right-color: #404040;
+    border-bottom-color: #404040;
+  }
+
+  .theme-win2k ::-webkit-scrollbar-button {
+    background-color: #c0c0c0;
+    border-width: 2px;
+    border-style: solid;
+    border-top-color: #fff;
+    border-left-color: #fff;
+    border-right-color: #404040;
+    border-bottom-color: #404040;
+  }
+
+  .theme-win2k {
+    scrollbar-color: #c0c0c0 #dfdfdf;
   }
 }

@@ -371,17 +371,21 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   const screenshots = game?.screenshots ?? [];
 
   const showPreviousScreenshot = React.useCallback(() => {
+    if (screenshots.length === 0) return;
     setSelectedScreenshotIndex((prev) =>
       prev === null ? prev : (prev - 1 + screenshots.length) % screenshots.length
     );
   }, [screenshots.length]);
 
   const showNextScreenshot = React.useCallback(() => {
+    if (screenshots.length === 0) return;
     setSelectedScreenshotIndex((prev) => (prev === null ? prev : (prev + 1) % screenshots.length));
   }, [screenshots.length]);
 
+  const isLightboxOpen = selectedScreenshotIndex !== null;
+
   useEffect(() => {
-    if (selectedScreenshotIndex === null) return;
+    if (!isLightboxOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "ArrowLeft") {
         e.preventDefault();
@@ -393,7 +397,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedScreenshotIndex, showPreviousScreenshot, showNextScreenshot]);
+  }, [isLightboxOpen, showPreviousScreenshot, showNextScreenshot]);
 
   const touchStartX = useRef<number | null>(null);
 
@@ -403,7 +407,9 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
 
   const handleScreenshotTouchEnd = (e: React.TouchEvent) => {
     if (touchStartX.current === null) return;
-    const deltaX = e.changedTouches[0].clientX - touchStartX.current;
+    const touch = e.changedTouches[0];
+    if (!touch) return;
+    const deltaX = touch.clientX - touchStartX.current;
     touchStartX.current = null;
     const SWIPE_THRESHOLD = 50;
     if (deltaX > SWIPE_THRESHOLD) {

@@ -241,6 +241,28 @@ describe("GameDetailsModal", () => {
     });
   });
 
+  it("opens the screenshot lightbox as a fullscreen sheet on mobile", async () => {
+    const originalInnerWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { writable: true, configurable: true, value: 375 });
+
+    try {
+      renderComponent();
+
+      fireEvent.click(screen.getByTestId("screenshot-0"));
+
+      const lightboxImage = await screen.findByTestId("screenshot-lightbox");
+      expect(lightboxImage).toHaveAttribute("src", "http://test.com/screen1.jpg");
+      // The mobile lightbox renders as a fullscreen sheet, not the centered desktop dialog.
+      expect(lightboxImage.closest(".bg-black\\/95")).toBeInTheDocument();
+    } finally {
+      Object.defineProperty(window, "innerWidth", {
+        writable: true,
+        configurable: true,
+        value: originalInnerWidth,
+      });
+    }
+  });
+
   it("opens download dialog when download button is clicked", async () => {
     renderComponent();
     const downloadButton = screen.getByTestId("button-download-game");

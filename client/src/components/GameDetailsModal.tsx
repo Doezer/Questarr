@@ -19,7 +19,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -1360,20 +1366,15 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
       )}
 
       {/* Screenshot Lightbox */}
-      {selectedScreenshotIndex !== null && screenshots[selectedScreenshotIndex] && (
-        <Dialog
-          open={selectedScreenshotIndex !== null}
-          onOpenChange={() => setSelectedScreenshotIndex(null)}
-        >
-          <DialogContent className="max-w-4xl">
-            <DialogHeader>
-              <DialogTitle>
-                Screenshot {selectedScreenshotIndex + 1} of {screenshots.length}
-              </DialogTitle>
-              <DialogDescription className="sr-only">Full size game screenshot</DialogDescription>
-            </DialogHeader>
+      {selectedScreenshotIndex !== null &&
+        screenshots[selectedScreenshotIndex] &&
+        (() => {
+          const lightboxImage = (
             <div
-              className="relative flex justify-center items-center"
+              className={cn(
+                "relative flex justify-center items-center",
+                isMobile && "flex-1 min-h-0"
+              )}
               onTouchStart={handleScreenshotTouchStart}
               onTouchEnd={handleScreenshotTouchEnd}
               onTouchCancel={handleScreenshotTouchCancel}
@@ -1394,7 +1395,10 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
               <img
                 src={screenshots[selectedScreenshotIndex]}
                 alt={`${game.title} screenshot ${selectedScreenshotIndex + 1}`}
-                className="max-w-full max-h-[70vh] object-contain rounded-lg select-none"
+                className={cn(
+                  "max-w-full object-contain rounded-lg select-none",
+                  isMobile ? "max-h-full" : "max-h-[70vh]"
+                )}
                 data-testid="screenshot-lightbox"
                 draggable={false}
               />
@@ -1412,19 +1416,58 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                 </Button>
               )}
             </div>
-            {screenshots.length > 1 && (
-              <p
-                className="text-center text-sm text-muted-foreground"
-                data-testid="screenshot-lightbox-counter"
-                aria-live="polite"
-                role="status"
+          );
+
+          const lightboxCounter = screenshots.length > 1 && (
+            <p
+              className="text-center text-sm text-muted-foreground flex-shrink-0"
+              data-testid="screenshot-lightbox-counter"
+              aria-live="polite"
+              role="status"
+            >
+              {selectedScreenshotIndex + 1} / {screenshots.length}
+            </p>
+          );
+
+          return isMobile ? (
+            <Sheet
+              open={selectedScreenshotIndex !== null}
+              onOpenChange={() => setSelectedScreenshotIndex(null)}
+            >
+              <SheetContent
+                side="fullscreen"
+                className="flex flex-col gap-4 bg-black/95 pb-[max(1.5rem,env(safe-area-inset-bottom))]"
               >
-                {selectedScreenshotIndex + 1} / {screenshots.length}
-              </p>
-            )}
-          </DialogContent>
-        </Dialog>
-      )}
+                <SheetHeader>
+                  <SheetTitle>
+                    Screenshot {selectedScreenshotIndex + 1} of {screenshots.length}
+                  </SheetTitle>
+                  <SheetDescription className="sr-only">Full size game screenshot</SheetDescription>
+                </SheetHeader>
+                {lightboxImage}
+                {lightboxCounter}
+              </SheetContent>
+            </Sheet>
+          ) : (
+            <Dialog
+              open={selectedScreenshotIndex !== null}
+              onOpenChange={() => setSelectedScreenshotIndex(null)}
+            >
+              <DialogContent className="max-w-4xl">
+                <DialogHeader>
+                  <DialogTitle>
+                    Screenshot {selectedScreenshotIndex + 1} of {screenshots.length}
+                  </DialogTitle>
+                  <DialogDescription className="sr-only">
+                    Full size game screenshot
+                  </DialogDescription>
+                </DialogHeader>
+                {lightboxImage}
+                {lightboxCounter}
+              </DialogContent>
+            </Dialog>
+          );
+        })()}
 
       {downloadOpen && (
         <Suspense fallback={null}>

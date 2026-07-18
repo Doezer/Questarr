@@ -395,22 +395,30 @@ describe("checkSteamWishlist", () => {
   });
 
   it("skips users whose sync interval has not elapsed yet", async () => {
-    vi.mocked(storage.getAllUsers).mockResolvedValue([
-      { id: "user-1", steamId64: "76561198000000000" } as unknown as User,
-    ]);
-    vi.mocked(storage.getUserSettings).mockResolvedValue({
-      steamSyncEnabled: true,
-      steamSyncIntervalHours: 24,
-      lastSteamSync: new Date(),
-    } as unknown as UserSettings);
+    const FIXED_NOW = new Date("2023-01-02T00:00:00.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(FIXED_NOW);
 
-    await checkSteamWishlist();
+    try {
+      vi.mocked(storage.getAllUsers).mockResolvedValue([
+        { id: "user-1", steamId64: "76561198000000000" } as unknown as User,
+      ]);
+      vi.mocked(storage.getUserSettings).mockResolvedValue({
+        steamSyncEnabled: true,
+        steamSyncIntervalHours: 24,
+        lastSteamSync: new Date(FIXED_NOW.getTime() - 60 * 60 * 1000), // synced 1 hour ago
+      } as unknown as UserSettings);
 
-    expect(steamService.getWishlist).not.toHaveBeenCalled();
-    expect(storage.updateUserSettings).not.toHaveBeenCalledWith(
-      "user-1",
-      expect.objectContaining({ lastSteamSync: expect.anything() })
-    );
+      await checkSteamWishlist();
+
+      expect(steamService.getWishlist).not.toHaveBeenCalled();
+      expect(storage.updateUserSettings).not.toHaveBeenCalledWith(
+        "user-1",
+        expect.objectContaining({ lastSteamSync: expect.anything() })
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("syncs and records lastSteamSync when enabled and the interval has elapsed", async () => {
@@ -434,6 +442,30 @@ describe("checkSteamWishlist", () => {
     expect(storage.updateUserSettings).toHaveBeenCalledWith(
       "user-1",
       expect.objectContaining({ lastSteamSync: expect.any(Date) })
+    );
+  });
+
+  it("does not record lastSteamSync when the scheduled sync fails", async () => {
+    vi.mocked(storage.getAllUsers).mockResolvedValue([
+      { id: "user-1", steamId64: "76561198000000000" } as unknown as User,
+    ]);
+    vi.mocked(storage.getUser).mockResolvedValue({
+      id: "user-1",
+      steamId64: "76561198000000000",
+    } as unknown as User);
+    vi.mocked(storage.getUserSettings).mockResolvedValue({
+      steamSyncEnabled: true,
+      steamSyncIntervalHours: 24,
+      lastSteamSync: null,
+      steamSyncFailures: 0,
+    } as unknown as UserSettings);
+    vi.mocked(steamService.getWishlist).mockRejectedValue(new Error("Steam API down"));
+
+    await checkSteamWishlist();
+
+    expect(storage.updateUserSettings).not.toHaveBeenCalledWith(
+      "user-1",
+      expect.objectContaining({ lastSteamSync: expect.anything() })
     );
   });
 

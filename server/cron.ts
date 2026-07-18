@@ -1269,8 +1269,10 @@ export async function checkSteamWishlist() {
       if (Date.now() - lastSync < intervalMs) continue;
 
       igdbLogger.info({ userId: user.id }, "Running scheduled Steam Wishlist sync");
-      await syncUserSteamWishlist(user.id, "system");
-      await storage.updateUserSettings(user.id, { lastSteamSync: new Date() });
+      const result = await syncUserSteamWishlist(user.id, "system");
+      if (result && result.success) {
+        await storage.updateUserSettings(user.id, { lastSteamSync: new Date() });
+      }
     } catch (error) {
       igdbLogger.error({ userId: user.id, error }, "Error during scheduled Steam Wishlist sync");
     }

@@ -67,6 +67,12 @@ vi.mock("lucide-react", () => ({
   Info: (props: Record<string, unknown>) => <div data-testid="icon-info" {...props} />,
   Image: (props: Record<string, unknown>) => <div data-testid="icon-image" {...props} />,
   Link: (props: Record<string, unknown>) => <div data-testid="icon-link" {...props} />,
+  ChevronLeft: (props: Record<string, unknown>) => (
+    <div data-testid="icon-chevron-left" {...props} />
+  ),
+  ChevronRight: (props: Record<string, unknown>) => (
+    <div data-testid="icon-chevron-right" {...props} />
+  ),
 }));
 
 vi.mock("react-icons/fa", () => ({
@@ -187,6 +193,52 @@ describe("GameDetailsModal", () => {
     // Media tab uses forceMount so screenshots are always in the DOM (hidden until tab activated)
     expect(screen.getByTestId("screenshot-0")).toBeInTheDocument();
     expect(screen.getByTestId("screenshot-1")).toBeInTheDocument();
+  });
+
+  it("opens the screenshot lightbox and navigates with the carousel controls", async () => {
+    renderComponent();
+
+    fireEvent.click(screen.getByTestId("screenshot-0"));
+
+    const lightboxImage = await screen.findByTestId("screenshot-lightbox");
+    expect(lightboxImage).toHaveAttribute("src", "http://test.com/screen1.jpg");
+    expect(screen.getByTestId("screenshot-lightbox-counter")).toHaveTextContent("1 / 2");
+
+    fireEvent.click(screen.getByTestId("screenshot-lightbox-next"));
+    await waitFor(() => {
+      expect(screen.getByTestId("screenshot-lightbox")).toHaveAttribute(
+        "src",
+        "http://test.com/screen2.jpg"
+      );
+    });
+    expect(screen.getByTestId("screenshot-lightbox-counter")).toHaveTextContent("2 / 2");
+
+    // Wraps around back to the first screenshot.
+    fireEvent.click(screen.getByTestId("screenshot-lightbox-next"));
+    await waitFor(() => {
+      expect(screen.getByTestId("screenshot-lightbox")).toHaveAttribute(
+        "src",
+        "http://test.com/screen1.jpg"
+      );
+    });
+
+    // Previous wraps back to the last screenshot.
+    fireEvent.click(screen.getByTestId("screenshot-lightbox-prev"));
+    await waitFor(() => {
+      expect(screen.getByTestId("screenshot-lightbox")).toHaveAttribute(
+        "src",
+        "http://test.com/screen2.jpg"
+      );
+    });
+
+    // Arrow keys also navigate the carousel.
+    fireEvent.keyDown(window, { key: "ArrowLeft" });
+    await waitFor(() => {
+      expect(screen.getByTestId("screenshot-lightbox")).toHaveAttribute(
+        "src",
+        "http://test.com/screen1.jpg"
+      );
+    });
   });
 
   it("opens download dialog when download button is clicked", async () => {

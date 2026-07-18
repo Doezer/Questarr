@@ -1,4 +1,4 @@
-import React, { useState, useEffect, lazy, Suspense } from "react";
+import React, { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertDialog,
@@ -55,6 +55,8 @@ import {
   Info,
   Image,
   Link,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { FaSteam, FaRedditAlien, FaDiscord, FaWikipediaW, FaTwitch } from "react-icons/fa";
 import {
@@ -342,7 +344,7 @@ function StarRatingInput({
 
 export default function GameDetailsModal({ game, open, onOpenChange }: GameDetailsModalProps) {
   const isMobile = useIsMobile();
-  const [selectedScreenshot, setSelectedScreenshot] = useState<string | null>(null);
+  const [selectedScreenshotIndex, setSelectedScreenshotIndex] = useState<number | null>(null);
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
   const [notesValue, setNotesValue] = useState<string>("");
@@ -356,7 +358,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   useEffect(() => {
     if (!open) {
       setIsSummaryExpanded(false);
-      setSelectedScreenshot(null);
+      setSelectedScreenshotIndex(null);
       setDownloadOpen(false);
     }
   }, [open]);
@@ -365,6 +367,51 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     setIsSummaryExpanded(false);
     setNotesValue(game?.notes ?? "");
   }, [game?.id, game?.notes]);
+
+  const screenshots = game?.screenshots ?? [];
+
+  const showPreviousScreenshot = React.useCallback(() => {
+    setSelectedScreenshotIndex((prev) =>
+      prev === null ? prev : (prev - 1 + screenshots.length) % screenshots.length
+    );
+  }, [screenshots.length]);
+
+  const showNextScreenshot = React.useCallback(() => {
+    setSelectedScreenshotIndex((prev) => (prev === null ? prev : (prev + 1) % screenshots.length));
+  }, [screenshots.length]);
+
+  useEffect(() => {
+    if (selectedScreenshotIndex === null) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        showPreviousScreenshot();
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        showNextScreenshot();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedScreenshotIndex, showPreviousScreenshot, showNextScreenshot]);
+
+  const touchStartX = useRef<number | null>(null);
+
+  const handleScreenshotTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+  };
+
+  const handleScreenshotTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartX.current === null) return;
+    const deltaX = e.changedTouches[0].clientX - touchStartX.current;
+    touchStartX.current = null;
+    const SWIPE_THRESHOLD = 50;
+    if (deltaX > SWIPE_THRESHOLD) {
+      showPreviousScreenshot();
+    } else if (deltaX < -SWIPE_THRESHOLD) {
+      showNextScreenshot();
+    }
+  };
 
   // GDM-2: Subscribe to socket download updates and invalidate the downloads query.
   // The shared socket connection stays alive app-wide, so only register/unregister handlers here.
@@ -1012,7 +1059,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                     <Card
                       key={index}
                       className="overflow-hidden cursor-pointer hover-elevate"
-                      onClick={() => setSelectedScreenshot(screenshot)}
+                      onClick={() => setSelectedScreenshotIndex(index)}
                       data-testid={`screenshot-${index}`}
                     >
                       <CardContent className="p-0">
@@ -1288,21 +1335,65 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
       )}
 
       {/* Screenshot Lightbox */}
-      {selectedScreenshot && (
-        <Dialog open={!!selectedScreenshot} onOpenChange={() => setSelectedScreenshot(null)}>
+      {selectedScreenshotIndex !== null && screenshots[selectedScreenshotIndex] && (
+        <Dialog
+          open={selectedScreenshotIndex !== null}
+          onOpenChange={() => setSelectedScreenshotIndex(null)}
+        >
           <DialogContent className="max-w-4xl">
             <DialogHeader>
-              <DialogTitle>Screenshot</DialogTitle>
+              <DialogTitle>
+                Screenshot {selectedScreenshotIndex + 1} of {screenshots.length}
+              </DialogTitle>
               <DialogDescription className="sr-only">Full size game screenshot</DialogDescription>
             </DialogHeader>
-            <div className="flex justify-center">
+            <div
+              className="relative flex justify-center items-center"
+              onTouchStart={handleScreenshotTouchStart}
+              onTouchEnd={handleScreenshotTouchEnd}
+            >
+              {screenshots.length > 1 && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="icon"
+                  className="absolute left-1 sm:left-2 top-1/2 -translate-y-1/2 z-10 h-11 w-11 rounded-full shadow-lg"
+                  onClick={showPreviousScreenshot}
+                  aria-label="Previous screenshot"
+                  data-testid="screenshot-lightbox-prev"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </Button>
+              )}
               <img
-                src={selectedScreenshot}
-                alt={`${game.title} screenshot`}
-                className="max-w-full max-h-[70vh] object-contain rounded-lg"
+                src={screenshots[selectedScreenshotIndex]}
+                alt={`${game.title} screenshot ${selectedScreenshotIndex + 1}`}
+                className="max-w-full max-h-[70vh] object-contain rounded-lg select-none"
                 data-testid="screenshot-lightbox"
+                draggable={false}
               />
+              {screenshots.length > 1 && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="icon"
+                  className="absolute right-1 sm:right-2 top-1/2 -translate-y-1/2 z-10 h-11 w-11 rounded-full shadow-lg"
+                  onClick={showNextScreenshot}
+                  aria-label="Next screenshot"
+                  data-testid="screenshot-lightbox-next"
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </Button>
+              )}
             </div>
+            {screenshots.length > 1 && (
+              <p
+                className="text-center text-sm text-muted-foreground"
+                data-testid="screenshot-lightbox-counter"
+              >
+                {selectedScreenshotIndex + 1} / {screenshots.length}
+              </p>
+            )}
           </DialogContent>
         </Dialog>
       )}

@@ -1071,9 +1071,11 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
               {game.screenshots && game.screenshots.length > 0 ? (
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                   {game.screenshots.map((screenshot, index) => (
-                    <Card
+                    <button
                       key={index}
-                      className="overflow-hidden cursor-pointer hover-elevate"
+                      type="button"
+                      aria-label={`Open screenshot ${index + 1}`}
+                      className="shadcn-card overflow-hidden cursor-pointer hover-elevate rounded-xl border bg-card border-card-border text-card-foreground shadow-sm"
                       onClick={() => setSelectedScreenshotIndex(index)}
                       data-testid={`screenshot-${index}`}
                     >
@@ -1084,7 +1086,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                           className="w-full h-24 object-cover"
                         />
                       </CardContent>
-                    </Card>
+                    </button>
                   ))}
                 </div>
               ) : (

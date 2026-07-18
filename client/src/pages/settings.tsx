@@ -170,6 +170,8 @@ export default function SettingsPage() {
 
   // Local state for Steam form
   const [steamIdInput, setSteamIdInput] = useState("");
+  const [steamSyncEnabled, setSteamSyncEnabled] = useState(false);
+  const [steamSyncIntervalHours, setSteamSyncIntervalHours] = useState(24);
 
   // Local state for forms
   const [igdbClientId, setIgdbClientId] = useState("");
@@ -228,6 +230,8 @@ export default function SettingsPage() {
       setPreferredPlatform(userSettings.preferredPlatform ?? "");
       setXrelSceneReleases(userSettings.xrelSceneReleases ?? true);
       setXrelP2pReleases(userSettings.xrelP2pReleases ?? false);
+      setSteamSyncEnabled(userSettings.steamSyncEnabled ?? false);
+      setSteamSyncIntervalHours(userSettings.steamSyncIntervalHours ?? 24);
     }
     if (config?.xrel?.apiBase !== undefined) {
       setXrelApiBase(config.xrel.apiBase);
@@ -768,6 +772,16 @@ export default function SettingsPage() {
     updateSteamIdMutation.mutate(steamIdInput);
   };
 
+  const handleSaveSteamSync = () => {
+    updateSettingsMutation.mutate({
+      updates: {
+        steamSyncEnabled,
+        steamSyncIntervalHours,
+      },
+      successMessage: "Your Steam Wishlist auto-sync preferences have been saved.",
+    });
+  };
+
   if (isLoading) {
     return (
       <div className="p-6">
@@ -1260,6 +1274,62 @@ export default function SettingsPage() {
                         steamid.io
                       </a>
                     </p>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-4 border-t">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="steam-sync-enabled" className="text-sm font-medium">
+                        Auto-Sync Wishlist
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        Periodically import new games from your Steam Wishlist
+                      </p>
+                    </div>
+                    <Switch
+                      id="steam-sync-enabled"
+                      checked={steamSyncEnabled}
+                      onCheckedChange={setSteamSyncEnabled}
+                    />
+                  </div>
+
+                  {steamSyncEnabled && (
+                    <div className="space-y-2 pl-4 border-l-2">
+                      <Label htmlFor="steam-sync-interval" className="text-sm font-medium">
+                        Sync Interval (hours)
+                      </Label>
+                      <Input
+                        id="steam-sync-interval"
+                        type="number"
+                        min="1"
+                        max="168"
+                        value={steamSyncIntervalHours}
+                        onChange={(e) => setSteamSyncIntervalHours(parseInt(e.target.value) || 24)}
+                        className="w-32"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        How often to check your Steam Wishlist for new games (1-168 hours)
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="flex justify-end pt-2 border-t">
+                    <Button
+                      onClick={handleSaveSteamSync}
+                      disabled={updateSettingsMutation.isPending}
+                      className="gap-2"
+                    >
+                      {updateSettingsMutation.isPending ? (
+                        <>
+                          <RefreshCw className="h-4 w-4 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <RefreshCw className="h-4 w-4" />
+                          Save Sync Settings
+                        </>
+                      )}
+                    </Button>
                   </div>
                 </div>
               </CardContent>

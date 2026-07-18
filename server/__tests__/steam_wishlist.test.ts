@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { syncUserSteamWishlist } from "../cron.js";
+import { syncUserSteamWishlist, checkSteamWishlist } from "../cron.js";
 import { storage } from "../storage.js";
 import { steamService } from "../steam.js";
 import { igdbClient, type IGDBGame } from "../igdb.js";
@@ -354,5 +354,112 @@ describe("syncUserSteamWishlist", () => {
 
     expect(result?.addedCount).toBe(1);
     expect(storage.addGame).toHaveBeenCalledOnce();
+  });
+});
+
+describe("checkSteamWishlist", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(storage.createImportTask).mockResolvedValue({ id: "task-id" } as any);
+    vi.mocked(storage.startImportTask).mockResolvedValue(undefined);
+    vi.mocked(storage.updateImportTask).mockResolvedValue(undefined);
+    vi.mocked(storage.addImportTaskItemsBatch).mockResolvedValue([]);
+    vi.mocked(storage.getUserGames).mockResolvedValue([]);
+    vi.mocked(steamService.getWishlist).mockResolvedValue([]);
+  });
+
+  it("skips users without a linked Steam ID", async () => {
+    vi.mocked(storage.getAllUsers).mockResolvedValue([
+      { id: "user-1", steamId64: null } as unknown as User,
+    ]);
+
+    await checkSteamWishlist();
+
+    expect(storage.getUserSettings).not.toHaveBeenCalled();
+    expect(steamService.getWishlist).not.toHaveBeenCalled();
+  });
+
+  it("skips users who have not opted into auto-sync", async () => {
+    vi.mocked(storage.getAllUsers).mockResolvedValue([
+      { id: "user-1", steamId64: "76561198000000000" } as unknown as User,
+    ]);
+    vi.mocked(storage.getUserSettings).mockResolvedValue({
+      steamSyncEnabled: false,
+      steamSyncIntervalHours: 24,
+      lastSteamSync: null,
+    } as unknown as UserSettings);
+
+    await checkSteamWishlist();
+
+    expect(steamService.getWishlist).not.toHaveBeenCalled();
+  });
+
+  it("skips users whose sync interval has not elapsed yet", async () => {
+    vi.mocked(storage.getAllUsers).mockResolvedValue([
+      { id: "user-1", steamId64: "76561198000000000" } as unknown as User,
+    ]);
+    vi.mocked(storage.getUserSettings).mockResolvedValue({
+      steamSyncEnabled: true,
+      steamSyncIntervalHours: 24,
+      lastSteamSync: new Date(),
+    } as unknown as UserSettings);
+
+    await checkSteamWishlist();
+
+    expect(steamService.getWishlist).not.toHaveBeenCalled();
+    expect(storage.updateUserSettings).not.toHaveBeenCalledWith(
+      "user-1",
+      expect.objectContaining({ lastSteamSync: expect.anything() })
+    );
+  });
+
+  it("syncs and records lastSteamSync when enabled and the interval has elapsed", async () => {
+    vi.mocked(storage.getAllUsers).mockResolvedValue([
+      { id: "user-1", steamId64: "76561198000000000" } as unknown as User,
+    ]);
+    vi.mocked(storage.getUser).mockResolvedValue({
+      id: "user-1",
+      steamId64: "76561198000000000",
+    } as unknown as User);
+    vi.mocked(storage.getUserSettings).mockResolvedValue({
+      steamSyncEnabled: true,
+      steamSyncIntervalHours: 24,
+      lastSteamSync: null,
+      steamSyncFailures: 0,
+    } as unknown as UserSettings);
+
+    await checkSteamWishlist();
+
+    expect(steamService.getWishlist).toHaveBeenCalledWith("76561198000000000");
+    expect(storage.updateUserSettings).toHaveBeenCalledWith(
+      "user-1",
+      expect.objectContaining({ lastSteamSync: expect.any(Date) })
+    );
+  });
+
+  it("continues checking other users when one user's sync throws", async () => {
+    vi.mocked(storage.getAllUsers).mockResolvedValue([
+      { id: "user-1", steamId64: "76561198000000000" } as unknown as User,
+      { id: "user-2", steamId64: "76561198000000001" } as unknown as User,
+    ]);
+    vi.mocked(storage.getUserSettings).mockImplementation(async (userId: string) => {
+      if (userId === "user-1") {
+        throw new Error("DB error");
+      }
+      return {
+        steamSyncEnabled: true,
+        steamSyncIntervalHours: 24,
+        lastSteamSync: null,
+        steamSyncFailures: 0,
+      } as unknown as UserSettings;
+    });
+    vi.mocked(storage.getUser).mockResolvedValue({
+      id: "user-2",
+      steamId64: "76561198000000001",
+    } as unknown as User);
+
+    await expect(checkSteamWishlist()).resolves.not.toThrow();
+
+    expect(steamService.getWishlist).toHaveBeenCalledWith("76561198000000001");
   });
 });

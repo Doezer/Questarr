@@ -44,6 +44,9 @@ export const userSettings = sqliteTable("user_settings", {
     .notNull()
     .default(false),
   steamSyncFailures: integer("steam_sync_failures").notNull().default(0),
+  steamSyncEnabled: integer("steam_sync_enabled", { mode: "boolean" }).notNull().default(false),
+  steamSyncIntervalHours: integer("steam_sync_interval_hours").notNull().default(24),
+  lastSteamSync: integer("last_steam_sync", { mode: "timestamp_ms" }),
   preferredReleaseGroups: text("preferred_release_groups"),
   filterByPreferredGroups: integer("filter_by_preferred_groups", { mode: "boolean" })
     .notNull()

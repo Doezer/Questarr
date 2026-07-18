@@ -181,21 +181,23 @@ wired up — see `server/cron.ts:534,583`). Two event types are emitted today:
 
 ## 7. Scheduled/background actors (cron jobs)
 
-`server/cron.ts::startCronJobs()` schedules four recurring jobs via
+`server/cron.ts::startCronJobs()` schedules five recurring jobs via
 `setInterval`, each also run once on an initial 10-second delayed startup:
 
-| Job                   | Interval                                                     | Upstream read                                                                           | Downstream write                                                                            |
-| --------------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `checkGameUpdates`    | 24 hours                                                     | IGDB (batch fetch by ID)                                                                | `games` table (release date/status), `notifications` table, Socket.io `notification`        |
-| `checkDownloadStatus` | 1 minute                                                     | Configured download clients (via `DownloaderManager`)                                   | `game_downloads`/`games` status, `notifications`, Socket.io `downloadUpdate`/`notification` |
-| `checkAutoSearch`     | 1 hour (per user, gated by their configured search interval) | Torznab/Newznab indexers (via `search.ts`), download clients (if auto-download enabled) | `games` search-results flag, `game_downloads`, `notifications`, Socket.io `notification`    |
-| `checkXrelReleases`   | 6 hours                                                      | xREL.to latest releases                                                                 | `xrel_notified_releases`, `notifications`, Socket.io `notification`                         |
+| Job                   | Interval                                                                                  | Upstream read                                                                           | Downstream write                                                                                                 |
+| --------------------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `checkGameUpdates`    | 24 hours                                                                                  | IGDB (batch fetch by ID)                                                                | `games` table (release date/status), `notifications` table, Socket.io `notification`                             |
+| `checkDownloadStatus` | 1 minute                                                                                  | Configured download clients (via `DownloaderManager`)                                   | `game_downloads`/`games` status, `notifications`, Socket.io `downloadUpdate`/`notification`                      |
+| `checkAutoSearch`     | 1 hour (per user, gated by their configured search interval)                              | Torznab/Newznab indexers (via `search.ts`), download clients (if auto-download enabled) | `games` search-results flag, `game_downloads`, `notifications`, Socket.io `notification`                         |
+| `checkXrelReleases`   | 6 hours                                                                                   | xREL.to latest releases                                                                 | `xrel_notified_releases`, `notifications`, Socket.io `notification`                                              |
+| `checkSteamWishlist`  | 1 hour (per user, gated by their configured sync interval, opt-in via `steamSyncEnabled`) | Steam Web API wishlist, IGDB (Steam App ID lookup)                                      | `games` table (new/linked entries), `import_tasks`, `notifications`, Socket.io `importTaskUpdate`/`notification` |
 
-Steam wishlist sync (`syncUserSteamWishlist` in `server/cron.ts`) is **not**
-on this schedule — it only runs when a user explicitly triggers it via
-`POST /api/steam/wishlist/sync` (`server/steam-routes.ts:37-56`). A
-`checkSteamWishlist` helper that would loop over all linked users exists in
-`cron.ts` but is not currently wired into `startCronJobs()`.
+Steam wishlist sync (`syncUserSteamWishlist` in `server/cron.ts`) also runs
+on-demand when a user explicitly triggers it via
+`POST /api/steam/wishlist/sync` (`server/steam-routes.ts:37-56`). The
+scheduled path is opt-in per user (`userSettings.steamSyncEnabled`, default
+`false`) with a configurable interval (`userSettings.steamSyncIntervalHours`,
+default 24) tracked via `userSettings.lastSteamSync`.
 
 ## 8. Trust boundaries
 

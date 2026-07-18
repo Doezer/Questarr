@@ -1303,7 +1303,11 @@ export default function SettingsPage() {
                         min="1"
                         max="168"
                         value={steamSyncIntervalHours}
-                        onChange={(e) => setSteamSyncIntervalHours(parseInt(e.target.value) || 24)}
+                        onChange={(e) =>
+                          setSteamSyncIntervalHours(
+                            Math.min(168, Math.max(1, parseInt(e.target.value) || 24))
+                          )
+                        }
                         className="w-32"
                       />
                       <p className="text-xs text-muted-foreground">

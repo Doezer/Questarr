@@ -1253,29 +1253,41 @@ export async function checkXrelReleases() {
   }
 }
 
+let steamWishlistCheckInProgress = false;
+
 export async function checkSteamWishlist() {
-  igdbLogger.debug("Checking Steam Wishlist auto-sync for all users...");
-  const users = await storage.getAllUsers();
-  for (const user of users) {
-    if (!user.steamId64) continue;
+  if (steamWishlistCheckInProgress) {
+    igdbLogger.debug("Skipping Steam Wishlist auto-sync check — previous run still in progress");
+    return;
+  }
 
-    try {
-      const settings = await storage.getUserSettings(user.id);
-      if (!settings || !settings.steamSyncEnabled) continue;
+  steamWishlistCheckInProgress = true;
+  try {
+    igdbLogger.debug("Checking Steam Wishlist auto-sync for all users...");
+    const users = await storage.getAllUsers();
+    for (const user of users) {
+      if (!user.steamId64) continue;
 
-      const lastSync = settings.lastSteamSync ? new Date(settings.lastSteamSync).getTime() : 0;
-      const intervalMs = settings.steamSyncIntervalHours * 60 * 60 * 1000;
+      try {
+        const settings = await storage.getUserSettings(user.id);
+        if (!settings || !settings.steamSyncEnabled) continue;
 
-      if (Date.now() - lastSync < intervalMs) continue;
+        const lastSync = settings.lastSteamSync ? new Date(settings.lastSteamSync).getTime() : 0;
+        const intervalMs = settings.steamSyncIntervalHours * 60 * 60 * 1000;
 
-      igdbLogger.info({ userId: user.id }, "Running scheduled Steam Wishlist sync");
-      const result = await syncUserSteamWishlist(user.id, "system");
-      if (result && result.success) {
-        await storage.updateUserSettings(user.id, { lastSteamSync: new Date() });
+        if (Date.now() - lastSync < intervalMs) continue;
+
+        igdbLogger.info({ userId: user.id }, "Running scheduled Steam Wishlist sync");
+        const result = await syncUserSteamWishlist(user.id, "system");
+        if (result && result.success) {
+          await storage.updateUserSettings(user.id, { lastSteamSync: new Date() });
+        }
+      } catch (error) {
+        igdbLogger.error({ userId: user.id, error }, "Error during scheduled Steam Wishlist sync");
       }
-    } catch (error) {
-      igdbLogger.error({ userId: user.id, error }, "Error during scheduled Steam Wishlist sync");
     }
+  } finally {
+    steamWishlistCheckInProgress = false;
   }
 }
 

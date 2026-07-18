@@ -3,7 +3,7 @@ import { syncUserSteamWishlist, checkSteamWishlist } from "../cron.js";
 import { storage } from "../storage.js";
 import { steamService } from "../steam.js";
 import { igdbClient, type IGDBGame } from "../igdb.js";
-import type { Game, User, UserSettings } from "../../shared/schema.js";
+import type { Game, ImportTask, User, UserSettings } from "../../shared/schema.js";
 
 // Mock dependencies
 vi.mock("../storage.js");
@@ -360,7 +360,9 @@ describe("syncUserSteamWishlist", () => {
 describe("checkSteamWishlist", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(storage.createImportTask).mockResolvedValue({ id: "task-id" } as any);
+    vi.mocked(storage.createImportTask).mockResolvedValue({
+      id: "task-id",
+    } as unknown as ImportTask);
     vi.mocked(storage.startImportTask).mockResolvedValue(undefined);
     vi.mocked(storage.updateImportTask).mockResolvedValue(undefined);
     vi.mocked(storage.addImportTaskItemsBatch).mockResolvedValue([]);
@@ -493,5 +495,23 @@ describe("checkSteamWishlist", () => {
     await expect(checkSteamWishlist()).resolves.not.toThrow();
 
     expect(steamService.getWishlist).toHaveBeenCalledWith("76561198000000001");
+  });
+
+  it("skips a run entirely when a previous run is still in progress", async () => {
+    let resolveGetAllUsers: (users: User[]) => void;
+    const getAllUsersPromise = new Promise<User[]>((resolve) => {
+      resolveGetAllUsers = resolve;
+    });
+    vi.mocked(storage.getAllUsers).mockReturnValueOnce(getAllUsersPromise);
+
+    const firstRun = checkSteamWishlist();
+    const secondRun = checkSteamWishlist();
+
+    // The second call should return immediately without waiting on getAllUsers.
+    await secondRun;
+    expect(storage.getUserSettings).not.toHaveBeenCalled();
+
+    resolveGetAllUsers!([]);
+    await firstRun;
   });
 });

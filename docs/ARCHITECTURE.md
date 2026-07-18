@@ -181,8 +181,13 @@ wired up — see `server/cron.ts:534,583`). Two event types are emitted today:
 
 ## 7. Scheduled/background actors (cron jobs)
 
-`server/cron.ts::startCronJobs()` schedules five recurring jobs via
-`setInterval`, each also run once on an initial 10-second delayed startup:
+`server/cron.ts::startCronJobs()` schedules seven recurring `setInterval`
+jobs. The five primary sync/check jobs below also run once on an initial
+10-second delayed startup; `startCronJobs()` additionally runs
+`logClientVersions` (every 12 hours, probes configured indexer/downloader
+client versions for logging) and a daily import-task cleanup (deletes
+`import_tasks` rows older than 30 days), neither of which reads/writes
+domain data covered by this table:
 
 | Job                   | Interval                                                                                  | Upstream read                                                                           | Downstream write                                                                                                 |
 | --------------------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |

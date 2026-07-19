@@ -1,20 +1,25 @@
 import { EventEmitter } from "node:events";
+import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { extractFullMock, ensureDirMock } = vi.hoisted(() => ({
+const { extractFullMock, ensureDirMock, listMock, statMock } = vi.hoisted(() => ({
   extractFullMock: vi.fn(),
   ensureDirMock: vi.fn().mockResolvedValue(undefined),
+  listMock: vi.fn(),
+  statMock: vi.fn(),
 }));
 
 vi.mock("node-7z", () => ({
   default: {
     extractFull: extractFullMock,
+    list: listMock,
   },
 }));
 
 vi.mock("fs-extra", () => ({
   default: {
     ensureDir: ensureDirMock,
+    stat: statMock,
   },
 }));
 
@@ -217,5 +222,129 @@ describe("ArchiveService", () => {
     expect(files[0]).toMatch(/tmp[\\/]nested-out[\\/]level1[\\/]level2[\\/]deep\.rom$/);
     expect(files[1]).toMatch(/tmp[\\/]nested-out[\\/]level1[\\/]level2[\\/]level3[\\/]extra\.bin$/);
     expect(files[2]).toMatch(/tmp[\\/]nested-out[\\/]root\.cfg$/);
+  });
+
+  describe("isAlreadyExtracted", () => {
+    it("returns true when every entry matches a loose file by name and size", async () => {
+      const stream = new EventEmitter();
+      listMock.mockReturnValue(stream);
+      statMock.mockImplementation(async (p: string) => {
+        if (p.endsWith("rom.bin")) return { isDirectory: () => false, size: 100 };
+        if (p.endsWith("readme.txt")) return { isDirectory: () => false, size: 20 };
+        throw new Error("ENOENT");
+      });
+
+      const service = new ArchiveService();
+      const resultPromise = service.isAlreadyExtracted("/downloads/game.zip", "/library/game"); // NOSONAR - mocked fs, no real dir access
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      stream.emit("data", { file: "rom.bin", size: 100, attributes: "A" });
+      stream.emit("data", { file: "readme.txt", size: 20, attributes: "A" });
+      stream.emit("end");
+
+      await expect(resultPromise).resolves.toBe(true);
+    });
+
+    it("returns false when an entry's size differs from the loose file on disk", async () => {
+      const stream = new EventEmitter();
+      listMock.mockReturnValue(stream);
+      statMock.mockImplementation(async () => ({ isDirectory: () => false, size: 999 }));
+
+      const service = new ArchiveService();
+      const resultPromise = service.isAlreadyExtracted("/downloads/game.zip", "/library/game"); // NOSONAR - mocked fs, no real dir access
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      stream.emit("data", { file: "rom.bin", size: 100, attributes: "A" });
+      stream.emit("end");
+
+      await expect(resultPromise).resolves.toBe(false);
+    });
+
+    it("returns false when an entry is missing from disk", async () => {
+      const stream = new EventEmitter();
+      listMock.mockReturnValue(stream);
+      statMock.mockImplementation(async () => {
+        throw new Error("ENOENT");
+      });
+
+      const service = new ArchiveService();
+      const resultPromise = service.isAlreadyExtracted("/downloads/game.zip", "/library/game"); // NOSONAR - mocked fs, no real dir access
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      stream.emit("data", { file: "rom.bin", size: 100, attributes: "A" });
+      stream.emit("end");
+
+      await expect(resultPromise).resolves.toBe(false);
+    });
+
+    it("returns false when an entry resolves to a directory instead of a file", async () => {
+      const stream = new EventEmitter();
+      listMock.mockReturnValue(stream);
+      statMock.mockImplementation(async () => ({ isDirectory: () => true, size: 0 }));
+
+      const service = new ArchiveService();
+      const resultPromise = service.isAlreadyExtracted("/downloads/game.zip", "/library/game"); // NOSONAR - mocked fs, no real dir access
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      stream.emit("data", { file: "subdir", size: 0, attributes: "A" });
+      stream.emit("end");
+
+      await expect(resultPromise).resolves.toBe(false);
+    });
+
+    it("returns false for an empty archive", async () => {
+      const stream = new EventEmitter();
+      listMock.mockReturnValue(stream);
+
+      const service = new ArchiveService();
+      const resultPromise = service.isAlreadyExtracted("/downloads/empty.zip", "/library/game"); // NOSONAR - mocked fs, no real dir access
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      stream.emit("end");
+
+      await expect(resultPromise).resolves.toBe(false);
+      expect(statMock).not.toHaveBeenCalled();
+    });
+
+    it("normalizes foreign path separators in archive entry names before matching", async () => {
+      const stream = new EventEmitter();
+      listMock.mockReturnValue(stream);
+      const expectedPath = path.join("/library/game", "sub", "deep", "file.txt");
+      statMock.mockImplementation(async (p: string) => {
+        if (p === expectedPath) return { isDirectory: () => false, size: 42 };
+        throw new Error(`unexpected stat path: ${p}`);
+      });
+
+      const service = new ArchiveService();
+      const resultPromise = service.isAlreadyExtracted("/downloads/game.zip", "/library/game"); // NOSONAR - mocked fs, no real dir access
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      // Archive entries may report backslash separators regardless of the host OS.
+      stream.emit("data", { file: "sub\\deep\\file.txt", size: 42, attributes: "A" });
+      stream.emit("end");
+
+      await expect(resultPromise).resolves.toBe(true);
+    });
+  });
+
+  describe("findVolumeSiblings", () => {
+    it("recognizes .partN.rar continuation volumes as siblings of .part1.rar", () => {
+      const service = new ArchiveService();
+
+      const siblings = service.findVolumeSiblings("/library/game/Game.part1.rar", [
+        "/library/game/Game.part1.rar",
+        "/library/game/Game.part2.rar",
+        "/library/game/Game.part10.rar",
+        "/library/game/readme.txt",
+      ]);
+
+      expect(siblings.sort()).toEqual(
+        [
+          "/library/game/Game.part1.rar",
+          "/library/game/Game.part2.rar",
+          "/library/game/Game.part10.rar",
+        ].sort()
+      );
+    });
   });
 });

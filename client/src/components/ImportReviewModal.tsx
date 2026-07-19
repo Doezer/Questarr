@@ -267,6 +267,18 @@ export default function ImportReviewModal({
                   <SelectItem value="symlink">Symlink</SelectItem>
                 </SelectContent>
               </Select>
+              {transferMode === "hardlink" && (
+                <p className="text-xs text-muted-foreground">
+                  Requires the download and library folders to be on the same volume; survives the
+                  source file being removed later.
+                </p>
+              )}
+              {transferMode === "symlink" && (
+                <p className="text-xs text-muted-foreground">
+                  Works across different volumes, but the link breaks if the source file is later
+                  removed or moved.
+                </p>
+              )}
             </div>
 
             <div className="flex items-center justify-between">

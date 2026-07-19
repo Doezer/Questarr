@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import path from "node:path";
 
 const { fsMock, downloadersMock } = vi.hoisted(() => ({
   fsMock: {
@@ -298,10 +299,8 @@ describe("ImportManager", () => {
 
     await manager.processImport("dl-1", "/remote/path");
 
-    expect(archiveService.extract).toHaveBeenCalledWith(
-      "/data/downloads/file.zip",
-      "/data/downloads/file.zip_extracted"
-    );
+    const destDir = path.join("/data", "PC", "Archive Game");
+    expect(archiveService.extract).toHaveBeenCalledWith(path.join(destDir, "file.zip"), destDir);
   });
 
   it("import config libraryRoot is used as the library root for PC imports", async () => {
@@ -415,7 +414,9 @@ describe("ImportManager", () => {
       status: "wanted",
       platforms: [6],
     });
-    storage.getImportConfig.mockResolvedValue(makeImportConfig({ autoUnpack: true }));
+    storage.getImportConfig.mockResolvedValue(
+      makeImportConfig({ autoUnpack: true, overwriteExisting: true })
+    );
     archiveService.isArchive.mockReturnValue(true);
     archiveService.extract.mockResolvedValue([]);
     pathService.translatePath.mockResolvedValue("/data/downloads/file.zip");
@@ -429,10 +430,8 @@ describe("ImportManager", () => {
 
     await manager.processImport("dl-1", "/remote/path");
 
-    expect(archiveService.extract).toHaveBeenCalledWith(
-      "/data/downloads/file.zip",
-      "/data/downloads/file.zip_extracted"
-    );
+    const destDir = path.join("/data", "PC", "Archive Game");
+    expect(archiveService.extract).toHaveBeenCalledWith(path.join(destDir, "file.zip"), destDir);
     expect(storage.updateGameDownloadStatus).toHaveBeenCalled();
   });
 
@@ -480,7 +479,8 @@ describe("ImportManager", () => {
 
     expect(execSpy).toHaveBeenCalledWith(
       expect.objectContaining({ originalPath: "/override/source/path" }),
-      "move"
+      "move",
+      undefined
     );
 
     execSpy.mockRestore();
@@ -527,7 +527,8 @@ describe("ImportManager", () => {
 
     expect(execSpy).toHaveBeenCalledWith(
       expect.objectContaining({ proposedPath: "/safe/root/PC/Custom Folder" }),
-      "move"
+      "move",
+      undefined
     );
 
     execSpy.mockRestore();
@@ -551,14 +552,6 @@ describe("ImportManager", () => {
     archiveService.isArchive.mockReturnValue(true);
     archiveService.extract.mockResolvedValue(["/safe/root/PC/My Game/game.exe"]);
 
-    const { PCImportStrategy } = await import("../services/ImportStrategies.js");
-    const execSpy = vi.spyOn(PCImportStrategy.prototype, "executeImport").mockResolvedValue({
-      destDir: "/safe/root/PC/My Game",
-      filesPlaced: ["/safe/root/PC/My Game/game.exe"],
-      modeUsed: "move",
-      conflictsResolved: [],
-    });
-
     const manager = new ImportManager(
       storage as never, // NOSONAR
       pathService as never, // NOSONAR
@@ -575,12 +568,13 @@ describe("ImportManager", () => {
       unpack: true,
     });
 
-    expect(archiveService.extract).toHaveBeenCalledWith(
-      "/downloads/game.zip",
-      "/downloads/game.zip_extracted"
-    );
-
-    execSpy.mockRestore();
+    // Lone-file archive + move mode: the archive is relocated into the
+    // destination first, then extracted in place there.
+    const archiveInDest = path.join("/safe/root/PC/My Game", "game.zip");
+    expect(fsMock.move).toHaveBeenCalledWith("/downloads/game.zip", archiveInDest, {
+      overwrite: true,
+    });
+    expect(archiveService.extract).toHaveBeenCalledWith(archiveInDest, "/safe/root/PC/My Game");
   });
 
   it("confirmImport: overridePlan.unpack = false → archiveService.extract is NOT called", async () => {
@@ -746,7 +740,8 @@ describe("ImportManager", () => {
       expect.anything(),
       expect.anything(),
       expect.anything(),
-      "PC"
+      "PC",
+      undefined
     );
 
     planSpy.mockRestore();

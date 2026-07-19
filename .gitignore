@@ -29,6 +29,7 @@ coverage/
 playwright*/
 test-results/
 test-report.junit.xml
+.vitest-reports/
 vite.config.ts.*
 .sonarlint/connectedMode.json
 data_test/

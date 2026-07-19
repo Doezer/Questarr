@@ -404,7 +404,7 @@
   --radius-3xl: 0px;
   --radius: 0px;
 
-  --font-sans: Tahoma, "Segoe UI", "MS Sans Serif", Geneva, Verdana, sans-serif;
+  --font-sans: tahoma, "Segoe UI", "MS Sans Serif", geneva, verdana, sans-serif;
 
   --shadow-2xs: none;
   --shadow-xs: none;
@@ -573,6 +573,20 @@
     border-radius: 0;
   }
 
+  .theme-win2k button[role="switch"] {
+    border-radius: 0;
+    border-width: 2px;
+    border-style: solid;
+    border-top-color: #404040;
+    border-left-color: #404040;
+    border-right-color: #fff;
+    border-bottom-color: #fff;
+  }
+
+  .theme-win2k button[role="switch"] > span {
+    border-radius: 0;
+  }
+
   .theme-win2k
     button.border:not(.border-transparent):not([role="switch"]):not([role="checkbox"]):not(
       [role="radio"]
@@ -620,6 +634,7 @@
     border-right-color: #fff;
     border-bottom-color: #fff;
     background-color: #fff;
+    color: #000;
     border-radius: 0;
   }
 
@@ -648,15 +663,18 @@
     border-radius: 0 !important;
   }
 
+  .theme-win2k::-webkit-scrollbar,
   .theme-win2k ::-webkit-scrollbar {
     width: 16px;
     height: 16px;
   }
 
+  .theme-win2k::-webkit-scrollbar-track,
   .theme-win2k ::-webkit-scrollbar-track {
     background-color: #c0c0c0;
   }
 
+  .theme-win2k::-webkit-scrollbar-thumb,
   .theme-win2k ::-webkit-scrollbar-thumb {
     background-color: #c0c0c0;
     border-width: 2px;
@@ -667,6 +685,7 @@
     border-bottom-color: #404040;
   }
 
+  .theme-win2k::-webkit-scrollbar-button,
   .theme-win2k ::-webkit-scrollbar-button {
     background-color: #c0c0c0;
     border-width: 2px;

@@ -10,7 +10,7 @@ import MobileBottomNav from "@/components/MobileBottomNav";
 import { getPageTitle } from "@/components/navigation-items";
 import { useBackgroundNotifications } from "@/hooks/use-background-notifications";
 import { AuthProvider } from "@/lib/auth";
-import { Suspense, lazy, useEffect, useRef } from "react";
+import { Suspense, lazy, useEffect, useLayoutEffect, useRef } from "react";
 import LoadingFallback from "@/components/LoadingFallback";
 import { ThemeProvider } from "next-themes";
 import { routerBase } from "@/lib/app-path";
@@ -134,8 +134,9 @@ function AppShell() {
     document.documentElement.classList.toggle("theme-ghost", enabled);
   }, []);
 
-  // Re-apply the cosmetic Windows 2000 skin (if enabled) on load.
-  useEffect(() => {
+  // Re-apply the cosmetic Windows 2000 skin (if enabled) on load. useLayoutEffect (rather than
+  // useEffect) so the class is applied before paint, avoiding a flash of the default theme.
+  useLayoutEffect(() => {
     const enabled = localStorage.getItem(WIN2K_THEME_KEY) === "true";
     document.documentElement.classList.toggle("theme-win2k", enabled);
   }, []);

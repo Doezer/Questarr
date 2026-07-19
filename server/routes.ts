@@ -1692,12 +1692,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ error: "Search query required" });
         }
 
-        const limitNum =
+        const parsedLimit =
           typeof limit === "number"
             ? limit
             : typeof limit === "string"
               ? Number.parseInt(limit, 10)
-              : 20;
+              : NaN;
+        const limitNum =
+          Number.isNaN(parsedLimit) || parsedLimit < 1 ? 20 : Math.min(parsedLimit, 100);
         const searchOptions =
           typeof includeUndated === "boolean"
             ? { includeUndated, undatedFirst: includeUndated }
@@ -1706,6 +1708,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           igdbClient.searchGames(q, fetchLimit, searchOptions)
         );
 
+        res.set("Cache-Control", CC_IGDB_GAME_LIST_PRIVATE);
         res.json(formattedGames);
       } catch (error) {
         routesLogger.error({ error }, "error searching IGDB");
@@ -1734,6 +1737,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         igdbClient.getRecommendations(recommendationSeeds, fetchLimit)
       );
 
+      res.set("Cache-Control", CC_IGDB_GAME_LIST_PRIVATE);
       res.json(formattedGames);
     } catch (error) {
       routesLogger.error({ error }, "error getting game recommendations");
@@ -1819,6 +1823,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         const formattedGame = igdbClient.formatGameData(igdbGame);
+        res.set("Cache-Control", CC_IGDB_GAME_LIST_PRIVATE);
         if (formattedGame.isAdultContent && (await shouldHideAdultContent(req.user!.id))) {
           return res.status(404).json({ error: "Game not found" });
         }

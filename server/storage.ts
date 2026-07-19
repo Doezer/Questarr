@@ -1063,6 +1063,9 @@ export class MemStorage implements IStorage {
       xrelP2pReleases: insertSettings.xrelP2pReleases ?? false,
       autoSearchUnreleased: insertSettings.autoSearchUnreleased ?? false,
       steamSyncFailures: 0,
+      steamSyncEnabled: insertSettings.steamSyncEnabled ?? false,
+      steamSyncIntervalHours: insertSettings.steamSyncIntervalHours ?? 24,
+      lastSteamSync: insertSettings.lastSteamSync ?? null,
 
       // Import Engine Defaults
       enablePostProcessing: insertSettings.enablePostProcessing ?? false,

@@ -356,6 +356,61 @@ async function fetchFilteredIgdbGames(
   return hideAdult ? excludeAdultContent(formattedGames).slice(0, limit) : formattedGames;
 }
 
+/** Registers a simple `?limit=` IGDB list endpoint (popular/recent/upcoming), adult-filtered and privately cached. */
+function registerIgdbListRoute(
+  app: Express,
+  path: string,
+  errorLabel: string,
+  fetchGames: (fetchLimit: number) => Promise<IGDBGame[]>
+) {
+  app.get(path, igdbRateLimiter, async (req, res) => {
+    try {
+      const { limit } = req.query;
+      const limitNum = limit ? parseInt(limit as string) : 20;
+
+      const formattedGames = await fetchFilteredIgdbGames(req.user!.id, limitNum, fetchGames);
+
+      res.set("Cache-Control", CC_IGDB_GAME_LIST_PRIVATE);
+      res.json(formattedGames);
+    } catch (error) {
+      routesLogger.error({ error }, `error fetching ${errorLabel}`);
+      res.status(500).json({ error: `Failed to fetch ${errorLabel}` });
+    }
+  });
+}
+
+/** Registers a `:param`-scoped, `limit`/`offset`-paginated IGDB list endpoint (genre/platform), adult-filtered and privately cached. */
+function registerIgdbParamListRoute(
+  app: Express,
+  path: string,
+  paramName: string,
+  errorLabel: string,
+  fetchGames: (paramValue: string, fetchLimit: number, offset: number) => Promise<IGDBGame[]>
+) {
+  app.get(path, igdbRateLimiter, async (req, res) => {
+    try {
+      const paramValue = req.params[paramName];
+      const { limit, offset } = validatePaginationParams(
+        req.query as { limit?: string; offset?: string }
+      );
+
+      if (!paramValue || paramValue.length > 100) {
+        return res.status(400).json({ error: `Invalid ${paramName} parameter` });
+      }
+
+      const formattedGames = await fetchFilteredIgdbGames(req.user!.id, limit, (fetchLimit) =>
+        fetchGames(paramValue, fetchLimit, offset)
+      );
+
+      res.set("Cache-Control", CC_IGDB_GAME_LIST_PRIVATE);
+      res.json(formattedGames);
+    } catch (error) {
+      routesLogger.error({ error }, `error fetching games by ${errorLabel}`);
+      res.status(500).json({ error: `Failed to fetch games by ${errorLabel}` });
+    }
+  });
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // 🛡️ Sentinel: Add security headers with Helmet
   // Configured to allow Vite/React (unsafe-inline/eval) in dev, and IGDB images everywhere
@@ -1684,108 +1739,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get popular games
-  app.get("/api/igdb/popular", igdbRateLimiter, async (req, res) => {
-    try {
-      const { limit } = req.query;
-      const limitNum = limit ? parseInt(limit as string) : 20;
-
-      const formattedGames = await fetchFilteredIgdbGames(req.user!.id, limitNum, (fetchLimit) =>
-        igdbClient.getPopularGames(fetchLimit)
-      );
-
-      res.set("Cache-Control", CC_IGDB_GAME_LIST_PRIVATE);
-      res.json(formattedGames);
-    } catch (error) {
-      routesLogger.error({ error }, "error fetching popular games");
-      res.status(500).json({ error: "Failed to fetch popular games" });
-    }
-  });
+  registerIgdbListRoute(app, "/api/igdb/popular", "popular games", (fetchLimit) =>
+    igdbClient.getPopularGames(fetchLimit)
+  );
 
   // Get recent releases
-  app.get("/api/igdb/recent", igdbRateLimiter, async (req, res) => {
-    try {
-      const { limit } = req.query;
-      const limitNum = limit ? parseInt(limit as string) : 20;
-
-      const formattedGames = await fetchFilteredIgdbGames(req.user!.id, limitNum, (fetchLimit) =>
-        igdbClient.getRecentReleases(fetchLimit)
-      );
-
-      res.set("Cache-Control", CC_IGDB_GAME_LIST_PRIVATE);
-      res.json(formattedGames);
-    } catch (error) {
-      routesLogger.error({ error }, "error fetching recent releases");
-      res.status(500).json({ error: "Failed to fetch recent releases" });
-    }
-  });
+  registerIgdbListRoute(app, "/api/igdb/recent", "recent releases", (fetchLimit) =>
+    igdbClient.getRecentReleases(fetchLimit)
+  );
 
   // Get upcoming releases
-  app.get("/api/igdb/upcoming", igdbRateLimiter, async (req, res) => {
-    try {
-      const { limit } = req.query;
-      const limitNum = limit ? parseInt(limit as string) : 20;
-
-      const formattedGames = await fetchFilteredIgdbGames(req.user!.id, limitNum, (fetchLimit) =>
-        igdbClient.getUpcomingReleases(fetchLimit)
-      );
-
-      res.set("Cache-Control", CC_IGDB_GAME_LIST_PRIVATE);
-      res.json(formattedGames);
-    } catch (error) {
-      routesLogger.error({ error }, "error fetching upcoming releases");
-      res.status(500).json({ error: "Failed to fetch upcoming releases" });
-    }
-  });
+  registerIgdbListRoute(app, "/api/igdb/upcoming", "upcoming releases", (fetchLimit) =>
+    igdbClient.getUpcomingReleases(fetchLimit)
+  );
 
   // Get games by genre
-  app.get("/api/igdb/genre/:genre", igdbRateLimiter, async (req, res) => {
-    try {
-      const { genre } = req.params;
-      const { limit, offset } = validatePaginationParams(
-        req.query as { limit?: string; offset?: string }
-      );
-
-      // Basic validation for genre parameter
-      if (!genre || genre.length > 100) {
-        return res.status(400).json({ error: "Invalid genre parameter" });
-      }
-
-      const formattedGames = await fetchFilteredIgdbGames(req.user!.id, limit, (fetchLimit) =>
-        igdbClient.getGamesByGenre(genre, fetchLimit, offset)
-      );
-
-      res.set("Cache-Control", CC_IGDB_GAME_LIST_PRIVATE);
-      res.json(formattedGames);
-    } catch (error) {
-      console.error("Error fetching games by genre:", error);
-      res.status(500).json({ error: "Failed to fetch games by genre" });
-    }
-  });
+  registerIgdbParamListRoute(
+    app,
+    "/api/igdb/genre/:genre",
+    "genre",
+    "genre",
+    (genre, fetchLimit, offset) => igdbClient.getGamesByGenre(genre, fetchLimit, offset)
+  );
 
   // Get games by platform
-  app.get("/api/igdb/platform/:platform", igdbRateLimiter, async (req, res) => {
-    try {
-      const { platform } = req.params;
-      const { limit, offset } = validatePaginationParams(
-        req.query as { limit?: string; offset?: string }
-      );
-
-      // Basic validation for platform parameter
-      if (!platform || platform.length > 100) {
-        return res.status(400).json({ error: "Invalid platform parameter" });
-      }
-
-      const formattedGames = await fetchFilteredIgdbGames(req.user!.id, limit, (fetchLimit) =>
-        igdbClient.getGamesByPlatform(platform, fetchLimit, offset)
-      );
-
-      res.set("Cache-Control", CC_IGDB_GAME_LIST_PRIVATE);
-      res.json(formattedGames);
-    } catch (error) {
-      console.error("Error fetching games by platform:", error);
-      res.status(500).json({ error: "Failed to fetch games by platform" });
-    }
-  });
+  registerIgdbParamListRoute(
+    app,
+    "/api/igdb/platform/:platform",
+    "platform",
+    "platform",
+    (platform, fetchLimit, offset) => igdbClient.getGamesByPlatform(platform, fetchLimit, offset)
+  );
 
   // Get available genres (for UI dropdowns/filters)
   app.get("/api/igdb/genres", igdbRateLimiter, async (req, res) => {
@@ -3747,6 +3731,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const match = igdbResults[0];
       const formattedMatch = igdbClient.formatGameData(match);
+      if (formattedMatch.isAdultContent && (await shouldHideAdultContent(userId))) {
+        return res.status(404).json({ error: "Game not found" });
+      }
 
       // 2. Add to library (similar to POST /api/games)
       const gameData = insertGameSchema.parse({

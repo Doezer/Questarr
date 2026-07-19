@@ -838,7 +838,9 @@ describe("API Routes - Extended Coverage", () => {
 
         const response = await request(app).get("/api/igdb/search?q=Zelda");
         expect(response.status).toBe(200);
-        expect(igdbClient.searchGames).toHaveBeenCalledWith("Zelda", 20, {});
+        // Adult-content filtering is on by default, so the route over-fetches (2x limit)
+        // to still return up to `limit` results after filtering.
+        expect(igdbClient.searchGames).toHaveBeenCalledWith("Zelda", 40, {});
       });
 
       it("should require query parameter", async () => {
@@ -852,7 +854,7 @@ describe("API Routes - Extended Coverage", () => {
         const response = await request(app).get("/api/igdb/search?q=Zelda&includeUndated=true");
 
         expect(response.status).toBe(200);
-        expect(igdbClient.searchGames).toHaveBeenCalledWith("Zelda", 20, {
+        expect(igdbClient.searchGames).toHaveBeenCalledWith("Zelda", 40, {
           includeUndated: true,
           undatedFirst: true,
         });

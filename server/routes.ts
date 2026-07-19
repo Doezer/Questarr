@@ -366,7 +366,8 @@ function registerIgdbListRoute(
   app.get(path, igdbRateLimiter, async (req, res) => {
     try {
       const { limit } = req.query;
-      const limitNum = limit ? parseInt(limit as string) : 20;
+      const parsed = typeof limit === "string" ? parseInt(limit, 10) : NaN;
+      const limitNum = Number.isNaN(parsed) || parsed < 1 ? 20 : Math.min(parsed, 100);
 
       const formattedGames = await fetchFilteredIgdbGames(req.user!.id, limitNum, fetchGames);
 
@@ -1716,7 +1717,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // New discover endpoint for personalized recommendations
   app.get("/api/games/discover", igdbRateLimiter, async (req, res) => {
     try {
-      const limit = req.query.limit ? parseInt(req.query.limit as string) : 20;
+      const rawLimit = req.query.limit;
+      const parsedLimit = typeof rawLimit === "string" ? parseInt(rawLimit, 10) : NaN;
+      const limit = Number.isNaN(parsedLimit) || parsedLimit < 1 ? 20 : Math.min(parsedLimit, 100);
       const userId = req.user!.id;
 
       // Get user's current games for recommendations

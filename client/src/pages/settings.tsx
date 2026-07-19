@@ -167,6 +167,7 @@ export default function SettingsPage() {
   const [appriseKey, setAppriseKey] = useState("");
   const [appriseUrls, setAppriseUrls] = useState("");
   const appriseLoadedRef = useRef(false);
+  const settingsLoadedRef = useRef(false);
 
   // Local state for Steam form
   const [steamIdInput, setSteamIdInput] = useState("");
@@ -189,9 +190,11 @@ export default function SettingsPage() {
   const [nexusApiKey, setNexusApiKey] = useState("");
   const [showNexusApiKey, setShowNexusApiKey] = useState(false);
 
-  // Sync with fetched settings
+  // Sync with fetched settings. Guarded by settingsLoadedRef so a background
+  // refetch (e.g. after saving one section) doesn't clobber unsaved edits the
+  // user has made in another section of this form.
   useEffect(() => {
-    if (userSettings) {
+    if (userSettings && !settingsLoadedRef.current) {
       setAutoSearchEnabled(userSettings.autoSearchEnabled);
       setAutoSearchUnreleased(userSettings.autoSearchUnreleased ?? false);
       setAutoDownloadEnabled(userSettings.autoDownloadEnabled);
@@ -232,6 +235,7 @@ export default function SettingsPage() {
       setXrelP2pReleases(userSettings.xrelP2pReleases ?? false);
       setSteamSyncEnabled(userSettings.steamSyncEnabled ?? false);
       setSteamSyncIntervalHours(userSettings.steamSyncIntervalHours ?? 24);
+      settingsLoadedRef.current = true;
     }
     if (config?.xrel?.apiBase !== undefined) {
       setXrelApiBase(config.xrel.apiBase);

@@ -10,12 +10,13 @@ import MobileBottomNav from "@/components/MobileBottomNav";
 import { getPageTitle } from "@/components/navigation-items";
 import { useBackgroundNotifications } from "@/hooks/use-background-notifications";
 import { AuthProvider } from "@/lib/auth";
-import { Suspense, lazy, useEffect, useRef } from "react";
+import { Suspense, lazy, useEffect, useLayoutEffect, useRef } from "react";
 import LoadingFallback from "@/components/LoadingFallback";
 import { ThemeProvider } from "next-themes";
 import { routerBase } from "@/lib/app-path";
 import { routePaths } from "@/lib/routes";
 import { GHOST_THEME_KEY } from "@/lib/ghost-mode";
+import { WIN2K_THEME_KEY } from "@/lib/win2k-mode";
 
 // ⚡ Bolt: Code splitting with React.lazy
 // This reduces the initial bundle size by loading pages only when needed.
@@ -131,6 +132,13 @@ function AppShell() {
   useEffect(() => {
     const enabled = localStorage.getItem(GHOST_THEME_KEY) === "true";
     document.documentElement.classList.toggle("theme-ghost", enabled);
+  }, []);
+
+  // Re-apply the cosmetic Windows 2000 skin (if enabled) on load. useLayoutEffect (rather than
+  // useEffect) so the class is applied before paint, avoiding a flash of the default theme.
+  useLayoutEffect(() => {
+    const enabled = localStorage.getItem(WIN2K_THEME_KEY) === "true";
+    document.documentElement.classList.toggle("theme-win2k", enabled);
   }, []);
 
   // Custom sidebar width for the application

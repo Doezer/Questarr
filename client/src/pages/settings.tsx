@@ -22,6 +22,7 @@ import {
   Trash2,
   Bell,
   Ghost,
+  Monitor,
 } from "lucide-react";
 import { NexusModsIcon } from "@/components/NexusModsIcon";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -48,6 +49,7 @@ import AutoDownloadRulesSettings from "@/components/AutoDownloadRulesSettings";
 import PreferredReleaseGroupsSettings from "@/components/PreferredReleaseGroupsSettings";
 import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 import { GHOST_THEME_KEY, GHOST_UNLOCK_KEY } from "@/lib/ghost-mode";
+import { WIN2K_THEME_KEY } from "@/lib/win2k-mode";
 import PasswordSettings from "@/components/PasswordSettings";
 import type {
   Config,
@@ -92,6 +94,11 @@ export default function SettingsPage() {
   useEffect(() => {
     document.documentElement.classList.toggle("theme-ghost", ghostThemeEnabled);
   }, [ghostThemeEnabled]);
+
+  const [win2kThemeEnabled, setWin2kThemeEnabled] = useLocalStorageState(WIN2K_THEME_KEY, false);
+  useEffect(() => {
+    document.documentElement.classList.toggle("theme-win2k", win2kThemeEnabled);
+  }, [win2kThemeEnabled]);
 
   const {
     data: config,
@@ -877,6 +884,36 @@ export default function SettingsPage() {
                 </CardContent>
               </Card>
             )}
+
+            <Card>
+              <CardHeader>
+                <div className="flex items-center space-x-3">
+                  <Monitor className="h-5 w-5 text-muted-foreground" />
+                  <CardTitle className="text-lg">Windows 2000 Mode</CardTitle>
+                </div>
+                <CardDescription>
+                  A cosmetic retro skin &mdash; navy title bars, silver beveled buttons, square
+                  corners, and Tahoma type
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="win2k-theme" className="text-sm font-medium">
+                      Enable Windows 2000 skin
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Purely cosmetic &mdash; nothing else changes
+                    </p>
+                  </div>
+                  <Switch
+                    id="win2k-theme"
+                    checked={win2kThemeEnabled}
+                    onCheckedChange={setWin2kThemeEnabled}
+                  />
+                </div>
+              </CardContent>
+            </Card>
 
             {/* Auto-Search Settings */}
             <Card>

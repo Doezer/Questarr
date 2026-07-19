@@ -169,6 +169,13 @@
       "when": 1784395451947,
       "tag": "0023_narrow_blade",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1784500411251,
+      "tag": "0024_jazzy_gambit",
+      "breakpoints": true
     }
   ]
 }

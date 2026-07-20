@@ -15,7 +15,28 @@ export const IGDB_EARLY_ACCESS_STATUS = 4;
 
 // Shared field list for all IGDB game queries
 const IGDB_GAME_FIELDS =
-  "name, summary, cover.url, first_release_date, rating, aggregated_rating, aggregated_rating_count, platforms.name, genres.name, screenshots.url, websites.url, websites.category, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, status";
+  "name, summary, cover.url, first_release_date, rating, aggregated_rating, aggregated_rating_count, platforms.name, genres.name, themes.name, age_ratings.category, age_ratings.rating, screenshots.url, websites.url, websites.category, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, status";
+
+// IGDB theme name flagged as adult content (Erotic)
+const ADULT_THEME_NAMES = new Set(["Erotic"]);
+
+// IGDB AgeRating: category 1 = ESRB, 2 = PEGI; rating 12 = ESRB "Adults Only", 5 = PEGI "Eighteen"
+const ADULT_AGE_RATINGS = [
+  { category: 1, rating: 12 }, // ESRB Adults Only (AO)
+  { category: 2, rating: 5 }, // PEGI 18
+];
+
+function hasEroticTheme(igdbGame: IGDBGame): boolean {
+  return igdbGame.themes?.some((t) => ADULT_THEME_NAMES.has(t.name)) ?? false;
+}
+
+function hasAdultAgeRating(igdbGame: IGDBGame): boolean {
+  return (
+    igdbGame.age_ratings?.some((r) =>
+      ADULT_AGE_RATINGS.some((a) => a.category === r.category && a.rating === r.rating)
+    ) ?? false
+  );
+}
 
 export interface IGDBGame {
   id: number;
@@ -36,6 +57,14 @@ export interface IGDBGame {
   genres?: Array<{
     id: number;
     name: string;
+  }>;
+  themes?: Array<{
+    id: number;
+    name: string;
+  }>;
+  age_ratings?: Array<{
+    category: number;
+    rating: number;
   }>;
   screenshots?: Array<{
     id: number;
@@ -1051,6 +1080,9 @@ class IGDBClient {
       rating: igdbGame.rating ? Math.round(igdbGame.rating) / 10 : null,
       platforms: igdbGame.platforms?.map((p) => p.name) || [],
       genres: igdbGame.genres?.map((g) => g.name) || [],
+      themes: igdbGame.themes?.map((t) => t.name) || [],
+      isAdultContent: hasEroticTheme(igdbGame),
+      isAgeRestricted: hasAdultAgeRating(igdbGame),
       publishers:
         igdbGame.involved_companies?.filter((c) => c.publisher).map((c) => c.company.name) || [],
       developers:

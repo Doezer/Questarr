@@ -64,12 +64,15 @@ export function mapGameToInsertGame(game: Game): InsertGame {
     rating: game.rating,
     platforms: game.platforms,
     genres: game.genres,
+    themes: game.themes,
     screenshots: game.screenshots,
     igdbWebsites: game.igdbWebsites,
     aggregatedRating: game.aggregatedRating,
     source: game.source,
     status: game.status,
     hidden: game.hidden || false,
+    isAdultContent: game.isAdultContent || false,
+    isAgeRestricted: game.isAgeRestricted || false,
     earlyAccess: game.earlyAccess || false,
   };
 }

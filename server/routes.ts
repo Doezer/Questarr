@@ -322,38 +322,63 @@ function validatePaginationParams(query: { limit?: string; offset?: string }): {
   return { limit, offset };
 }
 
-async function shouldHideAdultContent(userId: string): Promise<boolean> {
+interface ContentFilterFlags {
+  hideAdultContent: boolean;
+  hideAgeRestrictedContent: boolean;
+}
+
+/** The two content-filter signals are independent user settings: "Erotic" theme vs. ESRB AO/PEGI 18 age ratings. */
+async function getContentFilterFlags(userId: string): Promise<ContentFilterFlags> {
   const settings = await storage.getUserSettings(userId);
-  return settings?.hideAdultContent ?? true;
+  return {
+    hideAdultContent: settings?.hideAdultContent ?? true,
+    hideAgeRestrictedContent: settings?.hideAgeRestrictedContent ?? true,
+  };
 }
 
-function excludeAdultContent<T>(games: T[]): T[] {
-  return games.filter((g) => (g as { isAdultContent?: boolean }).isAdultContent !== true);
+function isContentFiltered(
+  game: { isAdultContent?: boolean; isAgeRestricted?: boolean },
+  flags: ContentFilterFlags
+): boolean {
+  return (
+    (flags.hideAdultContent && game.isAdultContent === true) ||
+    (flags.hideAgeRestrictedContent && game.isAgeRestricted === true)
+  );
 }
 
-/** Filters an already-fetched list of library games according to the user's adult-content preference. */
-async function applyAdultContentFilter<T>(userId: string, games: T[]): Promise<T[]> {
-  return (await shouldHideAdultContent(userId)) ? excludeAdultContent(games) : games;
+function excludeFilteredContent<T>(games: T[], flags: ContentFilterFlags): T[] {
+  return games.filter(
+    (g) => !isContentFiltered(g as { isAdultContent?: boolean; isAgeRestricted?: boolean }, flags)
+  );
 }
 
-// Cap how much we over-fetch from IGDB to backfill items dropped by adult-content filtering
-const MAX_ADULT_FILTER_FETCH_LIMIT = 100;
+/** Filters an already-fetched list of library games according to the user's content-filter preferences. */
+async function applyContentFilter<T>(userId: string, games: T[]): Promise<T[]> {
+  const flags = await getContentFilterFlags(userId);
+  return excludeFilteredContent(games, flags);
+}
+
+// Cap how much we over-fetch from IGDB to backfill items dropped by content filtering
+const MAX_CONTENT_FILTER_FETCH_LIMIT = 100;
 
 /**
- * Fetches games from IGDB via `fetchGames`, formats them, and applies the user's adult-content
- * preference, over-fetching when filtering is active so the response still has up to `limit` items
- * instead of silently returning fewer than requested.
+ * Fetches games from IGDB via `fetchGames`, formats them, and applies the user's content-filter
+ * preferences, over-fetching when either filter is active so the response still has up to `limit`
+ * items instead of silently returning fewer than requested.
  */
 async function fetchFilteredIgdbGames(
   userId: string,
   limit: number,
   fetchGames: (fetchLimit: number) => Promise<IGDBGame[]>
 ): Promise<Record<string, unknown>[]> {
-  const hideAdult = await shouldHideAdultContent(userId);
-  const fetchLimit = hideAdult ? Math.min(limit * 2, MAX_ADULT_FILTER_FETCH_LIMIT) : limit;
+  const flags = await getContentFilterFlags(userId);
+  const filteringActive = flags.hideAdultContent || flags.hideAgeRestrictedContent;
+  const fetchLimit = filteringActive ? Math.min(limit * 2, MAX_CONTENT_FILTER_FETCH_LIMIT) : limit;
   const igdbGames = await fetchGames(fetchLimit);
   const formattedGames = igdbGames.map((game) => igdbClient.formatGameData(game));
-  return hideAdult ? excludeAdultContent(formattedGames).slice(0, limit) : formattedGames;
+  return filteringActive
+    ? excludeFilteredContent(formattedGames, flags).slice(0, limit)
+    : formattedGames;
 }
 
 /** Registers a simple `?limit=` IGDB list endpoint (popular/recent/upcoming), adult-filtered and privately cached. */
@@ -1133,7 +1158,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         games = await storage.getUserGames(userId, showHidden, statuses);
       }
 
-      games = await applyAdultContentFilter(userId, games);
+      games = await applyContentFilter(userId, games);
 
       res.json(games);
     } catch (error) {
@@ -1152,7 +1177,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const showHidden = includeHidden === "true";
 
       let games = await storage.getUserGamesByStatus(userId, status, showHidden);
-      games = await applyAdultContentFilter(userId, games);
+      games = await applyContentFilter(userId, games);
       res.json(games);
     } catch (error) {
       routesLogger.error({ error }, "error fetching games by status");
@@ -1176,7 +1201,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(400).json({ error: "Search query required" });
         }
         let games = await storage.searchUserGames(userId, q, showHidden);
-        games = await applyAdultContentFilter(userId, games);
+        games = await applyContentFilter(userId, games);
         res.json(games);
       } catch (error) {
         routesLogger.error({ error }, "error searching games");
@@ -1379,6 +1404,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   genres: updatedData.genres as string[],
                   themes: updatedData.themes as string[],
                   isAdultContent: updatedData.isAdultContent as boolean,
+                  isAgeRestricted: updatedData.isAgeRestricted as boolean,
                   platforms: updatedData.platforms as string[],
                   coverUrl: updatedData.coverUrl as string,
                   screenshots: updatedData.screenshots as string[],
@@ -1824,7 +1850,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         const formattedGame = igdbClient.formatGameData(igdbGame);
         res.set("Cache-Control", CC_IGDB_GAME_LIST_PRIVATE);
-        if (formattedGame.isAdultContent && (await shouldHideAdultContent(req.user!.id))) {
+        const filterFlags = await getContentFilterFlags(req.user!.id);
+        if (
+          isContentFiltered(
+            formattedGame as { isAdultContent?: boolean; isAgeRestricted?: boolean },
+            filterFlags
+          )
+        ) {
           return res.status(404).json({ error: "Game not found" });
         }
         res.json(formattedGame);
@@ -3739,7 +3771,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const match = igdbResults[0];
       const formattedMatch = igdbClient.formatGameData(match);
-      if (formattedMatch.isAdultContent && (await shouldHideAdultContent(userId))) {
+      const quickAddFilterFlags = await getContentFilterFlags(userId);
+      if (
+        isContentFiltered(
+          formattedMatch as { isAdultContent?: boolean; isAgeRestricted?: boolean },
+          quickAddFilterFlags
+        )
+      ) {
         return res.status(404).json({ error: "Game not found" });
       }
 
@@ -3754,6 +3792,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         genres: formattedMatch.genres,
         themes: formattedMatch.themes,
         isAdultContent: formattedMatch.isAdultContent,
+        isAgeRestricted: formattedMatch.isAgeRestricted,
         coverUrl: formattedMatch.coverUrl,
         releaseDate: formattedMatch.releaseDate,
         summary: formattedMatch.summary,

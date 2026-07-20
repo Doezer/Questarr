@@ -92,6 +92,7 @@ describe("mapGameToInsertGame", () => {
       status: "wanted",
       hidden: undefined,
       isAdultContent: undefined,
+      isAgeRestricted: undefined,
       earlyAccess: undefined,
     });
 
@@ -112,6 +113,7 @@ describe("mapGameToInsertGame", () => {
       status: "wanted",
       hidden: false,
       isAdultContent: false,
+      isAgeRestricted: false,
       earlyAccess: false,
     });
   });

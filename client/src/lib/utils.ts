@@ -72,6 +72,7 @@ export function mapGameToInsertGame(game: Game): InsertGame {
     status: game.status,
     hidden: game.hidden || false,
     isAdultContent: game.isAdultContent || false,
+    isAgeRestricted: game.isAgeRestricted || false,
     earlyAccess: game.earlyAccess || false,
   };
 }

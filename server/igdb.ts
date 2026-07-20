@@ -26,13 +26,16 @@ const ADULT_AGE_RATINGS = [
   { category: 2, rating: 5 }, // PEGI 18
 ];
 
-function isAdultContentGame(igdbGame: IGDBGame): boolean {
-  const hasAdultTheme = igdbGame.themes?.some((t) => ADULT_THEME_NAMES.has(t.name)) ?? false;
-  const hasAdultAgeRating =
+function hasEroticTheme(igdbGame: IGDBGame): boolean {
+  return igdbGame.themes?.some((t) => ADULT_THEME_NAMES.has(t.name)) ?? false;
+}
+
+function hasAdultAgeRating(igdbGame: IGDBGame): boolean {
+  return (
     igdbGame.age_ratings?.some((r) =>
       ADULT_AGE_RATINGS.some((a) => a.category === r.category && a.rating === r.rating)
-    ) ?? false;
-  return hasAdultTheme || hasAdultAgeRating;
+    ) ?? false
+  );
 }
 
 export interface IGDBGame {
@@ -1078,7 +1081,8 @@ class IGDBClient {
       platforms: igdbGame.platforms?.map((p) => p.name) || [],
       genres: igdbGame.genres?.map((g) => g.name) || [],
       themes: igdbGame.themes?.map((t) => t.name) || [],
-      isAdultContent: isAdultContentGame(igdbGame),
+      isAdultContent: hasEroticTheme(igdbGame),
+      isAgeRestricted: hasAdultAgeRating(igdbGame),
       publishers:
         igdbGame.involved_companies?.filter((c) => c.publisher).map((c) => c.company.name) || [],
       developers:

@@ -192,6 +192,7 @@ export default function SettingsPage() {
   const [xrelSceneReleases, setXrelSceneReleases] = useState(true);
   const [xrelP2pReleases, setXrelP2pReleases] = useState(false);
   const [hideAdultContent, setHideAdultContent] = useState(true);
+  const [hideAgeRestrictedContent, setHideAgeRestrictedContent] = useState(true);
   const [xrelApiBase, setXrelApiBase] = useState("");
   const [discordWebhookUrl, setDiscordWebhookUrl] = useState("");
   const [showDiscordWebhook, setShowDiscordWebhook] = useState(false);
@@ -244,6 +245,7 @@ export default function SettingsPage() {
       setSteamSyncEnabled(userSettings.steamSyncEnabled ?? false);
       setSteamSyncIntervalHours(userSettings.steamSyncIntervalHours ?? 24);
       setHideAdultContent(userSettings.hideAdultContent ?? true);
+      setHideAgeRestrictedContent(userSettings.hideAgeRestrictedContent ?? true);
       settingsLoadedRef.current = true;
     }
     if (config?.xrel?.apiBase !== undefined) {
@@ -708,6 +710,7 @@ export default function SettingsPage() {
     updateSettingsMutation.mutate({
       updates: {
         hideAdultContent,
+        hideAgeRestrictedContent,
       },
       successMessage: "Content filtering preferences have been saved.",
     });
@@ -1080,17 +1083,33 @@ export default function SettingsPage() {
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
                     <Label htmlFor="hide-adult-content" className="text-sm font-medium">
-                      Hide adult content
+                      Hide erotic content
                     </Label>
                     <p className="text-xs text-muted-foreground">
-                      Hide games flagged as erotic or adults-only from your library, search, and
-                      discovery pages
+                      Hide games flagged with an explicit/erotic theme from your library, search,
+                      and discovery pages
                     </p>
                   </div>
                   <Switch
                     id="hide-adult-content"
                     checked={hideAdultContent}
                     onCheckedChange={setHideAdultContent}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="hide-age-restricted-content" className="text-sm font-medium">
+                      Hide age-restricted content
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Hide games rated ESRB Adults Only (AO) or PEGI 18 from your library, search,
+                      and discovery pages
+                    </p>
+                  </div>
+                  <Switch
+                    id="hide-age-restricted-content"
+                    checked={hideAgeRestrictedContent}
+                    onCheckedChange={setHideAgeRestrictedContent}
                   />
                 </div>
                 <div className="flex justify-end pt-4 border-t">

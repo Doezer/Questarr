@@ -53,6 +53,9 @@ export const userSettings = sqliteTable("user_settings", {
     .default(false),
   preferredPlatform: text("preferred_platform"),
   hideAdultContent: integer("hide_adult_content", { mode: "boolean" }).notNull().default(true),
+  hideAgeRestrictedContent: integer("hide_age_restricted_content", { mode: "boolean" })
+    .notNull()
+    .default(true),
   // Import Engine Settings
   enablePostProcessing: integer("enable_post_processing", { mode: "boolean" })
     .notNull()
@@ -168,6 +171,7 @@ export const games = sqliteTable("games", {
   earlyAccess: integer("early_access", { mode: "boolean" }).notNull().default(false),
   hidden: integer("hidden", { mode: "boolean" }).notNull().default(false),
   isAdultContent: integer("is_adult_content", { mode: "boolean" }).notNull().default(false),
+  isAgeRestricted: integer("is_age_restricted", { mode: "boolean" }).notNull().default(false),
   userRating: real("user_rating"),
   notes: text("notes"),
   libraryPath: text("library_path"),
@@ -314,6 +318,11 @@ export const insertGameSchema = createInsertSchema(games, {
       .optional()
       .transform((val) => val ?? false),
   isAdultContent: (schema) =>
+    schema
+      .nullable()
+      .optional()
+      .transform((val) => val ?? false),
+  isAgeRestricted: (schema) =>
     schema
       .nullable()
       .optional()

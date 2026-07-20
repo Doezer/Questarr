@@ -447,6 +447,7 @@ export class MemStorage implements IStorage {
       status: insertGame.status || "wanted",
       hidden: insertGame.hidden ?? false, // Convert boolean to number or keep as boolean depending on memory usage
       isAdultContent: insertGame.isAdultContent ?? false,
+      isAgeRestricted: insertGame.isAgeRestricted ?? false,
       summary: insertGame.summary || null,
       coverUrl: insertGame.coverUrl || null,
       releaseDate: insertGame.releaseDate || null,
@@ -1085,6 +1086,7 @@ export class MemStorage implements IStorage {
       filterByPreferredGroups: insertSettings.filterByPreferredGroups ?? false,
       preferredPlatform: insertSettings.preferredPlatform ?? null,
       hideAdultContent: insertSettings.hideAdultContent ?? true,
+      hideAgeRestrictedContent: insertSettings.hideAgeRestrictedContent ?? true,
       updatedAt: new Date(),
     };
     this.userSettings.set(id, settings);
@@ -1604,6 +1606,7 @@ export class DatabaseStorage implements IStorage {
       status: insertGame.status ?? "wanted",
       hidden: insertGame.hidden ?? false,
       isAdultContent: insertGame.isAdultContent ?? false,
+      isAgeRestricted: insertGame.isAgeRestricted ?? false,
       originalReleaseDate: insertGame.originalReleaseDate ?? null,
       releaseStatus: insertGame.releaseStatus ?? "upcoming",
       earlyAccess: insertGame.earlyAccess ?? false,

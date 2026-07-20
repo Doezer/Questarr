@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import path from "node:path";
 
 const { fsMock, downloadersMock } = vi.hoisted(() => ({
   fsMock: {
@@ -30,6 +31,8 @@ import { makeImportConfig } from "./helpers/import-test-helpers.js";
 
 beforeEach(() => {
   isSensitivePathMock.mockReturnValue(false);
+  fsMock.stat.mockResolvedValue({ isDirectory: () => false });
+  fsMock.readdir.mockResolvedValue([]);
 });
 
 function makeStorage() {
@@ -528,6 +531,7 @@ describe("ImportManager - processImport archive cleanup", () => {
     vi.clearAllMocks();
     fsMock.pathExists.mockResolvedValue(true);
     fsMock.remove.mockResolvedValue(undefined);
+    fsMock.stat.mockResolvedValue({ isDirectory: () => false });
   });
 
   it("removes extracted directory after successful import when autoUnpack is enabled", async () => {
@@ -553,29 +557,26 @@ describe("ImportManager - processImport archive cleanup", () => {
     const pathService = { translatePath: vi.fn().mockResolvedValue("/local/Game.zip") };
     const archiveService = {
       isArchive: vi.fn().mockReturnValue(true),
-      extract: vi.fn().mockResolvedValue(["/local/Game.zip_extracted/game.exe"]),
+      extract: vi.fn().mockResolvedValue([]),
     };
 
     const planSpy = vi.spyOn(PCImportStrategy.prototype, "planImport").mockResolvedValue({
       needsReview: false,
       strategy: "pc",
-      originalPath: "/local/Game.zip_extracted",
+      originalPath: "/local/Game.zip",
       proposedPath: "/games/PC/Archive Game",
-    });
-    const execSpy = vi.spyOn(PCImportStrategy.prototype, "executeImport").mockResolvedValue({
-      destDir: "/games/PC/Archive Game",
-      filesPlaced: ["/games/PC/Archive Game/game.exe"],
-      modeUsed: "copy",
-      conflictsResolved: [],
     });
 
     const manager = makeManager(storage, { pathService, archiveService });
     await manager.processImport("dl-1", "/remote/path");
 
-    expect(fsMock.remove).toHaveBeenCalledWith("/local/Game.zip_extracted");
+    // Lone-file archive + copy mode: the archive is copied into the
+    // destination, extracted in place, then the copied-in archive is removed.
+    const archiveInDest = path.join("/games/PC/Archive Game", "Game.zip");
+    expect(archiveService.extract).toHaveBeenCalledWith(archiveInDest, "/games/PC/Archive Game");
+    expect(fsMock.remove).toHaveBeenCalledWith(archiveInDest);
 
     planSpy.mockRestore();
-    execSpy.mockRestore();
   });
 
   it("does not call remove when autoUnpack is false (no extraction)", async () => {
@@ -621,6 +622,115 @@ describe("ImportManager - processImport archive cleanup", () => {
     planSpy.mockRestore();
     execSpy.mockRestore();
   });
+
+  it("extracts in place from the original downloader path for hardlink/symlink, without relocating the archive", async () => {
+    const storage = makeStorage();
+    storage.getGameDownload.mockResolvedValue({
+      id: "dl-1",
+      gameId: "g1",
+      downloaderId: "d1",
+      downloadTitle: "Game.zip",
+    });
+    storage.getGame.mockResolvedValue({
+      id: "g1",
+      title: "Archive Game",
+      userId: "u1",
+      status: "wanted",
+      platforms: [6],
+    });
+    storage.getImportConfig.mockResolvedValue(
+      makeImportConfig({ autoUnpack: true, transferMode: "symlink", libraryRoot: "/games" })
+    );
+    storage.getDownloader.mockResolvedValue({ id: "d1", name: "qBit", url: "http://localhost" });
+
+    const pathService = { translatePath: vi.fn().mockResolvedValue("/local/Game.zip") };
+    const archiveService = {
+      isArchive: vi.fn().mockReturnValue(true),
+      extract: vi.fn().mockResolvedValue([]),
+    };
+
+    const planSpy = vi.spyOn(PCImportStrategy.prototype, "planImport").mockResolvedValue({
+      needsReview: false,
+      strategy: "pc",
+      originalPath: "/local/Game.zip",
+      proposedPath: "/games/PC/Archive Game",
+    });
+
+    const manager = makeManager(storage, { pathService, archiveService });
+    await manager.processImport("dl-1", "/remote/path");
+
+    // hardlink/symlink never relocate the raw archive: extraction reads
+    // directly from the downloader-side path into the destination.
+    expect(archiveService.extract).toHaveBeenCalledWith(
+      "/local/Game.zip",
+      "/games/PC/Archive Game"
+    );
+    expect(fsMock.move).not.toHaveBeenCalled();
+    expect(fsMock.copy).not.toHaveBeenCalled();
+    expect(fsMock.remove).not.toHaveBeenCalled();
+
+    planSpy.mockRestore();
+  });
+
+  it("skips extraction when the archive's contents are already extracted alongside it", async () => {
+    const storage = makeStorage();
+    storage.getGameDownload.mockResolvedValue({
+      id: "dl-1",
+      gameId: "g1",
+      downloaderId: "d1",
+      downloadTitle: "Game Folder",
+    });
+    storage.getGame.mockResolvedValue({
+      id: "g1",
+      title: "Archive Game",
+      userId: "u1",
+      status: "wanted",
+      platforms: [6],
+    });
+    storage.getImportConfig.mockResolvedValue(
+      makeImportConfig({ autoUnpack: true, transferMode: "copy", libraryRoot: "/games" })
+    );
+    storage.getDownloader.mockResolvedValue({ id: "d1", name: "qBit", url: "http://localhost" });
+
+    fsMock.stat.mockResolvedValue({ isDirectory: () => true });
+    fsMock.readdir.mockResolvedValue(["Game.zip", "game.exe"]);
+
+    const pathService = { translatePath: vi.fn().mockResolvedValue("/local/Game Folder") };
+    const archiveService = {
+      isArchive: vi.fn().mockImplementation((name: string) => name.endsWith(".zip")),
+      extract: vi.fn().mockResolvedValue([]),
+      findVolumeSiblings: vi.fn().mockReturnValue([path.join("/local/Game Folder", "Game.zip")]),
+      isAlreadyExtracted: vi.fn().mockResolvedValue(true),
+    };
+
+    const planSpy = vi.spyOn(PCImportStrategy.prototype, "planImport").mockResolvedValue({
+      needsReview: false,
+      strategy: "pc",
+      originalPath: "/local/Game Folder",
+      proposedPath: "/games/PC/Archive Game",
+    });
+    const execSpy = vi.spyOn(PCImportStrategy.prototype, "executeImport").mockResolvedValue({
+      destDir: "/games/PC/Archive Game",
+      filesPlaced: ["/games/PC/Archive Game/game.exe"],
+      modeUsed: "copy",
+      conflictsResolved: [],
+    });
+
+    const manager = makeManager(storage, { pathService, archiveService: archiveService as never });
+    await manager.processImport("dl-1", "/remote/path");
+
+    // Already-extracted content means the archive is redundant: it must not
+    // be extracted (or imported) a second time, only the loose files are.
+    expect(archiveService.extract).not.toHaveBeenCalled();
+    expect(execSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      "copy",
+      new Set([path.resolve("/local/Game Folder", "Game.zip")])
+    );
+
+    planSpy.mockRestore();
+    execSpy.mockRestore();
+  });
 });
 
 // ─── confirmImport missing path / unresolvable source ────────────────────────
@@ -630,6 +740,7 @@ describe("ImportManager - confirmImport path resolution failures", () => {
     vi.clearAllMocks();
     fsMock.pathExists.mockResolvedValue(true);
     fsMock.remove.mockResolvedValue(undefined);
+    fsMock.stat.mockResolvedValue({ isDirectory: () => false });
     downloadersMock.getDownloadDetails.mockResolvedValue(null);
   });
 
@@ -674,7 +785,7 @@ describe("ImportManager - confirmImport path resolution failures", () => {
     ).rejects.toThrow("Proposed path is required for import validation");
   });
 
-  it("removes extracted archive in finally block when executeImport throws", async () => {
+  it("leaves the relocated archive stranded (no cleanup) when extraction fails", async () => {
     const storage = makeStorage();
     storage.getGameDownload.mockResolvedValue({ id: "dl-1", gameId: "g1", downloaderId: "d1" });
     storage.getGame.mockResolvedValue({
@@ -688,12 +799,8 @@ describe("ImportManager - confirmImport path resolution failures", () => {
 
     const archiveService = {
       isArchive: vi.fn().mockReturnValue(true),
-      extract: vi.fn().mockResolvedValue(["/downloads/game.zip_extracted/game.exe"]),
+      extract: vi.fn().mockRejectedValue(new Error("disk full")),
     };
-
-    const execSpy = vi
-      .spyOn(PCImportStrategy.prototype, "executeImport")
-      .mockRejectedValue(new Error("disk full"));
 
     const manager = makeManager(storage, { archiveService });
 
@@ -707,9 +814,15 @@ describe("ImportManager - confirmImport path resolution failures", () => {
       })
     ).rejects.toThrow("disk full");
 
-    expect(fsMock.remove).toHaveBeenCalledWith("/downloads/game.zip_extracted");
+    // Lone-file archive + move mode (config default): the archive is
+    // relocated into the destination before extraction is attempted. There
+    // is no retry-import feature, so a failed extraction intentionally
+    // strands the raw archive in the library rather than attempting cleanup.
+    const archiveInDest = path.join("/safe/root/PC/My Game", "game.zip");
+    expect(fsMock.move).toHaveBeenCalledWith("/downloads/game.zip", archiveInDest, {
+      overwrite: true,
+    });
+    expect(fsMock.remove).not.toHaveBeenCalled();
     expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith("dl-1", "error");
-
-    execSpy.mockRestore();
   });
 });

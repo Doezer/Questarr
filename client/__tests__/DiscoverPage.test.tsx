@@ -120,7 +120,7 @@ describe("DiscoverPage", () => {
     expect(await screen.findByText("Discover")).toBeInTheDocument();
 
     // Give some time for queries to settle to hit coverage on our new hook
-    await new Promise(resolve => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 50));
   });
 
   it("renders when fetching fails", async () => {

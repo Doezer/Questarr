@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { formatDistanceToNow } from "date-fns";
 import { ExternalLink, RefreshCw, AlertTriangle, LayoutGrid, List } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { apiRequest } from "@/lib/queryClient";
 import CompactRssFeedItem from "./CompactRssFeedItem";
 import { cn, safeUrl } from "@/lib/utils";
@@ -63,26 +64,40 @@ export default function RssFeedList() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div className="flex items-center gap-2 border rounded-md p-1 bg-muted/50">
-          <Button
-            variant={viewMode === "grid" ? "secondary" : "ghost"}
-            size="sm"
-            className="h-8 w-8 p-0"
-            onClick={() => setViewMode("grid")}
-            title="Grid View"
-            aria-label="Grid View"
-          >
-            <LayoutGrid className="h-4 w-4" aria-hidden="true" />
-          </Button>
-          <Button
-            variant={viewMode === "list" ? "secondary" : "ghost"}
-            size="sm"
-            className="h-8 w-8 p-0"
-            onClick={() => setViewMode("list")}
-            title="List View"
-            aria-label="List View"
-          >
-            <List className="h-4 w-4" aria-hidden="true" />
-          </Button>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={viewMode === "grid" ? "secondary" : "ghost"}
+                  size="sm"
+                  className="h-8 w-8 p-0"
+                  onClick={() => setViewMode("grid")}
+                  aria-label="Grid View"
+                >
+                  <LayoutGrid className="h-4 w-4" aria-hidden="true" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Grid View</p>
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={viewMode === "list" ? "secondary" : "ghost"}
+                  size="sm"
+                  className="h-8 w-8 p-0"
+                  onClick={() => setViewMode("list")}
+                  aria-label="List View"
+                >
+                  <List className="h-4 w-4" aria-hidden="true" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>List View</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
 
         <Button onClick={() => refreshFeeds()} disabled={isRefreshing} size="sm" variant="outline">

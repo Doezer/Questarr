@@ -45,53 +45,22 @@ export function calculateLibraryStats(games: Game[]): LibraryStats {
     };
   }
 
-  // Avg Rating
-  const ratedGames = games.filter((g) => g.rating !== null && g.rating !== undefined);
-  const avgRating =
-    ratedGames.length > 0
-      ? (ratedGames.reduce((acc, g) => acc + (g.rating || 0), 0) / ratedGames.length).toFixed(1)
-      : "N/A";
+  // ⚡ Bolt: Consolidate multiple O(N) array traversals (filter, map, reduce, flatMap)
+  // into a single manual loop to prevent redundant iteration and allocations during React renders.
+  let ratingSum = 0;
+  let ratedCount = 0;
+  let userRatingSum = 0;
+  let userRatedCount = 0;
 
-  const userRatedGames = games.filter((g) => g.userRating !== null && g.userRating !== undefined);
-  const avgUserRating =
-    userRatedGames.length > 0
-      ? (
-          userRatedGames.reduce((acc, g) => acc + (g.userRating || 0), 0) / userRatedGames.length
-        ).toFixed(1)
-      : "N/A";
+  const genreCounts: Record<string, number> = {};
+  const platformCounts: Record<string, number> = {};
+  const publisherCounts: Record<string, number> = {};
+  const uniqueDevelopers = new Set<string>();
 
-  // Counts Helper
-  const getTopItem = (items: string[]) => {
-    if (items.length === 0) return null;
-    const counts: Record<string, number> = {};
-    items.forEach((item) => (counts[item] = (counts[item] || 0) + 1));
-    const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-    return { name: sorted[0][0], count: sorted[0][1] };
-  };
+  let yearSum = 0;
+  let yearCount = 0;
+  let completeGamesCount = 0;
 
-  const topGenre = getTopItem(games.flatMap((g) => g.genres || []));
-  const topPlatform = getTopItem(games.flatMap((g) => g.platforms || []));
-  const topPublisher = getTopItem(games.flatMap((g) => g.publishers || []));
-
-  // Unique Developers
-  const uniqueDevelopers = new Set(games.flatMap((g) => g.developers || [])).size;
-
-  // Avg Release Year
-  const years = games
-    .map((g) => (g.releaseDate ? new Date(g.releaseDate).getFullYear() : Number.NaN))
-    .filter((year) => !Number.isNaN(year));
-  const avgReleaseYear =
-    years.length > 0
-      ? Math.round(years.reduce((acc, year) => acc + year, 0) / years.length)
-      : "N/A";
-
-  // Metadata Completeness (title, summary, cover, releaseDate, rating)
-  const completeGamesCount = games.filter(
-    (g) => g.title && g.summary && g.coverUrl && g.releaseDate && g.rating !== null
-  ).length;
-  const metadataHealth = Math.round((completeGamesCount / totalGames) * 100);
-
-  // Status Breakdown
   const statusBreakdown = {
     wanted: 0,
     owned: 0,
@@ -100,13 +69,78 @@ export function calculateLibraryStats(games: Game[]): LibraryStats {
     downloading: 0,
   };
 
-  games.forEach((g) => {
+  for (let i = 0; i < games.length; i++) {
+    const g = games[i];
+
+    if (g.rating !== null && g.rating !== undefined) {
+      ratingSum += g.rating;
+      ratedCount++;
+    }
+    if (g.userRating !== null && g.userRating !== undefined) {
+      userRatingSum += g.userRating;
+      userRatedCount++;
+    }
+
+    if (g.genres) {
+      for (let j = 0; j < g.genres.length; j++) {
+        const genre = g.genres[j];
+        genreCounts[genre] = (genreCounts[genre] || 0) + 1;
+      }
+    }
+    if (g.platforms) {
+      for (let j = 0; j < g.platforms.length; j++) {
+        const platform = g.platforms[j];
+        platformCounts[platform] = (platformCounts[platform] || 0) + 1;
+      }
+    }
+    if (g.publishers) {
+      for (let j = 0; j < g.publishers.length; j++) {
+        const publisher = g.publishers[j];
+        publisherCounts[publisher] = (publisherCounts[publisher] || 0) + 1;
+      }
+    }
+    if (g.developers) {
+      for (let j = 0; j < g.developers.length; j++) {
+        uniqueDevelopers.add(g.developers[j]);
+      }
+    }
+
+    if (g.releaseDate) {
+      // ⚡ Bolt: Use fast string prefix parsing instead of slow new Date() allocation
+      const year = parseInt(g.releaseDate.substring(0, 4), 10);
+      if (!Number.isNaN(year)) {
+        yearSum += year;
+        yearCount++;
+      }
+    }
+
+    if (g.title && g.summary && g.coverUrl && g.releaseDate && g.rating !== null) {
+      completeGamesCount++;
+    }
+
     if (g.status === "wanted") statusBreakdown.wanted++;
     else if (g.status === "owned") statusBreakdown.owned++;
     else if (g.status === "shelved") statusBreakdown.shelved++;
     else if (g.status === "completed") statusBreakdown.completed++;
     else if (g.status === "downloading") statusBreakdown.downloading++;
-  });
+  }
+
+  const avgRating = ratedCount > 0 ? (ratingSum / ratedCount).toFixed(1) : "N/A";
+  const avgUserRating = userRatedCount > 0 ? (userRatingSum / userRatedCount).toFixed(1) : "N/A";
+
+  const getTopItemFromCounts = (counts: Record<string, number>) => {
+    const entries = Object.entries(counts);
+    if (entries.length === 0) return null;
+    entries.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    return { name: entries[0][0], count: entries[0][1] };
+  };
+
+  const topGenre = getTopItemFromCounts(genreCounts);
+  const topPlatform = getTopItemFromCounts(platformCounts);
+  const topPublisher = getTopItemFromCounts(publisherCounts);
+
+  const avgReleaseYear = yearCount > 0 ? Math.round(yearSum / yearCount) : "N/A";
+  const metadataHealth = Math.round((completeGamesCount / totalGames) * 100);
 
   // Completion Rate: % of acquired games (owned + shelved + completed) that are completed
   const acquiredCount = statusBreakdown.owned + statusBreakdown.shelved + statusBreakdown.completed;
@@ -120,7 +154,7 @@ export function calculateLibraryStats(games: Game[]): LibraryStats {
     topGenre,
     topPlatform,
     topPublisher,
-    uniqueDevelopers,
+    uniqueDevelopers: uniqueDevelopers.size,
     avgReleaseYear,
     metadataHealth,
     statusBreakdown,

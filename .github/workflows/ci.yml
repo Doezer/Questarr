@@ -97,7 +97,8 @@ jobs:
       # licenses must be on the allow-list.
       - name: Check dependency licenses
         run: |
-          npx --yes license-checker@25.0.1 --production --summary \
+          npm install --no-save --ignore-scripts license-checker@25.0.1
+          npx --no-install license-checker --production --summary \
             --onlyAllow "MIT;ISC;BSD-2-Clause;BSD-3-Clause;Apache-2.0;CC0-1.0;0BSD;Python-2.0;BlueOak-1.0.0;OFL-1.1;Unlicense;GPL-3.0;GPL-3.0-only;LGPL-2.1;LGPL-2.1-only;LGPL-3.0;LGPL-3.0-only;MPL-2.0"
 
   test:
@@ -170,8 +171,10 @@ jobs:
           node-version: 26.x
           cache: "npm"
 
+      # This job only merges previously-collected blob reports; it never executes
+      # application code, so native module build scripts (e.g. better-sqlite3) aren't needed.
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Download blob reports
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -181,7 +184,7 @@ jobs:
           merge-multiple: true
 
       - name: Merge shard reports and check coverage thresholds
-        run: npx vitest run --merge-reports --coverage --reporter=junit --outputFile=test-report.junit.xml
+        run: npx --no-install vitest run --merge-reports --coverage --reporter=junit --outputFile=test-report.junit.xml
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
@@ -223,8 +226,10 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: "npm"
 
+      # Lint/type-check/bundle never execute application code, so native module
+      # build scripts (e.g. better-sqlite3) aren't needed here.
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Lint
         run: npm run lint

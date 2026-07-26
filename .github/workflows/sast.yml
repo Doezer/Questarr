@@ -32,7 +32,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install Semgrep
-        run: pip install semgrep
+        run: pip install "--only-binary=:all:" semgrep==1.171.0
 
       # Blocking policy and suppression process documented in
       # docs/VULNERABILITY_MANAGEMENT.md (OSPS-VM-06.02). Scan is run

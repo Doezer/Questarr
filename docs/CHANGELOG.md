@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.1] - 2026-07-26
+
+Hotfix release addressing dependency vulnerabilities flagged by `npm audit`.
+
+### Security
+
+- **Dependency Vulnerabilities**: Fixed 3 known vulnerabilities in `brace-expansion`, `js-yaml`, and `body-parser`.
+
+### Vulnerabilities Addressed
+
+- **brace-expansion** 5.0.7 → 5.0.8 — fixes **CVE-2026-14257** (GHSA-mh99-v99m-4gvg, HIGH) — DoS via unbounded expansion length causing an out-of-memory process crash.
+- **js-yaml** 5.2.1 → 5.2.2 — fixes GHSA-pm4m-ph32-ghv5 (no CVE assigned, HIGH) — exponential parsing time in flow collections leading to denial of service.
+- **body-parser** 1.20.5 → 1.20.6 — fixes **CVE-2026-12590** (GHSA-v422-hmwv-36x6, LOW) — an invalid `limit` value silently disabled size enforcement, allowing arbitrarily large request payloads.
+
 ## [1.4.0] - 2026-07-16
 
 Migration note:

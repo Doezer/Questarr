@@ -114,7 +114,14 @@ export function calculateLibraryStats(games: Game[]): LibraryStats {
       }
     }
 
-    if (g.title && g.summary && g.coverUrl && g.releaseDate && g.rating !== null) {
+    if (
+      g.title &&
+      g.summary &&
+      g.coverUrl &&
+      g.releaseDate &&
+      g.rating !== null &&
+      g.rating !== undefined
+    ) {
       completeGamesCount++;
     }
 

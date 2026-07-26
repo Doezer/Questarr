@@ -39,5 +39,6 @@
 **Action:** When computing multiple derived states from the same dependency array, consolidate the logic into a single manual `for` loop inside a single `useMemo` block to achieve a single pass (O(N)). Also, always ensure invariant derivations (like `.toLowerCase()`) are evaluated outside the loop.
 
 ## 2025-05-23 - Stats Computation Optimization
+
 **Learning:** Found multiple O(N) array traversals (`filter`, `map`, `reduce`, `flatMap`) within `calculateLibraryStats` processing game statistics. Replacing these with a single manual loop significantly improves performance on the hot path (re-evaluating stats) by reducing redundant iterations and object allocations.
 **Action:** Always scrutinize React useMemo hooks operating on collections for unnecessary or repeated iterations, and consider combining loops.

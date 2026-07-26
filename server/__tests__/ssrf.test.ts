@@ -1,6 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { isSafeUrl, safeFetch, resolveSafeAddress } from "../ssrf";
 import dns from "dns/promises";
+import { Agent, fetch as undiciFetch } from "undici";
+import type { LookupFunction } from "net";
 
 // Mock dns module
 vi.mock("dns/promises", () => ({
@@ -8,6 +10,27 @@ vi.mock("dns/promises", () => ({
     lookup: vi.fn(),
   },
 }));
+
+// Mock undici's fetch/Agent for the plain-HTTP path, which pins the TCP
+// connection to a validated IP via a custom dns lookup instead of rewriting
+// the request URL/Host (see server/ssrf.ts fetchValidatedOnce).
+vi.mock("undici", async () => {
+  const actual = await vi.importActual<typeof import("undici")>("undici");
+  return {
+    ...actual,
+    fetch: vi.fn(),
+    Agent: vi.fn(),
+  };
+});
+
+type AgentOptions = { connect?: { lookup?: LookupFunction } };
+
+function capturedLookup(): LookupFunction {
+  const options = vi.mocked(Agent).mock.calls[0][0] as AgentOptions;
+  const lookup = options.connect?.lookup;
+  expect(lookup).toBeDefined();
+  return lookup as LookupFunction;
+}
 
 describe("isSafeUrl Security Check", () => {
   beforeEach(() => {
@@ -129,26 +152,28 @@ describe("safeFetch", () => {
     expect(fetch).toHaveBeenCalledWith("https://example.com/api", expect.any(Object));
   });
 
-  it("should rewrite HTTP URLs to use resolved IP for DNS rebinding protection", async () => {
+  it("should pin the connection to the resolved IP while preserving the original Host", async () => {
     // Mock DNS lookup to return a safe IP
     vi.mocked(dns.lookup as unknown as import("node:dns").LookupAddress[]).mockResolvedValueOnce([
       { address: "142.250.185.46", family: 4 },
     ]);
-    vi.mocked(fetch).mockResolvedValueOnce(new Response("ok"));
+    vi.mocked(undiciFetch).mockResolvedValueOnce(new Response("ok") as never);
 
     await safeFetch("http://example.com/api");
 
-    // For HTTP, should rewrite to use IP address
-    expect(fetch).toHaveBeenCalledWith(
-      "http://142.250.185.46/api",
-      expect.objectContaining({
-        headers: expect.any(Headers),
-      })
+    // The request URL/hostname must stay untouched so the upstream server still
+    // sees the real Host header — only the underlying TCP connection is pinned.
+    expect(undiciFetch).toHaveBeenCalledWith(
+      "http://example.com/api",
+      expect.objectContaining({ dispatcher: expect.anything() })
     );
 
-    // Verify Host header is set
-    const calledHeaders = (fetch as Mock).mock.calls[0][1].headers as Headers;
-    expect(calledHeaders.get("Host")).toBe("example.com");
+    // The dispatcher pins the connection to the DNS-validated IP via a custom
+    // lookup, rather than rewriting the URL to the IP.
+    const lookup = capturedLookup();
+    const callback = vi.fn();
+    lookup("example.com", {}, callback);
+    expect(callback).toHaveBeenCalledWith(null, [{ address: "142.250.185.46", family: 4 }]);
   });
 
   it("should reject URLs that resolve to metadata service IPs", async () => {
@@ -229,20 +254,21 @@ describe("safeFetch", () => {
     expect(fetch).toHaveBeenCalledWith("https://[::1]:8080/api", expect.any(Object));
   });
 
-  it("should allow bracketed IPv6 literals for HTTP and preserve the Host header", async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(new Response("ok"));
+  it("should allow bracketed IPv6 literals for HTTP and preserve the original URL", async () => {
+    vi.mocked(undiciFetch).mockResolvedValueOnce(new Response("ok") as never);
 
     await safeFetch("http://[::1]:8080/api");
 
-    expect(fetch).toHaveBeenCalledWith(
+    // Original URL is preserved unchanged — the Host header comes from the URL itself.
+    expect(undiciFetch).toHaveBeenCalledWith(
       "http://[::1]:8080/api",
-      expect.objectContaining({
-        headers: expect.any(Headers),
-      })
+      expect.objectContaining({ dispatcher: expect.anything() })
     );
 
-    const calledHeaders = (fetch as Mock).mock.calls[0][1].headers as Headers;
-    expect(calledHeaders.get("Host")).toBe("[::1]:8080");
+    const lookup = capturedLookup();
+    const callback = vi.fn();
+    lookup("[::1]", {}, callback);
+    expect(callback).toHaveBeenCalledWith(null, [{ address: "::1", family: 6 }]);
   });
 });
 

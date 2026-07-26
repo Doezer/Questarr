@@ -1,5 +1,6 @@
 import dns from "dns/promises";
-import { isIP } from "net";
+import { isIP, type LookupFunction } from "net";
+import { Agent, fetch as undiciFetch, type RequestInit as UndiciRequestInit } from "undici";
 
 const DEFAULT_SAFE_FETCH_TIMEOUT_MS = 30000;
 const DEFAULT_SAFE_FETCH_MAX_REDIRECTS = 5;
@@ -161,17 +162,21 @@ async function fetchValidatedOnce(
     return fetch(url.toString(), fetchOptions);
   }
 
-  const safeUrl = new URL(url.toString());
-  safeUrl.hostname = target.family === 6 ? `[${target.address}]` : target.address;
+  // Pin the TCP connection to the already-validated address instead of rewriting the
+  // URL/Host to the IP: Node's fetch silently ignores an explicitly-set Host header, so
+  // rewriting the URL was actually sending the resolved IP as Host to the upstream server
+  // (breaking name-based virtual hosting, e.g. Docker service names). A custom dns lookup
+  // on the dispatcher keeps the original hostname on the wire while still preventing
+  // DNS-rebinding, since the connection only ever goes to the address we already checked.
+  const pinnedLookup: LookupFunction = (_hostname, _options, callback) => {
+    callback(null, [{ address: target.address, family: target.family }]);
+  };
+  const agent = new Agent({ connect: { lookup: pinnedLookup } });
 
-  const headers = new Headers(fetchOptions.headers ?? {});
-  // Use url.host (not normalized) to preserve IPv6 brackets and include non-default port per RFC 7230
-  headers.set("Host", url.host);
-
-  return fetch(safeUrl.toString(), {
+  return undiciFetch(url.toString(), {
     ...fetchOptions,
-    headers,
-  });
+    dispatcher: agent,
+  } as UndiciRequestInit) as unknown as Response;
 }
 
 /**

@@ -501,16 +501,20 @@ export class SABnzbdClient implements DownloaderClient {
           if (useFilter) continue;
           return undefined;
         }
-        // `storage` is SABnzbd's final resting place for the completed job
-        if (item.storage) return item.storage;
-        // Fallback for older SABnzbd versions that don't expose `storage`.
-        return item.path?.replace(/\/incomplete\//g, "/complete/");
+        return this.resolveHistoryDownloadDir(item);
       } catch {
         if (useFilter) continue;
         return undefined;
       }
     }
     return undefined;
+  }
+
+  private resolveHistoryDownloadDir(item: SABnzbdHistory["slots"][number]): string | undefined {
+    // `storage` is SABnzbd's final resting place for the completed job
+    if (item.storage) return item.storage;
+    // Fallback for older SABnzbd versions that don't expose `storage`.
+    return item.path?.replace(/\/incomplete\//g, "/complete/");
   }
 
   async getDownloadDetails(id: string): Promise<DownloadDetails | null> {

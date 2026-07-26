@@ -28,7 +28,7 @@ ENV PGID=1000
 # Install su-exec (for privilege dropping), shadow (for usermod/groupmod), and
 # Python + Apprise for local CLI notifications.
 RUN apk add --no-cache su-exec shadow python3 py3-pip && \
-    python3 -m pip install --no-cache-dir --break-system-packages apprise==1.12.0
+    python3 -m pip install --no-cache-dir --break-system-packages apprise
 
 # Reuse node_modules from base and prune dev dependencies (avoids a second npm ci)
 COPY --from=base /app/node_modules ./node_modules

@@ -484,6 +484,33 @@ describe("Downloader Comprehensive Tests", () => {
       expect(result?.downloadDir).toBe("/downloads/complete/Test Game");
     });
 
+    it("should use the storage field for a custom incomplete-dir name that the /incomplete/ replace can't fix (issue #815)", async () => {
+      const historyResponse = {
+        history: {
+          slots: [
+            {
+              nzo_id: "nzo123",
+              name: "Test Game",
+              status: "Completed",
+              fail_message: "",
+              path: "/incomplete-bigstorage/Test Game",
+              storage: "/downloads/complete/games/Test Game",
+              bytes: 1073741824,
+              category: "games",
+              download_time: 120,
+              completed: 1700000000,
+            },
+          ],
+        },
+      };
+      mockQueueThenHistory(historyResponse);
+      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => historyResponse });
+
+      const result = await DownloaderManager.getDownloadDetails(downloader, "nzo123");
+
+      expect(result?.downloadDir).toBe("/downloads/complete/games/Test Game");
+    });
+
     it("should return error status when history shows a failed download", async () => {
       mockQueueThenHistory({
         history: {

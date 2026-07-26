@@ -1,172 +1,95 @@
-<div align="center">
-  <img src="images/Questarr_Logo-nobg.png" alt="Questarr Logo" width="400">
+# Questarr
 
-  <p>
-    A video game management application inspired by the -Arr apps (Sonarr, Radarr, Prowlarr...) and GamezServer. Track and organize your video game collection with automated discovery and download management.
-  </p>
+![Questarr Logo](images/Questarr_Logo-nobg.png)
 
-  <p>
-    <a href="https://hub.docker.com/r/doezer/questarr">
-      <img src="https://img.shields.io/docker/pulls/doezer/questarr?logo=docker&logoColor=white" alt="Docker Pulls">
-    </a>
-    <a href="https://github.com/Doezer/Questarr/pkgs/container/questarr">
-      <img src="https://img.shields.io/badge/ghcr.io-questarr-blue?logo=github&logoColor=white" alt="GHCR">
-    </a>
-    <a href="https://github.com/Doezer/Questarr/blob/main/.github/COPYING">
-      <img src="https://img.shields.io/github/license/Doezer/Questarr" alt="License">
-    </a>
-  </p>
+A video game management application inspired by the -Arr apps (Sonarr, Radarr, Prowlarr...) and GamezServer. Track and organize your video game collection with automated discovery and download management.
 
-  <p>
-    <a href="https://github.com/Doezer/Questarr/actions/workflows/ci.yml">
-      <img src="https://github.com/Doezer/Questarr/actions/workflows/ci.yml/badge.svg" alt="CI">
-    </a>
-    <a href="https://codecov.io/gh/Doezer/Questarr">
-      <img src="https://codecov.io/gh/Doezer/Questarr/branch/main/graph/badge.svg" alt="Codecov">
-    </a>
-    <a href="https://www.bestpractices.dev/projects/13450">
-      <img src="https://www.bestpractices.dev/projects/13450/baseline">
-      </a>
-    <a href="https://github.com/Doezer/Questarr/graphs/commit-activity" target="_blank">
-      <img alt="Maintenance" src="https://img.shields.io/badge/Maintained%3F-yes-green.svg" />
-    </a>
-  </p>
+[![Library screenshot](images/Screenshots/library.png)](images/Screenshots/library.png)
 
-  <p>
-    <a href="https://discord.gg/STkp86wP9F">
-      <img src="https://img.shields.io/badge/Discord-Join%20Us-7289da?logo=discord&logoColor=white" alt="Discord">
-    </a>
-    <a href="https://buymeacoffee.com/doezer">
-      <img src="https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-FFDD00?logo=buymeacoffee&logoColor=black" alt="Buy Me A Coffee">
-    </a>
-  </p>
-</div>
+[![Docker Pulls](https://img.shields.io/docker/pulls/doezer/questarr?logo=docker&logoColor=white)](https://hub.docker.com/r/doezer/questarr)
+[![GHCR](https://img.shields.io/badge/ghcr.io-questarr-blue?logo=github&logoColor=white)](https://github.com/Doezer/Questarr/pkgs/container/questarr)
+[![License](https://img.shields.io/github/license/Doezer/Questarr)](https://github.com/Doezer/Questarr/blob/main/COPYING)
+[![GitHub release](https://img.shields.io/github/v/release/Doezer/Questarr)](https://github.com/Doezer/Questarr/releases)
+[![GitHub release date](https://img.shields.io/github/release-date/Doezer/Questarr)](https://github.com/Doezer/Questarr/releases)
+[![GitHub last commit](https://img.shields.io/github/last-commit/Doezer/Questarr)](https://github.com/Doezer/Questarr/commits/main)
 
-## Features
+[![security rating](https://sonarcloud.io/api/project_badges/measure?project=Doezer_Questarr&metric=security_rating)](https://sonarcloud.io/summary/overall?id=Doezer_Questarr)
+[![reliability rating](https://sonarcloud.io/api/project_badges/measure?project=Doezer_Questarr&metric=reliability_rating)](https://sonarcloud.io/summary/overall?id=Doezer_Questarr)
+[![maintainability rating](https://sonarcloud.io/api/project_badges/measure?project=Doezer_Questarr&metric=sqale_rating)](https://sonarcloud.io/summary/overall?id=Doezer_Questarr)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13450/baseline)](https://www.bestpractices.dev/projects/13450)
+[![OpenSSF Best Practices Badge](https://www.bestpractices.dev/projects/13450/badge)](https://www.bestpractices.dev/projects/13450)
 
-- **🎮 Game Discovery**: Browse popular games, new releases, and upcoming titles via IGDB integration and xREL.to. Sync your Steam wishlist.
-- **📚 Library Management**: Track your game collection with status indicators (Wanted, Owned, Playing, Completed), user ratings, and Early Access badges.
-- **⬇️ Download Management**: Integrate with indexers (Prowlarr/Torznab/Newsznab), torrent/usenet downloaders (qBittorrent, Transmission, rTorrent / sabnzbd, nzbget), and optionally enable auto-download to get them right when they're there. Import downloads automatically to your library folder.
-- **🔍 Search & Filter**: Find games by genre, platform, and search terms. Automatically search for added games until available on your indexers. Blacklist unwanted releases and set preferred release groups and platforms.
-- **Notifications**: thanks to Apprise, you can send notifications to 100+ providers.
-- **🗂️ Rich Metadata**: Game details enriched with IGDB, Steam, PCGamingWiki links, and NexusMods pages, as well as trending mods (if applicable).
-- **📊 Stats Page**: Visualize your collection statistics, with Discord sharing support.
-- **📰 RSS Feeds**: Monitor releases from your favorite groups directly within the app.
-- **🔒 Privacy Focused**: Hardened security (CSP, SSRF protection), as well as SSL support. The repo itself uses OpenSSF Best Practices, Aikido security checks, CodeQL, StepSecurity and SonarCloud.
-- **✨ Clean Interface**: UI optimized for browsing game covers and metadata, with light/dark mode.
+[![CI](https://github.com/Doezer/Questarr/actions/workflows/ci.yml/badge.svg)](https://github.com/Doezer/Questarr/actions/workflows/ci.yml)
+[![Codecov](https://codecov.io/gh/Doezer/Questarr/branch/main/graph/badge.svg)](https://codecov.io/gh/Doezer/Questarr)
+[![Code Scanning](https://github.com/Doezer/Questarr/actions/workflows/sast.yml/badge.svg)](https://github.com/Doezer/Questarr/security/code-scanning)
+[![tests](https://img.shields.io/badge/tests-1800%2B%20passing-brightgreen)](https://github.com/Doezer/Questarr/actions/workflows/ci.yml)
+[![Maintenance](https://img.shields.io/badge/Maintained%3F-yes-green.svg)](https://github.com/Doezer/Questarr/graphs/commit-activity)
 
-## Screenshots
+⭐ Star us on GitHub — your support motivates us a lot! 🙏😊
 
-<details open>
-<summary><b>👀 See the app in action</b></summary>
+[![Discord](https://img.shields.io/badge/Discord-Join%20Us-7289da?logo=discord&logoColor=white)](https://discord.gg/STkp86wP9F)
+[![Share](https://img.shields.io/badge/share-000000?logo=x&logoColor=white)](https://x.com/intent/tweet?text=Check%20out%20this%20project%20on%20GitHub:%20https://github.com/Doezer/Questarr%20%23gaming%20%23selfhosted)
+[![Share](https://img.shields.io/badge/share-1877F2?logo=facebook&logoColor=white)](https://www.facebook.com/sharer/sharer.php?u=https://github.com/Doezer/Questarr)
+[![Share](https://img.shields.io/badge/share-0A66C2?logo=linkedin&logoColor=white)](https://www.linkedin.com/sharing/share-offsite/?url=https://github.com/Doezer/Questarr)
+[![Share](https://img.shields.io/badge/share-FF4500?logo=reddit&logoColor=white)](https://www.reddit.com/submit?title=Check%20out%20this%20project%20on%20GitHub:%20https://github.com/Doezer/Questarr)
+[![Share](https://img.shields.io/badge/share-0088CC?logo=telegram&logoColor=white)](https://t.me/share/url?url=https://github.com/Doezer/Questarr&text=Check%20out%20this%20project%20on%20GitHub)
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/doezer)
 
-### Dashboard
+## Table of Contents
 
-Your central hub for recent activity, collection overview and downloading available games.
+- [Questarr](#questarr)
+  - [Table of Contents](#table-of-contents)
+  - [List of features](#list-of-features)
+  - [Installation](#installation)
+  - [Screenshots](#screenshots)
+  - [Tech Stack](#tech-stack)
+  - [Configuration](#configuration)
+  - [Roadmap](#roadmap)
+  - [Troubleshooting](#troubleshooting)
+  - [Project Security \& Documentation](#project-security--documentation)
+  - [Contributing](#contributing)
+  - [License](#license)
+  - [Acknowledgments](#acknowledgments)
 
-<a href="images/Screenshots/dashboard.png"><img src="images/Screenshots/dashboard.png" /></a>
+## List of features
 
-<p float="left">
-  <a href="images/Screenshots/game_details.png"><img src="images/Screenshots/game_details.png" width="49%" /></a>
-  <a href="images/Screenshots/download_modal.png"><img src="images/Screenshots/download_modal.png" width="49%" /></a>
-</p>
+| Feature                     | Description                                                                                                                                                                   |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Backlog management**      | Track your collection with status indicators (Wanted, Owned, Playing, Completed, Shelved), ratings, and notes.                                                                |
+| **Game Discovery**          | Browse popular, new, and upcoming titles via IGDB, RSS feeds, and xREL.to, or sync your Steam wishlist directly into the app.                                                 |
+| **Search & Filter**         | Find games by genre, platform, and keyword, with automatic search until a release is found, plus release blacklisting and preferred release groups/platforms.                 |
+| **Download Management**     | Integrates with indexers and downloaders with optional auto-download and automatic post-processing import.                                                                    |
+| **Real-time Notifications** | In-app alerts for releases and downloads, plus external notifications to 100+ providers via [Apprise](https://github.com/caronc/apprise).                                     |
+| **Rich Game Metadata**      | Details enriched with IGDB, Steam, PCGamingWiki, and NexusMods, including trending mods where available.                                                                      |
+| **Statistics**              | Visualize collection statistics with Discord sharing support. 🚧                                                                                                              |
+| **Security Focused**        | General security hardening, SSL support, and [OpenSSF certified](https://www.bestpractices.dev/projects/13450) — see [SECURITY.md](.github/SECURITY.md) for the full process. |
+| **Integrations**            | Deployable on UNRAID and as a Home Assistant add-on. 🚧                                                                                                                       |
+| **Design**                  | Clean, minimalist, dark-first UI built with mobile usage in mind.                                                                                                             |
 
-### Discover Games
+### Supported Indexers/Downloaders
 
-Browse and find new games to add to your collection.
+- Prowlarr synchronization is supported to add all your indexers at once.
+- G4u.to: the site offers an API to VIP members, which can be used in Questarr.
 
-<p float="left">
-  <a href="images/Screenshots/discover.png"><img src="images/Screenshots/discover.png" width="49%" /></a>
-  <a href="images/Screenshots/xrelto.png"><img src="images/Screenshots/xrelto.png" width="49%" /></a>
-</p>
-
-### Library & Wishlist
-
-Manage your wanted and owned games.
-
-<p float="left">
-  <a href="images/Screenshots/library.png"><img src="images/Screenshots/library.png" width="49%" /></a>
-  <a href="images/Screenshots/wishlist.png"><img src="images/Screenshots/wishlist.png" width="49%" /></a>
-</p>
-
-### Calendar
-
-Keep track of upcoming releases.
-<a href="images/Screenshots/calendar.png"><img src="images/Screenshots/calendar.png" /></a>
-
-### Downloads Queue
-
-Monitor your downloaders' active downloads and history.
-
-<a href="images/Screenshots/downloads.png"><img src="images/Screenshots/downloads.png" /></a>
-
-### Statistics
-
-Check out your library statistics.
-
-<a href="images/Screenshots/stats.png"><img src="images/Screenshots/stats.png" /></a>
-
-### RSS & xRel.to feeds
-
-Custom RSS feeds and xRel.to flux matched to IGDB games directly into the app
-
-<p float="left">
-  <a href="images/Screenshots/rss.png"><img src="images/Screenshots/rss.png" width="49%" /></a>
-  <a href="images/Screenshots/xrelto.png"><img src="images/Screenshots/xrelto.png" width="49%" /></a>
-</p>
-
-### Settings
-
-Configure indexers, downloaders, and application preferences.
-
-<p float="left">
-  <a href="images/Screenshots/indexers.png"><img src="images/Screenshots/indexers.png" width="49%" /></a>
-  <a href="images/Screenshots/downloaders.png"><img src="images/Screenshots/downloaders.png" width="49%" /></a>
-</p>
-
-<a href="images/Screenshots/settings.png"><img src="images/Screenshots/settings.png" /></a>
-
-</details>
-
-## Tech Stack
-
-<div align="center">
-  <p>
-    <img src="https://img.shields.io/badge/React-20232A?style=flat&logo=react&logoColor=61DAFB" alt="React">
-    <img src="https://img.shields.io/badge/TypeScript-007ACC?style=flat&logo=typescript&logoColor=white" alt="TypeScript">
-    <img src="https://img.shields.io/badge/Vite-646CFF?style=flat&logo=vite&logoColor=white" alt="Vite">
-    <img src="https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=flat&logo=tailwind-css&logoColor=white" alt="Tailwind CSS">
-    <img src="https://img.shields.io/badge/Node.js-43853D?style=flat&logo=node.js&logoColor=white" alt="Node.js">
-    <img src="https://img.shields.io/badge/SQLite-07405E?style=flat&logo=sqlite&logoColor=white" alt="SQLite">
-  </p>
-</div>
-
-- **Frontend**: React 18, TypeScript, Vite, Tailwind CSS, shadcn/ui
-- **Backend**: Node.js, Express, TypeScript
-- **Database**: SQLite with Drizzle ORM
-- **APIs**: IGDB (game metadata), Torznab/Newznab (indexer search), PCGamingWiki, NexusMods, xREL.to
-- **AIs usage**:
-  - Claude and Github Copilot are used for AI-Assisted coding, internal code reviews, PR cleanup. Eventually automated coding and troubleshooting for small tasks and bug reports.
-  - Gemini & Codex are used for automated code reviews, and brainstorming from time to time (as well as Perplexity for this usage).
-  - Google Jules is used for light periodical refactoring.
+| Indexers                   | Downloaders                                                                             |
+| -------------------------- | --------------------------------------------------------------------------------------- |
+| Torznab protocol (Torrent) | - qBittorent<br>- Transmission<br>- rTorrent<br>- Deluge<br>- Synology Download Station |
+| Newznab protocol (Usenet)  | - Sabnzbd<br>- Nzbget                                                                   |
+| G4U.to                     | Same as Newznab                                                                         |
 
 ## Installation
 
-### Using Docker (Recommended)
-
 Docker is the easiest way to deploy Questarr with all dependencies included. Questarr uses a SQLite database which is self-contained in the application container.
 
-#### Fresh Install
-
-**Option 1: One-liner (Simplest)**
+### Option 1: One-liner (Simplest but minimal)
 
 ```bash
 docker run -d -p 5000:5000 -v ./data:/app/data --name questarr ghcr.io/doezer/questarr:latest
 ```
 
-**Option 2: Docker Compose**
+### Option 2: Docker Compose (more detailed)
 
-1. **Create a `docker-compose.yml` file:**
+1. **Use the [`docker-compose.yml`](https://github.com/Doezer/Questarr/blob/main/docker-compose.yml) file from the repo or create a minimal one:**
 
    ```yaml
    services:
@@ -190,38 +113,27 @@ docker run -d -p 5000:5000 -v ./data:/app/data --name questarr ghcr.io/doezer/qu
 3. **Access the application:**
    Open your browser to `http://localhost:5000`
 
-#### Upgrading from v1.0 (PostgreSQL)
+### UNRAID
 
-If you are upgrading from an older version that used PostgreSQL, you need to migrate your data.
+<details>
+<summary><b>Install via Community Applications</b></summary>
 
-1. **Stop your current application:**
+Questarr ships an official Community Applications template ([`unraid/questarr.xml`](unraid/questarr.xml)):
 
-   ```bash
-   docker compose down
-   ```
+1. In the UNRAID web UI, open the **Apps** tab and search for **Questarr**.
+2. If it doesn't show up there yet, go to **Docker → Add Container**, enable **Template repositories**, and a
+   dd:
+   `https://raw.githubusercontent.com/Doezer/Questarr/main/unraid/questarr.xml`
+3. Set your **Data Path** (default `/mnt/user/appdata/questarr`), **PUID**/**PGID**, and ports (default `5000
+` HTTP, `9898` HTTPS).
+4. Apply, then open `http://<unraid-host>:5000` to access the UI.
 
-2. **Get the migration tools:**
-   Download the [`docker-compose.migrate.yml`](https://raw.githubusercontent.com/Doezer/Questarr/main/docker-compose.migrate.yml) file to your directory.
-
-3. **Run the migration:**
-   This command spins up your old database and converts the data to the new format automatically.
-
-   ```bash
-   docker compose -f docker-compose.migrate.yml up --abort-on-container-exit
-   ```
-
-4. **Update your deployment:**
-   Replace your `docker-compose.yml` with the new version (see "Fresh Install" above).
-
-5. **Start the new version:**
-
-   ```bash
-   docker compose up -d
-   ```
-
-See [docs/MIGRATION.md](docs/MIGRATION.md) for more details.
+</details>
 
 ### Home Assistant Add-on
+
+<details>
+<summary><b>Install as a Home Assistant add-on</b></summary>
 
 You can install Questarr as a Home Assistant add-on from this repository:
 
@@ -230,6 +142,91 @@ You can install Questarr as a Home Assistant add-on from this repository:
 3. Add this repository URL: `https://github.com/Doezer/Questarr`
 4. Install the **Questarr** add-on and start it.
 5. Open `http://<home-assistant-host>:5000` to access the UI.
+
+</details>
+
+## Screenshots
+
+<details closed>
+<summary><b>👀 See the app in action</b></summary>
+
+### Library
+
+Your central hub for recent activity, collection overview and downloading available games. Manage your owned and wanted games.
+
+<a href="images/Screenshots/library.png"><img src="images/Screenshots/library.png" /></a>
+
+<p float="left">
+  <a href="images/Screenshots/game_details.png"><img src="images/Screenshots/game_details.png" width="49%" /></a>
+  <a href="images/Screenshots/download_modal.png"><img src="images/Screenshots/download_modal.png" width="49%" /></a>
+</p>
+
+### Wishlist & Release calendar
+
+Manage your wanted games and when they release.
+<p float="left">
+  <a href="images/Screenshots/wishlist.png"><img src="images/Screenshots/wishlist.png" width="49%" /></a>
+  <a href="images/Screenshots/calendar.png"><img src="images/Screenshots/calendar.png" width="49%" /></a>
+</p>
+
+### Discover Games
+
+Browse and find new games to add to your collection.
+
+<a href="images/Screenshots/discover.png"><img src="images/Screenshots/discover.png" /></a>
+
+#### RSS & xRel.to feeds
+
+Custom RSS feeds and xRel.to flux matched to IGDB games directly into the app. Default RSS is set to fitgirl site.
+
+<p float="left">
+  <a href="images/Screenshots/rss.png"><img src="images/Screenshots/rss.png" width="49%" /></a>
+  <a href="images/Screenshots/xrelto.png"><img src="images/Screenshots/xrelto.png" width="49%" /></a>
+</p>
+
+### Downloads Queue
+
+Monitor your downloaders' active downloads and history.
+
+<a href="images/Screenshots/downloads.png"><img src="images/Screenshots/downloads.png" /></a>
+
+### Statistics
+
+Check out your library statistics.
+
+<a href="images/Screenshots/stats.png"><img src="images/Screenshots/stats.png" /></a>
+
+### Settings
+
+Configure indexers, downloaders, and application preferences.
+
+<p float="left">
+  <a href="images/Screenshots/indexers.png"><img src="images/Screenshots/indexers.png" width="49%" /></a>
+  <a href="images/Screenshots/downloaders.png"><img src="images/Screenshots/downloaders.png" width="49%" /></a>
+</p>
+
+<a href="images/Screenshots/settings.png"><img src="images/Screenshots/settings.png" /></a>
+
+</details>
+
+## Tech Stack
+
+![React](https://img.shields.io/badge/React-20232A?style=flat&logo=react&logoColor=61DAFB)
+![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=flat&logo=typescript&logoColor=white)
+![Vite](https://img.shields.io/badge/Vite-646CFF?style=flat&logo=vite&logoColor=white)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=flat&logo=tailwind-css&logoColor=white)
+![Node.js](https://img.shields.io/badge/Node.js-43853D?style=flat&logo=node.js&logoColor=white)
+![SQLite](https://img.shields.io/badge/SQLite-07405E?style=flat&logo=sqlite&logoColor=white)
+[![Node.js](https://img.shields.io/badge/Node.js-20%2B-339933?logo=node.js&logoColor=white)](package.json)
+[![language](https://img.shields.io/badge/language-TypeScript-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![OS](https://img.shields.io/badge/OS-linux%2C%20windows%2C%20macOS-0078D4)](#installation)
+[![CPU](https://img.shields.io/badge/CPU-amd64%2C%20arm64-FF8C00)](#installation)
+
+- **APIs**: IGDB (game metadata), Torznab/Newznab (indexer search), PCGamingWiki, NexusMods, xREL.to
+- **AIs usage**:
+  - Claude and Github Copilot are used for AI-Assisted coding, internal code reviews, PR cleanup. Eventually automated coding and troubleshooting for small tasks and bug reports.
+  - Gemini & Codex are used for automated code reviews, and brainstorming from time to time (as well as Perplexity for this usage).
+  - Google Jules is used for light periodical refactoring.
 
 ## Configuration
 
@@ -265,6 +262,39 @@ IGDB provides game metadata (covers, descriptions, ratings, release dates, etc.)
 </details>
 
 <details>
+<summary><b>Upgrading from v1.0 (PostgreSQL)</b></summary>
+
+If you are upgrading from an older version that used PostgreSQL, you need to migrate your data.
+
+1. **Stop your current application:**
+
+   ```bash
+   docker compose down
+   ```
+
+2. **Get the migration tools:**
+   Download the [`docker-compose.migrate.yml`](https://raw.githubusercontent.com/Doezer/Questarr/main/docker-compose.migrate.yml) file to your directory.
+
+3. **Run the migration:**
+   This command spins up your old database and converts the data to the new format automatically.
+
+   ```bash
+   docker compose -f docker-compose.migrate.yml up --abort-on-container-exit
+   ```
+
+4. **Update your deployment:**
+   Replace your `docker-compose.yml` with the new version (see "Fresh Install" above).
+
+5. **Start the new version:**
+
+   ```bash
+   docker compose up -d
+   ```
+
+See [docs/MIGRATION.md](docs/MIGRATION.md) for more details.
+</details>
+
+<details>
 <summary><b>Advanced usage</b></summary>
 
 ### Docker compose
@@ -290,7 +320,7 @@ docker-compose up -d
 1. **Access the application:**
    Open your browser to `http://localhost:5000`
 
-### **Update to latest version for Docker**
+### Update to latest version for Docker
 
 Your database content will be kept.
 
@@ -301,41 +331,29 @@ docker-compose build --no-cache
 docker-compose up -d
 ```
 
-### Manual Installation (npm) - NOT RECOMMENDED
-
-For development or custom deployments without Docker.
-
-1. **Clone and install dependencies:**
-
-```bash
-git clone https://github.com/Doezer/Questarr.git
-npm install
-```
-
-1. **Configure environment variables in `.env`:**
-   See the .env.example for available variables.
-
-2. **Initialize the database:**
-   This will run available migration files.
-
-```bash
-npm run db:migrate
-```
-
-1. **Development mode (with hot reload):**
-
-```bash
-npm run dev
-```
-
-1. **Access the application:**
-   Open your browser to `http://localhost:5000`
-
 </details>
+
+## Roadmap
+
+Based on the [Product Requirements Document](docs/PRD.md), here's what's planned over the next 6 months, in priority order:
+
+- ✅ **P0 — Post-Processing Pipeline** : Move/copy completed downloads to a destination path, extract archives — closing the "set it and forget it" loop.
+- **P1 — Smart Game Backlog**: Track the version of each downloaded game and notify (or auto-download) when a newer release shows up on indexers.
+- **P2 — Direct Download Support**: Add debrid services (Real-Debrid and similar) as a downloader option, no seeding required.
+- **P3 — External Library Sync**: Import owned games from Steam/GOG libraries and local filesystem scans, not just wishlists.
+- **P4 — Integrations with External Tools**: Playnite, RomM, Gameyfin, and a generic webhook for anything not explicitly supported.
+- **P5 — Indexer Page Links**: A "View on indexer" link on search results and downloads.
+- **P6 — PostgreSQL Support**: Re-introduce PostgreSQL as an optional backend, with SQLite remaining the zero-config default.
+
+**Ongoing:** mobile responsiveness, search UX, performance, and security improvements.
+
+See the full [PRD](docs/PRD.md) for problem statements, detailed scope, and non-goals.
 
 ## Troubleshooting
 
 See [Troubleshooting on the Wiki](https://github.com/Doezer/Questarr/wiki/Troubleshooting)
+
+If you run into an issue, go to the **Logs** page and click **Send Logs** before reporting it — it makes diagnosing the problem much easier.
 
 ### Getting Help
 
@@ -362,20 +380,10 @@ Made with [contrib.rocks](https://contrib.rocks).
 
 ## License
 
-GPL3 License - see [COPYING](.github/COPYING) file for details.
+GPL3 License - see [COPYING](COPYING) file for details.
 
 ## Acknowledgments
 
 - Inspired by [Sonarr](https://sonarr.tv/) and [GamezServer](https://github.com/05sonicblue/GamezServer)
 - Game metadata powered by [IGDB API](https://www.igdb.com/)
 - UI components from [shadcn/ui](https://ui.shadcn.com/)
-
-## Star History
-
-<a href="https://www.star-history.com/?repos=doezer%2Fquestarr&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=doezer/questarr&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=doezer/questarr&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=doezer/questarr&type=date&legend=top-left" />
- </picture>
-</a>

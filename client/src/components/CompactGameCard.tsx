@@ -307,7 +307,16 @@ const CompactGameCard = ({
   return (
     <>
       <div
+        role="button"
+        tabIndex={0}
         onClick={handleDetailsClick}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            handleDetailsClick();
+          }
+        }}
+        aria-label={`Open ${game.title} details`}
         style={
           useSubgrid
             ? { gridColumn: "1 / -1", gridTemplateColumns: "subgrid" }

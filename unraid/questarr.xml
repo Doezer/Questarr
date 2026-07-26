@@ -8,11 +8,11 @@
   <Privileged>false</Privileged>
   <Support>https://github.com/Doezer/Questarr/issues</Support>
   <Project>https://github.com/Doezer/Questarr</Project>
-  <Overview>Questarr - A companion app for the *arr media stack.</Overview>
+  <Overview>Questarr - A video game management application inspired by the -Arr apps.</Overview>
   <Category>MediaApp:</Category>
   <WebUI>http://[IP]:[PORT:5000]/</WebUI>
   <TemplateURL>https://raw.githubusercontent.com/Doezer/Questarr/main/unraid/questarr.xml</TemplateURL>
-  <Icon>https://raw.githubusercontent.com/Doezer/Questarr/images/Questarr_icon.png</Icon>
+  <Icon>https://raw.githubusercontent.com/Doezer/Questarr/main/images/Questarr_icon.png</Icon>
   <ExtraParams>--restart=unless-stopped --health-cmd="node -e \"require('http').get('http://localhost:5000/api/health', (r) =&gt; process.exit(r.statusCode === 200 ? 0 : 1))\"" --health-interval=30s --health-timeout=10s --health-retries=3 --health-start-period=40s</ExtraParams>
   <Description>Questarr is a video game management application inspired by the -Arr apps (Sonarr, Radarr, Prowlarr...) and GamezServer. Track and organize your video game collection with automated discovery and download management.</Description>
   <Networking>

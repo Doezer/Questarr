@@ -26,6 +26,8 @@ import RssSettings from "@/components/RssSettings";
 import { Rss } from "lucide-react";
 import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 
+const EMPTY_GAMES: Game[] = [];
+
 interface Genre {
   id: number;
   name: string;
@@ -100,7 +102,7 @@ export default function DiscoverPage() {
   });
 
   // Fetch local games to filter hidden ones
-  const { data: localGames = [] } = useQuery<Game[]>({
+  const { data: localGames = EMPTY_GAMES } = useQuery<Game[]>({
     queryKey: ["/api/games?includeHidden=true"], // We need all games to know which are hidden
     queryFn: async () => {
       const response = await apiRequest("GET", "/api/games?includeHidden=true");
@@ -109,37 +111,43 @@ export default function DiscoverPage() {
     enabled: !!config?.igdb.configured,
   });
 
-  const hiddenIgdbIds = useMemo(() => {
-    return new Set(localGames.filter((g) => g.hidden).map((g) => g.igdbId));
-  }, [localGames]);
+  // ⚡ Bolt: Consolidate multiple O(N) array traversals into a single pass
+  const { hiddenIgdbIds, ownedIgdbIds, wantedIgdbIds, igdbToLocalIdMap, hiddenGames } =
+    useMemo(() => {
+      const hidden = new Set<number>();
+      const owned = new Set<number>();
+      const wanted = new Set<number>();
+      const idMap = new Map<number, string>();
+      const hiddenList: Game[] = [];
 
-  const ownedIgdbIds = useMemo(() => {
-    return new Set(
-      localGames
-        .filter(
-          (g) => g.status === "owned" || g.status === "completed" || g.status === "downloading"
-        )
-        .map((g) => g.igdbId)
-    );
-  }, [localGames]);
+      for (const g of localGames) {
+        if (g.hidden) hiddenList.push(g);
 
-  const wantedIgdbIds = useMemo(() => {
-    return new Set(
-      localGames.filter((g) => g.status === "wanted" && !g.hidden).map((g) => g.igdbId)
-    );
-  }, [localGames]);
+        if (!g.igdbId) continue;
 
-  const igdbToLocalIdMap = useMemo(() => {
-    const map = new Map<number, string>();
-    localGames.forEach((g) => {
-      if (g.igdbId) map.set(g.igdbId, g.id);
-    });
-    return map;
-  }, [localGames]);
+        idMap.set(g.igdbId, g.id);
+
+        if (g.hidden) hidden.add(g.igdbId);
+        if (g.status === "owned" || g.status === "completed" || g.status === "downloading") {
+          owned.add(g.igdbId);
+        }
+        if (g.status === "wanted" && !g.hidden) wanted.add(g.igdbId);
+      }
+
+      return {
+        hiddenIgdbIds: hidden,
+        ownedIgdbIds: owned,
+        wantedIgdbIds: wanted,
+        igdbToLocalIdMap: idMap,
+        hiddenGames: hiddenList,
+      };
+    }, [localGames]);
 
   const filterGames = useCallback(
     (games: Game[]) => {
       return games.filter((g: Game) => {
+        if (!g.igdbId) return true;
+
         if (hiddenIgdbIds.has(g.igdbId)) return false;
 
         if (hideOwned && ownedIgdbIds.has(g.igdbId)) return false;
@@ -530,7 +538,7 @@ export default function DiscoverPage() {
             <DiscoverSettingsModal
               open={showSettings}
               onOpenChange={setShowSettings}
-              hiddenGames={localGames.filter((g) => g.hidden)}
+              hiddenGames={hiddenGames}
               hideOwned={hideOwned}
               onHideOwnedChange={setHideOwned}
               hideWanted={hideWanted}

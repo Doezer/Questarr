@@ -95,11 +95,11 @@ jobs:
 
       # Policy: docs/VULNERABILITY_MANAGEMENT.md §1.4 — production dependency
       # licenses must be on the allow-list.
-      # license-checker-rseidelsohn is a pinned devDependency (see package.json), installed
-      # above by `npm ci` — --no-install below guarantees this never installs anything ad-hoc.
+      # @lizenz/checker is a pinned devDependency (see package.json), installed above by
+      # `npm ci` — --no-install below guarantees this never installs anything ad-hoc.
       - name: Check dependency licenses
         run: |
-          npx --no-install license-checker-rseidelsohn --production --summary \
+          npx --no-install license-checker --production --summary \
             --onlyAllow "MIT;ISC;BSD-2-Clause;BSD-3-Clause;Apache-2.0;CC0-1.0;0BSD;Python-2.0;BlueOak-1.0.0;OFL-1.1;Unlicense;GPL-3.0;GPL-3.0-only;LGPL-2.1;LGPL-2.1-only;LGPL-3.0;LGPL-3.0-only;MPL-2.0"
 
   test:

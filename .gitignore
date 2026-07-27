@@ -29,6 +29,7 @@ coverage/
 playwright*/
 test-results/
 test-report.junit.xml
+.vitest-reports/
 vite.config.ts.*
 .sonarlint/connectedMode.json
 data_test/
@@ -45,3 +46,5 @@ infrastructure/
 docker-compose.*local.yml
 notes/
 todo.md
+.tokensave/
+.claude/.headroom_wrap_marker.json

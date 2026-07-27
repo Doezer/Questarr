@@ -365,20 +365,28 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
 
   const availableIndexers = useMemo(() => {
     if (!searchResults?.items) return [];
-    const indexers = new Set(searchResults.items.map((item) => item.indexerName).filter(Boolean));
+    const indexers = new Set(
+      searchResults.items
+        .map((item) => item.indexerName)
+        .filter((name): name is string => Boolean(name))
+    );
     if (enabledIndexers) {
       const enabledNames = new Set(enabledIndexers.map((i) => i.name));
       return Array.from(indexers)
-        .filter((name) => enabledNames.has(name as string))
-        .sort();
+        .filter((name) => enabledNames.has(name))
+        .sort((a, b) => a.localeCompare(b));
     }
-    return Array.from(indexers).sort();
+    return Array.from(indexers).sort((a, b) => a.localeCompare(b));
   }, [searchResults?.items, enabledIndexers]);
 
   const availableGroups = useMemo(() => {
     if (!searchResults?.items) return [];
-    const groups = new Set(searchResults.items.map((item) => item.group).filter(Boolean));
-    return Array.from(groups).sort();
+    const groups = new Set(
+      searchResults.items
+        .map((item) => item.group)
+        .filter((group): group is string => Boolean(group))
+    );
+    return Array.from(groups).sort((a, b) => a.localeCompare(b));
   }, [searchResults?.items]);
 
   // Pre-calculate release metadata once per item to avoid repeated regex operations

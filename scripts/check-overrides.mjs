@@ -23,25 +23,44 @@ function readManifest(dirPath) {
 }
 
 function findGlobalConsumers(pkgName) {
-  const nm = "node_modules";
   const consumers = [];
-  for (const dir of readdirSync(nm, { withFileTypes: true })) {
-    if (!dir.isDirectory()) continue;
-    if (dir.name.startsWith("@")) {
-      const scopePath = path.join(nm, dir.name);
-      for (const sub of readdirSync(scopePath, { withFileTypes: true })) {
-        if (!sub.isDirectory()) continue;
-        check(path.join(scopePath, sub.name), `${dir.name}/${sub.name}`);
+  // Recurse into nested node_modules too: npm doesn't always hoist every copy of a
+  // transitive dependency to the top level, so a consumer can be shadowed several
+  // levels deep (e.g. node_modules/table/node_modules/ajv) and invisible to a
+  // top-level-only scan.
+  function walk(nmDir) {
+    let entries;
+    try {
+      entries = readdirSync(nmDir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const dir of entries) {
+      if (!dir.isDirectory() || dir.name === ".bin") continue;
+      const dirPath = path.join(nmDir, dir.name);
+      if (dir.name.startsWith("@")) {
+        let subEntries;
+        try {
+          subEntries = readdirSync(dirPath, { withFileTypes: true });
+        } catch {
+          continue;
+        }
+        for (const sub of subEntries) {
+          if (!sub.isDirectory()) continue;
+          check(path.join(dirPath, sub.name), `${dir.name}/${sub.name}`);
+        }
+      } else {
+        check(dirPath, dir.name);
       }
-    } else {
-      check(path.join(nm, dir.name), dir.name);
     }
   }
-  function check(dirPath, name) {
-    const manifest = readManifest(dirPath);
+  function check(pkgDir, name) {
+    const manifest = readManifest(pkgDir);
     const range = manifest?.dependencies?.[pkgName];
     if (range) consumers.push({ consumer: name, range });
+    walk(path.join(pkgDir, "node_modules"));
   }
+  walk("node_modules");
   return consumers;
 }
 

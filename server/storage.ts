@@ -446,12 +446,15 @@ export class MemStorage implements IStorage {
       userId: insertGame.userId || null,
       status: insertGame.status || "wanted",
       hidden: insertGame.hidden ?? false, // Convert boolean to number or keep as boolean depending on memory usage
+      isAdultContent: insertGame.isAdultContent ?? false,
+      isAgeRestricted: insertGame.isAgeRestricted ?? false,
       summary: insertGame.summary || null,
       coverUrl: insertGame.coverUrl || null,
       releaseDate: insertGame.releaseDate || null,
       rating: insertGame.rating || null,
       platforms: insertGame.platforms || null,
       genres: insertGame.genres || null,
+      themes: insertGame.themes || null,
       publishers: insertGame.publishers || null,
       developers: insertGame.developers || null,
       screenshots: insertGame.screenshots || null,
@@ -466,6 +469,7 @@ export class MemStorage implements IStorage {
       searchResultsAvailable: false,
       userRating: null,
       notes: null,
+      libraryPath: null,
       addedAt: new Date(),
       completedAt: null,
     };
@@ -1062,6 +1066,9 @@ export class MemStorage implements IStorage {
       xrelP2pReleases: insertSettings.xrelP2pReleases ?? false,
       autoSearchUnreleased: insertSettings.autoSearchUnreleased ?? false,
       steamSyncFailures: 0,
+      steamSyncEnabled: insertSettings.steamSyncEnabled ?? false,
+      steamSyncIntervalHours: insertSettings.steamSyncIntervalHours ?? 24,
+      lastSteamSync: insertSettings.lastSteamSync ?? null,
 
       // Import Engine Defaults
       enablePostProcessing: insertSettings.enablePostProcessing ?? false,
@@ -1078,6 +1085,8 @@ export class MemStorage implements IStorage {
       preferredReleaseGroups: insertSettings.preferredReleaseGroups ?? null,
       filterByPreferredGroups: insertSettings.filterByPreferredGroups ?? false,
       preferredPlatform: insertSettings.preferredPlatform ?? null,
+      hideAdultContent: insertSettings.hideAdultContent ?? true,
+      hideAgeRestrictedContent: insertSettings.hideAgeRestrictedContent ?? true,
       updatedAt: new Date(),
     };
     this.userSettings.set(id, settings);
@@ -1586,6 +1595,7 @@ export class DatabaseStorage implements IStorage {
       rating: insertGame.rating ?? null,
       platforms: insertGame.platforms ?? null,
       genres: insertGame.genres ?? null,
+      themes: insertGame.themes ?? null,
       publishers: insertGame.publishers ?? null,
       developers: insertGame.developers ?? null,
       screenshots: insertGame.screenshots ?? null,
@@ -1595,6 +1605,8 @@ export class DatabaseStorage implements IStorage {
       aggregatedRating: insertGame.aggregatedRating ?? null,
       status: insertGame.status ?? "wanted",
       hidden: insertGame.hidden ?? false,
+      isAdultContent: insertGame.isAdultContent ?? false,
+      isAgeRestricted: insertGame.isAgeRestricted ?? false,
       originalReleaseDate: insertGame.originalReleaseDate ?? null,
       releaseStatus: insertGame.releaseStatus ?? "upcoming",
       earlyAccess: insertGame.earlyAccess ?? false,

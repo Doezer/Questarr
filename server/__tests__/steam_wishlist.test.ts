@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { syncUserSteamWishlist } from "../cron.js";
+import { syncUserSteamWishlist, checkSteamWishlist } from "../cron.js";
 import { storage } from "../storage.js";
 import { steamService } from "../steam.js";
 import { igdbClient, type IGDBGame } from "../igdb.js";
-import type { Game, User, UserSettings } from "../../shared/schema.js";
+import type { Game, ImportTask, User, UserSettings } from "../../shared/schema.js";
 
 // Mock dependencies
 vi.mock("../storage.js");
@@ -354,5 +354,176 @@ describe("syncUserSteamWishlist", () => {
 
     expect(result?.addedCount).toBe(1);
     expect(storage.addGame).toHaveBeenCalledOnce();
+  });
+});
+
+describe("checkSteamWishlist", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(storage.createImportTask).mockResolvedValue({
+      id: "task-id",
+    } as unknown as ImportTask);
+    vi.mocked(storage.startImportTask).mockResolvedValue(undefined);
+    vi.mocked(storage.updateImportTask).mockResolvedValue(undefined);
+    vi.mocked(storage.addImportTaskItemsBatch).mockResolvedValue([]);
+    vi.mocked(storage.getUserGames).mockResolvedValue([]);
+    vi.mocked(steamService.getWishlist).mockResolvedValue([]);
+  });
+
+  it("skips users without a linked Steam ID", async () => {
+    vi.mocked(storage.getAllUsers).mockResolvedValue([
+      { id: "user-1", steamId64: null } as unknown as User,
+    ]);
+
+    await checkSteamWishlist();
+
+    expect(storage.getUserSettings).not.toHaveBeenCalled();
+    expect(steamService.getWishlist).not.toHaveBeenCalled();
+  });
+
+  it("skips users who have not opted into auto-sync", async () => {
+    vi.mocked(storage.getAllUsers).mockResolvedValue([
+      { id: "user-1", steamId64: "76561198000000000" } as unknown as User,
+    ]);
+    vi.mocked(storage.getUserSettings).mockResolvedValue({
+      steamSyncEnabled: false,
+      steamSyncIntervalHours: 24,
+      lastSteamSync: null,
+    } as unknown as UserSettings);
+
+    await checkSteamWishlist();
+
+    expect(steamService.getWishlist).not.toHaveBeenCalled();
+  });
+
+  it("skips users whose sync interval has not elapsed yet", async () => {
+    const FIXED_NOW = new Date("2023-01-02T00:00:00.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(FIXED_NOW);
+
+    try {
+      vi.mocked(storage.getAllUsers).mockResolvedValue([
+        { id: "user-1", steamId64: "76561198000000000" } as unknown as User,
+      ]);
+      vi.mocked(storage.getUserSettings).mockResolvedValue({
+        steamSyncEnabled: true,
+        steamSyncIntervalHours: 24,
+        lastSteamSync: new Date(FIXED_NOW.getTime() - 60 * 60 * 1000), // synced 1 hour ago
+      } as unknown as UserSettings);
+
+      await checkSteamWishlist();
+
+      expect(steamService.getWishlist).not.toHaveBeenCalled();
+      expect(storage.updateUserSettings).not.toHaveBeenCalledWith(
+        "user-1",
+        expect.objectContaining({ lastSteamSync: expect.anything() })
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("syncs and records lastSteamSync when enabled and the interval has elapsed", async () => {
+    vi.mocked(storage.getAllUsers).mockResolvedValue([
+      { id: "user-1", steamId64: "76561198000000000" } as unknown as User,
+    ]);
+    vi.mocked(storage.getUser).mockResolvedValue({
+      id: "user-1",
+      steamId64: "76561198000000000",
+    } as unknown as User);
+    vi.mocked(storage.getUserSettings).mockResolvedValue({
+      steamSyncEnabled: true,
+      steamSyncIntervalHours: 24,
+      lastSteamSync: null,
+      steamSyncFailures: 0,
+    } as unknown as UserSettings);
+
+    await checkSteamWishlist();
+
+    expect(steamService.getWishlist).toHaveBeenCalledWith("76561198000000000");
+    expect(storage.updateUserSettings).toHaveBeenCalledWith(
+      "user-1",
+      expect.objectContaining({ lastSteamSync: expect.any(Date) })
+    );
+  });
+
+  it("does not record lastSteamSync when the scheduled sync fails", async () => {
+    vi.mocked(storage.getAllUsers).mockResolvedValue([
+      { id: "user-1", steamId64: "76561198000000000" } as unknown as User,
+    ]);
+    vi.mocked(storage.getUser).mockResolvedValue({
+      id: "user-1",
+      steamId64: "76561198000000000",
+    } as unknown as User);
+    vi.mocked(storage.getUserSettings).mockResolvedValue({
+      steamSyncEnabled: true,
+      steamSyncIntervalHours: 24,
+      lastSteamSync: null,
+      steamSyncFailures: 0,
+    } as unknown as UserSettings);
+    vi.mocked(steamService.getWishlist).mockRejectedValue(new Error("Steam API down"));
+
+    await checkSteamWishlist();
+
+    expect(storage.updateUserSettings).not.toHaveBeenCalledWith(
+      "user-1",
+      expect.objectContaining({ lastSteamSync: expect.anything() })
+    );
+  });
+
+  it("continues checking other users when one user's sync throws", async () => {
+    vi.mocked(storage.getAllUsers).mockResolvedValue([
+      { id: "user-1", steamId64: "76561198000000000" } as unknown as User,
+      { id: "user-2", steamId64: "76561198000000001" } as unknown as User,
+    ]);
+    vi.mocked(storage.getUserSettings).mockImplementation(async (userId: string) => {
+      if (userId === "user-1") {
+        throw new Error("DB error");
+      }
+      return {
+        steamSyncEnabled: true,
+        steamSyncIntervalHours: 24,
+        lastSteamSync: null,
+        steamSyncFailures: 0,
+      } as unknown as UserSettings;
+    });
+    vi.mocked(storage.getUser).mockResolvedValue({
+      id: "user-2",
+      steamId64: "76561198000000001",
+    } as unknown as User);
+
+    await expect(checkSteamWishlist()).resolves.not.toThrow();
+
+    expect(steamService.getWishlist).toHaveBeenCalledWith("76561198000000001");
+  });
+
+  it("skips a run entirely when a previous run is still in progress", async () => {
+    let resolveGetAllUsers: (users: User[]) => void;
+    const getAllUsersPromise = new Promise<User[]>((resolve) => {
+      resolveGetAllUsers = resolve;
+    });
+    vi.mocked(storage.getAllUsers).mockReturnValueOnce(getAllUsersPromise);
+
+    const firstRun = checkSteamWishlist();
+    const secondRun = checkSteamWishlist();
+
+    // The second call should return immediately without waiting on getAllUsers.
+    await secondRun;
+    expect(storage.getAllUsers).toHaveBeenCalledTimes(1);
+    expect(storage.getUserSettings).not.toHaveBeenCalled();
+
+    resolveGetAllUsers!([]);
+    await firstRun;
+  });
+
+  it("does not throw and clears the in-progress guard when getAllUsers fails", async () => {
+    vi.mocked(storage.getAllUsers).mockRejectedValueOnce(new Error("DB unavailable"));
+
+    await expect(checkSteamWishlist()).resolves.toBeUndefined();
+
+    // The in-progress guard must have been cleared, so a subsequent run proceeds normally.
+    vi.mocked(storage.getAllUsers).mockResolvedValueOnce([]);
+    await expect(checkSteamWishlist()).resolves.toBeUndefined();
+    expect(storage.getAllUsers).toHaveBeenCalledTimes(2);
   });
 });

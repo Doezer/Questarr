@@ -62,15 +62,19 @@ jobs:
           node-version: 22.x
           cache: "npm"
 
+      # This job only audits the dependency tree and checks licenses; it never
+      # executes application code, so native module build scripts aren't needed.
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Audit production dependencies (Critical/High blocks release)
         run: npm audit --omit=dev --audit-level=high
 
+      # @lizenz/checker is a pinned devDependency (see package.json), installed above by
+      # `npm ci` — --no-install below guarantees this never installs anything ad-hoc.
       - name: Check dependency licenses
         run: |
-          npx --yes license-checker@25.0.1 --production --summary \
+          npx --no-install license-checker --production --summary \
             --onlyAllow "MIT;ISC;BSD-2-Clause;BSD-3-Clause;Apache-2.0;CC0-1.0;0BSD;Python-2.0;BlueOak-1.0.0;OFL-1.1;Unlicense;GPL-3.0;GPL-3.0-only;LGPL-2.1;LGPL-2.1-only;LGPL-3.0;LGPL-3.0-only;MPL-2.0"
 
   build-and-push:

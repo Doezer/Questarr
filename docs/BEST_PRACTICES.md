@@ -70,5 +70,88 @@ Assessed 2026-07-06 against `tsconfig.json`, `eslint.config.js`, and `.github/wo
 - `npm run lint` has no `--max-warnings 0`, so ESLint warnings don't fail CI — only hard
   errors do.
 
+## [dynamic_analysis]
+
+> It is SUGGESTED that at least one dynamic analysis tool be applied to any proposed major
+> production release of the software before its release.
+
+**Status: Met.**
+
+[`.github/workflows/dast.yml`](/.github/workflows/dast.yml) runs an
+[OWASP ZAP](https://www.zaproxy.org/) baseline scan against a live instance of the app:
+
+- Builds the production bundle, boots it on the runner (`npm start`), and waits on
+  `/api/health` before scanning — the same production code path that ships in the Docker
+  image, not a mock target.
+- `zaproxy/action-baseline` spiders the running app and passively checks every response for
+  common runtime issues (missing security headers, verbose error output, cookie flags,
+  outdated libraries, etc.) — varying inputs by construction, satisfying the criterion
+  independent of the project's static coverage numbers.
+- Runs on every push to `main`/`release/*` (so it's applied ahead of any tag cut from those
+  branches) plus a weekly schedule and manual dispatch, mirroring the cadence already used by
+  [vulnerability-scan.yml](/.github/workflows/vulnerability-scan.yml).
+- `fail_action: true`, `rules_file_name: .zap/rules.tsv`: blocking, matching the gate
+  [sast.yml](/.github/workflows/sast.yml) already has for Semgrep. See
+  [`dynamic_analysis_fixed`](#dynamic_analysis_fixed) below for current findings and their
+  disposition.
+
+This is independent of `warnings_strict`'s test-coverage numbers above (branch coverage
+threshold is currently 74%, short of the criterion's 80% automated-test-suite alternative) —
+the ZAP scan satisfies `dynamic_analysis` on its own via the "tool that varies inputs" path,
+regardless of coverage.
+
+## [dynamic_analysis_enable_assertions]
+
+> It is SUGGESTED that the project use a configuration for at least some dynamic analysis
+> (such as testing or fuzzing) which enables many assertions. In many cases these assertions
+> should _not_ be enabled in production builds.
+
+**Status: Met.**
+
+Questarr's dynamic analysis is its Vitest suite (`server/__tests__/`, `client/__tests__/`),
+which is nothing but assertions — `expect()` calls that fail the run the moment observed
+behavior diverges from expected behavior:
+
+- 4,088+ `expect()` assertions across 153 test files (3,040 in `server/__tests__/`, 1,048 in
+  `client/__tests__/`) as of 2026-07-14, run on every push via the `build` job in
+  [`ci.yml`](/.github/workflows/ci.yml) (`npm test -- --coverage`).
+- This is the JS/TS analogue of the C/C++ `NDEBUG` concern the criterion warns about:
+  `vitest` and `supertest` are `devDependencies` only (never `dependencies`) in
+  `package.json`, and the production Docker image runs `npm prune --omit=dev`
+  ([`Dockerfile`](/Dockerfile)) before copying in the built `dist/` output — so the assertion
+  layer is structurally excluded from what ships, not just conventionally disabled.
+- There is no runtime `assert()`-equivalent left enabled in shipped code either: neither
+  `server/` nor `shared/` import Node's `assert` module outside of test files, so there's
+  nothing production-side that could throw on an assertion failure or leak internal state
+  the way the criterion warns about.
+- This is distinct from the request-input validation Questarr _does_ run in production
+  (express-validator, Zod schemas in `shared/schema.ts`) — that's boundary validation of
+  untrusted input, not the test-only correctness assertions this criterion is about.
+
+## [dynamic_analysis_fixed]
+
+> All medium and higher severity exploitable vulnerabilities discovered with dynamic code
+> analysis MUST be fixed in a timely way after they are confirmed.
+
+**Status: Met.**
+
+Full policy and results table: [`docs/VULNERABILITY_MANAGEMENT.md` §3.3](/docs/VULNERABILITY_MANAGEMENT.md#33-first-scan-and-current-enforcement-status).
+
+- `dast.yml` runs with `fail_action: true`: any unignored WARN or FAIL alert fails the build,
+  stricter than this criterion's "medium or higher" bar.
+- The one Medium-severity finding to date (`CSP: Wildcard Directive`) is fixed, not merely
+  accepted: `font-src`/`style-src` are scoped to `'self'` rather than Helmet's default
+  `https:` wildcard (`server/routes.ts:360-361`).
+- Three Low/Informational findings are accepted with reasoning recorded in
+  [`.zap/rules.tsv`](/.zap/rules.tsv), and, for the one with a real security tradeoff (COEP), in
+  the [`docs/SECURITY_ASSESSMENT.md`](/docs/SECURITY_ASSESSMENT.md) risk register per the
+  accept-risk path §3.2 defines.
+- One finding (`CSP: style-src unsafe-inline`) shares a ZAP plugin ID with the fixed
+  wildcard-directive check, so its `.zap/rules.tsv` entry also suppresses that check's DAST
+  coverage; a dedicated Vitest assertion
+  (`server/__tests__/security.test.ts`) covers that regression instead. See
+  [§3.3](/docs/VULNERABILITY_MANAGEMENT.md#33-first-scan-and-current-enforcement-status) for
+  the full results table and reasoning.
+
 **Update policy:** revisit each entry when the underlying tooling changes, or roughly every
 6 months to keep the 2-12 month evidence windows current.

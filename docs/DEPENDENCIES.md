@@ -15,7 +15,10 @@ Dependencies are added deliberately as part of normal development, via `npm inst
 - The `overrides` field forces a specific version of a transitive dependency when a direct dependency's own declared range still permits a vulnerable release:
   - `socket.io-parser: 4.2.6` patches [CVE-2026-33151](https://github.com/socketio/socket.io/security/advisories/GHSA-677m-j7p3-52f9) (resource exhaustion via unbounded binary attachments). Needed because `socket.io`/`socket.io-client` declare `socket.io-parser: ~4.2.4`, a range that still allows the unpatched 4.2.4/4.2.5.
   - `@esbuild-kit/core-utils`'s `esbuild` dependency is bumped to `^0.25.0` to patch the esbuild dev-server request-forwarding issue ([GHSA-67mh-4wv8-2f99](https://github.com/advisories/GHSA-67mh-4wv8-2f99)). Needed because `drizzle-kit` pulls in `@esbuild-kit/esm-loader` → `@esbuild-kit/core-utils`, which pins `esbuild: ~0.18.20`.
-  - Both should be revisited (and likely removed) once the upstream packages bump their own internal dependency ranges past the vulnerable versions.
+  - `body-parser: 1.20.6` patches [CVE-2026-12590](https://github.com/expressjs/body-parser/security/advisories/GHSA-v422-hmwv-36x6) (invalid `limit` values silently disabling size enforcement). Needed because `express` bundles `body-parser: ~1.20.5`.
+  - `brace-expansion: ^5.0.8` patches [CVE-2026-14257](https://github.com/advisories/GHSA-mh99-v99m-4gvg) (DoS via unbounded expansion length). Needed because `archiver` → `readdir-glob` → `minimatch` resolves to the vulnerable `5.0.7`.
+  - `fast-uri: ^3.1.4` patches [CVE-2026-16221](https://github.com/advisories/GHSA-v2hh-gcrm-f6hx). Needed because `secretlint`'s nested `ajv@8.20.0` declares `fast-uri: ^3.0.1`, a range that still allows the unpatched `3.1.3`. Dev-only (reached via `npm run secretlint`, never bundled into production).
+  - All of the above should be revisited (and likely removed) once the upstream packages bump their own internal dependency ranges past the vulnerable versions.
   - The `check-overrides` CI job (`npm run check:overrides`, see [`scripts/check-overrides.mjs`](../scripts/check-overrides.mjs)) checks this automatically on every PR and fails once an override is no longer needed, so there's no need to track removal manually.
 
 ## Tracking and updates

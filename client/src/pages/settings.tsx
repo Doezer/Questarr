@@ -22,6 +22,7 @@ import {
   Trash2,
   Bell,
   Ghost,
+  Monitor,
 } from "lucide-react";
 import { NexusModsIcon } from "@/components/NexusModsIcon";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -48,6 +49,7 @@ import AutoDownloadRulesSettings from "@/components/AutoDownloadRulesSettings";
 import PreferredReleaseGroupsSettings from "@/components/PreferredReleaseGroupsSettings";
 import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 import { GHOST_THEME_KEY, GHOST_UNLOCK_KEY } from "@/lib/ghost-mode";
+import { WIN2K_THEME_KEY } from "@/lib/win2k-mode";
 import PasswordSettings from "@/components/PasswordSettings";
 import type {
   Config,
@@ -92,6 +94,11 @@ export default function SettingsPage() {
   useEffect(() => {
     document.documentElement.classList.toggle("theme-ghost", ghostThemeEnabled);
   }, [ghostThemeEnabled]);
+
+  const [win2kThemeEnabled, setWin2kThemeEnabled] = useLocalStorageState(WIN2K_THEME_KEY, false);
+  useEffect(() => {
+    document.documentElement.classList.toggle("theme-win2k", win2kThemeEnabled);
+  }, [win2kThemeEnabled]);
 
   const {
     data: config,
@@ -167,9 +174,12 @@ export default function SettingsPage() {
   const [appriseKey, setAppriseKey] = useState("");
   const [appriseUrls, setAppriseUrls] = useState("");
   const appriseLoadedRef = useRef(false);
+  const settingsLoadedRef = useRef(false);
 
   // Local state for Steam form
   const [steamIdInput, setSteamIdInput] = useState("");
+  const [steamSyncEnabled, setSteamSyncEnabled] = useState(false);
+  const [steamSyncIntervalHours, setSteamSyncIntervalHours] = useState(24);
 
   // Local state for forms
   const [igdbClientId, setIgdbClientId] = useState("");
@@ -181,15 +191,19 @@ export default function SettingsPage() {
   const [preferredPlatform, setPreferredPlatform] = useState<string>("");
   const [xrelSceneReleases, setXrelSceneReleases] = useState(true);
   const [xrelP2pReleases, setXrelP2pReleases] = useState(false);
+  const [hideAdultContent, setHideAdultContent] = useState(true);
+  const [hideAgeRestrictedContent, setHideAgeRestrictedContent] = useState(true);
   const [xrelApiBase, setXrelApiBase] = useState("");
   const [discordWebhookUrl, setDiscordWebhookUrl] = useState("");
   const [showDiscordWebhook, setShowDiscordWebhook] = useState(false);
   const [nexusApiKey, setNexusApiKey] = useState("");
   const [showNexusApiKey, setShowNexusApiKey] = useState(false);
 
-  // Sync with fetched settings
+  // Sync with fetched settings. Guarded by settingsLoadedRef so a background
+  // refetch (e.g. after saving one section) doesn't clobber unsaved edits the
+  // user has made in another section of this form.
   useEffect(() => {
-    if (userSettings) {
+    if (userSettings && !settingsLoadedRef.current) {
       setAutoSearchEnabled(userSettings.autoSearchEnabled);
       setAutoSearchUnreleased(userSettings.autoSearchUnreleased ?? false);
       setAutoDownloadEnabled(userSettings.autoDownloadEnabled);
@@ -228,6 +242,11 @@ export default function SettingsPage() {
       setPreferredPlatform(userSettings.preferredPlatform ?? "");
       setXrelSceneReleases(userSettings.xrelSceneReleases ?? true);
       setXrelP2pReleases(userSettings.xrelP2pReleases ?? false);
+      setSteamSyncEnabled(userSettings.steamSyncEnabled ?? false);
+      setSteamSyncIntervalHours(userSettings.steamSyncIntervalHours ?? 24);
+      setHideAdultContent(userSettings.hideAdultContent ?? true);
+      setHideAgeRestrictedContent(userSettings.hideAgeRestrictedContent ?? true);
+      settingsLoadedRef.current = true;
     }
     if (config?.xrel?.apiBase !== undefined) {
       setXrelApiBase(config.xrel.apiBase);
@@ -642,6 +661,35 @@ export default function SettingsPage() {
     },
   });
 
+  const [libraryHealthResult, setLibraryHealthResult] = useState<{
+    drifted: Array<{ id: string; title: string; libraryPath: string }>;
+    orphaned: Array<{ path: string }>;
+  } | null>(null);
+
+  const libraryHealthMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/games/library-health-check");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      setLibraryHealthResult({ drifted: data.drifted, orphaned: data.orphaned });
+      toast({
+        title: "Library Health Check",
+        description:
+          data.drifted.length === 0 && data.orphaned.length === 0
+            ? "Library is in sync."
+            : `${data.drifted.length} drifted, ${data.orphaned.length} orphaned`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Library Health Check Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const isLoading = configLoading || settingsLoading;
   const error = configError;
 
@@ -655,6 +703,16 @@ export default function SettingsPage() {
         preferredPlatform: preferredPlatform || null,
       },
       successMessage: "Your auto-search preferences have been saved.",
+    });
+  };
+
+  const handleSaveContentFilter = () => {
+    updateSettingsMutation.mutate({
+      updates: {
+        hideAdultContent,
+        hideAgeRestrictedContent,
+      },
+      successMessage: "Content filtering preferences have been saved.",
     });
   };
 
@@ -737,6 +795,16 @@ export default function SettingsPage() {
   const handleSaveSteamId = () => {
     if (!steamIdInput) return;
     updateSteamIdMutation.mutate(steamIdInput);
+  };
+
+  const handleSaveSteamSync = () => {
+    updateSettingsMutation.mutate({
+      updates: {
+        steamSyncEnabled,
+        steamSyncIntervalHours,
+      },
+      successMessage: "Your Steam Wishlist auto-sync preferences have been saved.",
+    });
   };
 
   if (isLoading) {
@@ -830,6 +898,36 @@ export default function SettingsPage() {
                 </CardContent>
               </Card>
             )}
+
+            <Card>
+              <CardHeader>
+                <div className="flex items-center space-x-3">
+                  <Monitor className="h-5 w-5 text-muted-foreground" />
+                  <CardTitle className="text-lg">Windows 2000 Mode</CardTitle>
+                </div>
+                <CardDescription>
+                  A cosmetic retro skin &mdash; navy title bars, silver beveled buttons, square
+                  corners, and Tahoma type
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="win2k-theme" className="text-sm font-medium">
+                      Enable Windows 2000 skin
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Purely cosmetic &mdash; nothing else changes
+                    </p>
+                  </div>
+                  <Switch
+                    id="win2k-theme"
+                    checked={win2kThemeEnabled}
+                    onCheckedChange={setWin2kThemeEnabled}
+                  />
+                </div>
+              </CardContent>
+            </Card>
 
             {/* Auto-Search Settings */}
             <Card>
@@ -963,6 +1061,72 @@ export default function SettingsPage() {
                       <>
                         <Download className="h-4 w-4" />
                         Save Auto-Search
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Content Filtering */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center space-x-3">
+                  <EyeOff className="h-5 w-5 text-muted-foreground" />
+                  <CardTitle className="text-lg">Content Filtering</CardTitle>
+                </div>
+                <CardDescription>
+                  Control which games appear in your library and discovery results
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="hide-adult-content" className="text-sm font-medium">
+                      Hide erotic content
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Hide games flagged with an explicit/erotic theme from your library, search,
+                      and discovery pages
+                    </p>
+                  </div>
+                  <Switch
+                    id="hide-adult-content"
+                    checked={hideAdultContent}
+                    onCheckedChange={setHideAdultContent}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="hide-age-restricted-content" className="text-sm font-medium">
+                      Hide age-restricted content
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Hide games rated ESRB Adults Only (AO) or PEGI 18 from your library, search,
+                      and discovery pages
+                    </p>
+                  </div>
+                  <Switch
+                    id="hide-age-restricted-content"
+                    checked={hideAgeRestrictedContent}
+                    onCheckedChange={setHideAgeRestrictedContent}
+                  />
+                </div>
+                <div className="flex justify-end pt-4 border-t">
+                  <Button
+                    onClick={handleSaveContentFilter}
+                    disabled={updateSettingsMutation.isPending}
+                    className="gap-2"
+                  >
+                    {updateSettingsMutation.isPending ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <EyeOff className="h-4 w-4" />
+                        Save Content Filtering
                       </>
                     )}
                   </Button>
@@ -1231,6 +1395,66 @@ export default function SettingsPage() {
                         steamid.io
                       </a>
                     </p>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-4 border-t">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="steam-sync-enabled" className="text-sm font-medium">
+                        Auto-Sync Wishlist
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        Periodically import new games from your Steam Wishlist
+                      </p>
+                    </div>
+                    <Switch
+                      id="steam-sync-enabled"
+                      checked={steamSyncEnabled}
+                      onCheckedChange={setSteamSyncEnabled}
+                    />
+                  </div>
+
+                  {steamSyncEnabled && (
+                    <div className="space-y-2 pl-4 border-l-2">
+                      <Label htmlFor="steam-sync-interval" className="text-sm font-medium">
+                        Sync Interval (hours)
+                      </Label>
+                      <Input
+                        id="steam-sync-interval"
+                        type="number"
+                        min="1"
+                        max="168"
+                        value={steamSyncIntervalHours}
+                        onChange={(e) =>
+                          setSteamSyncIntervalHours(
+                            Math.min(168, Math.max(1, parseInt(e.target.value) || 24))
+                          )
+                        }
+                        className="w-32"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        How often to check your Steam Wishlist for new games (1-168 hours)
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="flex justify-end pt-2 border-t">
+                    <Button
+                      onClick={handleSaveSteamSync}
+                      disabled={updateSettingsMutation.isPending}
+                      className="gap-2"
+                    >
+                      {updateSettingsMutation.isPending ? (
+                        <>
+                          <RefreshCw className="h-4 w-4 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <RefreshCw className="h-4 w-4" />
+                          Save Sync Settings
+                        </>
+                      )}
+                    </Button>
                   </div>
                 </div>
               </CardContent>
@@ -1761,6 +1985,63 @@ export default function SettingsPage() {
                       Refresh All
                     </Button>
                   </div>
+                </div>
+                <div className="flex flex-col space-y-2">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm font-medium">Check Library Health</p>
+                      <p className="text-xs text-muted-foreground">
+                        Find games whose library files have gone missing, and library folders that
+                        no longer match any game.
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => libraryHealthMutation.mutate()}
+                      disabled={libraryHealthMutation.isPending}
+                      className="gap-2 w-full sm:w-auto shrink-0"
+                    >
+                      {libraryHealthMutation.isPending ? (
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-4 w-4" />
+                      )}
+                      Check Library
+                    </Button>
+                  </div>
+                  {libraryHealthResult &&
+                    (libraryHealthResult.drifted.length > 0 ||
+                      libraryHealthResult.orphaned.length > 0) && (
+                      <div className="mt-2 space-y-3 rounded-md border border-border p-3 text-xs">
+                        {libraryHealthResult.drifted.length > 0 && (
+                          <div>
+                            <p className="font-medium text-amber-500">
+                              Drifted ({libraryHealthResult.drifted.length})
+                            </p>
+                            <ul className="mt-1 space-y-1 text-muted-foreground">
+                              {libraryHealthResult.drifted.map((g) => (
+                                <li key={g.id}>
+                                  {g.title} — {g.libraryPath}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {libraryHealthResult.orphaned.length > 0 && (
+                          <div>
+                            <p className="font-medium text-amber-500">
+                              Orphaned ({libraryHealthResult.orphaned.length})
+                            </p>
+                            <ul className="mt-1 space-y-1 text-muted-foreground">
+                              {libraryHealthResult.orphaned.map((o) => (
+                                <li key={o.path}>{o.path}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    )}
                 </div>
               </CardContent>
             </Card>

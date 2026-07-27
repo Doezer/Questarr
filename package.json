@@ -1,6 +1,6 @@
 {
   "name": "questarr",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "A video game management application inspired by the -Arr apps. Track and organize your video game collection with automated discovery and download management.",
   "type": "module",
   "packageManager": "npm@11.7.0",
@@ -93,7 +93,7 @@
     "html-to-image": "^1.11.13",
     "husky": "^9.1.7",
     "input-otp": "^1.4.2",
-    "js-yaml": "^5.2.1",
+    "js-yaml": "^5.2.2",
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^1.25.0",
     "multer": "^2.2.0",
@@ -128,6 +128,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@lizenz/checker": "0.0.1",
     "@playwright/test": "^1.61.1",
     "@secretlint/secretlint-rule-preset-recommend": "^13.0.2",
     "@tailwindcss/typography": "^0.5.20",
@@ -202,7 +203,11 @@
     "socket.io-parser": "4.2.6",
     "@esbuild-kit/core-utils": {
       "esbuild": "^0.25.0"
-    }
+    },
+    "body-parser": "1.20.6",
+    "brace-expansion": "^5.0.8",
+    "minimatch": "^10.2.5",
+    "fast-uri": "^3.1.4"
   },
   "allowScripts": {
     "esbuild@0.25.12": true,

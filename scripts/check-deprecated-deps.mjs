@@ -62,7 +62,7 @@ function consumerChain(name) {
 let anyActionable = false;
 
 for (const { name, versions, message } of byName.values()) {
-  const resolvedVersions = [...versions].sort();
+  const resolvedVersions = [...versions].sort((a, b) => a.localeCompare(b));
   let latest;
   try {
     latest = npmViewLatest(name);

@@ -529,7 +529,7 @@ export default function LogsPage() {
     const set = new Set(
       lines.map((line) => line.module).filter((module): module is string => Boolean(module))
     );
-    return Array.from(set).sort();
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [lines]);
 
   const minLevel = filterLevel === "all" ? 0 : Number.parseInt(filterLevel, 10);

@@ -44,11 +44,18 @@ export const userSettings = sqliteTable("user_settings", {
     .notNull()
     .default(false),
   steamSyncFailures: integer("steam_sync_failures").notNull().default(0),
+  steamSyncEnabled: integer("steam_sync_enabled", { mode: "boolean" }).notNull().default(false),
+  steamSyncIntervalHours: integer("steam_sync_interval_hours").notNull().default(24),
+  lastSteamSync: integer("last_steam_sync", { mode: "timestamp_ms" }),
   preferredReleaseGroups: text("preferred_release_groups"),
   filterByPreferredGroups: integer("filter_by_preferred_groups", { mode: "boolean" })
     .notNull()
     .default(false),
   preferredPlatform: text("preferred_platform"),
+  hideAdultContent: integer("hide_adult_content", { mode: "boolean" }).notNull().default(true),
+  hideAgeRestrictedContent: integer("hide_age_restricted_content", { mode: "boolean" })
+    .notNull()
+    .default(true),
   // Import Engine Settings
   enablePostProcessing: integer("enable_post_processing", { mode: "boolean" })
     .notNull()
@@ -149,6 +156,7 @@ export const games = sqliteTable("games", {
   rating: real("rating"),
   platforms: text("platforms", { mode: "json" }).$type<string[]>(),
   genres: text("genres", { mode: "json" }).$type<string[]>(),
+  themes: text("themes", { mode: "json" }).$type<string[]>(),
   publishers: text("publishers", { mode: "json" }).$type<string[]>(),
   developers: text("developers", { mode: "json" }).$type<string[]>(),
   screenshots: text("screenshots", { mode: "json" }).$type<string[]>(),
@@ -162,8 +170,11 @@ export const games = sqliteTable("games", {
   releaseStatus: text("release_status").default("upcoming"), // Enum validation handled by Zod
   earlyAccess: integer("early_access", { mode: "boolean" }).notNull().default(false),
   hidden: integer("hidden", { mode: "boolean" }).notNull().default(false),
+  isAdultContent: integer("is_adult_content", { mode: "boolean" }).notNull().default(false),
+  isAgeRestricted: integer("is_age_restricted", { mode: "boolean" }).notNull().default(false),
   userRating: real("user_rating"),
   notes: text("notes"),
+  libraryPath: text("library_path"),
   searchResultsAvailable: integer("search_results_available", { mode: "boolean" })
     .default(false)
     .notNull(),
@@ -302,6 +313,16 @@ export const insertGameSchema = createInsertSchema(games, {
       .optional()
       .transform((val) => val ?? "wanted"),
   hidden: (schema) =>
+    schema
+      .nullable()
+      .optional()
+      .transform((val) => val ?? false),
+  isAdultContent: (schema) =>
+    schema
+      .nullable()
+      .optional()
+      .transform((val) => val ?? false),
+  isAgeRestricted: (schema) =>
     schema
       .nullable()
       .optional()

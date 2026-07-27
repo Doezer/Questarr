@@ -188,13 +188,17 @@ describe("ImportHistoryPage", () => {
       vi.fn(async () => createJsonResponse([makeTask({ status: "completed_with_errors" })]))
     );
 
-    await waitFor(() => screen.getByText("With errors"));
+    await waitFor(() => {
+      expect(screen.getByText("With errors")).toBeInTheDocument();
+    });
   });
 
   it("shows pending status badge for unknown status", async () => {
     renderPage(vi.fn(async () => createJsonResponse([makeTask({ status: "pending" })])));
 
-    await waitFor(() => screen.getByText("Pending"));
+    await waitFor(() => {
+      expect(screen.getByText("Pending")).toBeInTheDocument();
+    });
   });
 
   it("shows task items in sheet after detail fetch", async () => {

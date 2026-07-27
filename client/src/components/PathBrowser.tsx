@@ -157,18 +157,20 @@ export function PathBrowser({
             ) : (
               <div className="p-1">
                 {data?.parent && (
-                  <div
-                    className="flex items-center gap-2 p-2 hover:bg-accent rounded-sm cursor-pointer select-none"
+                  <button
+                    type="button"
+                    className="flex items-center gap-2 p-2 w-full text-left hover:bg-accent rounded-sm cursor-pointer select-none"
                     onClick={() => data.parent && handleNavigate(data.parent.path)}
                   >
                     <ArrowUp className="h-4 w-4 text-muted-foreground" />
                     <span className="text-sm font-medium">..</span>
-                  </div>
+                  </button>
                 )}
                 {filteredFiles?.map((file: FileSystemEntry) => (
-                  <div
+                  <button
+                    type="button"
                     key={file.name}
-                    className={`flex items-center gap-2 p-2 rounded-sm cursor-pointer select-none ${
+                    className={`flex items-center gap-2 p-2 w-full text-left rounded-sm cursor-pointer select-none ${
                       selectedPath === file.path
                         ? "bg-primary text-primary-foreground"
                         : "hover:bg-accent"
@@ -185,7 +187,7 @@ export function PathBrowser({
                       />
                     )}
                     <span className="text-sm truncate font-mono flex-1">{file.name}</span>
-                  </div>
+                  </button>
                 ))}
                 {filteredFiles?.length === 0 && (
                   <div className="text-muted-foreground text-sm p-8 text-center italic">

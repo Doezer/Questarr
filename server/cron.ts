@@ -37,6 +37,7 @@ const DOWNLOAD_CHECK_INTERVAL_MS = 60 * 1000; // 1 minute
 const downloadMissCount = new Map<string, number>();
 const DOWNLOAD_MISS_THRESHOLD = 3;
 const AUTO_SEARCH_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+const STEAM_SYNC_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour (per-user interval gates actual sync)
 const XREL_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours (xREL search rate limit: 2/5s)
 const CLIENT_VERSION_LOG_INTERVAL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const OWNED_STATUSES = new Set(["owned", "completed", "downloading"]);
@@ -274,6 +275,7 @@ export function startCronJobs() {
       gameUpdates: `every ${CHECK_INTERVAL_MS / 1000 / 60 / 60} hours`,
       downloadStatus: `every ${DOWNLOAD_CHECK_INTERVAL_MS / 1000} seconds`,
       autoSearch: `every ${AUTO_SEARCH_CHECK_INTERVAL_MS / 1000 / 60} minutes`,
+      steamSync: `every ${STEAM_SYNC_CHECK_INTERVAL_MS / 1000 / 60} minutes (per-user interval gated)`,
     },
     "Cron job intervals configured"
   );
@@ -285,6 +287,7 @@ export function startCronJobs() {
     checkDownloadStatus().catch((err) => igdbLogger.error({ err }, "Error in checkDownloadStatus"));
     checkAutoSearch().catch((err) => igdbLogger.error({ err }, "Error in checkAutoSearch"));
     checkXrelReleases().catch((err) => igdbLogger.error({ err }, "Error in checkXrelReleases"));
+    checkSteamWishlist().catch((err) => igdbLogger.error({ err }, "Error in checkSteamWishlist"));
     logClientVersions().catch((err) => igdbLogger.warn({ err }, "Error in logClientVersions"));
   }, 10000);
 
@@ -304,6 +307,10 @@ export function startCronJobs() {
   setInterval(() => {
     checkXrelReleases().catch((err) => igdbLogger.error({ err }, "Error in checkXrelReleases"));
   }, XREL_CHECK_INTERVAL_MS);
+
+  setInterval(() => {
+    checkSteamWishlist().catch((err) => igdbLogger.error({ err }, "Error in checkSteamWishlist"));
+  }, STEAM_SYNC_CHECK_INTERVAL_MS);
 
   setInterval(() => {
     logClientVersions().catch((err) => igdbLogger.warn({ err }, "Error in logClientVersions"));
@@ -448,7 +455,7 @@ export async function checkGameUpdates() {
 
     // Check if released status changed to released
     if (newReleaseStatus === "released" && game.releaseStatus !== "released") {
-      const message = `${game.title} is now available!`;
+      const message = `${game.title} has been released!`;
       const prefs = await getGameUpdatePrefs(game.userId!);
       if (prefs.gameReleased.inApp) {
         notificationsToSend.push({
@@ -1246,13 +1253,43 @@ export async function checkXrelReleases() {
   }
 }
 
+let steamWishlistCheckInProgress = false;
+
 export async function checkSteamWishlist() {
-  igdbLogger.info("Starting Steam Wishlist check for all users...");
-  const users = await storage.getAllUsers();
-  for (const user of users) {
-    if (user.steamId64) {
-      await syncUserSteamWishlist(user.id);
+  if (steamWishlistCheckInProgress) {
+    igdbLogger.debug("Skipping Steam Wishlist auto-sync check — previous run still in progress");
+    return;
+  }
+
+  steamWishlistCheckInProgress = true;
+  try {
+    igdbLogger.debug("Checking Steam Wishlist auto-sync for all users...");
+    const users = await storage.getAllUsers();
+    for (const user of users) {
+      if (!user.steamId64) continue;
+
+      try {
+        const settings = await storage.getUserSettings(user.id);
+        if (!settings || !settings.steamSyncEnabled) continue;
+
+        const lastSync = settings.lastSteamSync ? new Date(settings.lastSteamSync).getTime() : 0;
+        const intervalMs = settings.steamSyncIntervalHours * 60 * 60 * 1000;
+
+        if (Date.now() - lastSync < intervalMs) continue;
+
+        igdbLogger.info({ userId: user.id }, "Running scheduled Steam Wishlist sync");
+        const result = await syncUserSteamWishlist(user.id, "system");
+        if (result && result.success) {
+          await storage.updateUserSettings(user.id, { lastSteamSync: new Date() });
+        }
+      } catch (error) {
+        igdbLogger.error({ userId: user.id, error }, "Error during scheduled Steam Wishlist sync");
+      }
     }
+  } catch (error) {
+    igdbLogger.error({ error }, "Failed scheduled Steam Wishlist auto-sync check");
+  } finally {
+    steamWishlistCheckInProgress = false;
   }
 }
 
@@ -1328,6 +1365,9 @@ async function addNewSteamWishlistGames(
       rating: formatted.rating as number | null,
       platforms: formatted.platforms as string[],
       genres: formatted.genres as string[],
+      themes: formatted.themes as string[],
+      isAdultContent: formatted.isAdultContent as boolean,
+      isAgeRestricted: formatted.isAgeRestricted as boolean,
       developers: formatted.developers as string[],
       publishers: formatted.publishers as string[],
       screenshots: formatted.screenshots as string[],

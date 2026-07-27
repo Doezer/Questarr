@@ -97,7 +97,7 @@
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^1.24.0",
     "multer": "^2.2.0",
-    "nanoid": "^5.1.16",
+    "nanoid": "^6.0.0",
     "next-themes": "^0.4.6",
     "node-7z": "^3.0.0",
     "node-forge": "^1.4.0",

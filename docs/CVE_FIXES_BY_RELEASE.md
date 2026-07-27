@@ -1,4 +1,4 @@
-# Questarr — CVEs fixed per release (v1.2.0 → v1.4.0)
+# Questarr — CVEs fixed per release (v1.2.0 → v1.4.1)
 
 Method: diffed `package.json`/`package-lock.json` at each tag boundary, then cross-checked every bumped package through OSV.dev's `querybatch` endpoint (query old-version vs new-version, take the set difference of returned GHSA IDs) and confirmed exact `fixed` boundaries via per-GHSA `/v1/vulns/{id}` lookups. All headline findings below — including axios, node-forge, and socket.io-parser — were verified through the same batch-diff method, not just by trusting commit messages. Only entries with a confirmed OSV `fixed` event landing inside the bump range are listed as fixes.
 
@@ -58,6 +58,12 @@ No dependency bump in this release crosses a `fixed` OSV boundary — purely mai
 - **vite** (devDep) 8.0.12 → 8.1.4 — fixes both issues left open in the v1.3.0 report:
   - **CVE-2026-53571** (GHSA-fx2h-pf6j-xcff, HIGH) — `server.fs.deny` bypass
   - **CVE-2026-53632** (GHSA-v6wh-96g9-6wx3, MODERATE) — launch-editor NTLMv2 hash disclosure via UNC path on Windows
+
+## v1.4.1 (from v1.4.0) — hotfix
+
+- **brace-expansion** (transitive, via `archiver` → `readdir-glob` → `minimatch`) 5.0.7 → 5.0.8 — fixes **CVE-2026-14257** (GHSA-mh99-v99m-4gvg, HIGH) — the `expand()` function didn't bound individual result string lengths; chaining brace groups (e.g. `'{a,b}'.repeat(1500)`) could exhaust memory and crash the process with an uncatchable error. 5.0.8 adds a `maxLength` option (default 4,000,000 characters).
+- **js-yaml** 5.2.1 → 5.2.2 — fixes GHSA-pm4m-ph32-ghv5 (no CVE assigned, HIGH) — flow-collection entries were parsed multiple times, giving O(2^n) parse time relative to nesting depth; a payload under 200 bytes could hang the event loop.
+- **body-parser** 1.20.5 → 1.20.6 — fixes **CVE-2026-12590** (GHSA-v422-hmwv-36x6, LOW) — an invalid `limit` value (unparseable string or `NaN`) made `bytes.parse()` return `null`, silently disabling size enforcement and allowing arbitrarily large request bodies. Fixed version throws at parser initialization instead.
 
 ---
 

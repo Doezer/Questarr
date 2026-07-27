@@ -69,4 +69,4 @@ LABEL org.opencontainers.image.description="Questarr is a smart game library man
 LABEL org.opencontainers.image.authors="Doezer"
 LABEL org.opencontainers.image.source="https://github.com/Doezer/questarr"
 LABEL org.opencontainers.image.licenses="GPL-3.0-or-later"
-LABEL org.opencontainers.image.version="1.4.0"
+LABEL org.opencontainers.image.version="1.4.1"

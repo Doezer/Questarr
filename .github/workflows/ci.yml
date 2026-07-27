@@ -26,7 +26,7 @@ jobs:
 
       # secretlint requires Node >=22
       - name: Setup Node.js 26.x
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 26.x
           cache: "npm"
@@ -52,7 +52,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6.2.0
 
       - name: Setup Node.js 26.x
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 26.x
           cache: "npm"
@@ -80,7 +80,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6.2.0
 
       - name: Setup Node.js 26.x
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 26.x
           cache: "npm"
@@ -95,9 +95,11 @@ jobs:
 
       # Policy: docs/VULNERABILITY_MANAGEMENT.md §1.4 — production dependency
       # licenses must be on the allow-list.
+      # @lizenz/checker is a pinned devDependency (see package.json), installed above by
+      # `npm ci` — --no-install below guarantees this never installs anything ad-hoc.
       - name: Check dependency licenses
         run: |
-          npx --yes license-checker@25.0.1 --production --summary \
+          npx --no-install license-checker --production --summary \
             --onlyAllow "MIT;ISC;BSD-2-Clause;BSD-3-Clause;Apache-2.0;CC0-1.0;0BSD;Python-2.0;BlueOak-1.0.0;OFL-1.1;Unlicense;GPL-3.0;GPL-3.0-only;LGPL-2.1;LGPL-2.1-only;LGPL-3.0;LGPL-3.0-only;MPL-2.0"
 
   test:
@@ -119,8 +121,8 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Setup Node.js 26.x
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 26.x
           cache: "npm"
@@ -170,8 +172,10 @@ jobs:
           node-version: 26.x
           cache: "npm"
 
+      # This job only merges previously-collected blob reports; it never executes
+      # application code, so native module build scripts (e.g. better-sqlite3) aren't needed.
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Download blob reports
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -181,7 +185,7 @@ jobs:
           merge-multiple: true
 
       - name: Merge shard reports and check coverage thresholds
-        run: npx vitest run --merge-reports --coverage --reporter=junit --outputFile=test-report.junit.xml
+        run: npx --no-install vitest run --merge-reports --coverage --reporter=junit --outputFile=test-report.junit.xml
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
@@ -223,8 +227,10 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: "npm"
 
+      # Lint/type-check/bundle never execute application code, so native module
+      # build scripts (e.g. better-sqlite3) aren't needed here.
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Lint
         run: npm run lint

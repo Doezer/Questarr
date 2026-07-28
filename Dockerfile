@@ -1,6 +1,6 @@
 # Build stage with shared dependencies
 # node:26-alpine
-FROM node@sha256:725aeba2364a9b16beae49e180d83bd597dbd0b15c47f1f28875c290bfd255b9 AS base
+FROM node@sha256:c9f02360d2bc66e709b300214395588acd2d3603f600db8141117e67c0faf4ff AS base
 WORKDIR /app
 
 COPY package*.json ./
@@ -14,7 +14,7 @@ RUN npm run build
 
 # Production stage
 # node:26-alpine
-FROM node@sha256:725aeba2364a9b16beae49e180d83bd597dbd0b15c47f1f28875c290bfd255b9 AS production
+FROM node@sha256:c9f02360d2bc66e709b300214395588acd2d3603f600db8141117e67c0faf4ff AS production
 
 WORKDIR /app
 

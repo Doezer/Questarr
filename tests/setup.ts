@@ -90,6 +90,49 @@ class MockIntersectionObserver {
 if (typeof window !== "undefined") {
   window.HTMLElement.prototype.scrollIntoView = vi.fn();
 
+  // Unlike real browsers, jsdom re-dispatches focus/blur events even when the target
+  // is already document.activeElement. Radix's FocusScope and DismissableLayer both
+  // react to those events by re-asserting focus, which recurses infinitely in jsdom.
+  // Match real-browser semantics by no-oping redundant focus calls.
+  //
+  // The same-element check alone isn't enough: a modal Popover (focus trap) combined
+  // with cmdk's own autofocus (e.g. MultiSelect's Popover+Command) can make two
+  // *different* elements steal focus back and forth from each other synchronously,
+  // which jsdom happily recurses forever on. Cap re-entrant depth to break that
+  // ping-pong while still allowing the few legitimate nested hops real usage needs.
+  let focusReentrancyDepth = 0;
+  const MAX_FOCUS_REENTRANCY_DEPTH = 20;
+
+  const originalFocus = window.HTMLElement.prototype.focus;
+  window.HTMLElement.prototype.focus = function focus(
+    this: HTMLElement,
+    ...args: Parameters<typeof originalFocus>
+  ) {
+    if (window.document.activeElement === this) return;
+    if (focusReentrancyDepth >= MAX_FOCUS_REENTRANCY_DEPTH) return;
+    focusReentrancyDepth++;
+    try {
+      originalFocus.apply(this, args);
+    } finally {
+      focusReentrancyDepth--;
+    }
+  };
+
+  const originalBlur = window.HTMLElement.prototype.blur;
+  window.HTMLElement.prototype.blur = function blur(
+    this: HTMLElement,
+    ...args: Parameters<typeof originalBlur>
+  ) {
+    if (window.document.activeElement !== this) return;
+    if (focusReentrancyDepth >= MAX_FOCUS_REENTRANCY_DEPTH) return;
+    focusReentrancyDepth++;
+    try {
+      originalBlur.apply(this, args);
+    } finally {
+      focusReentrancyDepth--;
+    }
+  };
+
   Object.defineProperty(window, "matchMedia", {
     writable: true,
     value: vi.fn().mockImplementation((query: string) => ({

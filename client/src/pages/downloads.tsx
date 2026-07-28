@@ -620,8 +620,8 @@ export default function Downloads() {
             >
               <CardHeader>
                 <div className="flex justify-between items-start">
-                  <div className="flex-1">
-                    <CardTitle className="text-base sm:text-lg leading-tight line-clamp-2 sm:line-clamp-none">
+                  <div className="flex-1 min-w-0">
+                    <CardTitle className="text-base sm:text-lg leading-tight line-clamp-2 sm:line-clamp-none break-words">
                       {download.name}
                     </CardTitle>
                     <CardDescription className="mt-2">

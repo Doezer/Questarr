@@ -419,7 +419,14 @@ export class ImportManager {
         await fs.remove(processingPath).catch(() => undefined);
       }
       try {
-        await this.storage.updateGameDownloadStatus(downloadId, "error");
+        // Route to manual review instead of a terminal "error" status so the
+        // download stays actionable — it surfaces under Pending Manual Imports
+        // where the user can adjust settings and re-attempt the import.
+        await this.storage.updateGameDownloadStatus(
+          downloadId,
+          "manual_review_required",
+          err instanceof Error ? err.message : String(err)
+        );
       } catch (statusErr) {
         logger.error({ statusErr, downloadId }, "[ImportManager] Failed to set error status");
       }
@@ -580,7 +587,13 @@ export class ImportManager {
     } catch (err) {
       logger.error({ err, downloadId }, "[ImportManager] confirmImport failed");
       try {
-        await this.storage.updateGameDownloadStatus(downloadId, "error");
+        // Keep the download in manual review rather than a terminal "error"
+        // status, so a failed retry attempt can itself be re-attempted.
+        await this.storage.updateGameDownloadStatus(
+          downloadId,
+          "manual_review_required",
+          err instanceof Error ? err.message : String(err)
+        );
       } catch (statusErr) {
         logger.error({ statusErr, downloadId }, "[ImportManager] Failed to set error status");
       }

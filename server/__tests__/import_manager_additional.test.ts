@@ -708,7 +708,11 @@ describe("ImportManager - confirmImport path resolution failures", () => {
     ).rejects.toThrow("disk full");
 
     expect(fsMock.remove).toHaveBeenCalledWith("/downloads/game.zip_extracted");
-    expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith("dl-1", "error");
+    expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith(
+      "dl-1",
+      "manual_review_required",
+      "disk full"
+    );
 
     execSpy.mockRestore();
   });

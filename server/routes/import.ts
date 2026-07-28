@@ -429,6 +429,7 @@ importRouter.get("/pending", async (req, res) => {
           status: d.status,
           downloaderId: d.downloaderId,
           createdAt: d.addedAt,
+          errorMessage: d.errorMessage,
         };
       })
     );

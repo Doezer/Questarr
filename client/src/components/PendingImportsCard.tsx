@@ -14,6 +14,7 @@ interface PendingImport {
   downloadTitle: string;
   status: string;
   createdAt: string;
+  errorMessage?: string | null;
 }
 
 export default function PendingImportsCard() {
@@ -78,6 +79,14 @@ export default function PendingImportsCard() {
                           : formatDistanceToNow(d, { addSuffix: true });
                       })()}
                   </p>
+                  {item.errorMessage && (
+                    <p
+                      className="text-xs text-destructive truncate max-w-[300px]"
+                      title={item.errorMessage}
+                    >
+                      Import failed: {item.errorMessage}
+                    </p>
+                  )}
                 </div>
                 <div className="flex gap-2">
                   <Button

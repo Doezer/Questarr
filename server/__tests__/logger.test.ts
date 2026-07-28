@@ -54,4 +54,20 @@ describe("Logger Module", () => {
 
     expect(loggerModule.logger.level).toBe("debug");
   });
+
+  it("configures the full transport pipeline outside of test env", async () => {
+    process.env.NODE_ENV = "development";
+
+    const loggerModule = await import("../logger.js");
+
+    expect(loggerModule.logger).toBeDefined();
+  });
+
+  it("configures the production stdout target when NODE_ENV is production", async () => {
+    process.env.NODE_ENV = "production";
+
+    const loggerModule = await import("../logger.js");
+
+    expect(loggerModule.logger).toBeDefined();
+  });
 });

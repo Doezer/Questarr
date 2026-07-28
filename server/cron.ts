@@ -858,6 +858,7 @@ export async function checkDownloadStatus() {
             // for manual review instead of silently marking the game "owned" with
             // nothing actually imported into the library.
             await storage.updateGameDownloadStatus(download.id, "manual_review_required", null);
+            notifyUser("downloadUpdate", download.gameId);
 
             igdbLogger.warn(
               { gameId: download.gameId, downloadId: download.id, gameTitle },
@@ -882,6 +883,7 @@ export async function checkDownloadStatus() {
 
             // Update game status to owned (assumption)
             await storage.updateGameStatus(download.gameId, { status: "owned" });
+            notifyUser("downloadUpdate", download.gameId);
 
             // Send notification to user about this automatic status change
             if (missedPrefs.downloadCompleted.inApp) {

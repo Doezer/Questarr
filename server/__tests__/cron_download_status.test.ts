@@ -60,8 +60,10 @@ vi.mock("../services/index.js", () => ({
   },
 }));
 
+const mockNotifyUser = vi.fn();
+
 vi.mock("../socket.js", () => ({
-  notifyUser: vi.fn(),
+  notifyUser: mockNotifyUser,
 }));
 
 vi.mock("../igdb.js", () => ({
@@ -220,6 +222,7 @@ describe("Cron - checkDownloadStatus", () => {
     // Falls through to the "missing" path after threshold is reached
     expect(mockUpdateGameDownloadStatus).toHaveBeenCalledWith(baseDownload.id, "completed", null);
     expect(mockUpdateGameStatus).toHaveBeenCalledWith(baseDownload.gameId, { status: "owned" });
+    expect(mockNotifyUser).toHaveBeenCalledWith("downloadUpdate", baseDownload.gameId);
   });
 
   it("should flag a missing download for manual review instead of skipping import when post-processing is enabled", async () => {
@@ -248,6 +251,7 @@ describe("Cron - checkDownloadStatus", () => {
       null
     );
     expect(mockUpdateGameStatus).not.toHaveBeenCalledWith(baseDownload.gameId, { status: "owned" });
+    expect(mockNotifyUser).toHaveBeenCalledWith("downloadUpdate", baseDownload.gameId);
   });
 
   it("should not call getDownloadStatus when the bulk map already contains the download", async () => {

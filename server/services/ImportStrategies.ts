@@ -29,26 +29,138 @@ export interface ImportReview {
   importResult?: ImportResult;
 }
 
+export interface PlanImportOptions {
+  // Force the destination to be treated as a directory (no extension),
+  // used when the source will be unpacked before landing in the library.
+  treatAsDirectory?: boolean;
+}
+
 export interface ImportStrategy {
   planImport(
     sourcePath: string,
     game: Game,
     targetRoot: string,
     config: ImportConfig,
-    platformDir?: string
+    platformDir?: string,
+    options?: PlanImportOptions
   ): Promise<ImportReview>;
-  executeImport(review: ImportReview, transferMode: TransferMode): Promise<ImportResult>;
+  executeImport(
+    review: ImportReview,
+    transferMode: TransferMode,
+    excludePaths?: Set<string>
+  ): Promise<ImportResult>;
 }
 
 async function ensureParentDir(filePath: string): Promise<void> {
   await fs.ensureDir(path.dirname(filePath));
 }
 
+async function walkRelative(rootPath: string): Promise<string[]> {
+  const stats = await fs.stat(rootPath);
+  if (!stats.isDirectory()) return [path.basename(rootPath)];
+
+  const collected: string[] = [];
+  const stack: string[] = [""];
+
+  while (stack.length > 0) {
+    const rel = stack.pop() as string;
+    const current = rel ? path.join(rootPath, rel) : rootPath;
+    const entries = await fs.readdir(current, { withFileTypes: true });
+    for (const entry of entries) {
+      const entryRel = rel ? path.join(rel, entry.name) : entry.name;
+      if (entry.isDirectory()) {
+        stack.push(entryRel);
+      } else {
+        collected.push(entryRel);
+      }
+    }
+  }
+
+  return collected;
+}
+
+async function linkOrCopyFallback(
+  source: string,
+  destination: string
+): Promise<"hardlink" | "copy"> {
+  if (await fs.pathExists(destination)) {
+    await fs.remove(destination);
+  }
+  try {
+    await fs.link(source, destination);
+    return "hardlink";
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "EXDEV") {
+      logger.warn(
+        { source, destination },
+        "[ImportStrategies] Hardlink not supported across devices, falling back to copy"
+      );
+      await fs.copy(source, destination, { overwrite: true });
+      return "copy";
+    }
+    throw error;
+  }
+}
+
+// Hardlinks can't target a directory, and excluding specific files (e.g. a
+// leftover raw archive already extracted by the downloader) requires acting
+// per-file rather than on the directory as a whole.
+async function transferDirectoryPerFile(
+  source: string,
+  destination: string,
+  mode: TransferMode,
+  excludePaths: Set<string>
+): Promise<TransferMode> {
+  const relFiles = await walkRelative(source);
+  let usedCopyFallback = false;
+  let transferredAny = false;
+
+  for (const rel of relFiles) {
+    const srcFile = path.join(source, rel);
+    if (excludePaths.has(path.resolve(srcFile))) continue;
+
+    const destFile = path.join(destination, rel);
+    await ensureParentDir(destFile);
+
+    if (mode === "move") {
+      await fs.move(srcFile, destFile, { overwrite: true });
+    } else if (mode === "copy") {
+      await fs.copy(srcFile, destFile, { overwrite: true });
+    } else if (mode === "symlink") {
+      if (await fs.pathExists(destFile)) await fs.remove(destFile);
+      await fs.symlink(srcFile, destFile);
+    } else {
+      const outcome = await linkOrCopyFallback(srcFile, destFile);
+      if (outcome === "copy") usedCopyFallback = true;
+    }
+    transferredAny = true;
+  }
+
+  if (!transferredAny) {
+    throw new Error("No files to transfer after applying exclusions");
+  }
+
+  if (mode === "move") {
+    await fs.remove(source).catch(() => undefined);
+  }
+
+  return mode === "hardlink" && usedCopyFallback ? "copy" : mode;
+}
+
 async function transferFile(
   source: string,
   destination: string,
-  mode: "move" | "copy" | "hardlink" | "symlink"
-): Promise<"move" | "copy" | "hardlink" | "symlink"> {
+  mode: TransferMode,
+  excludePaths?: Set<string>
+): Promise<TransferMode> {
+  const stats = await fs.stat(source);
+  const hasExcludes = !!excludePaths && excludePaths.size > 0;
+
+  if (stats.isDirectory() && (mode === "hardlink" || hasExcludes)) {
+    return transferDirectoryPerFile(source, destination, mode, excludePaths ?? new Set());
+  }
+
   await ensureParentDir(destination);
 
   if (mode === "move") {
@@ -67,48 +179,15 @@ async function transferFile(
     return "symlink";
   }
 
-  if (await fs.pathExists(destination)) {
-    await fs.remove(destination);
-  }
-
-  try {
-    await fs.link(source, destination);
-    return "hardlink";
-  } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === "EXDEV") {
-      logger.warn(
-        { source, destination },
-        "[ImportStrategies] Hardlink not supported across devices, falling back to copy"
-      );
-      await fs.copy(source, destination, { overwrite: true });
-      return "copy";
-    }
-    throw error;
-  }
+  return linkOrCopyFallback(source, destination);
 }
 
-async function gatherFiles(rootPath: string): Promise<string[]> {
+export async function gatherFiles(rootPath: string): Promise<string[]> {
   const stats = await fs.stat(rootPath);
   if (!stats.isDirectory()) return [rootPath];
 
-  const collected: string[] = [];
-  const stack: string[] = [rootPath];
-
-  while (stack.length > 0) {
-    const current = stack.pop() as string;
-    const entries = await fs.readdir(current, { withFileTypes: true });
-    for (const entry of entries) {
-      const fullPath = path.join(current, entry.name);
-      if (entry.isDirectory()) {
-        stack.push(fullPath);
-      } else {
-        collected.push(fullPath);
-      }
-    }
-  }
-
-  return collected;
+  const relFiles = await walkRelative(rootPath);
+  return relFiles.map((rel) => path.join(rootPath, rel));
 }
 
 export class PCImportStrategy implements ImportStrategy {
@@ -117,7 +196,8 @@ export class PCImportStrategy implements ImportStrategy {
     game: Game,
     targetRoot: string,
     config: ImportConfig,
-    platformDir?: string
+    platformDir?: string,
+    options?: PlanImportOptions
   ): Promise<ImportReview> {
     if (isSensitivePath(sourcePath)) {
       throw new Error("Refusing to process a sensitive system path");
@@ -125,7 +205,7 @@ export class PCImportStrategy implements ImportStrategy {
 
     const stats = await fs.stat(sourcePath);
     const cleanTitle = sanitizeFsName(game.title);
-    const ext = stats.isDirectory() ? "" : path.extname(sourcePath);
+    const ext = options?.treatAsDirectory || stats.isDirectory() ? "" : path.extname(sourcePath);
     const destination = path.join(targetRoot, platformDir ?? "PC", cleanTitle + ext);
 
     const destinationExists = await fs.pathExists(destination);
@@ -142,10 +222,16 @@ export class PCImportStrategy implements ImportStrategy {
 
   async executeImport(
     review: ImportReview,
-    transferMode: "move" | "copy" | "hardlink" | "symlink"
+    transferMode: TransferMode,
+    excludePaths?: Set<string>
   ): Promise<ImportResult> {
     await fs.ensureDir(path.dirname(review.proposedPath));
-    const modeUsed = await transferFile(review.originalPath, review.proposedPath, transferMode);
+    const modeUsed = await transferFile(
+      review.originalPath,
+      review.proposedPath,
+      transferMode,
+      excludePaths
+    );
     const filesPlaced = await gatherFiles(review.proposedPath);
     return {
       destDir: review.proposedPath,

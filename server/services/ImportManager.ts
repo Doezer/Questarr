@@ -411,7 +411,19 @@ export class ImportManager {
         config.autoDeleteAfterImport &&
         (config.transferMode === "copy" || config.transferMode === "move")
       ) {
-        await this.performAutoDelete(downloadId, download, game);
+        try {
+          await this.performAutoDelete(downloadId, download, game);
+        } catch (autoDeleteErr) {
+          // The import itself already succeeded and was finalized (status
+          // "imported", library path set) — a failure here must not fall
+          // through to the outer catch, which would demote the download
+          // back to manual_review_required and risk a duplicate transfer
+          // on retry.
+          logger.error(
+            { err: autoDeleteErr, downloadId },
+            "[ImportManager] Auto-delete after import failed unexpectedly"
+          );
+        }
       }
     } catch (err) {
       logger.error({ err, downloadId }, "[ImportManager] Import failed");

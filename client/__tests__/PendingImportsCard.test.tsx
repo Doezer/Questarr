@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import React from "react";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
@@ -29,13 +29,15 @@ function renderCard() {
 
 describe("PendingImportsCard", () => {
   it("renders nothing when there are no pending imports", async () => {
-    globalThis.fetch = vi.fn(async () => createJsonResponse([]));
+    const fetchMock = vi.fn(async () => createJsonResponse([]));
+    globalThis.fetch = fetchMock;
 
     const { container } = renderCard();
 
-    // Wait a tick for the query to settle.
-    await screen.findByText("", { exact: false }).catch(() => undefined);
-    expect(container).toBeEmptyDOMElement();
+    // Wait for the pending-imports query to actually resolve before asserting
+    // the empty render, rather than racing an arbitrary findByText timeout.
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await waitFor(() => expect(container).toBeEmptyDOMElement());
   });
 
   it("surfaces the failure reason for a download flagged after a failed import attempt", async () => {

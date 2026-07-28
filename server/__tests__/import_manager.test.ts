@@ -947,4 +947,28 @@ describe("ImportManager", () => {
       })
     );
   });
+
+  it("autoDeleteAfterImport: keeps status 'imported' when removeDownload throws instead of demoting to manual_review_required", async () => {
+    setupSuccessfulImport("copy");
+    downloadersMock.removeDownload.mockRejectedValue(new Error("downloader unreachable"));
+
+    const manager = new ImportManager(
+      storage as never, // NOSONAR
+      pathService as never, // NOSONAR
+      platformService as never, // NOSONAR
+      archiveService as never // NOSONAR
+    );
+    await manager.processImport("dl-1", "/remote/path");
+
+    // The import itself already succeeded and finalized before auto-delete ran —
+    // a post-finalization auto-delete failure must not re-route an
+    // already-completed download back into the retryable review flow, which
+    // would risk a duplicate transfer if the user clicks Confirm Import again.
+    expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith("dl-1", "imported");
+    expect(storage.updateGameDownloadStatus).not.toHaveBeenCalledWith(
+      "dl-1",
+      "manual_review_required",
+      expect.anything()
+    );
+  });
 });

@@ -27,6 +27,23 @@ const SORT_OPTIONS = [
   { value: "title-asc", label: "Title (A–Z)" },
 ];
 
+// ⚡ Bolt: Use O(1) string comparison for ISO date strings instead of new Date().getTime()
+// This prevents millions of object allocations during O(N log N) sorting.
+// Extracted logic to helper to satisfy SonarCloud Maintainability and Duplication gates.
+const compareDates = (
+  dateA: string | Date | number | null | undefined,
+  dateB: string | Date | number | null | undefined,
+  asc: boolean
+): number => {
+  if (!dateA && !dateB) return 0;
+  if (!dateA) return 1;
+  if (!dateB) return -1;
+
+  if (dateA < dateB) return asc ? -1 : 1;
+  if (dateA > dateB) return asc ? 1 : -1;
+  return 0;
+};
+
 // ⚡ Bolt: Move sortGames outside of the component to prevent it from being recreated
 // on every render, which would break the `useMemo` dependencies below if it were
 // included in the dependency array.
@@ -35,30 +52,12 @@ export const sortGames = (gameList: Game[], currentSortBy: SortOption): Game[] =
 
   return sorted.sort((a, b) => {
     switch (currentSortBy) {
-      case "release-asc": {
-        if (!a.releaseDate && !b.releaseDate) return 0;
-        if (!a.releaseDate) return 1;
-        if (!b.releaseDate) return -1;
-        // ⚡ Bolt: Use O(1) string comparison for ISO date strings instead of new Date().getTime() or localeCompare()
-        // This prevents millions of object allocations during O(N log N) sorting
-        return a.releaseDate < b.releaseDate ? -1 : a.releaseDate > b.releaseDate ? 1 : 0;
-      }
-      case "release-desc": {
-        if (!a.releaseDate && !b.releaseDate) return 0;
-        if (!a.releaseDate) return 1;
-        if (!b.releaseDate) return -1;
-        // ⚡ Bolt: Use fast string comparison for sorting ISO date strings
-        return a.releaseDate < b.releaseDate ? 1 : a.releaseDate > b.releaseDate ? -1 : 0;
-      }
-      case "added-desc": {
-        if (!a.addedAt && !b.addedAt) return 0;
-        if (!a.addedAt) return 1;
-        if (!b.addedAt) return -1;
-        // ⚡ Bolt: addedAt is received as ISO string from API, cast to string to use fast comparison
-        const addedA = a.addedAt as unknown as string;
-        const addedB = b.addedAt as unknown as string;
-        return addedA < addedB ? 1 : addedA > addedB ? -1 : 0;
-      }
+      case "release-asc":
+        return compareDates(a.releaseDate, b.releaseDate, true);
+      case "release-desc":
+        return compareDates(a.releaseDate, b.releaseDate, false);
+      case "added-desc":
+        return compareDates(a.addedAt, b.addedAt, false);
       case "title-asc":
         return a.title.localeCompare(b.title);
       default:

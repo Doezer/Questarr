@@ -47,3 +47,8 @@
 
 **Learning:** Instantiating `Date` objects (e.g., `new Date(a.date).getTime()`) or using `localeCompare` inside array sorting loops (like in `sortGames`) causes significant performance degradation due to millions of allocations and complex collation rules during O(N log N) operations.
 **Action:** When sorting arrays by ISO date strings, always use primitive string comparison operators (`<`, `>`) to ensure O(1) comparison overhead.
+
+## 2026-07-29 - SonarCloud Duplication & Types
+
+**Learning:** When extracting code logic to satisfy SonarCloud Maintainability and Duplication gates (such as creating helper functions to eliminate nested ternaries), ensure that the TypeScript method signature explicitly allows the types of the underlying variables (e.g., `Date | number | string | null | undefined`) instead of using `as unknown as string` casts, which bypasses the type-checker and reduces code safety.
+**Action:** Define broad, accurate union types for helper functions rather than aggressively casting parameters to fit narrow function signatures.

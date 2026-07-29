@@ -1,3 +1,4 @@
+import { TooltipProvider } from "@/components/ui/tooltip";
 /** @vitest-environment jsdom */
 import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -91,7 +92,9 @@ describe("Downloads page", () => {
   const renderPage = () =>
     render(
       <QueryClientProvider client={createTestQueryClient()}>
-        <Downloads />
+        <TooltipProvider>
+          <Downloads />
+        </TooltipProvider>
       </QueryClientProvider>
     );
 

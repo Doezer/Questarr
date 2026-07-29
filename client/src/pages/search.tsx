@@ -627,7 +627,7 @@ export default function SearchPage() {
                                 disabled={downloaders.length === 0}
                                 className="h-8 w-8"
                                 data-testid={`button-download-${index}`}
-                                aria-label="Start download"
+                                aria-label={`Start download for ${download.title}`}
                               >
                                 <Download className="h-4 w-4" />
                               </Button>

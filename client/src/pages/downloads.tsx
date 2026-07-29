@@ -1,3 +1,4 @@
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useState, useEffect, useMemo, useRef, lazy, Suspense } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
@@ -808,25 +809,41 @@ export default function Downloads() {
                     {ACTIVE_DOWNLOAD_STATUSES.includes(download.status) && (
                       <>
                         {download.status === "paused" ? (
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            onClick={() => handleResume(download)}
-                            disabled={resumeMutation.isPending}
-                            data-testid={`button-resume-${download.id}`}
-                          >
-                            <Play className="h-4 w-4" />
-                          </Button>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="outline"
+                                size="icon"
+                                aria-label={`Resume ${download.name || "download"}`}
+                                onClick={() => handleResume(download)}
+                                disabled={resumeMutation.isPending}
+                                data-testid={`button-resume-${download.id}`}
+                              >
+                                <Play className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>Resume</p>
+                            </TooltipContent>
+                          </Tooltip>
                         ) : (
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            onClick={() => handlePause(download)}
-                            disabled={pauseMutation.isPending}
-                            data-testid={`button-pause-${download.id}`}
-                          >
-                            <Pause className="h-4 w-4" />
-                          </Button>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="outline"
+                                size="icon"
+                                aria-label={`Pause ${download.name || "download"}`}
+                                onClick={() => handlePause(download)}
+                                disabled={pauseMutation.isPending}
+                                data-testid={`button-pause-${download.id}`}
+                              >
+                                <Pause className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>Pause</p>
+                            </TooltipContent>
+                          </Tooltip>
                         )}
                       </>
                     )}

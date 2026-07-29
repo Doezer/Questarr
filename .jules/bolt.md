@@ -42,3 +42,8 @@
 
 **Learning:** Found multiple O(N) array traversals (`filter`, `map`, `reduce`, `flatMap`) within `calculateLibraryStats` processing game statistics. Replacing these with a single manual loop significantly improves performance on the hot path (re-evaluating stats) by reducing redundant iterations and object allocations.
 **Action:** Always scrutinize React useMemo hooks operating on collections for unnecessary or repeated iterations, and consider combining loops.
+
+## 2026-07-29 - Expensive Date Parsing in Array Sorting
+
+**Learning:** Instantiating `Date` objects (e.g., `new Date(a.date).getTime()`) or using `localeCompare` inside array sorting loops (like in `sortGames`) causes significant performance degradation due to millions of allocations and complex collation rules during O(N log N) operations.
+**Action:** When sorting arrays by ISO date strings, always use primitive string comparison operators (`<`, `>`) to ensure O(1) comparison overhead.

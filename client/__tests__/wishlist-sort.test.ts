@@ -71,6 +71,20 @@ describe("sortGames", () => {
       const result = sortGames([a, b], "added-desc");
       expect(result.map((g) => g.id)).toEqual(["a", "b"]);
     });
+
+    it("sorts correctly when addedAt arrives as an ISO string, as it does over the wire", () => {
+      // useQuery reads Game[] straight from a JSON response, where Date fields
+      // are serialized to ISO strings rather than revived into Date instances.
+      const old = makeGame({
+        id: "old",
+        addedAt: "2023-01-01T00:00:00.000Z" as unknown as Date,
+      });
+      const recent = makeGame({
+        id: "recent",
+        addedAt: "2024-06-15T00:00:00.000Z" as unknown as Date,
+      });
+      expect(sortGames([old, recent], "added-desc").map((g) => g.id)).toEqual(["recent", "old"]);
+    });
   });
 
   describe("title-asc", () => {

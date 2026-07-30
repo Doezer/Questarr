@@ -52,16 +52,25 @@ const compareReleaseDates = (
   return 0;
 };
 
+// `addedAt` is typed as `Date` by the Drizzle schema, but `useQuery` reads it
+// straight from a JSON response, so at runtime it is always an ISO string.
+// Handle both shapes without parsing into a `Date` when we already have a string.
+const toComparableDateString = (value: Date | string): string =>
+  value instanceof Date ? value.toISOString() : value;
+
 const compareAddedAt = (
-  dateA: Date | null | undefined,
-  dateB: Date | null | undefined,
+  dateA: Date | string | null | undefined,
+  dateB: Date | string | null | undefined,
   asc: boolean
 ): number => {
   const rank = missingRank(dateA, dateB);
   if (rank !== null) return rank;
 
-  const diff = dateA!.getTime() - dateB!.getTime();
-  return asc ? diff : -diff;
+  const strA = toComparableDateString(dateA!);
+  const strB = toComparableDateString(dateB!);
+  if (strA < strB) return asc ? -1 : 1;
+  if (strA > strB) return asc ? 1 : -1;
+  return 0;
 };
 
 // ⚡ Bolt: Move sortGames outside of the component to prevent it from being recreated

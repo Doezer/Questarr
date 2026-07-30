@@ -29,19 +29,39 @@ const SORT_OPTIONS = [
 
 // ⚡ Bolt: Use O(1) string comparison for ISO date strings instead of new Date().getTime()
 // This prevents millions of object allocations during O(N log N) sorting.
-// Extracted logic to helper to satisfy SonarCloud Maintainability and Duplication gates.
-const compareDates = (
-  dateA: string | Date | number | null | undefined,
-  dateB: string | Date | number | null | undefined,
+// Only safe because the API returns releaseDate as a single canonical ISO 8601 format.
+const missingRank = (a: unknown, b: unknown): number | null => {
+  const missingA = a === null || a === undefined;
+  const missingB = b === null || b === undefined;
+  if (missingA && missingB) return 0;
+  if (missingA) return 1;
+  if (missingB) return -1;
+  return null;
+};
+
+const compareReleaseDates = (
+  dateA: string | null | undefined,
+  dateB: string | null | undefined,
   asc: boolean
 ): number => {
-  if (!dateA && !dateB) return 0;
-  if (!dateA) return 1;
-  if (!dateB) return -1;
+  const rank = missingRank(dateA, dateB);
+  if (rank !== null) return rank;
 
-  if (dateA < dateB) return asc ? -1 : 1;
-  if (dateA > dateB) return asc ? 1 : -1;
+  if (dateA! < dateB!) return asc ? -1 : 1;
+  if (dateA! > dateB!) return asc ? 1 : -1;
   return 0;
+};
+
+const compareAddedAt = (
+  dateA: Date | null | undefined,
+  dateB: Date | null | undefined,
+  asc: boolean
+): number => {
+  const rank = missingRank(dateA, dateB);
+  if (rank !== null) return rank;
+
+  const diff = dateA!.getTime() - dateB!.getTime();
+  return asc ? diff : -diff;
 };
 
 // ⚡ Bolt: Move sortGames outside of the component to prevent it from being recreated
@@ -53,11 +73,11 @@ export const sortGames = (gameList: Game[], currentSortBy: SortOption): Game[] =
   return sorted.sort((a, b) => {
     switch (currentSortBy) {
       case "release-asc":
-        return compareDates(a.releaseDate, b.releaseDate, true);
+        return compareReleaseDates(a.releaseDate, b.releaseDate, true);
       case "release-desc":
-        return compareDates(a.releaseDate, b.releaseDate, false);
+        return compareReleaseDates(a.releaseDate, b.releaseDate, false);
       case "added-desc":
-        return compareDates(a.addedAt, b.addedAt, false);
+        return compareAddedAt(a.addedAt, b.addedAt, false);
       case "title-asc":
         return a.title.localeCompare(b.title);
       default:

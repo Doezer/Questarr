@@ -102,6 +102,22 @@ if (typeof window !== "undefined") {
   // ping-pong while still allowing the few legitimate nested hops real usage needs.
   let focusReentrancyDepth = 0;
   const MAX_FOCUS_REENTRANCY_DEPTH = 20;
+  // Warn at most once per run: if the cap is being hit, one message is enough
+  // to flag a real regression without flooding output during the very loop
+  // this guard exists to contain.
+  let hasWarnedAboutFocusReentrancyCap = false;
+
+  function guardFocusReentrancy(): boolean {
+    if (focusReentrancyDepth < MAX_FOCUS_REENTRANCY_DEPTH) return true;
+    if (!hasWarnedAboutFocusReentrancyCap) {
+      hasWarnedAboutFocusReentrancyCap = true;
+      // eslint-disable-next-line no-console
+      console.warn(
+        "[tests/setup] focus/blur reentrancy cap reached; dropping calls to break a synchronous focus/blur loop"
+      );
+    }
+    return false;
+  }
 
   const originalFocus = window.HTMLElement.prototype.focus;
   window.HTMLElement.prototype.focus = function focus(
@@ -109,7 +125,7 @@ if (typeof window !== "undefined") {
     ...args: Parameters<typeof originalFocus>
   ) {
     if (window.document.activeElement === this) return;
-    if (focusReentrancyDepth >= MAX_FOCUS_REENTRANCY_DEPTH) return;
+    if (!guardFocusReentrancy()) return;
     focusReentrancyDepth++;
     try {
       originalFocus.apply(this, args);
@@ -124,7 +140,7 @@ if (typeof window !== "undefined") {
     ...args: Parameters<typeof originalBlur>
   ) {
     if (window.document.activeElement !== this) return;
-    if (focusReentrancyDepth >= MAX_FOCUS_REENTRANCY_DEPTH) return;
+    if (!guardFocusReentrancy()) return;
     focusReentrancyDepth++;
     try {
       originalBlur.apply(this, args);

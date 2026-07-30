@@ -55,19 +55,38 @@ describe("Logger Module", () => {
     expect(loggerModule.logger.level).toBe("debug");
   });
 
-  it("configures the full transport pipeline outside of test env", async () => {
+  it("configures the pino-pretty stdout target outside of production", async () => {
     process.env.NODE_ENV = "development";
 
-    const loggerModule = await import("../logger.js");
+    const pinoModule = await import("pino");
+    const transportSpy = vi.spyOn(pinoModule.default, "transport");
 
-    expect(loggerModule.logger).toBeDefined();
+    await import("../logger.js");
+
+    expect(transportSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targets: expect.arrayContaining([expect.objectContaining({ target: "pino-pretty" })]),
+      })
+    );
   });
 
-  it("configures the production stdout target when NODE_ENV is production", async () => {
+  it("configures the raw stdout file target when NODE_ENV is production", async () => {
     process.env.NODE_ENV = "production";
 
-    const loggerModule = await import("../logger.js");
+    const pinoModule = await import("pino");
+    const transportSpy = vi.spyOn(pinoModule.default, "transport");
 
-    expect(loggerModule.logger).toBeDefined();
+    await import("../logger.js");
+
+    expect(transportSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targets: expect.arrayContaining([
+          expect.objectContaining({
+            target: "pino/file",
+            options: expect.objectContaining({ destination: 1 }),
+          }),
+        ]),
+      })
+    );
   });
 });

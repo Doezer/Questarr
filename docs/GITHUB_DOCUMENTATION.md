@@ -9,6 +9,7 @@ This file is the single entry point for GitHub-facing documentation in this repo
 - Architecture: [`docs/ARCHITECTURE.md`](./ARCHITECTURE.md), for a system architecture and actor overview
 - Changelog: [`docs/CHANGELOG.md`](./CHANGELOG.md)
 - Migration notes: [`docs/MIGRATION.md`](./MIGRATION.md), for migration from PostgreSQL to SQLite in v1.1
+- Reverse proxy / subdirectory deployment: [`docs/REVERSE_PROXY.md`](./REVERSE_PROXY.md), for serving Questarr from a path like `/Questarr` behind nginx/Traefik/Caddy
 - Security model and operations:
   - [`docs/THREAT_MODEL.md`](./THREAT_MODEL.md), for the attack surface analysis and security architecture
   - [`docs/SECURITY_ASSESSMENT.md`](./SECURITY_ASSESSMENT.md), security risk assessment.

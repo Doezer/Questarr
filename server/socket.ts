@@ -9,6 +9,7 @@ let io: Server | undefined;
 export function setupSocketIO(httpServer: HttpServer) {
   if (!io) {
     io = new Server({
+      path: `${config.server.basePath}/socket.io/`,
       cors: {
         origin:
           config.server.allowedOrigins.length === 1 && config.server.allowedOrigins[0] === "*"

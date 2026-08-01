@@ -331,6 +331,14 @@ docker-compose build --no-cache
 docker-compose up -d
 ```
 
+### Reverse proxy / subdirectory deployment
+
+Want to serve Questarr from a path like `https://xxx.domain.com/Questarr`
+instead of its own subdomain? Set `QUESTARR_BASE_PATH=/Questarr` on the
+container (or in `.env` for npm installs) and point your reverse proxy at it
+— no rebuild required. See [docs/REVERSE_PROXY.md](docs/REVERSE_PROXY.md) for
+full setup instructions (nginx, Traefik, Caddy).
+
 </details>
 
 ## Roadmap

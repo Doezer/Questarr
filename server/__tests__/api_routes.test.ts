@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import express from "express";
 import request from "supertest";
 import path from "path";
@@ -2857,5 +2857,58 @@ describe("API Routes - Extended Coverage", () => {
       expect(response.status).toBe(502);
       expect(response.body.error).toBe("CLI timed out");
     });
+  });
+});
+
+describe("QUESTARR_BASE_PATH subdirectory mounting", () => {
+  afterEach(() => {
+    mockConfig.server.basePath = "";
+  });
+
+  it("serves the app under the configured base path", async () => {
+    mockConfig.server.basePath = "/Questarr";
+
+    const prefixedApp = express();
+    prefixedApp.use(express.json());
+    const httpServer = await registerRoutes(prefixedApp);
+
+    const response = await request(httpServer).get("/Questarr/api/health");
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ status: "ok" });
+  });
+
+  it("keeps /api/health reachable unprefixed for container healthchecks", async () => {
+    mockConfig.server.basePath = "/Questarr";
+
+    const prefixedApp = express();
+    prefixedApp.use(express.json());
+    const httpServer = await registerRoutes(prefixedApp);
+
+    const response = await request(httpServer).get("/api/health");
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ status: "ok" });
+  });
+
+  it("redirects the unprefixed root to the base path", async () => {
+    mockConfig.server.basePath = "/Questarr";
+
+    const prefixedApp = express();
+    prefixedApp.use(express.json());
+    const httpServer = await registerRoutes(prefixedApp);
+
+    const response = await request(httpServer).get("/").redirects(0);
+    expect(response.status).toBe(302);
+    expect(response.headers.location).toBe("/Questarr/");
+  });
+
+  it("does not serve API routes unprefixed when a base path is configured", async () => {
+    mockConfig.server.basePath = "/Questarr";
+
+    const prefixedApp = express();
+    prefixedApp.use(express.json());
+    const httpServer = await registerRoutes(prefixedApp);
+
+    const response = await request(httpServer).post("/api/settings/apprise/test").send();
+    expect(response.status).toBe(404);
   });
 });

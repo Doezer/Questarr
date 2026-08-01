@@ -1,4 +1,4 @@
-import type { Express, Request, Response } from "express";
+import express, { type Express, type Request, type Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage.js";
 import { igdbClient } from "./igdb.js";
@@ -4048,6 +4048,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  const httpServer = createServer(app);
+  // Reverse-proxy subdirectory support: when QUESTARR_BASE_PATH is set
+  // (e.g. "/Questarr"), mount the whole app under that prefix so it can be
+  // served from https://host/Questarr/ without the reverse proxy needing to
+  // rewrite the path. Health checks stay reachable at the unprefixed
+  // /api/health too, since Docker/orchestrator healthchecks hit the
+  // container directly rather than through the proxy.
+  const basePath = appConfig.server.basePath;
+  let rootApp: Express = app;
+  if (basePath) {
+    rootApp = express();
+    rootApp.use(basePath, app);
+    rootApp.get("/api/health", (_req, res) => {
+      res.status(200).json({ status: "ok" });
+    });
+    rootApp.get("/", (_req, res) => {
+      res.redirect(302, `${basePath}/`);
+    });
+  }
+
+  const httpServer = createServer(rootApp);
   return httpServer;
 }

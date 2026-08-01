@@ -59,9 +59,18 @@ stripping the prefix** — Questarr expects to see it.
 
 ### nginx
 
+`app` below is the Compose service name from this repo's `docker-compose.yml`
+— substitute your own container/service name if it differs. nginx's prefix
+match only covers `/Questarr/...`, so add an exact-match redirect for the
+bare `/Questarr` (no trailing slash) case too:
+
 ```nginx
+location = /Questarr {
+    return 301 /Questarr/;
+}
+
 location /Questarr/ {
-    proxy_pass http://questarr:5000/Questarr/;
+    proxy_pass http://app:5000/Questarr/;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -86,9 +95,13 @@ No `StripPrefix` middleware needed — Questarr handles the prefix itself.
 
 ### Caddy
 
+Caddy's `/Questarr/*` matcher is exact-prefix and won't match the bare
+`/Questarr` (no trailing slash) request, so redirect it explicitly:
+
 ```caddyfile
 xxx.domain.com {
-    reverse_proxy /Questarr/* questarr:5000
+    redir /Questarr /Questarr/ permanent
+    reverse_proxy /Questarr/* app:5000
 }
 ```
 

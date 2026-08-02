@@ -535,11 +535,11 @@ export async function checkGameUpdates() {
 export async function checkDownloadStatus() {
   const downloadingDownloads = await storage.getDownloadingGameDownloads();
 
-  igdbLogger.info({ downloadingCount: downloadingDownloads.length }, "Checking download status");
-
   if (downloadingDownloads.length === 0) {
     return;
   }
+
+  igdbLogger.info({ downloadingCount: downloadingDownloads.length }, "Checking download status");
 
   // Prune stale entries from downloadMissCount (e.g. downloads removed from DB while still downloading)
   const activeDownloadIds = new Set(downloadingDownloads.map((d) => d.id));

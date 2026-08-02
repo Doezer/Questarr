@@ -23,6 +23,7 @@ import {
 import { Lock, User, ShieldCheck, Gamepad2, HelpCircle, Info, ExternalLink } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { withBasePath } from "@/lib/app-path";
+import { passwordPolicySchema } from "@shared/schema";
 
 type SetupForm = {
   username: string;
@@ -48,7 +49,7 @@ export default function SetupPage() {
     return z
       .object({
         username: z.string().min(3, "Username must be at least 3 characters"),
-        password: z.string().min(6, "Password must be at least 6 characters"),
+        password: passwordPolicySchema,
         confirmPassword: z.string(),
         igdbClientId: isIgdbConfigured
           ? z.string().optional()

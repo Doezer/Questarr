@@ -188,7 +188,7 @@ describe("API Routes - Extended Coverage", () => {
           .post("/api/auth/setup")
           .send({ username: "admin", password: "12345" });
         expect(res.status).toBe(400);
-        expect(res.body.error).toContain("at least 6 characters");
+        expect(res.body.error).toContain("at least 8 characters");
       });
 
       it("should return 400 for too-long username", async () => {
@@ -507,6 +507,7 @@ describe("API Routes - Extended Coverage", () => {
     it("should update game status", async () => {
       const gameId = "123e4567-e89b-12d3-a456-426614174000";
       const updatedGame = { id: gameId, status: "completed" };
+      vi.mocked(storage.getGame).mockResolvedValue({ id: gameId, userId: "user-1" } as any);
       vi.mocked(storage.updateGameStatus).mockResolvedValue(updatedGame as unknown as Game);
 
       const response = await request(app)
@@ -518,6 +519,7 @@ describe("API Routes - Extended Coverage", () => {
     it("should accept shelved as a valid status", async () => {
       const gameId = "123e4567-e89b-12d3-a456-426614174000";
       const updatedGame = { id: gameId, status: "shelved" };
+      vi.mocked(storage.getGame).mockResolvedValue({ id: gameId, userId: "user-1" } as any);
       vi.mocked(storage.updateGameStatus).mockResolvedValue(updatedGame as unknown as Game);
 
       const response = await request(app)
@@ -550,6 +552,7 @@ describe("API Routes - Extended Coverage", () => {
     it("should update hidden status", async () => {
       const gameId = "123e4567-e89b-12d3-a456-426614174000";
       const updatedGame = { id: gameId, hidden: true };
+      vi.mocked(storage.getGame).mockResolvedValue({ id: gameId, userId: "user-1" } as any);
       vi.mocked(storage.updateGameHidden).mockResolvedValue(updatedGame as unknown as Game);
 
       const response = await request(app)
@@ -668,6 +671,7 @@ describe("API Routes - Extended Coverage", () => {
   describe("DELETE /api/games/:id", () => {
     it("should remove game", async () => {
       const gameId = "123e4567-e89b-12d3-a456-426614174000";
+      vi.mocked(storage.getGame).mockResolvedValue({ id: gameId, userId: "user-1" } as any);
       vi.mocked(storage.removeGame).mockResolvedValue(true);
 
       const response = await request(app).delete(`/api/games/${gameId}`);

@@ -17,6 +17,7 @@ import {
   insertNotificationSchema,
   updateUserSettingsSchema,
   updatePasswordSchema,
+  passwordPolicySchema,
   insertRssFeedSchema,
   insertReleaseBlacklistSchema,
   claimDownloadRequestSchema,
@@ -200,8 +201,9 @@ export function validateSetupCredentials(
     return { error: "Username must be at least 3 characters" };
   }
 
-  if (trimmedPassword.length < 6) {
-    return { error: "Password must be at least 6 characters" };
+  const passwordCheck = passwordPolicySchema.safeParse(trimmedPassword);
+  if (!passwordCheck.success) {
+    return { error: passwordCheck.error.issues[0].message };
   }
 
   if (trimmedUsername.length > 50) {
@@ -1258,7 +1260,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     async (req: Request, res: Response) => {
       try {
         const { id } = req.params;
+        const userId = req.user!.id;
         const statusUpdate = updateGameStatusSchema.parse(req.body);
+
+        if (!(await resolveOwnedGame(id, userId, res))) return;
 
         const updatedGame = await storage.updateGameStatus(id, statusUpdate);
         if (!updatedGame) {
@@ -1285,7 +1290,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     async (req: Request, res: Response) => {
       try {
         const { id } = req.params;
+        const userId = req.user!.id;
         const { hidden } = updateGameHiddenSchema.parse(req.body);
+
+        if (!(await resolveOwnedGame(id, userId, res))) return;
 
         const updatedGame = await storage.updateGameHidden(id, hidden);
         if (!updatedGame) {
@@ -1528,13 +1536,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     async (req: Request, res: Response) => {
       try {
         const { id } = req.params;
+        const userId = req.user!.id;
         const deleteFiles = req.query.deleteFiles === "true";
+
+        const game = await resolveOwnedGame(id, userId, res);
+        if (!game) return;
 
         let fileDeletion: FileDeletionResult | null = null;
 
         if (deleteFiles) {
-          const game = await storage.getGame(id);
-          if (game?.libraryPath) {
+          if (game.libraryPath) {
             const config = await storage.getImportConfig(game.userId ?? undefined);
             const resolvedRoot = path.resolve(config.libraryRoot);
             const resolvedTarget = path.resolve(game.libraryPath);

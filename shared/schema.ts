@@ -494,10 +494,21 @@ export const updateUserSettingsSchema = createInsertSchema(userSettings)
   .partial()
   .superRefine(validateUserSettingsEnums);
 
+// Shared password policy: minimum length plus a mix of letters and digits,
+// used for both account setup and password changes (client and server).
+export const PASSWORD_MIN_LENGTH = 8;
+
+export const passwordPolicySchema = z
+  .string()
+  .trim()
+  .min(PASSWORD_MIN_LENGTH, `Password must be at least ${PASSWORD_MIN_LENGTH} characters`)
+  .regex(/[A-Za-z]/, "Password must contain at least one letter")
+  .regex(/[0-9]/, "Password must contain at least one number");
+
 export const updatePasswordSchema = z
   .object({
     currentPassword: z.string().trim().min(1, "Current password is required"),
-    newPassword: z.string().trim().min(6, "New password must be at least 6 characters"),
+    newPassword: passwordPolicySchema,
     confirmPassword: z.string().trim().min(1, "Confirm password is required"),
   })
   .refine((data) => data.newPassword === data.confirmPassword, {

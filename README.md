@@ -124,8 +124,10 @@ Questarr is available in the Unraid **Apps** tab via Community Applications:
 2. Set your **Data Path** (default `/mnt/user/appdata/questarr`), **PUID**/**PGID**, and ports (default `5000`
    HTTP, `9898` HTTPS if using it).
 3. Optionally set **Library Path** to the same root your download client(s) write into (e.g.
-   `/mnt/user/data`) if you want Questarr to move completed downloads into your game library — pair it with a
-   matching mapping under **Settings → Path Mappings**. Leave it blank if you manage imports manually.
+   `/mnt/user/data`) if you want Questarr to move completed downloads into your game library. This host path
+   is mounted at `/data` inside the container, so add a mapping under **Settings → Path Mappings** with
+   **Local Path** set to `/data` and **Remote Path** set to the exact path your download client reports for
+   that root. Leave Library Path blank if you manage imports manually.
 4. Apply, then open `http://<unraid-host>:5000` to access the UI.
 
 </details>

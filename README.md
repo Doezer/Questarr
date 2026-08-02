@@ -386,6 +386,10 @@ If you run into an issue, go to the **Logs** page and click **Send Logs** before
 
 Made with [contrib.rocks](https://contrib.rocks).
 
+## Legal Disclaimer
+
+Questarr is a self-hosted game manager designed solely for organizing, tracking, and automating game libraries using user-provided data and metadata APIs (such as IGDB). Questarr does not host, distribute, or provide any copyrighted game content, ROMs, or download links. It is a technology-neutral tool: any indexers, download clients, or sources you configure are chosen and operated entirely by you. You are solely responsible for ensuring that your use of Questarr, and any content you access or download through third-party services you configure, complies with all applicable laws and the terms of service of those third parties.
+
 ## License
 
 GPL3 License - see [COPYING](COPYING) file for details.

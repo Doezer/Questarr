@@ -121,16 +121,22 @@ docker run -d -p 5000:5000 -v ./data:/app/data --name questarr ghcr.io/doezer/qu
 Questarr ships an official Community Applications template ([`unraid/questarr.xml`](unraid/questarr.xml)). It
 isn't in the default Community Applications search index yet, so searching for "Questarr" in the **Apps** tab
 may only surface Unraid's auto-generated placeholder for the Docker Hub/GHCR image (no icon, generic
-category) rather than the maintained template below — install via the template URL instead:
+category) rather than the maintained template below. Unraid 6.10+ also removed the old "Template
+repositories" URL field from **Docker → Add Container**, so install the template as a local user template
+instead:
 
-1. Go to **Docker → Add Container**, enable **Template repositories**, and add:
-   `https://raw.githubusercontent.com/Doezer/Questarr/main/unraid/questarr.xml`
-2. Set your **Data Path** (default `/mnt/user/appdata/questarr`), **PUID**/**PGID**, and ports (default `5000`
+1. Save the template to your flash drive's `templates-user` folder, e.g. from the Unraid terminal:
+   ```bash
+   wget -O /boot/config/plugins/dockerMan/templates-user/questarr.xml \
+     https://raw.githubusercontent.com/Doezer/Questarr/main/unraid/questarr.xml
+   ```
+2. Go to **Docker → Add Container** and pick **Questarr** from the **Template** dropdown.
+3. Set your **Data Path** (default `/mnt/user/appdata/questarr`), **PUID**/**PGID**, and ports (default `5000`
    HTTP, `9898` HTTPS).
-3. Optionally set **Library Path** to the same root your download client(s) write into (e.g.
+4. Optionally set **Library Path** to the same root your download client(s) write into (e.g.
    `/mnt/user/data`) if you want Questarr to move completed downloads into your game library — pair it with a
    matching mapping under **Settings → Path Mappings**. Leave it blank if you manage imports manually.
-4. Apply, then open `http://<unraid-host>:5000` to access the UI.
+5. Apply, then open `http://<unraid-host>:5000` to access the UI.
 
 </details>
 

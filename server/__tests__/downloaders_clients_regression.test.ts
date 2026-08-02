@@ -303,6 +303,76 @@ describe("downloader client regression coverage", () => {
     ).toBe(true);
   });
 
+  it("URL-encodes torrent IDs with reserved characters in qBittorrent GET requests", async () => {
+    const client = new QBittorrentClient(
+      createDownloader({
+        type: "qbittorrent",
+        url: "http://qb.local:8080",
+        username: "admin",
+        password: "password",
+      })
+    );
+
+    const reservedId = "hash&evil=1";
+
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => "Ok.",
+        headers: {
+          get: () => null,
+          getSetCookie: () => ["QBT_SID_custom=cookie123; Path=/; HttpOnly"],
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => [
+          {
+            hash: reservedId,
+            name: "Torrent",
+            state: "pausedDL",
+            progress: 1,
+            dlspeed: 0,
+            upspeed: 0,
+            size: 100,
+            downloaded: 100,
+            ratio: 1,
+            num_seeds: 1,
+            num_leechs: 1,
+            num_complete: 1,
+            num_incomplete: 1,
+            save_path: "/downloads",
+            category: "games",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ addition_date: 1710000000, completion_date: 1710001000, peers: 1 }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => [],
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => [],
+      });
+
+    await client.getDownloadDetails(reservedId);
+
+    const encodedId = encodeURIComponent(reservedId);
+    const requestUrls = fetchMock.mock.calls.slice(1).map((call) => call[0] as string);
+
+    expect(requestUrls[0]).toBe(`http://qb.local:8080/api/v2/torrents/info?hashes=${encodedId}`);
+    expect(requestUrls[1]).toBe(
+      `http://qb.local:8080/api/v2/torrents/properties?hash=${encodedId}`
+    );
+    expect(requestUrls[2]).toBe(`http://qb.local:8080/api/v2/torrents/files?hash=${encodedId}`);
+    expect(requestUrls[3]).toBe(`http://qb.local:8080/api/v2/torrents/trackers?hash=${encodedId}`);
+    expect(requestUrls.every((url) => !url.includes("&evil="))).toBe(true);
+  });
+
   it("falls back through qBittorrent free-space endpoints until one returns bytes", async () => {
     const client = new QBittorrentClient(
       createDownloader({

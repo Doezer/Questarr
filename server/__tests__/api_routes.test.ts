@@ -79,6 +79,7 @@ describe("API Routes - Extended Coverage", () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     app = express();
+    app.set("trust proxy", 1);
     app.use(express.json());
     await registerRoutes(app);
   });
@@ -258,10 +259,11 @@ describe("API Routes - Extended Coverage", () => {
 
         const res = await request(app)
           .post("/api/auth/login")
+          .set("X-Forwarded-For", "203.0.113.7")
           .send({ username: "  testuser  ", password: "wrongpassword" });
         expect(res.status).toBe(401);
         expect(routesLogger.warn).toHaveBeenCalledWith(
-          expect.objectContaining({ username: "testuser", ip: expect.any(String) }),
+          { username: "testuser", ip: "203.0.113.7" },
           "Failed login attempt"
         );
       });

@@ -39,6 +39,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: deploy-${{ github.workflow }}
+  cancel-in-progress: false
+
 jobs:
   # Policy: docs/VULNERABILITY_MANAGEMENT.md §1.3 — no release may ship with
   # an unresolved Critical/High SCA finding. Runs again here (not just in
@@ -218,8 +222,8 @@ jobs:
             --jq '.[] | (.metadata.container.tags // [])[]' | sort -u)
 
           for tag in ${tagged_names}; do
-            docker buildx imagetools inspect "ghcr.io/${REPO_LC}:${tag}" --raw 2>/dev/null \
-              | jq -r '.manifests[]?.digest // empty' >> "${referenced_digests}" || true
+            docker buildx imagetools inspect "ghcr.io/${REPO_LC}:${tag}" --raw \
+              | jq -r '.manifests[]?.digest // empty' >> "${referenced_digests}"
           done
           sort -u -o "${referenced_digests}" "${referenced_digests}"
 

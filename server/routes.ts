@@ -1168,10 +1168,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get games by status
+  const VALID_GAME_STATUSES = ["wanted", "owned", "shelved", "completed", "downloading"];
+
   app.get("/api/games/status/:status", async (req, res) => {
     try {
       const { status } = req.params;
       const { includeHidden } = req.query;
+
+      if (!VALID_GAME_STATUSES.includes(status)) {
+        return res.status(400).json({ error: "Invalid status value" });
+      }
 
       const userId = req.user!.id;
       const showHidden = includeHidden === "true";
@@ -2258,41 +2264,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Search specific indexer
-  app.get("/api/indexers/:id/search", async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { query, category, cat, limit = 50, offset = 0 } = req.query;
+  app.get(
+    "/api/indexers/:id/search",
+    sanitizeIndexerSearchQuery,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const { id } = req.params;
+        const { query, category, cat, limit = 50, offset = 0 } = req.query;
 
-      if (!query || typeof query !== "string") {
-        return res.status(400).json({ error: "Search query required" });
+        if (!query || typeof query !== "string") {
+          return res.status(400).json({ error: "Search query required" });
+        }
+
+        const indexer = await storage.getIndexer(id);
+        if (!indexer) {
+          return res.status(404).json({ error: "Indexer not found" });
+        }
+
+        const trimmedQuery = query.trim();
+        const isG4u = indexer.protocol === "g4u";
+        const searchParams = {
+          query: isG4u ? trimmedQuery.replace(/ /g, ".") : trimmedQuery,
+          category: parseCategories(category || cat),
+          limit: parseInt(limit as string) || 50,
+          offset: parseInt(offset as string) || 0,
+        };
+
+        let results;
+        if (isUsenetProtocol(indexer.protocol)) {
+          results = await newznabClient.search(indexer, searchParams);
+        } else {
+          results = await torznabClient.searchGames(indexer, searchParams);
+        }
+        res.json(results);
+      } catch (error) {
+        routesLogger.error({ error }, "error searching specific indexer");
+        res.status(500).json({ error: "Failed to search indexer" });
       }
-
-      const indexer = await storage.getIndexer(id);
-      if (!indexer) {
-        return res.status(404).json({ error: "Indexer not found" });
-      }
-
-      const trimmedQuery = query.trim();
-      const isG4u = indexer.protocol === "g4u";
-      const searchParams = {
-        query: isG4u ? trimmedQuery.replace(/ /g, ".") : trimmedQuery,
-        category: parseCategories(category || cat),
-        limit: parseInt(limit as string) || 50,
-        offset: parseInt(offset as string) || 0,
-      };
-
-      let results;
-      if (isUsenetProtocol(indexer.protocol)) {
-        results = await newznabClient.search(indexer, searchParams);
-      } else {
-        results = await torznabClient.searchGames(indexer, searchParams);
-      }
-      res.json(results);
-    } catch (error) {
-      routesLogger.error({ error }, "error searching specific indexer");
-      res.status(500).json({ error: "Failed to search indexer" });
     }
-  });
+  );
 
   // Downloader integration routes
 
@@ -3759,6 +3770,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!title || typeof title !== "string") {
         return res.status(400).json({ error: "Title is required" });
       }
+      if (title.trim().length === 0 || title.length > 500) {
+        return res.status(400).json({ error: "Title must be between 1 and 500 characters" });
+      }
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const userId = (req as any).user.id;
@@ -4021,6 +4035,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!title) {
         return res.status(400).json({ error: "title query parameter is required" });
       }
+      if (title.length > 500) {
+        return res.status(400).json({ error: "title must be at most 500 characters" });
+      }
       if (!nexusmodsClient.isConfigured()) {
         return res.json({ configured: false, domain: null });
       }
@@ -4037,6 +4054,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const domain = typeof req.query.domain === "string" ? req.query.domain.trim() : "";
       if (!domain) {
         return res.status(400).json({ error: "domain query parameter is required" });
+      }
+      if (domain.length > 200) {
+        return res.status(400).json({ error: "domain must be at most 200 characters" });
       }
       const limitRaw = typeof req.query.limit === "string" ? parseInt(req.query.limit, 10) : 10;
       const limit = Number.isNaN(limitRaw) || limitRaw < 1 ? 10 : Math.min(limitRaw, 20);

@@ -681,7 +681,10 @@ export class QBittorrentClient implements DownloaderClient {
     try {
       await this.authenticate();
 
-      const response = await this.makeRequest("GET", `/api/v2/torrents/info?hashes=${id}`);
+      const response = await this.makeRequest(
+        "GET",
+        `/api/v2/torrents/info?hashes=${encodeURIComponent(id)}`
+      );
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const downloads = (await response.json()) as any[];
 
@@ -701,7 +704,10 @@ export class QBittorrentClient implements DownloaderClient {
       await this.authenticate();
 
       // Get torrent info
-      const response = await this.makeRequest("GET", `/api/v2/torrents/info?hashes=${id}`);
+      const response = await this.makeRequest(
+        "GET",
+        `/api/v2/torrents/info?hashes=${encodeURIComponent(id)}`
+      );
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const downloads = (await response.json()) as any[];
 
@@ -713,18 +719,24 @@ export class QBittorrentClient implements DownloaderClient {
       const torrent = downloads[0];
 
       // Get torrent properties for additional details
-      const propsResponse = await this.makeRequest("GET", `/api/v2/torrents/properties?hash=${id}`);
+      const propsResponse = await this.makeRequest(
+        "GET",
+        `/api/v2/torrents/properties?hash=${encodeURIComponent(id)}`
+      );
       const props = await propsResponse.json();
 
       // Get torrent files
-      const filesResponse = await this.makeRequest("GET", `/api/v2/torrents/files?hash=${id}`);
+      const filesResponse = await this.makeRequest(
+        "GET",
+        `/api/v2/torrents/files?hash=${encodeURIComponent(id)}`
+      );
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const filesData = (await filesResponse.json()) as any[];
 
       // Get torrent trackers
       const trackersResponse = await this.makeRequest(
         "GET",
-        `/api/v2/torrents/trackers?hash=${id}`
+        `/api/v2/torrents/trackers?hash=${encodeURIComponent(id)}`
       );
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const trackersData = (await trackersResponse.json()) as any[];

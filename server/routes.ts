@@ -612,6 +612,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     if (!user || !passwordMatches) {
+      routesLogger.warn({ username: trimmedUsername, ip: req.ip }, "Failed login attempt");
       return res.status(401).json({ error: "Invalid username or password" });
     }
 

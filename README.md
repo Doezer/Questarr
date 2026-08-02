@@ -116,7 +116,7 @@ docker run -d -p 5000:5000 -v ./data:/app/data --name questarr ghcr.io/doezer/qu
 ### UNRAID
 
 <details>
-<summary><b>Install via Community Applications</b></summary>
+<summary><b>Install via Unraid template</b></summary>
 
 Questarr ships an official Community Applications template ([`unraid/questarr.xml`](unraid/questarr.xml)). It
 isn't in the default Community Applications search index yet, so searching for "Questarr" in the **Apps** tab
@@ -126,10 +126,12 @@ repositories" URL field from **Docker → Add Container**, so install the templa
 instead:
 
 1. Save the template to your flash drive's `templates-user` folder, e.g. from the Unraid terminal:
+
    ```bash
    wget -O /boot/config/plugins/dockerMan/templates-user/questarr.xml \
      https://raw.githubusercontent.com/Doezer/Questarr/main/unraid/questarr.xml
    ```
+
 2. Go to **Docker → Add Container** and pick **Questarr** from the **Template** dropdown.
 3. Set your **Data Path** (default `/mnt/user/appdata/questarr`), **PUID**/**PGID**, and ports (default `5000`
    HTTP, `9898` HTTPS).

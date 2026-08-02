@@ -28,6 +28,7 @@
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
+    "reset-password": "tsx scripts/reset-password.ts",
     "check:overrides": "node scripts/check-overrides.mjs",
     "check:deprecated": "node scripts/check-deprecated-deps.mjs",
     "dev:test": "tsx scripts/clean-test-db.ts && cross-env SQLITE_DB_PATH=data/test.db PORT=5100 npm run dev",

@@ -31,6 +31,7 @@ import { torznabClient } from "../torznab.js";
 import { newznabClient } from "../newznab.js";
 import { rssService } from "../rss.js";
 import { comparePassword } from "../auth.js";
+import { routesLogger } from "../logger.js";
 import { db } from "../db.js";
 import { appriseClient } from "../apprise.js";
 import fsExtra from "fs-extra";
@@ -249,6 +250,20 @@ describe("API Routes - Extended Coverage", () => {
           .post("/api/auth/login")
           .send({ username: "testuser", password: "wrongpassword" });
         expect(res.status).toBe(401);
+      });
+
+      it("should log a warning with the trimmed username and IP on failed login", async () => {
+        vi.mocked(storage.getUserByUsername).mockResolvedValue(mockUserHashed);
+        vi.mocked(comparePassword).mockResolvedValue(false);
+
+        const res = await request(app)
+          .post("/api/auth/login")
+          .send({ username: "  testuser  ", password: "wrongpassword" });
+        expect(res.status).toBe(401);
+        expect(routesLogger.warn).toHaveBeenCalledWith(
+          expect.objectContaining({ username: "testuser", ip: expect.any(String) }),
+          "Failed login attempt"
+        );
       });
 
       it("should return 400 when username is missing", async () => {

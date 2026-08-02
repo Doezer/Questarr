@@ -469,9 +469,7 @@ importRouter.get("/:id/plan", async (req, res) => {
     if (error instanceof Error && error.message.includes("not found"))
       return res.status(404).json({ error: error.message });
     logger.error({ error }, "Error planning import");
-    res
-      .status(500)
-      .json({ error: error instanceof Error ? error.message : "Internal server error" });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -525,8 +523,6 @@ importRouter.post("/:id/confirm", async (req, res) => {
       }
     }
     logger.error({ error }, "Error confirming import");
-    res
-      .status(500)
-      .json({ error: error instanceof Error ? error.message : "Internal server error" });
+    res.status(500).json({ error: "Internal server error" });
   }
 });

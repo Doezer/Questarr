@@ -50,7 +50,7 @@ export default function SetupPage() {
       .object({
         username: z.string().min(3, "Username must be at least 3 characters"),
         password: passwordPolicySchema,
-        confirmPassword: z.string(),
+        confirmPassword: z.string().trim(),
         igdbClientId: isIgdbConfigured
           ? z.string().optional()
           : z.string().min(1, "IGDB Client ID is required"),

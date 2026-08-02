@@ -6,6 +6,7 @@ import type {
   DownloadDetails,
 } from "../../shared/schema.js";
 import { downloadersLogger } from "../logger.js";
+import { randomUUID } from "node:crypto";
 import parseTorrent from "parse-torrent";
 import { isSafeUrl } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
@@ -116,6 +117,21 @@ export class QBittorrentClient implements DownloaderClient {
       const pausedValue =
         qbSettings.initialState === "stopped" || this.downloader.addStopped ? "true" : "false";
 
+      const removeCorrelationTag = async (hash: string, tag: string) => {
+        try {
+          await this.makeRequest(
+            "POST",
+            "/api/v2/torrents/removeTags",
+            `hashes=${hash}&tags=${encodeURIComponent(tag)}`,
+            {
+              "Content-Type": "application/x-www-form-urlencoded",
+            }
+          );
+        } catch (error) {
+          downloadersLogger.warn({ hash, tag, error }, "Failed to remove correlation tag");
+        }
+      };
+
       const maybeSetForceStarted = async (hash: string) => {
         if (qbSettings.initialState !== "force-started") return;
         try {
@@ -139,12 +155,32 @@ export class QBittorrentClient implements DownloaderClient {
         added_on: number;
       }
 
-      const findRecentlyAddedDownload = async (): Promise<{
+      const findRecentlyAddedDownload = async (
+        options: { skipInitialWait?: boolean; correlationTag?: string } = {}
+      ): Promise<{
         hash: string;
         name?: string;
       } | null> => {
-        // Wait a bit for qBittorrent to process the add (URL add or torrent upload)
-        await new Promise((resolve) => setTimeout(resolve, 2000));
+        // Wait a bit for qBittorrent to process the add (URL add or torrent upload).
+        // Callers that already pace their own waits between attempts (e.g. a
+        // retry loop) can skip this to avoid stacking an extra delay on top.
+        if (!options.skipInitialWait) {
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+        }
+
+        // When the caller tagged this specific add request, qBittorrent's
+        // tag filter gives an exact match instead of guessing by title/recency,
+        // which matters most here since polling can now span several seconds
+        // during which other downloads may also be added.
+        if (options.correlationTag) {
+          const taggedResponse = await this.makeRequest(
+            "GET",
+            `/api/v2/torrents/info?tag=${encodeURIComponent(options.correlationTag)}`
+          );
+          const tagged = (await taggedResponse.json()) as QBittorrentTorrent[];
+          const match = tagged[0];
+          return match?.hash ? { hash: match.hash, name: match.name } : null;
+        }
 
         const allTorrentsResponse = await this.makeRequest(
           "GET",
@@ -212,11 +248,15 @@ export class QBittorrentClient implements DownloaderClient {
         // Prowlarr to redirect to a wrong or broken torrent/magnet.
         // For magnet links this is a no-op.
         const urlToAdd = isMagnet ? request.url : fixNzbUrlEncoding(request.url);
+        // Unique tag for this specific add request, so a delayed/async add can be
+        // correlated by an exact match instead of guessing by title or recency.
+        const correlationTag = `questarr-add-${randomUUID()}`;
         const params = new URLSearchParams();
         params.set("urls", urlToAdd);
         if (savepath) params.set("savepath", savepath);
         if (category) params.set("category", category);
         params.set("paused", pausedValue);
+        params.set("tags", correlationTag);
 
         downloadersLogger.info(
           { url: urlToAdd, isMagnet, savepath, category, paused: pausedValue },
@@ -266,19 +306,31 @@ export class QBittorrentClient implements DownloaderClient {
 
               // A pending URL add means qBittorrent still has to fetch the
               // .torrent itself, so added_torrent_ids is empty at this point.
-              // Without a hash the caller cannot link the download to a game
-              // (see routes.ts: `result.id` guard), so poll for it briefly.
+              // Callers need this hash to associate the download with a
+              // tracked game, so poll briefly for it to appear.
               let resolvedHash = parsed.added_torrent_ids?.[0];
               if (!resolvedHash) {
-                for (let attempt = 0; attempt < 10 && !resolvedHash; attempt++) {
+                const maxAttempts = 10;
+                for (let attempt = 0; attempt < maxAttempts && !resolvedHash; attempt++) {
                   await new Promise((resolve) => setTimeout(resolve, 1000));
-                  const recent = await findRecentlyAddedDownload();
-                  if (recent?.hash) resolvedHash = recent.hash;
+                  try {
+                    const recent = await findRecentlyAddedDownload({
+                      skipInitialWait: true,
+                      correlationTag,
+                    });
+                    if (recent?.hash) resolvedHash = recent.hash;
+                  } catch (error) {
+                    downloadersLogger.warn(
+                      { error, url: request.url },
+                      "Failed to poll qBittorrent for the newly added torrent; will retry"
+                    );
+                  }
                 }
               }
 
               if (resolvedHash) {
                 await maybeSetForceStarted(resolvedHash);
+                await removeCorrelationTag(resolvedHash, correlationTag);
               } else {
                 downloadersLogger.warn(
                   { url: request.url, title: request.title },
@@ -328,6 +380,7 @@ export class QBittorrentClient implements DownloaderClient {
 
             if (downloads && downloads.length > 0) {
               if (urlAddFails) {
+                await removeCorrelationTag(hashFromUrl, correlationTag);
                 return {
                   success: true,
                   id: hashFromUrl,
@@ -336,6 +389,7 @@ export class QBittorrentClient implements DownloaderClient {
               }
 
               await maybeSetForceStarted(hashFromUrl);
+              await removeCorrelationTag(hashFromUrl, correlationTag);
               return {
                 success: true,
                 id: hashFromUrl,
@@ -352,10 +406,12 @@ export class QBittorrentClient implements DownloaderClient {
               };
             }
           } else {
-            // For non-magnets, we can't verify by hash. Try to find the newly added item.
-            const recent = await findRecentlyAddedDownload();
+            // For non-magnets, we can't verify by hash. Try to find the newly added item,
+            // correlated by the unique tag on this add request.
+            const recent = await findRecentlyAddedDownload({ correlationTag });
             if (recent) {
               if (urlAddFails) {
+                await removeCorrelationTag(recent.hash, correlationTag);
                 return {
                   success: true,
                   id: recent.hash,
@@ -364,6 +420,7 @@ export class QBittorrentClient implements DownloaderClient {
               }
 
               await maybeSetForceStarted(recent.hash);
+              await removeCorrelationTag(recent.hash, correlationTag);
               return {
                 success: true,
                 id: recent.hash,
@@ -681,7 +738,10 @@ export class QBittorrentClient implements DownloaderClient {
     try {
       await this.authenticate();
 
-      const response = await this.makeRequest("GET", `/api/v2/torrents/info?hashes=${id}`);
+      const response = await this.makeRequest(
+        "GET",
+        `/api/v2/torrents/info?hashes=${encodeURIComponent(id)}`
+      );
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const downloads = (await response.json()) as any[];
 
@@ -701,7 +761,10 @@ export class QBittorrentClient implements DownloaderClient {
       await this.authenticate();
 
       // Get torrent info
-      const response = await this.makeRequest("GET", `/api/v2/torrents/info?hashes=${id}`);
+      const response = await this.makeRequest(
+        "GET",
+        `/api/v2/torrents/info?hashes=${encodeURIComponent(id)}`
+      );
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const downloads = (await response.json()) as any[];
 
@@ -713,18 +776,24 @@ export class QBittorrentClient implements DownloaderClient {
       const torrent = downloads[0];
 
       // Get torrent properties for additional details
-      const propsResponse = await this.makeRequest("GET", `/api/v2/torrents/properties?hash=${id}`);
+      const propsResponse = await this.makeRequest(
+        "GET",
+        `/api/v2/torrents/properties?hash=${encodeURIComponent(id)}`
+      );
       const props = await propsResponse.json();
 
       // Get torrent files
-      const filesResponse = await this.makeRequest("GET", `/api/v2/torrents/files?hash=${id}`);
+      const filesResponse = await this.makeRequest(
+        "GET",
+        `/api/v2/torrents/files?hash=${encodeURIComponent(id)}`
+      );
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const filesData = (await filesResponse.json()) as any[];
 
       // Get torrent trackers
       const trackersResponse = await this.makeRequest(
         "GET",
-        `/api/v2/torrents/trackers?hash=${id}`
+        `/api/v2/torrents/trackers?hash=${encodeURIComponent(id)}`
       );
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const trackersData = (await trackersResponse.json()) as any[];

@@ -557,6 +557,81 @@ describe("qbittorrent regression coverage", () => {
     setTimeoutSpy.mockRestore();
   });
 
+  it("removes the correlation tag when a non-magnet URL add already existed", async () => {
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+      callback: TimerHandler,
+      _delay?: number,
+      ...args: unknown[]
+    ) => {
+      if (typeof callback === "function") {
+        callback(...args);
+      }
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    }) as typeof setTimeout);
+
+    try {
+      const client = new QBittorrentClient(createDownloader());
+      const privateClient = client as unknown as {
+        authenticate(force?: boolean): Promise<void>;
+        makeRequest(
+          method: string,
+          path: string,
+          body?: string | Buffer,
+          additionalHeaders?: Record<string, string>
+        ): Promise<Response>;
+      };
+
+      vi.spyOn(privateClient, "authenticate").mockResolvedValue(undefined);
+      const makeRequestSpy = vi
+        .spyOn(privateClient, "makeRequest")
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: async () => "Fails.",
+          headers: emptyHeaders,
+        } as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => [
+            {
+              hash: "existing-hash",
+              name: "Already queued",
+              added_on: Math.floor(Date.now() / 1000),
+            },
+          ],
+        } as Response)
+        .mockResolvedValueOnce({ ok: true, status: 200, text: async () => "" } as Response);
+
+      await expect(
+        client.addDownload({
+          url: "http://indexer.local/duplicate.torrent",
+          title: "Already queued",
+        })
+      ).resolves.toEqual({
+        success: true,
+        id: "existing-hash",
+        message: "Download already exists (qBittorrent)",
+      });
+
+      // The correlation tag is removed from the pre-existing torrent too,
+      // not just on the freshly-added path.
+      expect(makeRequestSpy).toHaveBeenCalledTimes(3);
+      const addCallBody = String(makeRequestSpy.mock.calls[0][2]);
+      const addTagMatch = addCallBody.match(/tags=(questarr-add-[^&]+)/);
+      expect(addTagMatch).not.toBeNull();
+      const addTag = addTagMatch![1];
+      expect(makeRequestSpy).toHaveBeenNthCalledWith(
+        3,
+        "POST",
+        "/api/v2/torrents/removeTags",
+        `hashes=existing-hash&tags=${encodeURIComponent(addTag)}`,
+        expect.any(Object)
+      );
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
+  });
+
   it("resolves the hash when qBittorrent v5+ accepts a URL add asynchronously", async () => {
     const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
       callback: TimerHandler,
@@ -569,56 +644,77 @@ describe("qbittorrent regression coverage", () => {
       return 0 as unknown as ReturnType<typeof setTimeout>;
     }) as typeof setTimeout);
 
-    const client = new QBittorrentClient(createDownloader());
-    const privateClient = client as unknown as {
-      authenticate(force?: boolean): Promise<void>;
-      makeRequest(
-        method: string,
-        path: string,
-        body?: string | Buffer,
-        additionalHeaders?: Record<string, string>
-      ): Promise<Response>;
-    };
+    try {
+      const client = new QBittorrentClient(createDownloader());
+      const privateClient = client as unknown as {
+        authenticate(force?: boolean): Promise<void>;
+        makeRequest(
+          method: string,
+          path: string,
+          body?: string | Buffer,
+          additionalHeaders?: Record<string, string>
+        ): Promise<Response>;
+      };
 
-    vi.spyOn(privateClient, "authenticate").mockResolvedValue(undefined);
-    vi.spyOn(privateClient, "makeRequest")
-      // qBittorrent >= 5.1 answers URL adds with HTTP 202 and JSON. The torrent
-      // file still has to be fetched, so added_torrent_ids is empty here.
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 202,
-        text: async () =>
-          JSON.stringify({
-            added_torrent_ids: [],
-            failure_count: 0,
-            pending_count: 1,
-            success_count: 0,
-          }),
-        headers: jsonHeaders,
-      } as unknown as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => [
-          {
-            hash: "async-hash",
-            name: "Queued via URL",
-            added_on: Math.floor(Date.now() / 1000),
-          },
-        ],
-      } as Response);
+      vi.spyOn(privateClient, "authenticate").mockResolvedValue(undefined);
+      const makeRequestSpy = vi
+        .spyOn(privateClient, "makeRequest")
+        // qBittorrent >= 5.1 answers URL adds with HTTP 202 and JSON. The torrent
+        // file still has to be fetched, so added_torrent_ids is empty here.
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 202,
+          text: async () =>
+            JSON.stringify({
+              added_torrent_ids: [],
+              failure_count: 0,
+              pending_count: 1,
+              success_count: 0,
+            }),
+          headers: jsonHeaders,
+        } as unknown as Response)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => [
+            {
+              hash: "async-hash",
+              name: "Queued via URL",
+              added_on: Math.floor(Date.now() / 1000),
+            },
+          ],
+        } as Response)
+        .mockResolvedValueOnce({ ok: true, status: 200, text: async () => "" } as Response);
 
-    await expect(
-      client.addDownload({
-        url: "http://indexer.local/pending.torrent",
-        title: "Queued via URL",
-      })
-    ).resolves.toEqual({
-      success: true,
-      id: "async-hash",
-      message: "Download queued in qBittorrent",
-    });
+      await expect(
+        client.addDownload({
+          url: "http://indexer.local/pending.torrent",
+          title: "Queued via URL",
+        })
+      ).resolves.toEqual({
+        success: true,
+        id: "async-hash",
+        message: "Download queued in qBittorrent",
+      });
 
-    setTimeoutSpy.mockRestore();
+      // The initial add is tagged, and the poll looks the torrent up by that exact
+      // same tag rather than by fuzzy title/recency matching, so a concurrent add
+      // can't be mistaken for this one.
+      const addCallBody = String(makeRequestSpy.mock.calls[0][2]);
+      const addTagMatch = addCallBody.match(/tags=(questarr-add-[^&]+)/);
+      expect(addTagMatch).not.toBeNull();
+      const addTag = addTagMatch![1];
+
+      const pollCallPath = String(makeRequestSpy.mock.calls[1][1]);
+      expect(pollCallPath).toBe(`/api/v2/torrents/info?tag=${encodeURIComponent(addTag)}`);
+
+      // Cleanup removes that exact same tag from the resolved torrent.
+      const cleanupCallPath = String(makeRequestSpy.mock.calls[2][1]);
+      const cleanupCallBody = String(makeRequestSpy.mock.calls[2][2]);
+      expect(cleanupCallPath).toBe("/api/v2/torrents/removeTags");
+      expect(cleanupCallBody).toBe(`hashes=async-hash&tags=${encodeURIComponent(addTag)}`);
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
   });
 
   it("uses added_torrent_ids when qBittorrent v5+ adds a torrent immediately", async () => {
@@ -634,18 +730,21 @@ describe("qbittorrent regression coverage", () => {
     };
 
     vi.spyOn(privateClient, "authenticate").mockResolvedValue(undefined);
-    const makeRequestSpy = vi.spyOn(privateClient, "makeRequest").mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      text: async () =>
-        JSON.stringify({
-          added_torrent_ids: ["immediate-hash"],
-          failure_count: 0,
-          pending_count: 0,
-          success_count: 1,
-        }),
-      headers: jsonHeaders,
-    } as unknown as Response);
+    const makeRequestSpy = vi
+      .spyOn(privateClient, "makeRequest")
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            added_torrent_ids: ["immediate-hash"],
+            failure_count: 0,
+            pending_count: 0,
+            success_count: 1,
+          }),
+        headers: jsonHeaders,
+      } as unknown as Response)
+      .mockResolvedValueOnce({ ok: true, status: 200, text: async () => "" } as Response);
 
     await expect(
       client.addDownload({
@@ -658,8 +757,82 @@ describe("qbittorrent regression coverage", () => {
       message: "Download added successfully",
     });
 
-    // No polling needed when the hash is already known.
-    expect(makeRequestSpy).toHaveBeenCalledTimes(1);
+    // No polling needed when the hash is already known; the only extra call
+    // is removing the exact correlation tag that was set on the add request.
+    expect(makeRequestSpy).toHaveBeenCalledTimes(2);
+    const addCallBody = String(makeRequestSpy.mock.calls[0][2]);
+    const addTagMatch = addCallBody.match(/tags=(questarr-add-[^&]+)/);
+    expect(addTagMatch).not.toBeNull();
+    const addTag = addTagMatch![1];
+
+    expect(makeRequestSpy).toHaveBeenNthCalledWith(
+      2,
+      "POST",
+      "/api/v2/torrents/removeTags",
+      `hashes=immediate-hash&tags=${encodeURIComponent(addTag)}`,
+      expect.any(Object)
+    );
+  });
+
+  it("still reports success without falling back to upload when hash polling fails", async () => {
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+      callback: TimerHandler,
+      _delay?: number,
+      ...args: unknown[]
+    ) => {
+      if (typeof callback === "function") {
+        callback(...args);
+      }
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    }) as typeof setTimeout);
+
+    try {
+      const client = new QBittorrentClient(createDownloader());
+      const privateClient = client as unknown as {
+        authenticate(force?: boolean): Promise<void>;
+        makeRequest(
+          method: string,
+          path: string,
+          body?: string | Buffer,
+          additionalHeaders?: Record<string, string>
+        ): Promise<Response>;
+      };
+
+      vi.spyOn(privateClient, "authenticate").mockResolvedValue(undefined);
+      const makeRequestSpy = vi
+        .spyOn(privateClient, "makeRequest")
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 202,
+          text: async () =>
+            JSON.stringify({
+              added_torrent_ids: [],
+              failure_count: 0,
+              pending_count: 1,
+              success_count: 0,
+            }),
+          headers: jsonHeaders,
+        } as unknown as Response)
+        // Every polling request fails; this must not fall through to the
+        // torrent-file upload fallback (that would resubmit an already-accepted
+        // download). It should still report success without a hash.
+        .mockRejectedValue(new Error("network unreachable"));
+
+      await expect(
+        client.addDownload({
+          url: "http://indexer.local/flaky-poll.torrent",
+          title: "Queued via URL",
+        })
+      ).resolves.toEqual({
+        success: true,
+        message: "Download queued in qBittorrent",
+      });
+
+      // 1 add request + 10 failed polling attempts, no upload fallback request.
+      expect(makeRequestSpy).toHaveBeenCalledTimes(11);
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
   });
 
   it("covers torrent-download failure, free-space fallbacks, and request error branches", async () => {

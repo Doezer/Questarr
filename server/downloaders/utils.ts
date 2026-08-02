@@ -1,5 +1,6 @@
 import { downloadersLogger } from "../logger.js";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
+import type { DownloadFile } from "@shared/schema.js";
 
 export const DOWNLOAD_CLIENT_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
@@ -130,4 +131,24 @@ export async function fetchWithMagnetDetection(
   }
 
   throw new Error(`Too many redirects (max ${maxRedirects})`);
+}
+
+/**
+ * Resolves the path segment (relative to a download's downloadDir) that
+ * actually holds its content on disk.
+ *
+ * Torrent clients only create a subfolder named after the torrent for
+ * multi-file torrents. A single-file torrent (with "original" content
+ * layout) is saved directly in downloadDir under its own filename, which
+ * can differ from the torrent's display name — using the torrent name in
+ * that case points at a subfolder that never existed.
+ */
+export function resolveDownloadRelativePath(details: {
+  name: string;
+  files?: DownloadFile[];
+}): string {
+  if (details.files?.length === 1 && details.files[0].name) {
+    return details.files[0].name;
+  }
+  return details.name;
 }

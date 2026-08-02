@@ -54,4 +54,39 @@ describe("Logger Module", () => {
 
     expect(loggerModule.logger.level).toBe("debug");
   });
+
+  it("configures the pino-pretty stdout target outside of production", async () => {
+    process.env.NODE_ENV = "development";
+
+    const pinoModule = await import("pino");
+    const transportSpy = vi.spyOn(pinoModule.default, "transport");
+
+    await import("../logger.js");
+
+    expect(transportSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targets: expect.arrayContaining([expect.objectContaining({ target: "pino-pretty" })]),
+      })
+    );
+  });
+
+  it("configures the raw stdout file target when NODE_ENV is production", async () => {
+    process.env.NODE_ENV = "production";
+
+    const pinoModule = await import("pino");
+    const transportSpy = vi.spyOn(pinoModule.default, "transport");
+
+    await import("../logger.js");
+
+    expect(transportSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targets: expect.arrayContaining([
+          expect.objectContaining({
+            target: "pino/file",
+            options: expect.objectContaining({ destination: 1 }),
+          }),
+        ]),
+      })
+    );
+  });
 });

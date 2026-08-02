@@ -1,4 +1,4 @@
-import express, { type Express, type Request, type Response } from "express";
+import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage.js";
 import { igdbClient } from "./igdb.js";
@@ -51,6 +51,10 @@ import {
   sanitizeDownloaderUpdateData,
   sanitizeDownloaderDownloadData,
   sanitizeIndexerSearchQuery,
+  sanitizeGameStatusParam,
+  sanitizeMatchAndAddTitle,
+  sanitizeNexusModsGameDomainQuery,
+  sanitizeNexusModsTrendingModsQuery,
 } from "./middleware.js";
 import { config as appConfig } from "./config.js";
 import { configLoader } from "./config-loader.js";
@@ -614,6 +618,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     if (!user || !passwordMatches) {
+      routesLogger.warn({ username: trimmedUsername, ip: req.ip }, "Failed login attempt");
       return res.status(401).json({ error: "Invalid username or password" });
     }
 
@@ -1170,22 +1175,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get games by status
-  app.get("/api/games/status/:status", async (req, res) => {
-    try {
-      const { status } = req.params;
-      const { includeHidden } = req.query;
+  app.get(
+    "/api/games/status/:status",
+    sanitizeGameStatusParam,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const { status } = req.params;
+        const { includeHidden } = req.query;
 
-      const userId = req.user!.id;
-      const showHidden = includeHidden === "true";
+        const userId = req.user!.id;
+        const showHidden = includeHidden === "true";
 
-      let games = await storage.getUserGamesByStatus(userId, status, showHidden);
-      games = await applyContentFilter(userId, games);
-      res.json(games);
-    } catch (error) {
-      routesLogger.error({ error }, "error fetching games by status");
-      res.status(500).json({ error: "Failed to fetch games" });
+        let games = await storage.getUserGamesByStatus(userId, status, showHidden);
+        games = await applyContentFilter(userId, games);
+        res.json(games);
+      } catch (error) {
+        routesLogger.error({ error }, "error fetching games by status");
+        res.status(500).json({ error: "Failed to fetch games" });
+      }
     }
-  });
+  );
 
   // Search user's collection
   app.get(
@@ -2269,41 +2279,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Search specific indexer
-  app.get("/api/indexers/:id/search", async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { query, category, cat, limit = 50, offset = 0 } = req.query;
+  app.get(
+    "/api/indexers/:id/search",
+    sanitizeIndexerSearchQuery,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const { id } = req.params;
+        const { query, category, cat, limit = 50, offset = 0 } = req.query;
 
-      if (!query || typeof query !== "string") {
-        return res.status(400).json({ error: "Search query required" });
+        if (!query || typeof query !== "string") {
+          return res.status(400).json({ error: "Search query required" });
+        }
+
+        const indexer = await storage.getIndexer(id);
+        if (!indexer) {
+          return res.status(404).json({ error: "Indexer not found" });
+        }
+
+        const trimmedQuery = query.trim();
+        const isG4u = indexer.protocol === "g4u";
+        const searchParams = {
+          query: isG4u ? trimmedQuery.replace(/ /g, ".") : trimmedQuery,
+          category: parseCategories(category || cat),
+          limit: parseInt(limit as string) || 50,
+          offset: parseInt(offset as string) || 0,
+        };
+
+        let results;
+        if (isUsenetProtocol(indexer.protocol)) {
+          results = await newznabClient.search(indexer, searchParams);
+        } else {
+          results = await torznabClient.searchGames(indexer, searchParams);
+        }
+        res.json(results);
+      } catch (error) {
+        routesLogger.error({ error }, "error searching specific indexer");
+        res.status(500).json({ error: "Failed to search indexer" });
       }
-
-      const indexer = await storage.getIndexer(id);
-      if (!indexer) {
-        return res.status(404).json({ error: "Indexer not found" });
-      }
-
-      const trimmedQuery = query.trim();
-      const isG4u = indexer.protocol === "g4u";
-      const searchParams = {
-        query: isG4u ? trimmedQuery.replace(/ /g, ".") : trimmedQuery,
-        category: parseCategories(category || cat),
-        limit: parseInt(limit as string) || 50,
-        offset: parseInt(offset as string) || 0,
-      };
-
-      let results;
-      if (isUsenetProtocol(indexer.protocol)) {
-        results = await newznabClient.search(indexer, searchParams);
-      } else {
-        results = await torznabClient.searchGames(indexer, searchParams);
-      }
-      res.json(results);
-    } catch (error) {
-      routesLogger.error({ error }, "error searching specific indexer");
-      res.status(500).json({ error: "Failed to search indexer" });
     }
-  });
+  );
 
   // Downloader integration routes
 
@@ -3764,77 +3779,79 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Match and add game from name (Quick Add)
-  app.post("/api/games/match-and-add", async (req, res, next) => {
-    try {
-      const { title } = req.body;
-      if (!title || typeof title !== "string") {
-        return res.status(400).json({ error: "Title is required" });
+  app.post(
+    "/api/games/match-and-add",
+    sanitizeMatchAndAddTitle,
+    validateRequest,
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const { title } = req.body;
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const userId = (req as any).user.id;
+
+        // 1. Search IGDB for the title
+        const igdbResults = await igdbClient.searchGames(title, 1);
+        if (igdbResults.length === 0) {
+          return res.status(404).json({ error: "No game found on IGDB for this title" });
+        }
+
+        const match = igdbResults[0];
+        const formattedMatch = igdbClient.formatGameData(match);
+        const quickAddFilterFlags = await getContentFilterFlags(userId);
+        if (
+          isContentFiltered(
+            formattedMatch as { isAdultContent?: boolean; isAgeRestricted?: boolean },
+            quickAddFilterFlags
+          )
+        ) {
+          return res.status(404).json({ error: "Game not found" });
+        }
+
+        // 2. Add to library (similar to POST /api/games)
+        const gameData = insertGameSchema.parse({
+          userId,
+          title: formattedMatch.title,
+          igdbId: formattedMatch.igdbId,
+          status: "wanted", // Default status for quick add
+          platform: "PC", // Default platform, user can change later
+          platforms: formattedMatch.platforms,
+          genres: formattedMatch.genres,
+          themes: formattedMatch.themes,
+          isAdultContent: formattedMatch.isAdultContent,
+          isAgeRestricted: formattedMatch.isAgeRestricted,
+          coverUrl: formattedMatch.coverUrl,
+          releaseDate: formattedMatch.releaseDate,
+          summary: formattedMatch.summary,
+          publishers: formattedMatch.publishers,
+          developers: formattedMatch.developers,
+          screenshots: formattedMatch.screenshots,
+          rating: formattedMatch.rating,
+        });
+
+        // Check for existing
+        const userGames = await storage.getUserGames(userId, true);
+        const existingGame = userGames.find((g) =>
+          gameData.igdbId != null
+            ? g.igdbId === gameData.igdbId
+            : g.title.toLowerCase() === gameData.title.toLowerCase()
+        );
+
+        if (existingGame) {
+          return res.status(409).json({ error: "Game already in collection", game: existingGame });
+        }
+
+        const game = await storage.addGame(gameData);
+        routesLogger.info(
+          { userId, title: game.title, igdbId: game.igdbId },
+          "Game quick-added from matching"
+        );
+        res.status(201).json(game);
+      } catch (error) {
+        next(error);
       }
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const userId = (req as any).user.id;
-
-      // 1. Search IGDB for the title
-      const igdbResults = await igdbClient.searchGames(title, 1);
-      if (igdbResults.length === 0) {
-        return res.status(404).json({ error: "No game found on IGDB for this title" });
-      }
-
-      const match = igdbResults[0];
-      const formattedMatch = igdbClient.formatGameData(match);
-      const quickAddFilterFlags = await getContentFilterFlags(userId);
-      if (
-        isContentFiltered(
-          formattedMatch as { isAdultContent?: boolean; isAgeRestricted?: boolean },
-          quickAddFilterFlags
-        )
-      ) {
-        return res.status(404).json({ error: "Game not found" });
-      }
-
-      // 2. Add to library (similar to POST /api/games)
-      const gameData = insertGameSchema.parse({
-        userId,
-        title: formattedMatch.title,
-        igdbId: formattedMatch.igdbId,
-        status: "wanted", // Default status for quick add
-        platform: "PC", // Default platform, user can change later
-        platforms: formattedMatch.platforms,
-        genres: formattedMatch.genres,
-        themes: formattedMatch.themes,
-        isAdultContent: formattedMatch.isAdultContent,
-        isAgeRestricted: formattedMatch.isAgeRestricted,
-        coverUrl: formattedMatch.coverUrl,
-        releaseDate: formattedMatch.releaseDate,
-        summary: formattedMatch.summary,
-        publishers: formattedMatch.publishers,
-        developers: formattedMatch.developers,
-        screenshots: formattedMatch.screenshots,
-        rating: formattedMatch.rating,
-      });
-
-      // Check for existing
-      const userGames = await storage.getUserGames(userId, true);
-      const existingGame = userGames.find((g) =>
-        gameData.igdbId != null
-          ? g.igdbId === gameData.igdbId
-          : g.title.toLowerCase() === gameData.title.toLowerCase()
-      );
-
-      if (existingGame) {
-        return res.status(409).json({ error: "Game already in collection", game: existingGame });
-      }
-
-      const game = await storage.addGame(gameData);
-      routesLogger.info(
-        { userId, title: game.title, igdbId: game.igdbId },
-        "Game quick-added from matching"
-      );
-      res.status(201).json(game);
-    } catch (error) {
-      next(error);
     }
-  });
+  );
 
   // RSS Feeds Routes
   app.get("/api/rss/feeds", async (req, res) => {
@@ -4026,38 +4043,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ── NexusMods game lookup ─────────────────────────────────────────────────────
 
-  app.get("/api/nexusmods/game-domain", async (req, res) => {
-    try {
-      const title = typeof req.query.title === "string" ? req.query.title.trim() : "";
-      if (!title) {
-        return res.status(400).json({ error: "title query parameter is required" });
+  app.get(
+    "/api/nexusmods/game-domain",
+    sanitizeNexusModsGameDomainQuery,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const title = (req.query.title as string).trim();
+        if (!nexusmodsClient.isConfigured()) {
+          return res.json({ configured: false, domain: null });
+        }
+        const domain = await nexusmodsClient.findGameDomain(title);
+        res.json({ configured: true, domain });
+      } catch (error) {
+        routesLogger.error({ error }, "Failed to look up NexusMods game domain");
+        res.status(500).json({ error: "Failed to look up NexusMods game domain" });
       }
-      if (!nexusmodsClient.isConfigured()) {
-        return res.json({ configured: false, domain: null });
-      }
-      const domain = await nexusmodsClient.findGameDomain(title);
-      res.json({ configured: true, domain });
-    } catch (error) {
-      routesLogger.error({ error }, "Failed to look up NexusMods game domain");
-      res.status(500).json({ error: "Failed to look up NexusMods game domain" });
     }
-  });
+  );
 
-  app.get("/api/nexusmods/trending-mods", async (req, res) => {
-    try {
-      const domain = typeof req.query.domain === "string" ? req.query.domain.trim() : "";
-      if (!domain) {
-        return res.status(400).json({ error: "domain query parameter is required" });
+  app.get(
+    "/api/nexusmods/trending-mods",
+    sanitizeNexusModsTrendingModsQuery,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const domain = (req.query.domain as string).trim();
+        const limit = req.query.limit ? Number(req.query.limit) : 10;
+        const mods = await nexusmodsClient.getTrendingMods(domain, limit);
+        res.json(mods);
+      } catch (error) {
+        routesLogger.error({ error }, "Failed to fetch NexusMods trending mods");
+        res.status(500).json({ error: "Failed to fetch NexusMods trending mods" });
       }
-      const limitRaw = typeof req.query.limit === "string" ? parseInt(req.query.limit, 10) : 10;
-      const limit = Number.isNaN(limitRaw) || limitRaw < 1 ? 10 : Math.min(limitRaw, 20);
-      const mods = await nexusmodsClient.getTrendingMods(domain, limit);
-      res.json(mods);
-    } catch (error) {
-      routesLogger.error({ error }, "Failed to fetch NexusMods trending mods");
-      res.status(500).json({ error: "Failed to fetch NexusMods trending mods" });
     }
-  });
+  );
 
   // Reverse-proxy subdirectory support: when QUESTARR_BASE_PATH is set
   // (e.g. "/Questarr"), mount the whole app under that prefix so it can be

@@ -3,6 +3,7 @@ import { igdbClient, IGDB_EARLY_ACCESS_STATUS } from "./igdb.js";
 import { igdbLogger } from "./logger.js";
 import { notifyUser } from "./socket.js";
 import { DownloaderManager } from "./downloaders.js";
+import { resolveDownloadRelativePath } from "./downloaders/utils.js";
 import { torznabClient } from "./torznab.js";
 import { newznabClient } from "./newznab.js";
 import { searchAllIndexers, filterBlacklistedReleases, type SearchItem } from "./search.js";
@@ -641,7 +642,10 @@ export async function checkDownloadStatus() {
                 download.downloadHash
               );
               if (details?.downloadDir) {
-                const remoteImportPath = buildRemoteImportPath(details.downloadDir, details.name);
+                const remoteImportPath = buildRemoteImportPath(
+                  details.downloadDir,
+                  resolveDownloadRelativePath(details)
+                );
                 try {
                   await importManager.processImport(download.id, remoteImportPath);
                 } catch (error) {

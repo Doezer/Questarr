@@ -470,8 +470,45 @@ export const sanitizeIndexerSearchQuery = [
     .toInt(),
   query("offset")
     .optional()
-    .isInt({ min: 0 })
-    .withMessage("Offset must be a non-negative integer")
+    .isInt({ min: 0, max: Number.MAX_SAFE_INTEGER })
+    .withMessage("Offset must be a non-negative integer within safe bounds")
+    .toInt(),
+];
+
+// Sanitization rules for the game-status route param
+export const sanitizeGameStatusParam = [
+  param("status")
+    .trim()
+    .isIn(["wanted", "owned", "shelved", "completed", "downloading"])
+    .withMessage("Invalid status value"),
+];
+
+// Sanitization rules for the Quick Add (match-and-add) title
+export const sanitizeMatchAndAddTitle = [
+  body("title")
+    .trim()
+    .isLength({ min: 1, max: 500 })
+    .withMessage("Title must be between 1 and 500 characters"),
+];
+
+// Sanitization rules for NexusMods game-domain lookup
+export const sanitizeNexusModsGameDomainQuery = [
+  query("title")
+    .trim()
+    .isLength({ min: 1, max: 500 })
+    .withMessage("title must be between 1 and 500 characters"),
+];
+
+// Sanitization rules for NexusMods trending-mods lookup
+export const sanitizeNexusModsTrendingModsQuery = [
+  query("domain")
+    .trim()
+    .isLength({ min: 1, max: 200 })
+    .withMessage("domain must be between 1 and 200 characters"),
+  query("limit")
+    .optional()
+    .isInt({ min: 1, max: 20 })
+    .withMessage("limit must be between 1 and 20")
     .toInt(),
 ];
 

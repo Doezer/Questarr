@@ -30,28 +30,39 @@ class LogBroadcaster extends Writable {
 }
 
 const isProduction = process.env.NODE_ENV === "production";
+const isTest = process.env.NODE_ENV === "test";
 
-// Configure pino with multiple targets
-const transport = pino.transport({
-  targets: [
-    {
-      target: "pino/file",
-      options: { destination: "./server.log", mkdir: true },
-    },
-    isProduction
-      ? {
-          target: "pino/file",
-          options: { destination: 1 }, // stdout
-        }
-      : {
-          target: "pino-pretty",
-          options: {
-            colorize: true,
-            destination: 1, // stdout
-          },
-        },
-  ],
-});
+// Tests import this module in every server test file. The full transport pipeline below
+// spawns worker threads per target (file + pino-pretty) and writes to a shared server.log,
+// which across a full multi-file test run compounds into vitest's own worker/fork teardown
+// and can overflow its IPC layer. Skip it in tests and broadcast in-process only.
+const destination = isTest
+  ? pino.multistream([{ stream: new LogBroadcaster(), level: "trace" }])
+  : pino.multistream([
+      {
+        stream: pino.transport({
+          targets: [
+            {
+              target: "pino/file",
+              options: { destination: "./server.log", mkdir: true },
+            },
+            isProduction
+              ? {
+                  target: "pino/file",
+                  options: { destination: 1 }, // stdout
+                }
+              : {
+                  target: "pino-pretty",
+                  options: {
+                    colorize: true,
+                    destination: 1, // stdout
+                  },
+                },
+          ],
+        }),
+      },
+      { stream: new LogBroadcaster(), level: "trace" },
+    ]);
 
 export const logger = pino(
   {
@@ -59,7 +70,7 @@ export const logger = pino(
     timestamp: pino.stdTimeFunctions.isoTime,
     base: undefined,
   },
-  pino.multistream([{ stream: transport }, { stream: new LogBroadcaster(), level: "trace" }])
+  destination
 );
 
 // Create child loggers for different modules

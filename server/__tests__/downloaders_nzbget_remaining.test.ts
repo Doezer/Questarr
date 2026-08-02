@@ -202,6 +202,64 @@ describe("NZBGet remaining coverage", () => {
     await expect(privateClient.getFromHistory("6")).resolves.toBeNull();
   });
 
+  it.each(["SUCCESS/GOOD", "SUCCESS/UNPACK", "SUCCESS/HEALTH", "SUCCESS/ALL"])(
+    "treats history status %s as completed",
+    async (historyStatus) => {
+      const client = new NZBGetClient(createDownloader());
+      const privateClient = client as unknown as {
+        makeXMLRPCRequest: (method: string, params?: unknown[]) => Promise<unknown>;
+        getFromHistory: (id: string) => Promise<unknown>;
+      };
+      vi.spyOn(privateClient, "makeXMLRPCRequest").mockResolvedValueOnce([
+        {
+          NZBID: 7,
+          Name: "Finished Game",
+          Status: historyStatus,
+          FileSizeMB: 20,
+          Category: "games",
+          DownloadTimeSec: 90,
+          ParStatus: "NONE",
+          UnpackStatus: "NONE",
+          FailedArticles: 0,
+          DeleteStatus: "NONE",
+          DestDir: "/downloads",
+        },
+      ]);
+
+      await expect(privateClient.getFromHistory("7")).resolves.toMatchObject({
+        status: "completed",
+        progress: 100,
+      });
+    }
+  );
+
+  it("does not treat an unrelated overall status as completed", async () => {
+    const client = new NZBGetClient(createDownloader());
+    const privateClient = client as unknown as {
+      makeXMLRPCRequest: (method: string, params?: unknown[]) => Promise<unknown>;
+      getFromHistory: (id: string) => Promise<unknown>;
+    };
+    vi.spyOn(privateClient, "makeXMLRPCRequest").mockResolvedValueOnce([
+      {
+        NZBID: 8,
+        Name: "Unknown Status Game",
+        Status: "SUCCESSFUL/NOTAREALSTATUS",
+        FileSizeMB: 20,
+        Category: "games",
+        DownloadTimeSec: 90,
+        ParStatus: "NONE",
+        UnpackStatus: "NONE",
+        FailedArticles: 0,
+        DeleteStatus: "NONE",
+        DestDir: "/downloads",
+      },
+    ]);
+
+    await expect(privateClient.getFromHistory("8")).resolves.toMatchObject({
+      status: "error",
+    });
+  });
+
   it("covers detail and queue error fallbacks", async () => {
     const client = new NZBGetClient(createDownloader());
     const statusSpy = vi.spyOn(client, "getDownloadStatus");

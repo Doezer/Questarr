@@ -405,7 +405,12 @@ export class NZBGetClient implements DownloaderClient {
       let repairStatus: DownloadStatus["repairStatus"];
       let unpackStatus: DownloadStatus["unpackStatus"];
 
-      if (item.Status === "SUCCESS/ALL") {
+      // NZBGet's history Status field is "<overall>/<detail>", where the detail
+      // suffix varies depending on which post-processing step it last reflects
+      // (e.g. "SUCCESS/ALL", "SUCCESS/GOOD", "SUCCESS/UNPACK", "SUCCESS/HEALTH",
+      // "SUCCESS/COPY", "SUCCESS/MARK"). Matching only "SUCCESS/ALL" caused
+      // legitimately completed downloads to be reported as failed/aborted.
+      if (item.Status.startsWith("SUCCESS/")) {
         status = "completed";
         repairStatus =
           item.ParStatus === "SUCCESS" || item.ParStatus === "NONE" ? "good" : "failed";

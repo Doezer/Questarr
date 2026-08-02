@@ -176,6 +176,9 @@ export default function SetupPage() {
                         />
                       </FormControl>
                     </div>
+                    <FormDescription>
+                      At least 8 characters, including one letter and one number.
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}

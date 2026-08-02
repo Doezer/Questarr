@@ -118,14 +118,18 @@ docker run -d -p 5000:5000 -v ./data:/app/data --name questarr ghcr.io/doezer/qu
 <details>
 <summary><b>Install via Community Applications</b></summary>
 
-Questarr ships an official Community Applications template ([`unraid/questarr.xml`](unraid/questarr.xml)):
+Questarr ships an official Community Applications template ([`unraid/questarr.xml`](unraid/questarr.xml)). It
+isn't in the default Community Applications search index yet, so searching for "Questarr" in the **Apps** tab
+may only surface Unraid's auto-generated placeholder for the Docker Hub/GHCR image (no icon, generic
+category) rather than the maintained template below — install via the template URL instead:
 
-1. In the UNRAID web UI, open the **Apps** tab and search for **Questarr**.
-2. If it doesn't show up there yet, go to **Docker → Add Container**, enable **Template repositories**, and a
-   dd:
+1. Go to **Docker → Add Container**, enable **Template repositories**, and add:
    `https://raw.githubusercontent.com/Doezer/Questarr/main/unraid/questarr.xml`
-3. Set your **Data Path** (default `/mnt/user/appdata/questarr`), **PUID**/**PGID**, and ports (default `5000
-` HTTP, `9898` HTTPS).
+2. Set your **Data Path** (default `/mnt/user/appdata/questarr`), **PUID**/**PGID**, and ports (default `5000`
+   HTTP, `9898` HTTPS).
+3. Optionally set **Library Path** to the same root your download client(s) write into (e.g.
+   `/mnt/user/data`) if you want Questarr to move completed downloads into your game library — pair it with a
+   matching mapping under **Settings → Path Mappings**. Leave it blank if you manage imports manually.
 4. Apply, then open `http://<unraid-host>:5000` to access the UI.
 
 </details>
@@ -164,6 +168,7 @@ Your central hub for recent activity, collection overview and downloading availa
 ### Wishlist & Release calendar
 
 Manage your wanted games and when they release.
+
 <p float="left">
   <a href="images/Screenshots/wishlist.png"><img src="images/Screenshots/wishlist.png" width="49%" /></a>
   <a href="images/Screenshots/calendar.png"><img src="images/Screenshots/calendar.png" width="49%" /></a>
@@ -292,6 +297,7 @@ If you are upgrading from an older version that used PostgreSQL, you need to mig
    ```
 
 See [docs/MIGRATION.md](docs/MIGRATION.md) for more details.
+
 </details>
 
 <details>

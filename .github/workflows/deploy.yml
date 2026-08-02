@@ -187,6 +187,58 @@ jobs:
           target: production
           sbom: true
 
+      - name: Prune stale test-sha GHCR tags (keep 15 days)
+        if: github.event_name == 'schedule' && env.ENVIRONMENT == 'dev'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          PACKAGE_NAME: ${{ env.REPO_NAME_LC }}
+        run: |
+          set -euo pipefail
+
+          cutoff_epoch=$(date -u -d '15 days ago' +%s)
+          deleted_count=0
+
+          if gh api "/orgs/${OWNER}/packages/container/${PACKAGE_NAME}/versions?per_page=1" >/dev/null 2>&1; then
+            package_api="/orgs/${OWNER}/packages/container/${PACKAGE_NAME}"
+          else
+            package_api="/users/${OWNER}/packages/container/${PACKAGE_NAME}"
+          fi
+
+          # Every non-dev test build adds a `test-sha-<hash>` tag that never
+          # goes untagged, so the digest-based prune below never reclaims it -
+          # left alone, this list grows forever. Only delete a version here if
+          # ALL of its current tags match that auto-generated pattern; a
+          # version that also carries "latest", a `production-sha-*` tag, or
+          # any human-chosen tag (a release like v1.3.0, a custom
+          # workflow_dispatch tag like test-xxx, ...) is always kept.
+          while IFS=$'\t' read -r version_id created_at tags_json; do
+            all_auto=true
+            while IFS= read -r t; do
+              [ -z "$t" ] && continue
+              if ! [[ "$t" =~ ^test-sha-[0-9a-f]+$ ]]; then
+                all_auto=false
+                break
+              fi
+            done < <(jq -r '.[]' <<< "${tags_json}")
+
+            if [ "${all_auto}" != true ]; then
+              continue
+            fi
+
+            created_epoch=$(date -u -d "${created_at}" +%s)
+            if [ "${created_epoch}" -lt "${cutoff_epoch}" ]; then
+              echo "Deleting stale test-sha version ${version_id} (${created_at}, tags: ${tags_json})"
+              gh api -X DELETE "${package_api}/versions/${version_id}"
+              deleted_count=$((deleted_count + 1))
+            fi
+          done < <(
+            gh api --paginate "${package_api}/versions?per_page=100" \
+              --jq '.[] | select((.metadata.container.tags // []) | length > 0) | "\(.id)\t\(.created_at)\t\(.metadata.container.tags | tojson)"'
+          )
+
+          echo "Pruned ${deleted_count} stale test-sha GHCR tag(s)."
+
       - name: Prune old GHCR package versions (keep 15 days)
         if: github.event_name == 'schedule' && env.ENVIRONMENT == 'dev'
         env:

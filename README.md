@@ -118,12 +118,9 @@ docker run -d -p 5000:5000 -v ./data:/app/data --name questarr ghcr.io/doezer/qu
 <details>
 <summary><b>Install via Unraid template</b></summary>
 
-Questarr ships an official Community Applications template ([`unraid/questarr.xml`](unraid/questarr.xml)). It
-isn't in the default Community Applications search index yet, so searching for "Questarr" in the **Apps** tab
-may only surface Unraid's auto-generated placeholder for the Docker Hub/GHCR image (no icon, generic
-category) rather than the maintained template below. Unraid 6.10+ also removed the old "Template
-repositories" URL field from **Docker → Add Container**, so install the template as a local user template
-instead:
+Questarr ships an official Community Applications template ([`unraid/questarr.xml`](unraid/questarr.xml)).
+Unraid 6.10+ removed the old "Template repositories" URL field from **Docker → Add Container**, so install
+the template as a local user template instead:
 
 1. Save the template to your flash drive's `templates-user` folder, e.g. from the Unraid terminal:
 

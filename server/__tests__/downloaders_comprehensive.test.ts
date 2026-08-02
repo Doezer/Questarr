@@ -698,6 +698,36 @@ describe("Downloader Comprehensive Tests", () => {
       expect(result.success).toBe(false);
       expect(result.message).toContain("Failed to fetch NZB");
     });
+
+    it("should fall back to the downloader's configured category when the request has none", async () => {
+      const downloaderWithCategory: Downloader = { ...downloader, category: "questarr" };
+
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        text: async () => "nzb content",
+      });
+
+      const xmlResponse = `
+        <?xml version="1.0"?>
+        <methodResponse>
+          <params><param><value><i4>456</i4></value></param></params>
+        </methodResponse>
+      `;
+
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        text: async () => xmlResponse,
+      });
+
+      const result = await DownloaderManager.addDownload(downloaderWithCategory, {
+        url: "http://example.com/test.nzb",
+        title: "Test NZB",
+        downloadType: "usenet",
+      });
+
+      expect(result.success).toBe(true);
+      expect(fetchMock.mock.calls[1][1].body).toContain("<string>questarr</string>");
+    });
   });
 
   // ==================== addDownloadWithFallback Tests ====================

@@ -288,10 +288,12 @@ export class NZBGetClient implements DownloaderClient {
       const nzbContent = await nzbResponse.text();
       const base64Content = Buffer.from(nzbContent).toString("base64");
 
+      const category = request.category || this.downloader.category || "";
+
       const nzbId = (await this.makeXMLRPCRequest("append", [
         request.title || "download.nzb",
         base64Content,
-        request.category || "",
+        category,
         request.priority || 0,
         false, // AddToTop
         false, // AddPaused

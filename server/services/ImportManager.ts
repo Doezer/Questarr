@@ -9,6 +9,7 @@ import {
   sanitizeFsName,
 } from "./ImportStrategies.js";
 import { DownloaderManager } from "../downloaders.js";
+import { resolveDownloadRelativePath } from "../downloaders/utils.js";
 import fs from "fs-extra";
 import path from "node:path";
 import { parseReleaseMetadata } from "../../shared/title-utils.js";
@@ -457,7 +458,7 @@ export class ImportManager {
     const details = await DownloaderManager.getDownloadDetails(downloader, download.downloadHash);
     if (!details?.downloadDir) return undefined;
 
-    const remotePath = `${details.downloadDir}/${details.name}`;
+    const remotePath = `${details.downloadDir}/${resolveDownloadRelativePath(details)}`;
     const remoteHost = this.extractRemoteHost(downloader.url);
     return this.pathService.translatePath(remotePath, remoteHost);
   }

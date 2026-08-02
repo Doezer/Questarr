@@ -410,7 +410,7 @@ export class NZBGetClient implements DownloaderClient {
       // (e.g. "SUCCESS/ALL", "SUCCESS/GOOD", "SUCCESS/UNPACK", "SUCCESS/HEALTH",
       // "SUCCESS/COPY", "SUCCESS/MARK"). Matching only "SUCCESS/ALL" caused
       // legitimately completed downloads to be reported as failed/aborted.
-      if (item.Status.startsWith("SUCCESS")) {
+      if (item.Status.startsWith("SUCCESS/")) {
         status = "completed";
         repairStatus =
           item.ParStatus === "SUCCESS" || item.ParStatus === "NONE" ? "good" : "failed";

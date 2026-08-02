@@ -189,6 +189,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OWNER: ${{ github.repository_owner }}
           PACKAGE_NAME: ${{ env.REPO_NAME_LC }}
+          REPO_LC: ${{ env.REPO_LC }}
         run: |
           set -euo pipefail
 
@@ -201,7 +202,32 @@ jobs:
             package_api="/users/${OWNER}/packages/container/${PACKAGE_NAME}"
           fi
 
-          while IFS=$'\t' read -r version_id created_at; do
+          # Because the build enables `sbom: true`, buildx pushes every tag
+          # (even single-platform ones) as an OCI index containing the image
+          # manifest plus an attestation manifest. Only the index carries a
+          # tag - its children show up here as "untagged" versions even
+          # though a live tag still points at them. Deleting those once they
+          # age past the cutoff leaves the tag's index referencing content
+          # that no longer exists, breaking `docker pull` with a
+          # "manifest ... not found" error. Build the set of digests
+          # referenced by any currently tagged manifest and never delete
+          # those, regardless of age.
+          echo "Collecting digests referenced by tagged manifests..."
+          referenced_digests=$(mktemp)
+          tagged_names=$(gh api --paginate "${package_api}/versions?per_page=100" \
+            --jq '.[] | (.metadata.container.tags // [])[]' | sort -u)
+
+          for tag in ${tagged_names}; do
+            docker buildx imagetools inspect "ghcr.io/${REPO_LC}:${tag}" --raw 2>/dev/null \
+              | jq -r '.manifests[]?.digest // empty' >> "${referenced_digests}" || true
+          done
+          sort -u -o "${referenced_digests}" "${referenced_digests}"
+
+          while IFS=$'\t' read -r version_id created_at digest; do
+            if grep -qxF "${digest}" "${referenced_digests}"; then
+              echo "Skipping ${digest} (still referenced by a tagged manifest)"
+              continue
+            fi
             created_epoch=$(date -u -d "${created_at}" +%s)
             if [ "${created_epoch}" -lt "${cutoff_epoch}" ]; then
               echo "Deleting untagged version ${version_id} (${created_at})"
@@ -210,9 +236,10 @@ jobs:
             fi
           done < <(
             gh api --paginate "${package_api}/versions?per_page=100" \
-              --jq '.[] | select(((.metadata.container.tags // []) | length) == 0) | "\(.id)\t\(.created_at)"'
+              --jq '.[] | select(((.metadata.container.tags // []) | length) == 0) | "\(.id)\t\(.created_at)\t\(.name)"'
           )
 
+          rm -f "${referenced_digests}"
           echo "Pruned ${deleted_count} old GHCR package version(s)."
 
       - name: Generate SBOM

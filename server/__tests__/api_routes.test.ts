@@ -500,6 +500,31 @@ describe("API Routes - Extended Coverage", () => {
       expect(response.body).toEqual(savedGame);
     });
 
+    it("marks an already-released game as released when adding it", async () => {
+      const newGame = {
+        title: "Previously Released Game",
+        igdbId: 12346,
+        platform: "PC",
+        releaseDate: "2020-01-01",
+      };
+      const savedGame = {
+        ...newGame,
+        id: "game-released",
+        userId: "user-1",
+        releaseStatus: "released",
+      };
+
+      vi.mocked(storage.getUserGames).mockResolvedValue([]);
+      vi.mocked(storage.addGame).mockResolvedValue(savedGame as unknown as Game);
+
+      const response = await request(app).post("/api/games").send(newGame);
+
+      expect(response.status).toBe(201);
+      expect(storage.addGame).toHaveBeenCalledWith(
+        expect.objectContaining({ releaseStatus: "released" })
+      );
+    });
+
     it("should prevent duplicate games", async () => {
       const gameData = { title: "Dup Game", igdbId: 100, platform: "PC" };
       const existingGame = { ...gameData, id: "game-100", userId: "user-1" };

@@ -3,6 +3,13 @@
 FROM node@sha256:c9f02360d2bc66e709b300214395588acd2d3603f600db8141117e67c0faf4ff AS base
 WORKDIR /app
 
+# better-sqlite3 bundles a prebuilt binary for this platform, so no C++
+# compilation ever happens, but npm's implicit `node-gyp rebuild` still runs
+# unconditionally on install (before it evaluates the prebuild and no-ops the
+# actual build), and node-gyp's configure step is Python-based, so Python and
+# a toolchain remain required regardless.
+RUN apk add --no-cache g++ make python3
+
 COPY package*.json ./
 RUN npm ci
 

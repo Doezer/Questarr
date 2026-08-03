@@ -78,7 +78,7 @@ jobs:
 
   build-and-push:
     runs-on: ubuntu-latest
-    environment: ${{ github.event_name == 'schedule' && 'dev' || inputs.environment || 'production' }}
+    environment: ${{ github.event_name == 'schedule' && 'dev' || inputs.environment || 'dev' }}
     needs: sca-gate
     permissions:
       contents: read

@@ -1137,9 +1137,21 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                   <div className="flex items-start justify-between gap-2">
                                     <div className="flex-1 min-w-0">
                                       <div className="flex items-start gap-1.5 min-w-0">
-                                        <h4 className="font-semibold text-sm leading-snug break-all line-clamp-2 min-w-0 flex-1">
-                                          {download.title}
-                                        </h4>
+                                        {download.comments ? (
+                                          <a
+                                            href={download.comments}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="font-semibold text-sm leading-snug break-all line-clamp-2 min-w-0 flex-1 hover:underline cursor-pointer"
+                                            onClick={(event) => event.stopPropagation()}
+                                          >
+                                            {download.title}
+                                          </a>
+                                        ) : (
+                                          <h4 className="font-semibold text-sm leading-snug break-all line-clamp-2 min-w-0 flex-1">
+                                            {download.title}
+                                          </h4>
+                                        )}
                                         {isNew && (
                                           <Badge
                                             variant="default"
@@ -1241,9 +1253,21 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                     </TooltipContent>
                                   </Tooltip>
 
-                                  <h4 className="font-bold text-base leading-tight break-words min-w-0">
-                                    {download.title}
-                                  </h4>
+                                  {download.comments ? (
+                                    <a
+                                      href={download.comments}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="font-bold text-base leading-tight break-words min-w-0 hover:underline cursor-pointer"
+                                      onClick={(event) => event.stopPropagation()}
+                                    >
+                                      {download.title}
+                                    </a>
+                                  ) : (
+                                    <h4 className="font-bold text-base leading-tight break-words min-w-0">
+                                      {download.title}
+                                    </h4>
+                                  )}
 
                                   {isNew && (
                                     <Badge

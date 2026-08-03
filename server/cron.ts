@@ -89,7 +89,7 @@ interface AutoSearchCategorizedItems {
 function getAutoSearchRules(downloadRules: string | null): AutoSearchRules {
   let minSeeders = 0;
   let sortBy: DownloadSortBy = "seeders";
-  let visibleCategoriesSet = new Set(["main", "update", "dlc", "extra"]);
+  let visibleCategoriesSet = new Set(["main", "update", "dlc", "extra", "packs"]);
 
   if (downloadRules) {
     const parsed = JSON.parse(downloadRules);

@@ -240,7 +240,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [showFilters, setShowFilters] = useState(false);
   const [visibleCategories, setVisibleCategories] = useState<Set<DownloadCategory>>(
-    new Set(["main", "update", "dlc", "extra"] as DownloadCategory[])
+    new Set(["main", "update", "dlc", "extra", "packs"] as DownloadCategory[])
   );
   const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
@@ -265,7 +265,9 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     setSortBy("seeders");
     setSortOrder("desc");
     setShowFilters(false);
-    setVisibleCategories(new Set(["main", "update", "dlc", "extra"] as DownloadCategory[]));
+    setVisibleCategories(
+      new Set(["main", "update", "dlc", "extra", "packs"] as DownloadCategory[])
+    );
     setSelectedGroups([]);
     setSelectedPlatforms([]);
     defaultsAppliedRef.current = false;
@@ -359,7 +361,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
 
   // Categorize downloads
   const categorizedDownloads = useMemo(() => {
-    if (!searchResults?.items) return { main: [], update: [], dlc: [], extra: [] };
+    if (!searchResults?.items) return { main: [], update: [], dlc: [], extra: [], packs: [] };
     return groupDownloadsByCategory(searchResults.items);
   }, [searchResults?.items]);
 
@@ -425,6 +427,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       update: [],
       dlc: [],
       extra: [],
+      packs: [],
     };
 
     for (const [category, downloads] of Object.entries(categorizedDownloads) as [
@@ -835,7 +838,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       <div className={cn("space-y-2", !isMobile && "col-span-4")}>
         <Label className="text-sm">Categories</Label>
         <div className="flex flex-wrap gap-2">
-          {(["main", "update", "dlc", "extra"] as const).map((cat) => (
+          {(["main", "update", "dlc", "packs", "extra"] as const).map((cat) => (
             <div key={cat} className="flex items-center">
               <Checkbox
                 id={`cat-${cat}`}
@@ -849,7 +852,9 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                     ? "Updates"
                     : cat === "dlc"
                       ? "DLC"
-                      : "Extras"}
+                      : cat === "packs"
+                        ? "Packs/Addons"
+                        : "Extras"}
               </label>
             </div>
           ))}
@@ -964,7 +969,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                 </div>
               )}
 
-              {(["main", "update", "dlc", "extra"] as const).map((category) => {
+              {(["main", "update", "dlc", "packs", "extra"] as const).map((category) => {
                 const downloadsInCategory = filteredCategorizedDownloads[category] || [];
                 if (downloadsInCategory.length === 0) return null;
 
@@ -978,7 +983,9 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                             ? "Updates & Patches"
                             : category === "dlc"
                               ? "DLC & Expansions"
-                              : "Extras"}
+                              : category === "packs"
+                                ? "Packs/Addons"
+                                : "Extras"}
                       </h3>
                       <Badge variant="secondary" className="text-xs font-semibold">
                         {downloadsInCategory.length}

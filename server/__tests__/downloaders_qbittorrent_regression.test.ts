@@ -717,6 +717,117 @@ describe("qbittorrent regression coverage", () => {
     }
   });
 
+  it("uploads the torrent file when a qBittorrent v5+ pending URL never materializes", async () => {
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+      callback: TimerHandler,
+      _delay?: number,
+      ...args: unknown[]
+    ) => {
+      if (typeof callback === "function") {
+        callback(...args);
+      }
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    }) as typeof setTimeout);
+
+    try {
+      const client = new QBittorrentClient(createDownloader());
+      const privateClient = client as unknown as {
+        authenticate(force?: boolean): Promise<void>;
+        makeRequest(
+          method: string,
+          path: string,
+          body?: string | Buffer,
+          additionalHeaders?: Record<string, string>
+        ): Promise<Response>;
+      };
+
+      vi.spyOn(privateClient, "authenticate").mockResolvedValue(undefined);
+      const makeRequestSpy = vi
+        .spyOn(privateClient, "makeRequest")
+        .mockImplementation(async (_method, path, body) => {
+          if (path === "/api/v2/torrents/add" && typeof body === "string") {
+            return {
+              ok: true,
+              status: 202,
+              text: async () =>
+                JSON.stringify({
+                  added_torrent_ids: [],
+                  failure_count: 0,
+                  pending_count: 1,
+                  success_count: 0,
+                }),
+              headers: jsonHeaders,
+            } as unknown as Response;
+          }
+          if (path.startsWith("/api/v2/torrents/info?tag=")) {
+            return { ok: true, json: async () => [] } as Response;
+          }
+          if (path === "/api/v2/torrents/add" && Buffer.isBuffer(body)) {
+            return {
+              ok: true,
+              status: 200,
+              text: async () => "Ok.",
+              headers: emptyHeaders,
+            } as Response;
+          }
+          if (path === "/api/v2/torrents/info?sort=added_on&reverse=true") {
+            return {
+              ok: true,
+              json: async () => [
+                {
+                  hash: "fallback-hash",
+                  name: "Pending via Prowlarr",
+                  added_on: Math.floor(Date.now() / 1000),
+                },
+              ],
+            } as Response;
+          }
+          if (path === "/api/v2/torrents/removeTags") {
+            return { ok: true, status: 200, text: async () => "" } as Response;
+          }
+          throw new Error(`Unexpected qBittorrent request: ${path}`);
+        });
+
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        headers: { get: () => null },
+        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+      } as Response);
+
+      await expect(
+        client.addDownload({
+          url: "http://prowlarr.local/1/api?t=download&id=pending",
+          title: "Pending via Prowlarr",
+        })
+      ).resolves.toEqual({
+        success: true,
+        id: "fallback-hash",
+        message: "Download added successfully",
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(
+        makeRequestSpy.mock.calls.some(
+          ([, path, body]) => path === "/api/v2/torrents/add" && Buffer.isBuffer(body)
+        )
+      ).toBe(true);
+
+      const initialBody = String(makeRequestSpy.mock.calls[0][2]);
+      const tagMatch = initialBody.match(/tags=(questarr-add-[^&]+)/);
+      expect(tagMatch).not.toBeNull();
+      expect(makeRequestSpy).toHaveBeenCalledWith(
+        "POST",
+        "/api/v2/torrents/removeTags",
+        `hashes=fallback-hash&tags=${encodeURIComponent(tagMatch![1])}`,
+        expect.any(Object)
+      );
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
+  });
+
   it("uses added_torrent_ids when qBittorrent v5+ adds a torrent immediately", async () => {
     const client = new QBittorrentClient(createDownloader());
     const privateClient = client as unknown as {

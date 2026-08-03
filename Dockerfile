@@ -5,7 +5,7 @@ WORKDIR /app
 
 # python3, make, and g++ are required to build better-sqlite3's native
 # bindings via node-gyp when no prebuilt binary matches this platform/Node version.
-RUN apk add --no-cache python3 make g++
+RUN apk add --no-cache g++ make python3
 
 COPY package*.json ./
 RUN npm ci

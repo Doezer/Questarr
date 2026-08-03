@@ -8,12 +8,18 @@ Hotfix release addressing dependency vulnerabilities flagged by `npm audit`.
 
 ### Security
 
-- **Dependency Vulnerabilities**: Fixed 2 known vulnerabilities in `fast-xml-parser`, and `fast-uri`.
+- **Dependency Vulnerabilities**: Fixed 5 known vulnerabilities in `fast-xml-parser`, `fast-uri`, `ip-address`, and `socket.io-parser`.
 
 ### Vulnerabilities Addressed
 
 - **fast-xml-parser** 5.10.0 → 5.10.1 — fixes GHSA-8r6m-32jq-jx6q (no CVE assigned, HIGH) — a parsing issue in the 5.9.3–5.10.0 range fixed in 5.10.1.
-- **fast-uri** (npm `overrides` pin, dev-only via `secretlint` → `ajv`) 3.1.3 → 3.1.4 — fixes **CVE-2026-16221** (GHSA-v2hh-gcrm-f6hx, HIGH) — doesn't reach production, but forced past the vulnerable range out of caution.
+- **fast-uri** (npm `overrides` pin, dev-only via `secretlint` → `ajv`) 3.1.3 → 3.1.4 → 3.1.5 — the 3.1.4 → 3.1.5 bump fixes GHSA-7p8r-x3mc-p8w7 (HIGH) — host confusion via backslash authority introducer, vulnerable range `3.0.0 - 3.1.4`.
+- **ip-address** (transitive via `express-rate-limit` and `socks`) 10.2.0 → 10.4.0 — fixes GHSA-mwp4-54f8-5fhr (HIGH, SSRF/trust-boundary bypass via octal-decoded leading-zero octets), plus two moderate SSRF-adjacent advisories (GHSA-4xrf-jv44-h6hh, GHSA-22jq-vg5j-6vgg) already covered by the same bump. No `overrides` pin needed — `express-rate-limit`'s `^10.2.0` and `socks`'s `^10.1.1` ranges already permit 10.4.0.
+- **socket.io-parser** (npm `overrides` pin) 4.2.6 → 4.2.7 — fixes GHSA-2m8v-j782-fhvr (HIGH, CVSS 7.5) — zero-attachment memory exhaustion, vulnerable range `4.0.0 - <4.2.7`. Reaches production via `socket.io`/`socket.io-client` (real-time download-progress and notification updates).
+
+### Changed
+
+- Dependency updates: `undici` 7.29.0 → 8.9.0 (direct dependency, used by the SSRF-safe fetch wrapper in `server/ssrf.ts`). No vulnerability fix — see `docs/CVE_FIXES_BY_RELEASE.md` for verification. Major version bump; undici 8.9.0 requires Node `>=22.19.0`, so Questarr's own `engines.node` floor is raised from `>=20` to `>=22.19.0` to match — this only formalizes existing practice, since CI (`node-version: 26.x`) and the production Docker image (`node:26-alpine`) were already on Node 26. Full test suite and `server/__tests__/ssrf.test.ts` verified green against the new version.
 
 ## [1.4.1] - 2026-08-02
 

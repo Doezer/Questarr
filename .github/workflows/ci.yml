@@ -208,7 +208,7 @@ jobs:
 
     strategy:
       matrix:
-        node-version: [26.x]
+        node-version: ["22.19.0", "26.x"]
 
     steps:
       - name: Harden the runner (Audit all outbound calls)

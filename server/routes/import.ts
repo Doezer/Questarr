@@ -44,6 +44,7 @@ const importConfigPatchSchema = z
     minFileSize: z.number().int().min(0).optional(),
     libraryRoot: z.string().min(1).max(1024).optional(),
     autoDeleteAfterImport: z.boolean().optional(),
+    sortExtras: z.boolean().optional(),
   })
   .strict();
 
@@ -328,6 +329,7 @@ importRouter.patch("/config", async (req, res) => {
       ignoredExtensions: newConfig.ignoredExtensions,
       minFileSize: newConfig.minFileSize,
       libraryRoot: newConfig.libraryRoot,
+      sortExtras: newConfig.sortExtras,
     };
 
     const existing = await storage.getUserSettings(userId);

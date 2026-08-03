@@ -3,10 +3,6 @@
 FROM node@sha256:c9f02360d2bc66e709b300214395588acd2d3603f600db8141117e67c0faf4ff AS base
 WORKDIR /app
 
-# python3, make, and g++ are required to build better-sqlite3's native
-# bindings via node-gyp when no prebuilt binary matches this platform/Node version.
-RUN apk add --no-cache g++ make python3
-
 COPY package*.json ./
 RUN npm ci
 

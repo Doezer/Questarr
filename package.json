@@ -74,7 +74,7 @@
     "archiver": "^8.0.0",
     "axios": "^1.18.1",
     "bcryptjs": "^3.0.3",
-    "better-sqlite3": "^13.0.1",
+    "better-sqlite3": "^13.0.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
@@ -207,14 +207,13 @@
       "esbuild": "^0.25.0"
     },
     "body-parser": "1.20.6",
-    "brace-expansion": "^5.0.8",
+    "brace-expansion": "^5.0.9",
     "minimatch": "^10.2.5",
     "fast-uri": "^3.1.4"
   },
   "allowScripts": {
     "esbuild@0.25.12": true,
     "esbuild@0.28.1": true,
-    "better-sqlite3@12.11.1": true,
     "bufferutil@4.1.0": true
   }
 }

@@ -1,4 +1,4 @@
-# Questarr — CVEs fixed per release (v1.2.0 → v1.4.1)
+# Questarr — CVEs fixed per release (v1.2.0 → v1.4.2)
 
 Method: diffed `package.json`/`package-lock.json` at each tag boundary, then cross-checked every bumped package through OSV.dev's `querybatch` endpoint (query old-version vs new-version, take the set difference of returned GHSA IDs) and confirmed exact `fixed` boundaries via per-GHSA `/v1/vulns/{id}` lookups. All headline findings below — including axios, node-forge, and socket.io-parser — were verified through the same batch-diff method, not just by trusting commit messages. Only entries with a confirmed OSV `fixed` event landing inside the bump range are listed as fixes.
 
@@ -70,6 +70,7 @@ No dependency bump in this release crosses a `fixed` OSV boundary — purely mai
 
 - **fast-xml-parser** 5.10.0 → 5.10.1 — fixes GHSA-8r6m-32jq-jx6q (no CVE assigned, HIGH, CVSS 8.7) — vulnerable range `>=5.9.3 <5.10.1`; the direct-dependency range `^5.10.0` still permitted the unpatched `5.10.0`, so the fix required a `package.json` bump, not just a lockfile refresh.
 - **fast-uri** (npm `overrides` pin, dev-only via `secretlint` → `ajv`) 3.1.3 → 3.1.4 — fixes **CVE-2026-16221** (GHSA-v2hh-gcrm-f6hx, HIGH) — doesn't reach production, but forced past the vulnerable range out of caution.
+- **undici** 7.29.0 → 8.9.0 (direct dependency; used by the SSRF-safe fetch wrapper in `server/ssrf.ts`) — despite the release notes headlining "Security fixes," none apply here: all five advisories fixed in 8.9.0 (GHSA-4cwx-7wf7-3272, GHSA-m8rv-5g2x-5cg5, GHSA-jr45-8vmc-qm54, GHSA-8xcm-r25x-g524, GHSA-v3r7-h72x-cjcm) list vulnerable ranges of `7.0.0 < 7.29.0` / `8.0.0 < 8.9.0` — Questarr was already on the patched `7.29.0` and was never affected. This bump doesn't cross an OSV `fixed` boundary; it's a routine major-version chore. Verified compatible: full test suite (2033 tests) and `server/__tests__/ssrf.test.ts` (28 tests, covering the `Agent`/pinned-`lookup` DNS-rebinding defense) pass unchanged against 8.9.0, despite v8's breaking changes (HTTP/2 default, dispatcher isolation, Node engine floor raised to `>=22.19.0`).
 
 ---
 

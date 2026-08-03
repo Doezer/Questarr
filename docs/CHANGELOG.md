@@ -15,6 +15,10 @@ Hotfix release addressing dependency vulnerabilities flagged by `npm audit`.
 - **fast-xml-parser** 5.10.0 → 5.10.1 — fixes GHSA-8r6m-32jq-jx6q (no CVE assigned, HIGH) — a parsing issue in the 5.9.3–5.10.0 range fixed in 5.10.1.
 - **fast-uri** (npm `overrides` pin, dev-only via `secretlint` → `ajv`) 3.1.3 → 3.1.4 — fixes **CVE-2026-16221** (GHSA-v2hh-gcrm-f6hx, HIGH) — doesn't reach production, but forced past the vulnerable range out of caution.
 
+### Changed
+
+- Dependency updates: `undici` 7.29.0 → 8.9.0 (direct dependency, used by the SSRF-safe fetch wrapper in `server/ssrf.ts`). No vulnerability fix — see `docs/CVE_FIXES_BY_RELEASE.md` for verification. Major version bump; raises undici's own minimum Node engine to `>=22.19.0` (Questarr's supported floor stays `>=20`, non-strict `npm` engine check only). Full test suite and `server/__tests__/ssrf.test.ts` verified green against the new version.
+
 ## [1.4.1] - 2026-08-02
 
 Hotfix release addressing dependency vulnerabilities flagged by `npm audit`.

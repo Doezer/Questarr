@@ -31,11 +31,6 @@ on:
   schedule:
     - cron: "0 0 * * *"
 
-  # Trigger on main branch for dev release
-  push:
-    branches:
-      - "main"
-
 permissions:
   contents: read
 
@@ -83,7 +78,7 @@ jobs:
 
   build-and-push:
     runs-on: ubuntu-latest
-    environment: ${{ (github.event_name == 'schedule' || github.ref == 'refs/heads/main') && 'dev' || inputs.environment || 'production' }}
+    environment: ${{ github.event_name == 'schedule' && 'dev' || inputs.environment || 'dev' }}
     needs: sca-gate
     permissions:
       contents: read
@@ -102,11 +97,10 @@ jobs:
         id: env
         env:
           EVENT_NAME: ${{ github.event_name }}
-          GH_REF: ${{ github.ref }}
           INPUT_ENVIRONMENT: ${{ inputs.environment }}
           REPOSITORY: ${{ github.repository }}
         run: |
-          if [ "$EVENT_NAME" == "schedule" ] || [ "$GH_REF" == "refs/heads/main" ]; then
+          if [ "$EVENT_NAME" == "schedule" ]; then
             echo "ENVIRONMENT=dev" >> $GITHUB_ENV
             echo "environment=dev" >> $GITHUB_OUTPUT
           else

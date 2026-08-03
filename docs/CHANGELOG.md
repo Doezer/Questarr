@@ -17,7 +17,7 @@ Hotfix release addressing dependency vulnerabilities flagged by `npm audit`.
 
 ### Changed
 
-- Dependency updates: `undici` 7.29.0 → 8.9.0 (direct dependency, used by the SSRF-safe fetch wrapper in `server/ssrf.ts`). No vulnerability fix — see `docs/CVE_FIXES_BY_RELEASE.md` for verification. Major version bump; raises undici's own minimum Node engine to `>=22.19.0` (Questarr's supported floor stays `>=20`, non-strict `npm` engine check only). Full test suite and `server/__tests__/ssrf.test.ts` verified green against the new version.
+- Dependency updates: `undici` 7.29.0 → 8.9.0 (direct dependency, used by the SSRF-safe fetch wrapper in `server/ssrf.ts`). No vulnerability fix — see `docs/CVE_FIXES_BY_RELEASE.md` for verification. Major version bump; undici 8.9.0 requires Node `>=22.19.0`, so Questarr's own `engines.node` floor is raised from `>=20` to `>=22.19.0` to match — this only formalizes existing practice, since CI (`node-version: 26.x`) and the production Docker image (`node:26-alpine`) were already on Node 26. Full test suite and `server/__tests__/ssrf.test.ts` verified green against the new version.
 
 ## [1.4.1] - 2026-08-02
 

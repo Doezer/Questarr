@@ -199,7 +199,7 @@
     ]
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.19.0"
   },
   "overrides": {
     "socket.io-parser": "4.2.6",

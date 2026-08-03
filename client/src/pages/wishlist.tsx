@@ -9,8 +9,11 @@ import { useToast } from "@/hooks/use-toast";
 import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 import EmptyState from "@/components/EmptyState";
 import GameFilterPills from "@/components/GameFilterPills";
-import { Star, Eye, EyeOff } from "lucide-react";
+import { Star, Eye, EyeOff, LayoutGrid, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Slider } from "@/components/ui/slider";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useViewControls } from "@/hooks/use-view-controls";
 import PageToolbar from "@/components/PageToolbar";
 import { useDownloadSummary } from "@/hooks/use-download-summary";
@@ -105,6 +108,7 @@ export default function WishlistPage() {
   const downloadSummaries = useDownloadSummary();
   const [showSearchResultsOnly, setShowSearchResultsOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [gridColumns, setGridColumns] = useLocalStorageState("wishlistGridColumns", 5);
 
   const { data: games = [], isLoading } = useQuery<Game[]>({
     queryKey: ["/api/games", "?status=wanted"],
@@ -304,6 +308,7 @@ export default function WishlistPage() {
               viewMode={viewMode}
               density={listDensity}
               downloadSummaries={downloadSummaries}
+              columns={gridColumns}
             />
           </TabsContent>
         ))}
@@ -328,6 +333,7 @@ export default function WishlistPage() {
               viewMode={viewMode}
               density={listDensity}
               downloadSummaries={downloadSummaries}
+              columns={gridColumns}
             />
           </section>
         )}
@@ -348,6 +354,7 @@ export default function WishlistPage() {
               viewMode={viewMode}
               density={listDensity}
               downloadSummaries={downloadSummaries}
+              columns={gridColumns}
             />
           </section>
         )}
@@ -368,6 +375,7 @@ export default function WishlistPage() {
               viewMode={viewMode}
               density={listDensity}
               downloadSummaries={downloadSummaries}
+              columns={gridColumns}
             />
           </section>
         )}
@@ -392,6 +400,42 @@ export default function WishlistPage() {
           search={searchQuery}
           onSearchChange={setSearchQuery}
           searchPlaceholder="Filter wishlist..."
+          actions={
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8"
+                  aria-label="Configure grid columns"
+                >
+                  <Settings2 className="h-4 w-4" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-72 space-y-4 p-4">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label className="flex items-center gap-2 text-sm font-medium">
+                      <LayoutGrid className="h-4 w-4" />
+                      Grid Columns
+                    </Label>
+                    <span className="w-4 text-center text-sm font-bold">{gridColumns}</span>
+                  </div>
+                  <Slider
+                    value={[gridColumns]}
+                    onValueChange={([value]) => setGridColumns(value)}
+                    min={2}
+                    max={10}
+                    step={1}
+                    aria-label="Grid columns"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Number of columns in the game grid (2–10).
+                  </p>
+                </div>
+              </PopoverContent>
+            </Popover>
+          }
           filterPills={
             <>
               <Button

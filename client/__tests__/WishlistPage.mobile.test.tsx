@@ -99,8 +99,10 @@ vi.mock("@/components/EmptyState", () => ({
 }));
 
 vi.mock("@/components/GameGrid", () => ({
-  default: ({ games }: { games: Array<{ title: string }> }) => (
-    <div data-testid="wishlist-grid">{games.map((g) => g.title).join(", ")}</div>
+  default: ({ games, columns }: { games: Array<{ title: string }>; columns?: number }) => (
+    <div data-testid="wishlist-grid" data-columns={columns}>
+      {games.map((g) => g.title).join(", ")}
+    </div>
   ),
 }));
 
@@ -154,6 +156,7 @@ describe("WishlistPage mobile sections", () => {
     expect(screen.getByText("Upcoming")).toBeInTheDocument();
     expect(screen.getByText("TBA")).toBeInTheDocument();
     expect(screen.getAllByTestId("wishlist-grid")[0]).toHaveTextContent("Released Game");
+    expect(screen.getAllByTestId("wishlist-grid")[0]).toHaveAttribute("data-columns", "5");
   });
 
   it("falls back to stacked sections when only one mobile section remains", async () => {

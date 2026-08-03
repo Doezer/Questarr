@@ -1,7 +1,7 @@
 import React, { useState, memo, useRef, useEffect, lazy, Suspense } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Download, Info, Star, Calendar, Eye, EyeOff, Loader2 } from "lucide-react";
+import { Download, Star, Calendar, Eye, EyeOff, Loader2 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import { TagList } from "@/components/ui/tag-list";
@@ -132,6 +132,7 @@ const GameCard = ({
       onClick={handleDetailsClick}
       className={`group hover-elevate transition-all duration-200 mx-auto w-full max-w-full cursor-pointer flex flex-col h-full sm:max-w-[225px] ${game.hidden ? "opacity-60 grayscale" : ""}`}
       data-testid={`card-game-${game.id}`}
+      aria-label={`View details for ${game.title}`}
     >
       <div className="relative">
         {/* ⚡ Bolt: Lazy loading images prevents fetching all game covers upfront,
@@ -163,6 +164,29 @@ const GameCard = ({
             </Badge>
           )}
         </div>
+        {!isDiscovery && !isMobile && (
+          <div className="absolute top-2 left-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none group-hover:pointer-events-auto">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="icon"
+                  variant="secondary"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleToggleHidden();
+                  }}
+                  aria-label={game.hidden ? `Unhide ${game.title}` : `Hide ${game.title}`}
+                  data-testid={`button-toggle-hidden-${game.id}`}
+                >
+                  {game.hidden ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                <p>{game.hidden ? "Unhide Game" : "Hide Game"}</p>
+              </TooltipContent>
+            </Tooltip>
+          </div>
+        )}
         <SearchResultsBadge visible={game.searchResultsAvailable ?? false} />
         {!isMobile && (
           <div className="absolute inset-0 flex items-center justify-center gap-2 rounded-t-md bg-black/60 opacity-0 transition-opacity duration-200 group-hover:opacity-100 focus-within:opacity-100">
@@ -189,46 +213,6 @@ const GameCard = ({
                 </TooltipTrigger>
                 <TooltipContent>
                   <p>Download</p>
-                </TooltipContent>
-              </Tooltip>
-            )}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  size="icon"
-                  variant="secondary"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDetailsClick();
-                  }}
-                  aria-label={`View details for ${game.title}`}
-                  data-testid={`button-details-${game.id}`}
-                >
-                  <Info className="w-4 h-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>View Details</p>
-              </TooltipContent>
-            </Tooltip>
-            {!isDiscovery && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    size="icon"
-                    variant="secondary"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleToggleHidden();
-                    }}
-                    aria-label={game.hidden ? `Unhide ${game.title}` : `Hide ${game.title}`}
-                    data-testid={`button-toggle-hidden-${game.id}`}
-                  >
-                    {game.hidden ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>{game.hidden ? "Unhide Game" : "Hide Game"}</p>
                 </TooltipContent>
               </Tooltip>
             )}
@@ -331,16 +315,6 @@ const GameCard = ({
                 )}
               </Button>
             )}
-            <Button
-              size="icon"
-              variant="secondary"
-              className={mobileActionButtonClass}
-              onClick={handleDetailsClick}
-              aria-label={`View details for ${game.title}`}
-              data-testid={`button-details-${game.id}`}
-            >
-              <Info className="h-4 w-4" />
-            </Button>
             {!isDiscovery && (
               <Button
                 size="icon"

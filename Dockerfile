@@ -31,6 +31,7 @@ ENV NODE_ENV=production
 ENV PORT=5000
 ENV PUID=1000
 ENV PGID=1000
+ENV UMASK=022
 
 # Install su-exec (for privilege dropping), shadow (for usermod/groupmod), and
 # Python + Apprise for local CLI notifications.

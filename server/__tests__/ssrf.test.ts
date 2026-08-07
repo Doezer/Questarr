@@ -205,6 +205,58 @@ describe("safeFetch", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
+  it("should strip Authorization/Cookie headers when a redirect crosses origins", async () => {
+    // Initial request to example.com...
+    vi.mocked(dns.lookup as unknown as import("node:dns").LookupAddress[]).mockResolvedValueOnce([
+      { address: "1.2.3.4", family: 4 },
+    ]);
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(null, {
+        status: 302,
+        headers: { location: "https://attacker.example/steal" },
+      })
+    );
+    // ...redirected to a different origin, which must be revalidated too.
+    vi.mocked(dns.lookup as unknown as import("node:dns").LookupAddress[]).mockResolvedValueOnce([
+      { address: "5.6.7.8", family: 4 },
+    ]);
+    vi.mocked(fetch).mockResolvedValueOnce(new Response("ok"));
+
+    await safeFetch("https://example.com/rpc", {
+      headers: { Authorization: "Basic secret", Cookie: "SID=secret", "X-Other": "keep-me" },
+    });
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+    const redirectedHeaders = new Headers(vi.mocked(fetch).mock.calls[1][1]?.headers);
+    expect(redirectedHeaders.get("authorization")).toBeNull();
+    expect(redirectedHeaders.get("cookie")).toBeNull();
+    expect(redirectedHeaders.get("x-other")).toBe("keep-me");
+  });
+
+  it("should preserve Authorization/Cookie headers when a redirect stays same-origin", async () => {
+    vi.mocked(dns.lookup as unknown as import("node:dns").LookupAddress[]).mockResolvedValueOnce([
+      { address: "1.2.3.4", family: 4 },
+    ]);
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(null, {
+        status: 302,
+        headers: { location: "https://example.com/rpc2" },
+      })
+    );
+    vi.mocked(dns.lookup as unknown as import("node:dns").LookupAddress[]).mockResolvedValueOnce([
+      { address: "1.2.3.4", family: 4 },
+    ]);
+    vi.mocked(fetch).mockResolvedValueOnce(new Response("ok"));
+
+    await safeFetch("https://example.com/rpc", {
+      headers: { Authorization: "Basic secret" },
+    });
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+    const redirectedHeaders = new Headers(vi.mocked(fetch).mock.calls[1][1]?.headers);
+    expect(redirectedHeaders.get("authorization")).toBe("Basic secret");
+  });
+
   it("should reject URLs that fail DNS resolution", async () => {
     // Mock DNS lookup to fail
     vi.mocked(dns.lookup as unknown as import("node:dns").LookupAddress[]).mockRejectedValueOnce(

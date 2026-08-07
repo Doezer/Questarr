@@ -50,9 +50,9 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: Readonly<Ap
   });
 
   // ⚡ Single-pass counts instead of `.filter(...).length`, which walks the array
-  // twice (filter + length) and allocates an intermediate array that's immediately
-  // discarded. Memoized so heavily re-rendered components like this sidebar don't
-  // recompute on every render.
+  // once and allocates an intermediate array that's immediately discarded.
+  // Memoized so heavily re-rendered components like this sidebar don't recompute
+  // on every render.
   const wishlistCount = useMemo(() => {
     let count = 0;
     for (const game of games) {

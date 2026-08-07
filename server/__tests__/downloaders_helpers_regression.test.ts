@@ -10,11 +10,12 @@ import { RTorrentClient } from "../downloaders/rtorrent.js";
 import { SABnzbdClient } from "../downloaders/sabnzbd.js";
 import { SynologyDownloadStationClient } from "../downloaders/synology.js";
 import { TransmissionClient } from "../downloaders/transmission.js";
+import { safeFetch } from "../ssrf.js";
 
-vi.mock("dns/promises", () => ({
-  default: {
-    lookup: vi.fn().mockResolvedValue([{ address: "127.0.0.1", family: 4 }]),
-  },
+vi.mock("../ssrf.js", () => ({
+  isSafeUrl: vi.fn().mockResolvedValue(true),
+  safeFetch: vi.fn((url: string, options?: RequestInit) => fetch(url, options)),
+  resolveSafeAddress: vi.fn().mockResolvedValue({ address: "127.0.0.1", family: 4 }),
 }));
 
 vi.mock("../logger.js", () => ({
@@ -154,6 +155,11 @@ describe("downloaders helper regression coverage", () => {
 
     await expect(client.fetchWithFallback("https://sab.local", {})).resolves.toBe(insecureResponse);
     expect(insecureSpy).toHaveBeenCalled();
+    // fetchWithFallback must route through the SSRF-safe wrapper, not raw fetch.
+    expect(safeFetch).toHaveBeenCalledWith(
+      "https://sab.local",
+      expect.objectContaining({ allowPrivate: true })
+    );
 
     fetchMock.mockRejectedValueOnce(new Error("network boom"));
     await expect(client.fetchWithFallback("https://sab.local", {})).rejects.toThrow("network boom");
@@ -370,6 +376,9 @@ describe("downloaders helper regression coverage", () => {
     const retriedCall = fetchMock.mock.calls[1][1] as RequestInit;
     expect((retriedCall.headers as Record<string, string>).Cookie).toBe("SID=new");
     expect(retriedCall.body).toBeInstanceOf(Uint8Array);
+    // makeRequest must route both the initial request and the re-auth retry
+    // through the SSRF-safe wrapper rather than calling fetch() directly.
+    expect(safeFetch).toHaveBeenCalledTimes(2);
 
     fetchMock
       .mockResolvedValueOnce({

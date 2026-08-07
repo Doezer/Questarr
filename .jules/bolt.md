@@ -52,3 +52,8 @@
 
 **Learning:** When extracting code logic to satisfy SonarCloud Maintainability and Duplication gates (such as creating helper functions to eliminate nested ternaries), ensure that the TypeScript method signature explicitly allows the types of the underlying variables (e.g., `Date | number | string | null | undefined`) instead of using `as unknown as string` casts, which bypasses the type-checker and reduces code safety.
 **Action:** Define broad, accurate union types for helper functions rather than aggressively casting parameters to fit narrow function signatures.
+
+## 2026-07-30 - O(N) Array Filter Optimization
+
+**Learning:** Using chained `.filter(...).length` calls for counting evaluates the entire array on each pass and creates unnecessary array allocations for items that are immediately discarded. In heavily re-rendered components like `AppSidebar`, this degrades performance. SonarCloud also flags manual index-based `for` loops over arrays when the index itself is unused — a `for...of` loop is the preferred single-pass form.
+**Action:** When counting items based on a condition, use a memoized `for...of` loop to increment a counter instead of `.filter(...).length`. Also hoist any `useQuery` no-data fallback (e.g. `data: x = []`) to a stable module-level constant — an inline `[]` default creates a new array reference on every render with no data, which defeats a `useMemo` keyed on that value.

@@ -52,6 +52,11 @@ describe("NZBGet remaining coverage", () => {
     vi.mocked(isSafeUrl).mockResolvedValue(true);
     vi.mocked(safeFetch).mockReset();
     vi.stubGlobal("fetch", vi.fn());
+    // Default: forward to the (mocked) global fetch so existing tests that only
+    // stub `fetch` keep working now that downloader requests go through safeFetch.
+    vi.mocked(safeFetch).mockImplementation((url: string, options?: RequestInit) =>
+      fetch(url, options)
+    );
   });
 
   it("covers URL fallback, XML value parsing fallbacks, faults, and null responses", async () => {
@@ -114,6 +119,8 @@ describe("NZBGet remaining coverage", () => {
          </methodResponse>`,
     } as Response);
     await expect(privateClient.makeXMLRPCRequest("echo", ["param"])).resolves.toBe("pong");
+    // makeXMLRPCRequest must route through the SSRF-safe wrapper, not raw fetch.
+    expect(safeFetch).toHaveBeenCalled();
 
     vi.mocked(fetch).mockResolvedValueOnce({
       ok: true,

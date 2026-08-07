@@ -29,6 +29,10 @@ interface AppSidebarProps {
   onNavigate?: (url: string) => void;
 }
 
+// Stable reference for useQuery's no-data fallback so `games` doesn't change
+// identity on every render (which would otherwise defeat wishlistCount's memo).
+const EMPTY_GAMES: Game[] = [];
+
 export default function AppSidebar({ activeItem = "/", onNavigate }: Readonly<AppSidebarProps>) {
   const { logout, user } = useAuth();
 
@@ -36,7 +40,7 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: Readonly<Ap
     onNavigate?.(url);
   };
 
-  const { data: games = [] } = useQuery<Game[]>({
+  const { data: games = EMPTY_GAMES } = useQuery<Game[]>({
     queryKey: ["/api/games"],
   });
 
@@ -45,11 +49,27 @@ export default function AppSidebar({ activeItem = "/", onNavigate }: Readonly<Ap
     refetchInterval: 30_000,
   });
 
+  // ⚡ Single-pass counts instead of `.filter(...).length`, which walks the array
+  // twice (filter + length) and allocates an intermediate array that's immediately
+  // discarded. Memoized so heavily re-rendered components like this sidebar don't
+  // recompute on every render.
   const wishlistCount = useMemo(() => {
-    return games.filter((g) => g.status === "wanted").length;
+    let count = 0;
+    for (const game of games) {
+      if (game.status === "wanted") count++;
+    }
+    return count;
   }, [games]);
-  const activeDownloadsCount =
-    downloadsData?.downloads?.filter((d) => d.status === "downloading").length || 0;
+
+  const activeDownloadsCount = useMemo(() => {
+    const downloads = downloadsData?.downloads;
+    if (!downloads) return 0;
+    let count = 0;
+    for (const download of downloads) {
+      if (download.status === "downloading") count++;
+    }
+    return count;
+  }, [downloadsData?.downloads]);
 
   const navigation = primaryNavigation.map((item) => {
     let badge: string | undefined;

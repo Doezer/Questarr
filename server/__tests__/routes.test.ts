@@ -2,6 +2,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Downloader } from "../../shared/schema";
 import { DownloaderManager } from "../downloaders.js";
 
+vi.mock("../ssrf.js", () => ({
+  isSafeUrl: vi.fn().mockResolvedValue(true),
+  safeFetch: vi.fn((url: string, options?: RequestInit) => global.fetch(url, options)),
+}));
+
 describe("/api/downloads endpoint", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 

@@ -289,20 +289,22 @@ describe("safeFetch", () => {
   }
 
   it.each([
-    [303, "HEAD"],
-    [301, "PUT"],
-    [302, "PATCH"],
-    [301, "DELETE"],
+    [303, "HEAD", undefined],
+    [301, "PUT", "payload"],
+    [302, "PATCH", "payload"],
+    [301, "DELETE", "payload"],
   ])(
-    "should preserve the request method on a %s redirect with method %s",
-    async (status, method) => {
-      const redirectedCall = await fetchThroughRedirect(status, method);
+    "should preserve the request method and body on a %s redirect with method %s",
+    async (status, method, body) => {
+      const redirectedCall = await fetchThroughRedirect(status, method, body);
       expect(redirectedCall?.method).toBe(method);
+      expect(redirectedCall?.body).toBe(body);
     }
   );
 
   it.each([
     [303, "POST"],
+    [303, "PUT"],
     [301, "POST"],
     [302, "POST"],
   ])("should switch to GET on a %s redirect with method %s", async (status, method) => {

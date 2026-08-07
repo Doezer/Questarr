@@ -92,11 +92,13 @@ function getRedirectOptions(
   nextUrl: URL
 ): RequestInit {
   const method = (fetchOptions.method || "GET").toUpperCase();
-  // Per RFC 9110 / the Fetch spec, a redirect only switches the method to GET
-  // when the original method isn't already GET or HEAD — a 303 to a HEAD
+  // Per RFC 9110 / the Fetch spec: 301/302 only rewrite POST to GET (a PUT,
+  // PATCH, or DELETE keeps its method and body on those statuses), while 303
+  // rewrites anything that isn't already GET or HEAD — a 303 to a HEAD
   // request stays HEAD, it doesn't start pulling a response body.
   const shouldSwitchToGet =
-    (status === 301 || status === 302 || status === 303) && method !== "GET" && method !== "HEAD";
+    ((status === 301 || status === 302) && method === "POST") ||
+    (status === 303 && method !== "GET" && method !== "HEAD");
 
   const headers = new Headers(fetchOptions.headers ?? {});
 

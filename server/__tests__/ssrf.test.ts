@@ -264,40 +264,49 @@ describe("safeFetch", () => {
     expect(redirectedHeaders.get("cookie")).toBe("SID=secret");
   });
 
-  it("should preserve HEAD (not switch to GET) on a 303 redirect", async () => {
+  // Shared setup for the method-rewrite matrix below: one same-origin redirect
+  // hop, then a successful response — only the initial status/method vary.
+  async function fetchThroughRedirect(
+    status: number,
+    method: string,
+    body?: string
+  ): Promise<RequestInit | undefined> {
     vi.mocked(dns.lookup as unknown as import("node:dns").LookupAddress[]).mockResolvedValueOnce([
       { address: "1.2.3.4", family: 4 },
     ]);
     vi.mocked(fetch).mockResolvedValueOnce(
-      new Response(null, { status: 303, headers: { location: "https://example.com/rpc2" } })
+      new Response(null, { status, headers: { location: "https://example.com/rpc2" } })
     );
     vi.mocked(dns.lookup as unknown as import("node:dns").LookupAddress[]).mockResolvedValueOnce([
       { address: "1.2.3.4", family: 4 },
     ]);
     vi.mocked(fetch).mockResolvedValueOnce(new Response("ok"));
 
-    await safeFetch("https://example.com/rpc", { method: "HEAD" });
+    await safeFetch("https://example.com/rpc", { method, body });
 
     expect(fetch).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(fetch).mock.calls[1][1]?.method).toBe("HEAD");
-  });
+    return vi.mocked(fetch).mock.calls[1][1];
+  }
 
-  it("should switch POST to GET on a 303 redirect", async () => {
-    vi.mocked(dns.lookup as unknown as import("node:dns").LookupAddress[]).mockResolvedValueOnce([
-      { address: "1.2.3.4", family: 4 },
-    ]);
-    vi.mocked(fetch).mockResolvedValueOnce(
-      new Response(null, { status: 303, headers: { location: "https://example.com/rpc2" } })
-    );
-    vi.mocked(dns.lookup as unknown as import("node:dns").LookupAddress[]).mockResolvedValueOnce([
-      { address: "1.2.3.4", family: 4 },
-    ]);
-    vi.mocked(fetch).mockResolvedValueOnce(new Response("ok"));
+  it.each([
+    [303, "HEAD"],
+    [301, "PUT"],
+    [302, "PATCH"],
+    [301, "DELETE"],
+  ])(
+    "should preserve the request method on a %s redirect with method %s",
+    async (status, method) => {
+      const redirectedCall = await fetchThroughRedirect(status, method);
+      expect(redirectedCall?.method).toBe(method);
+    }
+  );
 
-    await safeFetch("https://example.com/rpc", { method: "POST", body: "payload" });
-
-    expect(fetch).toHaveBeenCalledTimes(2);
-    const redirectedCall = vi.mocked(fetch).mock.calls[1][1];
+  it.each([
+    [303, "POST"],
+    [301, "POST"],
+    [302, "POST"],
+  ])("should switch to GET on a %s redirect with method %s", async (status, method) => {
+    const redirectedCall = await fetchThroughRedirect(status, method, "payload");
     expect(redirectedCall?.method).toBe("GET");
     expect(redirectedCall?.body).toBeUndefined();
   });

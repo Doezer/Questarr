@@ -442,13 +442,34 @@ export class NZBGetClient implements DownloaderClient {
     }
   }
 
+  // `getDownloadStatus`/`getFromHistory` return a `DownloadStatus`, which has
+  // no `downloadDir` field (only `DownloadDetails` does), so the history
+  // item's `DestDir` never made it out of those methods even though NZBGet's
+  // API provides it. Without it, ImportManager can never be handed a path to
+  // import from, and every completed NZBGet download was stuck logging
+  // "no remote path was available for import" and requiring manual review.
+  private async getHistoryDestDir(id: string): Promise<string | undefined> {
+    try {
+      const history = (await this.makeXMLRPCRequest("history")) as NZBGetHistoryResult[];
+      const item = history.find((h) => h.NZBID.toString() === id);
+      return item?.DestDir || undefined;
+    } catch (error) {
+      downloadersLogger.error({ error }, "Failed to get NZBGet history destination directory");
+      return undefined;
+    }
+  }
+
   async getDownloadDetails(id: string): Promise<DownloadDetails | null> {
     const status = await this.getDownloadStatus(id);
     if (!status) return null;
 
+    const downloadDir =
+      status.status === "completed" ? await this.getHistoryDestDir(id) : undefined;
+
     // NZBGet doesn't provide detailed file information easily
     return {
       ...status,
+      downloadDir,
       files: [],
       filesSupport: "unsupported",
       filesSupportReason: "NZBGet API does not expose per-file details for grouped downloads.",

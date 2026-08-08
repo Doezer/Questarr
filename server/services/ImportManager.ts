@@ -587,6 +587,7 @@ export class ImportManager {
 
     const planToExecute: ImportReview = {
       ...overridePlan,
+      fileCategories: undefined,
       originalPath: processPath,
     };
 

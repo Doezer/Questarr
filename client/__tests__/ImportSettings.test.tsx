@@ -113,7 +113,7 @@ describe("ImportSettings", () => {
     renderComponent();
     await screen.findByText("Sort add-on files into subfolders");
 
-    fireEvent.click(screen.getAllByRole("switch")[4]);
+    fireEvent.click(screen.getByRole("switch", { name: /sort add-on files into subfolders/i }));
     fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
 
     await waitFor(() => {

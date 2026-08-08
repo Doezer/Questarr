@@ -77,7 +77,12 @@ describe("ImportManager", () => {
     expect(storage.updateGameDownloadStatus).not.toHaveBeenCalled();
   });
 
-  it("marks download as error when game is missing", async () => {
+  it("marks download for manual review when game is missing", async () => {
+    // Not "error": that status is never re-polled (getDownloadingGameDownloads
+    // only selects "downloading") and never shown in the UI's pending-imports
+    // list (getPendingImportReviews only selects "manual_review_required"),
+    // so it would leave the download invisible and stuck forever even if the
+    // missing game was a transient/momentary condition.
     storage.getGameDownload.mockResolvedValue({
       id: "dl-1",
       gameId: "g1",
@@ -93,7 +98,11 @@ describe("ImportManager", () => {
 
     await manager.processImport("dl-1", "/remote/path");
 
-    expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith("dl-1", "error");
+    expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith(
+      "dl-1",
+      "manual_review_required",
+      "Game record not found for this download"
+    );
   });
 
   it("marks download completed when post-processing is disabled", async () => {

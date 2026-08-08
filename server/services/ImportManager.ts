@@ -334,7 +334,17 @@ export class ImportManager {
     const game = await this.storage.getGame(download.gameId);
     if (!game) {
       logger.error({ downloadId }, "[ImportManager] Game not found for download");
-      await this.storage.updateGameDownloadStatus(downloadId, "error");
+      // "error" is a dead end: unlike "manual_review_required", nothing ever
+      // re-polls or surfaces it in the UI (getDownloadingGameDownloads only
+      // selects status="downloading", and getPendingImportReviews only
+      // selects "manual_review_required") - a download that lands here would
+      // sit invisibly forever even if the underlying issue (e.g. a
+      // transiently missing game row) was momentary.
+      await this.storage.updateGameDownloadStatus(
+        downloadId,
+        "manual_review_required",
+        "Game record not found for this download"
+      );
       return;
     }
 

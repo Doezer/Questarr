@@ -1166,18 +1166,6 @@ export async function checkAutoSearch() {
               notifyUser("notification", notification);
               if (prefs.gameUpdates.apprise) appriseClient.send(notification);
             }
-
-            if (packsItems.length > 0 && !wasUpdateAvailable && prefs.gameUpdates.inApp) {
-              const notification = await storage.addNotification({
-                userId,
-                type: "info",
-                title: "Packs/Add-ons Available",
-                message: `${packsItems.length} pack(s)/add-on(s) found for ${game.title}`,
-                link: `modal:game:${game.id}`,
-              });
-              notifyUser("notification", notification);
-              if (prefs.gameUpdates.apprise) appriseClient.send(notification);
-            }
           } catch (error) {
             igdbLogger.error(
               { gameTitle: game.title, error },

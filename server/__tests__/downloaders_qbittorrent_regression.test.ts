@@ -817,6 +817,14 @@ describe("qbittorrent regression coverage", () => {
       const initialBody = String(makeRequestSpy.mock.calls[0][2]);
       const tagMatch = initialBody.match(/tags=(questarr-add-[^&]+)/);
       expect(tagMatch).not.toBeNull();
+      const uploadBody = String(
+        makeRequestSpy.mock.calls.find(
+          ([, path, body]) => path === "/api/v2/torrents/add" && Buffer.isBuffer(body)
+        )?.[2]
+      );
+      expect(uploadBody).toContain(
+        `Content-Disposition: form-data; name="tags"\r\n\r\n${tagMatch![1]}`
+      );
       expect(makeRequestSpy).toHaveBeenCalledWith(
         "POST",
         "/api/v2/torrents/removeTags",

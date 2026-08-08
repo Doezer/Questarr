@@ -8,7 +8,7 @@ import type {
 import { downloadersLogger } from "../logger.js";
 import { randomUUID } from "node:crypto";
 import parseTorrent from "parse-torrent";
-import { isSafeUrl } from "../ssrf.js";
+import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
 import { fetchWithMagnetDetection, extractHashFromUrl, fixNzbUrlEncoding } from "./utils.js";
 
@@ -613,6 +613,9 @@ export class QBittorrentClient implements DownloaderClient {
       }
 
       fields.paused = pausedValue;
+      if (pendingFallbackCorrelationTag) {
+        fields.tags = pendingFallbackCorrelationTag;
+      }
 
       for (const [key, value] of Object.entries(fields)) {
         bodyParts.push(`--${boundary}\r\n`);
@@ -1363,7 +1366,7 @@ export class QBittorrentClient implements DownloaderClient {
       "Making qBittorrent request"
     );
 
-    let response = await fetch(url, {
+    let response = await safeFetch(url, {
       method,
       headers,
       body: requestBody,
@@ -1382,7 +1385,7 @@ export class QBittorrentClient implements DownloaderClient {
         retryHeaders["Cookie"] = this.cookie;
       }
 
-      response = await fetch(url, {
+      response = await safeFetch(url, {
         method,
         headers: retryHeaders,
         body: requestBody,

@@ -743,6 +743,7 @@ describe("qbittorrent regression coverage", () => {
 
       vi.spyOn(privateClient, "authenticate").mockResolvedValue(undefined);
       let uploadStarted = false;
+      const preUploadPollTags: string[] = [];
       const makeRequestSpy = vi
         .spyOn(privateClient, "makeRequest")
         .mockImplementation(async (_method, path, body) => {
@@ -761,6 +762,7 @@ describe("qbittorrent regression coverage", () => {
             } as unknown as Response;
           }
           if (path.startsWith("/api/v2/torrents/info?tag=") && !uploadStarted) {
+            preUploadPollTags.push(new URLSearchParams(path.split("?")[1]).get("tag") ?? "");
             return { ok: true, json: async () => [] } as Response;
           }
           if (path === "/api/v2/torrents/add" && Buffer.isBuffer(body)) {
@@ -832,6 +834,9 @@ describe("qbittorrent regression coverage", () => {
       const initialBody = String(makeRequestSpy.mock.calls[0][2]);
       const tagMatch = initialBody.match(/tags=(questarr-add-[^&]+)/);
       expect(tagMatch).not.toBeNull();
+      expect(preUploadPollTags.length).toBeGreaterThanOrEqual(10);
+      expect(new Set(preUploadPollTags).size).toBe(1);
+      expect(preUploadPollTags[0]).toBe(tagMatch![1]);
       const uploadBody = String(
         makeRequestSpy.mock.calls.find(
           ([, path, body]) => path === "/api/v2/torrents/add" && Buffer.isBuffer(body)
@@ -852,6 +857,50 @@ describe("qbittorrent regression coverage", () => {
     } finally {
       setTimeoutSpy.mockRestore();
     }
+  });
+
+  it("does not upload a torrent file when pending polling is unavailable", async () => {
+    const client = new QBittorrentClient(createDownloader());
+    const privateClient = client as unknown as {
+      authenticate(force?: boolean): Promise<void>;
+      makeRequest(method: string, path: string, body?: string | Buffer): Promise<Response>;
+    };
+    vi.spyOn(privateClient, "authenticate").mockResolvedValue(undefined);
+    const makeRequestSpy = vi
+      .spyOn(privateClient, "makeRequest")
+      .mockImplementation(async (_method, path, body) => {
+        if (path === "/api/v2/torrents/add" && typeof body === "string") {
+          return {
+            ok: true,
+            status: 202,
+            text: async () =>
+              JSON.stringify({
+                added_torrent_ids: [],
+                failure_count: 0,
+                pending_count: 1,
+                success_count: 0,
+              }),
+            headers: jsonHeaders,
+          } as unknown as Response;
+        }
+        if (path.startsWith("/api/v2/torrents/info?tag=")) {
+          throw new Error("poll unavailable");
+        }
+        throw new Error(`Unexpected qBittorrent request: ${path}`);
+      });
+
+    await expect(
+      client.addDownload({
+        url: "http://prowlarr.local/1/api?t=download&id=unavailable",
+        title: "Unavailable polling",
+      })
+    ).resolves.toMatchObject({ success: true, message: "Download queued in qBittorrent" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(
+      makeRequestSpy.mock.calls.some(
+        ([, path, body]) => path === "/api/v2/torrents/add" && Buffer.isBuffer(body)
+      )
+    ).toBe(false);
   });
 
   it("uses added_torrent_ids when qBittorrent v5+ adds a torrent immediately", async () => {

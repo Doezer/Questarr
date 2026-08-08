@@ -1138,7 +1138,19 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                     <div className="flex-1 min-w-0">
                                       <div className="flex items-start gap-1.5 min-w-0">
                                         <h4 className="font-semibold text-sm leading-snug break-all line-clamp-2 min-w-0 flex-1">
-                                          {download.title}
+                                          {download.comments ? (
+                                            <a
+                                              href={download.comments}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="hover:underline cursor-pointer"
+                                              onClick={(event) => event.stopPropagation()}
+                                            >
+                                              {download.title}
+                                            </a>
+                                          ) : (
+                                            <span>{download.title}</span>
+                                          )}
                                         </h4>
                                         {isNew && (
                                           <Badge
@@ -1242,7 +1254,19 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                   </Tooltip>
 
                                   <h4 className="font-bold text-base leading-tight break-words min-w-0">
-                                    {download.title}
+                                    {download.comments ? (
+                                      <a
+                                        href={download.comments}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="hover:underline cursor-pointer"
+                                        onClick={(event) => event.stopPropagation()}
+                                      >
+                                        {download.title}
+                                      </a>
+                                    ) : (
+                                      <span>{download.title}</span>
+                                    )}
                                   </h4>
 
                                   {isNew && (

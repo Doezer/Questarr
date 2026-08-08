@@ -111,6 +111,7 @@ type TorrentItemOverrides = {
   seeders?: number;
   leechers?: number;
   indexerName?: string;
+  comments?: string;
   group?: string;
   downloadVolumeFactor?: number;
   uploadVolumeFactor?: number;
@@ -138,6 +139,7 @@ const makeTorrentItem = (overrides: TorrentItemOverrides = {}) => ({
   seeders: overrides.seeders ?? 10,
   leechers: overrides.leechers ?? 2,
   indexerName: overrides.indexerName ?? "Indexer A",
+  ...(overrides.comments !== undefined && { comments: overrides.comments }),
   ...(overrides.group !== undefined && { group: overrides.group }),
   ...(overrides.downloadVolumeFactor !== undefined && {
     downloadVolumeFactor: overrides.downloadVolumeFactor,
@@ -287,6 +289,28 @@ describe("GameDownloadDialog", () => {
       { timeout: 3000 }
     );
   });
+
+  it.each([false, true])(
+    "links release titles to their indexer source when mobile is %s",
+    async (isMobile) => {
+      mockIsMobile = isMobile;
+      globalThis.fetch = createFetchMock({
+        search: makeSearchResult([
+          makeTorrentItem({
+            title: "Linked Release",
+            comments: "https://indexer.example/releases/123",
+          }),
+        ]),
+      });
+
+      renderComponent();
+
+      const link = await screen.findByRole("link", { name: "Linked Release" });
+      expect(link).toHaveAttribute("href", "https://indexer.example/releases/123");
+      expect(link).toHaveAttribute("target", "_blank");
+      expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    }
+  );
 
   it("identifies Usenet vs Torrent items", async () => {
     renderComponent();

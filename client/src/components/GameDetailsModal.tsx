@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, lazy, Suspense } from "react";
+import React, { useState, useEffect, useMemo, useRef, lazy, Suspense } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertDialog,
@@ -359,6 +359,11 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
   const [removeFromClient, setRemoveFromClient] = useState(true);
   const [deleteFiles, setDeleteFiles] = useState(true);
+  const [activeTab, setActiveTab] = useState("overview");
+
+  useEffect(() => {
+    setActiveTab("overview");
+  }, [game?.id]);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -625,6 +630,23 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     enabled: open && !!game?.id && !isDiscoveryId(game.id),
   });
 
+  const groupedGameFiles = useMemo(() => {
+    const groups = new Map<string, typeof gameFiles>();
+    for (const file of gameFiles) {
+      const group = groups.get(file.category) ?? [];
+      group.push(file);
+      groups.set(file.category, group);
+    }
+    return groups;
+  }, [gameFiles]);
+
+  const categoryOrder = useMemo(() => {
+    const known = ["main", "dlc", "update", "extra", "packs"];
+    return [
+      ...known,
+      ...Array.from(groupedGameFiles.keys()).filter((category) => !known.includes(category)),
+    ];
+  }, [groupedGameFiles]);
   if (!game) {
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -831,7 +853,11 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
       </DialogHeader>
 
       {/* ── Tabs ── */}
-      <Tabs defaultValue="overview" className="flex-1 flex flex-col min-h-0 mt-4">
+      <Tabs
+        value={activeTab}
+        onValueChange={setActiveTab}
+        className="flex-1 flex flex-col min-h-0 mt-4"
+      >
         <TabsList className="flex-shrink-0 w-full justify-start overflow-x-auto">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -1164,18 +1190,14 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                 </div>
               ) : (
                 (() => {
-                  const groups = new Map<string, typeof gameFiles>();
-                  for (const f of gameFiles) {
-                    if (!groups.has(f.category)) groups.set(f.category, []);
-                    groups.get(f.category)!.push(f);
-                  }
+                  const groups = groupedGameFiles;
                   const hasMultipleGroups = groups.size > 1;
-                  const categoryOrder = ["main", "dlc", "update", "extra"];
                   const categoryLabels: Record<string, string> = {
                     main: "Main Game",
                     dlc: "DLC & Expansions",
                     update: "Updates & Patches",
                     extra: "Extras",
+                    packs: "Packs/Addons",
                   };
 
                   if (!hasMultipleGroups) {

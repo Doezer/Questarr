@@ -535,6 +535,7 @@ describe("API Routes - Extended Coverage", () => {
         igdbId: 12347,
         platform: "PC",
         releaseDate: futureDate,
+        releaseStatus: "upcoming",
       };
       const savedGame = {
         ...newGame,
@@ -549,8 +550,8 @@ describe("API Routes - Extended Coverage", () => {
       const response = await request(app).post("/api/games").send(newGame);
 
       expect(response.status).toBe(201);
-      expect(storage.addGame).not.toHaveBeenCalledWith(
-        expect.objectContaining({ releaseStatus: "released" })
+      expect(storage.addGame).toHaveBeenCalledWith(
+        expect.objectContaining({ releaseStatus: "upcoming" })
       );
     });
 
@@ -559,6 +560,7 @@ describe("API Routes - Extended Coverage", () => {
         title: "Undated Game",
         igdbId: 12348,
         platform: "PC",
+        releaseStatus: "upcoming",
       };
       const savedGame = {
         ...newGame,
@@ -573,8 +575,8 @@ describe("API Routes - Extended Coverage", () => {
       const response = await request(app).post("/api/games").send(newGame);
 
       expect(response.status).toBe(201);
-      expect(storage.addGame).not.toHaveBeenCalledWith(
-        expect.objectContaining({ releaseStatus: "released" })
+      expect(storage.addGame).toHaveBeenCalledWith(
+        expect.objectContaining({ releaseStatus: "upcoming" })
       );
     });
 

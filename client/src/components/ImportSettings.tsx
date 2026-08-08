@@ -293,15 +293,16 @@ export default function ImportSettings() {
                       </div>
                       <div className="flex items-center justify-between">
                         <div className="space-y-0.5">
-                          <Label>Sort add-on files into subfolders</Label>
+                          <Label htmlFor="sort-extras">Sort add-on files into subfolders</Label>
                           <p className="text-xs text-muted-foreground">
-                            For directory imports, place detected DLC, updates, and extras in
-                            <code> dlc/</code>, <code>update/</code>, and <code>extra/</code>{" "}
+                            For directory imports, place detected DLC, updates, and extras in{" "}
+                            <code>dlc/</code>, <code>update/</code>, and <code>extra/</code>{" "}
                             subfolders inside the game folder. Single-file imports keep their
                             existing layout.
                           </p>
                         </div>
                         <Switch
+                          id="sort-extras"
                           checked={localConfig.sortExtras}
                           onCheckedChange={(checked) =>
                             setLocalConfig({ ...localConfig, sortExtras: checked })

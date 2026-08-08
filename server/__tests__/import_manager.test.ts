@@ -265,6 +265,7 @@ describe("ImportManager", () => {
       proposedPath: "/safe/root/PC/My Game",
       needsReview: false,
       transferMode: "move",
+      fileCategories: [{ name: "../../escape.bin", category: "dlc" }],
     });
 
     expect(fsMock.ensureDir).toHaveBeenCalled();

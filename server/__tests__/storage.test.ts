@@ -745,6 +745,15 @@ describe("Import And Mapping Helpers", () => {
     );
   });
 
+  it("should persist enabled sortExtras in import config", async () => {
+    const user = await storage.createUser({ username: "sort-user", passwordHash: "hash" });
+    await storage.createUserSettings({ userId: user.id, sortExtras: true });
+
+    await expect(storage.getImportConfig(user.id)).resolves.toEqual(
+      expect.objectContaining({ sortExtras: true })
+    );
+  });
+
   it("should apply defaults when no matching scoped settings exist", async () => {
     const importConfig = await storage.getImportConfig("missing-user");
     expect(importConfig).toEqual({

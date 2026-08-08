@@ -1,0 +1,1 @@
+ALTER TABLE `user_settings` ADD `sort_extras` integer DEFAULT false NOT NULL;

@@ -71,6 +71,7 @@ export const userSettings = sqliteTable("user_settings", {
   autoDeleteAfterImport: integer("auto_delete_after_import", { mode: "boolean" })
     .notNull()
     .default(false),
+  sortExtras: integer("sort_extras", { mode: "boolean" }).notNull().default(false),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),
@@ -115,6 +116,7 @@ export interface ImportConfig {
   minFileSize: number;
   libraryRoot: string;
   autoDeleteAfterImport: boolean;
+  sortExtras: boolean;
 }
 
 export const IMPORT_TRANSFER_MODES = ["move", "copy", "hardlink", "symlink"] as const;
@@ -134,6 +136,7 @@ export const importConfigSchema = z.object({
   minFileSize: z.number().int().min(0),
   libraryRoot: z.string().min(1),
   autoDeleteAfterImport: z.boolean(),
+  sortExtras: z.boolean(),
 });
 
 export const systemConfig = sqliteTable("system_config", {

@@ -312,6 +312,26 @@ describe("GameDownloadDialog", () => {
     }
   );
 
+  it.each([false, true])(
+    "sanitizes an unsafe indexer comments URL when mobile is %s",
+    async (isMobile) => {
+      mockIsMobile = isMobile;
+      globalThis.fetch = createFetchMock({
+        search: makeSearchResult([
+          makeTorrentItem({
+            title: "Unsafe Release",
+            comments: "javascript:alert(document.cookie)",
+          }),
+        ]),
+      });
+
+      renderComponent();
+
+      const link = await screen.findByRole("link", { name: "Unsafe Release" });
+      expect(link).toHaveAttribute("href", "#");
+    }
+  );
+
   it("identifies Usenet vs Torrent items", async () => {
     renderComponent();
 

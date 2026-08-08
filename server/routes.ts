@@ -1249,7 +1249,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Always generate new UUID - never trust client-provided IDs
         // Games already released when they are added should not trigger a
         // misleading "Game has been released" notification on the next cron run.
-        if (gameData.releaseDate && new Date(gameData.releaseDate) <= new Date()) {
+        // Compare calendar dates (YYYY-MM-DD) rather than UTC instants so a game
+        // releasing "today" is only marked released once that calendar day arrives.
+        if (
+          gameData.releaseDate &&
+          gameData.releaseDate <= new Date().toISOString().split("T")[0]
+        ) {
           gameData.releaseStatus = "released";
         }
         const game = await storage.addGame(gameData);

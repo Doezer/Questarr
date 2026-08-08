@@ -525,6 +525,86 @@ describe("API Routes - Extended Coverage", () => {
       );
     });
 
+    it("does not mark a game releasing in the future as released", async () => {
+      const tomorrow = new Date();
+      tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+      const futureDate = tomorrow.toISOString().split("T")[0];
+
+      const newGame = {
+        title: "Future Game",
+        igdbId: 12347,
+        platform: "PC",
+        releaseDate: futureDate,
+      };
+      const savedGame = {
+        ...newGame,
+        id: "game-future",
+        userId: "user-1",
+        releaseStatus: "upcoming",
+      };
+
+      vi.mocked(storage.getUserGames).mockResolvedValue([]);
+      vi.mocked(storage.addGame).mockResolvedValue(savedGame as unknown as Game);
+
+      const response = await request(app).post("/api/games").send(newGame);
+
+      expect(response.status).toBe(201);
+      expect(storage.addGame).not.toHaveBeenCalledWith(
+        expect.objectContaining({ releaseStatus: "released" })
+      );
+    });
+
+    it("does not force a release status when releaseDate is omitted", async () => {
+      const newGame = {
+        title: "Undated Game",
+        igdbId: 12348,
+        platform: "PC",
+      };
+      const savedGame = {
+        ...newGame,
+        id: "game-undated",
+        userId: "user-1",
+        releaseStatus: "upcoming",
+      };
+
+      vi.mocked(storage.getUserGames).mockResolvedValue([]);
+      vi.mocked(storage.addGame).mockResolvedValue(savedGame as unknown as Game);
+
+      const response = await request(app).post("/api/games").send(newGame);
+
+      expect(response.status).toBe(201);
+      expect(storage.addGame).not.toHaveBeenCalledWith(
+        expect.objectContaining({ releaseStatus: "released" })
+      );
+    });
+
+    it("marks a game releasing today as released in any timezone", async () => {
+      const today = new Date().toISOString().split("T")[0];
+
+      const newGame = {
+        title: "Releasing Today",
+        igdbId: 12349,
+        platform: "PC",
+        releaseDate: today,
+      };
+      const savedGame = {
+        ...newGame,
+        id: "game-today",
+        userId: "user-1",
+        releaseStatus: "released",
+      };
+
+      vi.mocked(storage.getUserGames).mockResolvedValue([]);
+      vi.mocked(storage.addGame).mockResolvedValue(savedGame as unknown as Game);
+
+      const response = await request(app).post("/api/games").send(newGame);
+
+      expect(response.status).toBe(201);
+      expect(storage.addGame).toHaveBeenCalledWith(
+        expect.objectContaining({ releaseStatus: "released" })
+      );
+    });
+
     it("should prevent duplicate games", async () => {
       const gameData = { title: "Dup Game", igdbId: 100, platform: "PC" };
       const existingGame = { ...gameData, id: "game-100", userId: "user-1" };

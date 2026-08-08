@@ -45,7 +45,9 @@ describe("ScrollArea", () => {
     const scrollbar = container.querySelector<HTMLElement>('[data-testid="scrollbar"]');
     expect(scrollbar).not.toBeNull();
     expect(scrollbar).toHaveAttribute("data-force-mount", "true");
+    expect(scrollbar).toHaveAttribute("data-orientation", "vertical");
     expect(scrollbar).toHaveClass("[&>div]:bg-border/60");
     expect(scrollbar).toHaveClass("[&>div]:hover:bg-border");
+    expect(scrollbar).toHaveClass("[&>div]:transition-colors");
   });
 });

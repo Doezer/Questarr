@@ -664,7 +664,9 @@ export class QBittorrentClient implements DownloaderClient {
         const hash = parsedInfoHash || extractHashFromUrl(request.url);
 
         if (!hash) {
-          const recent = await findRecentlyAddedDownload();
+          const recent = await findRecentlyAddedDownload({
+            correlationTag: pendingFallbackCorrelationTag ?? undefined,
+          });
           if (recent) {
             downloadersLogger.info(
               { hash: recent.hash, name: recent.name },

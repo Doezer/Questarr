@@ -742,6 +742,7 @@ describe("qbittorrent regression coverage", () => {
       };
 
       vi.spyOn(privateClient, "authenticate").mockResolvedValue(undefined);
+      let uploadStarted = false;
       const makeRequestSpy = vi
         .spyOn(privateClient, "makeRequest")
         .mockImplementation(async (_method, path, body) => {
@@ -759,15 +760,29 @@ describe("qbittorrent regression coverage", () => {
               headers: jsonHeaders,
             } as unknown as Response;
           }
-          if (path.startsWith("/api/v2/torrents/info?tag=")) {
+          if (path.startsWith("/api/v2/torrents/info?tag=") && !uploadStarted) {
             return { ok: true, json: async () => [] } as Response;
           }
           if (path === "/api/v2/torrents/add" && Buffer.isBuffer(body)) {
+            uploadStarted = true;
             return {
               ok: true,
               status: 200,
               text: async () => "Ok.",
               headers: emptyHeaders,
+            } as Response;
+          }
+          if (path.startsWith("/api/v2/torrents/info?tag=") && uploadStarted) {
+            return {
+              ok: true,
+              status: 200,
+              json: async () => [
+                {
+                  hash: "fallback-hash",
+                  name: "Pending via Prowlarr",
+                  added_on: Math.floor(Date.now() / 1000),
+                },
+              ],
             } as Response;
           }
           if (path === "/api/v2/torrents/info?sort=added_on&reverse=true") {

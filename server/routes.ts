@@ -1725,24 +1725,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: "Failed to list blacklists" });
     }
   });
-  const gameIdParamValidation = [
-    param("gameId").trim().isUUID().withMessage("Invalid game ID format"),
-  ];
-  const gameFileIdParamValidation = [
-    param("id").trim().isUUID().withMessage("Invalid game file ID format"),
-  ];
-  const gameFileBodyValidation = [
-    body("gameId").trim().isUUID().withMessage("Invalid game ID format"),
-    body("downloadId")
-      .optional({ nullable: true })
-      .trim()
-      .isUUID()
-      .withMessage("Invalid download ID format"),
-    body("category")
-      .trim()
-      .isIn(["main", "dlc", "update", "extra"])
-      .withMessage("Invalid game file category"),
-  ];
+  // Recursively scan a game library folder. This endpoint is read-only; imports are handled separately.
+  app.get(
+    "/api/games/:gameId/files",
+    authenticateToken,
+    gameIdParamValidation,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const game = await resolveOwnedGame(req.params.gameId, req.user!.id, res);
+        if (!game) return;
+        if (!game.libraryPath) return res.json({ files: [] });
+
+        const importConfig = await storage.getImportConfig(req.user!.id);
+        const libraryRoot = await fs.promises.realpath(importConfig.libraryRoot).catch(() => null);
+        const scanRoot = await fs.promises.realpath(game.libraryPath).catch(() => null);
+        const isContained = (candidate: string, root: string) =>
+          candidate === root || candidate.startsWith(root + path.sep);
+        if (!libraryRoot || !scanRoot || !isContained(scanRoot, libraryRoot)) {
+          return res.json({ files: [] });
+        }
+
+        const categoryDirs = new Set(["dlc", "update", "extra", "packs"]);
+        const files: Array<{ name: string; path: string; category: string; size: number }> = [];
+        const walk = async (dir: string, inheritedCategory?: string): Promise<void> => {
+          const canonicalDir = await fs.promises.realpath(dir).catch(() => null);
+          if (!canonicalDir || !isContained(canonicalDir, libraryRoot)) return;
+          const entries = await fs.promises
+            .readdir(canonicalDir, { withFileTypes: true })
+            .catch(() => [] as fs.Dirent[]);
+          for (const entry of entries) {
+            const fullPath = path.join(canonicalDir, entry.name);
+            if (entry.isDirectory()) {
+              const nextCategory = categoryDirs.has(entry.name.toLowerCase())
+                ? entry.name.toLowerCase()
+                : inheritedCategory;
+              await walk(fullPath, nextCategory);
+              continue;
+            }
+            if (!entry.isFile()) continue;
+            const canonicalFile = await fs.promises.realpath(fullPath).catch(() => null);
+            if (!canonicalFile || !isContained(canonicalFile, libraryRoot)) continue;
+            const stat = await fs.promises.stat(canonicalFile).catch(() => null);
+            if (!stat) continue;
+            const category =
+              inheritedCategory ?? categorizeDownload(path.parse(entry.name).name).category;
+            files.push({ name: entry.name, path: canonicalFile, category, size: stat.size });
+          }
+        };
+        await walk(scanRoot);
+        res.json({ files });
+      } catch (error) {
+        routesLogger.error({ error }, "error scanning game files");
+        res.status(500).json({ error: "Failed to scan game files" });
+      }
+    }
+  );
 
   // Get game files for a specific game, grouped by category
   app.get(

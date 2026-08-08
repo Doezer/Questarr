@@ -21,39 +21,38 @@ afterEach(async () => {
   for (const dir of cleanup.splice(0, cleanup.length)) {
     await fs.remove(dir);
   }
+  vi.restoreAllMocks();
 });
 
 describe("ImportStrategies", () => {
-  it("falls back to copy when hardlink fails with EXDEV", async () => {
-    const root = tempDir();
-    const source = path.join(root, "downloads", "cross-device.rom");
-    const destination = path.join(root, "library", "PC", "cross-device.rom");
-    await fs.ensureDir(path.dirname(source));
-    await fs.writeFile(source, "rom-bytes");
+  it.each(["EXDEV", "EPERM", "EACCES", "ENOTSUP", "EOPNOTSUPP"])(
+    "falls back to copy when hardlink fails with %s",
+    async (code) => {
+      const root = tempDir();
+      const source = path.join(root, "downloads", "cross-device.rom");
+      const destination = path.join(root, "library", "PC", "cross-device.rom");
+      await fs.ensureDir(path.dirname(source));
+      await fs.writeFile(source, "rom-bytes");
 
-    const linkSpy = vi
-      .spyOn(fs, "link")
-      .mockRejectedValueOnce({ code: "EXDEV" } as NodeJS.ErrnoException);
-    const copySpy = vi.spyOn(fs, "copy");
+      const linkSpy = vi.spyOn(fs, "link").mockRejectedValueOnce({ code } as NodeJS.ErrnoException);
+      const copySpy = vi.spyOn(fs, "copy");
 
-    const strategy = new PCImportStrategy();
-    const result = await strategy.executeImport(
-      {
-        needsReview: false,
-        originalPath: source,
-        proposedPath: destination,
-        strategy: "pc",
-      },
-      "hardlink"
-    );
+      const strategy = new PCImportStrategy();
+      const result = await strategy.executeImport(
+        {
+          needsReview: false,
+          originalPath: source,
+          proposedPath: destination,
+          strategy: "pc",
+        },
+        "hardlink"
+      );
 
-    expect(result.modeUsed).toBe("copy");
-    expect(copySpy).toHaveBeenCalled();
-    expect(await fs.pathExists(destination)).toBe(true);
-
-    linkSpy.mockRestore();
-    copySpy.mockRestore();
-  });
+      expect(result.modeUsed).toBe("copy");
+      expect(copySpy).toHaveBeenCalled();
+      expect(await fs.pathExists(destination)).toBe(true);
+    }
+  );
 
   // ---------------------------------------------------------------------------
   // PCImportStrategy.executeImport() — single file vs directory source
@@ -133,8 +132,6 @@ describe("ImportStrategies", () => {
           "copy"
         )
       ).rejects.toThrow("write error");
-
-      copySpy.mockRestore();
     });
   });
 

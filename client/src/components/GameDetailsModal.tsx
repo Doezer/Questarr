@@ -611,9 +611,11 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     staleTime: 24 * 60 * 60 * 1000,
   });
 
-  const { data: gameFiles = [], isLoading: filesLoading } = useQuery<
-    Array<{ name: string; path: string; category: string; isDirectory: boolean }>
-  >({
+  const {
+    data: gameFiles = [],
+    isLoading: filesLoading,
+    isError: filesError,
+  } = useQuery<Array<{ name: string; path: string; category: string; isDirectory: boolean }>>({
     queryKey: [`/api/games/${game?.id}/files`],
     queryFn: async () => {
       const res = await apiRequest("GET", `/api/games/${game!.id}/files`);
@@ -868,15 +870,17 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
             </TooltipTrigger>
             <TooltipContent className="sm:hidden">Media</TooltipContent>
           </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <TabsTrigger value="files" aria-label="Files on disk" className="gap-1.5">
-                <File className="h-3.5 w-3.5 sm:hidden" />
-                <span className="hidden sm:inline">Files</span>
-              </TabsTrigger>
-            </TooltipTrigger>
-            <TooltipContent className="sm:hidden">Files</TooltipContent>
-          </Tooltip>
+          {!isDiscoveryId(game.id) && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <TabsTrigger value="files" aria-label="Files on disk" className="gap-1.5">
+                  <File className="h-3.5 w-3.5 sm:hidden" />
+                  <span className="hidden sm:inline">Files</span>
+                </TabsTrigger>
+              </TooltipTrigger>
+              <TooltipContent className="sm:hidden">Files</TooltipContent>
+            </Tooltip>
+          )}
           <Tooltip>
             <TooltipTrigger asChild>
               <TabsTrigger value="links" aria-label="Links & Ratings" className="gap-1.5">
@@ -1149,6 +1153,10 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                   <Loader2 className="w-5 h-5 animate-spin mr-2" />
                   Loading files…
                 </div>
+              ) : filesError ? (
+                <div className="flex items-center justify-center py-8 text-sm text-destructive">
+                  Failed to load files.
+                </div>
               ) : gameFiles.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-8 text-muted-foreground gap-2">
                   <HardDrive className="w-8 h-8 opacity-40" />
@@ -1172,9 +1180,9 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
 
                   if (!hasMultipleGroups) {
                     return (
-                      <div className="space-y-1">
+                      <div className="space-y-2">
                         {gameFiles.map((f, i) => (
-                          <div key={i} className="flex items-center gap-2 text-sm py-1">
+                          <div key={i} className="flex items-center gap-2 text-sm py-2">
                             {f.isDirectory ? (
                               <Folder className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                             ) : (
@@ -1197,9 +1205,9 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                             <h4 className="text-sm font-semibold mb-2 text-muted-foreground uppercase tracking-wide">
                               {categoryLabels[cat] || cat}
                             </h4>
-                            <div className="space-y-1">
+                            <div className="space-y-2">
                               {catFiles.map((f, i) => (
-                                <div key={i} className="flex items-center gap-2 text-sm py-1">
+                                <div key={i} className="flex items-center gap-2 text-sm py-2">
                                   {f.isDirectory ? (
                                     <Folder className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                                   ) : (

@@ -8,7 +8,7 @@ import type {
 import { downloadersLogger } from "../logger.js";
 import { randomUUID } from "node:crypto";
 import parseTorrent from "parse-torrent";
-import { isSafeUrl } from "../ssrf.js";
+import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
 import { fetchWithMagnetDetection, extractHashFromUrl, fixNzbUrlEncoding } from "./utils.js";
 
@@ -1189,7 +1189,7 @@ export class QBittorrentClient implements DownloaderClient {
     formData.append("password", this.downloader.password);
 
     try {
-      const response = await fetch(url, {
+      const response = await safeFetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
@@ -1339,7 +1339,7 @@ export class QBittorrentClient implements DownloaderClient {
       "Making qBittorrent request"
     );
 
-    let response = await fetch(url, {
+    let response = await safeFetch(url, {
       method,
       headers,
       body: requestBody,
@@ -1358,7 +1358,7 @@ export class QBittorrentClient implements DownloaderClient {
         retryHeaders["Cookie"] = this.cookie;
       }
 
-      response = await fetch(url, {
+      response = await safeFetch(url, {
         method,
         headers: retryHeaders,
         body: requestBody,

@@ -9,7 +9,7 @@ import {
   sanitizeFsName,
 } from "./ImportStrategies.js";
 import { DownloaderManager } from "../downloaders.js";
-import { resolveDownloadRelativePath } from "../downloaders/utils.js";
+import { resolveDownloadRelativePath, buildRemoteImportPath } from "../downloaders/utils.js";
 import fs from "fs-extra";
 import path from "node:path";
 import { parseReleaseMetadata } from "../../shared/title-utils.js";
@@ -468,7 +468,10 @@ export class ImportManager {
     const details = await DownloaderManager.getDownloadDetails(downloader, download.downloadHash);
     if (!details?.downloadDir) return undefined;
 
-    const remotePath = `${details.downloadDir}/${resolveDownloadRelativePath(details)}`;
+    const remotePath = buildRemoteImportPath(
+      details.downloadDir,
+      resolveDownloadRelativePath(details)
+    );
     const remoteHost = this.extractRemoteHost(downloader.url);
     return this.pathService.translatePath(remotePath, remoteHost);
   }
@@ -570,6 +573,10 @@ export class ImportManager {
       throw new Error(
         "Source path could not be resolved — the download may no longer be tracked by the download client. Please specify the source path manually."
       );
+    }
+
+    if (!(await fs.pathExists(resolvedOriginalPath))) {
+      throw new Error(`Source path not found: ${resolvedOriginalPath}`);
     }
 
     const game = await this.storage.getGame(download.gameId);

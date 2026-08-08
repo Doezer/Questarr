@@ -319,3 +319,24 @@ export async function logDownloaderDebugResponse(
     );
   }
 }
+
+/**
+ * Joins a download's directory with its resolved relative path, without
+ * duplicating a segment that's already present.
+ *
+ * Usenet clients (NZBGet, SABnzbd) don't expose per-file details, so
+ * resolveDownloadRelativePath() always falls back to the release name — but
+ * for those clients `downloadDir` already IS the final content directory
+ * (its own name is the release name), unlike torrent clients where it's a
+ * genuine parent. Naively appending the relative path in that case produces
+ * a nonexistent nested path like ".../Release Name/Release Name".
+ */
+export function buildRemoteImportPath(downloadDir: string, relativePath: string): string {
+  const normalizedDir = downloadDir.replace(/[\\/]+$/, "");
+  const normalizedRelative = relativePath.replace(/^[\\/]+/, "");
+  const lastSegment = normalizedDir.split(/[\\/]/).pop()?.toLowerCase();
+  if (lastSegment && lastSegment === normalizedRelative.toLowerCase()) {
+    return normalizedDir;
+  }
+  return `${normalizedDir}/${normalizedRelative}`;
+}

@@ -488,6 +488,7 @@ describe("API Routes - Extended Coverage", () => {
   });
 
   describe("POST /api/games", () => {
+    afterEach(() => vi.useRealTimers());
     it("should add a new game", async () => {
       const newGame = { title: "New Game", igdbId: 12345, platform: "PC" };
       const savedGame = { ...newGame, id: "game-new", userId: "user-1" };
@@ -526,9 +527,8 @@ describe("API Routes - Extended Coverage", () => {
     });
 
     it("does not mark a game releasing in the future as released", async () => {
-      const tomorrow = new Date();
-      tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
-      const futureDate = tomorrow.toISOString().split("T")[0];
+      vi.useFakeTimers({ now: new Date("2026-08-08T12:00:00Z") });
+      const futureDate = "2026-08-09";
 
       const newGame = {
         title: "Future Game",
@@ -579,7 +579,8 @@ describe("API Routes - Extended Coverage", () => {
     });
 
     it("marks a game releasing today as released in any timezone", async () => {
-      const today = new Date().toISOString().split("T")[0];
+      vi.useFakeTimers({ now: new Date("2026-08-08T12:00:00Z") });
+      const today = "2026-08-08";
 
       const newGame = {
         title: "Releasing Today",

@@ -143,6 +143,18 @@ async function categorizeSourceFiles(sourcePath: string): Promise<FileCategoryEn
   });
 }
 
+function resolveContainedPath(root: string, candidate: string): string {
+  const resolvedRoot = path.resolve(root);
+  const resolvedCandidate = path.resolve(candidate);
+  if (
+    resolvedCandidate !== resolvedRoot &&
+    !resolvedCandidate.startsWith(resolvedRoot + path.sep)
+  ) {
+    throw new Error(`Import path escapes review root: ${candidate}`);
+  }
+  return resolvedCandidate;
+}
+
 function destinationForFile(gameDir: string, entry: FileCategoryEntry): string {
   const firstSegment = entry.name.split(path.sep)[0]?.toLowerCase();
   if (["dlc", "update", "extra"].includes(firstSegment ?? "")) {
@@ -199,8 +211,14 @@ export class PCImportStrategy implements ImportStrategy {
 
       const plannedTransfers = review.fileCategories.map((entry) => ({
         entry,
-        sourceFile: path.join(review.originalPath, entry.name),
-        destinationFile: destinationForFile(review.proposedPath, entry),
+        sourceFile: resolveContainedPath(
+          review.originalPath,
+          path.join(review.originalPath, entry.name)
+        ),
+        destinationFile: resolveContainedPath(
+          review.proposedPath,
+          destinationForFile(review.proposedPath, entry)
+        ),
       }));
       const destinations = new Set<string>();
       for (const { destinationFile } of plannedTransfers) {

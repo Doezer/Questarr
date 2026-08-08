@@ -836,6 +836,9 @@ export type InsertImportTask = (typeof insertImportTaskSchema)["_output"];
 export type ImportTaskItem = typeof importTaskItems.$inferSelect;
 export type InsertImportTaskItem = (typeof insertImportTaskItemSchema)["_output"];
 
+export const gameFileCategorySchema = z.enum(["main", "dlc", "update", "extra"]);
+export type GameFileCategory = z.infer<typeof gameFileCategorySchema>;
+
 export const gameFiles = sqliteTable(
   "game_files",
   {
@@ -846,7 +849,7 @@ export const gameFiles = sqliteTable(
     downloadId: text("download_id").references(() => gameDownloads.id, { onDelete: "set null" }),
     originalName: text("original_name").notNull(),
     storedName: text("stored_name").notNull(),
-    category: text("category").notNull().$type<"main" | "dlc" | "update" | "extra">(),
+    category: text("category").notNull().$type<GameFileCategory>(),
     filePath: text("file_path").notNull(),
     fileSize: integer("file_size"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
@@ -859,7 +862,9 @@ export const gameFiles = sqliteTable(
   ]
 );
 
-export const insertGameFileSchema = createInsertSchema(gameFiles).omit({
+export const insertGameFileSchema = createInsertSchema(gameFiles, {
+  category: gameFileCategorySchema,
+}).omit({
   id: true,
   createdAt: true,
 });

@@ -13,6 +13,7 @@ import type {
   InsertIndexer,
   InsertDownloader,
   InsertGameDownload,
+  InsertGameFile,
   InsertUserSettings,
   InsertReleaseBlacklist,
 } from "../../shared/schema";
@@ -206,6 +207,25 @@ describe("MemStorage", () => {
 
       const retrieved = await storage.getGame(game.id);
       expect(retrieved).toBeUndefined();
+    });
+
+    it("cascades game files when removing a game", async () => {
+      const game = await storage.addGame({
+        title: "Game with file",
+        status: "owned",
+        userId: "user-1",
+        hidden: false,
+      });
+      await storage.addGameFile({
+        gameId: game.id,
+        originalName: "game.exe",
+        storedName: "game.exe",
+        category: "main",
+        filePath: "/library/game.exe",
+      } as InsertGameFile);
+
+      await expect(storage.removeGame(game.id)).resolves.toBe(true);
+      await expect(storage.getGameFiles(game.id)).resolves.toEqual([]);
     });
 
     it("should filter games by status", async () => {
@@ -752,6 +772,44 @@ describe("Import And Mapping Helpers", () => {
     await expect(storage.getImportConfig(user.id)).resolves.toEqual(
       expect.objectContaining({ sortExtras: true })
     );
+  });
+
+  it("clears game-file download references when removing a download", async () => {
+    const game = await storage.addGame({
+      title: "Download game",
+      status: "owned",
+      userId: "user-1",
+      hidden: false,
+    });
+    const downloader = await storage.addDownloader({
+      name: "test",
+      type: "qbittorrent",
+      url: "http://localhost",
+      apiKey: "",
+      enabled: true,
+      priority: 1,
+    } as InsertDownloader);
+    const download = await storage.addGameDownload({
+      gameId: game.id,
+      downloaderId: downloader.id,
+      downloadHash: "hash",
+      downloadTitle: "Game",
+      status: "downloading",
+      downloadType: "torrent",
+      fileSize: null,
+    } as InsertGameDownload);
+    await storage.addGameFile({
+      gameId: game.id,
+      downloadId: download!.id,
+      originalName: "game.exe",
+      storedName: "game.exe",
+      category: "main",
+      filePath: "/library/game.exe",
+    } as InsertGameFile);
+
+    await expect(storage.removeGameDownload(download!.id, game.id)).resolves.toBe(true);
+    const files = await storage.getGameFiles(game.id);
+    expect(files[0]?.downloadId).toBeNull();
   });
 
   it("should apply defaults when no matching scoped settings exist", async () => {

@@ -85,7 +85,7 @@ async function transferFile(
     ) {
       logger.warn(
         { source, destination, code },
-        "[ImportStrategies] Hardlink not supported, falling back to copy"
+        "[ImportStrategies] Hardlink failed, falling back to copy"
       );
       await fs.copy(source, destination, { overwrite: true });
       return "copy";

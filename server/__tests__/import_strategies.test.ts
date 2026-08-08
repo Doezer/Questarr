@@ -21,6 +21,7 @@ afterEach(async () => {
   for (const dir of cleanup.splice(0, cleanup.length)) {
     await fs.remove(dir);
   }
+  vi.restoreAllMocks();
 });
 
 describe("ImportStrategies", () => {
@@ -50,9 +51,6 @@ describe("ImportStrategies", () => {
       expect(result.modeUsed).toBe("copy");
       expect(copySpy).toHaveBeenCalled();
       expect(await fs.pathExists(destination)).toBe(true);
-
-      linkSpy.mockRestore();
-      copySpy.mockRestore();
     }
   );
 
@@ -134,8 +132,6 @@ describe("ImportStrategies", () => {
           "copy"
         )
       ).rejects.toThrow("write error");
-
-      copySpy.mockRestore();
     });
   });
 

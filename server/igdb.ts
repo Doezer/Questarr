@@ -15,7 +15,7 @@ export const IGDB_EARLY_ACCESS_STATUS = 4;
 
 // Shared field list for all IGDB game queries
 const IGDB_GAME_FIELDS =
-  "name, summary, cover.url, first_release_date, rating, aggregated_rating, aggregated_rating_count, platforms.name, genres.name, themes.name, age_ratings.category, age_ratings.rating, screenshots.url, websites.url, websites.category, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, status";
+  "name, summary, cover.url, first_release_date, rating, aggregated_rating, aggregated_rating_count, platforms.name, genres.name, themes.name, age_ratings.category, age_ratings.rating, screenshots.url, websites.url, websites.category, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, status, category, expansions.name, expansions.cover.url, expansions.first_release_date, expansions.category";
 
 // IGDB theme name flagged as adult content (Erotic)
 const ADULT_THEME_NAMES = new Set(["Erotic"]);
@@ -80,6 +80,14 @@ export interface IGDBGame {
     publisher: boolean;
   }>;
   status?: number;
+  category?: number;
+  expansions?: Array<{
+    id: number;
+    name: string;
+    cover?: { url: string };
+    first_release_date?: number;
+    category?: number;
+  }>;
 }
 
 interface SearchGamesOptions {

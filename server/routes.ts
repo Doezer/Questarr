@@ -1724,6 +1724,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: "Failed to list blacklists" });
     }
   });
+  // Recursively scan a game library folder. This endpoint is read-only; imports are handled separately.
+  app.get("/api/games/:gameId/files", authenticateToken, async (req: Request, res: Response) => {
+    try {
+      const game = await resolveOwnedGame(req.params.gameId, req.user!.id, res);
+      if (!game) return;
+      if (!game.libraryPath) return res.json({ files: [] });
+
+      const root = path.resolve(game.libraryPath);
+      const rootStats = await fs.promises.stat(root).catch(() => null);
+      if (!rootStats || !rootStats.isDirectory()) return res.json({ files: [] });
+
+      const categoryDirs = new Set(["dlc", "update", "extra", "packs"]);
+      const files: Array<{ name: string; path: string; category: string; size: number }> = [];
+      const walk = async (dir: string, inheritedCategory?: string): Promise<void> => {
+        const entries = await fs.promises
+          .readdir(dir, { withFileTypes: true })
+          .catch(() => [] as fs.Dirent[]);
+        for (const entry of entries) {
+          const fullPath = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            const nextCategory = categoryDirs.has(entry.name.toLowerCase())
+              ? entry.name.toLowerCase()
+              : inheritedCategory;
+            await walk(fullPath, nextCategory);
+            continue;
+          }
+          if (!entry.isFile()) continue;
+          const stat = await fs.promises.stat(fullPath).catch(() => null);
+          if (!stat) continue;
+          const category =
+            inheritedCategory ?? categorizeDownload(path.parse(entry.name).name).category;
+          files.push({ name: entry.name, path: fullPath, category, size: stat.size });
+        }
+      };
+      await walk(root);
+      res.json({ files });
+    } catch (error) {
+      routesLogger.error({ error }, "error scanning game files");
+      res.status(500).json({ error: "Failed to scan game files" });
+    }
+  });
   // Get game files for a specific game, grouped by category
   app.get("/api/games/:gameId/content", authenticateToken, async (req: Request, res: Response) => {
     try {

@@ -292,7 +292,7 @@ export default function ImportSettings() {
                         />
                       </div>
                       <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
+                        <div className="space-y-2">
                           <Label htmlFor="sort-extras">Sort add-on files into subfolders</Label>
                           <p className="text-xs text-muted-foreground">
                             For directory imports, place detected DLC, updates, and extras in{" "}

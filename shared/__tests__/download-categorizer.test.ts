@@ -77,10 +77,12 @@ describe("download-categorizer", () => {
         category: "packs",
         confidence: 0.85,
       });
+      expect(categorizeDownload("Game.Addon-GROUP").category).toBe("packs");
     });
 
     it("keeps explicit DLC and expansion packs in the DLC category", () => {
       expect(categorizeDownload("Game.DLC.Pack-GROUP").category).toBe("dlc");
+      expect(categorizeDownload("Game.DLC.Add-On-GROUP").category).toBe("dlc");
       expect(categorizeDownload("Game.Expansion.Pack-GROUP").category).toBe("dlc");
     });
 

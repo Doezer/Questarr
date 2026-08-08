@@ -39,7 +39,7 @@ const CATEGORY_DEFINITIONS = [
   {
     value: "packs",
     label: "Packs/Addons",
-    description: "Game packs, add-ons, and compilations",
+    description: "Game packs and add-ons",
   },
   {
     value: "extra",

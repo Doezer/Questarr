@@ -84,6 +84,7 @@ interface AutoSearchRules {
 interface AutoSearchCategorizedItems {
   mainItems: SearchItem[];
   updateItems: SearchItem[];
+  packsItems: SearchItem[];
 }
 
 function getAutoSearchRules(downloadRules: string | null): AutoSearchRules {
@@ -133,11 +134,13 @@ function categorizeSearchItems(
         acc.mainItems.push(item);
       } else if (category === "update") {
         acc.updateItems.push(item);
+      } else if (category === "packs") {
+        acc.packsItems.push(item);
       }
 
       return acc;
     },
-    { mainItems: [], updateItems: [] }
+    { mainItems: [], updateItems: [], packsItems: [] }
   );
 }
 
@@ -1135,7 +1138,22 @@ export async function checkAutoSearch() {
             );
             const updateItems = deduplicateByTitle(groupFilteredUpdate, indexerPriorityMap);
 
-            await storage.updateGameSearchResultsAvailable(game.id, updateItems.length > 0);
+            // Packs/add-ons are content for owned games, surfaced like updates.
+            const platformFilteredPacks = applyPreferredPlatformFilter(
+              searchResult.packsItems,
+              preferredPlatform
+            );
+            const groupFilteredPacks = applyPreferredGroupsFilter(
+              platformFilteredPacks,
+              preferredGroups,
+              settings.filterByPreferredGroups ?? false
+            );
+            const packsItems = deduplicateByTitle(groupFilteredPacks, indexerPriorityMap);
+
+            await storage.updateGameSearchResultsAvailable(
+              game.id,
+              updateItems.length > 0 || packsItems.length > 0
+            );
 
             if (updateItems.length > 0 && !wasUpdateAvailable && prefs.gameUpdates.inApp) {
               const notification = await storage.addNotification({
@@ -1143,6 +1161,18 @@ export async function checkAutoSearch() {
                 type: "info",
                 title: "Game Updates Available",
                 message: `${updateItems.length} update(s) found for ${game.title}`,
+                link: `modal:game:${game.id}`,
+              });
+              notifyUser("notification", notification);
+              if (prefs.gameUpdates.apprise) appriseClient.send(notification);
+            }
+
+            if (packsItems.length > 0 && !wasUpdateAvailable && prefs.gameUpdates.inApp) {
+              const notification = await storage.addNotification({
+                userId,
+                type: "info",
+                title: "Packs/Add-ons Available",
+                message: `${packsItems.length} pack(s)/add-on(s) found for ${game.title}`,
                 link: `modal:game:${game.id}`,
               });
               notifyUser("notification", notification);

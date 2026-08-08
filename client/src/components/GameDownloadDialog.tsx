@@ -75,7 +75,11 @@ import {
   type Downloader,
   downloadRulesSchema,
 } from "@shared/schema";
-import { groupDownloadsByCategory, type DownloadCategory } from "@shared/download-categorizer";
+import {
+  getCategoryLabel,
+  groupDownloadsByCategory,
+  type DownloadCategory,
+} from "@shared/download-categorizer";
 import {
   parseReleaseMetadata,
   parseJsonStringArray,
@@ -846,15 +850,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                 onCheckedChange={() => toggleCategory(cat)}
               />
               <label htmlFor={`cat-${cat}`} className="ml-2 text-sm cursor-pointer capitalize">
-                {cat === "main"
-                  ? "Main Game"
-                  : cat === "update"
-                    ? "Updates"
-                    : cat === "dlc"
-                      ? "DLC"
-                      : cat === "packs"
-                        ? "Packs/Addons"
-                        : "Extras"}
+                {getCategoryLabel(cat)}
               </label>
             </div>
           ))}
@@ -977,15 +973,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                   <div key={category} className="relative">
                     <div className="flex items-center gap-2 mb-3 px-1">
                       <h3 className="font-bold text-lg capitalize tracking-tight">
-                        {category === "main"
-                          ? "Main Game"
-                          : category === "update"
-                            ? "Updates & Patches"
-                            : category === "dlc"
-                              ? "DLC & Expansions"
-                              : category === "packs"
-                                ? "Packs/Addons"
-                                : "Extras"}
+                        {getCategoryLabel(category)}
                       </h3>
                       <Badge variant="secondary" className="text-xs font-semibold">
                         {downloadsInCategory.length}

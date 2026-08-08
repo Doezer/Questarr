@@ -61,6 +61,8 @@ import {
   Info,
   Image,
   Link,
+  File,
+  Folder,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
@@ -609,6 +611,20 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     staleTime: 24 * 60 * 60 * 1000,
   });
 
+  const {
+    data: gameFiles = [],
+    isLoading: filesLoading,
+    isError: filesError,
+  } = useQuery<Array<{ name: string; path: string; category: string; isDirectory: boolean }>>({
+    queryKey: [`/api/games/${game?.id}/files`],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/games/${game!.id}/files`);
+      const data = await res.json();
+      return data.files;
+    },
+    enabled: open && !!game?.id && !isDiscoveryId(game.id),
+  });
+
   if (!game) {
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -854,6 +870,17 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
             </TooltipTrigger>
             <TooltipContent className="sm:hidden">Media</TooltipContent>
           </Tooltip>
+          {!isDiscoveryId(game.id) && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <TabsTrigger value="files" aria-label="Files on disk" className="gap-1.5">
+                  <File className="h-3.5 w-3.5 sm:hidden" />
+                  <span className="hidden sm:inline">Files</span>
+                </TabsTrigger>
+              </TooltipTrigger>
+              <TooltipContent className="sm:hidden">Files</TooltipContent>
+            </Tooltip>
+          )}
           <Tooltip>
             <TooltipTrigger asChild>
               <TabsTrigger value="links" aria-label="Links & Ratings" className="gap-1.5">
@@ -1108,6 +1135,94 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                   <Monitor className="w-8 h-8 opacity-40" />
                   <p className="text-sm">No screenshots available.</p>
                 </div>
+              )}
+            </div>
+          </ScrollArea>
+        </TabsContent>
+
+        {/* ── Files tab ── */}
+        <TabsContent
+          value="files"
+          forceMount
+          className="flex-1 min-h-0 data-[state=inactive]:hidden"
+        >
+          <ScrollArea className="h-full">
+            <div className="pr-4 pb-2">
+              {filesLoading ? (
+                <div className="flex items-center justify-center py-8 text-muted-foreground">
+                  <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                  Loading files…
+                </div>
+              ) : filesError ? (
+                <div className="flex items-center justify-center py-8 text-sm text-destructive">
+                  Failed to load files.
+                </div>
+              ) : gameFiles.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-8 text-muted-foreground gap-2">
+                  <HardDrive className="w-8 h-8 opacity-40" />
+                  <p className="text-sm">No files found on disk.</p>
+                </div>
+              ) : (
+                (() => {
+                  const groups = new Map<string, typeof gameFiles>();
+                  for (const f of gameFiles) {
+                    if (!groups.has(f.category)) groups.set(f.category, []);
+                    groups.get(f.category)!.push(f);
+                  }
+                  const hasMultipleGroups = groups.size > 1;
+                  const categoryOrder = ["main", "dlc", "update", "extra"];
+                  const categoryLabels: Record<string, string> = {
+                    main: "Main Game",
+                    dlc: "DLC & Expansions",
+                    update: "Updates & Patches",
+                    extra: "Extras",
+                  };
+
+                  if (!hasMultipleGroups) {
+                    return (
+                      <div className="space-y-2">
+                        {gameFiles.map((f, i) => (
+                          <div key={i} className="flex items-center gap-2 text-sm py-2">
+                            {f.isDirectory ? (
+                              <Folder className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                            ) : (
+                              <File className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                            )}
+                            <span className="truncate">{f.name}</span>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="space-y-4">
+                      {categoryOrder.map((cat) => {
+                        const catFiles = groups.get(cat);
+                        if (!catFiles || catFiles.length === 0) return null;
+                        return (
+                          <div key={cat}>
+                            <h4 className="text-sm font-semibold mb-2 text-muted-foreground uppercase tracking-wide">
+                              {categoryLabels[cat] || cat}
+                            </h4>
+                            <div className="space-y-2">
+                              {catFiles.map((f, i) => (
+                                <div key={i} className="flex items-center gap-2 text-sm py-2">
+                                  {f.isDirectory ? (
+                                    <Folder className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                                  ) : (
+                                    <File className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                                  )}
+                                  <span className="truncate">{f.name}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()
               )}
             </div>
           </ScrollArea>

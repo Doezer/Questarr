@@ -355,7 +355,7 @@ export class QBittorrentClient implements DownloaderClient {
                 };
               }
 
-              pendingFallbackCorrelationTag = correlationTag;
+              pendingFallbackCorrelationTag = `questarr-fallback-${randomUUID()}`;
               downloadersLogger.warn(
                 { url: request.url, title: request.title, successfulPolls },
                 "qBittorrent accepted the URL but the torrent never materialized; " +
@@ -1218,7 +1218,7 @@ export class QBittorrentClient implements DownloaderClient {
     formData.append("password", this.downloader.password);
 
     try {
-      const response = await fetch(url, {
+      const response = await safeFetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",

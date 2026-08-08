@@ -837,13 +837,16 @@ describe("qbittorrent regression coverage", () => {
           ([, path, body]) => path === "/api/v2/torrents/add" && Buffer.isBuffer(body)
         )?.[2]
       );
-      expect(uploadBody).toContain(
-        `Content-Disposition: form-data; name="tags"\r\n\r\n${tagMatch![1]}`
+      const uploadTagMatch = uploadBody.match(
+        /Content-Disposition: form-data; name="tags"\r\n\r\n([^\r\n]+)/
       );
+      expect(uploadTagMatch).not.toBeNull();
+      expect(uploadTagMatch![1]).not.toBe(tagMatch![1]);
+      expect(uploadTagMatch![1]).toMatch(/^questarr-fallback-/);
       expect(makeRequestSpy).toHaveBeenCalledWith(
         "POST",
         "/api/v2/torrents/removeTags",
-        `hashes=fallback-hash&tags=${encodeURIComponent(tagMatch![1])}`,
+        `hashes=fallback-hash&tags=${encodeURIComponent(uploadTagMatch![1])}`,
         expect.any(Object)
       );
     } finally {

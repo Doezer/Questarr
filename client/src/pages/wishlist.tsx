@@ -1,4 +1,4 @@
-﻿import React, { useState, useMemo, useEffect } from "react";
+﻿import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Star, Eye, EyeOff, LayoutGrid, Settings2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
@@ -35,7 +35,7 @@ const SORT_OPTIONS = [
   { value: "release-desc", label: "Release (Newest)" },
   { value: "release-asc", label: "Release (Oldest)" },
   { value: "added-desc", label: "Recently Added" },
-  { value: "title-asc", label: "Title (A窶纏)" },
+  { value: "title-asc", label: "Title (A-Z)" },
 ];
 
 // 笞｡ Bolt: Use O(1) string comparison for ISO date strings instead of new Date().getTime()
@@ -125,6 +125,11 @@ export default function WishlistPage() {
       setGridColumns(safeGridColumns);
     }
   }, [safeGridColumns, gridColumns, setGridColumns]);
+
+  const handleGridColumnsChange = useCallback(
+    ([value]: number[]) => setGridColumns(sanitizeGridColumns(value)),
+    [setGridColumns]
+  );
 
   const { data: games = [], isLoading } = useQuery<Game[]>({
     queryKey: ["/api/games", "?status=wanted"],
@@ -439,14 +444,14 @@ export default function WishlistPage() {
                   </div>
                   <Slider
                     value={[safeGridColumns]}
-                    onValueChange={([value]) => setGridColumns(sanitizeGridColumns(value))}
+                    onValueChange={handleGridColumnsChange}
                     min={2}
                     max={10}
                     step={1}
                     aria-label="Grid columns"
                   />
                   <p className="text-xs text-muted-foreground">
-                    Number of columns in the game grid (2窶・0).
+                    Number of columns in the game grid (2-10).
                   </p>
                 </div>
               </PopoverContent>

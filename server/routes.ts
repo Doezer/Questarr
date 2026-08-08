@@ -1725,6 +1725,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: "Failed to list blacklists" });
     }
   });
+  const gameIdParamValidation = [
+    param("gameId").trim().isUUID().withMessage("Invalid game ID format"),
+  ];
+  const gameFileIdParamValidation = [
+    param("id").trim().isUUID().withMessage("Invalid game file ID format"),
+  ];
+  const gameFileBodyValidation = [
+    body("gameId").trim().isUUID().withMessage("Invalid game ID format"),
+    body("downloadId")
+      .optional({ nullable: true })
+      .trim()
+      .isUUID()
+      .withMessage("Invalid download ID format"),
+    body("category")
+      .trim()
+      .isIn(["main", "dlc", "update", "extra"])
+      .withMessage("Invalid game file category"),
+  ];
+
   // Recursively scan a game library folder. This endpoint is read-only; imports are handled separately.
   app.get(
     "/api/games/:gameId/files",

@@ -110,11 +110,13 @@ describe("ImportStrategies", () => {
       const sourceDir = path.join(root, "downloads", "game-folder");
       const destination = path.join(root, "library", "PC", "My Game");
       await fs.ensureDir(path.join(sourceDir, "dlc"));
+      await fs.ensureDir(path.join(sourceDir, "update"));
       await fs.writeFile(path.join(sourceDir, "base.nsp"), "base");
       await fs.writeFile(path.join(sourceDir, "Game Update v1.nsp"), "update");
       await fs.writeFile(path.join(sourceDir, "Game Expansion Pack.nsp"), "dlc");
       await fs.writeFile(path.join(sourceDir, "Game OST.zip"), "extra");
       await fs.writeFile(path.join(sourceDir, "dlc", "Game DLC Pack.nsp"), "nested-dlc");
+      await fs.writeFile(path.join(sourceDir, "update", "Game DLC Patch.nsp"), "nested-update");
 
       const strategy = new PCImportStrategy();
       const plan = await strategy.planImport(
@@ -132,6 +134,7 @@ describe("ImportStrategies", () => {
           path.join(destination, "dlc", "Game Expansion Pack.nsp"),
           path.join(destination, "extra", "Game OST.zip"),
           path.join(destination, "dlc", "Game DLC Pack.nsp"),
+          path.join(destination, "update", "Game DLC Patch.nsp"),
         ])
       );
       expect(await fs.pathExists(path.join(destination, "dlc", "dlc"))).toBe(false);
@@ -210,6 +213,33 @@ describe("ImportStrategies", () => {
 
       expect(plan.needsReview).toBe(true);
       expect(plan.reviewReason).toMatch(/Destination already exists/);
+    });
+
+    it("rejects duplicate resolved destinations before transferring", async () => {
+      const root = tempDir();
+      const sourceDir = path.join(root, "downloads", "game-folder");
+      const destination = path.join(root, "library", "PC", "My Game");
+      await fs.ensureDir(path.join(sourceDir, "dlc"));
+      await fs.writeFile(path.join(sourceDir, "Game DLC Pack.nsp"), "root");
+      await fs.writeFile(path.join(sourceDir, "dlc", "Game DLC Pack.nsp"), "nested");
+
+      const strategy = new PCImportStrategy();
+      await expect(
+        strategy.executeImport(
+          {
+            needsReview: false,
+            originalPath: sourceDir,
+            proposedPath: destination,
+            strategy: "pc",
+            fileCategories: [
+              { name: "Game DLC Pack.nsp", category: "dlc" },
+              { name: path.join("dlc", "Game DLC Pack.nsp"), category: "dlc" },
+            ],
+          },
+          "copy"
+        )
+      ).rejects.toThrow("Duplicate import destination");
+      expect(await fs.pathExists(path.join(destination, "dlc", "Game DLC Pack.nsp"))).toBe(false);
     });
 
     it("keeps the existing flat destination for a single file when sorting is enabled", async () => {

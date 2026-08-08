@@ -144,13 +144,14 @@ async function categorizeSourceFiles(sourcePath: string): Promise<FileCategoryEn
 }
 
 function destinationForFile(gameDir: string, entry: FileCategoryEntry): string {
+  const firstSegment = entry.name.split(path.sep)[0]?.toLowerCase();
+  if (["dlc", "update", "extra"].includes(firstSegment ?? "")) {
+    return path.join(gameDir, entry.name);
+  }
+
   const subdir = CATEGORY_DIR_MAP[entry.category];
   if (!subdir) return path.join(gameDir, entry.name);
-
-  const firstSegment = entry.name.split(path.sep)[0]?.toLowerCase();
-  return firstSegment === subdir
-    ? path.join(gameDir, entry.name)
-    : path.join(gameDir, subdir, entry.name);
+  return path.join(gameDir, subdir, entry.name);
 }
 
 export class PCImportStrategy implements ImportStrategy {
@@ -196,9 +197,21 @@ export class PCImportStrategy implements ImportStrategy {
       const conflictsResolved: string[] = [];
       let modeUsed: TransferMode = transferMode;
 
-      for (const entry of review.fileCategories) {
-        const sourceFile = path.join(review.originalPath, entry.name);
-        const destinationFile = destinationForFile(review.proposedPath, entry);
+      const plannedTransfers = review.fileCategories.map((entry) => ({
+        entry,
+        sourceFile: path.join(review.originalPath, entry.name),
+        destinationFile: destinationForFile(review.proposedPath, entry),
+      }));
+      const destinations = new Set<string>();
+      for (const { destinationFile } of plannedTransfers) {
+        const resolvedDestination = path.resolve(destinationFile);
+        if (destinations.has(resolvedDestination)) {
+          throw new Error(`Duplicate import destination: ${resolvedDestination}`);
+        }
+        destinations.add(resolvedDestination);
+      }
+
+      for (const { entry, sourceFile, destinationFile } of plannedTransfers) {
         const entryMode = await transferFile(sourceFile, destinationFile, transferMode);
         filesPlaced.push(destinationFile);
         if (entryMode !== transferMode) {

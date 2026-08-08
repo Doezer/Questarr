@@ -67,7 +67,7 @@ import {
 } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
-import { cn } from "@/lib/utils";
+import { cn, safeUrl } from "@/lib/utils";
 import {
   type Game,
   type Indexer,
@@ -1140,7 +1140,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                         <h4 className="font-semibold text-sm leading-snug break-all line-clamp-2 min-w-0 flex-1">
                                           {download.comments ? (
                                             <a
-                                              href={download.comments}
+                                              href={safeUrl(download.comments)}
                                               target="_blank"
                                               rel="noopener noreferrer"
                                               className="hover:underline cursor-pointer"
@@ -1256,7 +1256,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                   <h4 className="font-bold text-base leading-tight break-words min-w-0">
                                     {download.comments ? (
                                       <a
-                                        href={download.comments}
+                                        href={safeUrl(download.comments)}
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         className="hover:underline cursor-pointer"

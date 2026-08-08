@@ -829,3 +829,34 @@ export type InsertImportTask = (typeof insertImportTaskSchema)["_output"];
 
 export type ImportTaskItem = typeof importTaskItems.$inferSelect;
 export type InsertImportTaskItem = (typeof insertImportTaskItemSchema)["_output"];
+
+export const gameFiles = sqliteTable(
+  "game_files",
+  {
+    id: text("id").primaryKey(),
+    gameId: text("game_id")
+      .notNull()
+      .references(() => games.id, { onDelete: "cascade" }),
+    downloadId: text("download_id").references(() => gameDownloads.id, { onDelete: "set null" }),
+    originalName: text("original_name").notNull(),
+    storedName: text("stored_name").notNull(),
+    category: text("category").notNull().$type<"main" | "dlc" | "update" | "extra">(),
+    filePath: text("file_path").notNull(),
+    fileSize: integer("file_size"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+  },
+  (t) => [
+    index("game_files_game_id_idx").on(t.gameId),
+    index("game_files_download_id_idx").on(t.downloadId),
+  ]
+);
+
+export const insertGameFileSchema = createInsertSchema(gameFiles).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type GameFile = typeof gameFiles.$inferSelect;
+export type InsertGameFile = (typeof insertGameFileSchema)["_output"];

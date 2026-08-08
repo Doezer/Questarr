@@ -6,7 +6,7 @@ import { db } from "./db.js";
 import { userSettings } from "../shared/schema.js";
 import { logger } from "./logger.js";
 import { safeFetch } from "./ssrf.js";
-import type { DownloadCategory } from "../shared/download-categorizer.js";
+import type { DownloadCategory } from "@shared/download-categorizer";
 
 // Configuration constants for search limits
 const MAX_SEARCH_ATTEMPTS = 5;
@@ -1120,6 +1120,19 @@ class IGDBClient {
       earlyAccess: igdbGame.status === 4,
       category: mapIGDBGameType(igdbGame.game_type),
       gameType: igdbGame.game_type,
+      expansions:
+        igdbGame.expansions?.map((expansion) => ({
+          id: expansion.id,
+          name: expansion.name,
+          coverUrl: expansion.cover?.url
+            ? `https:${expansion.cover.url.replace("t_thumb", "t_cover_big")}`
+            : "",
+          releaseDate: expansion.first_release_date
+            ? new Date(expansion.first_release_date * 1000).toISOString().split("T")[0]
+            : "",
+          category: mapIGDBGameType(expansion.game_type),
+          gameType: expansion.game_type,
+        })) ?? [],
     };
   }
 }

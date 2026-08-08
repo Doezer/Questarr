@@ -758,6 +758,7 @@ describe("Import And Mapping Helpers", () => {
       minFileSize: 0,
       libraryRoot: "/data",
       autoDeleteAfterImport: false,
+      sortExtras: false,
     });
   });
 

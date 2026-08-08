@@ -543,6 +543,68 @@ describe("ImportManager", () => {
     execSpy.mockRestore();
   });
 
+  it("confirmImport: recomputes category placement server-side when sorting is enabled", async () => {
+    storage.getGameDownload.mockResolvedValue({
+      id: "dl-1",
+      gameId: "g1",
+      downloaderId: "d1",
+      downloadTitle: "My Game",
+    });
+    storage.getGame.mockResolvedValue({
+      id: "g1",
+      title: "My Game",
+      userId: "u1",
+      status: "wanted",
+      platforms: [6],
+    });
+    storage.getImportConfig.mockResolvedValue(
+      makeImportConfig({ libraryRoot: "/safe/root", sortExtras: true })
+    );
+
+    const { PCImportStrategy } = await import("../services/ImportStrategies.js");
+    const planSpy = vi.spyOn(PCImportStrategy.prototype, "planImport").mockResolvedValue({
+      needsReview: false,
+      originalPath: "/downloads/game",
+      proposedPath: "/safe/root/PC/My Game",
+      strategy: "pc",
+      fileCategories: [{ name: "Game Update v1.nsp", category: "update" }],
+    });
+    const execSpy = vi.spyOn(PCImportStrategy.prototype, "executeImport").mockResolvedValue({
+      destDir: "/safe/root/PC/My Game",
+      filesPlaced: ["/safe/root/PC/My Game/update/Game Update v1.nsp"],
+      modeUsed: "move",
+      conflictsResolved: [],
+    });
+
+    const manager = new ImportManager(
+      storage as never, // NOSONAR
+      pathService as never, // NOSONAR
+      platformService as never, // NOSONAR
+      archiveService as never // NOSONAR
+    );
+
+    try {
+      await manager.confirmImport("dl-1", {
+        strategy: "pc",
+        originalPath: "/downloads/game",
+        proposedPath: "/safe/root/PC/My Game",
+        needsReview: false,
+        transferMode: "move",
+      });
+
+      expect(execSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          proposedPath: "/safe/root/PC/My Game",
+          fileCategories: [{ name: "Game Update v1.nsp", category: "update" }],
+        }),
+        "move"
+      );
+    } finally {
+      planSpy.mockRestore();
+      execSpy.mockRestore();
+    }
+  });
+
   it("confirmImport: overridePlan.unpack = true → archiveService.extract is called", async () => {
     storage.getGameDownload.mockResolvedValue({
       id: "dl-1",

@@ -29,6 +29,7 @@ const baseConfig: ImportConfig = {
   libraryRoot: "/data/library",
   transferMode: "hardlink",
   autoDeleteAfterImport: false,
+  sortExtras: false,
   importPlatformIds: [],
   renamePattern: "{Title} ({Year})",
 } as unknown as ImportConfig;
@@ -103,6 +104,23 @@ describe("ImportSettings", () => {
         "PATCH",
         "/api/imports/config",
         expect.objectContaining({ autoUnpack: false })
+      );
+    });
+  });
+
+  it("allows category subfolders to be enabled", async () => {
+    const { apiRequest } = await import("@/lib/queryClient");
+    renderComponent();
+    await screen.findByText("Sort add-on files into subfolders");
+
+    fireEvent.click(screen.getAllByRole("switch")[4]);
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => {
+      expect(apiRequest).toHaveBeenCalledWith(
+        "PATCH",
+        "/api/imports/config",
+        expect.objectContaining({ sortExtras: true })
       );
     });
   });

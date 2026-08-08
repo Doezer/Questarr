@@ -6,6 +6,7 @@ import { db } from "./db.js";
 import { userSettings } from "../shared/schema.js";
 import { logger } from "./logger.js";
 import { safeFetch } from "./ssrf.js";
+import type { DownloadCategory } from "../shared/download-categorizer.js";
 
 // Configuration constants for search limits
 const MAX_SEARCH_ATTEMPTS = 5;
@@ -15,7 +16,7 @@ export const IGDB_EARLY_ACCESS_STATUS = 4;
 
 // Shared field list for all IGDB game queries
 const IGDB_GAME_FIELDS =
-  "name, summary, cover.url, first_release_date, rating, aggregated_rating, aggregated_rating_count, platforms.name, genres.name, themes.name, age_ratings.category, age_ratings.rating, screenshots.url, websites.url, websites.category, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, status, category, expansions.name, expansions.cover.url, expansions.first_release_date, expansions.category";
+  "name, summary, cover.url, first_release_date, rating, aggregated_rating, aggregated_rating_count, platforms.name, genres.name, themes.name, age_ratings.category, age_ratings.rating, screenshots.url, websites.url, websites.category, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, status, game_type, expansions.name, expansions.cover.url, expansions.first_release_date, expansions.game_type";
 
 // IGDB theme name flagged as adult content (Erotic)
 const ADULT_THEME_NAMES = new Set(["Erotic"]);
@@ -28,6 +29,13 @@ const ADULT_AGE_RATINGS = [
 
 function hasEroticTheme(igdbGame: IGDBGame): boolean {
   return igdbGame.themes?.some((t) => ADULT_THEME_NAMES.has(t.name)) ?? false;
+}
+
+function mapIGDBGameType(gameType?: number): DownloadCategory {
+  if (gameType === 14) return "update";
+  if ([1, 2, 4, 6, 7, 13].includes(gameType ?? -1)) return "dlc";
+  if ([5].includes(gameType ?? -1)) return "extra";
+  return "main";
 }
 
 function hasAdultAgeRating(igdbGame: IGDBGame): boolean {
@@ -80,13 +88,13 @@ export interface IGDBGame {
     publisher: boolean;
   }>;
   status?: number;
-  category?: number;
+  game_type?: number;
   expansions?: Array<{
     id: number;
     name: string;
     cover?: { url: string };
     first_release_date?: number;
-    category?: number;
+    game_type?: number;
   }>;
 }
 
@@ -1110,6 +1118,8 @@ class IGDBClient {
       isReleased,
       releaseYear: releaseDate ? releaseDate.getFullYear() : null,
       earlyAccess: igdbGame.status === 4,
+      category: mapIGDBGameType(igdbGame.game_type),
+      gameType: igdbGame.game_type,
     };
   }
 }

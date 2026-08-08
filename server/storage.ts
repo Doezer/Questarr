@@ -304,6 +304,7 @@ export interface IStorage {
 
   // GameFile methods
   getGameFiles(gameId: string): Promise<GameFile[]>;
+  getGameFile(id: string): Promise<GameFile | undefined>;
   getGameFilesByDownload(downloadId: string): Promise<GameFile[]>;
   addGameFile(file: InsertGameFile): Promise<GameFile>;
   addGameFilesBatch(files: InsertGameFile[]): Promise<GameFile[]>;
@@ -602,7 +603,9 @@ export class MemStorage implements IStorage {
   }
 
   async removeGame(id: string): Promise<boolean> {
-    return this.games.delete(id);
+    const deleted = this.games.delete(id);
+    if (deleted) await this.removeGameFilesByGameId(id);
+    return deleted;
   }
 
   async assignOrphanGamesToUser(userId: string): Promise<number> {
@@ -881,6 +884,9 @@ export class MemStorage implements IStorage {
   async removeGameDownload(id: string, gameId: string): Promise<boolean> {
     const gd = this.gameDownloads.get(id);
     if (!gd || gd.gameId !== gameId) return false;
+    for (const [fileId, file] of this.gameFiles.entries()) {
+      if (file.downloadId === id) this.gameFiles.set(fileId, { ...file, downloadId: null });
+    }
     return this.gameDownloads.delete(id);
   }
 
@@ -1326,11 +1332,19 @@ export class MemStorage implements IStorage {
     return Array.from(this.gameFiles.values()).filter((f) => f.gameId === gameId);
   }
 
+  async getGameFile(id: string): Promise<GameFile | undefined> {
+    return this.gameFiles.get(id);
+  }
+
   async getGameFilesByDownload(downloadId: string): Promise<GameFile[]> {
     return Array.from(this.gameFiles.values()).filter((f) => f.downloadId === downloadId);
   }
 
   async addGameFile(file: InsertGameFile): Promise<GameFile> {
+    if (!this.games.has(file.gameId)) throw new Error(`Game ${file.gameId} not found`);
+    if (file.downloadId && !this.gameDownloads.has(file.downloadId)) {
+      throw new Error(`Download ${file.downloadId} not found`);
+    }
     const id = randomUUID();
     const gf: GameFile = {
       ...file,
@@ -2473,6 +2487,11 @@ export class DatabaseStorage implements IStorage {
   // GameFile methods
   async getGameFiles(gameId: string): Promise<GameFile[]> {
     return db.select().from(gameFiles).where(eq(gameFiles.gameId, gameId));
+  }
+
+  async getGameFile(id: string): Promise<GameFile | undefined> {
+    const [file] = await db.select().from(gameFiles).where(eq(gameFiles.id, id)).limit(1);
+    return file;
   }
 
   async getGameFilesByDownload(downloadId: string): Promise<GameFile[]> {

@@ -488,6 +488,7 @@ describe("API Routes - Extended Coverage", () => {
   });
 
   describe("POST /api/games", () => {
+    afterEach(() => vi.useRealTimers());
     it("should add a new game", async () => {
       const newGame = { title: "New Game", igdbId: 12345, platform: "PC" };
       const savedGame = { ...newGame, id: "game-new", userId: "user-1" };
@@ -498,6 +499,111 @@ describe("API Routes - Extended Coverage", () => {
       const response = await request(app).post("/api/games").send(newGame);
       expect(response.status).toBe(201);
       expect(response.body).toEqual(savedGame);
+    });
+
+    it("marks an already-released game as released when adding it", async () => {
+      const newGame = {
+        title: "Previously Released Game",
+        igdbId: 12346,
+        platform: "PC",
+        releaseDate: "2020-01-01",
+      };
+      const savedGame = {
+        ...newGame,
+        id: "game-released",
+        userId: "user-1",
+        releaseStatus: "released",
+      };
+
+      vi.mocked(storage.getUserGames).mockResolvedValue([]);
+      vi.mocked(storage.addGame).mockResolvedValue(savedGame as unknown as Game);
+
+      const response = await request(app).post("/api/games").send(newGame);
+
+      expect(response.status).toBe(201);
+      expect(storage.addGame).toHaveBeenCalledWith(
+        expect.objectContaining({ releaseStatus: "released" })
+      );
+    });
+
+    it("does not mark a game releasing in the future as released", async () => {
+      vi.useFakeTimers({ now: new Date("2026-08-08T12:00:00Z") });
+      const futureDate = "2026-08-09";
+
+      const newGame = {
+        title: "Future Game",
+        igdbId: 12347,
+        platform: "PC",
+        releaseDate: futureDate,
+      };
+      const savedGame = {
+        ...newGame,
+        id: "game-future",
+        userId: "user-1",
+        releaseStatus: "upcoming",
+      };
+
+      vi.mocked(storage.getUserGames).mockResolvedValue([]);
+      vi.mocked(storage.addGame).mockResolvedValue(savedGame as unknown as Game);
+
+      const response = await request(app).post("/api/games").send(newGame);
+
+      expect(response.status).toBe(201);
+      expect(storage.addGame).not.toHaveBeenCalledWith(
+        expect.objectContaining({ releaseStatus: "released" })
+      );
+    });
+
+    it("does not force a release status when releaseDate is omitted", async () => {
+      const newGame = {
+        title: "Undated Game",
+        igdbId: 12348,
+        platform: "PC",
+      };
+      const savedGame = {
+        ...newGame,
+        id: "game-undated",
+        userId: "user-1",
+        releaseStatus: "upcoming",
+      };
+
+      vi.mocked(storage.getUserGames).mockResolvedValue([]);
+      vi.mocked(storage.addGame).mockResolvedValue(savedGame as unknown as Game);
+
+      const response = await request(app).post("/api/games").send(newGame);
+
+      expect(response.status).toBe(201);
+      expect(storage.addGame).not.toHaveBeenCalledWith(
+        expect.objectContaining({ releaseStatus: "released" })
+      );
+    });
+
+    it("marks a game releasing today as released in any timezone", async () => {
+      vi.useFakeTimers({ now: new Date("2026-08-08T12:00:00Z") });
+      const today = "2026-08-08";
+
+      const newGame = {
+        title: "Releasing Today",
+        igdbId: 12349,
+        platform: "PC",
+        releaseDate: today,
+      };
+      const savedGame = {
+        ...newGame,
+        id: "game-today",
+        userId: "user-1",
+        releaseStatus: "released",
+      };
+
+      vi.mocked(storage.getUserGames).mockResolvedValue([]);
+      vi.mocked(storage.addGame).mockResolvedValue(savedGame as unknown as Game);
+
+      const response = await request(app).post("/api/games").send(newGame);
+
+      expect(response.status).toBe(201);
+      expect(storage.addGame).toHaveBeenCalledWith(
+        expect.objectContaining({ releaseStatus: "released" })
+      );
     });
 
     it("should prevent duplicate games", async () => {

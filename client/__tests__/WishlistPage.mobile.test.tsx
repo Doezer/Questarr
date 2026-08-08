@@ -31,7 +31,16 @@ vi.mock("@/hooks/use-view-controls", () => ({
 
 vi.mock("@/hooks/use-local-storage-state", () => ({
   useLocalStorageState: <T,>(_key: string, initial: T) => {
-    const [value, setValue] = React.useState(initial);
+    const [value, setValue] = React.useState(() => {
+      const stored = localStorage.getItem(_key);
+      if (stored === null) return initial;
+      if (typeof initial === "boolean") return stored === "true" ? (true as T) : (false as T);
+      if (typeof initial === "number") {
+        const parsed = Number(stored);
+        return (Number.isNaN(parsed) ? initial : parsed) as T;
+      }
+      return stored as T;
+    });
     return [value, setValue] as const;
   },
 }));
@@ -133,6 +142,7 @@ let mockDownloadSummaries: Record<string, unknown>;
 
 beforeEach(() => {
   mockDownloadSummaries = {};
+  localStorage.clear();
 });
 
 describe("WishlistPage mobile sections", () => {
@@ -157,6 +167,48 @@ describe("WishlistPage mobile sections", () => {
     expect(screen.getByText("TBA")).toBeInTheDocument();
     expect(screen.getAllByTestId("wishlist-grid")[0]).toHaveTextContent("Released Game");
     expect(screen.getAllByTestId("wishlist-grid")[0]).toHaveAttribute("data-columns", "5");
+  });
+
+  it("applies a persisted non-default column count to all grids", async () => {
+    localStorage.setItem("wishlistGridColumns", "8");
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      json: async () => [
+        { id: "released", title: "Released Game", status: "wanted", releaseDate: "2024-01-01" },
+        { id: "upcoming", title: "Upcoming Game", status: "wanted", releaseDate: "2099-01-01" },
+        { id: "tba", title: "TBA Game", status: "wanted", releaseDate: null },
+      ],
+    })) as typeof fetch;
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <WishlistPage />
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByText("Released")).toBeInTheDocument();
+    for (const grid of screen.getAllByTestId("wishlist-grid")) {
+      expect(grid).toHaveAttribute("data-columns", "8");
+    }
+  });
+
+  it("clamps an out-of-range persisted column count to the allowed range", async () => {
+    localStorage.setItem("wishlistGridColumns", "99");
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      json: async () => [
+        { id: "released", title: "Released Game", status: "wanted", releaseDate: "2024-01-01" },
+      ],
+    })) as typeof fetch;
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <WishlistPage />
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByText("Released")).toBeInTheDocument();
+    expect(screen.getAllByTestId("wishlist-grid")[0]).toHaveAttribute("data-columns", "10");
   });
 
   it("falls back to stacked sections when only one mobile section remains", async () => {

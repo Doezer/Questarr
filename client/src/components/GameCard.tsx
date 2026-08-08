@@ -165,7 +165,7 @@ const GameCard = ({
           )}
         </div>
         {!isDiscovery && !isMobile && (
-          <div className="absolute top-2 left-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none group-hover:pointer-events-auto">
+          <div className="absolute top-2 left-2 z-10 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-200 pointer-events-none group-hover:pointer-events-auto focus-within:pointer-events-auto">
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button

@@ -27,6 +27,7 @@ const mockGetUserSettings = vi.fn();
 const mockUpdateUserSettings = vi.fn();
 const mockAddNotification = vi.fn();
 const mockUpdateGameSearchResultsAvailable = vi.fn();
+const mockUpdateGameSearchResultsByCategory = vi.fn();
 const mockUpdateGameStatus = vi.fn();
 const mockAddGameDownload = vi.fn();
 const mockGetEnabledDownloaders = vi.fn().mockResolvedValue([]);
@@ -41,6 +42,7 @@ vi.mock("../storage.js", () => ({
     updateUserSettings: mockUpdateUserSettings,
     addNotification: mockAddNotification,
     updateGameSearchResultsAvailable: mockUpdateGameSearchResultsAvailable,
+    updateGameSearchResultsByCategory: mockUpdateGameSearchResultsByCategory,
     updateGameStatus: mockUpdateGameStatus,
     addGameDownload: mockAddGameDownload,
     getEnabledDownloaders: mockGetEnabledDownloaders,
@@ -115,6 +117,9 @@ describe("Cron - checkAutoSearch", () => {
     developers: [],
     screenshots: [],
     originalReleaseDate: null,
+    searchResultsAvailable: false,
+    updateSearchResultsAvailable: false,
+    packsSearchResultsAvailable: false,
   };
 
   const baseSettings: UserSettings = {
@@ -1268,7 +1273,11 @@ describe("Cron - checkAutoSearch", () => {
       );
       mockAddNotification.mockClear();
 
-      const stillAvailable = { ...ownedGame, searchResultsAvailable: true };
+      const stillAvailable = {
+        ...ownedGame,
+        searchResultsAvailable: true,
+        updateSearchResultsAvailable: true,
+      };
       mockGetUserGames.mockResolvedValue([stillAvailable]);
 
       await checkAutoSearch();
@@ -1277,6 +1286,86 @@ describe("Cron - checkAutoSearch", () => {
       );
     });
 
+    it("notifies independently when an update is followed by a pack", async () => {
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, []]]));
+      const updateResult = { items: [UPDATE_ITEM], errors: [], total: 1 };
+      const packResult = {
+        items: [{ ...UPDATE_ITEM, title: "Test Game Content Pack" }],
+        errors: [],
+        total: 1,
+      };
+      let game = {
+        ...baseGame,
+        status: "owned" as const,
+        releaseStatus: "released" as const,
+        searchResultsAvailable: false,
+        updateSearchResultsAvailable: false,
+        packsSearchResultsAvailable: false,
+      };
+      mockGetUserGames.mockResolvedValue([game]);
+
+      mockSearchAllIndexers.mockResolvedValue(updateResult);
+      await checkAutoSearch();
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Game Updates Available" })
+      );
+      mockAddNotification.mockClear();
+
+      game = { ...game, searchResultsAvailable: true, updateSearchResultsAvailable: true };
+      mockGetUserGames.mockResolvedValue([game]);
+      mockSearchAllIndexers.mockResolvedValue(packResult);
+      await checkAutoSearch();
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Game Packs Available" })
+      );
+      expect(mockAddNotification).not.toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Game Updates Available" })
+      );
+
+      mockAddNotification.mockClear();
+      game = { ...game, searchResultsAvailable: true, packsSearchResultsAvailable: true };
+      mockGetUserGames.mockResolvedValue([game]);
+      await checkAutoSearch();
+      expect(mockAddNotification).not.toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Game Packs Available" })
+      );
+    });
+    it("notifies independently when a pack is followed by an update", async () => {
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, []]]));
+      const packResult = {
+        items: [{ ...UPDATE_ITEM, title: "Test Game Content Pack" }],
+        errors: [],
+        total: 1,
+      };
+      const updateResult = { items: [UPDATE_ITEM], errors: [], total: 1 };
+      let game = {
+        ...baseGame,
+        status: "owned" as const,
+        releaseStatus: "released" as const,
+        searchResultsAvailable: false,
+        updateSearchResultsAvailable: false,
+        packsSearchResultsAvailable: false,
+      };
+      mockGetUserGames.mockResolvedValue([game]);
+
+      mockSearchAllIndexers.mockResolvedValue(packResult);
+      await checkAutoSearch();
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Game Packs Available" })
+      );
+      mockAddNotification.mockClear();
+
+      game = { ...game, searchResultsAvailable: true, packsSearchResultsAvailable: true };
+      mockGetUserGames.mockResolvedValue([game]);
+      mockSearchAllIndexers.mockResolvedValue(updateResult);
+      await checkAutoSearch();
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Game Updates Available" })
+      );
+      expect(mockAddNotification).not.toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Game Packs Available" })
+      );
+    });
     it("re-notifies 'Game Available' after a false→true→false→true flap", async () => {
       let game = {
         ...baseGame,

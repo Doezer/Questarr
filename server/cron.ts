@@ -1125,7 +1125,8 @@ export async function checkAutoSearch() {
               continue;
             }
 
-            const wasUpdateAvailable = game.searchResultsAvailable;
+            const wasUpdateAvailable = game.updateSearchResultsAvailable;
+            const wasPacksAvailable = game.packsSearchResultsAvailable;
 
             const platformFilteredUpdate = applyPreferredPlatformFilter(
               searchResult.updateItems,
@@ -1150,10 +1151,10 @@ export async function checkAutoSearch() {
             );
             const packsItems = deduplicateByTitle(groupFilteredPacks, indexerPriorityMap);
 
-            await storage.updateGameSearchResultsAvailable(
-              game.id,
-              updateItems.length > 0 || packsItems.length > 0
-            );
+            await storage.updateGameSearchResultsByCategory(game.id, {
+              updates: updateItems.length > 0,
+              packs: packsItems.length > 0,
+            });
 
             if (updateItems.length > 0 && !wasUpdateAvailable && prefs.gameUpdates.inApp) {
               const notification = await storage.addNotification({
@@ -1161,6 +1162,18 @@ export async function checkAutoSearch() {
                 type: "info",
                 title: "Game Updates Available",
                 message: `${updateItems.length} update(s) found for ${game.title}`,
+                link: `modal:game:${game.id}`,
+              });
+              notifyUser("notification", notification);
+              if (prefs.gameUpdates.apprise) appriseClient.send(notification);
+            }
+
+            if (packsItems.length > 0 && !wasPacksAvailable && prefs.gameUpdates.inApp) {
+              const notification = await storage.addNotification({
+                userId,
+                type: "info",
+                title: "Game Packs Available",
+                message: `${packsItems.length} pack/add-on result(s) found for ${game.title}`,
                 link: `modal:game:${game.id}`,
               });
               notifyUser("notification", notification);

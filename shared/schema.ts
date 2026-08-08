@@ -178,6 +178,12 @@ export const games = sqliteTable("games", {
   searchResultsAvailable: integer("search_results_available", { mode: "boolean" })
     .default(false)
     .notNull(),
+  updateSearchResultsAvailable: integer("update_search_results_available", { mode: "boolean" })
+    .default(false)
+    .notNull(),
+  packsSearchResultsAvailable: integer("packs_search_results_available", { mode: "boolean" })
+    .default(false)
+    .notNull(),
   addedAt: integer("added_at", { mode: "timestamp_ms" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),

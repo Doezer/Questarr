@@ -1734,7 +1734,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     validateRequest,
     async (req: Request, res: Response) => {
       try {
-        const { q, limit, includeUndated } = req.query;
+        const { q, limit, includeUndated, platform, year } = req.query;
         if (!q || typeof q !== "string") {
           return res.status(400).json({ error: "Search query required" });
         }
@@ -1747,10 +1747,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
               : NaN;
         const limitNum =
           Number.isNaN(parsedLimit) || parsedLimit < 1 ? 20 : Math.min(parsedLimit, 100);
-        const searchOptions =
-          typeof includeUndated === "boolean"
+        const searchOptions = {
+          ...(typeof includeUndated === "boolean"
             ? { includeUndated, undatedFirst: includeUndated }
-            : {};
+            : {}),
+          ...(typeof platform === "number" ? { platformId: platform } : {}),
+          ...(typeof year === "number" ? { releaseYear: year } : {}),
+        };
         const formattedGames = await fetchFilteredIgdbGames(req.user!.id, limitNum, (fetchLimit) =>
           igdbClient.searchGames(q, fetchLimit, searchOptions)
         );

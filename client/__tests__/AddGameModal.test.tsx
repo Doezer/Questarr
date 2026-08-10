@@ -25,6 +25,8 @@ vi.mock("lucide-react", () => ({
   Calendar: () => <div data-testid="icon-calendar" />,
   Loader2: () => <div data-testid="icon-loader" />,
   Check: () => <div data-testid="icon-check" />,
+  ChevronDown: () => <div />,
+  ChevronUp: () => <div />,
   X: () => <div />,
 }));
 
@@ -145,7 +147,7 @@ describe("AddGameModal", () => {
     // The effect runs on `open` change; simulate by typing and then looking for clear.
     const input = screen.getByDisplayValue("Hollow Knight");
     fireEvent.change(input, { target: { value: "" } });
-    expect(screen.getByDisplayValue("")).toBeInTheDocument();
+    expect(screen.getByLabelText("Search games")).toHaveValue("");
   });
 
   it("shows Calendar icon for search results with a release date", async () => {
@@ -193,6 +195,60 @@ describe("AddGameModal", () => {
         expect.any(Object)
       );
     });
+  });
+
+  it("requests at most 10 games and forwards a valid release year filter", async () => {
+    const searchResults = Array.from({ length: 12 }, (_, index) => ({
+      ...makeSearchResult(`God of War ${index + 1}`, "2005-03-22"),
+      id: `igdb-${index + 1}`,
+      igdbId: 100 + index,
+    }));
+    setupFetch({ searchResults });
+    renderModal({ initialQuery: "God of War" });
+    fireEvent.click(screen.getByTestId("open-btn"));
+
+    const yearInput = await screen.findByLabelText("Release year filter");
+    fireEvent.change(yearInput, { target: { value: "2005" } });
+
+    await waitFor(() => {
+      const searchCalls = vi
+        .mocked(globalThis.fetch)
+        .mock.calls.filter(([url]) => String(url).includes("/api/igdb/search"));
+      expect(
+        searchCalls.some(([url]) => {
+          const params = new URL(String(url), "http://localhost").searchParams;
+          return params.get("limit") === "10" && params.get("year") === "2005";
+        })
+      ).toBe(true);
+    });
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId(/^search-result-igdb-/)).toHaveLength(10);
+    });
+    expect(screen.queryByText("God of War 11")).not.toBeInTheDocument();
+  });
+
+  it("does not search while a nonempty release year is incomplete", async () => {
+    setupFetch({ searchResults: [makeSearchResult("God of War", "2005-03-22")] });
+    renderModal({ initialQuery: "God of War" });
+    fireEvent.click(screen.getByTestId("open-btn"));
+
+    await screen.findByText("God of War");
+    const searchCallsBefore = vi
+      .mocked(globalThis.fetch)
+      .mock.calls.filter(([url]) => String(url).includes("/api/igdb/search")).length;
+
+    fireEvent.change(screen.getByLabelText("Release year filter"), {
+      target: { value: "20" },
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText("God of War")).not.toBeInTheDocument();
+    });
+    const searchCallsAfter = vi
+      .mocked(globalThis.fetch)
+      .mock.calls.filter(([url]) => String(url).includes("/api/igdb/search")).length;
+    expect(searchCallsAfter).toBe(searchCallsBefore);
   });
 
   it("shows the mobile configuration prompt when IGDB is not configured", async () => {

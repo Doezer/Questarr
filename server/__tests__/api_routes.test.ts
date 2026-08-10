@@ -892,6 +892,19 @@ describe("API Routes - Extended Coverage", () => {
           undatedFirst: true,
         });
       });
+      it("should pass platform and release year filters to IGDB search", async () => {
+        vi.mocked(igdbClient.searchGames).mockResolvedValue([]);
+
+        const response = await request(app).get(
+          "/api/igdb/search?q=God%20of%20War&limit=10&platform=8&year=2005"
+        );
+
+        expect(response.status).toBe(200);
+        expect(igdbClient.searchGames).toHaveBeenCalledWith("God of War", 20, {
+          platformId: 8,
+          releaseYear: 2005,
+        });
+      });
     });
 
     describe("GET /api/igdb/popular", () => {

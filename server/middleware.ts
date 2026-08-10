@@ -97,6 +97,16 @@ export const sanitizeSearchQuery = [
     .isBoolean()
     .withMessage("includeUndated must be a boolean")
     .toBoolean(),
+  query("platform")
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage("Platform must be a valid IGDB platform ID")
+    .toInt(),
+  query("year")
+    .optional()
+    .isInt({ min: 1950, max: 2100 })
+    .withMessage("Year must be between 1950 and 2100")
+    .toInt(),
 ];
 
 // Sanitization rules for game ID parameters

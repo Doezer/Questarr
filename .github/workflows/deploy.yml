@@ -18,7 +18,7 @@ on:
         required: false
         default: ""
       build_arm64:
-        description: "Build ARM64 image (slows down build)"
+        description: "Also build ARM64 (slows down build; always on for production)"
         required: false
         default: false
         type: boolean
@@ -120,8 +120,12 @@ jobs:
           REPO_LC=$(echo "$REPOSITORY" | tr '[:upper:]' '[:lower:]')
           echo "REPO_LC=$REPO_LC" >> $GITHUB_ENV
 
+      # Must stay in sync with the `platforms:` expression in the build step
+      # below: buildx fails if it is asked for linux/arm64 without QEMU
+      # registered. Production always builds ARM64 so that published release
+      # images run on Raspberry Pi and other ARM SBCs/NAS boxes.
       - name: Set up QEMU
-        if: inputs.build_arm64 == true
+        if: env.ENVIRONMENT == 'production' || inputs.build_arm64 == true
         uses: step-security/setup-qemu-action@fe44c529aab16157fc475f4991a7f926aa9a02a2 # v4.1.0
 
       - name: Set up Docker Buildx
@@ -171,7 +175,10 @@ jobs:
         uses: step-security/docker-build-push-action@144392094f7fc3199dda455efe3b70dbea4b72a0 # v7.3.0
         with:
           context: .
-          platforms: ${{ (env.ENVIRONMENT == 'production' && inputs.build_arm64 == true) && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
+          # Production is always multi-arch; dev/test stay amd64-only (and fast)
+          # unless build_arm64 is explicitly requested. Keep the condition
+          # identical to the "Set up QEMU" step's `if:` above.
+          platforms: ${{ (env.ENVIRONMENT == 'production' || inputs.build_arm64 == true) && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

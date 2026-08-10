@@ -453,6 +453,8 @@ export class MemStorage implements IStorage {
       releaseDate: insertGame.releaseDate || null,
       rating: insertGame.rating || null,
       platforms: insertGame.platforms || null,
+      targetPlatformId: insertGame.targetPlatformId ?? null,
+      targetPlatformName: insertGame.targetPlatformName ?? null,
       genres: insertGame.genres || null,
       themes: insertGame.themes || null,
       publishers: insertGame.publishers || null,

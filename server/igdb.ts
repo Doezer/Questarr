@@ -1096,6 +1096,7 @@ class IGDBClient {
       releaseDate: releaseDate ? releaseDate.toISOString().split("T")[0] : "",
       rating: igdbGame.rating ? Math.round(igdbGame.rating) / 10 : null,
       platforms: igdbGame.platforms?.map((p) => p.name) || [],
+      platformOptions: igdbGame.platforms?.map(({ id, name }) => ({ id, name })) || [],
       genres: igdbGame.genres?.map((g) => g.name) || [],
       themes: igdbGame.themes?.map((t) => t.name) || [],
       isAdultContent: hasEroticTheme(igdbGame),

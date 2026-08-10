@@ -36,9 +36,11 @@ import { Link } from "wouter";
 import { apiFetch, apiRequest } from "@/lib/queryClient";
 import { getAddGamePendingQuery, clearAddGamePendingQuery } from "@/lib/add-game-store";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { resolveTargetPlatform } from "@shared/title-utils";
 
 interface SearchResult extends Game {
   inCollection?: boolean;
+  platformOptions?: IGDBPlatform[];
 }
 
 interface AddGameModalProps {
@@ -58,6 +60,7 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
   const [showUndatedGames, setShowUndatedGames] = useState(false);
   const [selectedPlatform, setSelectedPlatform] = useState("all");
   const [releaseYear, setReleaseYear] = useState("");
+  const [targetPlatforms, setTargetPlatforms] = useState<Record<string, string>>({});
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const isMobile = useIsMobile();
@@ -86,6 +89,11 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
+  // Per-result target overrides only apply to the current discovery result set.
+  useEffect(() => {
+    setTargetPlatforms({});
+  }, [searchQuery, selectedPlatform, releaseYear, showUndatedGames]);
+
   // Pre-fill search when modal opens (from prop or from the dashboard store)
   useEffect(() => {
     if (open) {
@@ -102,6 +110,7 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
       setShowUndatedGames(false);
       setSelectedPlatform("all");
       setReleaseYear("");
+      setTargetPlatforms({});
     }
   }, [open, initialQuery]);
 
@@ -235,10 +244,61 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
       </div>
     </div>
   );
+  const getSupportedTargetOptions = (game: SearchResult) =>
+    game.platformOptions?.filter(({ id, name }) => resolveTargetPlatform(id, name)) ?? [];
 
+  const getTargetPlatformValue = (game: SearchResult) => {
+    const supportedOptions = getSupportedTargetOptions(game);
+    const key = String(game.igdbId ?? game.id);
+    const explicitValue = targetPlatforms[key];
+    if (explicitValue && supportedOptions.some(({ id }) => String(id) === explicitValue)) {
+      return explicitValue;
+    }
+    if (
+      selectedPlatform !== "all" &&
+      supportedOptions.some(({ id }) => String(id) === selectedPlatform)
+    ) {
+      return selectedPlatform;
+    }
+    return supportedOptions.length === 1 ? String(supportedOptions[0].id) : "default";
+  };
+
+  const renderTargetPlatformSelect = (game: SearchResult) => {
+    const supportedOptions = getSupportedTargetOptions(game);
+    if (game.inCollection || !supportedOptions?.length) return null;
+    const key = String(game.igdbId ?? game.id);
+    return (
+      <Select
+        value={getTargetPlatformValue(game)}
+        onValueChange={(value) => setTargetPlatforms((current) => ({ ...current, [key]: value }))}
+      >
+        <SelectTrigger
+          className="h-8 w-full max-w-64 text-xs"
+          aria-label={`Target platform for ${game.title}`}
+        >
+          <SelectValue placeholder="Account default" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="default">Account default</SelectItem>
+          {supportedOptions.map((platform) => (
+            <SelectItem key={platform.id} value={String(platform.id)}>
+              {platform.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    );
+  };
   const handleAddGame = (searchResult: SearchResult) => {
-    // Map to InsertGame to filter out client-only fields before sending to server
-    const gameData = mapGameToInsertGame(searchResult);
+    const selectedTarget = getTargetPlatformValue(searchResult);
+    const targetPlatform = searchResult.platformOptions?.find(
+      ({ id }) => String(id) === selectedTarget
+    );
+    const gameData = mapGameToInsertGame({
+      ...searchResult,
+      targetPlatformId: targetPlatform?.id ?? null,
+      targetPlatformName: targetPlatform?.name ?? null,
+    });
     addGameMutation.mutate(gameData);
   };
 
@@ -407,6 +467,8 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
                           {game.summary}
                         </p>
                       )}
+
+                      {renderTargetPlatformSelect(game)}
                     </div>
                   </div>
                 ))}
@@ -536,6 +598,8 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
                             </Badge>
                           ))}
                         </div>
+
+                        {renderTargetPlatformSelect(game)}
 
                         <div className="flex items-center justify-between">
                           <div className="flex flex-wrap gap-1">

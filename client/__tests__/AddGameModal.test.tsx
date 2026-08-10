@@ -251,6 +251,36 @@ describe("AddGameModal", () => {
     expect(searchCallsAfter).toBe(searchCallsBefore);
   });
 
+  it("seeds a single discovered platform and persists its IGDB pair", async () => {
+    setupFetch({
+      searchResults: [
+        {
+          ...makeSearchResult("God of War", "2005-03-22"),
+          platforms: ["PlayStation 2"],
+          platformOptions: [{ id: 8, name: "PlayStation 2" }],
+        },
+      ],
+    });
+    renderModal({ initialQuery: "God of War" });
+    fireEvent.click(screen.getByTestId("open-btn"));
+
+    expect(await screen.findByLabelText("Target platform for God of War")).toHaveTextContent(
+      "PlayStation 2"
+    );
+    fireEvent.click(screen.getByTestId("button-add-igdb-1"));
+
+    await waitFor(() => {
+      const postCall = vi
+        .mocked(globalThis.fetch)
+        .mock.calls.find(([url, init]) => String(url) === "/api/games" && init?.method === "POST");
+      expect(postCall).toBeDefined();
+      expect(JSON.parse(String(postCall?.[1]?.body))).toMatchObject({
+        targetPlatformId: 8,
+        targetPlatformName: "PlayStation 2",
+      });
+    });
+  });
+
   it("shows the mobile configuration prompt when IGDB is not configured", async () => {
     mockIsMobile = true;
     setupFetch({ configured: false });

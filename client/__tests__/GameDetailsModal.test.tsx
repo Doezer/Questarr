@@ -188,6 +188,46 @@ describe("GameDetailsModal", () => {
     expect(screen.getByTestId("badge-platform-ps5")).toBeInTheDocument();
   });
 
+  it("updates and clears the automatic download target", async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+      makeFetchMock({
+        "/api/igdb/platforms": [
+          { id: 8, name: "PlayStation 2" },
+          { id: 48, name: "PlayStation 4" },
+        ],
+      })
+    );
+    renderComponent();
+
+    const targetSelect = await screen.findByLabelText("Automatic download target");
+    await screen.findByRole("option", { name: "PlayStation 2" });
+    fireEvent.change(targetSelect, { target: { value: "8" } });
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/games/1/target-platform",
+        expect.objectContaining({
+          method: "PATCH",
+          body: JSON.stringify({
+            targetPlatformId: 8,
+            targetPlatformName: "PlayStation 2",
+          }),
+        })
+      );
+    });
+
+    fireEvent.change(targetSelect, { target: { value: "" } });
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/games/1/target-platform",
+        expect.objectContaining({
+          method: "PATCH",
+          body: JSON.stringify({ targetPlatformId: null, targetPlatformName: null }),
+        })
+      );
+    });
+  });
+
   it("renders screenshots in Media tab", () => {
     renderComponent();
     // Media tab uses forceMount so screenshots are always in the DOM (hidden until tab activated)

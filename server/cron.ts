@@ -27,6 +27,7 @@ import {
   parseJsonStringArray,
   parseReleaseMetadata,
   matchesPlatformFilter,
+  resolveGamePlatformPreference,
 } from "../shared/title-utils.js";
 
 const DELAY_THRESHOLD_DAYS = 7;
@@ -1001,9 +1002,10 @@ export async function checkAutoSearch() {
 
             // Apply platform filter first (strict), then preferred groups filter, then
             // de-duplicate releases that appear on multiple indexers (keep highest-priority indexer).
+            const effectivePlatform = resolveGamePlatformPreference(game, preferredPlatform);
             const platformFilteredMain = applyPreferredPlatformFilter(
               searchResult.mainItems,
-              preferredPlatform
+              effectivePlatform
             );
             const groupFilteredMain = applyPreferredGroupsFilter(
               platformFilteredMain,
@@ -1124,9 +1126,10 @@ export async function checkAutoSearch() {
 
             const wasUpdateAvailable = game.searchResultsAvailable;
 
+            const effectivePlatform = resolveGamePlatformPreference(game, preferredPlatform);
             const platformFilteredUpdate = applyPreferredPlatformFilter(
               searchResult.updateItems,
-              preferredPlatform
+              effectivePlatform
             );
             const groupFilteredUpdate = applyPreferredGroupsFilter(
               platformFilteredUpdate,

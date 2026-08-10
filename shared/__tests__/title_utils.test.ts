@@ -7,6 +7,9 @@ import {
   parseReleaseMetadata,
   parseJsonStringArray,
   matchesPlatformFilter,
+  resolveGamePlatformPreference,
+  resolveTargetPlatform,
+  UNSUPPORTED_TARGET_PLATFORM,
 } from "../title-utils.js";
 
 describe("title-utils", () => {
@@ -109,15 +112,53 @@ describe("title-utils", () => {
       expect(parseReleaseMetadata("[GROUP] Game Name").group).toBe("GROUP");
     });
 
-    it("should detect various platforms", () => {
+    it("should detect modern and legacy platform aliases", () => {
       expect(parseReleaseMetadata("Game.PS5-GROUP").platform).toBe("PS5");
       expect(parseReleaseMetadata("Game.Win64-GROUP").platform).toBe("PC");
+      expect(parseReleaseMetadata("God.of.War.PS2.NTSC-GROUP").platform).toBe("PS2");
+      expect(parseReleaseMetadata("God.of.War.PS2/USA-GROUP").platform).toBe("PS2");
+      expect(parseReleaseMetadata("God.of.War.XPS2Y-GROUP").platform).toBeUndefined();
+      expect(parseReleaseMetadata("Game.PSX-GROUP").platform).toBe("PS1");
+      expect(parseReleaseMetadata("Game.NGC-GROUP").platform).toBe("GameCube");
+      expect(parseReleaseMetadata("Game.X360-GROUP").platform).toBe("Xbox 360");
+      expect(parseReleaseMetadata("Game.DC-GROUP").platform).toBe("Dreamcast");
     });
     it("should parse Mac platform and DRM-Free tags", () => {
       const release = "Shadow.of.the.Tomb.Raider.MacOS.DRM-Free";
       const metadata = parseReleaseMetadata(release);
       expect(metadata.platform).toBe("Mac");
       expect(metadata.drm).toBe("DRM-Free");
+    });
+  });
+
+  describe("target platform resolution", () => {
+    it("resolves stable IGDB ids and names to release labels", () => {
+      expect(resolveTargetPlatform(8, "PlayStation 2")).toBe("PS2");
+      expect(resolveTargetPlatform(11, "Xbox")).toBe("Xbox Classic");
+      expect(resolveTargetPlatform(23, "Dreamcast")).toBe("Dreamcast");
+    });
+
+    it("fails closed for mismatched, partial, or unsupported target pairs", () => {
+      expect(resolveTargetPlatform(8, "PlayStation 5")).toBeNull();
+      expect(resolveGamePlatformPreference({ targetPlatformId: 8 }, "PC")).toBe(
+        UNSUPPORTED_TARGET_PLATFORM
+      );
+      expect(
+        resolveGamePlatformPreference(
+          { targetPlatformId: 9999, targetPlatformName: "Mystery Box" },
+          "PC"
+        )
+      ).toBe(UNSUPPORTED_TARGET_PLATFORM);
+    });
+
+    it("uses the account fallback only when the game has no explicit target", () => {
+      expect(resolveGamePlatformPreference({}, "PC")).toBe("PC");
+      expect(
+        resolveGamePlatformPreference(
+          { targetPlatformId: 8, targetPlatformName: "PlayStation 2" },
+          "PC"
+        )
+      ).toBe("PS2");
     });
   });
 

@@ -536,6 +536,23 @@ describe("IGDBClient - formatGameData metadata fields", () => {
     expect(results[0].websites).toEqual(websites);
   });
 
+  it("preserves IGDB platform ids and names for target selection", async () => {
+    const { igdbClient } = await import("../igdb.js");
+    const result = igdbClient.formatGameData({
+      id: 1,
+      name: "God of War",
+      platforms: [
+        { id: 8, name: "PlayStation 2" },
+        { id: 9, name: "PlayStation 3" },
+      ],
+    });
+
+    expect(result.platformOptions).toEqual([
+      { id: 8, name: "PlayStation 2" },
+      { id: 9, name: "PlayStation 3" },
+    ]);
+  });
+
   it("uses empty array for igdbWebsites when websites field is absent", async () => {
     mockAuthAndGame({ id: 1, name: "Test Game" });
 

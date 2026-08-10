@@ -12,6 +12,7 @@ import {
   updateGameHiddenSchema,
   updateGameUserRatingSchema,
   updateGameNotesSchema,
+  updateGameTargetPlatformSchema,
   insertIndexerSchema,
   insertDownloaderSchema,
   insertNotificationSchema,
@@ -1373,6 +1374,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         routesLogger.error({ error }, "error updating game notes");
         res.status(500).json({ error: "Failed to update notes" });
+      }
+    }
+  );
+
+  // Update the per-game download target, or clear it to use the account default.
+  app.patch(
+    "/api/games/:id/target-platform",
+    sensitiveEndpointLimiter,
+    sanitizeGameId,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const { id } = req.params;
+        const userId = req.user!.id;
+        const target = updateGameTargetPlatformSchema.parse(req.body);
+
+        if (!(await resolveOwnedGame(id, userId, res))) return;
+
+        const updatedGame = await storage.updateGame(id, target);
+        if (!updatedGame) {
+          return res.status(404).json({ error: "Game not found" });
+        }
+
+        res.json(updatedGame);
+      } catch (error) {
+        if (error instanceof z.ZodError) {
+          return respondWithZodError(res, error, "Invalid target platform data");
+        }
+        routesLogger.error({ error }, "error updating game target platform");
+        res.status(500).json({ error: "Failed to update target platform" });
       }
     }
   );

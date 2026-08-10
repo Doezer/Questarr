@@ -182,6 +182,60 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
     }
   };
 
+  const renderDiscoveryFilters = (compact = false) => (
+    <div className={compact ? "space-y-2" : "mb-4 space-y-4"}>
+      <div className="grid grid-cols-2 gap-2">
+        <Select value={selectedPlatform} onValueChange={setSelectedPlatform}>
+          <SelectTrigger aria-label="Platform filter">
+            <SelectValue placeholder="All platforms" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All platforms</SelectItem>
+            {platforms.map((platform) => (
+              <SelectItem key={platform.id} value={String(platform.id)}>
+                {platform.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Input
+          type="number"
+          inputMode="numeric"
+          min="1950"
+          max="2100"
+          placeholder="Release year"
+          value={releaseYear}
+          onChange={(event) => handleReleaseYearChange(event.target.value)}
+          aria-label="Release year filter"
+        />
+      </div>
+      <div
+        className={
+          compact
+            ? "flex items-center justify-between gap-2"
+            : "flex items-center justify-between gap-2 rounded-md border px-4 py-2"
+        }
+      >
+        <div className={compact ? undefined : "space-y-1"}>
+          <p className={compact ? "text-xs text-muted-foreground" : "text-sm font-medium"}>
+            Show undated games first
+          </p>
+          {!compact && (
+            <p className="text-xs text-muted-foreground">
+              Include titles without a release date and place them before dated results.
+            </p>
+          )}
+        </div>
+        <Switch
+          checked={showUndatedGames}
+          onCheckedChange={setShowUndatedGames}
+          disabled={hasValidReleaseYear}
+          aria-label="Show undated games first"
+        />
+      </div>
+    </div>
+  );
+
   const handleAddGame = (searchResult: SearchResult) => {
     // Map to InsertGame to filter out client-only fields before sending to server
     const gameData = mapGameToInsertGame(searchResult);
@@ -254,40 +308,7 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
                     aria-label="Search games"
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <Select value={selectedPlatform} onValueChange={setSelectedPlatform}>
-                    <SelectTrigger aria-label="Platform filter">
-                      <SelectValue placeholder="All platforms" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All platforms</SelectItem>
-                      {platforms.map((platform) => (
-                        <SelectItem key={platform.id} value={String(platform.id)}>
-                          {platform.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Input
-                    type="number"
-                    inputMode="numeric"
-                    min="1950"
-                    max="2100"
-                    placeholder="Release year"
-                    value={releaseYear}
-                    onChange={(event) => handleReleaseYearChange(event.target.value)}
-                    aria-label="Release year filter"
-                  />
-                </div>
-                <div className="flex items-center justify-between gap-2 px-0.5">
-                  <span className="text-xs text-muted-foreground">Show undated games first</span>
-                  <Switch
-                    checked={showUndatedGames}
-                    onCheckedChange={setShowUndatedGames}
-                    disabled={hasValidReleaseYear}
-                    aria-label="Show undated games first"
-                  />
-                </div>
+                {renderDiscoveryFilters(true)}
               </div>
 
               {/* Scrollable results */}
@@ -446,45 +467,7 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
               </Button>
             </form>
 
-            <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Select value={selectedPlatform} onValueChange={setSelectedPlatform}>
-                <SelectTrigger aria-label="Platform filter">
-                  <SelectValue placeholder="All platforms" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All platforms</SelectItem>
-                  {platforms.map((platform) => (
-                    <SelectItem key={platform.id} value={String(platform.id)}>
-                      {platform.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Input
-                type="number"
-                inputMode="numeric"
-                min="1950"
-                max="2100"
-                placeholder="Release year"
-                value={releaseYear}
-                onChange={(event) => handleReleaseYearChange(event.target.value)}
-                aria-label="Release year filter"
-              />
-            </div>
-
-            <div className="mb-4 flex items-center justify-between gap-3 rounded-md border px-3 py-2">
-              <div className="space-y-1">
-                <p className="text-sm font-medium">Show undated games first</p>
-                <p className="text-xs text-muted-foreground">
-                  Include titles without a release date and place them before dated results.
-                </p>
-              </div>
-              <Switch
-                checked={showUndatedGames}
-                onCheckedChange={setShowUndatedGames}
-                disabled={hasValidReleaseYear}
-              />
-            </div>
+            {renderDiscoveryFilters()}
 
             <div className="space-y-4" aria-live="polite">
               {isSearching && (

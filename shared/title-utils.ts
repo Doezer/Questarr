@@ -177,7 +177,7 @@ export interface ReleaseMetadata {
  * Parses a release name to extract as much metadata as possible.
  */
 export function parseReleaseMetadata(releaseName: string): ReleaseMetadata {
-  const cleaned = releaseName.replace(/[._]/g, " ");
+  const cleaned = releaseName.replace(/[._-]/g, " ");
 
   // 1. Extract Group (usually after the last dash)
   // More robust group detection: some releases use [Group] at start or end, or -Group at end
@@ -206,39 +206,10 @@ export function parseReleaseMetadata(releaseName: string): ReleaseMetadata {
   if (/\bjapanese\b/i.test(cleaned)) languages.push("Japanese");
   if (/\benglish\b/i.test(cleaned)) languages.push("English");
 
-  // 4. Extract Platform
-  const PLATFORM_PATTERNS: [RegExp, string][] = [
-    [/\b(ps5|playstation\s*5)\b/i, "PS5"],
-    [/\b(ps4|playstation\s*4)\b/i, "PS4"],
-    [/\b(ps3|playstation\s*3)\b/i, "PS3"],
-    [/\b(ps2|playstation\s*2)\b/i, "PS2"],
-    [/\b(psx|ps1|playstation\s*1)\b/i, "PS1"],
-    [/\b(psp)\b/i, "PSP"],
-    [/\b(ps\s?vita|vita)\b/i, "PSVita"],
-    [/\b(xbox\s*series|xbsx|xss)\b/i, "Xbox Series"],
-    [/\b(xbox|x360|xbox360)\b/i, "Xbox"],
-    [/\b(nintendo\s*switch|switch|nsw)\b/i, "Switch"],
-    [/\b(game\s?cube|gamecube|ngc|gc)\b/i, "GameCube"],
-    [/\b(wii\s*u|wiiu)\b/i, "Wii U"],
-    [/\b(wii)\b/i, "Wii"],
-    [/\b(3ds)\b/i, "3DS"],
-    [/\b(nds|nintendo\s*ds|\bds\b)\b/i, "NDS"],
-    [/\b(n64|nintendo\s*64)\b/i, "N64"],
-    [/\b(snes|super\s*nintendo|super\s*nes)\b/i, "SNES"],
-    [/\b(nes|famicom)\b/i, "NES"],
-    [/\b(gba|game\s*boy\s*advance)\b/i, "GBA"],
-    [/\b(gbc|game\s*boy\s*color)\b/i, "GBC"],
-    [/\b(game\s*boy|\bgb\b)\b/i, "GB"],
-    [/\b(dreamcast|\bdc\b)\b/i, "Dreamcast"],
-    [/\b(megadrive|mega\s*drive|genesis)\b/i, "Mega Drive"],
-    [/\b(master\s*system|\bsms\b)\b/i, "Master System"],
-    [/\b(neo\s*geo|neogeo)\b/i, "Neo Geo"],
-    [/\b(atari\s*2600|a2600)\b/i, "Atari 2600"],
-    [/\b(pc|windows|win64|win32)\b/i, "PC"],
-    [/\b(linux)\b/i, "Linux"],
-    [/\b(mac|macos|osx)\b/i, "Mac"],
-  ];
-  const platform = PLATFORM_PATTERNS.find(([regex]) => regex.test(cleaned))?.[1];
+  // 4. Extract Platform using the shared target-platform catalog.
+  const platform = PLATFORM_CATALOG.find(({ releasePattern }) =>
+    releasePattern.test(cleaned)
+  )?.canonical;
 
   // 5. DRM / Source
   let drm: string | undefined;
@@ -262,21 +233,240 @@ export function parseReleaseMetadata(releaseName: string): ReleaseMetadata {
 }
 
 /**
- * Canonical platform labels shared across settings, dialog filtering, and automation.
- * These are user-facing labels — not raw IGDB platform names.
+ * Canonical release labels and their stable IGDB identities. Keep parsing aliases here so
+ * discovery selection and automation use the same cross-generation vocabulary.
  */
-export const CANONICAL_PLATFORMS = [
-  "PC",
-  "PS5",
-  "PS4",
-  "PS3",
-  "Switch",
-  "Xbox Series",
-  "Xbox",
-  "Mac",
-  "Linux",
+export const PLATFORM_CATALOG = [
+  {
+    canonical: "PS5",
+    igdbIds: [167],
+    igdbNames: ["PlayStation 5"],
+    releasePattern: /(?:^|[^a-z0-9])(ps5|playstation\s*5)(?=$|[^a-z0-9])/i,
+  },
+  {
+    canonical: "PS4",
+    igdbIds: [48],
+    igdbNames: ["PlayStation 4"],
+    releasePattern: /(?:^|[^a-z0-9])(ps4|playstation\s*4)(?=$|[^a-z0-9])/i,
+  },
+  {
+    canonical: "PS3",
+    igdbIds: [9],
+    igdbNames: ["PlayStation 3"],
+    releasePattern: /(?:^|[^a-z0-9])(ps3|playstation\s*3)(?=$|[^a-z0-9])/i,
+  },
+  {
+    canonical: "PS2",
+    igdbIds: [8],
+    igdbNames: ["PlayStation 2"],
+    releasePattern: /(?:^|[^a-z0-9])(ps2|playstation\s*2)(?=$|[^a-z0-9])/i,
+  },
+  {
+    canonical: "PS1",
+    igdbIds: [7],
+    igdbNames: ["PlayStation"],
+    releasePattern: /(?:^|[^a-z0-9])(psx|ps1|playstation\s*1)(?=$|[^a-z0-9])/i,
+  },
+  {
+    canonical: "PSP",
+    igdbIds: [38],
+    igdbNames: ["PlayStation Portable"],
+    releasePattern: /(?:^|[^a-z0-9])(psp|playstation\s*portable)(?=$|[^a-z0-9])/i,
+  },
+  {
+    canonical: "PSVita",
+    igdbIds: [46],
+    igdbNames: ["PlayStation Vita"],
+    releasePattern: /(?:^|[^a-z0-9])(ps\s?vita|vita)(?=$|[^a-z0-9])/i,
+  },
+  {
+    canonical: "Xbox Series",
+    igdbIds: [169],
+    igdbNames: ["Xbox Series X|S"],
+    releasePattern: /(?:^|[^a-z0-9])(xbox\s*series(?:\s*[xs])?|xbsx|xss)(?=$|[^a-z0-9])/i,
+  },
+  {
+    canonical: "Xbox One",
+    igdbIds: [49],
+    igdbNames: ["Xbox One"],
+    releasePattern: /(?:^|[^a-z0-9])(xbox\s*one|xbone)(?=$|[^a-z0-9])/i,
+  },
+  {
+    canonical: "Xbox 360",
+    igdbIds: [12],
+    igdbNames: ["Xbox 360"],
+    releasePattern: /(?:^|[^a-z0-9])(xbox\s*360|xbox360|x360)(?=$|[^a-z0-9])/i,
+  },
+  {
+    canonical: "Xbox Classic",
+    igdbIds: [11],
+    igdbNames: ["Xbox"],
+    releasePattern: /(?:^|[^a-z0-9])(xbox(?:\s*(?:classic|original))?|xb)(?=$|[^a-z0-9])/i,
+  },
+  {
+    canonical: "Switch",
+    igdbIds: [130],
+    igdbNames: ["Nintendo Switch"],
+    releasePattern: /(?:^|[^a-z0-9])(nintendo\s*switch|switch|nsw)(?=$|[^a-z0-9])/i,
+  },
+  {
+    canonical: "GameCube",
+    igdbIds: [21],
+    igdbNames: ["Nintendo GameCube"],
+    releasePattern: /(?:^|[^a-z0-9])(game\s?cube|ngc|gc)(?=$|[^a-z0-9])/i,
+  },
+  {
+    canonical: "Wii U",
+    igdbIds: [41],
+    igdbNames: ["Wii U"],
+    releasePattern: /(?:^|[^a-z0-9])(wii\s*u|wiiu)(?=$|[^a-z0-9])/i,
+  },
+  {
+    canonical: "Wii",
+    igdbIds: [5],
+    igdbNames: ["Wii"],
+    releasePattern: /(?:^|[^a-z0-9])(wii)(?=$|[^a-z0-9])/i,
+  },
+  {
+    canonical: "3DS",
+    igdbIds: [37],
+    igdbNames: ["Nintendo 3DS"],
+    releasePattern: /(?:^|[^a-z0-9])(3ds)(?=$|[^a-z0-9])/i,
+  },
+  {
+    canonical: "NDS",
+    igdbIds: [20],
+    igdbNames: ["Nintendo DS"],
+    releasePattern: /(?:^|[^a-z0-9])(nds|nintendo\s*ds|ds)(?=$|[^a-z0-9])/i,
+  },
+  {
+    canonical: "N64",
+    igdbIds: [4],
+    igdbNames: ["Nintendo 64"],
+    releasePattern: /(?:^|[^a-z0-9])(n64|nintendo\s*64)(?=$|[^a-z0-9])/i,
+  },
+  {
+    canonical: "SNES",
+    igdbIds: [19],
+    igdbNames: ["Super Nintendo Entertainment System"],
+    releasePattern: /(?:^|[^a-z0-9])(snes|super\s*nintendo|super\s*nes)(?=$|[^a-z0-9])/i,
+  },
+  {
+    canonical: "NES",
+    igdbIds: [18],
+    igdbNames: ["Nintendo Entertainment System"],
+    releasePattern: /(?:^|[^a-z0-9])(nes|famicom)(?=$|[^a-z0-9])/i,
+  },
+  {
+    canonical: "GBA",
+    igdbIds: [24],
+    igdbNames: ["Game Boy Advance"],
+    releasePattern: /(?:^|[^a-z0-9])(gba|game\s*boy\s*advance)(?=$|[^a-z0-9])/i,
+  },
+  {
+    canonical: "GBC",
+    igdbIds: [22],
+    igdbNames: ["Game Boy Color"],
+    releasePattern: /(?:^|[^a-z0-9])(gbc|game\s*boy\s*color)(?=$|[^a-z0-9])/i,
+  },
+  {
+    canonical: "GB",
+    igdbIds: [33],
+    igdbNames: ["Game Boy"],
+    releasePattern: /(?:^|[^a-z0-9])(game\s*boy|gb)(?=$|[^a-z0-9])/i,
+  },
+  {
+    canonical: "Dreamcast",
+    igdbIds: [23],
+    igdbNames: ["Dreamcast"],
+    releasePattern: /(?:^|[^a-z0-9])(dreamcast|dc)(?=$|[^a-z0-9])/i,
+  },
+  {
+    canonical: "Mega Drive",
+    igdbIds: [29],
+    igdbNames: ["Sega Mega Drive/Genesis"],
+    releasePattern: /(?:^|[^a-z0-9])(megadrive|mega\s*drive|genesis)(?=$|[^a-z0-9])/i,
+  },
+  {
+    canonical: "Master System",
+    igdbIds: [64],
+    igdbNames: ["Sega Master System/Mark III"],
+    releasePattern: /(?:^|[^a-z0-9])(master\s*system|sms)(?=$|[^a-z0-9])/i,
+  },
+  {
+    canonical: "Neo Geo",
+    igdbIds: [80],
+    igdbNames: ["Neo Geo AES"],
+    releasePattern: /(?:^|[^a-z0-9])(neo\s*geo|neogeo)(?=$|[^a-z0-9])/i,
+  },
+  {
+    canonical: "Atari 2600",
+    igdbIds: [59],
+    igdbNames: ["Atari 2600"],
+    releasePattern: /(?:^|[^a-z0-9])(atari\s*2600|a2600)(?=$|[^a-z0-9])/i,
+  },
+  {
+    canonical: "PC",
+    igdbIds: [6],
+    igdbNames: ["PC (Microsoft Windows)"],
+    releasePattern: /(?:^|[^a-z0-9])(pc|windows|win64|win32)(?=$|[^a-z0-9])/i,
+  },
+  {
+    canonical: "Linux",
+    igdbIds: [3],
+    igdbNames: ["Linux"],
+    releasePattern: /(?:^|[^a-z0-9])(linux)(?=$|[^a-z0-9])/i,
+  },
+  {
+    canonical: "Mac",
+    igdbIds: [14],
+    igdbNames: ["Mac"],
+    releasePattern: /(?:^|[^a-z0-9])(mac|macos|osx)(?=$|[^a-z0-9])/i,
+  },
 ] as const;
-export type CanonicalPlatform = (typeof CANONICAL_PLATFORMS)[number];
+
+export type CanonicalPlatform = (typeof PLATFORM_CATALOG)[number]["canonical"];
+// Keep the legacy account-wide Xbox umbrella selectable while explicit game targets use
+// generation-specific catalog entries.
+export const CANONICAL_PLATFORMS: readonly string[] = [
+  "Xbox",
+  ...PLATFORM_CATALOG.map(({ canonical }) => canonical),
+];
+
+const normalizePlatformName = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+
+/** Resolves a stored IGDB platform pair to the release label used by automation. */
+export function resolveTargetPlatform(
+  targetPlatformId: number | null | undefined,
+  targetPlatformName: string | null | undefined
+): CanonicalPlatform | null {
+  if (targetPlatformId == null || !targetPlatformName) return null;
+  const normalizedName = normalizePlatformName(targetPlatformName);
+  return (
+    PLATFORM_CATALOG.find(
+      ({ igdbIds, igdbNames }) =>
+        (igdbIds as readonly number[]).includes(targetPlatformId) &&
+        igdbNames.some((name) => normalizePlatformName(name) === normalizedName)
+    )?.canonical ?? null
+  );
+}
+
+export const UNSUPPORTED_TARGET_PLATFORM = "__unsupported_target_platform__";
+
+/** Resolve a game's explicit target or preserve the account-wide fallback for legacy rows. */
+export function resolveGamePlatformPreference(
+  game: { targetPlatformId?: number | null; targetPlatformName?: string | null },
+  fallback: string | null
+): string | null {
+  const hasTargetId = game.targetPlatformId != null;
+  const hasTargetName = game.targetPlatformName != null;
+  if (!hasTargetId && !hasTargetName) return fallback;
+  if (!hasTargetId || !hasTargetName) return UNSUPPORTED_TARGET_PLATFORM;
+  return (
+    resolveTargetPlatform(game.targetPlatformId, game.targetPlatformName) ??
+    UNSUPPORTED_TARGET_PLATFORM
+  );
+}
 
 /**
  * Returns true if a release's detected platform matches the preferred platform filter.
@@ -292,10 +482,11 @@ export function matchesPlatformFilter(
   if (preferredPlatform === "PC") {
     return !releasePlatform || releasePlatform === "PC";
   }
-  // "Xbox" is a superset that covers both Xbox and Xbox Series releases.
-  // Users who select "Xbox" should not miss Xbox Series titles.
+  // Preserve the legacy account-wide "Xbox" setting as a cross-generation umbrella.
   if (preferredPlatform === "Xbox") {
-    return releasePlatform === "Xbox" || releasePlatform === "Xbox Series";
+    return ["Xbox", "Xbox Classic", "Xbox 360", "Xbox One", "Xbox Series"].includes(
+      releasePlatform ?? ""
+    );
   }
   return releasePlatform === preferredPlatform;
 }

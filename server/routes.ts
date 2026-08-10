@@ -12,6 +12,7 @@ import {
   updateGameHiddenSchema,
   updateGameUserRatingSchema,
   updateGameNotesSchema,
+  updateGameTargetPlatformSchema,
   insertIndexerSchema,
   insertDownloaderSchema,
   insertNotificationSchema,
@@ -1377,6 +1378,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   );
 
+  // Update the per-game download target, or clear it to use the account default.
+  app.patch(
+    "/api/games/:id/target-platform",
+    sensitiveEndpointLimiter,
+    sanitizeGameId,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const { id } = req.params;
+        const userId = req.user!.id;
+        const target = updateGameTargetPlatformSchema.parse(req.body);
+
+        if (!(await resolveOwnedGame(id, userId, res))) return;
+
+        const updatedGame = await storage.updateGame(id, target);
+        if (!updatedGame) {
+          return res.status(404).json({ error: "Game not found" });
+        }
+
+        res.json(updatedGame);
+      } catch (error) {
+        if (error instanceof z.ZodError) {
+          return respondWithZodError(res, error, "Invalid target platform data");
+        }
+        routesLogger.error({ error }, "error updating game target platform");
+        res.status(500).json({ error: "Failed to update target platform" });
+      }
+    }
+  );
+
   // Refresh metadata for all games
   app.post("/api/games/refresh-metadata", igdbRateLimiter, async (req, res) => {
     try {
@@ -1734,7 +1765,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     validateRequest,
     async (req: Request, res: Response) => {
       try {
-        const { q, limit, includeUndated } = req.query;
+        const { q, limit, includeUndated, platform, year } = req.query;
         if (!q || typeof q !== "string") {
           return res.status(400).json({ error: "Search query required" });
         }
@@ -1747,10 +1778,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
               : NaN;
         const limitNum =
           Number.isNaN(parsedLimit) || parsedLimit < 1 ? 20 : Math.min(parsedLimit, 100);
-        const searchOptions =
-          typeof includeUndated === "boolean"
+        const searchOptions = {
+          ...(typeof includeUndated === "boolean"
             ? { includeUndated, undatedFirst: includeUndated }
-            : {};
+            : {}),
+          ...(typeof platform === "number" ? { platformId: platform } : {}),
+          ...(typeof year === "number" ? { releaseYear: year } : {}),
+        };
         const formattedGames = await fetchFilteredIgdbGames(req.user!.id, limitNum, (fetchLimit) =>
           igdbClient.searchGames(q, fetchLimit, searchOptions)
         );

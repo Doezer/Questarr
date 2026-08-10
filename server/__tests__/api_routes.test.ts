@@ -694,6 +694,51 @@ describe("API Routes - Extended Coverage", () => {
     });
   });
 
+  describe("PATCH /api/games/:id/target-platform", () => {
+    const gameId = "123e4567-e89b-12d3-a456-426614174000";
+
+    it("updates a complete IGDB target pair", async () => {
+      vi.mocked(storage.getGame).mockResolvedValue({
+        id: gameId,
+        userId: "user-1",
+      } as unknown as Game);
+      vi.mocked(storage.updateGame).mockResolvedValue({
+        id: gameId,
+        targetPlatformId: 8,
+        targetPlatformName: "PlayStation 2",
+      } as unknown as Game);
+
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/target-platform`)
+        .send({ targetPlatformId: 8, targetPlatformName: "PlayStation 2" });
+
+      expect(response.status).toBe(200);
+      expect(vi.mocked(storage.updateGame)).toHaveBeenCalledWith(gameId, {
+        targetPlatformId: 8,
+        targetPlatformName: "PlayStation 2",
+      });
+    });
+
+    it("rejects an incomplete target pair", async () => {
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/target-platform`)
+        .send({ targetPlatformId: 8, targetPlatformName: null });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe("Invalid target platform data");
+    });
+
+    it("rejects a mismatched complete target pair before storage", async () => {
+      const response = await request(app)
+        .patch(`/api/games/${gameId}/target-platform`)
+        .send({ targetPlatformId: 8, targetPlatformName: "PlayStation 5" });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error).toBe("Invalid target platform data");
+      expect(vi.mocked(storage.updateGame)).not.toHaveBeenCalled();
+    });
+  });
+
   describe("DELETE /api/games/:id", () => {
     it("should remove game", async () => {
       const gameId = "123e4567-e89b-12d3-a456-426614174000";
@@ -890,6 +935,19 @@ describe("API Routes - Extended Coverage", () => {
         expect(igdbClient.searchGames).toHaveBeenCalledWith("Zelda", 40, {
           includeUndated: true,
           undatedFirst: true,
+        });
+      });
+      it("should pass platform and release year filters to IGDB search", async () => {
+        vi.mocked(igdbClient.searchGames).mockResolvedValue([]);
+
+        const response = await request(app).get(
+          "/api/igdb/search?q=God%20of%20War&limit=10&platform=8&year=2005"
+        );
+
+        expect(response.status).toBe(200);
+        expect(igdbClient.searchGames).toHaveBeenCalledWith("God of War", 20, {
+          platformId: 8,
+          releaseYear: 2005,
         });
       });
     });

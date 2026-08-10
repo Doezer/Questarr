@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Dialog,
   DialogContent,
@@ -21,6 +21,13 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Search, Plus, Star, AlertCircle, Calendar, Check, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { type Game, type InsertGame, type Config } from "@shared/schema";
@@ -29,9 +36,11 @@ import { Link } from "wouter";
 import { apiFetch, apiRequest } from "@/lib/queryClient";
 import { getAddGamePendingQuery, clearAddGamePendingQuery } from "@/lib/add-game-store";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { resolveTargetPlatform } from "@shared/title-utils";
 
 interface SearchResult extends Game {
   inCollection?: boolean;
+  platformOptions?: IGDBPlatform[];
 }
 
 interface AddGameModalProps {
@@ -39,18 +48,37 @@ interface AddGameModalProps {
   initialQuery?: string;
 }
 
+interface IGDBPlatform {
+  id: number;
+  name: string;
+}
+
 export default function AddGameModal({ children, initialQuery }: AddGameModalProps) {
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [showUndatedGames, setShowUndatedGames] = useState(false);
+  const [selectedPlatform, setSelectedPlatform] = useState("all");
+  const [releaseYear, setReleaseYear] = useState("");
+  const [targetPlatforms, setTargetPlatforms] = useState<Record<string, string>>({});
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const isMobile = useIsMobile();
+  const parsedReleaseYear = Number.parseInt(releaseYear, 10);
+  const hasValidReleaseYear =
+    /^\d{4}$/.test(releaseYear) && parsedReleaseYear >= 1950 && parsedReleaseYear <= 2100;
+  const canSearchWithReleaseYear = releaseYear === "" || hasValidReleaseYear;
 
   const { data: config } = useQuery<Config>({
     queryKey: ["/api/config"],
     queryFn: () => apiRequest("GET", "/api/config").then((res) => res.json()),
+  });
+
+  const { data: platforms = [] } = useQuery<IGDBPlatform[]>({
+    queryKey: ["/api/igdb/platforms"],
+    queryFn: () => apiRequest("GET", "/api/igdb/platforms").then((res) => res.json()),
+    enabled: open && !!config?.igdb?.configured,
+    staleTime: 24 * 60 * 60 * 1000,
   });
 
   // Debounce search query
@@ -60,6 +88,11 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
     }, 500);
     return () => clearTimeout(timer);
   }, [searchQuery]);
+
+  // Per-result target overrides only apply to the current discovery result set.
+  useEffect(() => {
+    setTargetPlatforms({});
+  }, [searchQuery, selectedPlatform, releaseYear, showUndatedGames]);
 
   // Pre-fill search when modal opens (from prop or from the dashboard store)
   useEffect(() => {
@@ -75,12 +108,15 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
       setSearchQuery("");
       setDebouncedQuery("");
       setShowUndatedGames(false);
+      setSelectedPlatform("all");
+      setReleaseYear("");
+      setTargetPlatforms({});
     }
   }, [open, initialQuery]);
 
   // Search IGDB for games
-  const { data: searchResults = [], isLoading: isSearching } = useQuery({
-    queryKey: ["/api/igdb/search", debouncedQuery, showUndatedGames],
+  const { data: searchResults = [], isFetching: isSearching } = useQuery({
+    queryKey: ["/api/igdb/search", debouncedQuery, showUndatedGames, selectedPlatform, releaseYear],
     queryFn: async () => {
       if (!debouncedQuery.trim()) return [];
       const token = localStorage.getItem("token");
@@ -88,15 +124,22 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
       if (token) {
         headers["Authorization"] = `Bearer ${token}`;
       }
-      const response = await fetch(
-        `/api/igdb/search?q=${encodeURIComponent(debouncedQuery)}&limit=10&includeUndated=${showUndatedGames}`,
-        { headers }
-      );
+      const params = new URLSearchParams({
+        q: debouncedQuery,
+        limit: "10",
+        includeUndated: String(showUndatedGames),
+      });
+      if (selectedPlatform !== "all") params.set("platform", selectedPlatform);
+      if (hasValidReleaseYear) {
+        params.set("year", releaseYear);
+      }
+      const response = await fetch(`/api/igdb/search?${params.toString()}`, { headers });
       if (!response.ok) throw new Error("Search failed");
-      return response.json();
+      const data: unknown = await response.json();
+      return Array.isArray(data) ? data.slice(0, 10) : [];
     },
-    enabled: debouncedQuery.trim().length > 2 && !!config?.igdb?.configured,
-    placeholderData: keepPreviousData,
+    enabled:
+      debouncedQuery.trim().length > 2 && canSearchWithReleaseYear && !!config?.igdb?.configured,
   });
 
   // Get user's collection to check if games are already added
@@ -140,9 +183,122 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
     // Search is handled by the debounced query
   };
 
+  const handleReleaseYearChange = (value: string) => {
+    setReleaseYear(value);
+    const parsedYear = Number.parseInt(value, 10);
+    if (/^\d{4}$/.test(value) && parsedYear >= 1950 && parsedYear <= 2100) {
+      setShowUndatedGames(false);
+    }
+  };
+
+  const renderDiscoveryFilters = (compact = false) => (
+    <div className={compact ? "space-y-2" : "mb-4 space-y-4"}>
+      <div className="grid grid-cols-2 gap-2">
+        <Select value={selectedPlatform} onValueChange={setSelectedPlatform}>
+          <SelectTrigger aria-label="Platform filter">
+            <SelectValue placeholder="All platforms" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All platforms</SelectItem>
+            {platforms.map((platform) => (
+              <SelectItem key={platform.id} value={String(platform.id)}>
+                {platform.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Input
+          type="number"
+          inputMode="numeric"
+          min="1950"
+          max="2100"
+          placeholder="Release year"
+          value={releaseYear}
+          onChange={(event) => handleReleaseYearChange(event.target.value)}
+          aria-label="Release year filter"
+        />
+      </div>
+      <div
+        className={
+          compact
+            ? "flex items-center justify-between gap-2"
+            : "flex items-center justify-between gap-2 rounded-md border px-4 py-2"
+        }
+      >
+        <div className={compact ? undefined : "space-y-1"}>
+          <p className={compact ? "text-xs text-muted-foreground" : "text-sm font-medium"}>
+            Show undated games first
+          </p>
+          {!compact && (
+            <p className="text-xs text-muted-foreground">
+              Include titles without a release date and place them before dated results.
+            </p>
+          )}
+        </div>
+        <Switch
+          checked={showUndatedGames}
+          onCheckedChange={setShowUndatedGames}
+          disabled={hasValidReleaseYear}
+          aria-label="Show undated games first"
+        />
+      </div>
+    </div>
+  );
+  const getSupportedTargetOptions = (game: SearchResult) =>
+    game.platformOptions?.filter(({ id, name }) => resolveTargetPlatform(id, name)) ?? [];
+
+  const getTargetPlatformValue = (game: SearchResult) => {
+    const supportedOptions = getSupportedTargetOptions(game);
+    const key = String(game.igdbId ?? game.id);
+    const explicitValue = targetPlatforms[key];
+    if (explicitValue && supportedOptions.some(({ id }) => String(id) === explicitValue)) {
+      return explicitValue;
+    }
+    if (
+      selectedPlatform !== "all" &&
+      supportedOptions.some(({ id }) => String(id) === selectedPlatform)
+    ) {
+      return selectedPlatform;
+    }
+    return supportedOptions.length === 1 ? String(supportedOptions[0].id) : "default";
+  };
+
+  const renderTargetPlatformSelect = (game: SearchResult) => {
+    const supportedOptions = getSupportedTargetOptions(game);
+    if (game.inCollection || !supportedOptions?.length) return null;
+    const key = String(game.igdbId ?? game.id);
+    return (
+      <Select
+        value={getTargetPlatformValue(game)}
+        onValueChange={(value) => setTargetPlatforms((current) => ({ ...current, [key]: value }))}
+      >
+        <SelectTrigger
+          className="h-8 w-full max-w-64 text-xs"
+          aria-label={`Target platform for ${game.title}`}
+        >
+          <SelectValue placeholder="Account default" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="default">Account default</SelectItem>
+          {supportedOptions.map((platform) => (
+            <SelectItem key={platform.id} value={String(platform.id)}>
+              {platform.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    );
+  };
   const handleAddGame = (searchResult: SearchResult) => {
-    // Map to InsertGame to filter out client-only fields before sending to server
-    const gameData = mapGameToInsertGame(searchResult);
+    const selectedTarget = getTargetPlatformValue(searchResult);
+    const targetPlatform = searchResult.platformOptions?.find(
+      ({ id }) => String(id) === selectedTarget
+    );
+    const gameData = mapGameToInsertGame({
+      ...searchResult,
+      targetPlatformId: targetPlatform?.id ?? null,
+      targetPlatformName: targetPlatform?.name ?? null,
+    });
     addGameMutation.mutate(gameData);
   };
 
@@ -156,7 +312,7 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
 
   // Mark games already in collection
   const resultsWithCollectionStatus: SearchResult[] = useMemo(() => {
-    return searchResults.map((game: Game) => ({
+    return searchResults.slice(0, 10).map((game: Game) => ({
       ...game,
       inCollection: game.igdbId != null ? userGameIgdbIds.has(game.igdbId) : false,
     }));
@@ -212,14 +368,7 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
                     aria-label="Search games"
                   />
                 </div>
-                <div className="flex items-center justify-between gap-2 px-0.5">
-                  <span className="text-xs text-muted-foreground">Show undated games first</span>
-                  <Switch
-                    checked={showUndatedGames}
-                    onCheckedChange={setShowUndatedGames}
-                    aria-label="Show undated games first"
-                  />
-                </div>
+                {renderDiscoveryFilters(true)}
               </div>
 
               {/* Scrollable results */}
@@ -318,6 +467,8 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
                           {game.summary}
                         </p>
                       )}
+
+                      {renderTargetPlatformSelect(game)}
                     </div>
                   </div>
                 ))}
@@ -378,15 +529,7 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
               </Button>
             </form>
 
-            <div className="mb-4 flex items-center justify-between gap-3 rounded-md border px-3 py-2">
-              <div className="space-y-1">
-                <p className="text-sm font-medium">Show undated games first</p>
-                <p className="text-xs text-muted-foreground">
-                  Include titles without a release date and place them before dated results.
-                </p>
-              </div>
-              <Switch checked={showUndatedGames} onCheckedChange={setShowUndatedGames} />
-            </div>
+            {renderDiscoveryFilters()}
 
             <div className="space-y-4" aria-live="polite">
               {isSearching && (
@@ -455,6 +598,8 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
                             </Badge>
                           ))}
                         </div>
+
+                        {renderTargetPlatformSelect(game)}
 
                         <div className="flex items-center justify-between">
                           <div className="flex flex-wrap gap-1">

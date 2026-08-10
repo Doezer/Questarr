@@ -85,6 +85,8 @@ export interface IGDBGame {
 interface SearchGamesOptions {
   includeUndated?: boolean;
   undatedFirst?: boolean;
+  platformId?: number;
+  releaseYear?: number;
 }
 
 interface IGDBAuthResponse {
@@ -372,19 +374,34 @@ class IGDBClient {
 
     let attemptCount = 0;
 
+    const filters: string[] = [];
+    if (options.platformId) {
+      filters.push(`platforms = (${options.platformId})`);
+    }
+    if (options.releaseYear) {
+      const yearStart = Math.floor(Date.UTC(options.releaseYear, 0, 1) / 1000);
+      const nextYearStart = Math.floor(Date.UTC(options.releaseYear + 1, 0, 1) / 1000);
+      filters.push(`first_release_date >= ${yearStart}`);
+      filters.push(`first_release_date < ${nextYearStart}`);
+    }
+    const withFilters = (conditions: string[] = []) => {
+      const allConditions = [...conditions, ...filters];
+      return allConditions.length > 0 ? `where ${allConditions.join(" & ")}; ` : "";
+    };
+
     // Try multiple search approaches to maximize results
     const searchApproaches = [
       // Approach 1: Full text search without category filter
-      `search "${sanitizedQuery}"; fields ${IGDB_GAME_FIELDS}; limit ${limit};`,
+      `search "${sanitizedQuery}"; fields ${IGDB_GAME_FIELDS}; ${withFilters()}limit ${limit};`,
 
       // Approach 2: Full text search with category filter
-      `search "${sanitizedQuery}"; fields ${IGDB_GAME_FIELDS}; where category = 0; limit ${limit};`,
+      `search "${sanitizedQuery}"; fields ${IGDB_GAME_FIELDS}; ${withFilters(["category = 0"])}limit ${limit};`,
 
       // Approach 3: Case-insensitive name matching without category
-      `fields ${IGDB_GAME_FIELDS}; where name ~= "${sanitizedQuery}"; limit ${limit};`,
+      `fields ${IGDB_GAME_FIELDS}; ${withFilters([`name ~= "${sanitizedQuery}"`])}limit ${limit};`,
 
       // Approach 4: Partial name matching without category
-      `fields ${IGDB_GAME_FIELDS}; where name ~ *"${sanitizedQuery}"*; sort rating desc; limit ${limit};`,
+      `fields ${IGDB_GAME_FIELDS}; ${withFilters([`name ~ *"${sanitizedQuery}"*`])}sort rating desc; limit ${limit};`,
     ];
 
     for (let i = 0; i < searchApproaches.length && attemptCount < MAX_SEARCH_ATTEMPTS; i++) {
@@ -448,7 +465,7 @@ class IGDBClient {
           const sanitizedWord = sanitizeIgdbInput(word);
           if (!sanitizedWord) return [];
 
-          const wordQuery = `fields ${IGDB_GAME_FIELDS}; where name ~ *"${sanitizedWord}"*; sort rating desc; limit ${limit};`;
+          const wordQuery = `fields ${IGDB_GAME_FIELDS}; ${withFilters([`name ~ *"${sanitizedWord}"*`])}sort rating desc; limit ${limit};`;
           // Cache word search results for 15 minutes
           return await this.makeRequest<IGDBGame[]>("games", wordQuery, 15 * 60 * 1000);
         } catch (error) {
@@ -1079,6 +1096,7 @@ class IGDBClient {
       releaseDate: releaseDate ? releaseDate.toISOString().split("T")[0] : "",
       rating: igdbGame.rating ? Math.round(igdbGame.rating) / 10 : null,
       platforms: igdbGame.platforms?.map((p) => p.name) || [],
+      platformOptions: igdbGame.platforms?.map(({ id, name }) => ({ id, name })) || [],
       genres: igdbGame.genres?.map((g) => g.name) || [],
       themes: igdbGame.themes?.map((t) => t.name) || [],
       isAdultContent: hasEroticTheme(igdbGame),

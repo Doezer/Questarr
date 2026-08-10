@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, lazy, Suspense } from "react";
+import React, { useState, useEffect, useMemo, useRef, lazy, Suspense } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertDialog,
@@ -79,6 +79,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { type Game, type GameDownload } from "@shared/schema";
+import { resolveTargetPlatform } from "@shared/title-utils";
 import StatusBadge, { getStatusLabel } from "./StatusBadge";
 import { apiRequest } from "@/lib/queryClient";
 import { cn, safeUrl, formatBytes, isDiscoveryId } from "@/lib/utils";
@@ -96,6 +97,11 @@ type GameDownloadWithDownloader = GameDownload & { downloaderName: string | null
 type FileDeletionResult =
   | { deleted: true; path: string | null }
   | { deleted: false; reason: "outside-library-root" | "delete-failed"; path: string };
+
+interface IgdbPlatformOption {
+  id: number;
+  name: string;
+}
 
 interface NexusMod {
   mod_id: number;
@@ -354,6 +360,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
   const [notesValue, setNotesValue] = useState<string>("");
+  const [targetPlatformValue, setTargetPlatformValue] = useState("");
   const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
   const [removeFromClient, setRemoveFromClient] = useState(true);
   const [deleteFiles, setDeleteFiles] = useState(true);
@@ -372,7 +379,8 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   useEffect(() => {
     setIsSummaryExpanded(false);
     setNotesValue(game?.notes ?? "");
-  }, [game?.id, game?.notes]);
+    setTargetPlatformValue(game?.targetPlatformId ? String(game.targetPlatformId) : "");
+  }, [game?.id, game?.notes, game?.targetPlatformId]);
 
   useEffect(() => {
     setSelectedScreenshotIndex(null);
@@ -459,6 +467,29 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
       socket.off("downloadUpdate", handler);
     };
   }, [open, game?.id, queryClient]);
+
+  const { data: targetPlatformOptions = [] } = useQuery<IgdbPlatformOption[]>({
+    queryKey: ["/api/igdb/platforms"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/igdb/platforms");
+      return res.json();
+    },
+    enabled: open && !!game?.id && !isDiscoveryId(game.id),
+    staleTime: 24 * 60 * 60 * 1000,
+  });
+
+  const supportedTargetPlatformOptions = useMemo(() => {
+    const options = targetPlatformOptions.filter(({ id, name }) => resolveTargetPlatform(id, name));
+    if (
+      game?.targetPlatformId &&
+      game.targetPlatformName &&
+      resolveTargetPlatform(game.targetPlatformId, game.targetPlatformName) &&
+      !options.some(({ id }) => id === game.targetPlatformId)
+    ) {
+      return [{ id: game.targetPlatformId, name: game.targetPlatformName }, ...options];
+    }
+    return options;
+  }, [targetPlatformOptions, game?.targetPlatformId, game?.targetPlatformName]);
 
   const { data: gameDownloads = [], isLoading: downloadsLoading } = useQuery<
     GameDownloadWithDownloader[]
@@ -562,6 +593,23 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     },
     onError: () => {
       toast({ description: "Failed to save your rating", variant: "destructive" });
+    },
+  });
+
+  const targetPlatformMutation = useMutation({
+    mutationFn: async (target: {
+      targetPlatformId: number | null;
+      targetPlatformName: string | null;
+    }) => {
+      await apiRequest("PATCH", `/api/games/${game?.id}/target-platform`, target);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/games"] });
+      toast({ description: "Download target updated" });
+    },
+    onError: () => {
+      setTargetPlatformValue(game?.targetPlatformId ? String(game.targetPlatformId) : "");
+      toast({ description: "Failed to update download target", variant: "destructive" });
     },
   });
 
@@ -983,6 +1031,48 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                       maxVisible={8}
                       getTestId={(p) => `badge-platform-${p.toLowerCase().replace(/\s+/g, "-")}`}
                     />
+                  </div>
+                )}
+                {!isDiscoveryId(game.id) && (
+                  <div>
+                    <label
+                      htmlFor="target-platform"
+                      className="font-semibold mb-2 flex items-center gap-2"
+                    >
+                      <Gamepad2 className="w-4 h-4" />
+                      Automatic download target
+                    </label>
+                    <select
+                      id="target-platform"
+                      value={targetPlatformValue}
+                      disabled={targetPlatformMutation.isPending}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setTargetPlatformValue(value);
+                        const selected = supportedTargetPlatformOptions.find(
+                          ({ id }) => String(id) === value
+                        );
+                        targetPlatformMutation.mutate(
+                          selected
+                            ? {
+                                targetPlatformId: selected.id,
+                                targetPlatformName: selected.name,
+                              }
+                            : { targetPlatformId: null, targetPlatformName: null }
+                        );
+                      }}
+                      className="flex h-9 w-full max-w-sm rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <option value="">Use account default</option>
+                      {supportedTargetPlatformOptions.map((platform) => (
+                        <option key={platform.id} value={platform.id}>
+                          {platform.name}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Overrides the account platform for automatic release matching.
+                    </p>
                   </div>
                 )}
               </div>

@@ -76,10 +76,16 @@ async function transferFile(
     return "hardlink";
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
-    if (code === "EXDEV") {
+    if (
+      code === "EXDEV" ||
+      code === "EPERM" ||
+      code === "EACCES" ||
+      code === "ENOTSUP" ||
+      code === "EOPNOTSUPP"
+    ) {
       logger.warn(
-        { source, destination },
-        "[ImportStrategies] Hardlink not supported across devices, falling back to copy"
+        { source, destination, code },
+        "[ImportStrategies] Hardlink failed, falling back to copy"
       );
       await fs.copy(source, destination, { overwrite: true });
       return "copy";

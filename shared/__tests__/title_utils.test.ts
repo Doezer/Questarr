@@ -10,6 +10,7 @@ import {
   resolveGamePlatformPreference,
   resolveTargetPlatform,
   UNSUPPORTED_TARGET_PLATFORM,
+  CANONICAL_PLATFORMS,
 } from "../title-utils.js";
 
 describe("title-utils", () => {
@@ -121,6 +122,8 @@ describe("title-utils", () => {
       expect(parseReleaseMetadata("Game.PSX-GROUP").platform).toBe("PS1");
       expect(parseReleaseMetadata("Game.NGC-GROUP").platform).toBe("GameCube");
       expect(parseReleaseMetadata("Game.X360-GROUP").platform).toBe("Xbox 360");
+      expect(parseReleaseMetadata("Game-Xbox-Series-X-GROUP").platform).toBe("Xbox Series");
+      expect(parseReleaseMetadata("Game-PlayStation-5-GROUP").platform).toBe("PS5");
       expect(parseReleaseMetadata("Game.DC-GROUP").platform).toBe("Dreamcast");
     });
     it("should parse Mac platform and DRM-Free tags", () => {
@@ -132,6 +135,10 @@ describe("title-utils", () => {
   });
 
   describe("target platform resolution", () => {
+    it("keeps the legacy account-wide Xbox umbrella selectable", () => {
+      expect(CANONICAL_PLATFORMS).toContain("Xbox");
+    });
+
     it("resolves stable IGDB ids and names to release labels", () => {
       expect(resolveTargetPlatform(8, "PlayStation 2")).toBe("PS2");
       expect(resolveTargetPlatform(11, "Xbox")).toBe("Xbox Classic");

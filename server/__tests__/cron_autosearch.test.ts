@@ -771,6 +771,109 @@ describe("Cron - checkAutoSearch", () => {
         expect.objectContaining({ title: "Multiple Results Found" })
       );
     });
+
+    it("uses an explicit per-game target instead of a conflicting account preference", async () => {
+      const wantedGame = {
+        ...baseGame,
+        targetPlatformId: 8,
+        targetPlatformName: "PlayStation 2",
+        status: "wanted" as const,
+        releaseStatus: "released" as const,
+      };
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [wantedGame]]]));
+      mockGetUserSettings.mockResolvedValue({
+        ...baseSettings,
+        preferredPlatform: "PS5",
+        autoDownloadEnabled: true,
+      });
+      mockGetEnabledDownloaders.mockResolvedValue([
+        { id: "dl-1", name: "qBittorrent", type: "torrent", enabled: true },
+      ]);
+      mockAddDownloadWithFallback.mockResolvedValue({
+        success: true,
+        id: "hash-ps2",
+        downloaderId: "dl-1",
+      });
+      mockSearchAllIndexers.mockResolvedValue({
+        items: [
+          PS5_ITEM,
+          { ...PS5_ITEM, title: "Test Game PS2-GROUP", link: "https://example.com/ps2" },
+        ],
+        errors: [],
+        total: 2,
+      });
+
+      await checkAutoSearch();
+
+      expect(mockAddDownloadWithFallback).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ url: "https://example.com/ps2" })
+      );
+    });
+
+    it("fails closed and clears availability for a malformed saved target pair", async () => {
+      const malformedGame = {
+        ...baseGame,
+        targetPlatformId: 8,
+        targetPlatformName: null,
+        status: "wanted" as const,
+        releaseStatus: "released" as const,
+      };
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, [malformedGame]]]));
+      mockGetUserSettings.mockResolvedValue({ ...baseSettings, preferredPlatform: "PS5" });
+      mockSearchAllIndexers.mockResolvedValue({
+        items: [PS5_ITEM],
+        errors: [],
+        total: 1,
+      });
+
+      await checkAutoSearch();
+
+      expect(mockUpdateGameSearchResultsAvailable).toHaveBeenCalledWith(malformedGame.id, false);
+      expect(mockAddNotification).not.toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Game Available" })
+      );
+    });
+
+    it("filters owned-game updates using the explicit per-game target", async () => {
+      const ownedGame = {
+        ...baseGame,
+        targetPlatformId: 8,
+        targetPlatformName: "PlayStation 2",
+        status: "owned" as const,
+        releaseStatus: "released" as const,
+        searchResultsAvailable: false,
+      };
+      mockGetWantedGamesGroupedByUser.mockResolvedValue(new Map([[userId, []]]));
+      mockGetUserGames.mockResolvedValue([ownedGame]);
+      mockGetUserSettings.mockResolvedValue({
+        ...baseSettings,
+        preferredPlatform: "PS5",
+        notifyUpdates: true,
+      });
+      mockSearchAllIndexers.mockResolvedValue({
+        items: [
+          { ...PS5_ITEM, title: "Test Game Update v1.1 PS5-GROUP" },
+          {
+            ...PS5_ITEM,
+            title: "Test Game Update v1.1 PS2-GROUP",
+            link: "https://example.com/ps2-update",
+          },
+        ],
+        errors: [],
+        total: 2,
+      });
+
+      await checkAutoSearch();
+
+      expect(mockUpdateGameSearchResultsAvailable).toHaveBeenCalledWith(ownedGame.id, true);
+      expect(mockAddNotification).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Game Updates Available",
+          message: "1 update(s) found for Test Game",
+        })
+      );
+    });
   });
 
   it("should not notify when all matched items are blacklisted", async () => {

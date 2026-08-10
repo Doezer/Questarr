@@ -177,7 +177,7 @@ export interface ReleaseMetadata {
  * Parses a release name to extract as much metadata as possible.
  */
 export function parseReleaseMetadata(releaseName: string): ReleaseMetadata {
-  const cleaned = releaseName.replace(/[._]/g, " ");
+  const cleaned = releaseName.replace(/[._-]/g, " ");
 
   // 1. Extract Group (usually after the last dash)
   // More robust group detection: some releases use [Group] at start or end, or -Group at end
@@ -426,7 +426,12 @@ export const PLATFORM_CATALOG = [
 ] as const;
 
 export type CanonicalPlatform = (typeof PLATFORM_CATALOG)[number]["canonical"];
-export const CANONICAL_PLATFORMS = PLATFORM_CATALOG.map(({ canonical }) => canonical);
+// Keep the legacy account-wide Xbox umbrella selectable while explicit game targets use
+// generation-specific catalog entries.
+export const CANONICAL_PLATFORMS: readonly string[] = [
+  "Xbox",
+  ...PLATFORM_CATALOG.map(({ canonical }) => canonical),
+];
 
 const normalizePlatformName = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "");
 

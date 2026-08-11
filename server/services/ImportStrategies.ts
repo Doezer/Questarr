@@ -133,6 +133,7 @@ const CATEGORY_DIR_MAP: Record<DownloadCategory, string> = {
   dlc: "dlc",
   update: "update",
   extra: "extra",
+  packs: "packs",
 };
 
 async function categorizeSourceFiles(sourcePath: string): Promise<FileCategoryEntry[]> {
@@ -157,7 +158,7 @@ function resolveContainedPath(root: string, candidate: string): string {
 
 function destinationForFile(gameDir: string, entry: FileCategoryEntry): string {
   const firstSegment = entry.name.split(path.sep)[0]?.toLowerCase();
-  if (["dlc", "update", "extra"].includes(firstSegment ?? "")) {
+  if (["dlc", "update", "extra", "packs"].includes(firstSegment ?? "")) {
     return path.join(gameDir, entry.name);
   }
 

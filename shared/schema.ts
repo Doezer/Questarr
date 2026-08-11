@@ -178,6 +178,12 @@ export const games = sqliteTable("games", {
   searchResultsAvailable: integer("search_results_available", { mode: "boolean" })
     .default(false)
     .notNull(),
+  updateSearchResultsAvailable: integer("update_search_results_available", { mode: "boolean" })
+    .default(false)
+    .notNull(),
+  packsSearchResultsAvailable: integer("packs_search_results_available", { mode: "boolean" })
+    .default(false)
+    .notNull(),
   addedAt: integer("added_at", { mode: "timestamp_ms" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),
@@ -411,7 +417,7 @@ export const claimDownloadRequestSchema = z.object({
   downloadHash: z.string().min(1),
   downloadTitle: z.string().min(1),
   currentStatus: z.string().min(1),
-  category: z.enum(["main", "update", "dlc", "extra"]),
+  category: z.enum(["main", "update", "dlc", "extra", "packs"]),
   gameId: z.string().optional(),
   newGame: z
     .object({
@@ -442,8 +448,8 @@ export const downloadRulesSchema = z.object({
   minSeeders: z.number().int().min(0).default(0),
   sortBy: z.enum(["seeders", "date", "size"]).default("seeders"),
   visibleCategories: z
-    .array(z.enum(["main", "update", "dlc", "extra"]))
-    .default(["main", "update", "dlc", "extra"]),
+    .array(z.enum(["main", "update", "dlc", "extra", "packs"]))
+    .default(["main", "update", "dlc", "extra", "packs"]),
 });
 
 export type DownloadRules = z.infer<typeof downloadRulesSchema>;

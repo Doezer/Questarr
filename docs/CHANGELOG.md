@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.4.2] - 2026-08-xx
+## [1.4.3] - 2026-08-xx
 
 Hotfix release addressing dependency vulnerabilities flagged by `npm audit`.
 
@@ -20,6 +20,10 @@ Hotfix release addressing dependency vulnerabilities flagged by `npm audit`.
 ### Changed
 
 - Dependency updates: `undici` 7.29.0 → 8.9.0 (direct dependency, used by the SSRF-safe fetch wrapper in `server/ssrf.ts`). No vulnerability fix — see `docs/CVE_FIXES_BY_RELEASE.md` for verification. Major version bump; undici 8.9.0 requires Node `>=22.19.0`, so Questarr's own `engines.node` floor is raised from `>=20` to `>=22.19.0` to match — this only formalizes existing practice, since CI (`node-version: 26.x`) and the production Docker image (`node:26-alpine`) were already on Node 26. Full test suite and `server/__tests__/ssrf.test.ts` verified green against the new version.
+
+## [1.4.2] - 2026-08-11
+
+Hotfix release, tagged directly off `v1.4.1` rather than from `main` — not part of this branch's history. Fixed the same `ip-address` and `socket.io-parser` advisories independently patched above for `main`'s own accumulated changes (see the `[1.4.3]` entry). Full details in the `v1.4.2` tag and its own copy of this file.
 
 ## [1.4.1] - 2026-08-02
 

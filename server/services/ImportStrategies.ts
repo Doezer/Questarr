@@ -136,7 +136,7 @@ const CATEGORY_DIR_MAP: Record<DownloadCategory, string> = {
   packs: "packs",
 };
 
-async function categorizeSourceFiles(sourcePath: string): Promise<FileCategoryEntry[]> {
+export async function categorizeSourceFiles(sourcePath: string): Promise<FileCategoryEntry[]> {
   const files = await gatherFiles(sourcePath);
   return files.map((filePath) => {
     const name = path.relative(sourcePath, filePath);
@@ -196,7 +196,7 @@ export class PCImportStrategy implements ImportStrategy {
     if (review.fileCategories && review.fileCategories.length > 0) {
       const filesPlaced: string[] = [];
       const conflictsResolved: string[] = [];
-      let modeUsed: TransferMode = transferMode;
+      const modeUsed: TransferMode = transferMode;
 
       const plannedTransfers = review.fileCategories.map((entry) => ({
         entry,
@@ -216,7 +216,6 @@ export class PCImportStrategy implements ImportStrategy {
         const entryMode = await transferFile(sourceFile, destinationFile, transferMode);
         filesPlaced.push(destinationFile);
         if (entryMode !== transferMode) {
-          modeUsed = entryMode;
           conflictsResolved.push(`${entry.name} (mode fallback: ${entryMode})`);
         }
       }

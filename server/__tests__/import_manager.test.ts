@@ -561,15 +561,10 @@ describe("ImportManager", () => {
     storage.getImportConfig.mockResolvedValue(
       makeImportConfig({ libraryRoot: "/safe/root", sortExtras: true })
     );
+    fsMock.stat.mockResolvedValue({ isDirectory: () => true });
+    fsMock.readdir.mockResolvedValue([{ name: "Game Update v1.nsp", isDirectory: () => false }]);
 
     const { PCImportStrategy } = await import("../services/ImportStrategies.js");
-    const planSpy = vi.spyOn(PCImportStrategy.prototype, "planImport").mockResolvedValue({
-      needsReview: false,
-      originalPath: "/downloads/game",
-      proposedPath: "/safe/root/PC/My Game",
-      strategy: "pc",
-      fileCategories: [{ name: "Game Update v1.nsp", category: "update" }],
-    });
     const execSpy = vi.spyOn(PCImportStrategy.prototype, "executeImport").mockResolvedValue({
       destDir: "/safe/root/PC/My Game",
       filesPlaced: ["/safe/root/PC/My Game/update/Game Update v1.nsp"],
@@ -601,7 +596,6 @@ describe("ImportManager", () => {
         "move"
       );
     } finally {
-      planSpy.mockRestore();
       execSpy.mockRestore();
     }
   });

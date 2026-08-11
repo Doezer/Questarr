@@ -6,6 +6,7 @@ import {
   ImportStrategy,
   ImportReview,
   PCImportStrategy,
+  categorizeSourceFiles,
   sanitizeFsName,
 } from "./ImportStrategies.js";
 import { DownloaderManager } from "../downloaders.js";
@@ -594,16 +595,10 @@ export class ImportManager {
     const transferMode = overridePlan.transferMode ?? config.transferMode;
 
     try {
-      const strategy = new PCImportStrategy();
       if (config.sortExtras) {
-        const categorizedPlan = await strategy.planImport(
-          processPath,
-          game,
-          config.libraryRoot,
-          config
-        );
-        planToExecute.fileCategories = categorizedPlan.fileCategories;
+        planToExecute.fileCategories = await categorizeSourceFiles(processPath);
       }
+      const strategy = new PCImportStrategy();
       const result = await strategy.executeImport(planToExecute, transferMode);
 
       await this.finalizeImport(downloadId, game, result.destDir);

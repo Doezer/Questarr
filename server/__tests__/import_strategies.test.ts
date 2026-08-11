@@ -54,6 +54,35 @@ describe("ImportStrategies", () => {
     }
   );
 
+  it("keeps the requested mode when only some files fall back", async () => {
+    const root = tempDir();
+    const sourceDir = path.join(root, "downloads", "game-folder");
+    const destination = path.join(root, "library", "PC", "game-folder");
+    await fs.ensureDir(sourceDir);
+    await fs.writeFile(path.join(sourceDir, "first.rom"), "first");
+    await fs.writeFile(path.join(sourceDir, "second.rom"), "second");
+
+    vi.spyOn(fs, "link").mockRejectedValueOnce({ code: "EPERM" } as NodeJS.ErrnoException);
+
+    const strategy = new PCImportStrategy();
+    const result = await strategy.executeImport(
+      {
+        needsReview: false,
+        originalPath: sourceDir,
+        proposedPath: destination,
+        strategy: "pc",
+        fileCategories: [
+          { name: "first.rom", category: "main" },
+          { name: "second.rom", category: "main" },
+        ],
+      },
+      "hardlink"
+    );
+
+    expect(result.modeUsed).toBe("hardlink");
+    expect(result.conflictsResolved).toEqual(["first.rom (mode fallback: copy)"]);
+  });
+
   // ---------------------------------------------------------------------------
   // PCImportStrategy.executeImport() — single file vs directory source
   // ---------------------------------------------------------------------------

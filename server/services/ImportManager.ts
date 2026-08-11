@@ -595,7 +595,7 @@ export class ImportManager {
     const transferMode = overridePlan.transferMode ?? config.transferMode;
 
     try {
-      if (config.sortExtras) {
+      if (config.sortExtras && (await fs.stat(processPath)).isDirectory()) {
         planToExecute.fileCategories = await categorizeSourceFiles(processPath);
       }
       const strategy = new PCImportStrategy();

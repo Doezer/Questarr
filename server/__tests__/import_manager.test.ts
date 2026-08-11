@@ -600,6 +600,61 @@ describe("ImportManager", () => {
     }
   });
 
+  it("confirmImport: keeps single-file imports flat when sorting is enabled", async () => {
+    storage.getGameDownload.mockResolvedValue({
+      id: "dl-1",
+      gameId: "g1",
+      downloaderId: "d1",
+      downloadTitle: "My Game",
+    });
+    storage.getGame.mockResolvedValue({
+      id: "g1",
+      title: "My Game",
+      userId: "u1",
+      status: "wanted",
+      platforms: [6],
+    });
+    storage.getImportConfig.mockResolvedValue(
+      makeImportConfig({ libraryRoot: "/safe/root", sortExtras: true })
+    );
+    fsMock.stat.mockResolvedValue({ isDirectory: () => false });
+
+    const { PCImportStrategy } = await import("../services/ImportStrategies.js");
+    const execSpy = vi.spyOn(PCImportStrategy.prototype, "executeImport").mockResolvedValue({
+      destDir: "/safe/root/PC/My Game",
+      filesPlaced: ["/safe/root/PC/My Game/file.iso"],
+      modeUsed: "move",
+      conflictsResolved: [],
+    });
+
+    const manager = new ImportManager(
+      storage as never, // NOSONAR
+      pathService as never, // NOSONAR
+      platformService as never, // NOSONAR
+      archiveService as never // NOSONAR
+    );
+
+    try {
+      await manager.confirmImport("dl-1", {
+        strategy: "pc",
+        originalPath: "/data/downloads/file.iso",
+        proposedPath: "/safe/root/PC/My Game/file.iso",
+        needsReview: false,
+        transferMode: "move",
+      });
+
+      expect(execSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          proposedPath: "/safe/root/PC/My Game/file.iso",
+          fileCategories: undefined,
+        }),
+        "move"
+      );
+    } finally {
+      execSpy.mockRestore();
+    }
+  });
+
   it("confirmImport: overridePlan.unpack = true → archiveService.extract is called", async () => {
     storage.getGameDownload.mockResolvedValue({
       id: "dl-1",

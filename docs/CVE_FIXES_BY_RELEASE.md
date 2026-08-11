@@ -1,4 +1,4 @@
-# Questarr — CVEs fixed per release (v1.2.0 → v1.4.2)
+# Questarr — CVEs fixed per release (v1.2.0 → v1.4.3)
 
 Method: diffed `package.json`/`package-lock.json` at each tag boundary, then cross-checked every bumped package through OSV.dev's `querybatch` endpoint (query old-version vs new-version, take the set difference of returned GHSA IDs) and confirmed exact `fixed` boundaries via per-GHSA `/v1/vulns/{id}` lookups. All headline findings below — including axios, node-forge, and socket.io-parser — were verified through the same batch-diff method, not just by trusting commit messages. Only entries with a confirmed OSV `fixed` event landing inside the bump range are listed as fixes.
 
@@ -66,7 +66,15 @@ No dependency bump in this release crosses a `fixed` OSV boundary — purely mai
 - **body-parser** 1.20.5 → 1.20.6 — fixes **CVE-2026-12590** (GHSA-v422-hmwv-36x6, LOW) — an invalid `limit` value (unparseable string or `NaN`) made `bytes.parse()` return `null`, silently disabling size enforcement and allowing arbitrarily large request bodies. Fixed version throws at parser initialization instead.
 - **minimatch** (devDep-only, transitive via `eslint-plugin-react` → bundled `minimatch@3.1.5`) — new `overrides` pin to `^10.2.5` closes a second resolution path for **CVE-2026-14257** (GHSA-mh99-v99m-4gvg, HIGH), the same brace-expansion advisory fixed above via the `archiver` chain. Not shipped in the production image, but `npm audit` (without `--omit=dev`) still flagged it, so pinned for a fully clean audit.
 
-## v1.4.2 (from v1.4.1)
+## v1.4.2 (from v1.4.1) — hotfix tag, not part of this branch's history
+
+Tagged directly off `v1.4.1`, not from `main` — fixed `ip-address` (10.2.0 →
+10.5.0) and `socket.io-parser` (4.2.6 → 4.2.7), the same two advisories
+`main` independently patches below in the `v1.4.3` entry. Skipped in this
+diff-based report since it isn't reachable from `main`'s commit history; see
+the `v1.4.2` tag and its own copy of this file for the full record.
+
+## v1.4.3 (from v1.4.1, via main)
 
 - **fast-xml-parser** 5.10.0 → 5.10.1 — fixes GHSA-8r6m-32jq-jx6q (no CVE assigned, HIGH, CVSS 8.7) — vulnerable range `>=5.9.3 <5.10.1`; the direct-dependency range `^5.10.0` still permitted the unpatched `5.10.0`, so the fix required a `package.json` bump, not just a lockfile refresh.
 - **fast-uri** (npm `overrides` pin, dev-only via `secretlint` → `ajv`) 3.1.3 → 3.1.4 → 3.1.5 — fixes **CVE-2026-16221** (GHSA-v2hh-gcrm-f6hx, HIGH, fixed by the 3.1.3→3.1.4 leg) and GHSA-7p8r-x3mc-p8w7 (HIGH, host confusion via backslash authority introducer, vulnerable range `3.0.0 - 3.1.4`, fixed by the 3.1.4→3.1.5 leg). Doesn't reach production, but forced past both vulnerable ranges out of caution.

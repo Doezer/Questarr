@@ -1,4 +1,4 @@
-# Questarr — CVEs fixed per release (v1.2.0 → v1.4.1)
+# Questarr — CVEs fixed per release (v1.2.0 → v1.4.2)
 
 Method: diffed `package.json`/`package-lock.json` at each tag boundary, then cross-checked every bumped package through OSV.dev's `querybatch` endpoint (query old-version vs new-version, take the set difference of returned GHSA IDs) and confirmed exact `fixed` boundaries via per-GHSA `/v1/vulns/{id}` lookups. All headline findings below — including axios, node-forge, and socket.io-parser — were verified through the same batch-diff method, not just by trusting commit messages. Only entries with a confirmed OSV `fixed` event landing inside the bump range are listed as fixes.
 
@@ -65,6 +65,15 @@ No dependency bump in this release crosses a `fixed` OSV boundary — purely mai
 - **js-yaml** 5.2.1 → 5.2.2 — fixes GHSA-pm4m-ph32-ghv5 (no CVE assigned, HIGH) — flow-collection entries were parsed multiple times, giving O(2^n) parse time relative to nesting depth; a payload under 200 bytes could hang the event loop.
 - **body-parser** 1.20.5 → 1.20.6 — fixes **CVE-2026-12590** (GHSA-v422-hmwv-36x6, LOW) — an invalid `limit` value (unparseable string or `NaN`) made `bytes.parse()` return `null`, silently disabling size enforcement and allowing arbitrarily large request bodies. Fixed version throws at parser initialization instead.
 - **minimatch** (devDep-only, transitive via `eslint-plugin-react` → bundled `minimatch@3.1.5`) — new `overrides` pin to `^10.2.5` closes a second resolution path for **CVE-2026-14257** (GHSA-mh99-v99m-4gvg, HIGH), the same brace-expansion advisory fixed above via the `archiver` chain. Not shipped in the production image, but `npm audit` (without `--omit=dev`) still flagged it, so pinned for a fully clean audit.
+
+## v1.4.2 (from v1.4.1) — hotfix
+
+Built directly on `v1.4.1`, not on `main` — this tag exists only to close two newly-disclosed advisories against `v1.4.1`'s otherwise-unchanged dependency tree, without pulling in the unrelated feature/dependency work `main` had accumulated since.
+
+- **ip-address** (transitive, via `express-rate-limit`) 10.2.0 → 10.5.0 — fixes GHSA-mwp4-54f8-5fhr (HIGH) — `Address4` decoded leading-zero octets as decimal while resolvers decode them as octal, allowing SSRF and trust-boundary bypass; vulnerable range `<=10.3.0`. Also crosses the `fixed` boundary for two moderate SSRF-adjacent advisories, GHSA-4xrf-jv44-h6hh and GHSA-22jq-vg5j-6vgg. No `overrides` pin needed — `express-rate-limit`'s `^8.5.2` range already permits 10.5.0, so a lockfile-only bump (`npm update ip-address`) was sufficient.
+- **socket.io-parser** (npm `overrides` pin) 4.2.6 → 4.2.7 — fixes GHSA-2m8v-j782-fhvr (HIGH, CVSS 7.5) — zero-attachment memory exhaustion; vulnerable range `4.0.0 - <4.2.7`. Reaches production via `socket.io`/`socket.io-client`, used for real-time download-progress and notification updates.
+
+`npm audit --omit=dev --audit-level=high` now reports 0 vulnerabilities on this tree. Full test suite (1992 tests) passes unchanged.
 
 ---
 

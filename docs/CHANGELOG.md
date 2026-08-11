@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.2] - 2026-08-11
+
+Hotfix release addressing dependency vulnerabilities flagged by `npm audit`.
+Built directly on `v1.4.1` — no other code or dependency changes.
+
+### Security
+
+- **Dependency Vulnerabilities**: Fixed 2 known high-severity vulnerabilities in `ip-address` and `socket.io-parser`.
+
+### Vulnerabilities Addressed
+
+- **ip-address** (transitive, via `express-rate-limit`) 10.2.0 → 10.5.0 — fixes GHSA-mwp4-54f8-5fhr (HIGH) — `Address4` decoded leading-zero octets as decimal while resolvers decode them as octal, allowing SSRF and trust-boundary bypass; vulnerable range `<=10.3.0`. Also crosses the `fixed` boundary for two moderate SSRF-adjacent advisories, GHSA-4xrf-jv44-h6hh and GHSA-22jq-vg5j-6vgg. No `overrides` pin needed — `express-rate-limit`'s `^8.5.2` range already permits 10.5.0, so a lockfile-only bump (`npm update ip-address`) was sufficient.
+- **socket.io-parser** (npm `overrides` pin) 4.2.6 → 4.2.7 — fixes GHSA-2m8v-j782-fhvr (HIGH, CVSS 7.5) — zero-attachment memory exhaustion, vulnerable range `4.0.0 - <4.2.7`. Reaches production via `socket.io`/`socket.io-client` (real-time download-progress and notification updates).
+
+`npm audit --omit=dev --audit-level=high` now reports 0 vulnerabilities. Full test suite (1992 tests) passes unchanged.
+
 ## [1.4.1] - 2026-07-26
 
 Hotfix release addressing dependency vulnerabilities flagged by `npm audit`.

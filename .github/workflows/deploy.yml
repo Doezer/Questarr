@@ -84,10 +84,14 @@ jobs:
       # Guard rail for the bypass below: a bypass with no stated reason is
       # never allowed through, even on workflow_dispatch.
       - name: Validate bypass reason
-        if: inputs.bypass_sca_gate == true && inputs.bypass_reason == ''
+        if: inputs.bypass_sca_gate == true
+        env:
+          BYPASS_REASON: ${{ inputs.bypass_reason }}
         run: |
-          echo "::error::bypass_sca_gate requires a non-empty bypass_reason explaining why this republish is safe to ship with known findings."
-          exit 1
+          if [ -z "${BYPASS_REASON//[[:space:]]/}" ]; then
+            echo "::error::bypass_sca_gate requires a non-empty bypass_reason explaining why this republish is safe to ship with known findings."
+            exit 1
+          fi
 
       # Policy: docs/VULNERABILITY_MANAGEMENT.md §1.3 — no release may ship
       # with an unresolved Critical/High SCA finding, EXCEPT a deliberate,
@@ -113,9 +117,13 @@ jobs:
             # consider the bypass when the JSON report itself confirms a
             # High/Critical count; otherwise this is an audit failure, not a
             # vulnerability to accept, and always fails the job.
+            # npm audit --json itself exits non-zero when it finds
+            # vulnerabilities, so its status can't gate whether we trust the
+            # JSON — capture the report and status separately, and parse
+            # whatever JSON came back regardless of that status.
             confirmed_finding=false
-            if audit_json=$(npm audit --omit=dev --json 2>/dev/null) &&
-              counts=$(echo "$audit_json" | jq -e '(.metadata.vulnerabilities.high // 0) + (.metadata.vulnerabilities.critical // 0)') &&
+            audit_json=$(npm audit --omit=dev --json 2>/dev/null || true)
+            if counts=$(echo "$audit_json" | jq -e '(.metadata.vulnerabilities.high // 0) + (.metadata.vulnerabilities.critical // 0)' 2>/dev/null) &&
               [ "$counts" -gt 0 ]; then
               confirmed_finding=true
             fi

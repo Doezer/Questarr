@@ -241,6 +241,7 @@ export class QBittorrentClient implements DownloaderClient {
       //    - Required for magnet links.
       //    - Also supports "normal" torrent URLs when qBittorrent can reach the URL.
       let pendingFallbackCorrelationTag: string | null = null;
+      let pendingUrlCorrelationTag: string | null = null;
       try {
         // Fix Prowlarr/indexer URL encoding before handing the URL to qBittorrent.
         // Prowlarr wraps external torrent URLs in a proxy URL whose `link` parameter
@@ -252,6 +253,7 @@ export class QBittorrentClient implements DownloaderClient {
         // Unique tag for this specific add request, so a delayed/async add can be
         // correlated by an exact match instead of guessing by title or recency.
         const correlationTag = `questarr-add-${randomUUID()}`;
+        pendingUrlCorrelationTag = correlationTag;
         const params = new URLSearchParams();
         params.set("urls", urlToAdd);
         if (savepath) params.set("savepath", savepath);
@@ -498,6 +500,48 @@ export class QBittorrentClient implements DownloaderClient {
       let torrentFileName = "torrent.torrent";
       let parsedInfoHash: string | null = null;
 
+      const resolveFallbackDuplicate = async (): Promise<string | null> => {
+        if (!pendingFallbackCorrelationTag) return null;
+
+        const knownHash = parsedInfoHash || extractHashFromUrl(request.url);
+        if (knownHash) {
+          const verifyResponse = await this.makeRequest(
+            "GET",
+            `/api/v2/torrents/info?hashes=${knownHash}`
+          );
+          const downloads = (await verifyResponse.json()) as QBittorrentTorrent[];
+          if (downloads.length > 0) {
+            await maybeSetForceStarted(knownHash);
+            if (pendingFallbackCorrelationTag) {
+              await removeCorrelationTag(knownHash, pendingFallbackCorrelationTag);
+            }
+            if (pendingUrlCorrelationTag) {
+              await removeCorrelationTag(knownHash, pendingUrlCorrelationTag);
+            }
+            return knownHash;
+          }
+        }
+
+        const recent = await findRecentlyAddedDownload({
+          correlationTag: pendingFallbackCorrelationTag,
+        });
+        const original =
+          recent ??
+          (pendingUrlCorrelationTag
+            ? await findRecentlyAddedDownload({ correlationTag: pendingUrlCorrelationTag })
+            : null);
+        if (!original) return null;
+
+        await maybeSetForceStarted(original.hash);
+        if (pendingFallbackCorrelationTag) {
+          await removeCorrelationTag(original.hash, pendingFallbackCorrelationTag);
+        }
+        if (pendingUrlCorrelationTag) {
+          await removeCorrelationTag(original.hash, pendingUrlCorrelationTag);
+        }
+        return original.hash;
+      };
+
       try {
         const { response: torrentResponse, magnetLink } = await fetchWithMagnetDetection(
           request.url
@@ -736,8 +780,10 @@ export class QBittorrentClient implements DownloaderClient {
         );
         // Return success: true for duplicates/failures to prevent fallback mechanism from trying other downloaders
         // "Fails." usually means it's already in the list or invalid metadata
+        const duplicateHash = await resolveFallbackDuplicate();
         return {
           success: true,
+          ...(duplicateHash ? { id: duplicateHash } : {}),
           message: "Download already exists or invalid download (qBittorrent)",
         };
       } else if (response.status === 409) {
@@ -745,8 +791,10 @@ export class QBittorrentClient implements DownloaderClient {
           { url: request.url },
           "qBittorrent reports torrent already exists (409 Conflict)"
         );
+        const duplicateHash = await resolveFallbackDuplicate();
         return {
           success: true,
+          ...(duplicateHash ? { id: duplicateHash } : {}),
           message: "Download already exists (qBittorrent)",
         };
       } else {

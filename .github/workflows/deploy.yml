@@ -94,6 +94,13 @@ jobs:
       # logged republish via bypass_sca_gate (see §1.3.1 and the
       # risk-register requirement in §1.2 item 3).
       - name: Audit production dependencies (Critical/High blocks release)
+        env:
+          # Passed as env vars, never interpolated directly into the script,
+          # so a crafted bypass_reason/actor can't execute as shell code.
+          BYPASS_SCA_GATE: ${{ inputs.bypass_sca_gate }}
+          BYPASS_REASON: ${{ inputs.bypass_reason }}
+          BUILT_REF: ${{ github.ref }}
+          ACTOR: ${{ github.actor }}
         run: |
           set +e
           npm audit --omit=dev --audit-level=high
@@ -101,13 +108,30 @@ jobs:
           set -e
 
           if [ "$status" -ne 0 ]; then
-            if [ "${{ inputs.bypass_sca_gate }}" == "true" ]; then
+            # A nonzero exit isn't necessarily a confirmed finding — npm audit
+            # also exits nonzero on registry/network/auth failures. Only
+            # consider the bypass when the JSON report itself confirms a
+            # High/Critical count; otherwise this is an audit failure, not a
+            # vulnerability to accept, and always fails the job.
+            confirmed_finding=false
+            if audit_json=$(npm audit --omit=dev --json 2>/dev/null) &&
+              counts=$(echo "$audit_json" | jq -e '(.metadata.vulnerabilities.high // 0) + (.metadata.vulnerabilities.critical // 0)') &&
+              [ "$counts" -gt 0 ]; then
+              confirmed_finding=true
+            fi
+
+            if [ "$confirmed_finding" != true ]; then
+              echo "::error::npm audit exited non-zero without a confirmed High/Critical count in its JSON report — treating as an audit failure (registry/network/auth), not a bypassable finding."
+              exit "$status"
+            fi
+
+            if [ "$BYPASS_SCA_GATE" == "true" ]; then
               {
                 echo "## ⚠️ sca-gate bypassed"
                 echo ""
-                echo "- **Ref built:** \`${{ github.ref }}\`"
-                echo "- **Reason:** ${{ inputs.bypass_reason }}"
-                echo "- **Triggered by:** @${{ github.actor }}"
+                printf -- '- **Ref built:** `%s`\n' "$BUILT_REF"
+                printf -- '- **Reason:** %s\n' "$BYPASS_REASON"
+                printf -- '- **Triggered by:** @%s\n' "$ACTOR"
                 echo ""
                 echo "Record this acceptance as a risk-register row in \`docs/SECURITY_ASSESSMENT.md\` per \`docs/VULNERABILITY_MANAGEMENT.md\` §1.2 item 3, if not already covered by an existing entry."
               } | tee -a "$GITHUB_STEP_SUMMARY"

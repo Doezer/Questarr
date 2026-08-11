@@ -1407,6 +1407,7 @@ async function addNewSteamWishlistGames(
       screenshots: formatted.screenshots as string[],
       source: "steam",
       hidden: false,
+      releaseStatus: formatted.isReleased ? "released" : undefined,
     });
     addedGames.push({
       title: formatted.title as string,

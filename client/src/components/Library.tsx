@@ -110,19 +110,30 @@ export default function Library() {
     errorMessage: "Failed to update game visibility",
   });
 
-  const uniqueGenres = useMemo(
-    () =>
-      Array.from(new Set(games.flatMap((g) => g.genres ?? []))).sort((a, b) => a.localeCompare(b)),
-    [games]
-  );
+  // ⚡ Bolt: Consolidate multiple array traversals into a single pass to
+  // optimize render performance and reduce unnecessary allocations.
+  const { uniqueGenres, uniquePlatforms } = useMemo(() => {
+    const genreSet = new Set<string>();
+    const platformSet = new Set<string>();
 
-  const uniquePlatforms = useMemo(
-    () =>
-      Array.from(new Set(games.flatMap((g) => g.platforms ?? []))).sort((a, b) =>
-        a.localeCompare(b)
-      ),
-    [games]
-  );
+    for (const g of games) {
+      if (g.genres) {
+        for (const genre of g.genres) {
+          genreSet.add(genre);
+        }
+      }
+      if (g.platforms) {
+        for (const platform of g.platforms) {
+          platformSet.add(platform);
+        }
+      }
+    }
+
+    return {
+      uniqueGenres: Array.from(genreSet).sort((a, b) => a.localeCompare(b)),
+      uniquePlatforms: Array.from(platformSet).sort((a, b) => a.localeCompare(b)),
+    };
+  }, [games]);
 
   const filteredGames = useMemo(() => {
     return games.filter((game) => {

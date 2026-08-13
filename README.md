@@ -81,6 +81,8 @@ A video game management application inspired by the -Arr apps (Sonarr, Radarr, P
 
 Docker is the easiest way to deploy Questarr with all dependencies included. Questarr uses a SQLite database which is self-contained in the application container.
 
+**Supported architectures:** released Docker images are published for `linux/amd64` and `linux/arm64`, so Questarr runs on a Raspberry Pi 4/5 with a 64-bit OS, other 64-bit ARM SBCs, and ARM-based NAS boxes as well as on x86 hardware. Docker selects the right architecture automatically — the commands below are identical on every platform. (32-bit ARM, e.g. `armv7`/a 32-bit OS on Raspberry Pi 3 and earlier, is not supported. The [Home Assistant add-on](#home-assistant-add-on) is `amd64`-only.)
+
 ### Option 1: One-liner (Simplest but minimal)
 
 ```bash

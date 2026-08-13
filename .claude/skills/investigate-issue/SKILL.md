@@ -53,11 +53,13 @@ that consent — don't extend that access beyond what was asked.
 4. **Fetch and verify the log entry.** Read the referenced issue in
    `Doezer/Questarr-logs` — the body holds the scrubbed NDJSON log dump the user
    submitted, plus app version, platform, and timestamp fields set by the
-   log-collector worker. Before treating it as the log for this report, sanity-check
-   it against the public issue (support code shown in the private issue, if
-   present; app version/platform/timing consistent with what's described). If it
-   looks like a mismatch, stop and tell the user rather than presenting an
-   unrelated user's log as the diagnosis.
+   log-collector worker. Before treating it as the log for this report, require the
+   support code shown in the public issue to exactly match the code in the private
+   issue. If the private issue doesn't expose a code to check, or the codes don't
+   match, stop and tell the user rather than proceeding — app version, platform, or
+   timing being "close enough" is not a substitute for an exact code match, since
+   that's how a wrong or tampered reference would present an unrelated user's log
+   as the diagnosis.
 
 5. **Cross-reference.** Parse the NDJSON lines (same shape as `client/src/pages/logs.tsx`
    parses: `level`, `time`, `module`, `msg`, plus arbitrary structured fields). Match

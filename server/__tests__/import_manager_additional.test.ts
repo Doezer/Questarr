@@ -206,6 +206,57 @@ describe("ImportManager - planConfirmImport", () => {
     planSpy.mockRestore();
   });
 
+  it("uses the single file's own name, not the torrent name, when there's no subfolder", async () => {
+    const storage = makeStorage();
+    storage.getGameDownload.mockResolvedValue({
+      id: "dl-1",
+      gameId: "g1",
+      downloaderId: "d1",
+      downloadHash: "abc123",
+    });
+    storage.getGame.mockResolvedValue({
+      id: "g1",
+      title: "NAS Game",
+      userId: "u1",
+      status: "wanted",
+      platforms: [],
+    });
+    storage.getImportConfig.mockResolvedValue(makeImportConfig({ libraryRoot: "/games" }));
+    storage.getDownloader.mockResolvedValue({
+      id: "d1",
+      name: "qBit",
+      url: "http://nas.local:8080",
+    });
+    // qBittorrent dropped the single file directly into the category dir —
+    // no subfolder named after the torrent's display name exists.
+    downloadersMock.getDownloadDetails.mockResolvedValue({
+      downloadDir: "/remote/downloads",
+      name: "NAS.Game-GROUP",
+      files: [{ name: "NAS.Game-GROUP.iso" }],
+    });
+
+    const pathService = {
+      translatePath: vi.fn().mockResolvedValue("/local/downloads/NAS.Game-GROUP.iso"),
+    };
+    const planSpy = vi.spyOn(PCImportStrategy.prototype, "planImport").mockResolvedValue({
+      needsReview: false,
+      strategy: "pc",
+      originalPath: "/local/downloads/NAS.Game-GROUP.iso",
+      proposedPath: "/games/PC/NAS Game.iso",
+    });
+
+    const manager = makeManager(storage, { pathService });
+    const result = await manager.planConfirmImport("dl-1");
+
+    expect(result.originalPath).toBe("/local/downloads/NAS.Game-GROUP.iso");
+    expect(pathService.translatePath).toHaveBeenCalledWith(
+      "/remote/downloads/NAS.Game-GROUP.iso",
+      "nas.local"
+    );
+
+    planSpy.mockRestore();
+  });
+
   it("returns null originalPath when getDownloadDetails returns no downloadDir", async () => {
     const storage = makeStorage();
     storage.getGameDownload.mockResolvedValue({

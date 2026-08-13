@@ -168,6 +168,10 @@ export interface IStorage {
   ): Promise<Game | undefined>;
   updateGameNotes(id: string, userId: string, notes: string | null): Promise<Game | undefined>;
   updateGameSearchResultsAvailable(gameId: string, available: boolean): Promise<void>;
+  updateGameSearchResultsByCategory(
+    gameId: string,
+    availability: { updates: boolean; packs: boolean }
+  ): Promise<void>;
   updateGame(id: string, updates: Partial<Game>): Promise<Game | undefined>;
   updateGamesBatch(updates: { id: string; data: Partial<Game> }[]): Promise<void>;
   removeGame(id: string): Promise<boolean>;
@@ -467,6 +471,8 @@ export class MemStorage implements IStorage {
       releaseStatus: insertGame.releaseStatus || "upcoming",
       earlyAccess: insertGame.earlyAccess ?? false,
       searchResultsAvailable: false,
+      updateSearchResultsAvailable: false,
+      packsSearchResultsAvailable: false,
       userRating: null,
       notes: null,
       libraryPath: null,
@@ -487,7 +493,13 @@ export class MemStorage implements IStorage {
       ...game,
       status: statusUpdate.status,
       completedAt: statusUpdate.status === "completed" ? new Date() : null,
-      ...(leavingWanted ? { searchResultsAvailable: false } : {}),
+      ...(leavingWanted
+        ? {
+            searchResultsAvailable: false,
+            updateSearchResultsAvailable: false,
+            packsSearchResultsAvailable: false,
+          }
+        : {}),
     };
 
     this.games.set(id, updatedGame);
@@ -537,6 +549,19 @@ export class MemStorage implements IStorage {
     const game = this.games.get(gameId);
     if (game) {
       game.searchResultsAvailable = available;
+      this.games.set(gameId, game);
+    }
+  }
+
+  async updateGameSearchResultsByCategory(
+    gameId: string,
+    availability: { updates: boolean; packs: boolean }
+  ): Promise<void> {
+    const game = this.games.get(gameId);
+    if (game) {
+      game.updateSearchResultsAvailable = availability.updates;
+      game.packsSearchResultsAvailable = availability.packs;
+      game.searchResultsAvailable = availability.updates || availability.packs;
       this.games.set(gameId, game);
     }
   }
@@ -1626,7 +1651,13 @@ export class DatabaseStorage implements IStorage {
       .set({
         status: statusUpdate.status,
         completedAt: statusUpdate.status === "completed" ? new Date() : null,
-        ...(leavingWanted ? { searchResultsAvailable: false } : {}),
+        ...(leavingWanted
+          ? {
+              searchResultsAvailable: false,
+              updateSearchResultsAvailable: false,
+              packsSearchResultsAvailable: false,
+            }
+          : {}),
       })
       .where(eq(games.id, id))
       .returning();
@@ -1670,7 +1701,32 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateGameSearchResultsAvailable(gameId: string, available: boolean): Promise<void> {
-    await db.update(games).set({ searchResultsAvailable: available }).where(eq(games.id, gameId));
+    await db
+      .update(games)
+      .set(
+        available
+          ? { searchResultsAvailable: true }
+          : {
+              searchResultsAvailable: false,
+              updateSearchResultsAvailable: false,
+              packsSearchResultsAvailable: false,
+            }
+      )
+      .where(eq(games.id, gameId));
+  }
+
+  async updateGameSearchResultsByCategory(
+    gameId: string,
+    availability: { updates: boolean; packs: boolean }
+  ): Promise<void> {
+    await db
+      .update(games)
+      .set({
+        updateSearchResultsAvailable: availability.updates,
+        packsSearchResultsAvailable: availability.packs,
+        searchResultsAvailable: availability.updates || availability.packs,
+      })
+      .where(eq(games.id, gameId));
   }
 
   async updateGame(id: string, updates: Partial<Game>): Promise<Game | undefined> {

@@ -17,6 +17,7 @@ export const mockConfig = {
   server: {
     isProduction: false,
     allowedOrigins: [] as string[],
+    basePath: "" as string,
   },
   igdb: {
     isConfigured: true,

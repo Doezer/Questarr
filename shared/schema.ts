@@ -178,6 +178,12 @@ export const games = sqliteTable("games", {
   searchResultsAvailable: integer("search_results_available", { mode: "boolean" })
     .default(false)
     .notNull(),
+  updateSearchResultsAvailable: integer("update_search_results_available", { mode: "boolean" })
+    .default(false)
+    .notNull(),
+  packsSearchResultsAvailable: integer("packs_search_results_available", { mode: "boolean" })
+    .default(false)
+    .notNull(),
   addedAt: integer("added_at", { mode: "timestamp_ms" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),
@@ -411,7 +417,7 @@ export const claimDownloadRequestSchema = z.object({
   downloadHash: z.string().min(1),
   downloadTitle: z.string().min(1),
   currentStatus: z.string().min(1),
-  category: z.enum(["main", "update", "dlc", "extra"]),
+  category: z.enum(["main", "update", "dlc", "extra", "packs"]),
   gameId: z.string().optional(),
   newGame: z
     .object({
@@ -442,8 +448,8 @@ export const downloadRulesSchema = z.object({
   minSeeders: z.number().int().min(0).default(0),
   sortBy: z.enum(["seeders", "date", "size"]).default("seeders"),
   visibleCategories: z
-    .array(z.enum(["main", "update", "dlc", "extra"]))
-    .default(["main", "update", "dlc", "extra"]),
+    .array(z.enum(["main", "update", "dlc", "extra", "packs"]))
+    .default(["main", "update", "dlc", "extra", "packs"]),
 });
 
 export type DownloadRules = z.infer<typeof downloadRulesSchema>;
@@ -494,10 +500,21 @@ export const updateUserSettingsSchema = createInsertSchema(userSettings)
   .partial()
   .superRefine(validateUserSettingsEnums);
 
+// Shared password policy: minimum length plus a mix of letters and digits,
+// used for both account setup and password changes (client and server).
+export const PASSWORD_MIN_LENGTH = 8;
+
+export const passwordPolicySchema = z
+  .string()
+  .trim()
+  .min(PASSWORD_MIN_LENGTH, `Password must be at least ${PASSWORD_MIN_LENGTH} characters`)
+  .regex(/[A-Za-z]/, "Password must contain at least one letter")
+  .regex(/[0-9]/, "Password must contain at least one number");
+
 export const updatePasswordSchema = z
   .object({
     currentPassword: z.string().trim().min(1, "Current password is required"),
-    newPassword: z.string().trim().min(6, "New password must be at least 6 characters"),
+    newPassword: passwordPolicySchema,
     confirmPassword: z.string().trim().min(1, "Confirm password is required"),
   })
   .refine((data) => data.newPassword === data.confirmPassword, {

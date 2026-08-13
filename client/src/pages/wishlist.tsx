@@ -1,5 +1,6 @@
-import React, { useState, useMemo, useEffect } from "react";
+﻿import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Star, Eye, EyeOff, LayoutGrid, Settings2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import GameGrid from "@/components/GameGrid";
 import { type Game } from "@shared/schema";
@@ -9,8 +10,10 @@ import { useToast } from "@/hooks/use-toast";
 import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 import EmptyState from "@/components/EmptyState";
 import GameFilterPills from "@/components/GameFilterPills";
-import { Star, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Slider } from "@/components/ui/slider";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useViewControls } from "@/hooks/use-view-controls";
 import PageToolbar from "@/components/PageToolbar";
 import { useDownloadSummary } from "@/hooks/use-download-summary";
@@ -20,14 +23,22 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 type SortOption = "release-asc" | "release-desc" | "added-desc" | "title-asc";
 type MobileSection = { id: string; label: string; count: number; games: Game[] };
 
+const GRID_COLUMNS_MIN = 2;
+const GRID_COLUMNS_MAX = 10;
+
+function sanitizeGridColumns(value: number): number {
+  if (!Number.isFinite(value)) return 5;
+  return Math.min(GRID_COLUMNS_MAX, Math.max(GRID_COLUMNS_MIN, Math.round(value)));
+}
+
 const SORT_OPTIONS = [
   { value: "release-desc", label: "Release (Newest)" },
   { value: "release-asc", label: "Release (Oldest)" },
   { value: "added-desc", label: "Recently Added" },
-  { value: "title-asc", label: "Title (A–Z)" },
+  { value: "title-asc", label: "Title (A-Z)" },
 ];
 
-// ⚡ Bolt: Use O(1) string comparison for ISO date strings instead of new Date().getTime()
+// 笞｡ Bolt: Use O(1) string comparison for ISO date strings instead of new Date().getTime()
 // This prevents millions of object allocations during O(N log N) sorting.
 // Only safe because the API returns releaseDate as a single canonical ISO 8601 format.
 const missingRank = (a: unknown, b: unknown): number | null => {
@@ -73,7 +84,7 @@ const compareAddedAt = (
   return 0;
 };
 
-// ⚡ Bolt: Move sortGames outside of the component to prevent it from being recreated
+// 笞｡ Bolt: Move sortGames outside of the component to prevent it from being recreated
 // on every render, which would break the `useMemo` dependencies below if it were
 // included in the dependency array.
 export const sortGames = (gameList: Game[], currentSortBy: SortOption): Game[] => {
@@ -105,13 +116,27 @@ export default function WishlistPage() {
   const downloadSummaries = useDownloadSummary();
   const [showSearchResultsOnly, setShowSearchResultsOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [gridColumns, setGridColumns] = useLocalStorageState("wishlistGridColumns", 5);
+  // localStorage can hold an out-of-range value (0, 1.5, 11, Infinity);
+  // clamp to a finite integer in range and persist the corrected value.
+  const safeGridColumns = sanitizeGridColumns(gridColumns);
+  useEffect(() => {
+    if (safeGridColumns !== gridColumns) {
+      setGridColumns(safeGridColumns);
+    }
+  }, [safeGridColumns, gridColumns, setGridColumns]);
+
+  const handleGridColumnsChange = useCallback(
+    ([value]: number[]) => setGridColumns(sanitizeGridColumns(value)),
+    [setGridColumns]
+  );
 
   const { data: games = [], isLoading } = useQuery<Game[]>({
     queryKey: ["/api/games", "?status=wanted"],
   });
 
   const { releasedGames, upcomingGames, tbaGames, filteredCount } = useMemo(() => {
-    // ⚡ Bolt: Use a string comparison for dates instead of new Date() allocations
+    // 笞｡ Bolt: Use a string comparison for dates instead of new Date() allocations
     // Since releaseDate is an ISO string like "2024-05-23T00:00:00Z"
     const nowStr = new Date().toISOString();
 
@@ -122,7 +147,7 @@ export default function WishlistPage() {
 
     const lowercaseQuery = searchQuery?.toLowerCase() || "";
 
-    // ⚡ Bolt: Consolidate multiple O(N) filters into a single manual traversal
+    // 笞｡ Bolt: Consolidate multiple O(N) filters into a single manual traversal
     for (let i = 0; i < games.length; i++) {
       const game = games[i];
 
@@ -151,7 +176,7 @@ export default function WishlistPage() {
     };
   }, [games, showSearchResultsOnly, showDownloadsOnly, downloadSummaries, searchQuery]);
 
-  // ⚡ Bolt: Memoize the sorted arrays to prevent re-sorting on every render
+  // 笞｡ Bolt: Memoize the sorted arrays to prevent re-sorting on every render
   const sortedUpcomingGames = useMemo(() => {
     return sortGames(upcomingGames, sortBy);
   }, [upcomingGames, sortBy]);
@@ -304,6 +329,7 @@ export default function WishlistPage() {
               viewMode={viewMode}
               density={listDensity}
               downloadSummaries={downloadSummaries}
+              columns={safeGridColumns}
             />
           </TabsContent>
         ))}
@@ -328,6 +354,7 @@ export default function WishlistPage() {
               viewMode={viewMode}
               density={listDensity}
               downloadSummaries={downloadSummaries}
+              columns={safeGridColumns}
             />
           </section>
         )}
@@ -348,6 +375,7 @@ export default function WishlistPage() {
               viewMode={viewMode}
               density={listDensity}
               downloadSummaries={downloadSummaries}
+              columns={safeGridColumns}
             />
           </section>
         )}
@@ -368,6 +396,7 @@ export default function WishlistPage() {
               viewMode={viewMode}
               density={listDensity}
               downloadSummaries={downloadSummaries}
+              columns={safeGridColumns}
             />
           </section>
         )}
@@ -392,6 +421,42 @@ export default function WishlistPage() {
           search={searchQuery}
           onSearchChange={setSearchQuery}
           searchPlaceholder="Filter wishlist..."
+          actions={
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8"
+                  aria-label="Configure grid columns"
+                >
+                  <Settings2 className="h-4 w-4" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-72 space-y-4 p-4">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label className="flex items-center gap-2 text-sm font-medium">
+                      <LayoutGrid className="h-4 w-4" />
+                      Grid Columns
+                    </Label>
+                    <span className="w-4 text-center text-sm font-bold">{safeGridColumns}</span>
+                  </div>
+                  <Slider
+                    value={[safeGridColumns]}
+                    onValueChange={handleGridColumnsChange}
+                    min={2}
+                    max={10}
+                    step={1}
+                    aria-label="Grid columns"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Number of columns in the game grid (2-10).
+                  </p>
+                </div>
+              </PopoverContent>
+            </Popover>
+          }
           filterPills={
             <>
               <Button

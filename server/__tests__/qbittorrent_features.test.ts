@@ -136,9 +136,13 @@ describe("QBittorrentClient - Advanced Features", () => {
       "http://tracker.example.com/download/123.torrent"
     );
 
-    // Verify info call (recently added)
+    // Verify info call (recently added) is correlated by the exact unique tag
+    // that was set on the add request, not just a matching prefix.
+    const addTagMatch = decodeURIComponent(urlAddBody).match(/tags=(questarr-add-[^&]+)/);
+    expect(addTagMatch).not.toBeNull();
+    const addTag = addTagMatch![1];
     expect(fetchMock.mock.calls[2][0]).toBe(
-      "http://localhost:8080/api/v2/torrents/info?sort=added_on&reverse=true"
+      `http://localhost:8080/api/v2/torrents/info?tag=${encodeURIComponent(addTag)}`
     );
 
     expect(result.success).toBe(true);

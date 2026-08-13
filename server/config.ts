@@ -56,7 +56,33 @@ const envSchema = z.object({
     .transform((val) => val === "true")
     .optional(),
   APP_URL: z.string().url().optional(),
+
+  // URL base for reverse-proxy subdirectory deployments (e.g. "/Questarr" for
+  // https://host/Questarr/). Optional; defaults to serving from the root.
+  QUESTARR_BASE_PATH: z
+    .string()
+    .optional()
+    .refine(
+      (value) =>
+        !value || value === "/" || /^\/?[a-zA-Z0-9](?:[a-zA-Z0-9/_-]*[a-zA-Z0-9])?\/?$/.test(value),
+      {
+        message:
+          "QUESTARR_BASE_PATH must contain only letters, numbers, hyphens, underscores, and slashes (e.g. /Questarr).",
+      }
+    ),
 });
+
+/**
+ * Normalizes a configured base path to a form with a leading slash and no
+ * trailing slash (e.g. "Questarr/" -> "/Questarr"), or "" for the root.
+ */
+function normalizeBasePath(value: string | undefined): string {
+  if (!value) return "";
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "/") return "";
+  const withLeadingSlash = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+  return withLeadingSlash.endsWith("/") ? withLeadingSlash.slice(0, -1) : withLeadingSlash;
+}
 
 /**
  * Validate environment variables and fail cleanly with descriptive errors if required variables are missing.
@@ -117,6 +143,7 @@ export const config = {
     allowedOrigins: env.ALLOWED_ORIGINS
       ? env.ALLOWED_ORIGINS.split(",").map((origin) => origin.trim())
       : ["http://localhost:port".replace("port", env.PORT.toString())],
+    basePath: normalizeBasePath(env.QUESTARR_BASE_PATH),
   },
   ssl: configLoader.getSslConfig(),
 } as const;

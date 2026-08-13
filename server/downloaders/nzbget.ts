@@ -196,7 +196,7 @@ export class NZBGetClient implements DownloaderClient {
 
     downloadersLogger.debug({ url, method, params: logParams }, "Making NZBGet XML-RPC request");
 
-    const response = await fetch(url, {
+    const response = await safeFetch(url, {
       method: "POST",
       headers,
       body: xmlBody,
@@ -288,10 +288,12 @@ export class NZBGetClient implements DownloaderClient {
       const nzbContent = await nzbResponse.text();
       const base64Content = Buffer.from(nzbContent).toString("base64");
 
+      const category = request.category || this.downloader.category || "";
+
       const nzbId = (await this.makeXMLRPCRequest("append", [
         request.title || "download.nzb",
         base64Content,
-        request.category || "",
+        category,
         request.priority || 0,
         false, // AddToTop
         false, // AddPaused
@@ -403,7 +405,12 @@ export class NZBGetClient implements DownloaderClient {
       let repairStatus: DownloadStatus["repairStatus"];
       let unpackStatus: DownloadStatus["unpackStatus"];
 
-      if (item.Status === "SUCCESS/ALL") {
+      // NZBGet's history Status field is "<overall>/<detail>", where the detail
+      // suffix varies depending on which post-processing step it last reflects
+      // (e.g. "SUCCESS/ALL", "SUCCESS/GOOD", "SUCCESS/UNPACK", "SUCCESS/HEALTH",
+      // "SUCCESS/COPY", "SUCCESS/MARK"). Matching only "SUCCESS/ALL" caused
+      // legitimately completed downloads to be reported as failed/aborted.
+      if (item.Status.startsWith("SUCCESS/")) {
         status = "completed";
         repairStatus =
           item.ParStatus === "SUCCESS" || item.ParStatus === "NONE" ? "good" : "failed";

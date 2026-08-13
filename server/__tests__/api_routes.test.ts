@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import express from "express";
 import request from "supertest";
 import path from "path";
@@ -31,6 +31,7 @@ import { torznabClient } from "../torznab.js";
 import { newznabClient } from "../newznab.js";
 import { rssService } from "../rss.js";
 import { comparePassword } from "../auth.js";
+import { routesLogger } from "../logger.js";
 import { db } from "../db.js";
 import { appriseClient } from "../apprise.js";
 import fsExtra from "fs-extra";
@@ -78,6 +79,7 @@ describe("API Routes - Extended Coverage", () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     app = express();
+    app.set("trust proxy", 1);
     app.use(express.json());
     await registerRoutes(app);
   });
@@ -188,7 +190,7 @@ describe("API Routes - Extended Coverage", () => {
           .post("/api/auth/setup")
           .send({ username: "admin", password: "12345" });
         expect(res.status).toBe(400);
-        expect(res.body.error).toContain("at least 6 characters");
+        expect(res.body.error).toContain("at least 8 characters");
       });
 
       it("should return 400 for too-long username", async () => {
@@ -249,6 +251,21 @@ describe("API Routes - Extended Coverage", () => {
           .post("/api/auth/login")
           .send({ username: "testuser", password: "wrongpassword" });
         expect(res.status).toBe(401);
+      });
+
+      it("should log a warning with the trimmed username and IP on failed login", async () => {
+        vi.mocked(storage.getUserByUsername).mockResolvedValue(mockUserHashed);
+        vi.mocked(comparePassword).mockResolvedValue(false);
+
+        const res = await request(app)
+          .post("/api/auth/login")
+          .set("X-Forwarded-For", "203.0.113.7")
+          .send({ username: "  testuser  ", password: "wrongpassword" });
+        expect(res.status).toBe(401);
+        expect(routesLogger.warn).toHaveBeenCalledWith(
+          { username: "testuser", ip: "203.0.113.7" },
+          "Failed login attempt"
+        );
       });
 
       it("should return 400 when username is missing", async () => {
@@ -507,6 +524,10 @@ describe("API Routes - Extended Coverage", () => {
     it("should update game status", async () => {
       const gameId = "123e4567-e89b-12d3-a456-426614174000";
       const updatedGame = { id: gameId, status: "completed" };
+      vi.mocked(storage.getGame).mockResolvedValue({
+        id: gameId,
+        userId: "user-1",
+      } as unknown as Game);
       vi.mocked(storage.updateGameStatus).mockResolvedValue(updatedGame as unknown as Game);
 
       const response = await request(app)
@@ -518,6 +539,10 @@ describe("API Routes - Extended Coverage", () => {
     it("should accept shelved as a valid status", async () => {
       const gameId = "123e4567-e89b-12d3-a456-426614174000";
       const updatedGame = { id: gameId, status: "shelved" };
+      vi.mocked(storage.getGame).mockResolvedValue({
+        id: gameId,
+        userId: "user-1",
+      } as unknown as Game);
       vi.mocked(storage.updateGameStatus).mockResolvedValue(updatedGame as unknown as Game);
 
       const response = await request(app)
@@ -550,6 +575,10 @@ describe("API Routes - Extended Coverage", () => {
     it("should update hidden status", async () => {
       const gameId = "123e4567-e89b-12d3-a456-426614174000";
       const updatedGame = { id: gameId, hidden: true };
+      vi.mocked(storage.getGame).mockResolvedValue({
+        id: gameId,
+        userId: "user-1",
+      } as unknown as Game);
       vi.mocked(storage.updateGameHidden).mockResolvedValue(updatedGame as unknown as Game);
 
       const response = await request(app)
@@ -668,6 +697,10 @@ describe("API Routes - Extended Coverage", () => {
   describe("DELETE /api/games/:id", () => {
     it("should remove game", async () => {
       const gameId = "123e4567-e89b-12d3-a456-426614174000";
+      vi.mocked(storage.getGame).mockResolvedValue({
+        id: gameId,
+        userId: "user-1",
+      } as unknown as Game);
       vi.mocked(storage.removeGame).mockResolvedValue(true);
 
       const response = await request(app).delete(`/api/games/${gameId}`);
@@ -2857,5 +2890,58 @@ describe("API Routes - Extended Coverage", () => {
       expect(response.status).toBe(502);
       expect(response.body.error).toBe("CLI timed out");
     });
+  });
+});
+
+describe("QUESTARR_BASE_PATH subdirectory mounting", () => {
+  afterEach(() => {
+    mockConfig.server.basePath = "";
+  });
+
+  it("serves the app under the configured base path", async () => {
+    mockConfig.server.basePath = "/Questarr";
+
+    const prefixedApp = express();
+    prefixedApp.use(express.json());
+    const httpServer = await registerRoutes(prefixedApp);
+
+    const response = await request(httpServer).get("/Questarr/api/health");
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ status: "ok" });
+  });
+
+  it("keeps /api/health reachable unprefixed for container healthchecks", async () => {
+    mockConfig.server.basePath = "/Questarr";
+
+    const prefixedApp = express();
+    prefixedApp.use(express.json());
+    const httpServer = await registerRoutes(prefixedApp);
+
+    const response = await request(httpServer).get("/api/health");
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ status: "ok" });
+  });
+
+  it("redirects the unprefixed root to the base path", async () => {
+    mockConfig.server.basePath = "/Questarr";
+
+    const prefixedApp = express();
+    prefixedApp.use(express.json());
+    const httpServer = await registerRoutes(prefixedApp);
+
+    const response = await request(httpServer).get("/").redirects(0);
+    expect(response.status).toBe(302);
+    expect(response.headers.location).toBe("/Questarr/");
+  });
+
+  it("does not serve API routes unprefixed when a base path is configured", async () => {
+    mockConfig.server.basePath = "/Questarr";
+
+    const prefixedApp = express();
+    prefixedApp.use(express.json());
+    const httpServer = await registerRoutes(prefixedApp);
+
+    const response = await request(httpServer).post("/api/settings/apprise/test").send();
+    expect(response.status).toBe(404);
   });
 });

@@ -52,6 +52,11 @@ describe("NZBGet remaining coverage", () => {
     vi.mocked(isSafeUrl).mockResolvedValue(true);
     vi.mocked(safeFetch).mockReset();
     vi.stubGlobal("fetch", vi.fn());
+    // Default: forward to the (mocked) global fetch so existing tests that only
+    // stub `fetch` keep working now that downloader requests go through safeFetch.
+    vi.mocked(safeFetch).mockImplementation((url: string, options?: RequestInit) =>
+      fetch(url, options)
+    );
   });
 
   it("covers URL fallback, XML value parsing fallbacks, faults, and null responses", async () => {
@@ -114,6 +119,8 @@ describe("NZBGet remaining coverage", () => {
          </methodResponse>`,
     } as Response);
     await expect(privateClient.makeXMLRPCRequest("echo", ["param"])).resolves.toBe("pong");
+    // makeXMLRPCRequest must route through the SSRF-safe wrapper, not raw fetch.
+    expect(safeFetch).toHaveBeenCalled();
 
     vi.mocked(fetch).mockResolvedValueOnce({
       ok: true,
@@ -200,6 +207,64 @@ describe("NZBGet remaining coverage", () => {
 
     rpcSpy.mockRejectedValueOnce(new Error("history failed"));
     await expect(privateClient.getFromHistory("6")).resolves.toBeNull();
+  });
+
+  it.each(["SUCCESS/GOOD", "SUCCESS/UNPACK", "SUCCESS/HEALTH", "SUCCESS/ALL"])(
+    "treats history status %s as completed",
+    async (historyStatus) => {
+      const client = new NZBGetClient(createDownloader());
+      const privateClient = client as unknown as {
+        makeXMLRPCRequest: (method: string, params?: unknown[]) => Promise<unknown>;
+        getFromHistory: (id: string) => Promise<unknown>;
+      };
+      vi.spyOn(privateClient, "makeXMLRPCRequest").mockResolvedValueOnce([
+        {
+          NZBID: 7,
+          Name: "Finished Game",
+          Status: historyStatus,
+          FileSizeMB: 20,
+          Category: "games",
+          DownloadTimeSec: 90,
+          ParStatus: "NONE",
+          UnpackStatus: "NONE",
+          FailedArticles: 0,
+          DeleteStatus: "NONE",
+          DestDir: "/downloads",
+        },
+      ]);
+
+      await expect(privateClient.getFromHistory("7")).resolves.toMatchObject({
+        status: "completed",
+        progress: 100,
+      });
+    }
+  );
+
+  it("does not treat an unrelated overall status as completed", async () => {
+    const client = new NZBGetClient(createDownloader());
+    const privateClient = client as unknown as {
+      makeXMLRPCRequest: (method: string, params?: unknown[]) => Promise<unknown>;
+      getFromHistory: (id: string) => Promise<unknown>;
+    };
+    vi.spyOn(privateClient, "makeXMLRPCRequest").mockResolvedValueOnce([
+      {
+        NZBID: 8,
+        Name: "Unknown Status Game",
+        Status: "SUCCESSFUL/NOTAREALSTATUS",
+        FileSizeMB: 20,
+        Category: "games",
+        DownloadTimeSec: 90,
+        ParStatus: "NONE",
+        UnpackStatus: "NONE",
+        FailedArticles: 0,
+        DeleteStatus: "NONE",
+        DestDir: "/downloads",
+      },
+    ]);
+
+    await expect(privateClient.getFromHistory("8")).resolves.toMatchObject({
+      status: "error",
+    });
   });
 
   it("covers detail and queue error fallbacks", async () => {

@@ -1,7 +1,14 @@
 # Build stage with shared dependencies
 # node:26-alpine
-FROM node@sha256:c9f02360d2bc66e709b300214395588acd2d3603f600db8141117e67c0faf4ff AS base
+FROM node@sha256:aadf416b2cdce311a8811ba3f0608a61b77dbf997500e2eafe781b51f6a0b019 AS base
 WORKDIR /app
+
+# better-sqlite3 bundles a prebuilt binary for this platform, so no C++
+# compilation ever happens, but npm's implicit `node-gyp rebuild` still runs
+# unconditionally on install (before it evaluates the prebuild and no-ops the
+# actual build), and node-gyp's configure step is Python-based, so Python and
+# a toolchain remain required regardless.
+RUN apk add --no-cache g++ make python3
 
 COPY package*.json ./
 RUN npm ci
@@ -14,7 +21,7 @@ RUN npm run build
 
 # Production stage
 # node:26-alpine
-FROM node@sha256:c9f02360d2bc66e709b300214395588acd2d3603f600db8141117e67c0faf4ff AS production
+FROM node@sha256:aadf416b2cdce311a8811ba3f0608a61b77dbf997500e2eafe781b51f6a0b019 AS production
 
 WORKDIR /app
 
@@ -24,6 +31,7 @@ ENV NODE_ENV=production
 ENV PORT=5000
 ENV PUID=1000
 ENV PGID=1000
+ENV UMASK=022
 
 # Install su-exec (for privilege dropping), shadow (for usermod/groupmod),
 # libarchive-tools/bsdtar (RAR archive extraction via libarchive, which supports both
@@ -76,4 +84,4 @@ LABEL org.opencontainers.image.description="Questarr is a smart game library man
 LABEL org.opencontainers.image.authors="Doezer"
 LABEL org.opencontainers.image.source="https://github.com/Doezer/questarr"
 LABEL org.opencontainers.image.licenses="GPL-3.0-or-later"
-LABEL org.opencontainers.image.version="1.4.1"
+LABEL org.opencontainers.image.version="1.4.3"

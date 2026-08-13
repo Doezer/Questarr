@@ -3,6 +3,7 @@ import { igdbClient, IGDB_EARLY_ACCESS_STATUS } from "./igdb.js";
 import { igdbLogger } from "./logger.js";
 import { notifyUser } from "./socket.js";
 import { DownloaderManager } from "./downloaders.js";
+import { resolveDownloadRelativePath } from "./downloaders/utils.js";
 import { torznabClient } from "./torznab.js";
 import { newznabClient } from "./newznab.js";
 import { searchAllIndexers, filterBlacklistedReleases, type SearchItem } from "./search.js";
@@ -83,12 +84,13 @@ interface AutoSearchRules {
 interface AutoSearchCategorizedItems {
   mainItems: SearchItem[];
   updateItems: SearchItem[];
+  packsItems: SearchItem[];
 }
 
 function getAutoSearchRules(downloadRules: string | null): AutoSearchRules {
   let minSeeders = 0;
   let sortBy: DownloadSortBy = "seeders";
-  let visibleCategoriesSet = new Set(["main", "update", "dlc", "extra"]);
+  let visibleCategoriesSet = new Set(["main", "update", "dlc", "extra", "packs"]);
 
   if (downloadRules) {
     const parsed = JSON.parse(downloadRules);
@@ -132,11 +134,13 @@ function categorizeSearchItems(
         acc.mainItems.push(item);
       } else if (category === "update") {
         acc.updateItems.push(item);
+      } else if (category === "packs") {
+        acc.packsItems.push(item);
       }
 
       return acc;
     },
-    { mainItems: [], updateItems: [] }
+    { mainItems: [], updateItems: [], packsItems: [] }
   );
 }
 
@@ -641,7 +645,10 @@ export async function checkDownloadStatus() {
                 download.downloadHash
               );
               if (details?.downloadDir) {
-                const remoteImportPath = buildRemoteImportPath(details.downloadDir, details.name);
+                const remoteImportPath = buildRemoteImportPath(
+                  details.downloadDir,
+                  resolveDownloadRelativePath(details)
+                );
                 try {
                   await importManager.processImport(download.id, remoteImportPath);
                 } catch (error) {
@@ -1118,7 +1125,8 @@ export async function checkAutoSearch() {
               continue;
             }
 
-            const wasUpdateAvailable = game.searchResultsAvailable;
+            const wasUpdateAvailable = game.updateSearchResultsAvailable;
+            const wasPacksAvailable = game.packsSearchResultsAvailable;
 
             const platformFilteredUpdate = applyPreferredPlatformFilter(
               searchResult.updateItems,
@@ -1131,7 +1139,22 @@ export async function checkAutoSearch() {
             );
             const updateItems = deduplicateByTitle(groupFilteredUpdate, indexerPriorityMap);
 
-            await storage.updateGameSearchResultsAvailable(game.id, updateItems.length > 0);
+            // Packs/add-ons are content for owned games, surfaced like updates.
+            const platformFilteredPacks = applyPreferredPlatformFilter(
+              searchResult.packsItems,
+              preferredPlatform
+            );
+            const groupFilteredPacks = applyPreferredGroupsFilter(
+              platformFilteredPacks,
+              preferredGroups,
+              settings.filterByPreferredGroups ?? false
+            );
+            const packsItems = deduplicateByTitle(groupFilteredPacks, indexerPriorityMap);
+
+            await storage.updateGameSearchResultsByCategory(game.id, {
+              updates: updateItems.length > 0,
+              packs: packsItems.length > 0,
+            });
 
             if (updateItems.length > 0 && !wasUpdateAvailable && prefs.gameUpdates.inApp) {
               const notification = await storage.addNotification({
@@ -1139,6 +1162,18 @@ export async function checkAutoSearch() {
                 type: "info",
                 title: "Game Updates Available",
                 message: `${updateItems.length} update(s) found for ${game.title}`,
+                link: `modal:game:${game.id}`,
+              });
+              notifyUser("notification", notification);
+              if (prefs.gameUpdates.apprise) appriseClient.send(notification);
+            }
+
+            if (packsItems.length > 0 && !wasPacksAvailable && prefs.gameUpdates.inApp) {
+              const notification = await storage.addNotification({
+                userId,
+                type: "info",
+                title: "Game Packs Available",
+                message: `${packsItems.length} pack/add-on result(s) found for ${game.title}`,
                 link: `modal:game:${game.id}`,
               });
               notifyUser("notification", notification);

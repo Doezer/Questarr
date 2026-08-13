@@ -18,6 +18,10 @@ vi.mock("../logger.js", () => ({
 }));
 
 global.fetch = fetchMock as unknown as typeof fetch;
+vi.mock("../ssrf.js", () => ({
+  isSafeUrl: vi.fn().mockResolvedValue(true),
+  safeFetch: vi.fn((url: string, options?: RequestInit) => global.fetch(url, options)),
+}));
 
 const { DelugeClient } = await import("../downloaders/deluge.js");
 

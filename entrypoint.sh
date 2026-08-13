@@ -9,12 +9,16 @@ set -e
 
 PUID=${PUID:-1000}
 PGID=${PGID:-1000}
+UMASK=${UMASK:-022}
 
 echo "───────────────────────────────────────"
 echo "  Questarr — Starting container"
 echo "  PUID: ${PUID}"
 echo "  PGID: ${PGID}"
+echo "  UMASK: ${UMASK}"
 echo "───────────────────────────────────────"
+
+umask "$UMASK"
 
 # Adjust the questarr group GID if it differs from PGID
 CURRENT_GID=$(id -g questarr)

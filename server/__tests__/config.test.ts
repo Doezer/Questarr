@@ -15,6 +15,7 @@ describe("Config Module", () => {
     delete process.env.PORT;
     delete process.env.HOST;
     delete process.env.NODE_ENV;
+    delete process.env.QUESTARR_BASE_PATH;
   });
 
   afterEach(() => {
@@ -124,6 +125,58 @@ describe("Config Module", () => {
       expect(config.server.isTest).toBe(true);
       expect(config.server.isDevelopment).toBe(false);
       expect(config.server.isProduction).toBe(false);
+    });
+  });
+
+  describe("QUESTARR_BASE_PATH", () => {
+    it("defaults to the root when unset", async () => {
+      process.env.SQLITE_DB_PATH = "test.db";
+
+      const { config } = await import("../config.js");
+
+      expect(config.server.basePath).toBe("");
+    });
+
+    it("normalizes a bare segment to a leading-slash form", async () => {
+      process.env.SQLITE_DB_PATH = "test.db";
+      process.env.QUESTARR_BASE_PATH = "Questarr";
+
+      const { config } = await import("../config.js");
+
+      expect(config.server.basePath).toBe("/Questarr");
+    });
+
+    it("strips a trailing slash", async () => {
+      process.env.SQLITE_DB_PATH = "test.db";
+      process.env.QUESTARR_BASE_PATH = "/Questarr/";
+
+      const { config } = await import("../config.js");
+
+      expect(config.server.basePath).toBe("/Questarr");
+    });
+
+    it("treats a bare slash as the root", async () => {
+      process.env.SQLITE_DB_PATH = "test.db";
+      process.env.QUESTARR_BASE_PATH = "/";
+
+      const { config } = await import("../config.js");
+
+      expect(config.server.basePath).toBe("");
+    });
+
+    it("rejects values with invalid characters", async () => {
+      process.env.SQLITE_DB_PATH = "test.db";
+      process.env.QUESTARR_BASE_PATH = "/questarr?evil=1";
+
+      const mockProcessExit = vi.spyOn(process, "exit").mockImplementation((code) => {
+        throw new Error(`process.exit called with code ${code}`);
+      });
+      const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      await expect(import("../config.js")).rejects.toThrow("process.exit called with code 1");
+
+      expect(mockProcessExit).toHaveBeenCalledWith(1);
+      consoleErrorSpy.mockRestore();
     });
   });
 });

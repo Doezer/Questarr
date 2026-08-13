@@ -18,7 +18,7 @@ on:
         required: false
         default: ""
       build_arm64:
-        description: "Build ARM64 image (slows down build)"
+        description: "Also build ARM64 (slows down build; always on for production)"
         required: false
         default: false
         type: boolean
@@ -31,13 +31,12 @@ on:
   schedule:
     - cron: "0 0 * * *"
 
-  # Trigger on release/1.4.1 branch for dev release
-  push:
-    branches:
-      - "release/1.4.1"
-
 permissions:
   contents: read
+
+concurrency:
+  group: deploy-${{ github.workflow }}
+  cancel-in-progress: false
 
 jobs:
   # Policy: docs/VULNERABILITY_MANAGEMENT.md §1.3 — no release may ship with
@@ -54,7 +53,7 @@ jobs:
           egress-policy: audit
 
       - name: Checkout code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6.2.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Node.js 22.x
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -79,7 +78,7 @@ jobs:
 
   build-and-push:
     runs-on: ubuntu-latest
-    environment: ${{ (github.event_name == 'schedule' || github.ref == 'refs/heads/release/1.4.1') && 'dev' || inputs.environment || 'production' }}
+    environment: ${{ github.event_name == 'schedule' && 'dev' || inputs.environment || 'dev' }}
     needs: sca-gate
     permissions:
       contents: read
@@ -92,17 +91,16 @@ jobs:
           egress-policy: audit
 
       - name: Checkout code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Determine Environment
         id: env
         env:
           EVENT_NAME: ${{ github.event_name }}
-          GH_REF: ${{ github.ref }}
           INPUT_ENVIRONMENT: ${{ inputs.environment }}
           REPOSITORY: ${{ github.repository }}
         run: |
-          if [ "$EVENT_NAME" == "schedule" ] || [ "$GH_REF" == "refs/heads/release/1.4.1" ]; then
+          if [ "$EVENT_NAME" == "schedule" ]; then
             echo "ENVIRONMENT=dev" >> $GITHUB_ENV
             echo "environment=dev" >> $GITHUB_OUTPUT
           else
@@ -122,22 +120,40 @@ jobs:
           REPO_LC=$(echo "$REPOSITORY" | tr '[:upper:]' '[:lower:]')
           echo "REPO_LC=$REPO_LC" >> $GITHUB_ENV
 
+      # Single source of truth for whether this run builds ARM64, so the
+      # "Set up QEMU" condition below and the `platforms:` expression in the
+      # build step can't drift out of sync with each other.
+      - name: Determine ARM64 build
+        id: arch
+        env:
+          ENVIRONMENT: ${{ env.ENVIRONMENT }}
+          BUILD_ARM64: ${{ inputs.build_arm64 }}
+        run: |
+          if [ "$ENVIRONMENT" == "production" ] || [ "$BUILD_ARM64" == "true" ]; then
+            echo "multiarch_enabled=true" >> $GITHUB_OUTPUT
+          else
+            echo "multiarch_enabled=false" >> $GITHUB_OUTPUT
+          fi
+
+      # Production always builds ARM64 so that published release images run
+      # on Raspberry Pi and other ARM SBCs/NAS boxes; see the
+      # "Determine ARM64 build" step above for the shared predicate.
       - name: Set up QEMU
-        if: inputs.build_arm64 == true
-        uses: step-security/setup-qemu-action@fe44c529aab16157fc475f4991a7f926aa9a02a2 # v4.1.0
+        if: steps.arch.outputs.multiarch_enabled == 'true'
+        uses: step-security/setup-qemu-action@1d653f731ddc90c553742100d15205c94b792314 # v4.2.0
 
       - name: Set up Docker Buildx
-        uses: step-security/setup-buildx-action@6997872a55d77391e51b87609556578131f44402 # v4.1.0
+        uses: step-security/setup-buildx-action@a4709e2865773e1792246433e8eb922f9743a875 # v4.2.0
 
       - name: Log in to GitHub Container Registry
-        uses: step-security/docker-login-action@164e21d7e52229904128e2f946001cb88278c33d # v4.2.0
+        uses: step-security/docker-login-action@bd6978fd4ef9a5f78130095b298b8a721afcb0d8 # v4.5.1
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Log in to Docker Hub
-        uses: step-security/docker-login-action@164e21d7e52229904128e2f946001cb88278c33d # v4.2.0
+        uses: step-security/docker-login-action@bd6978fd4ef9a5f78130095b298b8a721afcb0d8 # v4.5.1
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_TOKEN }}
@@ -170,10 +186,13 @@ jobs:
 
       - name: Build and push Docker image
         id: build
-        uses: step-security/docker-build-push-action@9af9b5acc1751dcec2aa5375a068979fa526bc9a # v7.2.0
+        uses: step-security/docker-build-push-action@144392094f7fc3199dda455efe3b70dbea4b72a0 # v7.3.0
         with:
           context: .
-          platforms: ${{ (env.ENVIRONMENT == 'production' && inputs.build_arm64 == true) && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
+          # Production is always multi-arch; dev/test stay amd64-only (and fast)
+          # unless build_arm64 is explicitly requested. See the shared
+          # "Determine ARM64 build" step above.
+          platforms: ${{ steps.arch.outputs.multiarch_enabled == 'true' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -183,7 +202,7 @@ jobs:
           target: production
           sbom: true
 
-      - name: Prune old GHCR package versions (keep 15 days)
+      - name: Prune stale test-sha GHCR tags (keep 15 days)
         if: github.event_name == 'schedule' && env.ENVIRONMENT == 'dev'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -201,7 +220,85 @@ jobs:
             package_api="/users/${OWNER}/packages/container/${PACKAGE_NAME}"
           fi
 
-          while IFS=$'\t' read -r version_id created_at; do
+          # Every non-dev test build adds a `test-sha-<hash>` tag that never
+          # goes untagged, so the digest-based prune below never reclaims it -
+          # left alone, this list grows forever. Only delete a version here if
+          # ALL of its current tags match that auto-generated pattern; a
+          # version that also carries "latest", a `production-sha-*` tag, or
+          # any human-chosen tag (a release like v1.3.0, a custom
+          # workflow_dispatch tag like test-xxx, ...) is always kept.
+          while IFS=$'\t' read -r version_id created_at tags_json; do
+            all_auto=true
+            while IFS= read -r t; do
+              [ -z "$t" ] && continue
+              if ! [[ "$t" =~ ^test-sha-[0-9a-f]+$ ]]; then
+                all_auto=false
+                break
+              fi
+            done < <(jq -r '.[]' <<< "${tags_json}")
+
+            if [ "${all_auto}" != true ]; then
+              continue
+            fi
+
+            created_epoch=$(date -u -d "${created_at}" +%s)
+            if [ "${created_epoch}" -lt "${cutoff_epoch}" ]; then
+              echo "Deleting stale test-sha version ${version_id} (${created_at}, tags: ${tags_json})"
+              gh api -X DELETE "${package_api}/versions/${version_id}"
+              deleted_count=$((deleted_count + 1))
+            fi
+          done < <(
+            gh api --paginate "${package_api}/versions?per_page=100" \
+              --jq '.[] | select((.metadata.container.tags // []) | length > 0) | "\(.id)\t\(.created_at)\t\(.metadata.container.tags | tojson)"'
+          )
+
+          echo "Pruned ${deleted_count} stale test-sha GHCR tag(s)."
+
+      - name: Prune old GHCR package versions (keep 15 days)
+        if: github.event_name == 'schedule' && env.ENVIRONMENT == 'dev'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          PACKAGE_NAME: ${{ env.REPO_NAME_LC }}
+          REPO_LC: ${{ env.REPO_LC }}
+        run: |
+          set -euo pipefail
+
+          cutoff_epoch=$(date -u -d '15 days ago' +%s)
+          deleted_count=0
+
+          if gh api "/orgs/${OWNER}/packages/container/${PACKAGE_NAME}/versions?per_page=1" >/dev/null 2>&1; then
+            package_api="/orgs/${OWNER}/packages/container/${PACKAGE_NAME}"
+          else
+            package_api="/users/${OWNER}/packages/container/${PACKAGE_NAME}"
+          fi
+
+          # Because the build enables `sbom: true`, buildx pushes every tag
+          # (even single-platform ones) as an OCI index containing the image
+          # manifest plus an attestation manifest. Only the index carries a
+          # tag - its children show up here as "untagged" versions even
+          # though a live tag still points at them. Deleting those once they
+          # age past the cutoff leaves the tag's index referencing content
+          # that no longer exists, breaking `docker pull` with a
+          # "manifest ... not found" error. Build the set of digests
+          # referenced by any currently tagged manifest and never delete
+          # those, regardless of age.
+          echo "Collecting digests referenced by tagged manifests..."
+          referenced_digests=$(mktemp)
+          tagged_names=$(gh api --paginate "${package_api}/versions?per_page=100" \
+            --jq '.[] | (.metadata.container.tags // [])[]' | sort -u)
+
+          for tag in ${tagged_names}; do
+            docker buildx imagetools inspect "ghcr.io/${REPO_LC}:${tag}" --raw \
+              | jq -r '.manifests[]?.digest // empty' >> "${referenced_digests}"
+          done
+          sort -u -o "${referenced_digests}" "${referenced_digests}"
+
+          while IFS=$'\t' read -r version_id created_at digest; do
+            if grep -qxF "${digest}" "${referenced_digests}"; then
+              echo "Skipping ${digest} (still referenced by a tagged manifest)"
+              continue
+            fi
             created_epoch=$(date -u -d "${created_at}" +%s)
             if [ "${created_epoch}" -lt "${cutoff_epoch}" ]; then
               echo "Deleting untagged version ${version_id} (${created_at})"
@@ -210,9 +307,10 @@ jobs:
             fi
           done < <(
             gh api --paginate "${package_api}/versions?per_page=100" \
-              --jq '.[] | select(((.metadata.container.tags // []) | length) == 0) | "\(.id)\t\(.created_at)"'
+              --jq '.[] | select(((.metadata.container.tags // []) | length) == 0) | "\(.id)\t\(.created_at)\t\(.name)"'
           )
 
+          rm -f "${referenced_digests}"
           echo "Pruned ${deleted_count} old GHCR package version(s)."
 
       - name: Generate SBOM

@@ -6,7 +6,7 @@ import type {
   DownloadDetails,
 } from "../../shared/schema.js";
 import { downloadersLogger } from "../logger.js";
-import { isSafeUrl } from "../ssrf.js";
+import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
 import { fetchWithMagnetDetection, extractHashFromUrl } from "./utils.js";
 import { z } from "zod";
@@ -767,7 +767,7 @@ export class DelugeClient implements DownloaderClient {
       headers["Cookie"] = this.cookie;
     }
 
-    const response = await fetch(url, {
+    const response = await safeFetch(url, {
       method: "POST",
       headers,
       body: JSON.stringify(body),

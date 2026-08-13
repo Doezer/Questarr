@@ -18,7 +18,7 @@ Questarr is a video game management application inspired by the \*Arr ecosystem 
 
 ### Backend
 
-- **Runtime**: Node.js 20+ with Express.js
+- **Runtime**: Node.js 22.19+ with Express.js
 - **Language**: TypeScript with ES modules
 - **Database**: SQLite with better-sqlite3
 - **ORM**: Drizzle ORM for type-safe database operations

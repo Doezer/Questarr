@@ -85,16 +85,40 @@ function isRedirectStatus(status: number): boolean {
   return status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
 }
 
-function getRedirectOptions(fetchOptions: RequestInit, status: number): RequestInit {
+function getRedirectOptions(
+  fetchOptions: RequestInit,
+  status: number,
+  previousUrl: URL,
+  nextUrl: URL
+): RequestInit {
   const method = (fetchOptions.method || "GET").toUpperCase();
+  // Per RFC 9110 / the Fetch spec: 301/302 only rewrite POST to GET (a PUT,
+  // PATCH, or DELETE keeps its method and body on those statuses), while 303
+  // rewrites anything that isn't already GET or HEAD — a 303 to a HEAD
+  // request stays HEAD, it doesn't start pulling a response body.
   const shouldSwitchToGet =
-    status === 303 || ((status === 301 || status === 302) && method !== "GET" && method !== "HEAD");
-
-  if (!shouldSwitchToGet) {
-    return fetchOptions;
-  }
+    ((status === 301 || status === 302) && method === "POST") ||
+    (status === 303 && method !== "GET" && method !== "HEAD");
 
   const headers = new Headers(fetchOptions.headers ?? {});
+
+  // Match native fetch/undici's cross-origin redirect behavior: never replay
+  // credentials against a different origin. Our custom redirect loop below
+  // (needed to re-validate each hop against SSRF) bypasses that built-in
+  // protection unless we replicate it here — otherwise a malicious or
+  // compromised downloader daemon could redirect a request to an
+  // attacker-controlled host and walk off with the configured Basic-auth
+  // credentials or session cookie.
+  if (previousUrl.origin !== nextUrl.origin) {
+    headers.delete("authorization");
+    headers.delete("cookie");
+    headers.delete("proxy-authorization");
+  }
+
+  if (!shouldSwitchToGet) {
+    return { ...fetchOptions, headers };
+  }
+
   headers.delete("content-length");
   headers.delete("content-type");
 
@@ -399,8 +423,9 @@ export async function safeFetch(urlStr: string, options: SafeFetchOptions = {}):
       throw new Error(`Too many redirects (max ${maxRedirects})`);
     }
 
-    currentUrl = new URL(location, currentUrl);
-    currentOptions = getRedirectOptions(currentOptions, response.status);
+    const nextUrl = new URL(location, currentUrl);
+    currentOptions = getRedirectOptions(currentOptions, response.status, currentUrl, nextUrl);
+    currentUrl = nextUrl;
     redirectCount++;
   }
 }

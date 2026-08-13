@@ -21,7 +21,7 @@ vi.mock("../logger.js", () => ({
 
 vi.mock("../ssrf.js", () => ({
   isSafeUrl: vi.fn().mockResolvedValue(true),
-  safeFetch: vi.fn(),
+  safeFetch: vi.fn((url: string, options?: RequestInit) => global.fetch(url, options)),
 }));
 
 vi.mock("../downloaders/utils.js", async (importOriginal) => {
@@ -34,7 +34,7 @@ vi.mock("../downloaders/utils.js", async (importOriginal) => {
 
 global.fetch = fetchMock as unknown as typeof fetch;
 
-const { isSafeUrl } = await import("../ssrf.js");
+const { isSafeUrl, safeFetch } = await import("../ssrf.js");
 const { QBittorrentClient } = await import("../downloaders/qbittorrent.js");
 
 const createDownloader = (overrides: Partial<Downloader> = {}): Downloader => {
@@ -115,6 +115,8 @@ describe("qbittorrent remaining regression coverage", () => {
     await expect(authClient.authenticate(true)).rejects.toThrow(
       "Authentication failed: 503 Offline - denied"
     );
+    // authenticate() must route through the SSRF-safe wrapper, not raw fetch.
+    expect(safeFetch).toHaveBeenCalled();
 
     fetchMock
       .mockResolvedValueOnce({

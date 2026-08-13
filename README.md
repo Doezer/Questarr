@@ -81,6 +81,8 @@ A video game management application inspired by the -Arr apps (Sonarr, Radarr, P
 
 Docker is the easiest way to deploy Questarr with all dependencies included. Questarr uses a SQLite database which is self-contained in the application container.
 
+**Supported architectures:** released Docker images are published for `linux/amd64` and `linux/arm64`, so Questarr runs on a Raspberry Pi 4/5 with a 64-bit OS, other 64-bit ARM SBCs, and ARM-based NAS boxes as well as on x86 hardware. Docker selects the right architecture automatically — the commands below are identical on every platform. (32-bit ARM, e.g. `armv7`/a 32-bit OS on Raspberry Pi 3 and earlier, is not supported. The [Home Assistant add-on](#home-assistant-add-on) is `amd64`-only.)
+
 ### Option 1: One-liner (Simplest but minimal)
 
 ```bash
@@ -118,14 +120,16 @@ docker run -d -p 5000:5000 -v ./data:/app/data --name questarr ghcr.io/doezer/qu
 <details>
 <summary><b>Install via Community Applications</b></summary>
 
-Questarr ships an official Community Applications template ([`unraid/questarr.xml`](unraid/questarr.xml)):
+Questarr is available in the Unraid **Apps** tab via Community Applications:
 
-1. In the UNRAID web UI, open the **Apps** tab and search for **Questarr**.
-2. If it doesn't show up there yet, go to **Docker → Add Container**, enable **Template repositories**, and a
-   dd:
-   `https://raw.githubusercontent.com/Doezer/Questarr/main/unraid/questarr.xml`
-3. Set your **Data Path** (default `/mnt/user/appdata/questarr`), **PUID**/**PGID**, and ports (default `5000
-` HTTP, `9898` HTTPS).
+1. Open the **Apps** tab and search for **Questarr**, then click **Install**.
+2. Set your **Data Path** (default `/mnt/user/appdata/questarr`), **PUID**/**PGID**, and ports (default `5000`
+   HTTP, `9898` HTTPS if using it).
+3. Optionally set **Library Path** to the same root your download client(s) write into (e.g.
+   `/mnt/user/data`) if you want Questarr to move completed downloads into your game library. This host path
+   is mounted at `/data` inside the container, so add a mapping under **Settings → Path Mappings** with
+   **Local Path** set to `/data` and **Remote Path** set to the exact path your download client reports for
+   that root. Leave Library Path blank if you manage imports manually.
 4. Apply, then open `http://<unraid-host>:5000` to access the UI.
 
 </details>
@@ -164,6 +168,7 @@ Your central hub for recent activity, collection overview and downloading availa
 ### Wishlist & Release calendar
 
 Manage your wanted games and when they release.
+
 <p float="left">
   <a href="images/Screenshots/wishlist.png"><img src="images/Screenshots/wishlist.png" width="49%" /></a>
   <a href="images/Screenshots/calendar.png"><img src="images/Screenshots/calendar.png" width="49%" /></a>
@@ -217,7 +222,7 @@ Configure indexers, downloaders, and application preferences.
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=flat&logo=tailwind-css&logoColor=white)
 ![Node.js](https://img.shields.io/badge/Node.js-43853D?style=flat&logo=node.js&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-07405E?style=flat&logo=sqlite&logoColor=white)
-[![Node.js](https://img.shields.io/badge/Node.js-20%2B-339933?logo=node.js&logoColor=white)](package.json)
+[![Node.js](https://img.shields.io/badge/Node.js-22.19%2B-339933?logo=node.js&logoColor=white)](package.json)
 [![language](https://img.shields.io/badge/language-TypeScript-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![OS](https://img.shields.io/badge/OS-linux%2C%20windows%2C%20macOS-0078D4)](#installation)
 [![CPU](https://img.shields.io/badge/CPU-amd64%2C%20arm64-FF8C00)](#installation)
@@ -292,6 +297,7 @@ If you are upgrading from an older version that used PostgreSQL, you need to mig
    ```
 
 See [docs/MIGRATION.md](docs/MIGRATION.md) for more details.
+
 </details>
 
 <details>
@@ -330,6 +336,14 @@ docker-compose down
 docker-compose build --no-cache
 docker-compose up -d
 ```
+
+### Reverse proxy / subdirectory deployment
+
+Want to serve Questarr from a path like `https://xxx.domain.com/Questarr`
+instead of its own subdomain? Set `QUESTARR_BASE_PATH=/Questarr` on the
+container (or in `.env` for npm installs) and point your reverse proxy at it
+— no rebuild required. See [docs/REVERSE_PROXY.md](docs/REVERSE_PROXY.md) for
+full setup instructions (nginx, Traefik, Caddy).
 
 </details>
 
@@ -377,6 +391,10 @@ If you run into an issue, go to the **Logs** page and click **Send Logs** before
 </a>
 
 Made with [contrib.rocks](https://contrib.rocks).
+
+## Legal Disclaimer
+
+Questarr is a self-hosted game manager designed solely for organizing, tracking, and automating game libraries using user-provided data and metadata APIs (such as IGDB). Questarr does not host, distribute, or provide any copyrighted game content, ROMs, or download links. It is a technology-neutral tool: any indexers, download clients, or sources you configure are chosen and operated entirely by you. You are solely responsible for ensuring that your use of Questarr, and any content you access or download through third-party services you configure, complies with all applicable laws and the terms of service of those third parties.
 
 ## License
 

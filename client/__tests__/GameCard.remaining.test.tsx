@@ -196,7 +196,7 @@ describe("GameCard remaining coverage", () => {
       } as Game)
     ).resolves.toMatchObject({ id: "igdb-3" });
 
-    const detailsButton = screen.getByTestId("button-details-igdb-1");
+    const detailsButton = screen.getByTestId("card-game-igdb-1");
     fireEvent.click(detailsButton);
     expect(onViewDetails).toHaveBeenCalledWith("igdb-1");
     expect(await screen.findByText("Details for Library Game")).toBeInTheDocument();
@@ -237,7 +237,7 @@ describe("GameCard remaining coverage", () => {
       });
     });
 
-    fireEvent.click(screen.getByTestId("button-details-igdb-mobile"));
+    fireEvent.click(screen.getByTestId("card-game-igdb-mobile"));
     expect(onViewDetails).toHaveBeenCalledWith("igdb-mobile");
 
     fireEvent.click(screen.getByTestId("button-track-igdb-mobile"));

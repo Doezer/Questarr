@@ -8,7 +8,7 @@ import type {
 import { downloadersLogger } from "../logger.js";
 import parseTorrent from "parse-torrent";
 import crypto from "crypto";
-import { isSafeUrl } from "../ssrf.js";
+import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient, XMLValue } from "./types.js";
 import { fetchWithMagnetDetection, extractHashFromUrl } from "./utils.js";
 import { XMLParser } from "fast-xml-parser";
@@ -711,7 +711,7 @@ export class RTorrentClient implements DownloaderClient {
       headers["Authorization"] = `Basic ${auth}`;
     }
 
-    const response = await fetch(url, {
+    const response = await safeFetch(url, {
       method: "POST",
       headers,
       body: xmlBody,
@@ -744,7 +744,7 @@ export class RTorrentClient implements DownloaderClient {
 
             downloadersLogger.debug({ url }, "Retrying rTorrent request with Digest Auth");
 
-            const retryResponse = await fetch(url, {
+            const retryResponse = await safeFetch(url, {
               method: "POST",
               headers,
               body: xmlBody,

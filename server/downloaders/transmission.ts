@@ -7,7 +7,7 @@ import type {
 } from "../../shared/schema.js";
 import { downloadersLogger } from "../logger.js";
 import parseTorrent from "parse-torrent";
-import { isSafeUrl } from "../ssrf.js";
+import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
 import { fetchWithMagnetDetection } from "./utils.js";
 
@@ -699,7 +699,7 @@ export class TransmissionClient implements DownloaderClient {
       headers["Authorization"] = `Basic ${auth}`;
     }
 
-    const response = await fetch(url, {
+    const response = await safeFetch(url, {
       method: "POST",
       headers,
       body: JSON.stringify(body),
@@ -716,7 +716,7 @@ export class TransmissionClient implements DownloaderClient {
         downloadersLogger.debug({ method, url }, "Retrying Transmission request with session ID");
 
         // Retry with session ID
-        const retryResponse = await fetch(url, {
+        const retryResponse = await safeFetch(url, {
           method: "POST",
           headers,
           body: JSON.stringify(body),

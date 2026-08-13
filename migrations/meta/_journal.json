@@ -183,6 +183,13 @@
       "when": 1784581013215,
       "tag": "0025_damp_storm",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1786221915267,
+      "tag": "0026_aberrant_quentin_quire",
+      "breakpoints": true
     }
   ]
 }

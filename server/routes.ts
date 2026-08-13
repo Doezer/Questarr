@@ -80,6 +80,19 @@ import fs from "fs";
 import fsExtra from "fs-extra";
 import { readLastLogLines } from "./log-file.js";
 
+const normalizeInitialReleaseStatus = <
+  T extends { releaseDate?: string | null; releaseStatus?: string | null },
+>(
+  gameData: T
+): T => {
+  const releaseDate = gameData.releaseDate?.slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  if (releaseDate && /^\d{4}-\d{2}-\d{2}$/.test(releaseDate) && releaseDate <= today) {
+    return { ...gameData, releaseStatus: "released" };
+  }
+  return gameData;
+};
+
 // Root directory for the file system browser; restrict browsing to this tree
 const FILE_BROWSER_ROOT = fs.realpathSync(process.cwd());
 
@@ -1246,8 +1259,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(409).json({ error: "Game already in collection", game: existingGame });
         }
 
-        // Always generate new UUID - never trust client-provided IDs
-        const game = await storage.addGame(gameData);
+        // Avoid a misleading release notification for games already released at add time.
+        const normalizedGameData = normalizeInitialReleaseStatus(gameData);
+        const game = await storage.addGame(normalizedGameData);
         res.status(201).json(game);
       } catch (error) {
         if (error instanceof z.ZodError) {
@@ -2844,11 +2858,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
               : "wanted";
 
           const game = await storage.addGame(
-            insertGameSchema.parse({
-              ...newGame,
-              userId,
-              status: initialGameStatus,
-            })
+            normalizeInitialReleaseStatus(
+              insertGameSchema.parse({
+                ...newGame,
+                userId,
+                status: initialGameStatus,
+              })
+            )
           );
           resolvedGameId = game.id;
         }
@@ -2991,7 +3007,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   : "downloading"
                 : "wanted";
             const game = await storage.addGame(
-              insertGameSchema.parse({ ...item.newGame, userId, status: initialStatus })
+              normalizeInitialReleaseStatus(
+                insertGameSchema.parse({ ...item.newGame, userId, status: initialStatus })
+              )
             );
             resolvedGameId = game.id;
             if (item.newGame.igdbId != null) {
@@ -3841,7 +3859,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(409).json({ error: "Game already in collection", game: existingGame });
         }
 
-        const game = await storage.addGame(gameData);
+        const game = await storage.addGame(normalizeInitialReleaseStatus(gameData));
         routesLogger.info(
           { userId, title: game.title, igdbId: game.igdbId },
           "Game quick-added from matching"

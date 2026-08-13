@@ -1,6 +1,5 @@
 # Build stage with shared dependencies
-# node:26-alpine
-FROM node@sha256:aadf416b2cdce311a8811ba3f0608a61b77dbf997500e2eafe781b51f6a0b019 AS base
+FROM node:26-alpine@sha256:aadf416b2cdce311a8811ba3f0608a61b77dbf997500e2eafe781b51f6a0b019 AS base
 WORKDIR /app
 
 # better-sqlite3 bundles a prebuilt binary for this platform, so no C++
@@ -20,8 +19,7 @@ COPY . .
 RUN npm run build
 
 # Production stage
-# node:26-alpine
-FROM node@sha256:aadf416b2cdce311a8811ba3f0608a61b77dbf997500e2eafe781b51f6a0b019 AS production
+FROM node:26-alpine@sha256:aadf416b2cdce311a8811ba3f0608a61b77dbf997500e2eafe781b51f6a0b019 AS production
 
 WORKDIR /app
 

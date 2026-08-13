@@ -27,9 +27,12 @@ repo when the user's own request (e.g. "investigate issue #123") already implies
 that consent — don't extend that access beyond what was asked.
 
 1. **Resolve the target issue.** The user will give an issue number or URL in
-   `Doezer/Questarr` (default to that repo if unspecified). Fetch the issue body and
-   comments with whatever GitHub tooling is available in this session (GitHub MCP
-   tools, or `gh issue view` if running locally).
+   `Doezer/Questarr` (default to that repo if unspecified). If a URL is supplied,
+   validate it targets exactly `Doezer/Questarr` before fetching anything — stop
+   if it points elsewhere, since a different repo's issue is out of scope for this
+   skill and shouldn't be able to trigger a fetch from the private log repo. Fetch
+   the issue body and comments with whatever GitHub tooling is available in this
+   session (GitHub MCP tools, or `gh issue view` if running locally).
 
 2. **Find the log reference.** Search the issue body/comments for a
    `Doezer/Questarr-logs#<N>` reference.

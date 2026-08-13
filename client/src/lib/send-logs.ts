@@ -218,15 +218,20 @@ export async function sendLogs(payload: SendLogsPayload): Promise<SendLogsResult
 
 // ── GitHub issue URL builder ──────────────────────────────────────────────────
 
+/** Owner/repo of the private log repository, used to build a cross-repo issue reference. */
+const LOG_REPO = "Doezer/Questarr-logs";
+
 /**
  * Builds a URL to open a new issue in the public Questarr repo.
- * The body is pre-filled with the support log number so the maintainer
- * can look it up in the private log repository.
+ * The body is pre-filled with the support log number and a direct cross-repo
+ * reference to the corresponding issue in the private log repository, so the
+ * maintainer (or an assistant with access to both repos) can jump straight
+ * from the public issue to the matching log entry.
  */
-export function buildGitHubIssueUrl(code: string, appVersion: string): string {
+export function buildGitHubIssueUrl(code: string, appVersion: string, issueNumber: number): string {
   const title = encodeURIComponent(`[Support] Issue with Questarr v${appVersion}`);
   const body = encodeURIComponent(
-    `**Support log #:** \`${code}\`\n` +
+    `**Support log #:** \`${code}\` (${LOG_REPO}#${issueNumber})\n` +
       `**App version:** ${appVersion}\n\n` +
       `<!-- Describe what happened and the steps to reproduce it. -->\n`
   );

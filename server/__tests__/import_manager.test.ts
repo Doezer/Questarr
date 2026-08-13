@@ -639,7 +639,7 @@ describe("ImportManager", () => {
     execSpy.mockRestore();
   });
 
-  it("confirmImport: extraction failure (unpack=true) sets error status and rejects — extraction runs inside the try block", async () => {
+  it("confirmImport: extraction failure (unpack=true) sets manual_review_required status and rejects — extraction runs inside the try block", async () => {
     storage.getGameDownload.mockResolvedValue({
       id: "dl-1",
       gameId: "g1",
@@ -675,7 +675,12 @@ describe("ImportManager", () => {
       })
     ).rejects.toThrow("archive is corrupt");
 
-    expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith("dl-1", "error");
+    expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith(
+      "dl-1",
+      "manual_review_required",
+      "archive is corrupt"
+    );
+    expect(storage.updateGameDownloadStatus).not.toHaveBeenCalledWith("dl-1", "error");
   });
 
   // ─── extractRemoteHost edge cases (via resolveLocalPath → processImport) ────

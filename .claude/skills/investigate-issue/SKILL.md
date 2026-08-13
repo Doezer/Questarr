@@ -4,12 +4,14 @@ description: Investigate a Questarr GitHub issue by pulling the linked log entry
 disable-model-invocation: false
 ---
 
+# Investigate a Questarr issue
+
 Questarr users can submit scrubbed server logs from the in-app "Send Logs" dialog
 (`client/src/pages/logs.tsx`). Submission creates an issue in the **private**
 `Doezer/Questarr-logs` repo, and the public issue the user files in `Doezer/Questarr`
 gets a pre-filled body containing a line like:
 
-```
+```text
 **Support log #:** `ABCD` (Doezer/Questarr-logs#123)
 ```
 

@@ -184,6 +184,7 @@ describe("syncUserSteamWishlist", () => {
         developers: ["Dev"],
         publishers: ["Pub"],
         screenshots: ["s1"],
+        isReleased: true,
       };
     });
 
@@ -194,6 +195,9 @@ describe("syncUserSteamWishlist", () => {
     expect(result?.addedCount).toBe(2);
     expect(igdbClient.getGameIdsBySteamAppIds).toHaveBeenCalledWith([101, 102]);
     expect(storage.addGame).toHaveBeenCalledTimes(2);
+    expect(storage.addGame).toHaveBeenCalledWith(
+      expect.objectContaining({ releaseStatus: "released" })
+    );
   });
 
   it("should skip Steam App IDs with no matching IGDB ID", async () => {

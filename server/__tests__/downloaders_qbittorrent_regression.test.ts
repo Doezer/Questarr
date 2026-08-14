@@ -945,9 +945,16 @@ describe("qbittorrent regression coverage", () => {
         message: "Download already exists or invalid download (qBittorrent)",
       });
 
-      expect(
-        makeRequestSpy.mock.calls.filter(([, path]) => path === "/api/v2/torrents/removeTags")
-      ).toHaveLength(2);
+      const removedTags = makeRequestSpy.mock.calls
+        .filter(([, path]) => path === "/api/v2/torrents/removeTags")
+        .map(([, , body]) => new URLSearchParams(body as string).get("tags"));
+      expect(removedTags).toHaveLength(2);
+      expect(removedTags).toEqual(
+        expect.arrayContaining([
+          expect.stringMatching(/^questarr-add-/),
+          expect.stringMatching(/^questarr-fallback-/),
+        ])
+      );
     } finally {
       setTimeoutSpy.mockRestore();
     }

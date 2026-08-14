@@ -953,6 +953,73 @@ describe("qbittorrent regression coverage", () => {
     }
   });
 
+  it("keeps duplicate fallback success when correlation lookup fails", async () => {
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+      callback: TimerHandler,
+      _delay?: number,
+      ...args: unknown[]
+    ) => {
+      if (typeof callback === "function") callback(...args);
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    }) as typeof setTimeout);
+
+    try {
+      const client = new QBittorrentClient(createDownloader());
+      const privateClient = client as unknown as {
+        authenticate(force?: boolean): Promise<void>;
+        makeRequest(method: string, path: string, body?: string | Buffer): Promise<Response>;
+      };
+      vi.spyOn(privateClient, "authenticate").mockResolvedValue(undefined);
+      const makeRequestSpy = vi
+        .spyOn(privateClient, "makeRequest")
+        .mockImplementation(async (_method, path, body) => {
+          if (path === "/api/v2/torrents/add" && typeof body === "string") {
+            return {
+              ok: true,
+              status: 202,
+              text: async () =>
+                JSON.stringify({ pending_count: 1, failure_count: 0, success_count: 0 }),
+              headers: jsonHeaders,
+            } as unknown as Response;
+          }
+          if (path.startsWith("/api/v2/torrents/info?tag=") && !Buffer.isBuffer(body)) {
+            if (path.includes("questarr-fallback-")) throw new Error("qBittorrent unavailable");
+            return { ok: true, json: async () => [] } as Response;
+          }
+          if (path === "/api/v2/torrents/add" && Buffer.isBuffer(body)) {
+            return {
+              ok: true,
+              status: 200,
+              text: async () => "Fails.",
+              headers: emptyHeaders,
+            } as Response;
+          }
+          throw new Error(`Unexpected qBittorrent request: ${path}`);
+        });
+
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        headers: { get: () => null },
+        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+      } as Response);
+
+      await expect(
+        client.addDownload({
+          url: "http://prowlarr.local/1/api?t=download&id=lookup-failure",
+          title: "Lookup failure",
+        })
+      ).resolves.toEqual({
+        success: true,
+        message: "Download already exists or invalid download (qBittorrent)",
+      });
+      expect(makeRequestSpy).toHaveBeenCalled();
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
+  });
+
   it("does not upload a torrent file when pending polling is unavailable", async () => {
     const client = new QBittorrentClient(createDownloader());
     const privateClient = client as unknown as {

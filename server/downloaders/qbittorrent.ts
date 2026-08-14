@@ -501,45 +501,47 @@ export class QBittorrentClient implements DownloaderClient {
       let parsedInfoHash: string | null = null;
 
       const resolveFallbackDuplicate = async (): Promise<string | null> => {
-        if (!pendingFallbackCorrelationTag) return null;
-
-        const knownHash = parsedInfoHash || extractHashFromUrl(request.url);
-        if (knownHash) {
-          const verifyResponse = await this.makeRequest(
-            "GET",
-            `/api/v2/torrents/info?hashes=${knownHash}`
-          );
-          const downloads = (await verifyResponse.json()) as QBittorrentTorrent[];
-          if (downloads.length > 0) {
-            await maybeSetForceStarted(knownHash);
-            if (pendingFallbackCorrelationTag) {
-              await removeCorrelationTag(knownHash, pendingFallbackCorrelationTag);
+        try {
+          const knownHash = parsedInfoHash || extractHashFromUrl(request.url);
+          if (knownHash) {
+            const verifyResponse = await this.makeRequest(
+              "GET",
+              `/api/v2/torrents/info?hashes=${knownHash}`
+            );
+            const downloads = (await verifyResponse.json()) as QBittorrentTorrent[];
+            if (downloads.length > 0) {
+              await maybeSetForceStarted(knownHash);
+              if (pendingFallbackCorrelationTag) {
+                await removeCorrelationTag(knownHash, pendingFallbackCorrelationTag);
+              }
+              if (pendingUrlCorrelationTag) {
+                await removeCorrelationTag(knownHash, pendingUrlCorrelationTag);
+              }
+              return knownHash;
             }
-            if (pendingUrlCorrelationTag) {
-              await removeCorrelationTag(knownHash, pendingUrlCorrelationTag);
-            }
-            return knownHash;
           }
-        }
 
-        const recent = await findRecentlyAddedDownload({
-          correlationTag: pendingFallbackCorrelationTag,
-        });
-        const original =
-          recent ??
-          (pendingUrlCorrelationTag
-            ? await findRecentlyAddedDownload({ correlationTag: pendingUrlCorrelationTag })
-            : null);
-        if (!original) return null;
+          if (!pendingFallbackCorrelationTag) return null;
+          const recent = await findRecentlyAddedDownload({
+            correlationTag: pendingFallbackCorrelationTag,
+          });
+          const original =
+            recent ??
+            (pendingUrlCorrelationTag
+              ? await findRecentlyAddedDownload({ correlationTag: pendingUrlCorrelationTag })
+              : null);
+          if (!original) return null;
 
-        await maybeSetForceStarted(original.hash);
-        if (pendingFallbackCorrelationTag) {
+          await maybeSetForceStarted(original.hash);
           await removeCorrelationTag(original.hash, pendingFallbackCorrelationTag);
+          if (pendingUrlCorrelationTag) {
+            await removeCorrelationTag(original.hash, pendingUrlCorrelationTag);
+          }
+          return original.hash;
+        } catch (error) {
+          downloadersLogger.warn({ error }, "Failed to resolve duplicate fallback torrent");
+          return null;
         }
-        if (pendingUrlCorrelationTag) {
-          await removeCorrelationTag(original.hash, pendingUrlCorrelationTag);
-        }
-        return original.hash;
       };
 
       try {
@@ -720,6 +722,9 @@ export class QBittorrentClient implements DownloaderClient {
             if (pendingFallbackCorrelationTag) {
               await removeCorrelationTag(recent.hash, pendingFallbackCorrelationTag);
             }
+            if (pendingUrlCorrelationTag) {
+              await removeCorrelationTag(recent.hash, pendingUrlCorrelationTag);
+            }
             return {
               success: true,
               id: recent.hash,
@@ -759,6 +764,9 @@ export class QBittorrentClient implements DownloaderClient {
           await maybeSetForceStarted(hash);
           if (pendingFallbackCorrelationTag) {
             await removeCorrelationTag(hash, pendingFallbackCorrelationTag);
+          }
+          if (pendingUrlCorrelationTag) {
+            await removeCorrelationTag(hash, pendingUrlCorrelationTag);
           }
 
           return {

@@ -717,6 +717,360 @@ describe("qbittorrent regression coverage", () => {
     }
   });
 
+  it("uploads the torrent file when a qBittorrent v5+ pending URL never materializes", async () => {
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+      callback: TimerHandler,
+      _delay?: number,
+      ...args: unknown[]
+    ) => {
+      if (typeof callback === "function") {
+        callback(...args);
+      }
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    }) as typeof setTimeout);
+
+    try {
+      const client = new QBittorrentClient(createDownloader());
+      const privateClient = client as unknown as {
+        authenticate(force?: boolean): Promise<void>;
+        makeRequest(
+          method: string,
+          path: string,
+          body?: string | Buffer,
+          additionalHeaders?: Record<string, string>
+        ): Promise<Response>;
+      };
+
+      vi.spyOn(privateClient, "authenticate").mockResolvedValue(undefined);
+      let uploadStarted = false;
+      const preUploadPollTags: string[] = [];
+      const makeRequestSpy = vi
+        .spyOn(privateClient, "makeRequest")
+        .mockImplementation(async (_method, path, body) => {
+          if (path === "/api/v2/torrents/add" && typeof body === "string") {
+            return {
+              ok: true,
+              status: 202,
+              text: async () =>
+                JSON.stringify({
+                  added_torrent_ids: [],
+                  failure_count: 0,
+                  pending_count: 1,
+                  success_count: 0,
+                }),
+              headers: jsonHeaders,
+            } as unknown as Response;
+          }
+          if (path.startsWith("/api/v2/torrents/info?tag=") && !uploadStarted) {
+            preUploadPollTags.push(new URLSearchParams(path.split("?")[1]).get("tag") ?? "");
+            return { ok: true, json: async () => [] } as Response;
+          }
+          if (path === "/api/v2/torrents/add" && Buffer.isBuffer(body)) {
+            uploadStarted = true;
+            return {
+              ok: true,
+              status: 200,
+              text: async () => "Ok.",
+              headers: emptyHeaders,
+            } as Response;
+          }
+          if (path.startsWith("/api/v2/torrents/info?tag=") && uploadStarted) {
+            return {
+              ok: true,
+              status: 200,
+              json: async () => [
+                {
+                  hash: "fallback-hash",
+                  name: "Pending via Prowlarr",
+                  added_on: Math.floor(Date.now() / 1000),
+                },
+              ],
+            } as Response;
+          }
+          if (path === "/api/v2/torrents/info?sort=added_on&reverse=true") {
+            return {
+              ok: true,
+              json: async () => [
+                {
+                  hash: "fallback-hash",
+                  name: "Pending via Prowlarr",
+                  added_on: Math.floor(Date.now() / 1000),
+                },
+              ],
+            } as Response;
+          }
+          if (path === "/api/v2/torrents/removeTags") {
+            return { ok: true, status: 200, text: async () => "" } as Response;
+          }
+          throw new Error(`Unexpected qBittorrent request: ${path}`);
+        });
+
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        headers: { get: () => null },
+        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+      } as Response);
+
+      await expect(
+        client.addDownload({
+          url: "http://prowlarr.local/1/api?t=download&id=pending",
+          title: "Pending via Prowlarr",
+        })
+      ).resolves.toEqual({
+        success: true,
+        id: "fallback-hash",
+        message: "Download added successfully",
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(
+        makeRequestSpy.mock.calls.some(
+          ([, path, body]) => path === "/api/v2/torrents/add" && Buffer.isBuffer(body)
+        )
+      ).toBe(true);
+
+      const initialBody = String(makeRequestSpy.mock.calls[0][2]);
+      const tagMatch = initialBody.match(/tags=(questarr-add-[^&]+)/);
+      expect(tagMatch).not.toBeNull();
+      expect(preUploadPollTags.length).toBeGreaterThanOrEqual(10);
+      expect(new Set(preUploadPollTags).size).toBe(1);
+      expect(preUploadPollTags[0]).toBe(tagMatch![1]);
+      const uploadBody = String(
+        makeRequestSpy.mock.calls.find(
+          ([, path, body]) => path === "/api/v2/torrents/add" && Buffer.isBuffer(body)
+        )?.[2]
+      );
+      const uploadTagMatch = uploadBody.match(
+        /Content-Disposition: form-data; name="tags"\r\n\r\n([^\r\n]+)/
+      );
+      expect(uploadTagMatch).not.toBeNull();
+      expect(uploadTagMatch![1]).not.toBe(tagMatch![1]);
+      expect(uploadTagMatch![1]).toMatch(/^questarr-fallback-/);
+      expect(makeRequestSpy).toHaveBeenCalledWith(
+        "POST",
+        "/api/v2/torrents/removeTags",
+        `hashes=fallback-hash&tags=${encodeURIComponent(uploadTagMatch![1])}`,
+        expect.any(Object)
+      );
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
+  });
+
+  it("tracks the existing torrent when fallback upload is rejected as a duplicate", async () => {
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+      callback: TimerHandler,
+      _delay?: number,
+      ...args: unknown[]
+    ) => {
+      if (typeof callback === "function") callback(...args);
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    }) as typeof setTimeout);
+
+    try {
+      const client = new QBittorrentClient(createDownloader());
+      const privateClient = client as unknown as {
+        authenticate(force?: boolean): Promise<void>;
+        makeRequest(
+          method: string,
+          path: string,
+          body?: string | Buffer,
+          additionalHeaders?: Record<string, string>
+        ): Promise<Response>;
+      };
+      vi.spyOn(privateClient, "authenticate").mockResolvedValue(undefined);
+      let uploadStarted = false;
+      const makeRequestSpy = vi
+        .spyOn(privateClient, "makeRequest")
+        .mockImplementation(async (_method, path, body) => {
+          if (path === "/api/v2/torrents/add" && typeof body === "string") {
+            return {
+              ok: true,
+              status: 202,
+              text: async () =>
+                JSON.stringify({
+                  added_torrent_ids: [],
+                  failure_count: 0,
+                  pending_count: 1,
+                  success_count: 0,
+                }),
+              headers: jsonHeaders,
+            } as unknown as Response;
+          }
+          if (path.startsWith("/api/v2/torrents/info?tag=") && !uploadStarted) {
+            return { ok: true, json: async () => [] } as Response;
+          }
+          if (path === "/api/v2/torrents/add" && Buffer.isBuffer(body)) {
+            uploadStarted = true;
+            return {
+              ok: true,
+              status: 200,
+              text: async () => "Fails.",
+              headers: emptyHeaders,
+            } as Response;
+          }
+          if (path.includes("questarr-fallback-")) {
+            return { ok: true, json: async () => [] } as Response;
+          }
+          if (path.startsWith("/api/v2/torrents/info?tag=")) {
+            return {
+              ok: true,
+              json: async () => [{ hash: "existing-hash", name: "Existing torrent", added_on: 1 }],
+            } as Response;
+          }
+          if (path === "/api/v2/torrents/removeTags") {
+            return { ok: true, status: 200, text: async () => "" } as Response;
+          }
+          throw new Error(`Unexpected qBittorrent request: ${path}`);
+        });
+
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        headers: { get: () => null },
+        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+      } as Response);
+
+      await expect(
+        client.addDownload({
+          url: "http://prowlarr.local/1/api?t=download&id=pending-duplicate",
+          title: "Pending duplicate",
+        })
+      ).resolves.toEqual({
+        success: true,
+        id: "existing-hash",
+        message: "Download already exists or invalid download (qBittorrent)",
+      });
+
+      const removedTags = makeRequestSpy.mock.calls
+        .filter(([, path]) => path === "/api/v2/torrents/removeTags")
+        .map(([, , body]) => new URLSearchParams(body as string).get("tags"));
+      expect(removedTags).toHaveLength(2);
+      expect(removedTags).toEqual(
+        expect.arrayContaining([
+          expect.stringMatching(/^questarr-add-/),
+          expect.stringMatching(/^questarr-fallback-/),
+        ])
+      );
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
+  });
+
+  it("keeps duplicate fallback success when correlation lookup fails", async () => {
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+      callback: TimerHandler,
+      _delay?: number,
+      ...args: unknown[]
+    ) => {
+      if (typeof callback === "function") callback(...args);
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    }) as typeof setTimeout);
+
+    try {
+      const client = new QBittorrentClient(createDownloader());
+      const privateClient = client as unknown as {
+        authenticate(force?: boolean): Promise<void>;
+        makeRequest(method: string, path: string, body?: string | Buffer): Promise<Response>;
+      };
+      vi.spyOn(privateClient, "authenticate").mockResolvedValue(undefined);
+      const makeRequestSpy = vi
+        .spyOn(privateClient, "makeRequest")
+        .mockImplementation(async (_method, path, body) => {
+          if (path === "/api/v2/torrents/add" && typeof body === "string") {
+            return {
+              ok: true,
+              status: 202,
+              text: async () =>
+                JSON.stringify({ pending_count: 1, failure_count: 0, success_count: 0 }),
+              headers: jsonHeaders,
+            } as unknown as Response;
+          }
+          if (path.startsWith("/api/v2/torrents/info?tag=") && !Buffer.isBuffer(body)) {
+            if (path.includes("questarr-fallback-")) throw new Error("qBittorrent unavailable");
+            return { ok: true, json: async () => [] } as Response;
+          }
+          if (path === "/api/v2/torrents/add" && Buffer.isBuffer(body)) {
+            return {
+              ok: true,
+              status: 200,
+              text: async () => "Fails.",
+              headers: emptyHeaders,
+            } as Response;
+          }
+          throw new Error(`Unexpected qBittorrent request: ${path}`);
+        });
+
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        headers: { get: () => null },
+        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+      } as Response);
+
+      await expect(
+        client.addDownload({
+          url: "http://prowlarr.local/1/api?t=download&id=lookup-failure",
+          title: "Lookup failure",
+        })
+      ).resolves.toEqual({
+        success: true,
+        message: "Download already exists or invalid download (qBittorrent)",
+      });
+      expect(makeRequestSpy).toHaveBeenCalled();
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
+  });
+
+  it("does not upload a torrent file when pending polling is unavailable", async () => {
+    const client = new QBittorrentClient(createDownloader());
+    const privateClient = client as unknown as {
+      authenticate(force?: boolean): Promise<void>;
+      makeRequest(method: string, path: string, body?: string | Buffer): Promise<Response>;
+    };
+    vi.spyOn(privateClient, "authenticate").mockResolvedValue(undefined);
+    const makeRequestSpy = vi
+      .spyOn(privateClient, "makeRequest")
+      .mockImplementation(async (_method, path, body) => {
+        if (path === "/api/v2/torrents/add" && typeof body === "string") {
+          return {
+            ok: true,
+            status: 202,
+            text: async () =>
+              JSON.stringify({
+                added_torrent_ids: [],
+                failure_count: 0,
+                pending_count: 1,
+                success_count: 0,
+              }),
+            headers: jsonHeaders,
+          } as unknown as Response;
+        }
+        if (path.startsWith("/api/v2/torrents/info?tag=")) {
+          throw new Error("poll unavailable");
+        }
+        throw new Error(`Unexpected qBittorrent request: ${path}`);
+      });
+
+    await expect(
+      client.addDownload({
+        url: "http://prowlarr.local/1/api?t=download&id=unavailable",
+        title: "Unavailable polling",
+      })
+    ).resolves.toMatchObject({ success: true, message: "Download queued in qBittorrent" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(
+      makeRequestSpy.mock.calls.some(
+        ([, path, body]) => path === "/api/v2/torrents/add" && Buffer.isBuffer(body)
+      )
+    ).toBe(false);
+  });
+
   it("uses added_torrent_ids when qBittorrent v5+ adds a torrent immediately", async () => {
     const client = new QBittorrentClient(createDownloader());
     const privateClient = client as unknown as {

@@ -603,10 +603,22 @@ export class ImportManager {
 
       const planToExecute: ImportReview = {
         ...overridePlan,
+        // Recomputed server-side below when sorting is enabled — never trust
+        // client-supplied categories.
+        fileCategories: undefined,
         originalPath: processPath,
       };
 
       const strategy = new PCImportStrategy();
+      if (config.sortExtras) {
+        const categorizedPlan = await strategy.planImport(
+          processPath,
+          game,
+          config.libraryRoot,
+          config
+        );
+        planToExecute.fileCategories = categorizedPlan.fileCategories;
+      }
       const result = await strategy.executeImport(planToExecute, transferMode);
 
       await this.finalizeImport(downloadId, game, result.destDir);

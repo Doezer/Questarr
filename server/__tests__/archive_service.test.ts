@@ -5,10 +5,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { extractFullMock, testMock, ensureDirMock, readdirMock, loggerMocks } = vi.hoisted(() => ({
+const { extractFullMock, testMock, emptyDirMock, readdirMock, loggerMocks } = vi.hoisted(() => ({
   extractFullMock: vi.fn(),
   testMock: vi.fn(),
-  ensureDirMock: vi.fn().mockResolvedValue(undefined),
+  emptyDirMock: vi.fn().mockResolvedValue(undefined),
   readdirMock: vi.fn().mockResolvedValue([]),
   loggerMocks: {
     debug: vi.fn(),
@@ -27,7 +27,7 @@ vi.mock("node-7z", () => ({
 
 vi.mock("fs-extra", () => ({
   default: {
-    ensureDir: ensureDirMock,
+    emptyDir: emptyDirMock,
     readdir: readdirMock,
   },
 }));
@@ -90,7 +90,7 @@ describe("ArchiveService", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    ensureDirMock.mockResolvedValue(undefined);
+    emptyDirMock.mockResolvedValue(undefined);
     readdirMock.mockResolvedValue([]);
     autoResolveTestStream();
     delete process.env.BSDTAR_PATH;
@@ -116,7 +116,7 @@ describe("ArchiveService", () => {
       expect.stringMatching(/tmp[\\/]out[\\/]sub[\\/]fanart\.png$/),
     ]);
 
-    expect(ensureDirMock).toHaveBeenCalledWith("/tmp/out"); // NOSONAR - mocked fs, no real dir access
+    expect(emptyDirMock).toHaveBeenCalledWith("/tmp/out"); // NOSONAR - mocked fs, no real dir access
     expect(extractFullMock).toHaveBeenCalledWith(
       "/downloads/game.zip",
       "/tmp/out", // NOSONAR - mocked fs, no real dir access
@@ -191,12 +191,12 @@ describe("ArchiveService", () => {
     expect(service.isArchive("image.iso")).toBe(true);
   });
 
-  // Gap 4: destination directory pre-exists — ensureDir is always called (idempotent)
-  it("calls ensureDir even when the destination directory already exists", async () => {
+  // Gap 4: destination directory pre-exists — emptyDir is always called (clears stale files)
+  it("empties the destination directory even when it pre-exists", async () => {
     const stream = new EventEmitter();
     extractFullMock.mockReturnValue(stream);
-    // ensureDirMock is already set up to resolve; simulate pre-existing dir (no-op behaviour)
-    ensureDirMock.mockResolvedValue(undefined);
+    // emptyDirMock is already set up to resolve; simulate a pre-existing dir getting cleared
+    emptyDirMock.mockResolvedValue(undefined);
 
     const service = new ArchiveService();
     const resultPromise = service.extract("/downloads/game.zip", "/tmp/existing-dir"); // NOSONAR - mocked fs, no real dir access
@@ -207,8 +207,8 @@ describe("ArchiveService", () => {
 
     await resultPromise;
 
-    expect(ensureDirMock).toHaveBeenCalledOnce();
-    expect(ensureDirMock).toHaveBeenCalledWith("/tmp/existing-dir"); // NOSONAR - mocked fs, no real dir access
+    expect(emptyDirMock).toHaveBeenCalledOnce();
+    expect(emptyDirMock).toHaveBeenCalledWith("/tmp/existing-dir"); // NOSONAR - mocked fs, no real dir access
   });
 
   // Gap 5: 7zip binary exits with a non-zero code — stream emits an error with stderr output
@@ -310,10 +310,10 @@ describe("ArchiveService", () => {
       expect(calls[0][1]).toEqual(["-tf", "/downloads/game.rar"]);
       expect(calls[1][0]).toBe(fakeBsdtarPath);
       expect(calls[1][1]).toEqual(["-xf", "/downloads/game.rar", "-C", "/tmp/rar-out"]);
-      expect(ensureDirMock).toHaveBeenCalledWith("/tmp/rar-out");
+      expect(emptyDirMock).toHaveBeenCalledWith("/tmp/rar-out");
     });
 
-    it("does not create the output directory when the RAR integrity test fails", async () => {
+    it("does not create the output directory when the RAR integrity test fails on every attempt", async () => {
       process.env.BSDTAR_PATH = fakeBsdtarPath;
       const service = await freshArchiveService();
 
@@ -323,16 +323,19 @@ describe("ArchiveService", () => {
         return {} as never;
       });
 
-      await expect(
-        service.extract("/downloads/broken.rar", "/tmp/broken-out") // NOSONAR - mocked fs
-      ).rejects.toThrow(/bsdtar failed/);
+      vi.useFakeTimers();
+      const resultPromise = service.extract("/downloads/broken.rar", "/tmp/broken-out"); // NOSONAR - mocked fs
+      const assertion = expect(resultPromise).rejects.toThrow(/bsdtar failed/);
+      await vi.runAllTimersAsync();
+      await assertion;
+      vi.useRealTimers();
 
-      expect(ensureDirMock).not.toHaveBeenCalled();
-      // Only the test invocation ran — extraction was never attempted.
-      expect(vi.mocked(execFile).mock.calls).toHaveLength(1);
+      expect(emptyDirMock).not.toHaveBeenCalled();
+      // Test invocation ran on every retry attempt — extraction was never attempted.
+      expect(vi.mocked(execFile).mock.calls).toHaveLength(3);
     });
 
-    it("appends a corruption hint when bsdtar reports a Huffman decode failure", async () => {
+    it("appends a corruption hint when bsdtar reports a Huffman decode failure on every attempt", async () => {
       process.env.BSDTAR_PATH = fakeBsdtarPath;
       const service = await freshArchiveService();
 
@@ -346,9 +349,47 @@ describe("ArchiveService", () => {
         return {} as never;
       });
 
-      await expect(
-        service.extract("/downloads/corrupt.rar", "/tmp/corrupt-out") // NOSONAR - mocked fs, no real dir access
-      ).rejects.toThrow(/corrupt or incomplete/);
+      vi.useFakeTimers();
+      const resultPromise = service.extract("/downloads/corrupt.rar", "/tmp/corrupt-out"); // NOSONAR - mocked fs, no real dir access
+      const assertion = expect(resultPromise).rejects.toThrow(/corrupt or incomplete/);
+      await vi.runAllTimersAsync();
+      await assertion;
+      vi.useRealTimers();
+    });
+
+    it("retries the integrity test and succeeds once the file is no longer truncated", async () => {
+      process.env.BSDTAR_PATH = fakeBsdtarPath;
+      const service = await freshArchiveService();
+
+      let call = 0;
+      vi.mocked(execFile).mockImplementation((...args: unknown[]) => {
+        const callback = args[3] as (error: Error | null, stdout: string, stderr: string) => void;
+        call += 1;
+        if (call === 1) {
+          // First attempt: the download client's completion event fired just before the
+          // file finished syncing to disk — the same read-truncation signature as a
+          // genuinely corrupt archive.
+          callback(new Error("exit code 1"), "", "game.iso: Prefix found: Illegal byte sequence");
+        } else {
+          callback(null, "", "");
+        }
+        return {} as never;
+      });
+      readdirMock.mockResolvedValueOnce([{ name: "game.rom", isDirectory: () => false }]);
+
+      vi.useFakeTimers();
+      const resultPromise = service.extract("/downloads/settling.rar", "/tmp/settling-out"); // NOSONAR - mocked fs
+      await vi.runAllTimersAsync();
+      const files = await resultPromise;
+      vi.useRealTimers();
+
+      expect(files).toEqual([expect.stringMatching(/tmp[\\/]settling-out[\\/]game\.rom$/)]);
+      // Attempt 1 (test, fails) → attempt 2 (test, succeeds) → extract.
+      expect(vi.mocked(execFile).mock.calls).toHaveLength(3);
+      expect(loggerMocks.info).toHaveBeenCalledWith(
+        expect.objectContaining({ attempt: 2 }),
+        "Archive test succeeded after retry"
+      );
     });
 
     it("rejects with a clear error when no bsdtar binary is available", async () => {
@@ -360,7 +401,7 @@ describe("ArchiveService", () => {
       ).rejects.toThrow("no bsdtar binary was found");
 
       expect(execFile).not.toHaveBeenCalled();
-      expect(ensureDirMock).not.toHaveBeenCalled();
+      expect(emptyDirMock).not.toHaveBeenCalled();
     });
 
     it("logs a warning when RAR extraction succeeds but produces no files", async () => {

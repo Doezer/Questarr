@@ -15,6 +15,21 @@ type ExecFileResult = { stdout: string; stderr: string };
 const BSDTAR_TIMEOUT_MS = 30 * 60_000;
 const BSDTAR_MAX_BUFFER = 10 * 1024 * 1024;
 
+// A download client marking a transfer "complete" doesn't guarantee the file is fully
+// synced/renamed into its final location yet — e.g. NFS/SMB write-back lag between the
+// downloader's host and Questarr's, or a client doing a last move/rename right as the
+// completion event fires. Reading the archive at that instant can see a truncated file,
+// which surfaces as the exact same decode error a genuinely corrupt archive would produce.
+// Retry the integrity test a couple of times with a short gap before concluding the archive
+// itself is bad — cheap for a real failure (which fails fast, as seen in practice), and
+// turns a spurious "corrupt" report into a successful import if it was just a timing race.
+const ARCHIVE_TEST_MAX_ATTEMPTS = 3;
+const ARCHIVE_TEST_RETRY_DELAYS_MS = [3_000, 8_000];
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 // Known absolute install locations for the bsdtar CLI (Alpine's `libarchive-tools` package).
 // libarchive's RAR reader (archive_read_support_format_rar / _rar5) covers both legacy and
 // RAR5 archives, including multi-volume sets, without needing the non-free RARLAB `unrar`
@@ -61,11 +76,16 @@ function resolveTool(filePath: string): ArchiveTool {
 // hint rather than surfacing the bare libarchive wording, which reads as an internal bug.
 const RAR_CORRUPTION_MARKER = "Prefix found";
 
+// Marks errors that retrying can never fix (missing binary, unsupported format) so the
+// integrity-test retry loop below can fail fast on them instead of burning several seconds
+// re-running a check that will deterministically fail the same way every time.
+class NonRetryableArchiveError extends Error {}
+
 function runBsdtar(args: string[]): Promise<ExecFileResult> {
   const binary = resolveBsdtarBinary();
   if (!binary) {
     return Promise.reject(
-      new Error(
+      new NonRetryableArchiveError(
         "RAR archive detected but no bsdtar binary was found. Install libarchive-tools or set BSDTAR_PATH."
       )
     );
@@ -107,16 +127,39 @@ export class ArchiveService {
 
   private async testArchive(filePath: string, tool: ArchiveTool): Promise<void> {
     logger.debug({ filePath, tool }, "Testing archive before extraction");
-    try {
-      if (tool === "bsdtar") {
-        await runBsdtar(["-tf", filePath]);
-      } else {
-        await this.testWith7z(filePath);
+
+    let lastErr: unknown;
+    for (let attempt = 1; attempt <= ARCHIVE_TEST_MAX_ATTEMPTS; attempt++) {
+      try {
+        if (tool === "bsdtar") {
+          await runBsdtar(["-tf", filePath]);
+        } else {
+          await this.testWith7z(filePath);
+        }
+        if (attempt > 1) {
+          logger.info({ filePath, tool, attempt }, "Archive test succeeded after retry");
+        }
+        return;
+      } catch (err) {
+        lastErr = err;
+        if (err instanceof NonRetryableArchiveError) {
+          throw err;
+        }
+        if (attempt < ARCHIVE_TEST_MAX_ATTEMPTS) {
+          logger.warn(
+            { err, filePath, tool, attempt },
+            "Archive test failed — retrying in case the file is still settling on disk"
+          );
+          await delay(ARCHIVE_TEST_RETRY_DELAYS_MS[attempt - 1]);
+          continue;
+        }
+        logger.error(
+          { err, filePath, tool, attempts: attempt },
+          "Archive test failed — archive will not be extracted"
+        );
       }
-    } catch (err) {
-      logger.error({ err, filePath, tool }, "Archive test failed — archive will not be extracted");
-      throw err;
     }
+    throw lastErr;
   }
 
   private async listExtractedFiles(outputDir: string): Promise<string[]> {
@@ -177,7 +220,11 @@ export class ArchiveService {
     // leaves behind an empty output directory.
     await this.testArchive(filePath, tool);
 
-    await fs.ensureDir(outputDir);
+    // Always start from an empty directory: a prior extraction attempt that was killed
+    // before its own cleanup ran (e.g. a container restart) can leave stale files behind at
+    // this same "<archive>_extracted" path, which would otherwise get reported alongside —
+    // or instead of — the files this run actually extracts.
+    await fs.emptyDir(outputDir);
 
     let extractedFiles: string[];
     try {

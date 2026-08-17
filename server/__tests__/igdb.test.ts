@@ -169,6 +169,35 @@ describe("IGDBClient - Fallback Mechanism", { timeout: 20000 }, () => {
     expect(results.map((game) => game.name)).toEqual(["Undated Game", "Newer Game", "Older Game"]);
   });
 
+  it("applies platform and release year filters before the IGDB result limit", async () => {
+    const authResponse = {
+      ok: true,
+      json: async () => ({
+        access_token: "test-token",
+        expires_in: 3600,
+        token_type: "bearer",
+      }),
+    };
+    const successResponse = {
+      ok: true,
+      json: async () => [{ id: 1, name: "God of War", first_release_date: 1110844800 }],
+    };
+
+    fetchMock.mockResolvedValueOnce(authResponse).mockResolvedValueOnce(successResponse);
+
+    const { igdbClient } = await import("../igdb.js");
+    await igdbClient.searchGames("God of War", 10, { platformId: 8, releaseYear: 2005 });
+
+    const gameRequest = fetchMock.mock.calls.find(
+      (call) => typeof call[0] === "string" && call[0].includes("api.igdb.com/v4/games")
+    );
+    const body = String(gameRequest?.[1]?.body);
+    expect(body).toContain("platforms = (8)");
+    expect(body).toContain("first_release_date >= 1104537600");
+    expect(body).toContain("first_release_date < 1136073600");
+    expect(body.indexOf("platforms = (8)")).toBeLessThan(body.indexOf("limit 10"));
+  });
+
   it("should return empty array when all search approaches fail", async () => {
     // Mock authentication response
     const authResponse = {

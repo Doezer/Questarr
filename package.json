@@ -88,7 +88,7 @@
     "express-session": "^1.19.0",
     "express-validator": "^7.3.2",
     "fast-xml-parser": "^5.10.1",
-    "framer-motion": "^12.43.0",
+    "framer-motion": "^13.0.0",
     "fs-extra": "^11.4.0",
     "helmet": "^8.3.0",
     "html-to-image": "^1.11.13",

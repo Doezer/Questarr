@@ -587,6 +587,7 @@ export class ImportManager {
 
     const planToExecute: ImportReview = {
       ...overridePlan,
+      fileCategories: undefined,
       originalPath: processPath,
     };
 
@@ -594,6 +595,15 @@ export class ImportManager {
 
     try {
       const strategy = new PCImportStrategy();
+      if (config.sortExtras) {
+        const categorizedPlan = await strategy.planImport(
+          processPath,
+          game,
+          config.libraryRoot,
+          config
+        );
+        planToExecute.fileCategories = categorizedPlan.fileCategories;
+      }
       const result = await strategy.executeImport(planToExecute, transferMode);
 
       await this.finalizeImport(downloadId, game, result.destDir);

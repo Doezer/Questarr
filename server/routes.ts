@@ -1,4 +1,5 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
+import { body, param } from "express-validator";
 import { createServer, type Server } from "http";
 import { storage } from "./storage.js";
 import { igdbClient } from "./igdb.js";
@@ -20,6 +21,7 @@ import {
   passwordPolicySchema,
   insertRssFeedSchema,
   insertReleaseBlacklistSchema,
+  insertGameFileSchema,
   claimDownloadRequestSchema,
   type Config,
   type Game,
@@ -1737,6 +1739,146 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: "Failed to list blacklists" });
     }
   });
+  const gameIdParamValidation = [
+    param("gameId").trim().isUUID().withMessage("Invalid game ID format"),
+  ];
+  const gameFileIdParamValidation = [
+    param("id").trim().isUUID().withMessage("Invalid game file ID format"),
+  ];
+  const gameFileBodyValidation = [
+    body("gameId").trim().isUUID().withMessage("Invalid game ID format"),
+    body("downloadId")
+      .optional({ nullable: true })
+      .trim()
+      .isUUID()
+      .withMessage("Invalid download ID format"),
+    body("category")
+      .trim()
+      .isIn(["main", "dlc", "update", "extra"])
+      .withMessage("Invalid game file category"),
+  ];
+
+  // Get game files for a specific game, grouped by category
+  app.get(
+    "/api/games/:gameId/content",
+    authenticateToken,
+    gameIdParamValidation,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const { gameId } = req.params;
+        const userId = req.user!.id;
+
+        const game = await resolveOwnedGame(gameId, userId, res);
+        if (!game) return;
+
+        const gameFiles = await storage.getGameFiles(gameId);
+
+        const CATEGORIES = [
+          { category: "main", label: "Main Game" },
+          { category: "dlc", label: "DLC & Expansions" },
+          { category: "update", label: "Updates & Patches" },
+          { category: "extra", label: "Extras" },
+        ] as const;
+
+        const slots = CATEGORIES.map(({ category, label }) => {
+          const files = gameFiles
+            .filter((f) => f.category === category)
+            .map((f) => ({
+              id: f.id,
+              originalName: f.originalName,
+              storedName: f.storedName,
+              downloadId: f.downloadId,
+              fileSize: f.fileSize,
+              createdAt: f.createdAt,
+            }));
+          return { category, label, present: files.length > 0, files };
+        });
+
+        res.json({ slots });
+      } catch (error) {
+        routesLogger.error({ error }, "error fetching game content");
+        res.status(500).json({ error: "Failed to fetch game content" });
+      }
+    }
+  );
+
+  // Get game files by download
+  app.get(
+    "/api/game-files/by-download/:downloadId",
+    authenticateToken,
+    sanitizeDownloadId,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const { downloadId } = req.params;
+        const download = await storage.getGameDownload(downloadId, req.user!.id);
+        if (!download) {
+          return res.status(404).json({ error: "Download not found" });
+        }
+        const files = await storage.getGameFilesByDownload(downloadId);
+        res.json(files);
+      } catch (error) {
+        routesLogger.error({ error }, "error fetching game files by download");
+        res.status(500).json({ error: "Failed to fetch game files" });
+      }
+    }
+  );
+
+  // Create a game file record
+  app.post(
+    "/api/game-files",
+    authenticateToken,
+    gameFileBodyValidation,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const parsed = insertGameFileSchema.parse(req.body);
+        const game = await resolveOwnedGame(parsed.gameId, req.user!.id, res);
+        if (!game) return;
+        if (parsed.downloadId) {
+          const download = await storage.getGameDownload(parsed.downloadId, req.user!.id);
+          if (!download || download.gameId !== parsed.gameId) {
+            return res.status(404).json({ error: "Download not found for game" });
+          }
+        }
+        const gameFile = await storage.addGameFile(parsed);
+        res.status(201).json(gameFile);
+      } catch (error) {
+        if (error instanceof z.ZodError) {
+          return respondWithZodError(res, error, "Invalid game file data");
+        }
+        routesLogger.error({ error }, "error creating game file");
+        res.status(500).json({ error: "Failed to create game file" });
+      }
+    }
+  );
+
+  // Delete a game file record
+  app.delete(
+    "/api/game-files/:id",
+    authenticateToken,
+    gameFileIdParamValidation,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const { id } = req.params;
+        const gameFile = await storage.getGameFile(id);
+        if (!gameFile) {
+          return res.status(404).json({ error: "Game file not found" });
+        }
+        if (!(await resolveOwnedGame(gameFile.gameId, req.user!.id, res))) return;
+        const deleted = await storage.removeGameFile(id);
+        if (!deleted) {
+          return res.status(404).json({ error: "Game file not found" });
+        }
+        res.json({ success: true });
+      } catch (error) {
+        routesLogger.error({ error }, "error deleting game file");
+        res.status(500).json({ error: "Failed to delete game file" });
+      }
+    }
+  );
 
   // IGDB discovery routes
 

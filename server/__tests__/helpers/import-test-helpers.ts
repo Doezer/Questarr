@@ -53,6 +53,7 @@ export function makeImportConfig(overrides: Partial<ImportConfig> = {}): ImportC
     minFileSize: 0,
     libraryRoot: "/data",
     autoDeleteAfterImport: false,
+    sortExtras: false,
     ...overrides,
   };
 }

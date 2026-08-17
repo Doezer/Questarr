@@ -295,6 +295,15 @@ describe("IGDBClient - extended coverage", { timeout: 20000 }, () => {
         { company: { name: "Pub Co" }, developer: false, publisher: true },
       ],
       status: 4,
+      expansions: [
+        {
+          id: 2,
+          name: "Expansion One",
+          cover: { url: "//img/t_thumb/expansion.jpg" },
+          first_release_date: 1640995200,
+          game_type: 2,
+        },
+      ],
     });
 
     expect(formatted.title).toBe("Full Game");
@@ -304,6 +313,16 @@ describe("IGDBClient - extended coverage", { timeout: 20000 }, () => {
     expect(formatted.developers).toEqual(["Dev Co"]);
     expect(formatted.publishers).toEqual(["Pub Co"]);
     expect(formatted.earlyAccess).toBe(true);
+    expect(formatted.expansions).toEqual([
+      {
+        id: 2,
+        name: "Expansion One",
+        coverUrl: "https://img/t_cover_big/expansion.jpg",
+        releaseDate: "2022-01-01",
+        category: "dlc",
+        gameType: 2,
+      },
+    ]);
     expect(formatted.isReleased).toBe(true);
     expect(formatted.releaseYear).toBe(2021);
   });

@@ -52,6 +52,15 @@ function resolveTool(filePath: string): ArchiveTool {
   return path.extname(filePath).toLowerCase() === ".rar" ? "bsdtar" : "7za";
 }
 
+// libarchive's RAR reader surfaces terse internal error strings — e.g. "Prefix found" is
+// raised by its Huffman decode-tree builder (archive_read_support_format_rar.c) when it hits
+// a leaf node while still expecting to descend further, which only happens when the archive's
+// compressed data itself is malformed. That always means the RAR payload is corrupt or
+// truncated (an incomplete/damaged download) — libarchive genuinely cannot decode it, so
+// retrying extraction as-is will never succeed. Detect the marker and append an actionable
+// hint rather than surfacing the bare libarchive wording, which reads as an internal bug.
+const RAR_CORRUPTION_MARKER = "Prefix found";
+
 function runBsdtar(args: string[]): Promise<ExecFileResult> {
   const binary = resolveBsdtarBinary();
   if (!binary) {
@@ -75,7 +84,10 @@ function runBsdtar(args: string[]): Promise<ExecFileResult> {
       (error, stdout, stderr) => {
         if (error) {
           const detail = (stderr || stdout || error.message).trim().slice(0, 500);
-          reject(new Error(`bsdtar failed: ${detail}`));
+          const hint = detail.includes(RAR_CORRUPTION_MARKER)
+            ? " (the RAR's compressed data is corrupt or incomplete — re-download the release, extraction cannot recover this file)"
+            : "";
+          reject(new Error(`bsdtar failed: ${detail}${hint}`));
           return;
         }
         resolve({ stdout, stderr });

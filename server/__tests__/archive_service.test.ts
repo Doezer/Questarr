@@ -332,6 +332,25 @@ describe("ArchiveService", () => {
       expect(vi.mocked(execFile).mock.calls).toHaveLength(1);
     });
 
+    it("appends a corruption hint when bsdtar reports a Huffman decode failure", async () => {
+      process.env.BSDTAR_PATH = fakeBsdtarPath;
+      const service = await freshArchiveService();
+
+      vi.mocked(execFile).mockImplementation((...args: unknown[]) => {
+        const callback = args[3] as (error: Error | null, stdout: string, stderr: string) => void;
+        callback(
+          new Error("exit code 1"),
+          "",
+          "SLES_52585.ISO: Prefix found: Illegal byte sequence\nbsdtar: Error exit delayed from previous errors"
+        );
+        return {} as never;
+      });
+
+      await expect(
+        service.extract("/downloads/corrupt.rar", "/tmp/corrupt-out") // NOSONAR - mocked fs, no real dir access
+      ).rejects.toThrow(/corrupt or incomplete/);
+    });
+
     it("rejects with a clear error when no bsdtar binary is available", async () => {
       delete process.env.BSDTAR_PATH;
       const service = await freshArchiveService();

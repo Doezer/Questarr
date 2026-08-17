@@ -357,6 +357,28 @@ describe("ArchiveService", () => {
       vi.useRealTimers();
     });
 
+    it("still appends the corruption hint when the marker falls past the 500-char display limit", async () => {
+      process.env.BSDTAR_PATH = fakeBsdtarPath;
+      const service = await freshArchiveService();
+
+      // Padding pushes "Prefix found" well past the 500-char slice used for the displayed
+      // detail — the marker must still be detected against the full diagnostic.
+      const padding = "x".repeat(600);
+
+      vi.mocked(execFile).mockImplementation((...args: unknown[]) => {
+        const callback = args[3] as (error: Error | null, stdout: string, stderr: string) => void;
+        callback(new Error("exit code 1"), "", `${padding}\nSLES_52585.ISO: Prefix found`);
+        return {} as never;
+      });
+
+      vi.useFakeTimers();
+      const resultPromise = service.extract("/downloads/corrupt-padded.rar", "/tmp/corrupt-out"); // NOSONAR - mocked fs, no real dir access
+      const assertion = expect(resultPromise).rejects.toThrow(/corrupt or incomplete/);
+      await vi.runAllTimersAsync();
+      await assertion;
+      vi.useRealTimers();
+    });
+
     it("retries the integrity test and succeeds once the file is no longer truncated", async () => {
       process.env.BSDTAR_PATH = fakeBsdtarPath;
       const service = await freshArchiveService();

@@ -103,8 +103,12 @@ function runBsdtar(args: string[]): Promise<ExecFileResult> {
       },
       (error, stdout, stderr) => {
         if (error) {
-          const detail = (stderr || stdout || error.message).trim().slice(0, 500);
-          const hint = detail.includes(RAR_CORRUPTION_MARKER)
+          // Check the corruption marker against the full diagnostic before truncating —
+          // bsdtar can write it to whichever stream isn't picked first, or past the 500-char
+          // display limit, and a marker check against the already-truncated text would miss it.
+          const diagnostic = [stderr, stdout, error.message].filter(Boolean).join("\n").trim();
+          const detail = diagnostic.slice(0, 500);
+          const hint = diagnostic.includes(RAR_CORRUPTION_MARKER)
             ? " (the RAR's compressed data is corrupt or incomplete — re-download the release, extraction cannot recover this file)"
             : "";
           reject(new Error(`bsdtar failed: ${detail}${hint}`));

@@ -358,7 +358,7 @@ describe("API Routes - Additional Coverage", () => {
 
     beforeEach(() => {
       statSpy = vi.spyOn(fs.promises, "stat").mockResolvedValue({ size: 1 } as fs.Stats);
-      vi.mocked(readLastLogLines).mockResolvedValue([]);
+      vi.mocked(readLastLogLines).mockClear().mockResolvedValue([]);
     });
 
     afterEach(() => {

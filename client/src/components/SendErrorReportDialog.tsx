@@ -133,7 +133,11 @@ export default function SendErrorReportDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-md">
         {/* ── Expired / not found ─────────────────────────────────────────── */}
-        {metaExpired && (
+        {/* All metadata-query-derived states are scoped to step === "consent": after a
+            successful send, the finally block below invalidates this query, which
+            refetches the now-deleted report and 404s — without this guard that would
+            replace the "success" screen with "Report no longer available". */}
+        {step === "consent" && metaExpired && (
           <>
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
@@ -154,7 +158,7 @@ export default function SendErrorReportDialog({
         )}
 
         {/* ── Metadata request failed (not expired — network/server error) ──── */}
-        {metaLoadFailed && (
+        {step === "consent" && metaLoadFailed && (
           <>
             <DialogHeader>
               <DialogTitle className="text-destructive">Couldn't load report</DialogTitle>
@@ -176,7 +180,7 @@ export default function SendErrorReportDialog({
         )}
 
         {/* ── Loading metadata ─────────────────────────────────────────────── */}
-        {!metaExpired && !metaLoadFailed && isLoading && (
+        {step === "consent" && !metaExpired && !metaLoadFailed && isLoading && (
           <>
             <DialogHeader>
               <DialogTitle>Loading report…</DialogTitle>

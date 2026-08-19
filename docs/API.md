@@ -192,14 +192,17 @@ PII-scrubbed `server.log` lines when an unhandled server error is detected
 `server/error-telemetry.ts`. Pending reports are held in memory only (not
 persisted), scoped to the user they were created for, and expire after 24h.
 
-| Method | Path                                    | Auth Required  | Request Body | Response                                                                                                                     |
-| ------ | --------------------------------------- | -------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/api/telemetry/pending/:reportId`      | JWT (explicit) | —            | `{ lineCount, appVersion, platform, timestamp }`; 404 if expired/unknown/not owned by the caller                             |
-| POST   | `/api/telemetry/pending/:reportId/send` | JWT (explicit) | —            | `{ code, issueNumber }` (same shape as the manual "Send Logs" flow); 404 if not owned by the caller; 422 on delivery failure |
+| Method | Path                                    | Auth Required  | Request Body | Response                                                                                                                              |
+| ------ | --------------------------------------- | -------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/telemetry/pending/:reportId`      | JWT (explicit) | —            | `{ lineCount, appVersion, platform, timestamp }`; 404 if expired/unknown/not owned by the caller                                      |
+| POST   | `/api/telemetry/pending/:reportId/send` | JWT (explicit) | —            | `{ code, issueNumber }` (same shape as the manual "Send Logs" flow); 422 if unavailable (unknown/expired/not owned) or delivery fails |
 
-`reportId` must be a UUID (validated via express-validator); a report owned by
-another user is indistinguishable from an unknown/expired one — both return
-404 — so a caller can't probe for the existence of another user's report.
+`reportId` must be a UUID (validated via express-validator). For GET, a report
+owned by another user is indistinguishable from an unknown/expired one — both
+return 404 — so a caller can't probe for the existence of another user's
+report. POST folds the same "not available" cases (unknown, expired, or not
+owned) into the 422 it already uses for delivery failures, since
+`sendPendingReport` doesn't distinguish them from the caller's perspective.
 
 Whether an error triggers a notification at all is controlled by the
 `errorDetected` notification preference; whether it's reported automatically

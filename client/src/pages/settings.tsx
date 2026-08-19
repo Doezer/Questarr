@@ -2058,6 +2058,62 @@ export default function SettingsPage() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* Telemetry */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center space-x-3">
+                  <Radio className="h-5 w-5 text-muted-foreground" />
+                  <CardTitle className="text-lg">Telemetry</CardTitle>
+                </div>
+                <CardDescription>
+                  Help improve Questarr by automatically sharing diagnostic data when something goes
+                  wrong
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5 pr-4">
+                    <Label htmlFor="telemetry-enabled" className="text-sm font-medium">
+                      Automatically send error reports
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Off by default. When Questarr detects an unexpected server error, it will
+                      normally ask you first (see the "Error Detected" notification below). Turn
+                      this on to skip that prompt and send a scrubbed diagnostic report
+                      automatically instead — no personal data, IP addresses, or file paths are
+                      included. Reports help the maintainer catch bugs users don't otherwise report.
+                      You can still send a one-off report manually from the Logs page at any time,
+                      whatever this setting is.
+                    </p>
+                  </div>
+                  <Switch
+                    id="telemetry-enabled"
+                    checked={telemetryEnabled}
+                    onCheckedChange={setTelemetryEnabled}
+                  />
+                </div>
+                <div className="flex justify-end pt-4 border-t">
+                  <Button
+                    onClick={handleSaveTelemetry}
+                    disabled={updateSettingsMutation.isPending}
+                    className="gap-2"
+                  >
+                    {updateSettingsMutation.isPending ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Radio className="h-4 w-4" />
+                        Save Telemetry
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
           </TabsContent>
 
           <TabsContent value="security" className="space-y-6">
@@ -2344,62 +2400,6 @@ export default function SettingsPage() {
                     </div>
                   </>
                 )}
-              </CardContent>
-            </Card>
-
-            {/* Telemetry */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center space-x-3">
-                  <Radio className="h-5 w-5 text-muted-foreground" />
-                  <CardTitle className="text-lg">Telemetry</CardTitle>
-                </div>
-                <CardDescription>
-                  Help improve Questarr by automatically sharing diagnostic data when something goes
-                  wrong
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5 pr-4">
-                    <Label htmlFor="telemetry-enabled" className="text-sm font-medium">
-                      Automatically send error reports
-                    </Label>
-                    <p className="text-xs text-muted-foreground">
-                      Off by default. When Questarr detects an unexpected server error, it will
-                      normally ask you first (see the "Error Detected" notification below). Turn
-                      this on to skip that prompt and send a scrubbed diagnostic report
-                      automatically instead — no personal data, IP addresses, or file paths are
-                      included. Reports help the maintainer catch bugs users don't otherwise report.
-                      You can still send a one-off report manually from the Logs page at any time,
-                      whatever this setting is.
-                    </p>
-                  </div>
-                  <Switch
-                    id="telemetry-enabled"
-                    checked={telemetryEnabled}
-                    onCheckedChange={setTelemetryEnabled}
-                  />
-                </div>
-                <div className="flex justify-end pt-4 border-t">
-                  <Button
-                    onClick={handleSaveTelemetry}
-                    disabled={updateSettingsMutation.isPending}
-                    className="gap-2"
-                  >
-                    {updateSettingsMutation.isPending ? (
-                      <>
-                        <RefreshCw className="h-4 w-4 animate-spin" />
-                        Saving...
-                      </>
-                    ) : (
-                      <>
-                        <Radio className="h-4 w-4" />
-                        Save Telemetry
-                      </>
-                    )}
-                  </Button>
-                </div>
               </CardContent>
             </Card>
           </TabsContent>

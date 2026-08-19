@@ -183,6 +183,25 @@ JWT even where a table row doesn't repeat `authenticateToken`.
 | PUT    | `/api/notifications/read-all`     | JWT (explicit) | —                                              | `{ success: true }`                                                  |
 | DELETE | `/api/notifications`              | JWT (explicit) | —                                              | 204 (clears all read notifications)                                  |
 
+## Error Telemetry
+
+Backs the consent flow opened from an "error-detected" notification's link
+(`error-report:<reportId>`). Reports are built server-side from recent,
+PII-scrubbed `server.log` lines when an unhandled server error is detected
+(uncaught exception, unhandled rejection, or a 5xx response); see
+`server/error-telemetry.ts`. Pending reports are held in memory only (not
+persisted) and expire after 24h.
+
+| Method | Path                                    | Auth Required  | Request Body | Response                                                                            |
+| ------ | --------------------------------------- | -------------- | ------------ | ----------------------------------------------------------------------------------- |
+| GET    | `/api/telemetry/pending/:reportId`      | JWT (explicit) | —            | `{ lineCount, appVersion, platform, timestamp }`; 404 if expired/unknown            |
+| POST   | `/api/telemetry/pending/:reportId/send` | JWT (explicit) | —            | `{ code, issueNumber }` (same shape as the manual "Send Logs" flow); 422 on failure |
+
+Whether an error triggers a notification at all is controlled by the
+`errorDetected` notification preference; whether it's reported automatically
+(skipping the consent step above) is controlled by the per-user
+`telemetryEnabled` setting (Settings > System > Telemetry, off by default).
+
 ## xREL
 
 | Method | Path               | Auth Required | Request Body                                                                                            | Response                                                                                                 |

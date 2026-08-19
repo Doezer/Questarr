@@ -47,9 +47,16 @@ vi.mock("../logger.js", () => {
   };
 });
 
-const baseUser: User = {
+const userOne: User = {
   id: "user-1",
   username: "tester",
+  password: "hash",
+  createdAt: new Date(),
+} as unknown as User;
+
+const userTwo: User = {
+  id: "user-2",
+  username: "other",
   password: "hash",
   createdAt: new Date(),
 } as unknown as User;
@@ -75,6 +82,7 @@ describe("error-telemetry", () => {
   let safeFetchMock: Mock;
   let reportServerError: (typeof import("../error-telemetry.js"))["reportServerError"];
   let sendPendingReport: (typeof import("../error-telemetry.js"))["sendPendingReport"];
+  let getPendingReport: (typeof import("../error-telemetry.js"))["getPendingReport"];
 
   beforeEach(async () => {
     vi.resetModules();
@@ -95,6 +103,7 @@ describe("error-telemetry", () => {
     const errorTelemetry = await import("../error-telemetry.js");
     reportServerError = errorTelemetry.reportServerError;
     sendPendingReport = errorTelemetry.sendPendingReport;
+    getPendingReport = errorTelemetry.getPendingReport;
 
     storageMock.addNotification.mockImplementation(
       async (n: InsertNotification): Promise<Notification> =>
@@ -103,7 +112,7 @@ describe("error-telemetry", () => {
   });
 
   it("creates an actionable notification (no auto-send) when telemetryEnabled is false", async () => {
-    storageMock.getAllUsers.mockResolvedValue([baseUser]);
+    storageMock.getAllUsers.mockResolvedValue([userOne]);
     storageMock.getUserSettings.mockResolvedValue(makeSettings({ telemetryEnabled: false }));
 
     await reportServerError(new Error("boom"), { source: "expressErrorHandler" });
@@ -117,7 +126,7 @@ describe("error-telemetry", () => {
   });
 
   it("auto-sends and creates an info notification when telemetryEnabled is true", async () => {
-    storageMock.getAllUsers.mockResolvedValue([baseUser]);
+    storageMock.getAllUsers.mockResolvedValue([userOne]);
     storageMock.getUserSettings.mockResolvedValue(makeSettings({ telemetryEnabled: true }));
     safeFetchMock.mockResolvedValue({
       ok: true,
@@ -140,8 +149,66 @@ describe("error-telemetry", () => {
     expect(notification.link).toBeUndefined();
   });
 
+  it("sends the automatic report even when the errorDetected in-app preference is off", async () => {
+    storageMock.getAllUsers.mockResolvedValue([userOne]);
+    storageMock.getUserSettings.mockResolvedValue(
+      makeSettings({
+        telemetryEnabled: true,
+        notificationPreferences: JSON.stringify({
+          errorDetected: { inApp: false, apprise: false },
+        }),
+      })
+    );
+    safeFetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ code: "1234", issueNumber: 42 }),
+    });
+
+    await reportServerError(new Error("boom"), { source: "expressErrorHandler" });
+
+    // Opted-in telemetry must not depend on the in-app notification preference —
+    // the report is still sent, just without a notification about it.
+    expect(safeFetchMock).toHaveBeenCalledTimes(1);
+    expect(storageMock.addNotification).not.toHaveBeenCalled();
+  });
+
+  it("sends only one automatic report even when multiple users are opted in", async () => {
+    storageMock.getAllUsers.mockResolvedValue([userOne, userTwo]);
+    storageMock.getUserSettings.mockResolvedValue(makeSettings({ telemetryEnabled: true }));
+    safeFetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ code: "1234", issueNumber: 42 }),
+    });
+
+    await reportServerError(new Error("boom"), { source: "expressErrorHandler" });
+
+    expect(safeFetchMock).toHaveBeenCalledTimes(1);
+    expect(storageMock.addNotification).toHaveBeenCalledTimes(2);
+  });
+
+  it("scrubs PII from the error message before including it in the auto-send banner", async () => {
+    storageMock.getAllUsers.mockResolvedValue([userOne]);
+    storageMock.getUserSettings.mockResolvedValue(makeSettings({ telemetryEnabled: true }));
+    safeFetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ code: "1234", issueNumber: 42 }),
+    });
+
+    await reportServerError(new Error("failed for user alice@example.com"), {
+      source: "expressErrorHandler",
+    });
+
+    const [, requestInit] = safeFetchMock.mock.calls[0];
+    const body = JSON.parse(requestInit.body as string);
+    expect(body.logs).not.toContain("alice@example.com");
+    expect(body.logs).toContain("[email]");
+  });
+
   it("skips users who disabled the errorDetected notification", async () => {
-    storageMock.getAllUsers.mockResolvedValue([baseUser]);
+    storageMock.getAllUsers.mockResolvedValue([userOne]);
     storageMock.getUserSettings.mockResolvedValue(
       makeSettings({
         notificationPreferences: JSON.stringify({
@@ -157,7 +224,7 @@ describe("error-telemetry", () => {
   });
 
   it("does not report again within the cooldown window", async () => {
-    storageMock.getAllUsers.mockResolvedValue([baseUser]);
+    storageMock.getAllUsers.mockResolvedValue([userOne]);
     storageMock.getUserSettings.mockResolvedValue(makeSettings());
 
     await reportServerError(new Error("first"), { source: "expressErrorHandler" });
@@ -168,7 +235,7 @@ describe("error-telemetry", () => {
   });
 
   it("sendPendingReport reports an unknown/expired report id as not available", async () => {
-    const result = await sendPendingReport("does-not-exist");
+    const result = await sendPendingReport("does-not-exist", "user-1");
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.message).toMatch(/no longer available/i);
@@ -176,8 +243,26 @@ describe("error-telemetry", () => {
     expect(safeFetchMock).not.toHaveBeenCalled();
   });
 
+  it("scopes pending reports to their owning user", async () => {
+    storageMock.getAllUsers.mockResolvedValue([userOne]);
+    storageMock.getUserSettings.mockResolvedValue(makeSettings({ telemetryEnabled: false }));
+    await reportServerError(new Error("boom"), { source: "expressErrorHandler" });
+
+    const notification = storageMock.addNotification.mock.calls[0][0] as InsertNotification;
+    const reportId = notification.link!.split(":").pop()!;
+
+    // The owning user can read it...
+    expect(getPendingReport(reportId, "user-1")).toBeDefined();
+    // ...but a different authenticated user cannot.
+    expect(getPendingReport(reportId, "user-2")).toBeUndefined();
+
+    const result = await sendPendingReport(reportId, "user-2");
+    expect(result.ok).toBe(false);
+    expect(safeFetchMock).not.toHaveBeenCalled();
+  });
+
   it("sendPendingReport sends a telemetry-prompted report for a pending id", async () => {
-    storageMock.getAllUsers.mockResolvedValue([baseUser]);
+    storageMock.getAllUsers.mockResolvedValue([userOne]);
     storageMock.getUserSettings.mockResolvedValue(makeSettings({ telemetryEnabled: false }));
     await reportServerError(new Error("boom"), { source: "expressErrorHandler" });
 
@@ -190,7 +275,7 @@ describe("error-telemetry", () => {
       json: async () => ({ code: "5678", issueNumber: 7 }),
     });
 
-    const result = await sendPendingReport(reportId);
+    const result = await sendPendingReport(reportId, "user-1");
 
     expect(result.ok).toBe(true);
     const [, requestInit] = safeFetchMock.mock.calls[0];
@@ -198,12 +283,39 @@ describe("error-telemetry", () => {
     expect(body.reportType).toBe("telemetry-prompted");
 
     // Second send for the same id should fail — it was deleted after success.
-    const secondResult = await sendPendingReport(reportId);
+    const secondResult = await sendPendingReport(reportId, "user-1");
     expect(secondResult.ok).toBe(false);
   });
 
+  it("restores the pending report if delivery fails, so the user can retry", async () => {
+    storageMock.getAllUsers.mockResolvedValue([userOne]);
+    storageMock.getUserSettings.mockResolvedValue(makeSettings({ telemetryEnabled: false }));
+    await reportServerError(new Error("boom"), { source: "expressErrorHandler" });
+
+    const notification = storageMock.addNotification.mock.calls[0][0] as InsertNotification;
+    const reportId = notification.link!.split(":").pop()!;
+
+    safeFetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 502,
+      json: async () => ({ error: "bad gateway" }),
+    });
+
+    const failedResult = await sendPendingReport(reportId, "user-1");
+    expect(failedResult.ok).toBe(false);
+    expect(getPendingReport(reportId, "user-1")).toBeDefined();
+
+    safeFetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ code: "9999", issueNumber: 1 }),
+    });
+    const retryResult = await sendPendingReport(reportId, "user-1");
+    expect(retryResult.ok).toBe(true);
+  });
+
   it("does not call apprise when the errorDetected apprise preference is off", async () => {
-    storageMock.getAllUsers.mockResolvedValue([baseUser]);
+    storageMock.getAllUsers.mockResolvedValue([userOne]);
     storageMock.getUserSettings.mockResolvedValue(makeSettings());
 
     await reportServerError(new Error("boom"), { source: "expressErrorHandler" });

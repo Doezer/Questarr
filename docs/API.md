@@ -190,12 +190,16 @@ Backs the consent flow opened from an "error-detected" notification's link
 PII-scrubbed `server.log` lines when an unhandled server error is detected
 (uncaught exception, unhandled rejection, or a 5xx response); see
 `server/error-telemetry.ts`. Pending reports are held in memory only (not
-persisted) and expire after 24h.
+persisted), scoped to the user they were created for, and expire after 24h.
 
-| Method | Path                                    | Auth Required  | Request Body | Response                                                                            |
-| ------ | --------------------------------------- | -------------- | ------------ | ----------------------------------------------------------------------------------- |
-| GET    | `/api/telemetry/pending/:reportId`      | JWT (explicit) | —            | `{ lineCount, appVersion, platform, timestamp }`; 404 if expired/unknown            |
-| POST   | `/api/telemetry/pending/:reportId/send` | JWT (explicit) | —            | `{ code, issueNumber }` (same shape as the manual "Send Logs" flow); 422 on failure |
+| Method | Path                                    | Auth Required  | Request Body | Response                                                                                                                     |
+| ------ | --------------------------------------- | -------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/telemetry/pending/:reportId`      | JWT (explicit) | —            | `{ lineCount, appVersion, platform, timestamp }`; 404 if expired/unknown/not owned by the caller                             |
+| POST   | `/api/telemetry/pending/:reportId/send` | JWT (explicit) | —            | `{ code, issueNumber }` (same shape as the manual "Send Logs" flow); 404 if not owned by the caller; 422 on delivery failure |
+
+`reportId` must be a UUID (validated via express-validator); a report owned by
+another user is indistinguishable from an unknown/expired one — both return
+404 — so a caller can't probe for the existence of another user's report.
 
 Whether an error triggers a notification at all is controlled by the
 `errorDetected` notification preference; whether it's reported automatically

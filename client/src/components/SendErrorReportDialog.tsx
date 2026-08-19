@@ -57,12 +57,20 @@ export default function SendErrorReportDialog({
   const {
     data: meta,
     isLoading,
-    isError: metaExpired,
+    isError,
+    error: metaError,
+    refetch: refetchMeta,
   } = useQuery<PendingReportMeta>({
     queryKey: ["/api/telemetry/pending", reportId],
     enabled: open && !!reportId,
     retry: false,
   });
+
+  // Only a 404 means the report actually expired/was already sent. Any other
+  // failure (network error, timeout, 5xx, auth) is a transient request error
+  // the user should be able to retry rather than being told the report is gone.
+  const metaExpired = isError && metaError instanceof ApiError && metaError.status === 404;
+  const metaLoadFailed = isError && !metaExpired;
 
   const reset = useCallback(() => {
     setStep("consent");
@@ -145,8 +153,30 @@ export default function SendErrorReportDialog({
           </>
         )}
 
+        {/* ── Metadata request failed (not expired — network/server error) ──── */}
+        {metaLoadFailed && (
+          <>
+            <DialogHeader>
+              <DialogTitle className="text-destructive">Couldn't load report</DialogTitle>
+              <DialogDescription>
+                {metaError instanceof ApiError
+                  ? metaError.message
+                  : "Something went wrong loading this report."}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => refetchMeta()}>
+                Try again
+              </Button>
+              <Button variant="outline" onClick={() => handleOpenChange(false)}>
+                Close
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+
         {/* ── Loading metadata ─────────────────────────────────────────────── */}
-        {!metaExpired && isLoading && (
+        {!metaExpired && !metaLoadFailed && isLoading && (
           <>
             <DialogHeader>
               <DialogTitle>Loading report…</DialogTitle>
@@ -159,7 +189,7 @@ export default function SendErrorReportDialog({
         )}
 
         {/* ── Consent ─────────────────────────────────────────────────────── */}
-        {!metaExpired && !isLoading && meta && step === "consent" && (
+        {!metaExpired && !metaLoadFailed && !isLoading && meta && step === "consent" && (
           <>
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">

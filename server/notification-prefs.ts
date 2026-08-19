@@ -20,7 +20,7 @@ export function resolvePrefs(
     return { ...DEFAULT_NOTIFICATION_PREFERENCES, ...JSON.parse(settings.notificationPreferences) };
   } catch {
     igdbLogger.warn(
-      { value: settings.notificationPreferences },
+      { length: settings.notificationPreferences?.length ?? 0 },
       "Failed to parse notification preferences, using defaults"
     );
     return DEFAULT_NOTIFICATION_PREFERENCES;

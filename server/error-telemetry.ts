@@ -12,6 +12,9 @@
  *    (see server/routes.ts) and `SendErrorReportDialog`.
  *
  * A global cooldown prevents notification/telemetry spam during a crash loop.
+ * The automatic-telemetry report (when enabled) is sent at most once per
+ * detected error — never once per opted-in user — and its result is shared
+ * across every opted-in user's notification.
  */
 import { randomUUID } from "node:crypto";
 import path from "node:path";
@@ -23,9 +26,9 @@ import { appriseClient } from "./apprise.js";
 import { resolvePrefs } from "./notification-prefs.js";
 import { safeFetch } from "./ssrf.js";
 import { telemetryLogger } from "./logger.js";
-import { scrubLogLines } from "../shared/log-scrub.js";
+import { scrubPii, scrubLogLines } from "../shared/log-scrub.js";
 import { SUPPORT_WORKER_URL } from "../shared/support-config.js";
-import type { InsertNotification } from "../shared/schema.js";
+import type { InsertNotification, NotificationPreferences, User } from "../shared/schema.js";
 
 const ERROR_REPORT_COOLDOWN_MS = 30 * 60 * 1000; // 30 minutes
 const LOG_CONTEXT_LINES = 150;
@@ -43,6 +46,7 @@ export interface ErrorContext {
 }
 
 export interface PendingErrorReport {
+  userId: string;
   logs: string;
   lineCount: number;
   appVersion: string;
@@ -56,19 +60,25 @@ const pendingReports = new Map<string, PendingErrorReport>();
 
 function purgeExpiredReports(): void {
   const cutoff = Date.now() - PENDING_REPORT_TTL_MS;
-  for (const [id, report] of pendingReports) {
+  for (const [id, report] of Array.from(pendingReports.entries())) {
     if (report.createdAt < cutoff) pendingReports.delete(id);
   }
 }
 
-/** Used by GET /api/telemetry/pending/:reportId */
-export function getPendingReport(reportId: string): PendingErrorReport | undefined {
-  return pendingReports.get(reportId);
-}
-
-/** Used by POST /api/telemetry/pending/:reportId/send after a successful (or exhausted) attempt */
-export function deletePendingReport(reportId: string): void {
-  pendingReports.delete(reportId);
+/**
+ * Used by GET /api/telemetry/pending/:reportId. Only returns the report when
+ * it exists, hasn't expired, and belongs to the requesting user — an
+ * authenticated user must not be able to read another user's report by
+ * guessing/observing its id.
+ */
+export function getPendingReport(reportId: string, userId: string): PendingErrorReport | undefined {
+  const report = pendingReports.get(reportId);
+  if (!report || report.userId !== userId) return undefined;
+  if (Date.now() - report.createdAt > PENDING_REPORT_TTL_MS) {
+    pendingReports.delete(reportId);
+    return undefined;
+  }
+  return report;
 }
 
 type WorkerSendResult =
@@ -111,18 +121,28 @@ async function sendToSupportWorker(
   }
 }
 
-/** Sends the confirmed pending report (user clicked "Send" in SendErrorReportDialog). */
-export async function sendPendingReport(reportId: string): Promise<WorkerSendResult> {
-  const report = getPendingReport(reportId);
+/**
+ * Sends the confirmed pending report (user clicked "Send" in SendErrorReportDialog).
+ * The report is reserved (removed from the map) before the outbound request so two
+ * concurrent submissions can't both send it; it's restored only if delivery fails,
+ * so the user can retry.
+ */
+export async function sendPendingReport(
+  reportId: string,
+  userId: string
+): Promise<WorkerSendResult> {
+  const report = getPendingReport(reportId, userId);
   if (!report) {
     return { ok: false, message: "This report is no longer available." };
   }
+  pendingReports.delete(reportId);
 
   const banner =
-    "=== QUESTARR AUTOMATED TELEMETRY REPORT (user-confirmed) ===\n" +
-    'Sent after the user clicked "Send" on an error-detected notification.';
+    '=== QUESTARR AUTOMATED TELEMETRY REPORT (user-confirmed) ===\nSent after the user clicked "Send" on an error-detected notification.';
   const result = await sendToSupportWorker(report.logs, "telemetry-prompted", banner);
-  if (result.ok) deletePendingReport(reportId);
+  if (!result.ok) {
+    pendingReports.set(reportId, report);
+  }
   return result;
 }
 
@@ -135,6 +155,99 @@ async function buildScrubbedLogBundle(): Promise<{ logs: string; lineCount: numb
     telemetryLogger.warn({ error: err }, "Failed to read server.log for error telemetry");
     return { logs: "", lineCount: 0 };
   }
+}
+
+function buildAutoSendBanner(errorMessage: string, context: ErrorContext): string {
+  const location = context.path ? ` (${context.method} ${context.path})` : "";
+  const trigger = `${context.source}${location}`;
+  return (
+    "=== QUESTARR AUTOMATED TELEMETRY REPORT (auto-sent, no user confirmation) ===\n" +
+    `Trigger: ${trigger}\n` +
+    `Error: ${errorMessage}`
+  );
+}
+
+interface UserTelemetryContext {
+  user: User;
+  prefs: NotificationPreferences;
+  telemetryEnabled: boolean;
+}
+
+async function loadUserTelemetryContexts(users: User[]): Promise<UserTelemetryContext[]> {
+  const contexts: UserTelemetryContext[] = [];
+  for (const user of users) {
+    const settings = await storage.getUserSettings(user.id);
+    contexts.push({
+      user,
+      prefs: resolvePrefs(settings),
+      telemetryEnabled: settings?.telemetryEnabled === true,
+    });
+  }
+  return contexts;
+}
+
+/**
+ * Builds (and, for a user, persists) the notification for one user's telemetry
+ * context, reusing a single shared auto-send result across every opted-in user
+ * so the Worker only receives one submission per detected error. Telemetry
+ * auto-send runs independently of the "Error Detected" in-app preference —
+ * that preference only gates whether a notification is created, not whether
+ * an opted-in report is sent.
+ */
+function buildNotificationFor(
+  ctx: UserTelemetryContext,
+  autoSendResult: WorkerSendResult | null,
+  pending: { logs: string; lineCount: number; timestamp: string } | null
+): InsertNotification | null {
+  const { user, prefs, telemetryEnabled } = ctx;
+
+  if (telemetryEnabled) {
+    if (!autoSendResult || !prefs.errorDetected.inApp) return null;
+    return autoSendResult.ok
+      ? {
+          userId: user.id,
+          type: "info",
+          title: "Automated error report sent",
+          message: `Questarr detected an error and automatically sent a diagnostic report. Support code: ${autoSendResult.code}.`,
+        }
+      : {
+          userId: user.id,
+          type: "warning",
+          title: "Automated error report failed",
+          message: `Questarr detected an error but could not send the automatic diagnostic report (${autoSendResult.message}).`,
+        };
+  }
+
+  if (!prefs.errorDetected.inApp || !pending) return null;
+
+  const reportId = randomUUID();
+  pendingReports.set(reportId, {
+    userId: user.id,
+    logs: pending.logs,
+    lineCount: pending.lineCount,
+    appVersion: APP_VERSION,
+    platform: "server",
+    timestamp: pending.timestamp,
+    createdAt: Date.now(),
+  });
+
+  return {
+    userId: user.id,
+    type: "warning",
+    title: "An error occurred",
+    message:
+      "Questarr encountered an unexpected error. Click to review and optionally send a diagnostic report to help fix it.",
+    link: `error-report:${reportId}`,
+  };
+}
+
+async function dispatchNotification(
+  ctx: UserTelemetryContext,
+  notification: InsertNotification
+): Promise<void> {
+  const created = await storage.addNotification(notification);
+  notifyUser("notification", created);
+  if (ctx.prefs.errorDetected.apprise) appriseClient.send(created);
 }
 
 /**
@@ -152,66 +265,30 @@ export async function reportServerError(err: unknown, context: ErrorContext): Pr
   try {
     purgeExpiredReports();
 
-    const errorMessage = err instanceof Error ? err.message : String(err);
+    const errorMessage = scrubPii(err instanceof Error ? err.message : String(err));
     const { logs, lineCount } = await buildScrubbedLogBundle();
     const timestamp = new Date().toISOString();
 
     const users = await storage.getAllUsers();
-    for (const user of users) {
+    const contexts = await loadUserTelemetryContexts(users);
+
+    const anyoneOptedIn = contexts.some((ctx) => ctx.telemetryEnabled);
+    const autoSendResult = anyoneOptedIn
+      ? await sendToSupportWorker(
+          logs,
+          "telemetry-auto",
+          buildAutoSendBanner(errorMessage, context)
+        )
+      : null;
+    const pending = { logs, lineCount, timestamp };
+
+    for (const ctx of contexts) {
       try {
-        const settings = await storage.getUserSettings(user.id);
-        const prefs = resolvePrefs(settings);
-        if (!prefs.errorDetected.inApp) continue;
-
-        let notification: InsertNotification;
-
-        if (settings?.telemetryEnabled) {
-          const banner =
-            "=== QUESTARR AUTOMATED TELEMETRY REPORT (auto-sent, no user confirmation) ===\n" +
-            `Trigger: ${context.source}${context.path ? ` (${context.method} ${context.path})` : ""}\n` +
-            `Error: ${errorMessage}`;
-          const result = await sendToSupportWorker(logs, "telemetry-auto", banner);
-
-          notification = result.ok
-            ? {
-                userId: user.id,
-                type: "info",
-                title: "Automated error report sent",
-                message: `Questarr detected an error and automatically sent a diagnostic report. Support code: ${result.code}.`,
-              }
-            : {
-                userId: user.id,
-                type: "warning",
-                title: "Automated error report failed",
-                message: `Questarr detected an error but could not send the automatic diagnostic report (${result.message}).`,
-              };
-        } else {
-          const reportId = randomUUID();
-          pendingReports.set(reportId, {
-            logs,
-            lineCount,
-            appVersion: APP_VERSION,
-            platform: "server",
-            timestamp,
-            createdAt: now,
-          });
-
-          notification = {
-            userId: user.id,
-            type: "warning",
-            title: "An error occurred",
-            message:
-              "Questarr encountered an unexpected error. Click to review and optionally send a diagnostic report to help fix it.",
-            link: `error-report:${reportId}`,
-          };
-        }
-
-        const created = await storage.addNotification(notification);
-        notifyUser("notification", created);
-        if (prefs.errorDetected.apprise) appriseClient.send(created);
+        const notification = buildNotificationFor(ctx, autoSendResult, pending);
+        if (notification) await dispatchNotification(ctx, notification);
       } catch (userError) {
         telemetryLogger.error(
-          { error: userError, userId: user.id },
+          { error: userError, userId: ctx.user.id },
           "Failed to process error telemetry for user"
         );
       }

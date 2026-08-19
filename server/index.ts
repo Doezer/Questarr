@@ -22,14 +22,17 @@ import { logger } from "./logger.js";
 const app = createApp();
 
 // Best-effort error telemetry for crashes that never reach Express (startup code,
-// timers, unawaited promises, etc). This does NOT change Node's default crash
-// behavior: uncaughtException still terminates the process after we've had a
-// bounded window to report it, and unhandledRejection still just logs (as it did
-// before this handler existed — no handler here previously changed nothing).
-process.on("uncaughtException", (err) => {
-  logger.fatal({ err }, "Uncaught exception — process will exit");
+// timers, unawaited promises, etc). Both handlers keep Node's default fatal
+// behavior for these events — a bounded window to report the error, then
+// process.exit(1) — rather than letting the process linger in a decayed state.
+function handleFatalError(source: "uncaughtException" | "unhandledRejection", err: unknown): void {
+  const message =
+    source === "uncaughtException"
+      ? "Uncaught exception — process will exit"
+      : "Unhandled promise rejection — process will exit";
+  logger.fatal({ err }, message);
   Promise.race([
-    reportServerError(err, { source: "uncaughtException" }),
+    reportServerError(err, { source }),
     new Promise((resolve) => setTimeout(resolve, 5000)),
   ])
     .catch(() => {
@@ -38,12 +41,10 @@ process.on("uncaughtException", (err) => {
     .finally(() => {
       process.exit(1);
     });
-});
+}
 
-process.on("unhandledRejection", (reason) => {
-  logger.error({ err: reason }, "Unhandled promise rejection");
-  void reportServerError(reason, { source: "unhandledRejection" });
-});
+process.on("uncaughtException", (err) => handleFatalError("uncaughtException", err));
+process.on("unhandledRejection", (reason) => handleFatalError("unhandledRejection", reason));
 
 (async () => {
   try {

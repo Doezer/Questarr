@@ -28,7 +28,7 @@ const JWT_RE = /eyJ[A-Za-z0-9+/=_-]+\.eyJ[A-Za-z0-9+/=_-]+\.[A-Za-z0-9+/=_-]+/g;
  * Unix home dir:   /home/alice/… or /Users/alice/…
  * Windows home dir: C:\Users\alice\… (backslash or forward slash)
  */
-const HOME_PATH_RE = /(?:\/(?:home|Users)|[A-Za-z]:\\[Uu]sers)[\\/]([^\\/\s"',:}]{1,64})/g;
+const HOME_PATH_RE = /(?:\/(?:home|Users)|[A-Za-z]:[\\/][Uu]sers)[\\/]([^\\/\s"',:}]{1,64})/g;
 const WINDOWS_USERS_SEGMENT = String.raw`\Users`;
 
 // ── Public API ────────────────────────────────────────────────────────────────

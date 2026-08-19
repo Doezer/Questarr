@@ -180,12 +180,14 @@ describe("send-logs utilities", () => {
   });
 
   it("builds a prefilled GitHub issue URL", () => {
-    const issueUrl = buildGitHubIssueUrl("ABCD", "1.4.0");
+    const issueUrl = buildGitHubIssueUrl("ABCD", "1.4.0", 123);
 
     expect(issueUrl).toContain("https://github.com/Doezer/Questarr/issues/new?");
     expect(decodeURIComponent(issueUrl)).toContain("[Support] Issue with Questarr v1.4.0");
     expect(decodeURIComponent(issueUrl)).toContain("**App version:** 1.4.0");
-    expect(decodeURIComponent(issueUrl)).toContain("**Support log #:** `ABCD`");
+    expect(decodeURIComponent(issueUrl)).toContain(
+      "**Support log #:** `ABCD` (Doezer/Questarr-logs#123)"
+    );
   });
 
   it("detects the current platform from the browser user agent", () => {

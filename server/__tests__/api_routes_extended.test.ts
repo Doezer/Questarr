@@ -372,28 +372,24 @@ describe("API Routes - Additional Coverage", () => {
       expect(res.body.lines).toEqual(["line one", "line two"]);
     });
 
-    it("defaults to a 1000-line limit when none is provided", async () => {
-      const res = await request(app).get("/api/logs");
+    it.each([
+      { desc: "no limit provided defaults to 1000", queryLimit: undefined, expectedLimit: 1000 },
+      { desc: "an in-range limit is honored", queryLimit: "3000", expectedLimit: 3000 },
+      { desc: "an out-of-range limit clamps to 5000", queryLimit: "99999", expectedLimit: 5000 },
+      {
+        desc: "a non-numeric limit falls back to 1000",
+        queryLimit: "not-a-number",
+        expectedLimit: 1000,
+      },
+    ])("$desc", async ({ queryLimit, expectedLimit }) => {
+      const res = await request(app).get(
+        queryLimit === undefined ? "/api/logs" : `/api/logs?limit=${queryLimit}`
+      );
       expect(res.status).toBe(200);
-      expect(readLastLogLines).toHaveBeenCalledWith(expect.stringContaining("server.log"), 1000);
-    });
-
-    it("honors an explicit limit within range", async () => {
-      const res = await request(app).get("/api/logs?limit=3000");
-      expect(res.status).toBe(200);
-      expect(readLastLogLines).toHaveBeenCalledWith(expect.stringContaining("server.log"), 3000);
-    });
-
-    it("clamps an out-of-range limit query param to the 5000-line maximum", async () => {
-      const res = await request(app).get("/api/logs?limit=99999");
-      expect(res.status).toBe(200);
-      expect(readLastLogLines).toHaveBeenCalledWith(expect.stringContaining("server.log"), 5000);
-    });
-
-    it("falls back to the default limit for a non-numeric limit value", async () => {
-      const res = await request(app).get("/api/logs?limit=not-a-number");
-      expect(res.status).toBe(200);
-      expect(readLastLogLines).toHaveBeenCalledWith(expect.stringContaining("server.log"), 1000);
+      expect(readLastLogLines).toHaveBeenCalledWith(
+        expect.stringContaining("server.log"),
+        expectedLimit
+      );
     });
   });
 

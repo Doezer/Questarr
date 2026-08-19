@@ -34,6 +34,11 @@ import { torznabClient } from "./torznab.js";
 import { newznabClient } from "./newznab.js";
 import { rssService } from "./rss.js";
 import { DownloaderManager } from "./downloaders.js";
+import {
+  DOWNLOADER_DEBUG_LOGGING_CONFIG_KEY,
+  isDownloaderDebugLoggingEnabled,
+  setCachedDownloaderDebugLogging,
+} from "./downloaders/debug-logging.js";
 import { z } from "zod";
 import { routesLogger } from "./logger.js";
 import { getPendingReport, sendPendingReport } from "./error-telemetry.js";
@@ -2172,6 +2177,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Downloader management routes
 
   // Get all downloaders
+  // Verbose debug logging of full downloader responses (qBittorrent, Transmission,
+  // rTorrent, Deluge, Synology, sabnzbd, nzbget). Off by default - meant to be
+  // toggled on temporarily while diagnosing a downloader integration issue.
+  app.get("/api/downloaders/debug-logging", async (_req, res) => {
+    try {
+      res.json({ enabled: isDownloaderDebugLoggingEnabled() });
+    } catch (error) {
+      routesLogger.error({ error }, "error fetching downloader debug logging setting");
+      res.status(500).json({ error: "Failed to fetch downloader debug logging setting" });
+    }
+  });
+
+  app.put(
+    "/api/downloaders/debug-logging",
+    body("enabled").isBoolean().withMessage("enabled must be a boolean"),
+    validateRequest,
+    async (req, res) => {
+      try {
+        const { enabled } = req.body as { enabled: boolean };
+        await storage.setSystemConfig(
+          DOWNLOADER_DEBUG_LOGGING_CONFIG_KEY,
+          enabled ? "true" : "false"
+        );
+        setCachedDownloaderDebugLogging(enabled);
+        routesLogger.info({ enabled }, "Downloader debug logging setting updated");
+        res.json({ enabled });
+      } catch (error) {
+        routesLogger.error({ error }, "error updating downloader debug logging setting");
+        res.status(500).json({ error: "Failed to update downloader debug logging setting" });
+      }
+    }
+  );
+
   app.get("/api/downloaders", async (req, res) => {
     try {
       const downloaders = await storage.getAllDownloaders();

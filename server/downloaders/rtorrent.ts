@@ -10,7 +10,11 @@ import parseTorrent from "parse-torrent";
 import crypto from "crypto";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient, XMLValue } from "./types.js";
-import { fetchWithMagnetDetection, extractHashFromUrl } from "./utils.js";
+import {
+  fetchWithMagnetDetection,
+  extractHashFromUrl,
+  logDownloaderDebugResponse,
+} from "./utils.js";
 import { XMLParser } from "fast-xml-parser";
 
 /**
@@ -752,6 +756,7 @@ export class RTorrentClient implements DownloaderClient {
             });
 
             if (retryResponse.ok) {
+              await logDownloaderDebugResponse("rTorrent", method, url, retryResponse);
               const retryResponseText = await retryResponse.text();
               return this.parseXMLRPCResponse(retryResponseText);
             } else {
@@ -806,6 +811,8 @@ export class RTorrentClient implements DownloaderClient {
       );
       throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
     }
+
+    await logDownloaderDebugResponse("rTorrent", method, url, response);
 
     const responseText = await response.text();
     return this.parseXMLRPCResponse(responseText);

@@ -1,5 +1,6 @@
 import { downloadersLogger } from "../logger.js";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
+import { isDownloaderDebugLoggingEnabled } from "./debug-logging.js";
 import type { DownloadFile } from "@shared/schema.js";
 
 export const DOWNLOAD_CLIENT_USER_AGENT =
@@ -151,4 +152,79 @@ export function resolveDownloadRelativePath(details: {
     return details.files[0].name;
   }
   return details.name;
+}
+
+// Query params that commonly carry a secret (API keys, session tokens, passwords),
+// masked before a URL is written to the debug log.
+const SENSITIVE_URL_PARAMS = new Set([
+  "apikey",
+  "api_key",
+  "token",
+  "password",
+  "passwd",
+  "pass",
+  "auth",
+  "secret",
+  "sid",
+  "_sid",
+]);
+
+/** Masks known secret-bearing query parameters in a URL before logging it. */
+export function redactSensitiveUrl(rawUrl: string): string {
+  try {
+    const url = new URL(rawUrl);
+    for (const key of url.searchParams.keys()) {
+      if (SENSITIVE_URL_PARAMS.has(key.toLowerCase())) {
+        url.searchParams.set(key, "***");
+      }
+    }
+    return url.toString();
+  } catch {
+    return rawUrl;
+  }
+}
+
+// Cap how much of a response body gets written to the debug log so a large
+// download-client response (or an unexpectedly binary one) can't blow up the
+// log file.
+const MAX_DEBUG_BODY_LENGTH = 10_000;
+
+/**
+ * Logs the full raw response of a downloader API call at `debug` level, gated
+ * behind the "downloaders.debugLogging" setting. No-op (and no extra work,
+ * including cloning the response) when the setting is off.
+ *
+ * Clones the response before reading it, so callers can still consume the
+ * original response body (`.text()`/`.json()`) as usual afterwards.
+ */
+export async function logDownloaderDebugResponse(
+  client: string,
+  method: string,
+  url: string,
+  response: Response
+): Promise<void> {
+  if (!isDownloaderDebugLoggingEnabled()) return;
+
+  try {
+    const bodyText = await response.clone().text();
+    downloadersLogger.debug(
+      {
+        client,
+        method,
+        url: redactSensitiveUrl(url),
+        responseStatus: response.status,
+        responseHeaders: Object.fromEntries(response.headers.entries()),
+        responseBody:
+          bodyText.length > MAX_DEBUG_BODY_LENGTH
+            ? `${bodyText.slice(0, MAX_DEBUG_BODY_LENGTH)}... [truncated, ${bodyText.length} bytes total]`
+            : bodyText,
+      },
+      "Downloader debug: full response"
+    );
+  } catch (error) {
+    downloadersLogger.warn(
+      { error, client, url: redactSensitiveUrl(url) },
+      "Failed to log downloader debug response"
+    );
+  }
 }

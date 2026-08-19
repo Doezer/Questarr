@@ -9,7 +9,7 @@ import { downloadersLogger } from "../logger.js";
 import parseTorrent from "parse-torrent";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
-import { fetchWithMagnetDetection } from "./utils.js";
+import { fetchWithMagnetDetection, logDownloaderDebugResponse } from "./utils.js";
 
 interface TransmissionTorrent {
   id: number;
@@ -755,6 +755,7 @@ export class TransmissionClient implements DownloaderClient {
           );
         }
 
+        await logDownloaderDebugResponse("Transmission", method, url, retryResponse);
         return retryResponse.json();
       }
     }
@@ -790,6 +791,8 @@ export class TransmissionClient implements DownloaderClient {
       );
       throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
     }
+
+    await logDownloaderDebugResponse("Transmission", method, url, response);
 
     return response.json();
   }

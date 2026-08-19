@@ -2655,6 +2655,75 @@ describe("API Routes - Extended Coverage", () => {
     });
   });
 
+  // ─── Downloader Debug Logging ───
+  describe("Downloader debug logging settings", () => {
+    afterEach(async () => {
+      const { setCachedDownloaderDebugLogging } = await import("../downloaders/debug-logging.js");
+      setCachedDownloaderDebugLogging(false);
+    });
+
+    describe("GET /api/downloaders/debug-logging", () => {
+      it("should return the current in-memory toggle state", async () => {
+        const { setCachedDownloaderDebugLogging } = await import("../downloaders/debug-logging.js");
+        setCachedDownloaderDebugLogging(true);
+
+        const response = await request(app).get("/api/downloaders/debug-logging");
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({ enabled: true });
+      });
+
+      it("should default to disabled", async () => {
+        const response = await request(app).get("/api/downloaders/debug-logging");
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({ enabled: false });
+      });
+    });
+
+    describe("PUT /api/downloaders/debug-logging", () => {
+      it("should persist and cache the enabled state", async () => {
+        vi.mocked(storage.setSystemConfig).mockResolvedValue(undefined);
+
+        const response = await request(app)
+          .put("/api/downloaders/debug-logging")
+          .send({ enabled: true });
+
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({ enabled: true });
+        expect(storage.setSystemConfig).toHaveBeenCalledWith("downloaders.debugLogging", "true");
+
+        const { isDownloaderDebugLoggingEnabled } = await import("../downloaders/debug-logging.js");
+        expect(isDownloaderDebugLoggingEnabled()).toBe(true);
+      });
+
+      it("should persist the disabled state", async () => {
+        vi.mocked(storage.setSystemConfig).mockResolvedValue(undefined);
+
+        const response = await request(app)
+          .put("/api/downloaders/debug-logging")
+          .send({ enabled: false });
+
+        expect(response.status).toBe(200);
+        expect(storage.setSystemConfig).toHaveBeenCalledWith("downloaders.debugLogging", "false");
+      });
+
+      it("should return 400 when enabled is not a boolean", async () => {
+        const response = await request(app)
+          .put("/api/downloaders/debug-logging")
+          .send({ enabled: "yes" });
+        expect(response.status).toBe(400);
+        expect(storage.setSystemConfig).not.toHaveBeenCalled();
+      });
+
+      it("should return 500 on storage error", async () => {
+        vi.mocked(storage.setSystemConfig).mockRejectedValue(new Error("DB error"));
+        const response = await request(app)
+          .put("/api/downloaders/debug-logging")
+          .send({ enabled: true });
+        expect(response.status).toBe(500);
+      });
+    });
+  });
+
   // ─── Discord Share ───
   describe("POST /api/stats/discord-share", () => {
     const validImageDataUrl =

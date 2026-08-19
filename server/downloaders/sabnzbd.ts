@@ -3,7 +3,7 @@ import { downloadersLogger } from "../logger.js";
 import https from "https";
 import { isSafeUrl, resolveSafeAddress, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
-import { fixNzbUrlEncoding } from "./utils.js";
+import { fixNzbUrlEncoding, logDownloaderDebugResponse } from "./utils.js";
 
 interface SABnzbdQueue {
   slots: Array<{
@@ -103,6 +103,12 @@ export class SABnzbdClient implements DownloaderClient {
   }
 
   private async fetchWithFallback(url: string, options: RequestInit = {}): Promise<Response> {
+    const response = await this.doFetchWithFallback(url, options);
+    await logDownloaderDebugResponse("sabnzbd", options.method ?? "GET", url, response);
+    return response;
+  }
+
+  private async doFetchWithFallback(url: string, options: RequestInit = {}): Promise<Response> {
     try {
       return await safeFetch(url, { ...options, allowPrivate: true });
     } catch (error) {

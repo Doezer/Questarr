@@ -8,7 +8,11 @@ import type {
 import { downloadersLogger } from "../logger.js";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
-import { fetchWithMagnetDetection, extractHashFromUrl } from "./utils.js";
+import {
+  fetchWithMagnetDetection,
+  extractHashFromUrl,
+  logDownloaderDebugResponse,
+} from "./utils.js";
 
 interface SynologyApiDescriptor {
   path: string;
@@ -261,6 +265,8 @@ export class SynologyDownloadStationClient implements DownloaderClient {
       const errorText = await response.text().catch(() => "No error details available");
       throw new Error(`${context}: HTTP ${response.status} ${response.statusText} - ${errorText}`);
     }
+
+    await logDownloaderDebugResponse("Synology", init.method ?? "GET", url, response);
 
     return (await response.json()) as T;
   }

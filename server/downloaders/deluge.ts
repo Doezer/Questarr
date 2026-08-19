@@ -8,7 +8,11 @@ import type {
 import { downloadersLogger } from "../logger.js";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
-import { fetchWithMagnetDetection, extractHashFromUrl } from "./utils.js";
+import {
+  fetchWithMagnetDetection,
+  extractHashFromUrl,
+  logDownloaderDebugResponse,
+} from "./utils.js";
 import { z } from "zod";
 
 interface DelugeTorrentStatus {
@@ -801,6 +805,8 @@ export class DelugeClient implements DownloaderClient {
       }
       throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
     }
+
+    await logDownloaderDebugResponse("Deluge", method, url, response);
 
     const delugeResponseSchema = z.object({
       result: z.unknown().optional(),

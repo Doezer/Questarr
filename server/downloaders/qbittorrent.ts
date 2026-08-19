@@ -10,7 +10,12 @@ import { randomUUID } from "node:crypto";
 import parseTorrent from "parse-torrent";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
-import { fetchWithMagnetDetection, extractHashFromUrl, fixNzbUrlEncoding } from "./utils.js";
+import {
+  fetchWithMagnetDetection,
+  extractHashFromUrl,
+  fixNzbUrlEncoding,
+  logDownloaderDebugResponse,
+} from "./utils.js";
 
 interface QBittorrentTorrent {
   hash: string;
@@ -1464,6 +1469,8 @@ export class QBittorrentClient implements DownloaderClient {
       const errorText = await response.text().catch(() => "No error details available");
       throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
     }
+
+    await logDownloaderDebugResponse("qBittorrent", method, url, response);
 
     return response;
   }

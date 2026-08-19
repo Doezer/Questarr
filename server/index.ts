@@ -18,6 +18,10 @@ import { storage } from "./storage.js";
 import { platformMappingService } from "./services/index.js";
 import { reportServerError } from "./error-telemetry.js";
 import { logger } from "./logger.js";
+import {
+  DOWNLOADER_DEBUG_LOGGING_CONFIG_KEY,
+  setCachedDownloaderDebugLogging,
+} from "./downloaders/debug-logging.js";
 
 const app = createApp();
 
@@ -60,6 +64,18 @@ process.on("unhandledRejection", (reason) => handleFatalError("unhandledRejectio
 
     // Initialize RSS service (seeding default feeds)
     await rssService.initialize();
+
+    // Load the downloader debug-logging setting from the DB into memory
+    try {
+      const debugLoggingSetting = await storage.getSystemConfig(
+        DOWNLOADER_DEBUG_LOGGING_CONFIG_KEY
+      );
+      setCachedDownloaderDebugLogging(debugLoggingSetting === "true");
+    } catch (err) {
+      log(
+        "Failed to load downloader debug logging setting; defaulting to disabled: " + String(err)
+      );
+    }
 
     // Initialize NexusMods client from DB (env var already applied at module load)
     const dbNexusKey = await storage.getSystemConfig("nexusmods.apiKey");

@@ -287,6 +287,32 @@ export default function SettingsPage() {
     queryFn: () => apiRequest("GET", "/api/settings/discord").then((r) => r.json()),
   });
 
+  const { data: downloaderDebugLogging } = useQuery<{ enabled: boolean }>({
+    queryKey: ["/api/downloaders/debug-logging"],
+    queryFn: () => apiRequest("GET", "/api/downloaders/debug-logging").then((r) => r.json()),
+  });
+
+  const updateDownloaderDebugLoggingMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const res = await apiRequest("PUT", "/api/downloaders/debug-logging", { enabled });
+      return res.json();
+    },
+    onSuccess: (data: { enabled: boolean }) => {
+      queryClient.setQueryData(["/api/downloaders/debug-logging"], data);
+      toast({
+        title: data.enabled
+          ? "Downloader debug logging enabled"
+          : "Downloader debug logging disabled",
+        description: data.enabled
+          ? "Full downloader responses will now be written to the log at debug level."
+          : undefined,
+      });
+    },
+    onError: () => {
+      toast({ title: "Failed to update downloader debug logging", variant: "destructive" });
+    },
+  });
+
   // Populate Discord webhook input with the stored URL when it loads
   useEffect(() => {
     if (discordSettings?.webhookUrl) {
@@ -2111,6 +2137,43 @@ export default function SettingsPage() {
                       </>
                     )}
                   </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Downloader Debug Logging */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center space-x-3">
+                  <Server className="h-5 w-5 text-muted-foreground" />
+                  <CardTitle className="text-lg">Downloader Debug Logging</CardTitle>
+                </div>
+                <CardDescription>
+                  Log the full raw response from download clients (qBittorrent, Transmission,
+                  rTorrent, Deluge, Synology Download Station, sabnzbd, nzbget) at debug level.
+                  Useful when diagnosing why a download isn&apos;t being added or tracked correctly
+                  - leave this off otherwise, as it can be noisy.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="downloader-debug-logging" className="text-sm font-medium">
+                      Log full downloader responses
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Applies immediately and affects all configured downloaders. View the results
+                      on the Logs page.
+                    </p>
+                  </div>
+                  <Switch
+                    id="downloader-debug-logging"
+                    checked={downloaderDebugLogging?.enabled ?? false}
+                    disabled={updateDownloaderDebugLoggingMutation.isPending}
+                    onCheckedChange={(checked) =>
+                      updateDownloaderDebugLoggingMutation.mutate(checked)
+                    }
+                  />
                 </div>
               </CardContent>
             </Card>

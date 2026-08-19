@@ -2079,8 +2079,8 @@ export default function SettingsPage() {
                     </Label>
                     <p className="text-xs text-muted-foreground">
                       Off by default. When Questarr detects an unexpected server error, it will
-                      normally ask you first (see the "Error Detected" notification below). Turn
-                      this on to skip that prompt and send a scrubbed diagnostic report
+                      normally ask you first (see the &quot;Error Detected&quot; notification
+                      below). Turn this on to skip that prompt and send a scrubbed diagnostic report
                       automatically instead — no personal data, IP addresses, or file paths are
                       included. Reports help the maintainer catch bugs users don't otherwise report.
                       You can still send a one-off report manually from the Logs page at any time,

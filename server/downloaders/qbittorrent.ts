@@ -705,9 +705,39 @@ export class QBittorrentClient implements DownloaderClient {
         "qBittorrent add response"
       );
 
-      if (response.ok && (responseText === "Ok." || responseText === "")) {
-        // Prefer hash from the uploaded torrent file, otherwise fall back to hash from URL if present.
-        const hash = parsedInfoHash || extractHashFromUrl(request.url);
+      // qBittorrent v5.2+ returns JSON (like the URL-add endpoint) from the
+      // torrent-file upload endpoint too, instead of the older plain-text
+      // "Ok."/"Fails.". Detect and handle both shapes.
+      let jsonAddOk: boolean | null = null;
+      let jsonAddedHash: string | undefined;
+      try {
+        const contentType = response.headers.get("content-type") ?? "";
+        if (contentType.includes("application/json")) {
+          const parsed = JSON.parse(responseText) as {
+            added_torrent_ids?: string[];
+            failure_count?: number;
+            success_count?: number;
+          };
+          jsonAddedHash = parsed.added_torrent_ids?.[0];
+          if ((parsed.success_count ?? 0) >= 1 || (parsed.added_torrent_ids?.length ?? 0) >= 1) {
+            jsonAddOk = true;
+          } else if ((parsed.failure_count ?? 0) >= 1) {
+            jsonAddOk = false;
+          }
+        }
+      } catch {
+        // Not JSON — fall through to plain-text checks below
+      }
+
+      const uploadOk =
+        jsonAddOk === true ||
+        (jsonAddOk === null && response.ok && (responseText === "Ok." || responseText === ""));
+      const uploadFails = jsonAddOk === false || (jsonAddOk === null && responseText === "Fails.");
+
+      if (uploadOk) {
+        // Prefer the hash qBittorrent reported directly, then the hash parsed from
+        // the uploaded torrent file, otherwise fall back to hash from URL if present.
+        const hash = jsonAddedHash || parsedInfoHash || extractHashFromUrl(request.url);
 
         if (!hash) {
           const recent = await findRecentlyAddedDownload({
@@ -781,7 +811,7 @@ export class QBittorrentClient implements DownloaderClient {
             message: "Download was not added to qBittorrent (not found after adding)",
           };
         }
-      } else if (responseText === "Fails.") {
+      } else if (uploadFails) {
         downloadersLogger.warn(
           { url: request.url },
           "qBittorrent rejected download (already exists or invalid)"

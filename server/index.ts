@@ -16,8 +16,34 @@ import { nexusmodsClient } from "./nexusmods.js";
 import { appriseClient, readAppriseSettings } from "./apprise.js";
 import { storage } from "./storage.js";
 import { platformMappingService } from "./services/index.js";
+import { reportServerError } from "./error-telemetry.js";
+import { logger } from "./logger.js";
 
 const app = createApp();
+
+// Best-effort error telemetry for crashes that never reach Express (startup code,
+// timers, unawaited promises, etc). This does NOT change Node's default crash
+// behavior: uncaughtException still terminates the process after we've had a
+// bounded window to report it, and unhandledRejection still just logs (as it did
+// before this handler existed — no handler here previously changed nothing).
+process.on("uncaughtException", (err) => {
+  logger.fatal({ err }, "Uncaught exception — process will exit");
+  Promise.race([
+    reportServerError(err, { source: "uncaughtException" }),
+    new Promise((resolve) => setTimeout(resolve, 5000)),
+  ])
+    .catch(() => {
+      // reportServerError already swallows its own errors; this is defensive only.
+    })
+    .finally(() => {
+      process.exit(1);
+    });
+});
+
+process.on("unhandledRejection", (reason) => {
+  logger.error({ err: reason }, "Unhandled promise rejection");
+  void reportServerError(reason, { source: "unhandledRejection" });
+});
 
 (async () => {
   try {

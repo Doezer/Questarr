@@ -36,6 +36,7 @@ import { rssService } from "./rss.js";
 import { DownloaderManager } from "./downloaders.js";
 import { z } from "zod";
 import { routesLogger } from "./logger.js";
+import { getPendingReport, sendPendingReport } from "./error-telemetry.js";
 import {
   igdbRateLimiter,
   sensitiveEndpointLimiter,
@@ -3459,6 +3460,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       routesLogger.error({ error }, "error clearing notifications");
       res.status(500).json({ error: "Failed to clear notifications" });
+    }
+  });
+
+  // ── Automatic error-telemetry routes ────────────────────────────────────────
+  // Backs the consent flow opened from an "error-detected" notification's link
+  // (`error-report:<reportId>`), see SendErrorReportDialog and error-telemetry.ts.
+
+  app.get("/api/telemetry/pending/:reportId", authenticateToken, (req, res) => {
+    const report = getPendingReport(req.params.reportId);
+    if (!report) {
+      return res.status(404).json({ error: "This report is no longer available." });
+    }
+    res.json({
+      lineCount: report.lineCount,
+      appVersion: report.appVersion,
+      platform: report.platform,
+      timestamp: report.timestamp,
+    });
+  });
+
+  app.post("/api/telemetry/pending/:reportId/send", authenticateToken, async (req, res) => {
+    try {
+      const result = await sendPendingReport(req.params.reportId);
+      if (!result.ok) {
+        return res.status(422).json({ error: result.message });
+      }
+      res.json({ code: result.code, issueNumber: result.issueNumber });
+    } catch (error) {
+      routesLogger.error({ error }, "error sending pending telemetry report");
+      res.status(500).json({ error: "Failed to send diagnostic report" });
     }
   });
 

@@ -72,6 +72,9 @@ export const userSettings = sqliteTable("user_settings", {
     .notNull()
     .default(false),
   sortExtras: integer("sort_extras", { mode: "boolean" }).notNull().default(false),
+  // Telemetry: opt-in, off by default. When enabled, automatically-detected server
+  // errors are sent as a diagnostic report without prompting (see server/error-telemetry.ts).
+  telemetryEnabled: integer("telemetry_enabled", { mode: "boolean" }).notNull().default(false),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),
@@ -570,7 +573,8 @@ export type NotificationEvent =
   | "multipleResults"
   | "gameUpdates"
   | "xrelRelease"
-  | "steamSync";
+  | "steamSync"
+  | "errorDetected";
 
 export type NotificationPreferences = Record<
   NotificationEvent,
@@ -588,6 +592,7 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   gameUpdates: { inApp: true, apprise: true },
   xrelRelease: { inApp: true, apprise: true },
   steamSync: { inApp: true, apprise: false },
+  errorDetected: { inApp: true, apprise: false },
 };
 
 export interface DownloadSummary {

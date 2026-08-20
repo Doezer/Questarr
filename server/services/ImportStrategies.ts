@@ -208,7 +208,10 @@ export class PCImportStrategy implements ImportStrategy {
     if (review.fileCategories && review.fileCategories.length > 0) {
       const filesPlaced: string[] = [];
       const conflictsResolved: string[] = [];
-      let modeUsed: TransferMode = transferMode;
+      // Keep modeUsed as the originally-requested batch mode: a per-file fallback
+      // (e.g. hardlink -> copy for one file among many) is recorded per-entry in
+      // conflictsResolved instead, so it isn't lost by being overwritten here.
+      const modeUsed: TransferMode = transferMode;
 
       const plannedTransfers = review.fileCategories.map((entry) => ({
         entry,
@@ -234,7 +237,6 @@ export class PCImportStrategy implements ImportStrategy {
         const entryMode = await transferFile(sourceFile, destinationFile, transferMode);
         filesPlaced.push(destinationFile);
         if (entryMode !== transferMode) {
-          modeUsed = entryMode;
           conflictsResolved.push(`${entry.name} (mode fallback: ${entryMode})`);
         }
       }

@@ -13,6 +13,11 @@ const GAME_TYPE = "master_game";
 
 export const ALLOWED_XREL_DOMAINS = ["api.xrel.to", "xrel-api.nfos.to"];
 
+// searchReleases() runs on the search hot path before any indexer is queried;
+// cap it well below safeFetch's default 30s so a hung xREL API fails fast
+// instead of stalling every search.
+const XREL_SEARCH_TIMEOUT_MS = 24000;
+
 function resolveBaseUrl(baseUrl?: string | null): string {
   const v = (baseUrl ?? process.env.XREL_API_BASE ?? "").trim();
   const url = v || DEFAULT_XREL_BASE;
@@ -83,6 +88,9 @@ export interface XrelSceneRelease {
   audio_type?: string;
   tv_season?: number;
   tv_episode?: number;
+  // Present (non-empty) when the scene has nuked this release (bad/incomplete
+  // dupe, proper available, etc.); absent for non-nuked releases.
+  nuke_reason?: string;
 }
 
 export interface XrelP2pRelease {
@@ -108,6 +116,9 @@ export interface XrelReleaseListItem {
   sizeUnit?: string;
   ext_info?: XrelExtInfo;
   source: "scene" | "p2p";
+  // Normalized from XrelSceneRelease.nuke_reason. Only ever set for scene
+  // releases -- xREL's p2p releases don't carry nuke metadata.
+  nukeReason?: string;
 }
 
 export interface XrelSearchResponse {
@@ -146,6 +157,7 @@ function mergeAndFilterGameReleases(
       sizeUnit: r.size?.unit,
       ext_info: r.ext_info,
       source: "scene",
+      nukeReason: r.nuke_reason || undefined,
     });
   }
   for (const r of p2p) {
@@ -188,11 +200,16 @@ export async function searchReleases(
     limit: String(limit),
   });
   const url = `${base}/v2/search/releases.json?${params}`;
+  // This lookup runs on the search hot path before any indexer is queried, so an
+  // unbounded hang here would stall every search. Use a generous cap (well above
+  // xREL's normal response time) that only trips on a true hang; callers should
+  // treat a rejection here as a degrade-gracefully case, not a hard failure.
   const res = await safeFetch(url, {
     headers: {
       Accept: "application/json",
       "User-Agent": "Questarr/1.1.0",
     },
+    timeoutMs: XREL_SEARCH_TIMEOUT_MS,
   });
 
   if (res.status === 429) {
@@ -260,6 +277,7 @@ export async function getLatestReleases(
     sizeUnit: r.size?.unit,
     ext_info: r.ext_info,
     source: "scene",
+    nukeReason: r.nuke_reason || undefined,
   }));
 
   return {

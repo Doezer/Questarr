@@ -165,11 +165,7 @@ export default function DownloadersPage() {
 
   const addMutation = useMutation({
     mutationFn: async (data: InsertDownloader) => {
-      const token = localStorage.getItem("token");
       const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
       const response = await apiFetch("/api/downloaders", {
         method: "POST",
         headers,
@@ -191,11 +187,7 @@ export default function DownloadersPage() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: Partial<InsertDownloader> }) => {
-      const token = localStorage.getItem("token");
       const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
       const response = await apiFetch(`/api/downloaders/${id}`, {
         method: "PATCH",
         headers,
@@ -217,14 +209,8 @@ export default function DownloadersPage() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const token = localStorage.getItem("token");
-      const headers: Record<string, string> = {};
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
       const response = await apiFetch(`/api/downloaders/${id}`, {
         method: "DELETE",
-        headers,
       });
       if (!response.ok) throw new Error("Failed to delete downloader");
     },
@@ -239,11 +225,7 @@ export default function DownloadersPage() {
 
   const toggleEnabledMutation = useMutation({
     mutationFn: async ({ id, enabled }: { id: string; enabled: boolean }) => {
-      const token = localStorage.getItem("token");
       const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
       const response = await apiFetch(`/api/downloaders/${id}`, {
         method: "PATCH",
         headers,
@@ -259,11 +241,7 @@ export default function DownloadersPage() {
 
   const updatePriorityMutation = useMutation({
     mutationFn: async ({ id, priority }: { id: string; priority: number }) => {
-      const token = localStorage.getItem("token");
       const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
       const response = await apiFetch(`/api/downloaders/${id}`, {
         method: "PATCH",
         headers,
@@ -279,11 +257,7 @@ export default function DownloadersPage() {
 
   const testConnectionMutation = useMutation({
     mutationFn: async (data: { id?: string; formData?: InsertDownloader }) => {
-      const token = localStorage.getItem("token");
       const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
       if (data.id) {
         // Test existing downloader by ID
         const response = await apiFetch(`/api/downloaders/${data.id}/test`, {

@@ -43,6 +43,17 @@ export interface NewznabCategory {
   name: string;
 }
 
+// Conservative built-in fallback used when caps discovery can't reach an
+// indexer at all (see getCategories below): the standard Newznab category
+// scheme's Console and PC/Games parents, so search category filtering still
+// has something sane to offer instead of leaving the indexer with none.
+export const DEFAULT_GAME_CATEGORY_IDS = ["1000", "4000", "4050"];
+const DEFAULT_GAME_CATEGORIES: NewznabCategory[] = [
+  { id: "1000", name: "Console" },
+  { id: "4000", name: "PC" },
+  { id: "4050", name: "PC > Games" },
+];
+
 interface NewznabServerInfo {
   title?: string;
   version?: string;
@@ -314,64 +325,115 @@ class NewznabClient {
   }
 
   /**
-   * Get available categories from a Newznab indexer
+   * Build a list of reasonable candidate caps URLs to try in order. Indexers
+   * vary in whether their stored base URL already includes the /api path
+   * segment, so try both the normalized (buildApiUrl) form and the raw
+   * stored URL as-is before giving up.
    */
-  async getCategories(indexer: Indexer): Promise<NewznabCategory[]> {
-    try {
-      if (!(await isSafeUrl(indexer.url))) {
-        throw new Error(`Unsafe URL detected: ${indexer.url}`);
-      }
+  private buildCapsUrlCandidates(indexer: Indexer): URL[] {
+    const candidates: URL[] = [];
+    const seen = new Set<string>();
 
-      const url = this.buildApiUrl(indexer.url);
+    const add = (url: URL) => {
       url.searchParams.set("apikey", indexer.apiKey);
-      url.searchParams.set("t", "caps"); // Get capabilities
-
-      const response = await safeFetch(url.toString(), {
-        signal: AbortSignal.timeout(10000),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+      url.searchParams.set("t", "caps");
+      const key = url.toString();
+      if (!seen.has(key)) {
+        candidates.push(url);
+        seen.add(key);
       }
+    };
 
-      const xmlText = await response.text();
-      const data = parser.parse(xmlText);
+    try {
+      add(this.buildApiUrl(indexer.url));
+    } catch {
+      /* invalid URL -- skip this candidate */
+    }
+    try {
+      add(new URL(indexer.url));
+    } catch {
+      /* invalid URL -- skip this candidate */
+    }
 
-      const categories: NewznabCategory[] = [];
+    return candidates;
+  }
 
-      if (data.caps?.categories?.category) {
-        const cats = Array.isArray(data.caps.categories.category)
-          ? data.caps.categories.category
-          : [data.caps.categories.category];
+  private parseCapsCategories(xmlText: string): NewznabCategory[] {
+    const data = parser.parse(xmlText);
+    const categories: NewznabCategory[] = [];
 
-        for (const cat of cats) {
-          if (cat["@_id"] && cat["@_name"]) {
-            categories.push({
-              id: cat["@_id"],
-              name: cat["@_name"],
-            });
+    if (data.caps?.categories?.category) {
+      const cats = Array.isArray(data.caps.categories.category)
+        ? data.caps.categories.category
+        : [data.caps.categories.category];
 
-            // Add subcategories
-            if (cat.subcat) {
-              const subcats = Array.isArray(cat.subcat) ? cat.subcat : [cat.subcat];
-              for (const subcat of subcats) {
-                if (subcat["@_id"] && subcat["@_name"]) {
-                  categories.push({
-                    id: subcat["@_id"],
-                    name: `${cat["@_name"]} > ${subcat["@_name"]}`,
-                  });
-                }
+      for (const cat of cats) {
+        if (cat["@_id"] && cat["@_name"]) {
+          categories.push({
+            id: cat["@_id"],
+            name: cat["@_name"],
+          });
+
+          // Add subcategories
+          if (cat.subcat) {
+            const subcats = Array.isArray(cat.subcat) ? cat.subcat : [cat.subcat];
+            for (const subcat of subcats) {
+              if (subcat["@_id"] && subcat["@_name"]) {
+                categories.push({
+                  id: subcat["@_id"],
+                  name: `${cat["@_name"]} > ${subcat["@_name"]}`,
+                });
               }
             }
           }
         }
       }
-
-      return categories;
-    } catch (error) {
-      routesLogger.error({ indexer: indexer.name, error }, "failed to get newznab categories");
-      throw error;
     }
+
+    return categories;
+  }
+
+  /**
+   * Get available categories from a Newznab indexer. Tries a couple of
+   * reasonable caps URL variants before giving up, and falls back to a
+   * conservative default game-category list rather than hard-failing the
+   * whole indexer when caps discovery can't be reached at all.
+   */
+  async getCategories(indexer: Indexer): Promise<NewznabCategory[]> {
+    if (!(await isSafeUrl(indexer.url))) {
+      throw new Error(`Unsafe URL detected: ${indexer.url}`);
+    }
+
+    let lastError: unknown;
+    for (const url of this.buildCapsUrlCandidates(indexer)) {
+      try {
+        const response = await safeFetch(url.toString(), {
+          signal: AbortSignal.timeout(10000),
+        });
+
+        if (!response.ok) {
+          lastError = new Error(`HTTP ${response.status}`);
+          continue;
+        }
+
+        const xmlText = await response.text();
+        const categories = this.parseCapsCategories(xmlText);
+        if (categories.length > 0) {
+          return categories;
+        }
+        // Parsed successfully but no categories were listed -- not worth
+        // retrying other URL variants for, but also not a hard failure.
+        lastError = new Error("Caps response contained no categories");
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    routesLogger.warn(
+      { indexer: indexer.name, error: lastError },
+      "newznab caps discovery failed for all URL variants; falling back to default game categories"
+    );
+    return DEFAULT_GAME_CATEGORIES;
   }
 
   /**

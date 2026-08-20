@@ -23,6 +23,7 @@ import {
   Bell,
   Ghost,
   Monitor,
+  Radio,
 } from "lucide-react";
 import { NexusModsIcon } from "@/components/NexusModsIcon";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -51,15 +52,18 @@ import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 import { GHOST_THEME_KEY, GHOST_UNLOCK_KEY } from "@/lib/ghost-mode";
 import { WIN2K_THEME_KEY } from "@/lib/win2k-mode";
 import PasswordSettings from "@/components/PasswordSettings";
-import type {
-  Config,
-  UserSettings,
-  DownloadRules,
-  ReleaseBlacklist,
-  NotificationPreferences,
-  NotificationEvent,
+import {
+  downloadRulesSchema,
+  DEFAULT_NOTIFICATION_PREFERENCES,
+  downloaderDebugLoggingResponseSchema,
+  type Config,
+  type UserSettings,
+  type DownloadRules,
+  type ReleaseBlacklist,
+  type NotificationPreferences,
+  type NotificationEvent,
+  type DownloaderDebugLoggingResponse,
 } from "@shared/schema";
-import { downloadRulesSchema, DEFAULT_NOTIFICATION_PREFERENCES } from "@shared/schema";
 import { parseJsonStringArray, CANONICAL_PLATFORMS } from "@shared/title-utils";
 import { useState, useEffect, useRef, useMemo } from "react";
 import ImportSettings from "@/components/ImportSettings";
@@ -83,6 +87,7 @@ const NOTIFICATION_EVENT_ROWS: { key: NotificationEvent; label: string; group: s
   { key: "gameUpdates", label: "Game Updates Available", group: "downloads" },
   { key: "xrelRelease", label: "Scene/P2P Release (xREL)", group: "integrations" },
   { key: "steamSync", label: "Steam Wishlist Synced", group: "integrations" },
+  { key: "errorDetected", label: "Error Detected", group: "system" },
 ];
 
 export default function SettingsPage() {
@@ -193,6 +198,7 @@ export default function SettingsPage() {
   const [xrelP2pReleases, setXrelP2pReleases] = useState(false);
   const [hideAdultContent, setHideAdultContent] = useState(true);
   const [hideAgeRestrictedContent, setHideAgeRestrictedContent] = useState(true);
+  const [telemetryEnabled, setTelemetryEnabled] = useState(false);
   const [xrelApiBase, setXrelApiBase] = useState("");
   const [discordWebhookUrl, setDiscordWebhookUrl] = useState("");
   const [showDiscordWebhook, setShowDiscordWebhook] = useState(false);
@@ -246,6 +252,7 @@ export default function SettingsPage() {
       setSteamSyncIntervalHours(userSettings.steamSyncIntervalHours ?? 24);
       setHideAdultContent(userSettings.hideAdultContent ?? true);
       setHideAgeRestrictedContent(userSettings.hideAgeRestrictedContent ?? true);
+      setTelemetryEnabled(userSettings.telemetryEnabled ?? false);
       settingsLoadedRef.current = true;
     }
     if (config?.xrel?.apiBase !== undefined) {
@@ -281,6 +288,39 @@ export default function SettingsPage() {
   const { data: discordSettings } = useQuery<{ configured: boolean; webhookUrl?: string }>({
     queryKey: ["/api/settings/discord"],
     queryFn: () => apiRequest("GET", "/api/settings/discord").then((r) => r.json()),
+  });
+
+  const {
+    data: downloaderDebugLogging,
+    isLoading: isDownloaderDebugLoggingLoading,
+    isError: isDownloaderDebugLoggingError,
+  } = useQuery<DownloaderDebugLoggingResponse>({
+    queryKey: ["/api/downloaders/debug-logging"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/downloaders/debug-logging");
+      return downloaderDebugLoggingResponseSchema.parse(await res.json());
+    },
+  });
+
+  const updateDownloaderDebugLoggingMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const res = await apiRequest("PUT", "/api/downloaders/debug-logging", { enabled });
+      return downloaderDebugLoggingResponseSchema.parse(await res.json());
+    },
+    onSuccess: (data: DownloaderDebugLoggingResponse) => {
+      queryClient.setQueryData(["/api/downloaders/debug-logging"], data);
+      toast({
+        title: data.enabled
+          ? "Downloader debug logging enabled"
+          : "Downloader debug logging disabled",
+        description: data.enabled
+          ? "Full downloader responses will now be written to the log at debug level."
+          : undefined,
+      });
+    },
+    onError: () => {
+      toast({ title: "Failed to update downloader debug logging", variant: "destructive" });
+    },
   });
 
   // Populate Discord webhook input with the stored URL when it loads
@@ -713,6 +753,15 @@ export default function SettingsPage() {
         hideAgeRestrictedContent,
       },
       successMessage: "Content filtering preferences have been saved.",
+    });
+  };
+
+  const handleSaveTelemetry = () => {
+    updateSettingsMutation.mutate({
+      updates: { telemetryEnabled },
+      successMessage: telemetryEnabled
+        ? "Telemetry enabled. Detected errors will be reported automatically."
+        : "Telemetry disabled.",
     });
   };
 
@@ -2042,6 +2091,110 @@ export default function SettingsPage() {
                         )}
                       </div>
                     )}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Telemetry */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center space-x-3">
+                  <Radio className="h-5 w-5 text-muted-foreground" />
+                  <CardTitle className="text-lg">Telemetry</CardTitle>
+                </div>
+                <CardDescription>
+                  Help improve Questarr by automatically sharing diagnostic data when something goes
+                  wrong
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5 pr-4">
+                    <Label htmlFor="telemetry-enabled" className="text-sm font-medium">
+                      Automatically send error reports
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Off by default. When Questarr detects an unexpected server error, it will
+                      normally ask you first (see the &quot;Error Detected&quot; notification
+                      below). Turn this on to skip that prompt and send a scrubbed diagnostic report
+                      automatically instead — no personal data, IP addresses, or file paths are
+                      included. Reports help the maintainer catch bugs users don't otherwise report.
+                      You can still send a one-off report manually from the Logs page at any time,
+                      whatever this setting is.
+                    </p>
+                  </div>
+                  <Switch
+                    id="telemetry-enabled"
+                    checked={telemetryEnabled}
+                    onCheckedChange={setTelemetryEnabled}
+                  />
+                </div>
+                <div className="flex justify-end pt-4 border-t">
+                  <Button
+                    onClick={handleSaveTelemetry}
+                    disabled={updateSettingsMutation.isPending}
+                    className="gap-2"
+                  >
+                    {updateSettingsMutation.isPending ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Radio className="h-4 w-4" />
+                        Save Telemetry
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Downloader Debug Logging */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center space-x-3">
+                  <Server className="h-5 w-5 text-muted-foreground" />
+                  <CardTitle className="text-lg">Downloader Debug Logging</CardTitle>
+                </div>
+                <CardDescription>
+                  Log downloader response status, headers, and body (up to 10KB) from download
+                  clients (qBittorrent, Transmission, rTorrent, Deluge, Synology Download Station,
+                  sabnzbd, nzbget) at debug level. Response headers and bodies can contain sensitive
+                  data - enable this only while debugging and review logs carefully. Useful when
+                  diagnosing why a download isn&apos;t being added or tracked correctly - leave this
+                  off otherwise, as it can be noisy.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="downloader-debug-logging" className="text-sm font-medium">
+                      Log full downloader responses
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Applies immediately and affects all configured downloaders. View the results
+                      on the Logs page.
+                    </p>
+                    {isDownloaderDebugLoggingError && (
+                      <p className="text-xs text-destructive">
+                        Failed to load the current setting. Refresh the page to try again.
+                      </p>
+                    )}
+                  </div>
+                  <Switch
+                    id="downloader-debug-logging"
+                    checked={downloaderDebugLogging?.enabled ?? false}
+                    disabled={
+                      isDownloaderDebugLoggingLoading ||
+                      isDownloaderDebugLoggingError ||
+                      updateDownloaderDebugLoggingMutation.isPending
+                    }
+                    onCheckedChange={(checked) =>
+                      updateDownloaderDebugLoggingMutation.mutate(checked)
+                    }
+                  />
                 </div>
               </CardContent>
             </Card>

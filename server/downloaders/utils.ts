@@ -1,5 +1,6 @@
 import { downloadersLogger } from "../logger.js";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
+import { isDownloaderDebugLoggingEnabled } from "./debug-logging.js";
 import type { DownloadFile } from "@shared/schema.js";
 
 export const DOWNLOAD_CLIENT_USER_AGENT =
@@ -151,4 +152,170 @@ export function resolveDownloadRelativePath(details: {
     return details.files[0].name;
   }
   return details.name;
+}
+
+// Query params that commonly carry a secret (API keys, session tokens, passwords),
+// masked before a URL is written to the debug log.
+const SENSITIVE_URL_PARAMS = new Set([
+  "apikey",
+  "api_key",
+  "token",
+  "password",
+  "passwd",
+  "pass",
+  "auth",
+  "secret",
+  "sid",
+  "_sid",
+]);
+
+/** Masks known secret-bearing query parameters in a URL before logging it. */
+export function redactSensitiveUrl(rawUrl: string): string {
+  try {
+    const url = new URL(rawUrl);
+    for (const key of url.searchParams.keys()) {
+      if (SENSITIVE_URL_PARAMS.has(key.toLowerCase())) {
+        url.searchParams.set(key, "***");
+      }
+    }
+    return url.toString();
+  } catch {
+    return rawUrl;
+  }
+}
+
+// Cap how much of a response body gets read (in bytes) for the debug log so a
+// large download-client response (or an unexpectedly binary one) can't blow
+// up the log file or memory - the cloned stream is read only up to this limit
+// and then cancelled, so the rest of the body is never buffered.
+const MAX_DEBUG_BODY_LENGTH = 10_000;
+
+// Response headers that can carry a reusable credential (e.g. a session
+// cookie or token), redacted before a response is written to the debug log.
+// Transmission returns its session ID in this header (see transmission.ts),
+// which callers then replay on every later request.
+const SENSITIVE_RESPONSE_HEADERS = new Set([
+  "set-cookie",
+  "set-cookie2",
+  "authorization",
+  "x-transmission-session-id",
+]);
+
+/** Masks known credential-bearing response headers before logging them. */
+function redactSensitiveHeaders(headers: Headers): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [key, value] of headers.entries()) {
+    result[key] = SENSITIVE_RESPONSE_HEADERS.has(key.toLowerCase()) ? "***" : value;
+  }
+  return result;
+}
+
+// JSON field names that commonly carry a reusable credential in a downloader's
+// response body (e.g. Synology's login response includes a `sid` that's
+// persisted and replayed as `_sid` on later requests - see synology.ts).
+// Matched against `"name": "value"` pairs in the raw response text rather
+// than via a full JSON.parse, so redaction still applies to a body that was
+// truncated mid-object.
+const SENSITIVE_BODY_FIELD_PATTERN =
+  /("(?:sid|_sid|token|api_?key|password|passwd|secret|auth)"\s*:\s*)"(?:[^"\\]|\\.)*"/gi;
+
+/** Masks known credential-bearing JSON fields in a response body before logging it. */
+function redactSensitiveBody(bodyText: string): string {
+  return bodyText.replace(SENSITIVE_BODY_FIELD_PATTERN, '$1"***"');
+}
+
+/**
+ * Reads a cloned response body, keeping only the first `MAX_DEBUG_BODY_LENGTH`
+ * bytes in memory. Stops pulling from the stream as soon as the cap is hit -
+ * rather than draining it to completion - so a response that never ends (or
+ * is just very large) can't block the request or grow memory unbounded.
+ * `cancel()` is fired without awaiting it: cancelling one branch of a
+ * `response.clone()`'d stream can hang indefinitely on some fetch
+ * implementations if you wait on it, but an unawaited cancel is safe and
+ * still lets the original branch keep flowing to the caller.
+ */
+async function readTruncatedBody(
+  response: Response
+): Promise<{ text: string; truncated: boolean }> {
+  const body = response.body;
+  if (!body) {
+    return { text: await response.text(), truncated: false };
+  }
+
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  let bytesRead = 0;
+  let truncated = false;
+
+  try {
+    while (bytesRead < MAX_DEBUG_BODY_LENGTH) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const remaining = MAX_DEBUG_BODY_LENGTH - bytesRead;
+      if (value.byteLength > remaining) {
+        text += decoder.decode(value.slice(0, remaining), { stream: true });
+        bytesRead += remaining;
+        truncated = true;
+      } else {
+        text += decoder.decode(value, { stream: true });
+        bytesRead += value.byteLength;
+      }
+    }
+
+    if (bytesRead >= MAX_DEBUG_BODY_LENGTH) {
+      // The stream may still have more data we're choosing not to read -
+      // don't wait on cancellation, just stop pulling.
+      truncated = true;
+      void reader.cancel().catch(() => {});
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  text += decoder.decode();
+  return { text, truncated };
+}
+
+/**
+ * Logs the response of a downloader API call at `debug` level, gated behind
+ * the "downloaders.debugLogging" setting. No-op (and no extra work, including
+ * cloning the response) when the setting is off.
+ *
+ * Clones the response before reading it, so callers can still consume the
+ * original response body (`.text()`/`.json()`) as usual afterwards. The body
+ * is read up to a fixed byte cap and the rest of the stream is cancelled
+ * rather than buffered, so a large or unbounded response can't blow up
+ * memory or the log file.
+ */
+export async function logDownloaderDebugResponse(
+  client: string,
+  method: string,
+  url: string,
+  response: Response
+): Promise<void> {
+  if (!isDownloaderDebugLoggingEnabled()) return;
+
+  try {
+    const { text: bodyText, truncated } = await readTruncatedBody(response.clone());
+    downloadersLogger.debug(
+      {
+        client,
+        method,
+        url: redactSensitiveUrl(url),
+        responseStatus: response.status,
+        responseHeaders: redactSensitiveHeaders(response.headers),
+        responseBody: truncated
+          ? `${redactSensitiveBody(bodyText)}... [truncated]`
+          : redactSensitiveBody(bodyText),
+      },
+      "Downloader debug: full response"
+    );
+  } catch (error) {
+    downloadersLogger.warn(
+      { error, client, url: redactSensitiveUrl(url) },
+      "Failed to log downloader debug response"
+    );
+  }
 }

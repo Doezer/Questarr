@@ -3,7 +3,7 @@ import { downloadersLogger } from "../logger.js";
 import https from "https";
 import { isSafeUrl, resolveSafeAddress, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
-import { fixNzbUrlEncoding } from "./utils.js";
+import { fixNzbUrlEncoding, logDownloaderDebugResponse } from "./utils.js";
 
 interface SABnzbdQueue {
   slots: Array<{
@@ -103,6 +103,12 @@ export class SABnzbdClient implements DownloaderClient {
   }
 
   private async fetchWithFallback(url: string, options: RequestInit = {}): Promise<Response> {
+    const response = await this.doFetchWithFallback(url, options);
+    await logDownloaderDebugResponse("sabnzbd", options.method ?? "GET", url, response);
+    return response;
+  }
+
+  private async doFetchWithFallback(url: string, options: RequestInit = {}): Promise<Response> {
     try {
       return await safeFetch(url, { ...options, allowPrivate: true });
     } catch (error) {
@@ -148,25 +154,23 @@ export class SABnzbdClient implements DownloaderClient {
           res.on("data", (chunk) => chunks.push(chunk));
           res.on("end", () => {
             const body = Buffer.concat(chunks).toString();
-            resolve({
-              ok: !!(res.statusCode && res.statusCode >= 200 && res.statusCode < 300),
-              status: res.statusCode || 0,
-              statusText: res.statusMessage || "",
-              text: async () => body,
-              json: async () => {
-                try {
-                  return JSON.parse(body);
-                } catch {
-                  throw new Error(`Failed to parse JSON: ${body}`);
-                }
-              },
-              headers: {
-                get: (name: string) => {
-                  const val = res.headers[name.toLowerCase()];
-                  return Array.isArray(val) ? val[0] : val || null;
-                },
-              },
-            } as unknown as Response);
+            const responseHeaders = new Headers();
+            for (const [name, value] of Object.entries(res.headers)) {
+              if (value === undefined) continue;
+              for (const v of Array.isArray(value) ? value : [value]) {
+                responseHeaders.append(name, v);
+              }
+            }
+            // Build a native Response so downstream consumers (including
+            // logDownloaderDebugResponse, which calls clone() and
+            // headers.entries()) get the full standard Response surface.
+            resolve(
+              new Response(body, {
+                status: res.statusCode || 200,
+                statusText: res.statusMessage || "",
+                headers: responseHeaders,
+              })
+            );
           });
         }
       );

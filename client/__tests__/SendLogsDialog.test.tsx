@@ -115,7 +115,7 @@ describe("SendLogsDialog", () => {
         timestamp: "2026-05-31T12:34:56.000Z",
       })
     );
-    expect(buildGitHubIssueUrlMock).toHaveBeenCalledWith("ABCD", "unknown");
+    expect(buildGitHubIssueUrlMock).toHaveBeenCalledWith("ABCD", "unknown", 123);
 
     fireEvent.click(screen.getByRole("button", { name: "Copy support code" }));
     await waitFor(() => {

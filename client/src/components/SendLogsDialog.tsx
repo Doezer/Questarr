@@ -99,7 +99,9 @@ export default function SendLogsDialog({
       });
   }, [result, toast]);
 
-  const issueUrl = result?.ok ? buildGitHubIssueUrl(result.code, APP_VERSION) : null;
+  const issueUrl = result?.ok
+    ? buildGitHubIssueUrl(result.code, APP_VERSION, result.issueNumber)
+    : null;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>

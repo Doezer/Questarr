@@ -207,9 +207,13 @@ class IGDBClient {
     // ordering. An edition's platform list or first_release_date can
     // differ from its canonical parent's, so those filters/sort must be
     // evaluated against the actual game being returned to the caller, not
-    // against the edition metadata that happened to match the original
-    // IGDB query. Truncation to `limit` happens only once, at the very
-    // end, after filtering and ordering are finalized.
+    // against the edition's own metadata. This is also why searchGames
+    // deliberately omits platformId/releaseYear from the upstream IGDB
+    // `where` clause: filtering upstream would let IGDB drop an edition
+    // whose own metadata doesn't match before it ever reaches this
+    // function, even when its canonical parent would. Truncation to
+    // `limit` happens only once, at the very end, after filtering and
+    // ordering are finalized.
     const canonicalResults = await this.canonicalizeVersionedGames(results);
 
     let yearRange: { start: number; end: number } | null = null;
@@ -494,34 +498,43 @@ class IGDBClient {
 
     let attemptCount = 0;
 
+    // NOTE: platformId/releaseYear are intentionally NOT turned into `where`
+    // clauses here. An edition (e.g. "Game: Gold Edition") can carry its own
+    // platform list / first_release_date that differs from its canonical
+    // version_parent's -- if we filtered upstream, IGDB would exclude such
+    // editions from the response before canonicalizeVersionedGames ever gets
+    // a chance to resolve them to a parent that DOES match. Instead, the
+    // upstream query is left unfiltered on these fields and
+    // postProcessSearchResults applies platformId/releaseYear filtering
+    // locally, after canonicalization, against the resolved parent's
+    // metadata.
     const filters: string[] = [];
-    if (options.platformId) {
-      filters.push(`platforms = (${options.platformId})`);
-    }
-    if (options.releaseYear) {
-      const yearStart = Math.floor(Date.UTC(options.releaseYear, 0, 1) / 1000);
-      const nextYearStart = Math.floor(Date.UTC(options.releaseYear + 1, 0, 1) / 1000);
-      filters.push(`first_release_date >= ${yearStart}`);
-      filters.push(`first_release_date < ${nextYearStart}`);
-    }
     const withFilters = (conditions: string[] = []) => {
       const allConditions = [...conditions, ...filters];
       return allConditions.length > 0 ? `where ${allConditions.join(" & ")}; ` : "";
     };
 
+    // When platformId/releaseYear filtering will run locally post-canonicalization,
+    // request more raw results from IGDB than `limit` so there's enough headroom
+    // left after filtering out non-matching games and deduping editions down to
+    // their canonical parent. Capped at MAX_LIMIT (IGDB's own relevance ranking
+    // keeps this tractable without needing a larger multiplier).
+    const hasLocalFilters = Boolean(options.platformId || options.releaseYear);
+    const requestLimit = hasLocalFilters ? Math.min(limit * 2, MAX_LIMIT) : limit;
+
     // Try multiple search approaches to maximize results
     const searchApproaches = [
       // Approach 1: Full text search without category filter
-      `search "${sanitizedQuery}"; fields ${IGDB_GAME_FIELDS}; ${withFilters()}limit ${limit};`,
+      `search "${sanitizedQuery}"; fields ${IGDB_GAME_FIELDS}; ${withFilters()}limit ${requestLimit};`,
 
       // Approach 2: Full text search with category filter
-      `search "${sanitizedQuery}"; fields ${IGDB_GAME_FIELDS}; ${withFilters(["category = 0"])}limit ${limit};`,
+      `search "${sanitizedQuery}"; fields ${IGDB_GAME_FIELDS}; ${withFilters(["category = 0"])}limit ${requestLimit};`,
 
       // Approach 3: Case-insensitive name matching without category
-      `fields ${IGDB_GAME_FIELDS}; ${withFilters([`name ~= "${sanitizedQuery}"`])}limit ${limit};`,
+      `fields ${IGDB_GAME_FIELDS}; ${withFilters([`name ~= "${sanitizedQuery}"`])}limit ${requestLimit};`,
 
       // Approach 4: Partial name matching without category
-      `fields ${IGDB_GAME_FIELDS}; ${withFilters([`name ~ *"${sanitizedQuery}"*`])}sort rating desc; limit ${limit};`,
+      `fields ${IGDB_GAME_FIELDS}; ${withFilters([`name ~ *"${sanitizedQuery}"*`])}sort rating desc; limit ${requestLimit};`,
     ];
 
     for (let i = 0; i < searchApproaches.length && attemptCount < MAX_SEARCH_ATTEMPTS; i++) {
@@ -585,7 +598,7 @@ class IGDBClient {
           const sanitizedWord = sanitizeIgdbInput(word);
           if (!sanitizedWord) return [];
 
-          const wordQuery = `fields ${IGDB_GAME_FIELDS}; ${withFilters([`name ~ *"${sanitizedWord}"*`])}sort rating desc; limit ${limit};`;
+          const wordQuery = `fields ${IGDB_GAME_FIELDS}; ${withFilters([`name ~ *"${sanitizedWord}"*`])}sort rating desc; limit ${requestLimit};`;
           // Cache word search results for 15 minutes
           return await this.makeRequest<IGDBGame[]>("games", wordQuery, 15 * 60 * 1000);
         } catch (error) {

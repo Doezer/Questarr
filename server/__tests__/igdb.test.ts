@@ -169,7 +169,14 @@ describe("IGDBClient - Fallback Mechanism", { timeout: 20000 }, () => {
     expect(results.map((game) => game.name)).toEqual(["Undated Game", "Newer Game", "Older Game"]);
   });
 
-  it("applies platform and release year filters before the IGDB result limit", async () => {
+  it("does not send platformId/releaseYear as an upstream IGDB `where` clause, and requests extra headroom for local filtering", async () => {
+    // platformId/releaseYear must NOT be baked into the upstream query: an
+    // edition's own platform list / first_release_date can differ from its
+    // canonical version_parent's, so if IGDB filtered upstream it could
+    // exclude an edition whose parent *would* match before canonicalization
+    // ever runs. Filtering happens locally instead, against the
+    // canonicalized (parent) metadata -- see the "canonicalization runs
+    // before filtering/sorting" describe block below.
     const authResponse = {
       ok: true,
       json: async () => ({
@@ -192,10 +199,13 @@ describe("IGDBClient - Fallback Mechanism", { timeout: 20000 }, () => {
       (call) => typeof call[0] === "string" && call[0].includes("api.igdb.com/v4/games")
     );
     const body = String(gameRequest?.[1]?.body);
-    expect(body).toContain("platforms = (8)");
-    expect(body).toContain("first_release_date >= 1104537600");
-    expect(body).toContain("first_release_date < 1136073600");
-    expect(body.indexOf("platforms = (8)")).toBeLessThan(body.indexOf("limit 10"));
+    expect(body).not.toContain("platforms = (8)");
+    expect(body).not.toContain("first_release_date >=");
+    expect(body).not.toContain("first_release_date <");
+    // With local filters active, the upstream request asks for more than
+    // the caller's `limit` (capped, here 10 * 2 = 20) so there's headroom
+    // left after local platform/year filtering and edition->parent dedupe.
+    expect(body).toContain("limit 20");
   });
 
   it("requests version_parent.id (not just version_parent.name) so canonicalization works against real API responses", async () => {
@@ -744,6 +754,83 @@ describe("IGDBClient - canonicalization runs before filtering/sorting (edition v
     // alongside the other dated result rather than being pulled to the
     // front as "undated" just because the edition lacked a date.
     expect(results.map((game) => game.name)).toEqual(["Test Game 4", "Already Released Game"]);
+  });
+
+  it("keeps a canonicalized result whose parent's platforms match platformId, even though the edition's own platforms did not", async () => {
+    // Regression test: platformId must not be sent as an upstream IGDB
+    // `where` clause. If it were, IGDB itself would drop this edition from
+    // the response (its own platform list doesn't include platformId)
+    // before canonicalizeVersionedGames ever gets a chance to resolve it to
+    // a parent that does match -- the edition would never reach local
+    // filtering at all. Here the mocked upstream response includes the
+    // edition regardless of its own platforms, simulating an unfiltered
+    // upstream query, and the parent (which DOES match) must survive.
+    const searchResponse = {
+      ok: true,
+      json: async () => [
+        {
+          id: 14,
+          name: "Test Game 5: Gold Edition",
+          // Edition's own platform list does NOT include the requested platformId.
+          platforms: [{ id: 999, name: "Some Other Platform" }],
+          version_parent: { id: 104, name: "Test Game 5" },
+        },
+      ],
+    };
+    // Parent's platform list DOES include the requested platformId.
+    const parentResponse = {
+      ok: true,
+      json: async () => [
+        { id: 104, name: "Test Game 5", platforms: [{ id: 5, name: "PlayStation 5" }] },
+      ],
+    };
+
+    fetchMock
+      .mockResolvedValueOnce(authResponse)
+      .mockResolvedValueOnce(searchResponse)
+      .mockResolvedValueOnce(parentResponse);
+
+    const { igdbClient } = await import("../igdb.js");
+    const results = await igdbClient.searchGames("Test Game 5", 20, { platformId: 5 });
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({ id: 104, name: "Test Game 5" });
+  });
+
+  it("keeps a canonicalized result whose parent's release year matches releaseYear, even though the edition's own release date did not", async () => {
+    // Same regression as above, for releaseYear: the edition's own release
+    // date falls outside the requested year, but its canonical parent's
+    // falls inside it. The edition must still reach local filtering (i.e.
+    // releaseYear must not be sent as an upstream `where` clause either),
+    // and the parent must be returned.
+    const searchResponse = {
+      ok: true,
+      json: async () => [
+        {
+          id: 15,
+          name: "Test Game 6: Anniversary Edition",
+          first_release_date: 1420070400, // 2015-01-01 -- outside the requested year
+          version_parent: { id: 105, name: "Test Game 6" },
+        },
+      ],
+    };
+    const parentResponse = {
+      ok: true,
+      json: async () => [
+        { id: 105, name: "Test Game 6", first_release_date: 1577836800 }, // 2020-01-01 -- matches
+      ],
+    };
+
+    fetchMock
+      .mockResolvedValueOnce(authResponse)
+      .mockResolvedValueOnce(searchResponse)
+      .mockResolvedValueOnce(parentResponse);
+
+    const { igdbClient } = await import("../igdb.js");
+    const results = await igdbClient.searchGames("Test Game 6", 20, { releaseYear: 2020 });
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({ id: 105, name: "Test Game 6" });
   });
 });
 

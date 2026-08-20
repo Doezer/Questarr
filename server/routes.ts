@@ -529,8 +529,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/logs", authenticateToken, async (req, res) => {
     try {
       const rawLimit =
-        typeof req.query.limit === "string" ? Number.parseInt(req.query.limit, 10) : 200;
-      const limit = Number.isNaN(rawLimit) || rawLimit < 1 ? 200 : Math.min(rawLimit, 1000);
+        typeof req.query.limit === "string" ? Number.parseInt(req.query.limit, 10) : 1000;
+      const limit = Number.isNaN(rawLimit) || rawLimit < 1 ? 1000 : Math.min(rawLimit, 5000);
 
       const logPath = path.resolve(process.cwd(), "server.log");
 

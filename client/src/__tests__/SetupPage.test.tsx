@@ -77,7 +77,7 @@ describe("SetupPage", () => {
   it("submits form successfully without IGDB fields when IGDB is already configured", async () => {
     // Mock config as configured
     mockApiRequest.mockImplementation((method, url) => {
-      if (url === "/api/config") {
+      if (url === "/api/auth/status") {
         return Promise.resolve({
           json: async () => ({ igdb: { configured: true } }),
         } as Response);
@@ -94,7 +94,7 @@ describe("SetupPage", () => {
 
     // Wait for config to load and verify IGDB fields are NOT present
     await waitFor(() => {
-      expect(mockApiRequest).toHaveBeenCalledWith("GET", "/api/config");
+      expect(mockApiRequest).toHaveBeenCalledWith("GET", "/api/auth/status");
       expect(screen.queryByLabelText(/client id/i)).not.toBeInTheDocument();
     });
 
@@ -122,7 +122,7 @@ describe("SetupPage", () => {
   it("requires IGDB fields when IGDB is NOT configured", async () => {
     // Mock config as NOT configured
     mockApiRequest.mockImplementation((method, url) => {
-      if (url === "/api/config") {
+      if (url === "/api/auth/status") {
         return Promise.resolve({
           json: async () => ({ igdb: { configured: false } }),
         } as Response);
@@ -136,7 +136,7 @@ describe("SetupPage", () => {
 
     // Wait for config to load and verify IGDB fields ARE present
     await waitFor(() => {
-      expect(mockApiRequest).toHaveBeenCalledWith("GET", "/api/config");
+      expect(mockApiRequest).toHaveBeenCalledWith("GET", "/api/auth/status");
       expect(screen.getByLabelText(/client id/i)).toBeInTheDocument();
     });
 

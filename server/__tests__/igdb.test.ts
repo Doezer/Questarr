@@ -199,13 +199,13 @@ describe("IGDBClient - Fallback Mechanism", { timeout: 20000 }, () => {
       (call) => typeof call[0] === "string" && call[0].includes("api.igdb.com/v4/games")
     );
     const body = String(gameRequest?.[1]?.body);
-    expect(body).not.toContain("platforms = (8)");
-    expect(body).not.toContain("first_release_date >=");
-    expect(body).not.toContain("first_release_date <");
-    // With local filters active, the upstream request asks for more than
-    // the caller's `limit` (capped, here 10 * 2 = 20) so there's headroom
-    // left after local platform/year filtering and edition->parent dedupe.
-    expect(body).toContain("limit 20");
+    const whereClause = /where ([^;]*);/.exec(body)?.[1] ?? "";
+    expect(whereClause).not.toMatch(/platforms/);
+    expect(whereClause).not.toMatch(/first_release_date/);
+    // The upstream request asks for more than the caller's `limit` (capped,
+    // here 10 * 2 = 20) so there's headroom left after local platform/year
+    // filtering and edition->parent dedupe.
+    expect(body).toMatch(/limit 20;/);
   });
 
   it("should return empty array when all search approaches fail", async () => {

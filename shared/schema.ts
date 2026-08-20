@@ -876,3 +876,11 @@ export const insertGameFileSchema = createInsertSchema(gameFiles, {
 
 export type GameFile = typeof gameFiles.$inferSelect;
 export type InsertGameFile = (typeof insertGameFileSchema)["_output"];
+
+// Response contract for GET/PUT /api/downloaders/debug-logging, shared so the
+// client can validate the payload at runtime instead of trusting a local
+// TypeScript annotation.
+export const downloaderDebugLoggingResponseSchema = z.object({
+  enabled: z.boolean(),
+});
+export type DownloaderDebugLoggingResponse = z.infer<typeof downloaderDebugLoggingResponseSchema>;

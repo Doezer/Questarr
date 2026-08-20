@@ -705,6 +705,7 @@ export class TransmissionClient implements DownloaderClient {
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(30000),
     });
+    await logDownloaderDebugResponse("Transmission", method, url, response);
 
     // Handle session ID requirement for Transmission
     if (response.status === 409) {
@@ -722,6 +723,7 @@ export class TransmissionClient implements DownloaderClient {
           body: JSON.stringify(body),
           signal: AbortSignal.timeout(30000),
         });
+        await logDownloaderDebugResponse("Transmission", method, url, retryResponse);
 
         if (!retryResponse.ok) {
           const errorText = await retryResponse.text().catch(() => "No error details available");
@@ -755,7 +757,6 @@ export class TransmissionClient implements DownloaderClient {
           );
         }
 
-        await logDownloaderDebugResponse("Transmission", method, url, retryResponse);
         return retryResponse.json();
       }
     }
@@ -791,8 +792,6 @@ export class TransmissionClient implements DownloaderClient {
       );
       throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
     }
-
-    await logDownloaderDebugResponse("Transmission", method, url, response);
 
     return response.json();
   }

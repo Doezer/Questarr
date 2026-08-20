@@ -184,18 +184,83 @@ export function redactSensitiveUrl(rawUrl: string): string {
   }
 }
 
-// Cap how much of a response body gets written to the debug log so a large
-// download-client response (or an unexpectedly binary one) can't blow up the
-// log file.
+// Cap how much of a response body gets read (in bytes) for the debug log so a
+// large download-client response (or an unexpectedly binary one) can't blow
+// up the log file or memory - the cloned stream is read only up to this limit
+// and then cancelled, so the rest of the body is never buffered.
 const MAX_DEBUG_BODY_LENGTH = 10_000;
 
+// Response headers that can carry a reusable credential (e.g. a session
+// cookie), redacted before a response is written to the debug log.
+const SENSITIVE_RESPONSE_HEADERS = new Set(["set-cookie", "set-cookie2", "authorization"]);
+
+/** Masks known credential-bearing response headers before logging them. */
+function redactSensitiveHeaders(headers: Headers): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [key, value] of headers.entries()) {
+    result[key] = SENSITIVE_RESPONSE_HEADERS.has(key.toLowerCase()) ? "***" : value;
+  }
+  return result;
+}
+
 /**
- * Logs the full raw response of a downloader API call at `debug` level, gated
- * behind the "downloaders.debugLogging" setting. No-op (and no extra work,
- * including cloning the response) when the setting is off.
+ * Reads a cloned response body, keeping only the first `MAX_DEBUG_BODY_LENGTH`
+ * bytes in memory. The stream is still drained to completion (rather than
+ * cancelled) - cancelling one branch of a `response.clone()`'d stream can hang
+ * indefinitely on some fetch implementations - but bytes past the cap are
+ * discarded as they arrive instead of being buffered, so a large or unbounded
+ * response still can't blow up memory.
+ */
+async function readTruncatedBody(
+  response: Response
+): Promise<{ text: string; truncated: boolean }> {
+  const body = response.body;
+  if (!body) {
+    return { text: await response.text(), truncated: false };
+  }
+
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  let bytesRead = 0;
+  let truncated = false;
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      if (bytesRead < MAX_DEBUG_BODY_LENGTH) {
+        const remaining = MAX_DEBUG_BODY_LENGTH - bytesRead;
+        if (value.byteLength > remaining) {
+          text += decoder.decode(value.slice(0, remaining), { stream: true });
+          truncated = true;
+        } else {
+          text += decoder.decode(value, { stream: true });
+        }
+      } else {
+        truncated = true;
+      }
+      bytesRead += value.byteLength;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  text += decoder.decode();
+  return { text, truncated };
+}
+
+/**
+ * Logs the response of a downloader API call at `debug` level, gated behind
+ * the "downloaders.debugLogging" setting. No-op (and no extra work, including
+ * cloning the response) when the setting is off.
  *
  * Clones the response before reading it, so callers can still consume the
- * original response body (`.text()`/`.json()`) as usual afterwards.
+ * original response body (`.text()`/`.json()`) as usual afterwards. The body
+ * is read up to a fixed byte cap and the rest of the stream is cancelled
+ * rather than buffered, so a large or unbounded response can't blow up
+ * memory or the log file.
  */
 export async function logDownloaderDebugResponse(
   client: string,
@@ -206,18 +271,15 @@ export async function logDownloaderDebugResponse(
   if (!isDownloaderDebugLoggingEnabled()) return;
 
   try {
-    const bodyText = await response.clone().text();
+    const { text: bodyText, truncated } = await readTruncatedBody(response.clone());
     downloadersLogger.debug(
       {
         client,
         method,
         url: redactSensitiveUrl(url),
         responseStatus: response.status,
-        responseHeaders: Object.fromEntries(response.headers.entries()),
-        responseBody:
-          bodyText.length > MAX_DEBUG_BODY_LENGTH
-            ? `${bodyText.slice(0, MAX_DEBUG_BODY_LENGTH)}... [truncated, ${bodyText.length} bytes total]`
-            : bodyText,
+        responseHeaders: redactSensitiveHeaders(response.headers),
+        responseBody: truncated ? `${bodyText}... [truncated]` : bodyText,
       },
       "Downloader debug: full response"
     );

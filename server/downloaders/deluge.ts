@@ -778,6 +778,8 @@ export class DelugeClient implements DownloaderClient {
       signal: AbortSignal.timeout(30000),
     });
 
+    await logDownloaderDebugResponse("Deluge", method, url, response);
+
     // Extract cookies from response for future requests
     const setCookieHeader = response.headers.get("set-cookie");
     if (setCookieHeader) {
@@ -805,8 +807,6 @@ export class DelugeClient implements DownloaderClient {
       }
       throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
     }
-
-    await logDownloaderDebugResponse("Deluge", method, url, response);
 
     const delugeResponseSchema = z.object({
       result: z.unknown().optional(),

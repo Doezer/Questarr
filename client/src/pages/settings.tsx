@@ -60,7 +60,12 @@ import type {
   NotificationPreferences,
   NotificationEvent,
 } from "@shared/schema";
-import { downloadRulesSchema, DEFAULT_NOTIFICATION_PREFERENCES } from "@shared/schema";
+import {
+  downloadRulesSchema,
+  DEFAULT_NOTIFICATION_PREFERENCES,
+  downloaderDebugLoggingResponseSchema,
+  type DownloaderDebugLoggingResponse,
+} from "@shared/schema";
 import { parseJsonStringArray, CANONICAL_PLATFORMS } from "@shared/title-utils";
 import { useState, useEffect, useRef, useMemo } from "react";
 import ImportSettings from "@/components/ImportSettings";
@@ -287,17 +292,24 @@ export default function SettingsPage() {
     queryFn: () => apiRequest("GET", "/api/settings/discord").then((r) => r.json()),
   });
 
-  const { data: downloaderDebugLogging } = useQuery<{ enabled: boolean }>({
+  const {
+    data: downloaderDebugLogging,
+    isLoading: isDownloaderDebugLoggingLoading,
+    isError: isDownloaderDebugLoggingError,
+  } = useQuery<DownloaderDebugLoggingResponse>({
     queryKey: ["/api/downloaders/debug-logging"],
-    queryFn: () => apiRequest("GET", "/api/downloaders/debug-logging").then((r) => r.json()),
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/downloaders/debug-logging");
+      return downloaderDebugLoggingResponseSchema.parse(await res.json());
+    },
   });
 
   const updateDownloaderDebugLoggingMutation = useMutation({
     mutationFn: async (enabled: boolean) => {
       const res = await apiRequest("PUT", "/api/downloaders/debug-logging", { enabled });
-      return res.json();
+      return downloaderDebugLoggingResponseSchema.parse(await res.json());
     },
-    onSuccess: (data: { enabled: boolean }) => {
+    onSuccess: (data: DownloaderDebugLoggingResponse) => {
       queryClient.setQueryData(["/api/downloaders/debug-logging"], data);
       toast({
         title: data.enabled
@@ -2149,10 +2161,12 @@ export default function SettingsPage() {
                   <CardTitle className="text-lg">Downloader Debug Logging</CardTitle>
                 </div>
                 <CardDescription>
-                  Log the full raw response from download clients (qBittorrent, Transmission,
-                  rTorrent, Deluge, Synology Download Station, sabnzbd, nzbget) at debug level.
-                  Useful when diagnosing why a download isn&apos;t being added or tracked correctly
-                  - leave this off otherwise, as it can be noisy.
+                  Log downloader response status, headers, and body (up to 10KB) from download
+                  clients (qBittorrent, Transmission, rTorrent, Deluge, Synology Download Station,
+                  sabnzbd, nzbget) at debug level. Response headers and bodies can contain sensitive
+                  data - enable this only while debugging and review logs carefully. Useful when
+                  diagnosing why a download isn&apos;t being added or tracked correctly - leave this
+                  off otherwise, as it can be noisy.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -2165,11 +2179,20 @@ export default function SettingsPage() {
                       Applies immediately and affects all configured downloaders. View the results
                       on the Logs page.
                     </p>
+                    {isDownloaderDebugLoggingError && (
+                      <p className="text-xs text-destructive">
+                        Failed to load the current setting. Refresh the page to try again.
+                      </p>
+                    )}
                   </div>
                   <Switch
                     id="downloader-debug-logging"
                     checked={downloaderDebugLogging?.enabled ?? false}
-                    disabled={updateDownloaderDebugLoggingMutation.isPending}
+                    disabled={
+                      isDownloaderDebugLoggingLoading ||
+                      isDownloaderDebugLoggingError ||
+                      updateDownloaderDebugLoggingMutation.isPending
+                    }
                     onCheckedChange={(checked) =>
                       updateDownloaderDebugLoggingMutation.mutate(checked)
                     }

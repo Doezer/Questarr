@@ -721,6 +721,7 @@ export class RTorrentClient implements DownloaderClient {
       body: xmlBody,
       signal: AbortSignal.timeout(30000),
     });
+    await logDownloaderDebugResponse("rTorrent", method, url, response);
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => "No error details available");
@@ -754,9 +755,9 @@ export class RTorrentClient implements DownloaderClient {
               body: xmlBody,
               signal: AbortSignal.timeout(30000),
             });
+            await logDownloaderDebugResponse("rTorrent", method, url, retryResponse);
 
             if (retryResponse.ok) {
-              await logDownloaderDebugResponse("rTorrent", method, url, retryResponse);
               const retryResponseText = await retryResponse.text();
               return this.parseXMLRPCResponse(retryResponseText);
             } else {
@@ -811,8 +812,6 @@ export class RTorrentClient implements DownloaderClient {
       );
       throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
     }
-
-    await logDownloaderDebugResponse("rTorrent", method, url, response);
 
     const responseText = await response.text();
     return this.parseXMLRPCResponse(responseText);

@@ -2714,6 +2714,22 @@ describe("API Routes - Extended Coverage", () => {
         expect(storage.setSystemConfig).not.toHaveBeenCalled();
       });
 
+      it('should return 400 when enabled is the string "false"', async () => {
+        const response = await request(app)
+          .put("/api/downloaders/debug-logging")
+          .send({ enabled: "false" });
+        expect(response.status).toBe(400);
+        expect(storage.setSystemConfig).not.toHaveBeenCalled();
+      });
+
+      it('should return 400 when enabled is the string "0"', async () => {
+        const response = await request(app)
+          .put("/api/downloaders/debug-logging")
+          .send({ enabled: "0" });
+        expect(response.status).toBe(400);
+        expect(storage.setSystemConfig).not.toHaveBeenCalled();
+      });
+
       it("should return 500 on storage error", async () => {
         vi.mocked(storage.setSystemConfig).mockRejectedValue(new Error("DB error"));
         const response = await request(app)

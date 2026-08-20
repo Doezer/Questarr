@@ -1,0 +1,82 @@
+import { describe, it, expect } from "vitest";
+import { redactSecretText, redactSecrets } from "../security.js";
+
+describe("redactSecretText", () => {
+  it("redacts key=value style secrets", () => {
+    expect(redactSecretText("apikey=abc123&other=fine")).toBe("apikey=[redacted]&other=fine");
+    expect(redactSecretText('password: "hunter2"')).toContain("password=[redacted]");
+  });
+
+  it("redacts Bearer tokens", () => {
+    const input = "Authorization header was Bearer eyJhbGciOiJIUzI1NiJ9.abc.def";
+    expect(redactSecretText(input)).toBe("Authorization header was Bearer [redacted]");
+  });
+
+  it("redacts Discord webhook URLs", () => {
+    const input = "https://discord.com/api/webhooks/12345/abcdef-token";
+    expect(redactSecretText(input)).toBe("[redacted-discord-webhook]");
+  });
+
+  it("leaves ordinary text untouched", () => {
+    const input = "Search completed with 12 results for query 'zelda'";
+    expect(redactSecretText(input)).toBe(input);
+  });
+});
+
+describe("redactSecrets", () => {
+  it("redacts values whose key looks secret-shaped", () => {
+    const result = redactSecrets({
+      apiKey: "abc123",
+      client_secret: "xyz789",
+      password: "hunter2",
+      token: "tok_1",
+      title: "My Game",
+    });
+
+    expect(result).toEqual({
+      apiKey: "[redacted]",
+      client_secret: "[redacted]",
+      password: "[redacted]",
+      token: "[redacted]",
+      title: "My Game",
+    });
+  });
+
+  it("recurses into nested objects and arrays", () => {
+    const result = redactSecrets({
+      downloader: { name: "qbit", password: "secret-pw" },
+      indexers: [
+        { name: "idx1", apiKey: "key1" },
+        { name: "idx2", apiKey: "key2" },
+      ],
+    });
+
+    expect(result).toEqual({
+      downloader: { name: "qbit", password: "[redacted]" },
+      indexers: [
+        { name: "idx1", apiKey: "[redacted]" },
+        { name: "idx2", apiKey: "[redacted]" },
+      ],
+    });
+  });
+
+  it("redacts secret-shaped substrings inside plain string values too", () => {
+    const result = redactSecrets({ message: "used Bearer sekrettoken123 to authenticate" });
+    expect(result).toEqual({ message: "used Bearer [redacted] to authenticate" });
+  });
+
+  it("passes through primitives and non-secret objects unchanged", () => {
+    expect(redactSecrets(42)).toBe(42);
+    expect(redactSecrets(null)).toBeNull();
+    expect(redactSecrets(undefined)).toBeUndefined();
+    expect(redactSecrets({ count: 3, ok: true })).toEqual({ count: 3, ok: true });
+  });
+
+  it("summarizes Error objects instead of leaking their full shape", () => {
+    const error = new Error("token=abc123 was invalid");
+    expect(redactSecrets(error)).toEqual({
+      name: "Error",
+      message: "token=[redacted] was invalid",
+    });
+  });
+});

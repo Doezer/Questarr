@@ -182,7 +182,8 @@ describe("Credential Exposure Prevention", () => {
     return app;
   };
 
-  const authToken = () => jwt.sign({ id: "user-1", username: "testuser" }, "test-secret");
+  const authToken = () =>
+    jwt.sign({ id: "user-1", username: "testuser" }, mockConfig.auth.jwtSecret);
 
   it("requires authentication for GET /api/config (no unauthenticated access at all)", async () => {
     const app = await createApp();

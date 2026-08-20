@@ -133,11 +133,14 @@ describe("default-deny API auth boundary", () => {
       // protected purely by being absent from PUBLIC_API_ROUTES combined with
       // the default-deny boundary. Simulate "a new route was added and
       // forgotten from the allowlist" by hitting an arbitrary unregistered
-      // /api/* path: Express falls through past the boundary middleware (which
-      // still ran and required auth) to a 404, never to an unauthenticated 200.
+      // /api/* path: the boundary middleware runs before Express's own 404
+      // fallback ever gets a chance, so an unauthenticated request must be
+      // rejected with 401 -- never fall through to an unauthenticated 200,
+      // and never a bare 404 either, since that would also pass if the
+      // boundary middleware were accidentally removed (Express's own
+      // catch-all would produce a 404 on its own in that case too).
       const res = await request(app).get("/api/this-route-does-not-exist-and-was-never-added");
-      expect(res.status).not.toBe(200);
-      expect([401, 404]).toContain(res.status);
+      expect(res.status).toBe(401);
     });
 
     it("unit: requireAuthenticationForApi requires auth for any unlisted path", async () => {

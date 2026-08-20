@@ -623,12 +623,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/auth/status", async (_req, res) => {
     try {
       const userCount = await storage.countUsers();
+      const hasUsers = userCount > 0;
       // Also surface IGDB configured-status here (not just hasUsers) so the
       // unauthenticated setup wizard can decide whether to ask for IGDB
       // credentials without needing to call the authenticated /api/config
-      // endpoint pre-login.
-      const igdb = await getIgdbConfigStatus();
-      res.json({ hasUsers: userCount > 0, igdb });
+      // endpoint pre-login. This route stays on the public allowlist even
+      // after setup completes (existing sessions re-check it), so once a
+      // user exists, omit the igdb field entirely rather than leaving IGDB
+      // configuration status queryable by any anonymous caller forever.
+      if (!hasUsers) {
+        const igdb = await getIgdbConfigStatus();
+        return res.json({ hasUsers, igdb });
+      }
+      res.json({ hasUsers });
     } catch (error) {
       routesLogger.error({ error }, "Failed to check setup status");
       res.status(500).json({ error: "Failed to check setup status" });

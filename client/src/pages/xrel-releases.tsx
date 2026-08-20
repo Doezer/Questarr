@@ -219,13 +219,20 @@ export default function XrelReleasesPage() {
                         {rel.group_name || "—"}
                       </Badge>
                       {rel.nukeReason && (
-                        <Badge
-                          variant="destructive"
-                          className="text-[10px] h-4 px-1.5"
-                          title={`Nuked: ${rel.nukeReason}`}
-                        >
-                          Nuked
-                        </Badge>
+                        <>
+                          <Badge
+                            variant="destructive"
+                            className="text-[10px] h-4 px-1.5"
+                            title={`Nuked: ${rel.nukeReason}`}
+                          >
+                            Nuked
+                          </Badge>
+                          {/* Also shown as visible text, not just the hover title above --
+                              touch/mobile users can't reliably reach a native tooltip. */}
+                          <span className="text-xs text-destructive break-all">
+                            {rel.nukeReason}
+                          </span>
+                        </>
                       )}
                       {rel.libraryStatus ? (
                         <Badge

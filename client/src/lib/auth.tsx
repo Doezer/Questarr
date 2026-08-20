@@ -13,7 +13,7 @@ type AuthContextType = {
   user: User | null;
   isLoading: boolean;
   login: (credentials: { username: string; password: string }) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   needsSetup: boolean;
   checkSetup: () => Promise<void>;
 };
@@ -160,11 +160,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await loginMutation.mutateAsync(credentials);
   };
 
-  const logout = () => {
-    // Best-effort: clear the httpOnly cookies server-side. Local state is
-    // cleared regardless of whether this call succeeds, so a network
-    // failure here never strands the user mid-logout.
-    apiRequest("POST", "/api/auth/logout").catch(() => {});
+  const logout = async () => {
+    // Wait for the server to actually clear the httpOnly session cookie
+    // before dropping local state. If this fails (network error, 500,
+    // etc.), the server-side session is still live, so acting as if we'd
+    // logged out would let a later page load / auth/me check silently
+    // restore it -- leave local state untouched and let the user retry.
+    try {
+      await apiRequest("POST", "/api/auth/logout");
+    } catch (error) {
+      toast({
+        title: "Logout failed",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Unable to reach the server. Please check your connection and try again.",
+        variant: "destructive",
+      });
+      return;
+    }
     setBearerToken(null);
     setUser(null);
     queryClient.clear();

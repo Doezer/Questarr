@@ -198,6 +198,33 @@ describe("IGDBClient - Fallback Mechanism", { timeout: 20000 }, () => {
     expect(body.indexOf("platforms = (8)")).toBeLessThan(body.indexOf("limit 10"));
   });
 
+  it("requests version_parent.id (not just version_parent.name) so canonicalization works against real API responses", async () => {
+    const authResponse = {
+      ok: true,
+      json: async () => ({
+        access_token: "test-token",
+        expires_in: 3600,
+        token_type: "bearer",
+      }),
+    };
+    const successResponse = {
+      ok: true,
+      json: async () => [{ id: 1, name: "Some Game" }],
+    };
+
+    fetchMock.mockResolvedValueOnce(authResponse).mockResolvedValueOnce(successResponse);
+
+    const { igdbClient } = await import("../igdb.js");
+    await igdbClient.searchGames("Some Game", 10);
+
+    const gameRequest = fetchMock.mock.calls.find(
+      (call) => typeof call[0] === "string" && call[0].includes("api.igdb.com/v4/games")
+    );
+    const body = String(gameRequest?.[1]?.body);
+    expect(body).toContain("version_parent.id");
+    expect(body).toContain("version_parent.name");
+  });
+
   it("should return empty array when all search approaches fail", async () => {
     // Mock authentication response
     const authResponse = {

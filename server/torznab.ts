@@ -584,25 +584,59 @@ export class TorznabClient {
   }
 
   private parseCapsCategories(xmlData: string): { id: string; name: string }[] {
-    const parsed = this.parser.parse(xmlData);
+    const parsed: unknown = this.parser.parse(xmlData);
     const categories: { id: string; name: string }[] = [];
 
-    if (parsed.caps?.categories?.category) {
-      const cats = Array.isArray(parsed.caps.categories.category)
-        ? parsed.caps.categories.category
-        : [parsed.caps.categories.category];
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      cats.forEach((cat: any) => {
-        const id = cat["@_id"];
-        const name = cat["@_name"] || cat["#text"] || `Category ${id}`;
-        if (id) {
-          categories.push({ id, name });
-        }
-      });
+    const categoryNode = this.getCapsCategoryNode(parsed);
+    if (!categoryNode) {
+      return categories;
     }
 
+    const cats = Array.isArray(categoryNode) ? categoryNode : [categoryNode];
+
+    cats.forEach((cat: unknown) => {
+      if (!this.isRecord(cat)) return;
+      const id = cat["@_id"];
+      const name = cat["@_name"] || cat["#text"] || `Category ${id}`;
+      if (id) {
+        categories.push({ id: String(id), name: String(name) });
+      }
+
+      // Torznab caps commonly nest subcategories under a parent category
+      // (e.g. parent "PC" containing subcat "PC/Games" id 4050) -- descend
+      // into them too, since these are the specific, useful IDs indexers
+      // actually expect in search requests.
+      const subcatNode = cat["subcat"];
+      if (subcatNode !== undefined) {
+        const subcats = Array.isArray(subcatNode) ? subcatNode : [subcatNode];
+        subcats.forEach((subcat: unknown) => {
+          if (!this.isRecord(subcat)) return;
+          const subId = subcat["@_id"];
+          const subName = subcat["@_name"] || subcat["#text"] || `Category ${subId}`;
+          if (subId) {
+            categories.push({
+              id: String(subId),
+              name: name ? `${name} > ${subName}` : String(subName),
+            });
+          }
+        });
+      }
+    });
+
     return categories;
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null;
+  }
+
+  private getCapsCategoryNode(parsed: unknown): unknown {
+    if (!this.isRecord(parsed)) return undefined;
+    const caps = parsed["caps"];
+    if (!this.isRecord(caps)) return undefined;
+    const categories = caps["categories"];
+    if (!this.isRecord(categories)) return undefined;
+    return categories["category"];
   }
 
   /**

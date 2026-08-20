@@ -2,7 +2,9 @@
 // additions here narrowly scoped -- this is not a place for a general
 // utility grab-bag.
 
+import crypto from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
+import { config } from "./config.js";
 
 export const AUTH_COOKIE_NAME = "questarr_auth";
 export const CSRF_COOKIE_NAME = "questarr_csrf";
@@ -38,28 +40,37 @@ function cookieOptions(req: Request, httpOnly: boolean) {
   return {
     httpOnly,
     sameSite: "lax" as const,
-    // req.secure reflects X-Forwarded-Proto once "trust proxy" is set (see
-    // app.ts, enabled in production), so this is correct behind a reverse
-    // proxy as well as when TLS terminates directly on this process.
-    secure: req.secure || req.headers["x-forwarded-proto"] === "https",
+    // "trust proxy" is only enabled in production (see app.ts), where
+    // req.secure already correctly reflects X-Forwarded-Proto from that
+    // trusted proxy hop -- so the manual header check below is redundant
+    // there. Outside production there is no trusted proxy configured, so an
+    // untrusted client could set X-Forwarded-Proto directly; only honor the
+    // header when we know Express is actually trusting a proxy for it.
+    secure:
+      req.secure || (config.server.isProduction && req.headers["x-forwarded-proto"] === "https"),
     path: "/",
   };
 }
 
 /**
  * Set the httpOnly JWT auth cookie plus a readable (non-httpOnly) CSRF token
- * cookie. The CSRF cookie's value doubles as the CSRF token itself (double-
- * submit pattern, see csrfProtection below) -- reusing the session token
- * keeps this dependency-free (no extra random-token bookkeeping) while still
- * being unguessable to a third-party site, since only same-origin JS can
- * read it.
+ * cookie. The CSRF cookie holds its own independently-generated random
+ * value (double-submit pattern, see csrfProtection below) -- it must NOT
+ * reuse the session JWT, since the CSRF cookie is deliberately JS-readable
+ * (so client code can echo it back in the X-CSRF-Token header) while the
+ * session cookie is httpOnly specifically to keep the JWT out of reach of
+ * page script. Reusing the JWT as the CSRF token would let any script read
+ * the full session token out of document.cookie and replay it as a bearer
+ * token, which also bypasses CSRF protection outright since bearer-
+ * authenticated requests are exempt from the check below.
  */
 export function setAuthCookies(req: Request, res: Response, token: string): void {
+  const csrfToken = crypto.randomBytes(32).toString("hex");
   res.cookie(AUTH_COOKIE_NAME, token, {
     ...cookieOptions(req, true),
     maxAge: AUTH_COOKIE_MAX_AGE_MS,
   });
-  res.cookie(CSRF_COOKIE_NAME, token, {
+  res.cookie(CSRF_COOKIE_NAME, csrfToken, {
     ...cookieOptions(req, false),
     maxAge: AUTH_COOKIE_MAX_AGE_MS,
   });

@@ -123,7 +123,14 @@ describe("cookie-based auth + CSRF", () => {
 
     const cookies = parseSetCookies(setCookie);
     expect(cookies.questarr_auth).toBe(res.body.token);
-    expect(cookies.questarr_csrf).toBe(res.body.token);
+    // The CSRF cookie must be an independently-generated random value, NOT
+    // the session JWT -- reusing the JWT there would let any page script
+    // read the full session token out of document.cookie and replay it as
+    // a bearer token, which also bypasses CSRF checks (bearer requests are
+    // exempt from csrfProtection).
+    expect(cookies.questarr_csrf).toEqual(expect.any(String));
+    expect(cookies.questarr_csrf.length).toBeGreaterThan(0);
+    expect(cookies.questarr_csrf).not.toBe(res.body.token);
   });
 
   it("sets auth cookies on initial setup too", async () => {
@@ -175,7 +182,9 @@ describe("cookie-based auth + CSRF", () => {
   it("succeeds on a non-GET cookie-authenticated request with a matching X-CSRF-Token header", async () => {
     const agent = request.agent(app);
     const loginRes = await login(agent);
-    const csrfToken = loginRes.body.token as string;
+    const csrfToken = parseSetCookies(
+      loginRes.headers["set-cookie"] as unknown as string[] | undefined
+    ).questarr_csrf;
 
     const res = await agent
       .put("/api/notifications/read-all")
@@ -213,7 +222,9 @@ describe("cookie-based auth + CSRF", () => {
   it("clears the auth cookies on logout when the CSRF header matches", async () => {
     const agent = request.agent(app);
     const loginRes = await login(agent);
-    const csrfToken = loginRes.body.token as string;
+    const csrfToken = parseSetCookies(
+      loginRes.headers["set-cookie"] as unknown as string[] | undefined
+    ).questarr_csrf;
 
     const res = await agent.post("/api/auth/logout").set("X-CSRF-Token", csrfToken).send();
     expect(res.status).toBe(200);

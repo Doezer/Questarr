@@ -2191,7 +2191,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put(
     "/api/downloaders/debug-logging",
-    body("enabled").isBoolean().withMessage("enabled must be a boolean"),
+    body("enabled").isBoolean({ strict: true }).withMessage("enabled must be a boolean"),
     validateRequest,
     async (req, res) => {
       try {

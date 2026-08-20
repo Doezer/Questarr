@@ -203,12 +203,12 @@ export class NZBGetClient implements DownloaderClient {
       signal: AbortSignal.timeout(30000),
     });
 
+    await logDownloaderDebugResponse("NZBGet", method, url, response);
+
     if (!response.ok) {
       const errorText = await response.text().catch(() => "No error details");
       throw new Error(`HTTP ${response.status}: ${errorText}`);
     }
-
-    await logDownloaderDebugResponse("NZBGet", method, url, response);
 
     const responseText = await response.text();
 

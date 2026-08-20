@@ -1435,6 +1435,7 @@ export class QBittorrentClient implements DownloaderClient {
       body: requestBody,
       signal: AbortSignal.timeout(30000),
     });
+    await logDownloaderDebugResponse("qBittorrent", method, url, response);
 
     if (response.status === 403 || response.status === 401) {
       // Session expired or unauthorized, re-authenticate
@@ -1454,6 +1455,7 @@ export class QBittorrentClient implements DownloaderClient {
         body: requestBody,
         signal: AbortSignal.timeout(30000),
       });
+      await logDownloaderDebugResponse("qBittorrent", method, url, response);
 
       if (!response.ok && response.status !== 409) {
         const errorText = await response.text().catch(() => "No error details available");
@@ -1469,8 +1471,6 @@ export class QBittorrentClient implements DownloaderClient {
       const errorText = await response.text().catch(() => "No error details available");
       throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
     }
-
-    await logDownloaderDebugResponse("qBittorrent", method, url, response);
 
     return response;
   }

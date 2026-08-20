@@ -154,25 +154,23 @@ export class SABnzbdClient implements DownloaderClient {
           res.on("data", (chunk) => chunks.push(chunk));
           res.on("end", () => {
             const body = Buffer.concat(chunks).toString();
-            resolve({
-              ok: !!(res.statusCode && res.statusCode >= 200 && res.statusCode < 300),
-              status: res.statusCode || 0,
-              statusText: res.statusMessage || "",
-              text: async () => body,
-              json: async () => {
-                try {
-                  return JSON.parse(body);
-                } catch {
-                  throw new Error(`Failed to parse JSON: ${body}`);
-                }
-              },
-              headers: {
-                get: (name: string) => {
-                  const val = res.headers[name.toLowerCase()];
-                  return Array.isArray(val) ? val[0] : val || null;
-                },
-              },
-            } as unknown as Response);
+            const responseHeaders = new Headers();
+            for (const [name, value] of Object.entries(res.headers)) {
+              if (value === undefined) continue;
+              for (const v of Array.isArray(value) ? value : [value]) {
+                responseHeaders.append(name, v);
+              }
+            }
+            // Build a native Response so downstream consumers (including
+            // logDownloaderDebugResponse, which calls clone() and
+            // headers.entries()) get the full standard Response surface.
+            resolve(
+              new Response(body, {
+                status: res.statusCode || 200,
+                statusText: res.statusMessage || "",
+                headers: responseHeaders,
+              })
+            );
           });
         }
       );

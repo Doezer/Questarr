@@ -261,12 +261,12 @@ export class SynologyDownloadStationClient implements DownloaderClient {
       signal: init.signal ?? AbortSignal.timeout(30000),
     });
 
+    await logDownloaderDebugResponse("Synology", init.method ?? "GET", url, response);
+
     if (!response.ok) {
       const errorText = await response.text().catch(() => "No error details available");
       throw new Error(`${context}: HTTP ${response.status} ${response.statusText} - ${errorText}`);
     }
-
-    await logDownloaderDebugResponse("Synology", init.method ?? "GET", url, response);
 
     return (await response.json()) as T;
   }

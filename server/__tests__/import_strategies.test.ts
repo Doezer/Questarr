@@ -281,7 +281,13 @@ describe("ImportStrategies", () => {
       expect(result.modeUsed).toBe("hardlink");
       expect(result.conflictsResolved).toEqual(["Game DLC Pack.nsp (mode fallback: copy)"]);
       expect(await fs.pathExists(path.join(destination, "dlc", "Game DLC Pack.nsp"))).toBe(true);
-      expect(await fs.pathExists(path.join(destination, "game.exe"))).toBe(true);
+
+      // Confirm the base game file is an actual hardlink (same inode), not
+      // merely a file that happens to exist at the destination.
+      const sourceStat = await fs.stat(path.join(sourceDir, "game.exe"));
+      const destStat = await fs.stat(path.join(destination, "game.exe"));
+      expect(destStat.ino).toBe(sourceStat.ino);
+      expect(destStat.dev).toBe(sourceStat.dev);
     });
 
     it("keeps the existing flat destination for a single file when sorting is enabled", async () => {

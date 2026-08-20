@@ -127,7 +127,8 @@ export default function SendErrorReportDialog({
       });
   }, [result, toast]);
 
-  const issueUrl = result && meta ? buildGitHubIssueUrl(result.code, meta.appVersion) : null;
+  const issueUrl =
+    result && meta ? buildGitHubIssueUrl(result.code, meta.appVersion, result.issueNumber) : null;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>

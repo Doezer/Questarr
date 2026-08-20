@@ -202,24 +202,56 @@ class IGDBClient {
     limit: number,
     options: SearchGamesOptions = {}
   ): Promise<IGDBGame[]> {
-    const datedResults = results
+    // Canonicalize (collapse edition/version entries into their base game)
+    // FIRST, before platformId/releaseYear filtering and date-based
+    // ordering. An edition's platform list or first_release_date can
+    // differ from its canonical parent's, so those filters/sort must be
+    // evaluated against the actual game being returned to the caller, not
+    // against the edition metadata that happened to match the original
+    // IGDB query. Truncation to `limit` happens only once, at the very
+    // end, after filtering and ordering are finalized.
+    const canonicalResults = await this.canonicalizeVersionedGames(results);
+
+    let yearRange: { start: number; end: number } | null = null;
+    if (options.releaseYear) {
+      yearRange = {
+        start: Math.floor(Date.UTC(options.releaseYear, 0, 1) / 1000),
+        end: Math.floor(Date.UTC(options.releaseYear + 1, 0, 1) / 1000),
+      };
+    }
+
+    const filteredResults = canonicalResults.filter((game) => {
+      if (options.platformId && !game.platforms?.some((p) => p.id === options.platformId)) {
+        return false;
+      }
+      if (yearRange) {
+        if (
+          typeof game.first_release_date !== "number" ||
+          game.first_release_date < yearRange.start ||
+          game.first_release_date >= yearRange.end
+        ) {
+          return false;
+        }
+      }
+      return true;
+    });
+
+    const datedResults = filteredResults
       .filter((game) => typeof game.first_release_date === "number")
       .sort((left, right) => (right.first_release_date ?? 0) - (left.first_release_date ?? 0));
 
     if (options.includeUndated === false) {
-      return this.canonicalizeVersionedGames(datedResults, limit);
+      return datedResults.slice(0, limit);
     }
 
-    const undatedResults = results.filter((game) => typeof game.first_release_date !== "number");
+    const undatedResults = filteredResults.filter(
+      (game) => typeof game.first_release_date !== "number"
+    );
     const orderedResults = options.undatedFirst
       ? [...undatedResults, ...datedResults]
       : [...datedResults, ...undatedResults];
-    // Canonicalize (collapse edition/version entries into their base game)
-    // as the very last step, after sort order is decided but before
-    // truncating to `limit`, so editions that collapse into an
-    // already-listed game don't waste result slots that a genuinely
-    // different game could otherwise fill.
-    return this.canonicalizeVersionedGames(orderedResults, limit);
+
+    return orderedResults.slice(0, limit);
   }
 
   /**
@@ -228,16 +260,18 @@ class IGDBClient {
    * every edition in `results` down to its canonical (base) game, batch
    * fetching any canonical games not already present in `results`, then
    * dedupe by canonical id (first occurrence wins, so `results`' existing
-   * order determines which edition's position each canonical game keeps)
-   * and truncate to `limit`.
+   * order determines which edition's position each canonical game keeps).
+   *
+   * Does NOT filter, sort, or truncate to a limit -- callers apply
+   * platform/year filtering and date-based ordering against the
+   * canonicalized (parent) game metadata, then truncate to the requested
+   * limit themselves, since an edition's platform list or release date can
+   * differ from its canonical parent's.
    *
    * Never throws: if fetching parent games fails, this logs and falls back
    * to the original (uncanonicalized) entries.
    */
-  private async canonicalizeVersionedGames(
-    results: IGDBGame[],
-    limit: number
-  ): Promise<IGDBGame[]> {
+  private async canonicalizeVersionedGames(results: IGDBGame[]): Promise<IGDBGame[]> {
     const resultById = new Map(results.map((game) => [game.id, game] as const));
     const parentIdsToFetch = Array.from(
       new Set(
@@ -257,7 +291,7 @@ class IGDBClient {
           { error, parentIdsToFetch },
           "failed to fetch version_parent games for canonicalization; falling back to uncanonicalized results"
         );
-        return results.slice(0, limit);
+        return results;
       }
     }
 
@@ -273,7 +307,6 @@ class IGDBClient {
       if (seenCanonicalIds.has(canonicalGame.id)) continue;
       seenCanonicalIds.add(canonicalGame.id);
       canonical.push(canonicalGame);
-      if (canonical.length >= limit) break;
     }
 
     return canonical;
@@ -514,7 +547,7 @@ class IGDBClient {
             { approach: i + 1, query: sanitizedQuery, resultCount: results.length },
             `search approach ${i + 1} found ${results.length} results`
           );
-          return this.postProcessSearchResults(results, limit, options);
+          return await this.postProcessSearchResults(results, limit, options);
         }
       } catch {
         igdbLogger.warn(
@@ -585,7 +618,20 @@ class IGDBClient {
             index === self.findIndex((g) => g.id === game.id)
         );
 
-        return this.postProcessSearchResults(uniqueResults, limit, options);
+        // This fallback path sits outside the try/catch that wraps the
+        // primary search approaches above, so guard the post-processing
+        // call explicitly -- a rejection here must not escape as an
+        // unhandled crash; fall back to the uncanonicalized/unfiltered
+        // word-search results instead.
+        try {
+          return await this.postProcessSearchResults(uniqueResults, limit, options);
+        } catch (error) {
+          igdbLogger.warn(
+            { error, query: sanitizedQuery },
+            "post-processing failed for word search fallback results; returning uncanonicalized results"
+          );
+          return uniqueResults.slice(0, limit);
+        }
       }
     }
 

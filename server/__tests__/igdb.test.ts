@@ -598,6 +598,155 @@ describe("IGDBClient - canonicalizeVersionedGames (edition/version dedup)", () =
   });
 });
 
+describe("IGDBClient - canonicalization runs before filtering/sorting (edition vs. parent metadata mismatch)", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    vi.resetModules();
+    const { safeFetch } = await import("../ssrf.js");
+    fetchMock = vi.mocked(safeFetch);
+  });
+
+  const authResponse = {
+    ok: true,
+    json: async () => ({
+      access_token: "test-token",
+      expires_in: 3600,
+      token_type: "bearer",
+    }),
+  };
+
+  it("filters out a canonicalized result whose parent platforms don't match platformId, even though the edition's did", async () => {
+    const searchResponse = {
+      ok: true,
+      json: async () => [
+        {
+          id: 10,
+          name: "Test Game: Deluxe Edition",
+          platforms: [{ id: 5, name: "PlayStation 5" }],
+          version_parent: { id: 100, name: "Test Game" },
+        },
+      ],
+    };
+    // Parent has a completely different platform list than the edition.
+    const parentResponse = {
+      ok: true,
+      json: async () => [
+        { id: 100, name: "Test Game", platforms: [{ id: 6, name: "PC (Microsoft Windows)" }] },
+      ],
+    };
+
+    fetchMock
+      .mockResolvedValueOnce(authResponse)
+      .mockResolvedValueOnce(searchResponse)
+      .mockResolvedValueOnce(parentResponse);
+
+    const { igdbClient } = await import("../igdb.js");
+    const results = await igdbClient.searchGames("Test Game", 20, { platformId: 5 });
+
+    // The edition matched platformId 5, but the canonical parent it resolves
+    // to does not -- the parent's own metadata must govern the filter.
+    expect(results).toHaveLength(0);
+  });
+
+  it("filters out a canonicalized result whose parent release year doesn't match releaseYear, even though the edition's did", async () => {
+    const searchResponse = {
+      ok: true,
+      json: async () => [
+        {
+          id: 11,
+          name: "Test Game 2: Game of the Year Edition",
+          first_release_date: 1577836800, // 2020-01-01
+          version_parent: { id: 101, name: "Test Game 2" },
+        },
+      ],
+    };
+    // Parent released in a different year than the edition.
+    const parentResponse = {
+      ok: true,
+      json: async () => [
+        { id: 101, name: "Test Game 2", first_release_date: 1420070400 }, // 2015-01-01
+      ],
+    };
+
+    fetchMock
+      .mockResolvedValueOnce(authResponse)
+      .mockResolvedValueOnce(searchResponse)
+      .mockResolvedValueOnce(parentResponse);
+
+    const { igdbClient } = await import("../igdb.js");
+    const results = await igdbClient.searchGames("Test Game 2", 20, { releaseYear: 2020 });
+
+    expect(results).toHaveLength(0);
+  });
+
+  it("excludes a canonicalized result with includeUndated:false when the parent is undated, even though the edition was dated", async () => {
+    const searchResponse = {
+      ok: true,
+      json: async () => [
+        {
+          id: 12,
+          name: "Test Game 3: Special Edition",
+          first_release_date: 1577836800,
+          version_parent: { id: 102, name: "Test Game 3" },
+        },
+      ],
+    };
+    // Parent has no release date at all.
+    const parentResponse = {
+      ok: true,
+      json: async () => [{ id: 102, name: "Test Game 3" }],
+    };
+
+    fetchMock
+      .mockResolvedValueOnce(authResponse)
+      .mockResolvedValueOnce(searchResponse)
+      .mockResolvedValueOnce(parentResponse);
+
+    const { igdbClient } = await import("../igdb.js");
+    const results = await igdbClient.searchGames("Test Game 3", 20, { includeUndated: false });
+
+    expect(results).toHaveLength(0);
+  });
+
+  it("sorts a canonicalized result by the parent's release date, not treated as undated just because the edition lacked one", async () => {
+    const searchResponse = {
+      ok: true,
+      json: async () => [
+        { id: 200, name: "Already Released Game", first_release_date: 1577836800 }, // 2020-01-01
+        {
+          id: 13,
+          name: "Test Game 4: Ultimate Edition",
+          // The edition itself has no first_release_date.
+          version_parent: { id: 103, name: "Test Game 4" },
+        },
+      ],
+    };
+    // Parent has a real (later) release date.
+    const parentResponse = {
+      ok: true,
+      json: async () => [{ id: 103, name: "Test Game 4", first_release_date: 1704067200 }], // 2024-01-01
+    };
+
+    fetchMock
+      .mockResolvedValueOnce(authResponse)
+      .mockResolvedValueOnce(searchResponse)
+      .mockResolvedValueOnce(parentResponse);
+
+    const { igdbClient } = await import("../igdb.js");
+    const results = await igdbClient.searchGames("Test Game 4", 20, {
+      includeUndated: true,
+      undatedFirst: true,
+    });
+
+    // The canonicalized parent is dated (2024), so it sorts by that date
+    // alongside the other dated result rather than being pulled to the
+    // front as "undated" just because the edition lacked a date.
+    expect(results.map((game) => game.name)).toEqual(["Test Game 4", "Already Released Game"]);
+  });
+});
+
 describe("IGDBClient - formatGameData metadata fields", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 

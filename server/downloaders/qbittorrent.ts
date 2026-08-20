@@ -10,7 +10,12 @@ import { randomUUID } from "node:crypto";
 import parseTorrent from "parse-torrent";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
-import { fetchWithMagnetDetection, extractHashFromUrl, fixNzbUrlEncoding } from "./utils.js";
+import {
+  fetchWithMagnetDetection,
+  extractHashFromUrl,
+  fixNzbUrlEncoding,
+  logDownloaderDebugResponse,
+} from "./utils.js";
 
 interface QBittorrentTorrent {
   hash: string;
@@ -1283,6 +1288,7 @@ export class QBittorrentClient implements DownloaderClient {
         body: formData.toString(),
         signal: AbortSignal.timeout(30000),
       });
+      await logDownloaderDebugResponse("qBittorrent", "POST", url, response);
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => "No error details available");
@@ -1430,6 +1436,7 @@ export class QBittorrentClient implements DownloaderClient {
       body: requestBody,
       signal: AbortSignal.timeout(30000),
     });
+    await logDownloaderDebugResponse("qBittorrent", method, url, response);
 
     if (response.status === 403 || response.status === 401) {
       // Session expired or unauthorized, re-authenticate
@@ -1449,6 +1456,7 @@ export class QBittorrentClient implements DownloaderClient {
         body: requestBody,
         signal: AbortSignal.timeout(30000),
       });
+      await logDownloaderDebugResponse("qBittorrent", method, url, response);
 
       if (!response.ok && response.status !== 409) {
         const errorText = await response.text().catch(() => "No error details available");

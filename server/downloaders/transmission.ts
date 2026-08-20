@@ -9,7 +9,7 @@ import { downloadersLogger } from "../logger.js";
 import parseTorrent from "parse-torrent";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
-import { fetchWithMagnetDetection } from "./utils.js";
+import { fetchWithMagnetDetection, logDownloaderDebugResponse } from "./utils.js";
 
 interface TransmissionTorrent {
   id: number;
@@ -705,6 +705,7 @@ export class TransmissionClient implements DownloaderClient {
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(30000),
     });
+    await logDownloaderDebugResponse("Transmission", method, url, response);
 
     // Handle session ID requirement for Transmission
     if (response.status === 409) {
@@ -722,6 +723,7 @@ export class TransmissionClient implements DownloaderClient {
           body: JSON.stringify(body),
           signal: AbortSignal.timeout(30000),
         });
+        await logDownloaderDebugResponse("Transmission", method, url, retryResponse);
 
         if (!retryResponse.ok) {
           const errorText = await retryResponse.text().catch(() => "No error details available");

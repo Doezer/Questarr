@@ -3,7 +3,7 @@ import { downloadersLogger } from "../logger.js";
 import { XMLParser } from "fast-xml-parser";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
-import { fixNzbUrlEncoding } from "./utils.js";
+import { fixNzbUrlEncoding, logDownloaderDebugResponse } from "./utils.js";
 
 interface NZBGetListResult {
   NZBID: number;
@@ -202,6 +202,8 @@ export class NZBGetClient implements DownloaderClient {
       body: xmlBody,
       signal: AbortSignal.timeout(30000),
     });
+
+    await logDownloaderDebugResponse("NZBGet", method, url, response);
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => "No error details");

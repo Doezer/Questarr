@@ -8,7 +8,11 @@ import type {
 import { downloadersLogger } from "../logger.js";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
-import { fetchWithMagnetDetection, extractHashFromUrl } from "./utils.js";
+import {
+  fetchWithMagnetDetection,
+  extractHashFromUrl,
+  logDownloaderDebugResponse,
+} from "./utils.js";
 import { z } from "zod";
 
 interface DelugeTorrentStatus {
@@ -773,6 +777,8 @@ export class DelugeClient implements DownloaderClient {
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(30000),
     });
+
+    await logDownloaderDebugResponse("Deluge", method, url, response);
 
     // Extract cookies from response for future requests
     const setCookieHeader = response.headers.get("set-cookie");

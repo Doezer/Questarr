@@ -18,6 +18,13 @@ vi.mock("../storage.js", () => ({
   },
 }));
 
+// The error handler fires the automatic error-telemetry pipeline for 5xx errors
+// (fire-and-forget). Mock it out here — these tests only care about the HTTP
+// response the error handler produces, not telemetry reporting.
+vi.mock("../error-telemetry.js", () => ({
+  reportServerError: vi.fn(),
+}));
+
 describe("Security Error Handling", () => {
   it("should sanitize 500 errors in production", async () => {
     const app = express();

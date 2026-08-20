@@ -1,4 +1,5 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
+import { body, param } from "express-validator";
 import { createServer, type Server } from "http";
 import { storage } from "./storage.js";
 import { igdbClient } from "./igdb.js";
@@ -20,6 +21,7 @@ import {
   passwordPolicySchema,
   insertRssFeedSchema,
   insertReleaseBlacklistSchema,
+  insertGameFileSchema,
   claimDownloadRequestSchema,
   type Config,
   type Game,
@@ -32,8 +34,14 @@ import { torznabClient } from "./torznab.js";
 import { newznabClient } from "./newznab.js";
 import { rssService } from "./rss.js";
 import { DownloaderManager } from "./downloaders.js";
+import {
+  DOWNLOADER_DEBUG_LOGGING_CONFIG_KEY,
+  isDownloaderDebugLoggingEnabled,
+  setCachedDownloaderDebugLogging,
+} from "./downloaders/debug-logging.js";
 import { z } from "zod";
 import { routesLogger } from "./logger.js";
+import { getPendingReport, sendPendingReport } from "./error-telemetry.js";
 import {
   igdbRateLimiter,
   sensitiveEndpointLimiter,
@@ -521,8 +529,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/logs", authenticateToken, async (req, res) => {
     try {
       const rawLimit =
-        typeof req.query.limit === "string" ? Number.parseInt(req.query.limit, 10) : 200;
-      const limit = Number.isNaN(rawLimit) || rawLimit < 1 ? 200 : Math.min(rawLimit, 1000);
+        typeof req.query.limit === "string" ? Number.parseInt(req.query.limit, 10) : 1000;
+      const limit = Number.isNaN(rawLimit) || rawLimit < 1 ? 1000 : Math.min(rawLimit, 5000);
 
       const logPath = path.resolve(process.cwd(), "server.log");
 
@@ -1737,6 +1745,146 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: "Failed to list blacklists" });
     }
   });
+  const gameIdParamValidation = [
+    param("gameId").trim().isUUID().withMessage("Invalid game ID format"),
+  ];
+  const gameFileIdParamValidation = [
+    param("id").trim().isUUID().withMessage("Invalid game file ID format"),
+  ];
+  const gameFileBodyValidation = [
+    body("gameId").trim().isUUID().withMessage("Invalid game ID format"),
+    body("downloadId")
+      .optional({ nullable: true })
+      .trim()
+      .isUUID()
+      .withMessage("Invalid download ID format"),
+    body("category")
+      .trim()
+      .isIn(["main", "dlc", "update", "extra"])
+      .withMessage("Invalid game file category"),
+  ];
+
+  // Get game files for a specific game, grouped by category
+  app.get(
+    "/api/games/:gameId/content",
+    authenticateToken,
+    gameIdParamValidation,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const { gameId } = req.params;
+        const userId = req.user!.id;
+
+        const game = await resolveOwnedGame(gameId, userId, res);
+        if (!game) return;
+
+        const gameFiles = await storage.getGameFiles(gameId);
+
+        const CATEGORIES = [
+          { category: "main", label: "Main Game" },
+          { category: "dlc", label: "DLC & Expansions" },
+          { category: "update", label: "Updates & Patches" },
+          { category: "extra", label: "Extras" },
+        ] as const;
+
+        const slots = CATEGORIES.map(({ category, label }) => {
+          const files = gameFiles
+            .filter((f) => f.category === category)
+            .map((f) => ({
+              id: f.id,
+              originalName: f.originalName,
+              storedName: f.storedName,
+              downloadId: f.downloadId,
+              fileSize: f.fileSize,
+              createdAt: f.createdAt,
+            }));
+          return { category, label, present: files.length > 0, files };
+        });
+
+        res.json({ slots });
+      } catch (error) {
+        routesLogger.error({ error }, "error fetching game content");
+        res.status(500).json({ error: "Failed to fetch game content" });
+      }
+    }
+  );
+
+  // Get game files by download
+  app.get(
+    "/api/game-files/by-download/:downloadId",
+    authenticateToken,
+    sanitizeDownloadId,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const { downloadId } = req.params;
+        const download = await storage.getGameDownload(downloadId, req.user!.id);
+        if (!download) {
+          return res.status(404).json({ error: "Download not found" });
+        }
+        const files = await storage.getGameFilesByDownload(downloadId);
+        res.json(files);
+      } catch (error) {
+        routesLogger.error({ error }, "error fetching game files by download");
+        res.status(500).json({ error: "Failed to fetch game files" });
+      }
+    }
+  );
+
+  // Create a game file record
+  app.post(
+    "/api/game-files",
+    authenticateToken,
+    gameFileBodyValidation,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const parsed = insertGameFileSchema.parse(req.body);
+        const game = await resolveOwnedGame(parsed.gameId, req.user!.id, res);
+        if (!game) return;
+        if (parsed.downloadId) {
+          const download = await storage.getGameDownload(parsed.downloadId, req.user!.id);
+          if (!download || download.gameId !== parsed.gameId) {
+            return res.status(404).json({ error: "Download not found for game" });
+          }
+        }
+        const gameFile = await storage.addGameFile(parsed);
+        res.status(201).json(gameFile);
+      } catch (error) {
+        if (error instanceof z.ZodError) {
+          return respondWithZodError(res, error, "Invalid game file data");
+        }
+        routesLogger.error({ error }, "error creating game file");
+        res.status(500).json({ error: "Failed to create game file" });
+      }
+    }
+  );
+
+  // Delete a game file record
+  app.delete(
+    "/api/game-files/:id",
+    authenticateToken,
+    gameFileIdParamValidation,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const { id } = req.params;
+        const gameFile = await storage.getGameFile(id);
+        if (!gameFile) {
+          return res.status(404).json({ error: "Game file not found" });
+        }
+        if (!(await resolveOwnedGame(gameFile.gameId, req.user!.id, res))) return;
+        const deleted = await storage.removeGameFile(id);
+        if (!deleted) {
+          return res.status(404).json({ error: "Game file not found" });
+        }
+        res.json({ success: true });
+      } catch (error) {
+        routesLogger.error({ error }, "error deleting game file");
+        res.status(500).json({ error: "Failed to delete game file" });
+      }
+    }
+  );
 
   // IGDB discovery routes
 
@@ -2029,6 +2177,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Downloader management routes
 
   // Get all downloaders
+  // Verbose debug logging of full downloader responses (qBittorrent, Transmission,
+  // rTorrent, Deluge, Synology, sabnzbd, nzbget). Off by default - meant to be
+  // toggled on temporarily while diagnosing a downloader integration issue.
+  app.get("/api/downloaders/debug-logging", async (_req, res) => {
+    try {
+      res.json({ enabled: isDownloaderDebugLoggingEnabled() });
+    } catch (error) {
+      routesLogger.error({ error }, "error fetching downloader debug logging setting");
+      res.status(500).json({ error: "Failed to fetch downloader debug logging setting" });
+    }
+  });
+
+  app.put(
+    "/api/downloaders/debug-logging",
+    body("enabled").isBoolean({ strict: true }).withMessage("enabled must be a boolean"),
+    validateRequest,
+    async (req, res) => {
+      try {
+        const { enabled } = req.body as { enabled: boolean };
+        await storage.setSystemConfig(
+          DOWNLOADER_DEBUG_LOGGING_CONFIG_KEY,
+          enabled ? "true" : "false"
+        );
+        setCachedDownloaderDebugLogging(enabled);
+        routesLogger.info({ enabled }, "Downloader debug logging setting updated");
+        res.json({ enabled });
+      } catch (error) {
+        routesLogger.error({ error }, "error updating downloader debug logging setting");
+        res.status(500).json({ error: "Failed to update downloader debug logging setting" });
+      }
+    }
+  );
+
   app.get("/api/downloaders", async (req, res) => {
     try {
       const downloaders = await storage.getAllDownloaders();
@@ -3319,6 +3500,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: "Failed to clear notifications" });
     }
   });
+
+  // ── Automatic error-telemetry routes ────────────────────────────────────────
+  // Backs the consent flow opened from an "error-detected" notification's link
+  // (`error-report:<reportId>`), see SendErrorReportDialog and error-telemetry.ts.
+  // Reports are scoped to the authenticated user: getPendingReport/sendPendingReport
+  // only return a report that belongs to req.user!.id.
+
+  const telemetryReportIdValidation = [
+    param("reportId").trim().isUUID().withMessage("Invalid report ID format"),
+  ];
+
+  app.get(
+    "/api/telemetry/pending/:reportId",
+    authenticateToken,
+    telemetryReportIdValidation,
+    validateRequest,
+    (req: Request, res: Response) => {
+      const report = getPendingReport(req.params.reportId, req.user!.id);
+      if (!report) {
+        return res.status(404).json({ error: "This report is no longer available." });
+      }
+      res.json({
+        lineCount: report.lineCount,
+        appVersion: report.appVersion,
+        platform: report.platform,
+        timestamp: report.timestamp,
+      });
+    }
+  );
+
+  app.post(
+    "/api/telemetry/pending/:reportId/send",
+    authenticateToken,
+    telemetryReportIdValidation,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const result = await sendPendingReport(req.params.reportId, req.user!.id);
+        if (!result.ok) {
+          return res.status(422).json({ error: result.message });
+        }
+        res.json({ code: result.code, issueNumber: result.issueNumber });
+      } catch (error) {
+        routesLogger.error({ error }, "error sending pending telemetry report");
+        res.status(500).json({ error: "Failed to send diagnostic report" });
+      }
+    }
+  );
 
   // IGDB Configuration endpoint
   app.get("/api/settings/igdb", sensitiveEndpointLimiter, async (req, res) => {

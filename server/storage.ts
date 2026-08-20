@@ -51,6 +51,9 @@ import {
   type ImportConfig,
   importConfigSchema,
   releaseBlacklist,
+  type GameFile,
+  type InsertGameFile,
+  gameFiles,
 } from "../shared/schema.js";
 import { randomUUID } from "crypto";
 import { db } from "./db.js";
@@ -93,6 +96,7 @@ function buildImportConfigFromSettings(
     | "minFileSize"
     | "libraryRoot"
     | "autoDeleteAfterImport"
+    | "sortExtras"
   >
 ): ImportConfig {
   const parsed = importConfigSchema.safeParse({
@@ -106,6 +110,7 @@ function buildImportConfigFromSettings(
     minFileSize: settings?.minFileSize ?? 0,
     libraryRoot: settings?.libraryRoot ?? "/data",
     autoDeleteAfterImport: settings?.autoDeleteAfterImport ?? false,
+    sortExtras: settings?.sortExtras ?? false,
   });
 
   if (parsed.success) return parsed.data;
@@ -121,6 +126,7 @@ function buildImportConfigFromSettings(
     minFileSize: settings?.minFileSize ?? 0,
     libraryRoot: settings?.libraryRoot ?? "/data",
     autoDeleteAfterImport: settings?.autoDeleteAfterImport ?? false,
+    sortExtras: settings?.sortExtras ?? false,
   };
 }
 
@@ -295,6 +301,15 @@ export interface IStorage {
   getImportTask(id: string): Promise<ImportTask | undefined>;
   getImportTaskItems(taskId: string): Promise<ImportTaskItem[]>;
   deleteImportTasksOlderThan(cutoffMs: number): Promise<number>;
+
+  // GameFile methods
+  getGameFiles(gameId: string): Promise<GameFile[]>;
+  getGameFile(id: string): Promise<GameFile | undefined>;
+  getGameFilesByDownload(downloadId: string): Promise<GameFile[]>;
+  addGameFile(file: InsertGameFile): Promise<GameFile>;
+  addGameFilesBatch(files: InsertGameFile[]): Promise<GameFile[]>;
+  removeGameFile(id: string): Promise<boolean>;
+  removeGameFilesByGameId(gameId: string): Promise<number>;
 }
 
 export class MemStorage implements IStorage {
@@ -312,6 +327,7 @@ export class MemStorage implements IStorage {
   private readonly pathMappings: Map<string, PathMapping>;
   private readonly platformMappings: Map<string, PlatformMapping>;
   private releaseBlacklists: Map<string, ReleaseBlacklist>;
+  private gameFiles: Map<string, GameFile>;
 
   constructor() {
     this.users = new Map();
@@ -328,6 +344,7 @@ export class MemStorage implements IStorage {
     this.pathMappings = new Map();
     this.platformMappings = new Map();
     this.releaseBlacklists = new Map();
+    this.gameFiles = new Map();
   }
 
   // System Config methods
@@ -586,7 +603,9 @@ export class MemStorage implements IStorage {
   }
 
   async removeGame(id: string): Promise<boolean> {
-    return this.games.delete(id);
+    const deleted = this.games.delete(id);
+    if (deleted) await this.removeGameFilesByGameId(id);
+    return deleted;
   }
 
   async assignOrphanGamesToUser(userId: string): Promise<number> {
@@ -865,6 +884,9 @@ export class MemStorage implements IStorage {
   async removeGameDownload(id: string, gameId: string): Promise<boolean> {
     const gd = this.gameDownloads.get(id);
     if (!gd || gd.gameId !== gameId) return false;
+    for (const [fileId, file] of this.gameFiles.entries()) {
+      if (file.downloadId === id) this.gameFiles.set(fileId, { ...file, downloadId: null });
+    }
     return this.gameDownloads.delete(id);
   }
 
@@ -1106,12 +1128,14 @@ export class MemStorage implements IStorage {
       minFileSize: insertSettings.minFileSize ?? 0,
       libraryRoot: insertSettings.libraryRoot ?? "/data",
       autoDeleteAfterImport: insertSettings.autoDeleteAfterImport ?? false,
+      sortExtras: insertSettings.sortExtras ?? false,
 
       preferredReleaseGroups: insertSettings.preferredReleaseGroups ?? null,
       filterByPreferredGroups: insertSettings.filterByPreferredGroups ?? false,
       preferredPlatform: insertSettings.preferredPlatform ?? null,
       hideAdultContent: insertSettings.hideAdultContent ?? true,
       hideAgeRestrictedContent: insertSettings.hideAgeRestrictedContent ?? true,
+      telemetryEnabled: insertSettings.telemetryEnabled ?? false,
       updatedAt: new Date(),
     };
     this.userSettings.set(id, settings);
@@ -1302,6 +1326,57 @@ export class MemStorage implements IStorage {
       .filter((r) => r.gameId === gameId)
       .map((r) => r.releaseTitle);
     return new Set(titles);
+  }
+
+  // GameFile methods
+  async getGameFiles(gameId: string): Promise<GameFile[]> {
+    return Array.from(this.gameFiles.values()).filter((f) => f.gameId === gameId);
+  }
+
+  async getGameFile(id: string): Promise<GameFile | undefined> {
+    return this.gameFiles.get(id);
+  }
+
+  async getGameFilesByDownload(downloadId: string): Promise<GameFile[]> {
+    return Array.from(this.gameFiles.values()).filter((f) => f.downloadId === downloadId);
+  }
+
+  async addGameFile(file: InsertGameFile): Promise<GameFile> {
+    if (!this.games.has(file.gameId)) throw new Error(`Game ${file.gameId} not found`);
+    if (file.downloadId && !this.gameDownloads.has(file.downloadId)) {
+      throw new Error(`Download ${file.downloadId} not found`);
+    }
+    const id = randomUUID();
+    const gf: GameFile = {
+      ...file,
+      id,
+      downloadId: file.downloadId ?? null,
+      category: file.category as GameFile["category"],
+      fileSize: file.fileSize ?? null,
+      createdAt: new Date(),
+    };
+    this.gameFiles.set(id, gf);
+    return gf;
+  }
+
+  async addGameFilesBatch(files: InsertGameFile[]): Promise<GameFile[]> {
+    const result: GameFile[] = [];
+    for (const file of files) {
+      result.push(await this.addGameFile(file));
+    }
+    return result;
+  }
+
+  async removeGameFile(id: string): Promise<boolean> {
+    return this.gameFiles.delete(id);
+  }
+
+  async removeGameFilesByGameId(gameId: string): Promise<number> {
+    const toDelete = Array.from(this.gameFiles.values()).filter((f) => f.gameId === gameId);
+    for (const f of toDelete) {
+      this.gameFiles.delete(f.id);
+    }
+    return toDelete.length;
   }
 
   // Import task history — not implemented in MemStorage (tests use DatabaseStorage)
@@ -2408,6 +2483,49 @@ export class DatabaseStorage implements IStorage {
       .from(releaseBlacklist)
       .where(eq(releaseBlacklist.gameId, gameId));
     return new Set(rows.map((r) => r.releaseTitle));
+  }
+
+  // GameFile methods
+  async getGameFiles(gameId: string): Promise<GameFile[]> {
+    return db.select().from(gameFiles).where(eq(gameFiles.gameId, gameId));
+  }
+
+  async getGameFile(id: string): Promise<GameFile | undefined> {
+    const [file] = await db.select().from(gameFiles).where(eq(gameFiles.id, id)).limit(1);
+    return file;
+  }
+
+  async getGameFilesByDownload(downloadId: string): Promise<GameFile[]> {
+    return db.select().from(gameFiles).where(eq(gameFiles.downloadId, downloadId));
+  }
+
+  async addGameFile(file: InsertGameFile): Promise<GameFile> {
+    const id = randomUUID();
+    const [gf] = await db
+      .insert(gameFiles)
+      .values({ ...file, id, category: file.category as "main" | "dlc" | "update" | "extra" })
+      .returning();
+    return gf;
+  }
+
+  async addGameFilesBatch(files: InsertGameFile[]): Promise<GameFile[]> {
+    if (files.length === 0) return [];
+    const values = files.map((file) => ({
+      ...file,
+      id: randomUUID(),
+      category: file.category as "main" | "dlc" | "update" | "extra",
+    }));
+    return db.insert(gameFiles).values(values).returning();
+  }
+
+  async removeGameFile(id: string): Promise<boolean> {
+    const result = await db.delete(gameFiles).where(eq(gameFiles.id, id));
+    return (result.changes ?? 0) > 0;
+  }
+
+  async removeGameFilesByGameId(gameId: string): Promise<number> {
+    const result = await db.delete(gameFiles).where(eq(gameFiles.gameId, gameId));
+    return result.changes ?? 0;
   }
 
   // Import task history methods

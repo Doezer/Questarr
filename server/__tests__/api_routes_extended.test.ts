@@ -1,6 +1,7 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import express from "express";
 import request from "supertest";
+import fs from "fs";
 import {
   mockConfig,
   createStorageMock,
@@ -27,8 +28,10 @@ import { torznabClient } from "../torznab.js";
 import { newznabClient } from "../newznab.js";
 import { DownloaderManager } from "../downloaders.js";
 import { xrelClient } from "../xrel.js";
+import { readLastLogLines } from "../log-file.js";
 import type { Downloader, Indexer, Game } from "../../shared/schema.js";
 
+vi.mock("../log-file.js", () => ({ readLastLogLines: vi.fn().mockResolvedValue([]) }));
 vi.mock("../storage.js", () => ({ storage: createStorageMock() }));
 vi.mock("../igdb.js", () => ({ igdbClient: createIgdbMock() }));
 vi.mock("../auth.js", () => createAuthMock());
@@ -351,16 +354,42 @@ describe("API Routes - Additional Coverage", () => {
   });
 
   describe("GET /api/logs", () => {
-    it("returns a lines array", async () => {
-      const res = await request(app).get("/api/logs");
-      expect(res.status).toBe(200);
-      expect(Array.isArray(res.body.lines)).toBe(true);
+    let statSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      statSpy = vi.spyOn(fs.promises, "stat").mockResolvedValue({ size: 1 } as fs.Stats);
+      vi.mocked(readLastLogLines).mockClear().mockResolvedValue([]);
     });
 
-    it("clamps an out-of-range limit query param", async () => {
-      const res = await request(app).get("/api/logs?limit=99999");
+    afterEach(() => {
+      statSpy.mockRestore();
+    });
+
+    it("returns a lines array", async () => {
+      vi.mocked(readLastLogLines).mockResolvedValue(["line one", "line two"]);
+      const res = await request(app).get("/api/logs");
       expect(res.status).toBe(200);
-      expect(Array.isArray(res.body.lines)).toBe(true);
+      expect(res.body.lines).toEqual(["line one", "line two"]);
+    });
+
+    it.each([
+      { desc: "no limit provided defaults to 1000", queryLimit: undefined, expectedLimit: 1000 },
+      { desc: "an in-range limit is honored", queryLimit: "3000", expectedLimit: 3000 },
+      { desc: "an out-of-range limit clamps to 5000", queryLimit: "99999", expectedLimit: 5000 },
+      {
+        desc: "a non-numeric limit falls back to 1000",
+        queryLimit: "not-a-number",
+        expectedLimit: 1000,
+      },
+    ])("$desc", async ({ queryLimit, expectedLimit }) => {
+      const res = await request(app).get(
+        queryLimit === undefined ? "/api/logs" : `/api/logs?limit=${queryLimit}`
+      );
+      expect(res.status).toBe(200);
+      expect(readLastLogLines).toHaveBeenCalledWith(
+        expect.stringContaining("server.log"),
+        expectedLimit
+      );
     });
   });
 

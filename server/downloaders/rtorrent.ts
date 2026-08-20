@@ -10,7 +10,11 @@ import parseTorrent from "parse-torrent";
 import crypto from "crypto";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient, XMLValue } from "./types.js";
-import { fetchWithMagnetDetection, extractHashFromUrl } from "./utils.js";
+import {
+  fetchWithMagnetDetection,
+  extractHashFromUrl,
+  logDownloaderDebugResponse,
+} from "./utils.js";
 import { XMLParser } from "fast-xml-parser";
 
 /**
@@ -717,6 +721,7 @@ export class RTorrentClient implements DownloaderClient {
       body: xmlBody,
       signal: AbortSignal.timeout(30000),
     });
+    await logDownloaderDebugResponse("rTorrent", method, url, response);
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => "No error details available");
@@ -750,6 +755,7 @@ export class RTorrentClient implements DownloaderClient {
               body: xmlBody,
               signal: AbortSignal.timeout(30000),
             });
+            await logDownloaderDebugResponse("rTorrent", method, url, retryResponse);
 
             if (retryResponse.ok) {
               const retryResponseText = await retryResponse.text();

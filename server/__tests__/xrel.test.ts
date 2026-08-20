@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
 import { xrelClient, XrelSceneRelease, XrelP2pRelease } from "../xrel.js";
+import { safeFetch } from "../ssrf.js";
 
 vi.mock("../ssrf.js", () => ({
   safeFetch: vi.fn((url, options) => fetch(url, options)) as Mock,
@@ -91,6 +92,71 @@ describe("xREL Client", () => {
       });
     });
 
+    it("captures the nuke reason when a scene release has been nuked", async () => {
+      const mockResponse = {
+        results: [
+          {
+            id: "125",
+            dirname: "Nuked.Game.Name-GROUP",
+            link_href: "/release/125.html",
+            time: 1600000000,
+            group_name: "GROUP",
+            nuke_reason: "bad crack, use PROPER",
+            ext_info: {
+              type: "master_game",
+              id: "game2",
+              title: "Nuked Game Name",
+              link_href: "/game/game2.html",
+            },
+          } as XrelSceneRelease,
+        ],
+        p2p_results: [],
+      };
+
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => mockResponse,
+      });
+
+      const results = await xrelClient.searchReleases("Nuked Game Name");
+
+      expect(results).toHaveLength(1);
+      expect(results[0].nukeReason).toBe("bad crack, use PROPER");
+    });
+
+    it("leaves nukeReason unset for a scene release that was not nuked", async () => {
+      const mockResponse = {
+        results: [
+          {
+            id: "126",
+            dirname: "Clean.Game.Name-GROUP",
+            link_href: "/release/126.html",
+            time: 1600000000,
+            group_name: "GROUP",
+            ext_info: {
+              type: "master_game",
+              id: "game3",
+              title: "Clean Game Name",
+              link_href: "/game/game3.html",
+            },
+          } as XrelSceneRelease,
+        ],
+        p2p_results: [],
+      };
+
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => mockResponse,
+      });
+
+      const results = await xrelClient.searchReleases("Clean Game Name");
+
+      expect(results).toHaveLength(1);
+      expect(results[0].nukeReason).toBeUndefined();
+    });
+
     it("should fetch and parse p2p releases correctly when requested", async () => {
       const mockResponse = {
         results: [],
@@ -177,6 +243,48 @@ describe("xREL Client", () => {
       await p2;
 
       expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it("passes a 24s timeout through to safeFetch", async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ results: [] }),
+      });
+
+      await xrelClient.searchReleases("timeout wiring");
+
+      expect(safeFetch).toHaveBeenCalledWith(
+        expect.stringContaining("/v2/search/releases.json"),
+        expect.objectContaining({ timeoutMs: 24000 })
+      );
+    });
+
+    it("aborts/rejects once the request hangs past the 24s timeout instead of stalling the search", async () => {
+      // Simulate a hung downstream request: only settle once the caller's own
+      // timeoutMs elapses (standing in for safeFetch's real AbortSignal.timeout
+      // wiring, which this test file mocks out at the module level).
+      vi.mocked(safeFetch).mockImplementationOnce(
+        (_url, options) =>
+          new Promise((_resolve, reject) => {
+            const timeoutMs = (options as { timeoutMs?: number } | undefined)?.timeoutMs;
+            if (typeof timeoutMs === "number") {
+              setTimeout(() => reject(new Error("The operation timed out")), timeoutMs);
+            }
+            // Otherwise: never resolves -- a genuine hang, proving a missing
+            // timeout would stall this call (and the search hot path) forever.
+          })
+      );
+
+      const pending = xrelClient.searchReleases("hung request");
+      const assertion = expect(pending).rejects.toThrow(/timed out/i);
+
+      // Not yet timed out just before the 24s mark.
+      await vi.advanceTimersByTimeAsync(23999);
+      // Crosses the 24s timeout.
+      await vi.advanceTimersByTimeAsync(1);
+
+      await assertion;
     });
   });
 

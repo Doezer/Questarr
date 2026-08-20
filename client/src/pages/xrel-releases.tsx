@@ -17,6 +17,7 @@ interface XrelRelease {
   sizeUnit?: string;
   ext_info?: { title: string; link_href: string };
   source: "scene" | "p2p";
+  nukeReason?: string;
   isWanted?: boolean;
   libraryStatus?: string;
   gameId?: string;
@@ -222,6 +223,15 @@ export default function XrelReleasesPage() {
                       <Badge variant="outline" className="text-[10px] h-4 px-1.5">
                         {rel.group_name || "—"}
                       </Badge>
+                      {rel.nukeReason && (
+                        <Badge
+                          variant="destructive"
+                          className="text-[10px] h-4 px-1.5"
+                          title={`Nuked: ${rel.nukeReason}`}
+                        >
+                          Nuked
+                        </Badge>
+                      )}
                       {rel.libraryStatus ? (
                         <Badge
                           variant={rel.libraryStatus === "wanted" ? "default" : "secondary"}

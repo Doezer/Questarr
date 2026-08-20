@@ -125,9 +125,17 @@ export class SABnzbdClient implements DownloaderClient {
           (error.cause as { code: string })?.code === "CERT_HAS_EXPIRED");
 
       if (isSslError) {
+        if (!this.downloader.allowSelfSignedCertificate) {
+          downloadersLogger.warn(
+            { url, downloaderId: this.downloader.id },
+            "SSL verification failed; not retrying insecurely because " +
+              "allowSelfSignedCertificate is disabled for this downloader"
+          );
+          throw error;
+        }
         downloadersLogger.debug(
           { url },
-          "SSL verification failed, retrying with insecure connection"
+          "SSL verification failed, retrying with insecure connection (allowSelfSignedCertificate enabled)"
         );
         return this.fetchInsecure(url, options);
       }

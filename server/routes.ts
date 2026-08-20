@@ -2637,6 +2637,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         removeCompleted,
         postImportCategory,
         settings,
+        allowSelfSignedCertificate,
       } = req.body;
 
       if (!type || !url) {
@@ -2668,6 +2669,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         removeCompleted: removeCompleted ?? false,
         postImportCategory: postImportCategory || null,
         settings: settings || null,
+        allowSelfSignedCertificate: allowSelfSignedCertificate ?? false,
         createdAt: new Date(),
         updatedAt: new Date(),
       };

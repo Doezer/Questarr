@@ -333,6 +333,11 @@ export const sanitizeDownloaderData = [
     .trim()
     .isLength({ max: 200 })
     .withMessage("URL path must be at most 200 characters"),
+  body("allowSelfSignedCertificate")
+    .optional()
+    .isBoolean()
+    .withMessage("Allow self-signed certificate must be a boolean")
+    .toBoolean(),
 ];
 
 // Sanitization rules for partial downloader updates (PATCH)
@@ -407,6 +412,11 @@ export const sanitizeDownloaderUpdateData = [
     .trim()
     .isLength({ max: 200 })
     .withMessage("URL path must be at most 200 characters"),
+  body("allowSelfSignedCertificate")
+    .optional()
+    .isBoolean()
+    .withMessage("Allow self-signed certificate must be a boolean")
+    .toBoolean(),
 ];
 
 // Sanitization rules for download add requests

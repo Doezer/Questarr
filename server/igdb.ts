@@ -508,19 +508,20 @@ class IGDBClient {
     // postProcessSearchResults applies platformId/releaseYear filtering
     // locally, after canonicalization, against the resolved parent's
     // metadata.
-    const filters: string[] = [];
-    const withFilters = (conditions: string[] = []) => {
-      const allConditions = [...conditions, ...filters];
-      return allConditions.length > 0 ? `where ${allConditions.join(" & ")}; ` : "";
-    };
+    const withFilters = (conditions: string[] = []) =>
+      conditions.length > 0 ? `where ${conditions.join(" & ")}; ` : "";
 
-    // When platformId/releaseYear filtering will run locally post-canonicalization,
-    // request more raw results from IGDB than `limit` so there's enough headroom
-    // left after filtering out non-matching games and deduping editions down to
-    // their canonical parent. Capped at MAX_LIMIT (IGDB's own relevance ranking
-    // keeps this tractable without needing a larger multiplier).
-    const hasLocalFilters = Boolean(options.platformId || options.releaseYear);
-    const requestLimit = hasLocalFilters ? Math.min(limit * 2, MAX_LIMIT) : limit;
+    // Request more raw results from IGDB than `limit` so there's enough
+    // headroom left after canonicalizeVersionedGames collapses editions down
+    // to their canonical parent (which can shrink the result count even for
+    // an unfiltered search) and, when platformId/releaseYear are set, after
+    // local filtering against the resolved parent's metadata. Capped at
+    // MAX_LIMIT (IGDB's own relevance ranking keeps this tractable without
+    // needing a larger multiplier).
+    const requestLimit = Math.min(limit * 2, MAX_LIMIT);
+
+    const exactNameCondition = `name ~= "${sanitizedQuery}"`;
+    const partialNameCondition = `name ~ *"${sanitizedQuery}"*`;
 
     // Try multiple search approaches to maximize results
     const searchApproaches = [
@@ -531,10 +532,10 @@ class IGDBClient {
       `search "${sanitizedQuery}"; fields ${IGDB_GAME_FIELDS}; ${withFilters(["category = 0"])}limit ${requestLimit};`,
 
       // Approach 3: Case-insensitive name matching without category
-      `fields ${IGDB_GAME_FIELDS}; ${withFilters([`name ~= "${sanitizedQuery}"`])}limit ${requestLimit};`,
+      `fields ${IGDB_GAME_FIELDS}; ${withFilters([exactNameCondition])}limit ${requestLimit};`,
 
       // Approach 4: Partial name matching without category
-      `fields ${IGDB_GAME_FIELDS}; ${withFilters([`name ~ *"${sanitizedQuery}"*`])}sort rating desc; limit ${requestLimit};`,
+      `fields ${IGDB_GAME_FIELDS}; ${withFilters([partialNameCondition])}sort rating desc; limit ${requestLimit};`,
     ];
 
     for (let i = 0; i < searchApproaches.length && attemptCount < MAX_SEARCH_ATTEMPTS; i++) {
@@ -598,7 +599,8 @@ class IGDBClient {
           const sanitizedWord = sanitizeIgdbInput(word);
           if (!sanitizedWord) return [];
 
-          const wordQuery = `fields ${IGDB_GAME_FIELDS}; ${withFilters([`name ~ *"${sanitizedWord}"*`])}sort rating desc; limit ${requestLimit};`;
+          const wordCondition = `name ~ *"${sanitizedWord}"*`;
+          const wordQuery = `fields ${IGDB_GAME_FIELDS}; ${withFilters([wordCondition])}sort rating desc; limit ${requestLimit};`;
           // Cache word search results for 15 minutes
           return await this.makeRequest<IGDBGame[]>("games", wordQuery, 15 * 60 * 1000);
         } catch (error) {

@@ -16,7 +16,7 @@ export const IGDB_EARLY_ACCESS_STATUS = 4;
 
 // Shared field list for all IGDB game queries
 const IGDB_GAME_FIELDS =
-  "name, summary, cover.url, first_release_date, rating, aggregated_rating, aggregated_rating_count, platforms.name, genres.name, themes.name, age_ratings.category, age_ratings.rating, screenshots.url, websites.url, websites.category, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, status, game_type, expansions.name, expansions.cover.url, expansions.first_release_date, expansions.game_type";
+  "name, summary, cover.url, first_release_date, rating, aggregated_rating, aggregated_rating_count, platforms.name, genres.name, themes.name, age_ratings.category, age_ratings.rating, screenshots.url, websites.url, websites.category, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, status, game_type, category, version_parent.name, expansions.name, expansions.cover.url, expansions.first_release_date, expansions.game_type";
 
 // IGDB theme name flagged as adult content (Erotic)
 const ADULT_THEME_NAMES = new Set(["Erotic"]);
@@ -89,6 +89,15 @@ export interface IGDBGame {
   }>;
   status?: number;
   game_type?: number;
+  // IGDB's "category" field on the game entity itself (distinct from
+  // download-categorizer's DownloadCategory): 0 = main game, 8 = remake,
+  // 9 = remaster, etc. Not used for filtering today, just carried through.
+  category?: number;
+  // Present when this game entity is an edition/version of another game
+  // (e.g. "Cyberpunk 2077: Ultimate Edition" -> version_parent points at
+  // "Cyberpunk 2077"). Used by canonicalizeVersionedGames to collapse
+  // editions into a single canonical search result.
+  version_parent?: { id: number; name?: string };
   expansions?: Array<{
     id: number;
     name: string;
@@ -188,24 +197,86 @@ class IGDBClient {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private cache = new Map<string, CacheEntry<any>>();
 
-  private postProcessSearchResults(
+  private async postProcessSearchResults(
     results: IGDBGame[],
     limit: number,
     options: SearchGamesOptions = {}
-  ): IGDBGame[] {
+  ): Promise<IGDBGame[]> {
     const datedResults = results
       .filter((game) => typeof game.first_release_date === "number")
       .sort((left, right) => (right.first_release_date ?? 0) - (left.first_release_date ?? 0));
 
     if (options.includeUndated === false) {
-      return datedResults.slice(0, limit);
+      return this.canonicalizeVersionedGames(datedResults, limit);
     }
 
     const undatedResults = results.filter((game) => typeof game.first_release_date !== "number");
     const orderedResults = options.undatedFirst
       ? [...undatedResults, ...datedResults]
       : [...datedResults, ...undatedResults];
-    return orderedResults.slice(0, limit);
+    // Canonicalize (collapse edition/version entries into their base game)
+    // as the very last step, after sort order is decided but before
+    // truncating to `limit`, so editions that collapse into an
+    // already-listed game don't waste result slots that a genuinely
+    // different game could otherwise fill.
+    return this.canonicalizeVersionedGames(orderedResults, limit);
+  }
+
+  /**
+   * IGDB models editions ("Gold Edition", "Deluxe Edition", ...) as separate
+   * game entities linked to their base game via `version_parent`. Collapse
+   * every edition in `results` down to its canonical (base) game, batch
+   * fetching any canonical games not already present in `results`, then
+   * dedupe by canonical id (first occurrence wins, so `results`' existing
+   * order determines which edition's position each canonical game keeps)
+   * and truncate to `limit`.
+   *
+   * Never throws: if fetching parent games fails, this logs and falls back
+   * to the original (uncanonicalized) entries.
+   */
+  private async canonicalizeVersionedGames(
+    results: IGDBGame[],
+    limit: number
+  ): Promise<IGDBGame[]> {
+    const resultById = new Map(results.map((game) => [game.id, game] as const));
+    const parentIdsToFetch = Array.from(
+      new Set(
+        results
+          .map((game) => game.version_parent?.id)
+          .filter((id): id is number => id != null && !resultById.has(id))
+      )
+    );
+
+    let fetchedParentsById = new Map<number, IGDBGame>();
+    if (parentIdsToFetch.length > 0) {
+      try {
+        const parents = await this.getGamesByIds(parentIdsToFetch);
+        fetchedParentsById = new Map(parents.map((game) => [game.id, game] as const));
+      } catch (error) {
+        igdbLogger.warn(
+          { error, parentIdsToFetch },
+          "failed to fetch version_parent games for canonicalization; falling back to uncanonicalized results"
+        );
+        return results.slice(0, limit);
+      }
+    }
+
+    const seenCanonicalIds = new Set<number>();
+    const canonical: IGDBGame[] = [];
+    for (const game of results) {
+      const parentId = game.version_parent?.id;
+      const canonicalGame =
+        parentId != null
+          ? (resultById.get(parentId) ?? fetchedParentsById.get(parentId) ?? game)
+          : game;
+
+      if (seenCanonicalIds.has(canonicalGame.id)) continue;
+      seenCanonicalIds.add(canonicalGame.id);
+      canonical.push(canonicalGame);
+      if (canonical.length >= limit) break;
+    }
+
+    return canonical;
   }
 
   private async getCredentials(): Promise<{

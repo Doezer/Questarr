@@ -52,18 +52,16 @@ import { useLocalStorageState } from "@/hooks/use-local-storage-state";
 import { GHOST_THEME_KEY, GHOST_UNLOCK_KEY } from "@/lib/ghost-mode";
 import { WIN2K_THEME_KEY } from "@/lib/win2k-mode";
 import PasswordSettings from "@/components/PasswordSettings";
-import type {
-  Config,
-  UserSettings,
-  DownloadRules,
-  ReleaseBlacklist,
-  NotificationPreferences,
-  NotificationEvent,
-} from "@shared/schema";
 import {
   downloadRulesSchema,
   DEFAULT_NOTIFICATION_PREFERENCES,
   downloaderDebugLoggingResponseSchema,
+  type Config,
+  type UserSettings,
+  type DownloadRules,
+  type ReleaseBlacklist,
+  type NotificationPreferences,
+  type NotificationEvent,
   type DownloaderDebugLoggingResponse,
 } from "@shared/schema";
 import { parseJsonStringArray, CANONICAL_PLATFORMS } from "@shared/title-utils";

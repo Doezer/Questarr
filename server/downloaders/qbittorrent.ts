@@ -1288,6 +1288,7 @@ export class QBittorrentClient implements DownloaderClient {
         body: formData.toString(),
         signal: AbortSignal.timeout(30000),
       });
+      await logDownloaderDebugResponse("qBittorrent", "POST", url, response);
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => "No error details available");

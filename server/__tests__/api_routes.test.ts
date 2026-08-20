@@ -2677,6 +2677,18 @@ describe("API Routes - Extended Coverage", () => {
         expect(response.status).toBe(200);
         expect(response.body).toEqual({ enabled: false });
       });
+
+      it("should return 500 when reading the setting throws", async () => {
+        const debugLogging = await import("../downloaders/debug-logging.js");
+        vi.spyOn(debugLogging, "isDownloaderDebugLoggingEnabled").mockImplementation(() => {
+          throw new Error("cache read boom");
+        });
+
+        const response = await request(app).get("/api/downloaders/debug-logging");
+        expect(response.status).toBe(500);
+
+        vi.restoreAllMocks();
+      });
     });
 
     describe("PUT /api/downloaders/debug-logging", () => {

@@ -75,6 +75,7 @@ import {
   authenticateToken,
   optionalAuthenticateToken,
 } from "./auth.js";
+import { setAuthCookies, clearAuthCookies, csrfProtection } from "./security.js";
 import { nexusmodsClient } from "./nexusmods.js";
 import {
   appriseClient,
@@ -579,6 +580,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // /api route (including the routers below) is registered, so every /api/*
   // request is required to authenticate unless explicitly allowlisted above.
   app.use("/api", requireAuthenticationForApi);
+  // CSRF protection for cookie-authenticated requests. Must run after the
+  // auth boundary above so req.authSource is already populated.
+  app.use("/api", csrfProtection);
 
   // Use Steam Routes
   app.use(steamRoutes);
@@ -667,6 +671,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await saveIgdbCredentialsIfProvided(igdbClientId, igdbClientSecret);
 
       routesLogger.info({ username: trimmedUsername }, "Initial setup completed");
+      // Cookie-based auth is the primary mechanism for browser clients (see
+      // server/security.ts); the token is also still returned in the body
+      // for backward compatibility with any non-browser/bearer-only client.
+      setAuthCookies(req, res, token);
       res.json({ token, user: { id: user.id, username: user.username } });
     } catch (error) {
       routesLogger.error(
@@ -714,12 +722,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     await storage.assignOrphanGamesToUser(user.id);
 
     const token = await generateToken(user);
+    // Cookie-based auth is the primary mechanism for browser clients (see
+    // server/security.ts); the token is also still returned in the body
+    // for backward compatibility with any non-browser/bearer-only client.
+    setAuthCookies(req, res, token);
     res.json({ token, user: { id: user.id, username: user.username } });
   });
 
   app.get("/api/auth/me", authenticateToken, (req, res) => {
     const user = req.user!;
     res.json({ id: user.id, username: user.username, steamId64: user.steamId64 });
+  });
+
+  app.post("/api/auth/logout", authenticateToken, (req, res) => {
+    // JWTs are stateless (nothing to invalidate server-side), so this only
+    // clears the httpOnly auth/CSRF cookies -- the client can't do that
+    // itself since the auth cookie is httpOnly by design.
+    clearAuthCookies(req, res);
+    res.json({ success: true });
   });
 
   app.patch("/api/auth/password", authenticateToken, sensitiveEndpointLimiter, async (req, res) => {

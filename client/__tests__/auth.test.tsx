@@ -18,9 +18,11 @@ vi.mock("wouter", () => ({
 
 const mockApiFetch = vi.fn();
 const mockApiRequest = vi.fn();
+const mockSetBearerToken = vi.fn();
 vi.mock("@/lib/queryClient", () => ({
   apiFetch: (...args: unknown[]) => mockApiFetch(...args),
   apiRequest: (...args: unknown[]) => mockApiRequest(...args),
+  setBearerToken: (...args: unknown[]) => mockSetBearerToken(...args),
 }));
 
 import { AuthProvider, useAuth } from "../src/lib/auth";
@@ -72,6 +74,10 @@ describe("AuthProvider", () => {
       if (url.includes("/api/auth/me")) return jsonResponse(200, null);
       return jsonResponse(404, {});
     });
+    // logout() calls apiRequest("POST", "/api/auth/logout") best-effort; give
+    // it a sane default so tests that don't care about that call directly
+    // don't have to configure it themselves.
+    mockApiRequest.mockResolvedValue(jsonResponse(200, { success: true }));
   });
 
   it("redirects to /setup when no users exist yet", async () => {
@@ -139,7 +145,7 @@ describe("AuthProvider", () => {
     });
   });
 
-  it("clears the token when /api/auth/me returns 401", async () => {
+  it("clears the in-memory bearer session when /api/auth/me returns 401", async () => {
     localStorage.setItem("token", "stale-token");
     mockApiFetch.mockImplementation(async (url: string) => {
       if (url.includes("/api/auth/status")) return jsonResponse(200, { hasUsers: true });
@@ -149,9 +155,15 @@ describe("AuthProvider", () => {
 
     renderAuth(createClient());
 
+    // Migrated once synchronously on mount (with the legacy token)...
     await waitFor(() => {
-      expect(localStorage.getItem("token")).toBeNull();
+      expect(mockSetBearerToken).toHaveBeenCalledWith("stale-token");
     });
+    // ...then cleared once the server rejects it.
+    await waitFor(() => {
+      expect(mockSetBearerToken).toHaveBeenCalledWith(null);
+    });
+    expect(localStorage.getItem("token")).toBeNull();
   });
 
   it("redirects to / when authenticated and sitting on /login", async () => {
@@ -172,21 +184,25 @@ describe("AuthProvider", () => {
     });
   });
 
-  it("login mutates state, stores the token, and navigates home", async () => {
+  it("login mutates state and navigates home without touching localStorage (cookies carry the session)", async () => {
     mockApiRequest.mockResolvedValue({
       json: async () => ({ token: "new-token", user: { id: "u1", username: "newuser" } }),
     });
 
     renderAuth(createClient());
-    await waitFor(() => screen.getByTestId("user"));
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
 
     await act(async () => {
       screen.getByRole("button", { name: "Login" }).click();
     });
 
     await waitFor(() => {
-      expect(localStorage.getItem("token")).toBe("new-token");
+      expect(screen.getByTestId("user")).toHaveTextContent("newuser");
     });
+    // The server has already set the httpOnly auth cookie; the client never
+    // persists the token returned in the body (kept only for backward
+    // compatibility with non-browser bearer clients).
+    expect(localStorage.getItem("token")).toBeNull();
     expect(mockToast).toHaveBeenCalledWith(
       expect.objectContaining({ title: "Logged in successfully" })
     );
@@ -197,7 +213,7 @@ describe("AuthProvider", () => {
     mockApiRequest.mockRejectedValue(new Error("Invalid credentials"));
 
     renderAuth(createClient());
-    await waitFor(() => screen.getByTestId("user"));
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
 
     await act(async () => {
       screen.getByRole("button", { name: "Login" }).click();
@@ -210,16 +226,33 @@ describe("AuthProvider", () => {
     });
   });
 
-  it("logout clears the token and redirects to /login", async () => {
-    localStorage.setItem("token", "existing-token");
+  it("logout clears the in-memory bearer session, best-effort calls the logout endpoint, and redirects to /login", async () => {
     renderAuth(createClient());
-    await waitFor(() => screen.getByTestId("user"));
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
 
     await act(async () => {
       screen.getByRole("button", { name: "Logout" }).click();
     });
 
+    expect(mockApiRequest).toHaveBeenCalledWith("POST", "/api/auth/logout");
+    expect(mockSetBearerToken).toHaveBeenCalledWith(null);
     expect(localStorage.getItem("token")).toBeNull();
+    expect(setLocationMock).toHaveBeenCalledWith("/login");
+  });
+
+  it("logout still clears local state even if the server-side logout call fails", async () => {
+    mockApiRequest.mockRejectedValue(new Error("network down"));
+
+    renderAuth(createClient());
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+
+    await act(async () => {
+      screen.getByRole("button", { name: "Logout" }).click();
+      // Let the rejected apiRequest promise settle before asserting.
+      await Promise.resolve();
+    });
+
+    expect(mockSetBearerToken).toHaveBeenCalledWith(null);
     expect(setLocationMock).toHaveBeenCalledWith("/login");
   });
 

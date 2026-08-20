@@ -251,12 +251,14 @@ describe("ImportStrategies", () => {
       await fs.writeFile(path.join(sourceDir, "Game DLC Pack.nsp"), "dlc");
 
       // Only the DLC file's hardlink fails; the base game file hardlinks fine.
-      vi.spyOn(fs, "link").mockImplementation(async (src) => {
+      const originalLink = fs.link.bind(fs);
+      vi.spyOn(fs, "link").mockImplementation(async (src, dest) => {
         if (String(src).endsWith("Game DLC Pack.nsp")) {
           const err: NodeJS.ErrnoException = new Error("cross-device");
           err.code = "EXDEV";
           throw err;
         }
+        return originalLink(src, dest);
       });
 
       const strategy = new PCImportStrategy();
@@ -279,6 +281,7 @@ describe("ImportStrategies", () => {
       expect(result.modeUsed).toBe("hardlink");
       expect(result.conflictsResolved).toEqual(["Game DLC Pack.nsp (mode fallback: copy)"]);
       expect(await fs.pathExists(path.join(destination, "dlc", "Game DLC Pack.nsp"))).toBe(true);
+      expect(await fs.pathExists(path.join(destination, "game.exe"))).toBe(true);
     });
 
     it("keeps the existing flat destination for a single file when sorting is enabled", async () => {

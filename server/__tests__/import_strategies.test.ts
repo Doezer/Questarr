@@ -21,39 +21,38 @@ afterEach(async () => {
   for (const dir of cleanup.splice(0, cleanup.length)) {
     await fs.remove(dir);
   }
+  vi.restoreAllMocks();
 });
 
 describe("ImportStrategies", () => {
-  it("falls back to copy when hardlink fails with EXDEV", async () => {
-    const root = tempDir();
-    const source = path.join(root, "downloads", "cross-device.rom");
-    const destination = path.join(root, "library", "PC", "cross-device.rom");
-    await fs.ensureDir(path.dirname(source));
-    await fs.writeFile(source, "rom-bytes");
+  it.each(["EXDEV", "EPERM", "EACCES", "ENOTSUP", "EOPNOTSUPP"])(
+    "falls back to copy when hardlink fails with %s",
+    async (code) => {
+      const root = tempDir();
+      const source = path.join(root, "downloads", "cross-device.rom");
+      const destination = path.join(root, "library", "PC", "cross-device.rom");
+      await fs.ensureDir(path.dirname(source));
+      await fs.writeFile(source, "rom-bytes");
 
-    const linkSpy = vi
-      .spyOn(fs, "link")
-      .mockRejectedValueOnce({ code: "EXDEV" } as NodeJS.ErrnoException);
-    const copySpy = vi.spyOn(fs, "copy");
+      const linkSpy = vi.spyOn(fs, "link").mockRejectedValueOnce({ code } as NodeJS.ErrnoException);
+      const copySpy = vi.spyOn(fs, "copy");
 
-    const strategy = new PCImportStrategy();
-    const result = await strategy.executeImport(
-      {
-        needsReview: false,
-        originalPath: source,
-        proposedPath: destination,
-        strategy: "pc",
-      },
-      "hardlink"
-    );
+      const strategy = new PCImportStrategy();
+      const result = await strategy.executeImport(
+        {
+          needsReview: false,
+          originalPath: source,
+          proposedPath: destination,
+          strategy: "pc",
+        },
+        "hardlink"
+      );
 
-    expect(result.modeUsed).toBe("copy");
-    expect(copySpy).toHaveBeenCalled();
-    expect(await fs.pathExists(destination)).toBe(true);
-
-    linkSpy.mockRestore();
-    copySpy.mockRestore();
-  });
+      expect(result.modeUsed).toBe("copy");
+      expect(copySpy).toHaveBeenCalled();
+      expect(await fs.pathExists(destination)).toBe(true);
+    }
+  );
 
   // ---------------------------------------------------------------------------
   // PCImportStrategy.executeImport() — single file vs directory source
@@ -105,6 +104,41 @@ describe("ImportStrategies", () => {
       expect(result.filesPlaced.some((p) => p.endsWith("game.exe"))).toBe(true);
       expect(result.filesPlaced.some((p) => p.endsWith("data.pak"))).toBe(true);
     });
+
+    it("sorts detected add-on files while preserving main and existing category paths", async () => {
+      const root = tempDir();
+      const sourceDir = path.join(root, "downloads", "game-folder");
+      const destination = path.join(root, "library", "PC", "My Game");
+      await fs.ensureDir(path.join(sourceDir, "dlc"));
+      await fs.ensureDir(path.join(sourceDir, "update"));
+      await fs.writeFile(path.join(sourceDir, "base.nsp"), "base");
+      await fs.writeFile(path.join(sourceDir, "Game Update v1.nsp"), "update");
+      await fs.writeFile(path.join(sourceDir, "Game Expansion Pack.nsp"), "dlc");
+      await fs.writeFile(path.join(sourceDir, "Game OST.zip"), "extra");
+      await fs.writeFile(path.join(sourceDir, "dlc", "Game DLC Pack.nsp"), "nested-dlc");
+      await fs.writeFile(path.join(sourceDir, "update", "Game DLC Patch.nsp"), "nested-update");
+
+      const strategy = new PCImportStrategy();
+      const plan = await strategy.planImport(
+        sourceDir,
+        makeGame({ title: "My Game" }),
+        path.join(root, "library"),
+        makeImportConfig({ sortExtras: true, overwriteExisting: true })
+      );
+      const result = await strategy.executeImport(plan, "copy");
+
+      expect(result.filesPlaced).toEqual(
+        expect.arrayContaining([
+          path.join(destination, "base.nsp"),
+          path.join(destination, "update", "Game Update v1.nsp"),
+          path.join(destination, "dlc", "Game Expansion Pack.nsp"),
+          path.join(destination, "extra", "Game OST.zip"),
+          path.join(destination, "dlc", "Game DLC Pack.nsp"),
+          path.join(destination, "update", "Game DLC Patch.nsp"),
+        ])
+      );
+      expect(await fs.pathExists(path.join(destination, "dlc", "dlc"))).toBe(false);
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -133,8 +167,6 @@ describe("ImportStrategies", () => {
           "copy"
         )
       ).rejects.toThrow("write error");
-
-      copySpy.mockRestore();
     });
   });
 
@@ -181,6 +213,99 @@ describe("ImportStrategies", () => {
 
       expect(plan.needsReview).toBe(true);
       expect(plan.reviewReason).toMatch(/Destination already exists/);
+    });
+
+    it("rejects duplicate resolved destinations before transferring", async () => {
+      const root = tempDir();
+      const sourceDir = path.join(root, "downloads", "game-folder");
+      const destination = path.join(root, "library", "PC", "My Game");
+      await fs.ensureDir(path.join(sourceDir, "dlc"));
+      await fs.writeFile(path.join(sourceDir, "Game DLC Pack.nsp"), "root");
+      await fs.writeFile(path.join(sourceDir, "dlc", "Game DLC Pack.nsp"), "nested");
+
+      const strategy = new PCImportStrategy();
+      await expect(
+        strategy.executeImport(
+          {
+            needsReview: false,
+            originalPath: sourceDir,
+            proposedPath: destination,
+            strategy: "pc",
+            fileCategories: [
+              { name: "Game DLC Pack.nsp", category: "dlc" },
+              { name: path.join("dlc", "Game DLC Pack.nsp"), category: "dlc" },
+            ],
+          },
+          "copy"
+        )
+      ).rejects.toThrow("Duplicate import destination");
+      expect(await fs.pathExists(path.join(destination, "dlc", "Game DLC Pack.nsp"))).toBe(false);
+    });
+
+    it("reports the requested batch mode even when a single file falls back", async () => {
+      const root = tempDir();
+      const sourceDir = path.join(root, "downloads", "game-folder");
+      const destination = path.join(root, "library", "PC", "My Game");
+      await fs.ensureDir(sourceDir);
+      await fs.writeFile(path.join(sourceDir, "game.exe"), "main");
+      await fs.writeFile(path.join(sourceDir, "Game DLC Pack.nsp"), "dlc");
+
+      // Only the DLC file's hardlink fails; the base game file hardlinks fine.
+      const originalLink = fs.link.bind(fs);
+      vi.spyOn(fs, "link").mockImplementation(async (src, dest) => {
+        if (String(src).endsWith("Game DLC Pack.nsp")) {
+          const err: NodeJS.ErrnoException = new Error("cross-device");
+          err.code = "EXDEV";
+          throw err;
+        }
+        return originalLink(src, dest);
+      });
+
+      const strategy = new PCImportStrategy();
+      const result = await strategy.executeImport(
+        {
+          needsReview: false,
+          originalPath: sourceDir,
+          proposedPath: destination,
+          strategy: "pc",
+          fileCategories: [
+            { name: "game.exe", category: "main" },
+            { name: "Game DLC Pack.nsp", category: "dlc" },
+          ],
+        },
+        "hardlink"
+      );
+
+      // modeUsed reflects the requested batch mode, not just the last file's
+      // fallback; the per-file fallback is still visible in conflictsResolved.
+      expect(result.modeUsed).toBe("hardlink");
+      expect(result.conflictsResolved).toEqual(["Game DLC Pack.nsp (mode fallback: copy)"]);
+      expect(await fs.pathExists(path.join(destination, "dlc", "Game DLC Pack.nsp"))).toBe(true);
+
+      // Confirm the base game file is an actual hardlink (same inode), not
+      // merely a file that happens to exist at the destination.
+      const sourceStat = await fs.stat(path.join(sourceDir, "game.exe"));
+      const destStat = await fs.stat(path.join(destination, "game.exe"));
+      expect(destStat.ino).toBe(sourceStat.ino);
+      expect(destStat.dev).toBe(sourceStat.dev);
+    });
+
+    it("keeps the existing flat destination for a single file when sorting is enabled", async () => {
+      const root = tempDir();
+      const source = path.join(root, "downloads", "game.exe");
+      await fs.ensureDir(path.dirname(source));
+      await fs.writeFile(source, "exe-bytes");
+
+      const strategy = new PCImportStrategy();
+      const plan = await strategy.planImport(
+        source,
+        makeGame({ title: "My Game" }),
+        path.join(root, "library"),
+        makeImportConfig({ sortExtras: true })
+      );
+
+      expect(plan.proposedPath).toMatch(/My Game\.exe$/);
+      expect(plan.fileCategories).toBeUndefined();
     });
   });
 });

@@ -4,6 +4,7 @@ import type { Request, Response, NextFunction } from "express";
 import { TORRENT_DOWNLOADER_TYPES, USENET_DOWNLOADER_TYPES } from "../shared/downloader-types.js";
 import { storage } from "./storage.js";
 import { expressLogger } from "./logger.js";
+import { reportServerError } from "./error-telemetry.js";
 
 const DOWNLOADER_TYPES = [...TORRENT_DOWNLOADER_TYPES, ...USENET_DOWNLOADER_TYPES];
 
@@ -97,6 +98,16 @@ export const sanitizeSearchQuery = [
     .isBoolean()
     .withMessage("includeUndated must be a boolean")
     .toBoolean(),
+  query("platform")
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage("Platform must be a valid IGDB platform ID")
+    .toInt(),
+  query("year")
+    .optional()
+    .isInt({ min: 1950, max: 2100 })
+    .withMessage("Year must be between 1950 and 2100")
+    .toInt(),
 ];
 
 // Sanitization rules for game ID parameters
@@ -522,6 +533,13 @@ export const errorHandler = (err: any, req: Request, res: Response, next: NextFu
   // Use error level for 5xx, warn/info for client errors
   if (status >= 500) {
     expressLogger.error({ err, path: req.path, method: req.method }, "Request error");
+    // Fire-and-forget: detect + report unhandled server errors for the automatic
+    // error-telemetry pipeline. Never let this delay or fail the response.
+    void reportServerError(err, {
+      source: "expressErrorHandler",
+      path: req.path,
+      method: req.method,
+    });
   } else {
     expressLogger.warn({ err, path: req.path, method: req.method }, "Request error");
   }

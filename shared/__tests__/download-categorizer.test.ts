@@ -68,6 +68,24 @@ describe("download-categorizer", () => {
       expect(result.confidence).toBe(0.85);
     });
 
+    it("detects standalone packs and add-ons as packs", () => {
+      expect(categorizeDownload("Game.Content.Pack-GROUP")).toEqual({
+        category: "packs",
+        confidence: 0.85,
+      });
+      expect(categorizeDownload("Game.Add-On-GROUP")).toEqual({
+        category: "packs",
+        confidence: 0.85,
+      });
+      expect(categorizeDownload("Game.Addon-GROUP").category).toBe("packs");
+    });
+
+    it("keeps explicit DLC and expansion packs in the DLC category", () => {
+      expect(categorizeDownload("Game.DLC.Pack-GROUP").category).toBe("dlc");
+      expect(categorizeDownload("Game.DLC.Add-On-GROUP").category).toBe("dlc");
+      expect(categorizeDownload("Game.Expansion.Pack-GROUP").category).toBe("dlc");
+    });
+
     it("detects DLC via 'season pass' keyword", () => {
       const result = categorizeDownload("Game Season Pass-GROUP");
       expect(result.category).toBe("dlc");
@@ -130,6 +148,7 @@ describe("download-categorizer", () => {
         { title: "Game.Update.v2-GROUP" },
         { title: "Game.DLC-GROUP" },
         { title: "Game.OST-GROUP" },
+        { title: "Game.Content.Pack-GROUP" },
       ];
 
       const groups = groupDownloadsByCategory(downloads);
@@ -138,6 +157,7 @@ describe("download-categorizer", () => {
       expect(groups.update).toHaveLength(1);
       expect(groups.dlc).toHaveLength(1);
       expect(groups.extra).toHaveLength(1);
+      expect(groups.packs).toHaveLength(1);
     });
 
     it("returns all empty arrays for empty input", () => {
@@ -146,6 +166,7 @@ describe("download-categorizer", () => {
       expect(groups.update).toEqual([]);
       expect(groups.dlc).toEqual([]);
       expect(groups.extra).toEqual([]);
+      expect(groups.packs).toEqual([]);
     });
 
     it("preserves original download objects in groups", () => {
@@ -171,6 +192,7 @@ describe("download-categorizer", () => {
       expect(getCategoryLabel("update")).toBe("Updates & Patches");
       expect(getCategoryLabel("dlc")).toBe("DLC & Expansions");
       expect(getCategoryLabel("extra")).toBe("Extras");
+      expect(getCategoryLabel("packs")).toBe("Packs/Addons");
     });
   });
 });

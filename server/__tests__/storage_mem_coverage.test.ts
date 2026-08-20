@@ -275,6 +275,19 @@ describe("MemStorage - Game update methods", () => {
     expect(game?.searchResultsAvailable).toBe(true);
   });
 
+  it("tracks update and pack availability independently", async () => {
+    await storage.updateGameSearchResultsByCategory(gameId, { updates: true, packs: false });
+    let game = await storage.getGame(gameId);
+    expect(game?.updateSearchResultsAvailable).toBe(true);
+    expect(game?.packsSearchResultsAvailable).toBe(false);
+    expect(game?.searchResultsAvailable).toBe(true);
+
+    await storage.updateGameSearchResultsByCategory(gameId, { updates: false, packs: true });
+    game = await storage.getGame(gameId);
+    expect(game?.updateSearchResultsAvailable).toBe(false);
+    expect(game?.packsSearchResultsAvailable).toBe(true);
+    expect(game?.searchResultsAvailable).toBe(true);
+  });
   it("updateGame applies partial updates", async () => {
     const updated = await storage.updateGame(gameId, { title: "Updated Title" });
     expect(updated?.title).toBe("Updated Title");

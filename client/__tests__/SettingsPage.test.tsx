@@ -351,4 +351,62 @@ describe("SettingsPage", () => {
       expect(apiRequest).toHaveBeenCalledWith("DELETE", "/api/games/game-1/blacklist/bl-1");
     });
   });
+
+  it("switches to the System tab and toggles downloader debug logging", async () => {
+    const { apiRequest } = await import("@/lib/queryClient");
+    vi.mocked(apiRequest).mockImplementation(async (method: string, url: string) => {
+      if (url === "/api/downloaders/debug-logging") {
+        const enabled = method === "PUT";
+        return { headers: { get: () => null }, json: async () => ({ enabled }) } as Response;
+      }
+      return { headers: { get: () => null }, json: async () => ({}) } as Response;
+    });
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <SettingsPage />
+      </QueryClientProvider>
+    );
+
+    await screen.findByText("Settings");
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "System" }));
+
+    const debugSwitch = await screen.findByLabelText("Log full downloader responses");
+    await waitFor(() => expect(debugSwitch).not.toBeDisabled());
+    expect(debugSwitch).not.toBeChecked();
+
+    fireEvent.click(debugSwitch);
+
+    await waitFor(() => {
+      expect(apiRequest).toHaveBeenCalledWith("PUT", "/api/downloaders/debug-logging", {
+        enabled: true,
+      });
+    });
+    await waitFor(() => expect(debugSwitch).toBeChecked());
+  });
+
+  it("disables downloader debug logging switch and shows an error when the setting fails to load", async () => {
+    const { apiRequest } = await import("@/lib/queryClient");
+    vi.mocked(apiRequest).mockImplementation(async (method: string, url: string) => {
+      if (url === "/api/downloaders/debug-logging") {
+        throw new Error("Failed to fetch");
+      }
+      return { headers: { get: () => null }, json: async () => ({}) } as Response;
+    });
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <SettingsPage />
+      </QueryClientProvider>
+    );
+
+    await screen.findByText("Settings");
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "System" }));
+
+    const debugSwitch = await screen.findByLabelText("Log full downloader responses");
+    await waitFor(() => expect(debugSwitch).toBeDisabled());
+    expect(
+      await screen.findByText("Failed to load the current setting. Refresh the page to try again.")
+    ).toBeInTheDocument();
+  });
 });

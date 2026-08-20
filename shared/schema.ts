@@ -71,6 +71,10 @@ export const userSettings = sqliteTable("user_settings", {
   autoDeleteAfterImport: integer("auto_delete_after_import", { mode: "boolean" })
     .notNull()
     .default(false),
+  sortExtras: integer("sort_extras", { mode: "boolean" }).notNull().default(false),
+  // Telemetry: opt-in, off by default. When enabled, automatically-detected server
+  // errors are sent as a diagnostic report without prompting (see server/error-telemetry.ts).
+  telemetryEnabled: integer("telemetry_enabled", { mode: "boolean" }).notNull().default(false),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).default(
     sql`(strftime('%s', 'now') * 1000)`
   ),
@@ -115,6 +119,7 @@ export interface ImportConfig {
   minFileSize: number;
   libraryRoot: string;
   autoDeleteAfterImport: boolean;
+  sortExtras: boolean;
 }
 
 export const IMPORT_TRANSFER_MODES = ["move", "copy", "hardlink", "symlink"] as const;
@@ -134,6 +139,7 @@ export const importConfigSchema = z.object({
   minFileSize: z.number().int().min(0),
   libraryRoot: z.string().min(1),
   autoDeleteAfterImport: z.boolean(),
+  sortExtras: z.boolean(),
 });
 
 export const systemConfig = sqliteTable("system_config", {
@@ -176,6 +182,12 @@ export const games = sqliteTable("games", {
   notes: text("notes"),
   libraryPath: text("library_path"),
   searchResultsAvailable: integer("search_results_available", { mode: "boolean" })
+    .default(false)
+    .notNull(),
+  updateSearchResultsAvailable: integer("update_search_results_available", { mode: "boolean" })
+    .default(false)
+    .notNull(),
+  packsSearchResultsAvailable: integer("packs_search_results_available", { mode: "boolean" })
     .default(false)
     .notNull(),
   addedAt: integer("added_at", { mode: "timestamp_ms" }).default(
@@ -411,7 +423,7 @@ export const claimDownloadRequestSchema = z.object({
   downloadHash: z.string().min(1),
   downloadTitle: z.string().min(1),
   currentStatus: z.string().min(1),
-  category: z.enum(["main", "update", "dlc", "extra"]),
+  category: z.enum(["main", "update", "dlc", "extra", "packs"]),
   gameId: z.string().optional(),
   newGame: z
     .object({
@@ -442,8 +454,8 @@ export const downloadRulesSchema = z.object({
   minSeeders: z.number().int().min(0).default(0),
   sortBy: z.enum(["seeders", "date", "size"]).default("seeders"),
   visibleCategories: z
-    .array(z.enum(["main", "update", "dlc", "extra"]))
-    .default(["main", "update", "dlc", "extra"]),
+    .array(z.enum(["main", "update", "dlc", "extra", "packs"]))
+    .default(["main", "update", "dlc", "extra", "packs"]),
 });
 
 export type DownloadRules = z.infer<typeof downloadRulesSchema>;
@@ -561,7 +573,8 @@ export type NotificationEvent =
   | "multipleResults"
   | "gameUpdates"
   | "xrelRelease"
-  | "steamSync";
+  | "steamSync"
+  | "errorDetected";
 
 export type NotificationPreferences = Record<
   NotificationEvent,
@@ -579,6 +592,7 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   gameUpdates: { inApp: true, apprise: true },
   xrelRelease: { inApp: true, apprise: true },
   steamSync: { inApp: true, apprise: false },
+  errorDetected: { inApp: true, apprise: false },
 };
 
 export interface DownloadSummary {
@@ -826,3 +840,47 @@ export type InsertImportTask = (typeof insertImportTaskSchema)["_output"];
 
 export type ImportTaskItem = typeof importTaskItems.$inferSelect;
 export type InsertImportTaskItem = (typeof insertImportTaskItemSchema)["_output"];
+
+export const gameFileCategorySchema = z.enum(["main", "dlc", "update", "extra"]);
+export type GameFileCategory = z.infer<typeof gameFileCategorySchema>;
+
+export const gameFiles = sqliteTable(
+  "game_files",
+  {
+    id: text("id").primaryKey(),
+    gameId: text("game_id")
+      .notNull()
+      .references(() => games.id, { onDelete: "cascade" }),
+    downloadId: text("download_id").references(() => gameDownloads.id, { onDelete: "set null" }),
+    originalName: text("original_name").notNull(),
+    storedName: text("stored_name").notNull(),
+    category: text("category").notNull().$type<GameFileCategory>(),
+    filePath: text("file_path").notNull(),
+    fileSize: integer("file_size"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+  },
+  (t) => [
+    index("game_files_game_id_idx").on(t.gameId),
+    index("game_files_download_id_idx").on(t.downloadId),
+  ]
+);
+
+export const insertGameFileSchema = createInsertSchema(gameFiles, {
+  category: gameFileCategorySchema,
+}).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type GameFile = typeof gameFiles.$inferSelect;
+export type InsertGameFile = (typeof insertGameFileSchema)["_output"];
+
+// Response contract for GET/PUT /api/downloaders/debug-logging, shared so the
+// client can validate the payload at runtime instead of trusting a local
+// TypeScript annotation.
+export const downloaderDebugLoggingResponseSchema = z.object({
+  enabled: z.boolean(),
+});
+export type DownloaderDebugLoggingResponse = z.infer<typeof downloaderDebugLoggingResponseSchema>;

@@ -67,7 +67,7 @@ import {
 } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
-import { cn } from "@/lib/utils";
+import { cn, safeUrl } from "@/lib/utils";
 import {
   type Game,
   type Indexer,
@@ -75,7 +75,11 @@ import {
   type Downloader,
   downloadRulesSchema,
 } from "@shared/schema";
-import { groupDownloadsByCategory, type DownloadCategory } from "@shared/download-categorizer";
+import {
+  getCategoryLabel,
+  groupDownloadsByCategory,
+  type DownloadCategory,
+} from "@shared/download-categorizer";
 import {
   parseReleaseMetadata,
   parseJsonStringArray,
@@ -240,7 +244,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [showFilters, setShowFilters] = useState(false);
   const [visibleCategories, setVisibleCategories] = useState<Set<DownloadCategory>>(
-    new Set(["main", "update", "dlc", "extra"] as DownloadCategory[])
+    new Set(["main", "update", "dlc", "extra", "packs"] as DownloadCategory[])
   );
   const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
@@ -265,7 +269,9 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     setSortBy("seeders");
     setSortOrder("desc");
     setShowFilters(false);
-    setVisibleCategories(new Set(["main", "update", "dlc", "extra"] as DownloadCategory[]));
+    setVisibleCategories(
+      new Set(["main", "update", "dlc", "extra", "packs"] as DownloadCategory[])
+    );
     setSelectedGroups([]);
     setSelectedPlatforms([]);
     defaultsAppliedRef.current = false;
@@ -359,7 +365,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
 
   // Categorize downloads
   const categorizedDownloads = useMemo(() => {
-    if (!searchResults?.items) return { main: [], update: [], dlc: [], extra: [] };
+    if (!searchResults?.items) return { main: [], update: [], dlc: [], extra: [], packs: [] };
     return groupDownloadsByCategory(searchResults.items);
   }, [searchResults?.items]);
 
@@ -425,6 +431,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       update: [],
       dlc: [],
       extra: [],
+      packs: [],
     };
 
     for (const [category, downloads] of Object.entries(categorizedDownloads) as [
@@ -835,7 +842,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
       <div className={cn("space-y-2", !isMobile && "col-span-4")}>
         <Label className="text-sm">Categories</Label>
         <div className="flex flex-wrap gap-2">
-          {(["main", "update", "dlc", "extra"] as const).map((cat) => (
+          {(["main", "update", "dlc", "packs", "extra"] as const).map((cat) => (
             <div key={cat} className="flex items-center">
               <Checkbox
                 id={`cat-${cat}`}
@@ -843,13 +850,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                 onCheckedChange={() => toggleCategory(cat)}
               />
               <label htmlFor={`cat-${cat}`} className="ml-2 text-sm cursor-pointer capitalize">
-                {cat === "main"
-                  ? "Main Game"
-                  : cat === "update"
-                    ? "Updates"
-                    : cat === "dlc"
-                      ? "DLC"
-                      : "Extras"}
+                {getCategoryLabel(cat)}
               </label>
             </div>
           ))}
@@ -964,7 +965,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                 </div>
               )}
 
-              {(["main", "update", "dlc", "extra"] as const).map((category) => {
+              {(["main", "update", "dlc", "packs", "extra"] as const).map((category) => {
                 const downloadsInCategory = filteredCategorizedDownloads[category] || [];
                 if (downloadsInCategory.length === 0) return null;
 
@@ -972,13 +973,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                   <div key={category} className="relative">
                     <div className="flex items-center gap-2 mb-3 px-1">
                       <h3 className="font-bold text-lg capitalize tracking-tight">
-                        {category === "main"
-                          ? "Main Game"
-                          : category === "update"
-                            ? "Updates & Patches"
-                            : category === "dlc"
-                              ? "DLC & Expansions"
-                              : "Extras"}
+                        {getCategoryLabel(category)}
                       </h3>
                       <Badge variant="secondary" className="text-xs font-semibold">
                         {downloadsInCategory.length}
@@ -1140,7 +1135,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                         <h4 className="font-semibold text-sm leading-snug break-all line-clamp-2 min-w-0 flex-1">
                                           {download.comments ? (
                                             <a
-                                              href={download.comments}
+                                              href={safeUrl(download.comments)}
                                               target="_blank"
                                               rel="noopener noreferrer"
                                               className="hover:underline cursor-pointer"
@@ -1256,7 +1251,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                                   <h4 className="font-bold text-base leading-tight break-words min-w-0">
                                     {download.comments ? (
                                       <a
-                                        href={download.comments}
+                                        href={safeUrl(download.comments)}
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         className="hover:underline cursor-pointer"

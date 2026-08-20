@@ -10,7 +10,12 @@ import { randomUUID } from "node:crypto";
 import parseTorrent from "parse-torrent";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
-import { fetchWithMagnetDetection, extractHashFromUrl, fixNzbUrlEncoding } from "./utils.js";
+import {
+  fetchWithMagnetDetection,
+  extractHashFromUrl,
+  fixNzbUrlEncoding,
+  logDownloaderDebugResponse,
+} from "./utils.js";
 
 interface QBittorrentTorrent {
   hash: string;
@@ -240,6 +245,8 @@ export class QBittorrentClient implements DownloaderClient {
       // 1) Try URL-based add first.
       //    - Required for magnet links.
       //    - Also supports "normal" torrent URLs when qBittorrent can reach the URL.
+      let pendingFallbackCorrelationTag: string | null = null;
+      let pendingUrlCorrelationTag: string | null = null;
       try {
         // Fix Prowlarr/indexer URL encoding before handing the URL to qBittorrent.
         // Prowlarr wraps external torrent URLs in a proxy URL whose `link` parameter
@@ -251,6 +258,7 @@ export class QBittorrentClient implements DownloaderClient {
         // Unique tag for this specific add request, so a delayed/async add can be
         // correlated by an exact match instead of guessing by title or recency.
         const correlationTag = `questarr-add-${randomUUID()}`;
+        pendingUrlCorrelationTag = correlationTag;
         const params = new URLSearchParams();
         params.set("urls", urlToAdd);
         if (savepath) params.set("savepath", savepath);
@@ -309,8 +317,9 @@ export class QBittorrentClient implements DownloaderClient {
               // Callers need this hash to associate the download with a
               // tracked game, so poll briefly for it to appear.
               let resolvedHash = parsed.added_torrent_ids?.[0];
+              const maxAttempts = 10;
+              let successfulPolls = 0;
               if (!resolvedHash) {
-                const maxAttempts = 10;
                 for (let attempt = 0; attempt < maxAttempts && !resolvedHash; attempt++) {
                   await new Promise((resolve) => setTimeout(resolve, 1000));
                   try {
@@ -318,6 +327,7 @@ export class QBittorrentClient implements DownloaderClient {
                       skipInitialWait: true,
                       correlationTag,
                     });
+                    successfulPolls++;
                     if (recent?.hash) resolvedHash = recent.hash;
                   } catch (error) {
                     downloadersLogger.warn(
@@ -328,10 +338,13 @@ export class QBittorrentClient implements DownloaderClient {
                 }
               }
 
+              const shouldFallbackToUpload =
+                isPending && !isMagnet && !resolvedHash && successfulPolls === maxAttempts;
+
               if (resolvedHash) {
                 await maybeSetForceStarted(resolvedHash);
                 await removeCorrelationTag(resolvedHash, correlationTag);
-              } else {
+              } else if (!shouldFallbackToUpload) {
                 downloadersLogger.warn(
                   { url: request.url, title: request.title },
                   "qBittorrent accepted the URL but no matching torrent appeared; " +
@@ -339,13 +352,22 @@ export class QBittorrentClient implements DownloaderClient {
                 );
               }
 
-              return {
-                success: true,
-                ...(resolvedHash ? { id: resolvedHash } : {}),
-                message: isPending
-                  ? "Download queued in qBittorrent"
-                  : "Download added successfully",
-              };
+              if (!shouldFallbackToUpload) {
+                return {
+                  success: true,
+                  ...(resolvedHash ? { id: resolvedHash } : {}),
+                  message: isPending
+                    ? "Download queued in qBittorrent"
+                    : "Download added successfully",
+                };
+              }
+
+              pendingFallbackCorrelationTag = `questarr-fallback-${randomUUID()}`;
+              downloadersLogger.warn(
+                { url: request.url, title: request.title, successfulPolls },
+                "qBittorrent accepted the URL but the torrent never materialized; " +
+                  "falling back to torrent-file upload"
+              );
             }
             // failure_count >= 1 with no pending/success → fall through to file-upload fallback
           }
@@ -353,7 +375,10 @@ export class QBittorrentClient implements DownloaderClient {
           // Not JSON — fall through to plain-text checks below
         }
 
-        const urlAddOk = urlAddResponseText === "Ok." || urlAddResponseText === "";
+        const urlAddOk =
+          pendingFallbackCorrelationTag !== null ||
+          urlAddResponseText === "Ok." ||
+          urlAddResponseText === "";
         const urlAddFails = urlAddResponseText === "Fails.";
         // 409 Conflict = torrent already exists in qBittorrent; treat as success
         const urlAddDuplicate = urlAddResponse.status === 409;
@@ -480,6 +505,50 @@ export class QBittorrentClient implements DownloaderClient {
       let torrentFileName = "torrent.torrent";
       let parsedInfoHash: string | null = null;
 
+      const resolveFallbackDuplicate = async (): Promise<string | null> => {
+        try {
+          const knownHash = parsedInfoHash || extractHashFromUrl(request.url);
+          if (knownHash) {
+            const verifyResponse = await this.makeRequest(
+              "GET",
+              `/api/v2/torrents/info?hashes=${knownHash}`
+            );
+            const downloads = (await verifyResponse.json()) as QBittorrentTorrent[];
+            if (downloads.length > 0) {
+              await maybeSetForceStarted(knownHash);
+              if (pendingFallbackCorrelationTag) {
+                await removeCorrelationTag(knownHash, pendingFallbackCorrelationTag);
+              }
+              if (pendingUrlCorrelationTag) {
+                await removeCorrelationTag(knownHash, pendingUrlCorrelationTag);
+              }
+              return knownHash;
+            }
+          }
+
+          if (!pendingFallbackCorrelationTag) return null;
+          const recent = await findRecentlyAddedDownload({
+            correlationTag: pendingFallbackCorrelationTag,
+          });
+          const original =
+            recent ??
+            (pendingUrlCorrelationTag
+              ? await findRecentlyAddedDownload({ correlationTag: pendingUrlCorrelationTag })
+              : null);
+          if (!original) return null;
+
+          await maybeSetForceStarted(original.hash);
+          await removeCorrelationTag(original.hash, pendingFallbackCorrelationTag);
+          if (pendingUrlCorrelationTag) {
+            await removeCorrelationTag(original.hash, pendingUrlCorrelationTag);
+          }
+          return original.hash;
+        } catch (error) {
+          downloadersLogger.warn({ error }, "Failed to resolve duplicate fallback torrent");
+          return null;
+        }
+      };
+
       try {
         const { response: torrentResponse, magnetLink } = await fetchWithMagnetDetection(
           request.url
@@ -595,6 +664,9 @@ export class QBittorrentClient implements DownloaderClient {
       }
 
       fields.paused = pausedValue;
+      if (pendingFallbackCorrelationTag) {
+        fields.tags = pendingFallbackCorrelationTag;
+      }
 
       for (const [key, value] of Object.entries(fields)) {
         bodyParts.push(`--${boundary}\r\n`);
@@ -643,13 +715,21 @@ export class QBittorrentClient implements DownloaderClient {
         const hash = parsedInfoHash || extractHashFromUrl(request.url);
 
         if (!hash) {
-          const recent = await findRecentlyAddedDownload();
+          const recent = await findRecentlyAddedDownload({
+            correlationTag: pendingFallbackCorrelationTag ?? undefined,
+          });
           if (recent) {
             downloadersLogger.info(
               { hash: recent.hash, name: recent.name },
               "Found download hash after adding"
             );
             await maybeSetForceStarted(recent.hash);
+            if (pendingFallbackCorrelationTag) {
+              await removeCorrelationTag(recent.hash, pendingFallbackCorrelationTag);
+            }
+            if (pendingUrlCorrelationTag) {
+              await removeCorrelationTag(recent.hash, pendingUrlCorrelationTag);
+            }
             return {
               success: true,
               id: recent.hash,
@@ -687,6 +767,12 @@ export class QBittorrentClient implements DownloaderClient {
           );
 
           await maybeSetForceStarted(hash);
+          if (pendingFallbackCorrelationTag) {
+            await removeCorrelationTag(hash, pendingFallbackCorrelationTag);
+          }
+          if (pendingUrlCorrelationTag) {
+            await removeCorrelationTag(hash, pendingUrlCorrelationTag);
+          }
 
           return {
             success: true,
@@ -707,8 +793,10 @@ export class QBittorrentClient implements DownloaderClient {
         );
         // Return success: true for duplicates/failures to prevent fallback mechanism from trying other downloaders
         // "Fails." usually means it's already in the list or invalid metadata
+        const duplicateHash = await resolveFallbackDuplicate();
         return {
           success: true,
+          ...(duplicateHash ? { id: duplicateHash } : {}),
           message: "Download already exists or invalid download (qBittorrent)",
         };
       } else if (response.status === 409) {
@@ -716,8 +804,10 @@ export class QBittorrentClient implements DownloaderClient {
           { url: request.url },
           "qBittorrent reports torrent already exists (409 Conflict)"
         );
+        const duplicateHash = await resolveFallbackDuplicate();
         return {
           success: true,
+          ...(duplicateHash ? { id: duplicateHash } : {}),
           message: "Download already exists (qBittorrent)",
         };
       } else {
@@ -1198,6 +1288,7 @@ export class QBittorrentClient implements DownloaderClient {
         body: formData.toString(),
         signal: AbortSignal.timeout(30000),
       });
+      await logDownloaderDebugResponse("qBittorrent", "POST", url, response);
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => "No error details available");
@@ -1345,6 +1436,7 @@ export class QBittorrentClient implements DownloaderClient {
       body: requestBody,
       signal: AbortSignal.timeout(30000),
     });
+    await logDownloaderDebugResponse("qBittorrent", method, url, response);
 
     if (response.status === 403 || response.status === 401) {
       // Session expired or unauthorized, re-authenticate
@@ -1364,6 +1456,7 @@ export class QBittorrentClient implements DownloaderClient {
         body: requestBody,
         signal: AbortSignal.timeout(30000),
       });
+      await logDownloaderDebugResponse("qBittorrent", method, url, response);
 
       if (!response.ok && response.status !== 409) {
         const errorText = await response.text().catch(() => "No error details available");

@@ -743,6 +743,36 @@ describe("MemStorage", () => {
         const result = await storage.relinkGameDownload("nonexistent-id", gameId);
         expect(result).toBeUndefined();
       });
+
+      it("relinkGameDownload is a no-op once the download has already moved past game_link_required", async () => {
+        const otherGame = await storage.addGame({
+          title: "Second Correct Game",
+          igdbId: 5003,
+          status: "wanted",
+          hidden: false,
+          userId,
+        } as InsertGame);
+
+        const download = await storage.addGameDownload({
+          gameId,
+          downloaderId,
+          downloadHash: "hash-race",
+          downloadTitle: "Race-GROUP",
+          status: "game_link_required",
+          downloadType: "torrent",
+          fileSize: null,
+        } as InsertGameDownload);
+
+        // Simulates a concurrent request winning the race first.
+        await storage.relinkGameDownload(download.id, otherGame.id);
+
+        const secondAttempt = await storage.relinkGameDownload(download.id, gameId);
+        expect(secondAttempt).toBeUndefined();
+
+        // The first relink's choice of game must survive untouched.
+        const current = await storage.getGameDownload(download.id);
+        expect(current?.gameId).toBe(otherGame.id);
+      });
     });
 
     describe("getTrackedDownloadKeys", () => {

@@ -209,6 +209,33 @@ describe("importRouter additional coverage", () => {
       expect(response.status).toBe(400);
       expect(mockStorage.getGameDownload).not.toHaveBeenCalled();
     });
+
+    it("returns 409 when another request already relinked the download first", async () => {
+      // Passed the status check (still game_link_required at that instant), but
+      // storage's conditional update matched nothing by the time it ran — a
+      // concurrent request won the race.
+      mockStorage.getGameDownload.mockResolvedValue({
+        id: "d1",
+        gameId: "gone",
+        status: "game_link_required",
+      });
+      mockStorage.getGame.mockResolvedValue({ id: "g2", title: "Correct Game" });
+      mockStorage.relinkGameDownload.mockResolvedValue(undefined);
+
+      const app = createApp();
+      const response = await request(app).post("/api/imports/d1/link").send({ gameId: "g2" });
+
+      expect(response.status).toBe(409);
+    });
+
+    it("returns 500 when the storage layer throws unexpectedly", async () => {
+      mockStorage.getGameDownload.mockRejectedValue(new Error("db failure"));
+
+      const app = createApp();
+      const response = await request(app).post("/api/imports/d1/link").send({ gameId: "g2" });
+
+      expect(response.status).toBe(500);
+    });
   });
 
   it("initializes platform mappings via /mappings/platforms/init", async () => {

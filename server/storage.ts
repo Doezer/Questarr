@@ -54,6 +54,7 @@ import {
   type GameFile,
   type InsertGameFile,
   gameFiles,
+  GAME_LINK_REQUIRED_STATUS,
 } from "../shared/schema.js";
 import { randomUUID } from "crypto";
 import { db } from "./db.js";
@@ -837,12 +838,18 @@ export class MemStorage implements IStorage {
   }
 
   async getUnlinkedImportReviews(): Promise<GameDownload[]> {
-    return Array.from(this.gameDownloads.values()).filter((d) => d.status === "game_link_required");
+    return Array.from(this.gameDownloads.values()).filter(
+      (d) => d.status === GAME_LINK_REQUIRED_STATUS
+    );
   }
 
   async relinkGameDownload(id: string, gameId: string): Promise<GameDownload | undefined> {
     const gd = this.gameDownloads.get(id);
-    if (!gd) return undefined;
+    // Conditional on still being game_link_required, not just present, so two
+    // concurrent relink requests for the same download can't race: only the
+    // first to observe this status wins, the second sees it already moved on
+    // and returns undefined instead of silently overwriting the first pick.
+    if (!gd || gd.status !== GAME_LINK_REQUIRED_STATUS) return undefined;
     const updated: GameDownload = {
       ...gd,
       gameId,
@@ -2088,7 +2095,7 @@ export class DatabaseStorage implements IStorage {
             "error",
             "imported",
             "manual_review_required",
-            "game_link_required",
+            GAME_LINK_REQUIRED_STATUS,
           ])
         )
       );
@@ -2104,14 +2111,22 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getUnlinkedImportReviews(): Promise<GameDownload[]> {
-    return db.select().from(gameDownloads).where(eq(gameDownloads.status, "game_link_required"));
+    return db
+      .select()
+      .from(gameDownloads)
+      .where(eq(gameDownloads.status, GAME_LINK_REQUIRED_STATUS));
   }
 
   async relinkGameDownload(id: string, gameId: string): Promise<GameDownload | undefined> {
+    // Conditional on still being game_link_required, not just id, so two
+    // concurrent relink requests for the same download can't race: only the
+    // first to match this predicate updates anything, the second's WHERE
+    // matches zero rows and it returns undefined instead of silently
+    // overwriting the first pick.
     const [updated] = await db
       .update(gameDownloads)
       .set({ gameId, status: "manual_review_required", errorMessage: null })
-      .where(eq(gameDownloads.id, id))
+      .where(and(eq(gameDownloads.id, id), eq(gameDownloads.status, GAME_LINK_REQUIRED_STATUS)))
       .returning();
     return updated;
   }

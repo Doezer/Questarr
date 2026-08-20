@@ -13,6 +13,7 @@ import { resolveDownloadRelativePath, buildRemoteImportPath } from "../downloade
 import fs from "fs-extra";
 import path from "node:path";
 import { parseReleaseMetadata } from "../../shared/title-utils.js";
+import { GAME_LINK_REQUIRED_STATUS } from "../../shared/schema.js";
 import { logger } from "../logger.js";
 import { extractHostnameFromUrl } from "../url-utils.js";
 import { isSensitivePath } from "../path-security.js";
@@ -350,7 +351,7 @@ export class ImportManager {
       // normal "manual_review_required" path-review flow once a game is attached.
       await this.storage.updateGameDownloadStatus(
         downloadId,
-        "game_link_required",
+        GAME_LINK_REQUIRED_STATUS,
         "This download's linked game could not be found — select a game to continue importing it."
       );
       return;

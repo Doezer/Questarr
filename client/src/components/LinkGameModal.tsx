@@ -95,7 +95,13 @@ export default function LinkGameModal({
               <Input
                 id="link-game-search"
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  // A previously selected game may no longer be in the result
+                  // list once the search changes — don't let a stale selection
+                  // submit silently.
+                  setSelectedGameId(null);
+                }}
                 placeholder="Search by title…"
                 className="pl-8"
                 autoFocus

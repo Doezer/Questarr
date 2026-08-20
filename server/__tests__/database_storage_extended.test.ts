@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
-import { users, type InsertGame } from "../../shared/schema";
+import {
+  users,
+  type InsertGame,
+  type InsertDownloader,
+  type InsertGameDownload,
+} from "../../shared/schema";
 import { randomUUID } from "crypto";
 import type { DatabaseStorage } from "../storage";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
@@ -250,6 +255,115 @@ describe("DatabaseStorage Extended Coverage", () => {
       const grouped = await storage.getWantedGamesGroupedByUser();
       expect(grouped.get(userA)?.map((g) => g.title)).toEqual(["Wanted A"]);
       expect(grouped.get(userB)?.map((g) => g.title)).toEqual(["Wanted B"]);
+    });
+  });
+
+  describe("GameDownload: unlinked reviews and relinking", () => {
+    async function setup() {
+      const userId = await createUser();
+      const game = await storage.addGame({
+        title: "Original Game",
+        igdbId: 6000,
+        status: "wanted",
+        hidden: false,
+        userId,
+      } as InsertGame);
+      const downloader = await storage.addDownloader({
+        name: "qBit",
+        type: "qbittorrent",
+        url: "http://localhost:8080",
+        apiKey: "",
+        enabled: true,
+        priority: 1,
+      } as InsertDownloader);
+      return { userId, game, downloader };
+    }
+
+    it("getUnlinkedImportReviews returns only game_link_required downloads", async () => {
+      const { game, downloader } = await setup();
+
+      const unlinked = await storage.addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader.id,
+        downloadHash: "hash-unlinked",
+        downloadTitle: "Orphaned-GROUP",
+        status: "game_link_required",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+      await storage.addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader.id,
+        downloadHash: "hash-reviewing",
+        downloadTitle: "Reviewing-GROUP",
+        status: "manual_review_required",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+
+      const results = await storage.getUnlinkedImportReviews();
+      expect(results.map((d) => d.id)).toEqual([unlinked?.id]);
+    });
+
+    it("relinkGameDownload reattaches the game and returns to manual_review_required", async () => {
+      const { userId, game, downloader } = await setup();
+      const correctGame = await storage.addGame({
+        title: "Correct Game",
+        igdbId: 6001,
+        status: "wanted",
+        hidden: false,
+        userId,
+      } as InsertGame);
+
+      const download = await storage.addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader.id,
+        downloadHash: "hash-relink",
+        downloadTitle: "NeedsLink-GROUP",
+        status: "game_link_required",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+
+      const updated = await storage.relinkGameDownload(download!.id, correctGame.id);
+      expect(updated?.gameId).toBe(correctGame.id);
+      expect(updated?.status).toBe("manual_review_required");
+      expect(await storage.getUnlinkedImportReviews()).toHaveLength(0);
+    });
+
+    it("relinkGameDownload is a no-op once already relinked (race-safe)", async () => {
+      const { userId, game, downloader } = await setup();
+      const firstGame = await storage.addGame({
+        title: "First Winner",
+        igdbId: 6002,
+        status: "wanted",
+        hidden: false,
+        userId,
+      } as InsertGame);
+      const secondGame = await storage.addGame({
+        title: "Second Attempt",
+        igdbId: 6003,
+        status: "wanted",
+        hidden: false,
+        userId,
+      } as InsertGame);
+
+      const download = await storage.addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader.id,
+        downloadHash: "hash-race",
+        downloadTitle: "Race-GROUP",
+        status: "game_link_required",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+
+      await storage.relinkGameDownload(download!.id, firstGame.id);
+      const second = await storage.relinkGameDownload(download!.id, secondGame.id);
+
+      expect(second).toBeUndefined();
+      const current = await storage.getGameDownload(download!.id);
+      expect(current?.gameId).toBe(firstGame.id);
     });
   });
 

@@ -10,6 +10,7 @@ import {
   updatePathMappingSchema,
   importTransferModeSchema,
   IMPORT_TRANSFER_MODES,
+  GAME_LINK_REQUIRED_STATUS,
 } from "../../shared/schema.js";
 import path from "node:path";
 import fs from "fs-extra";
@@ -488,7 +489,7 @@ importRouter.post("/:id/link", async (req, res) => {
     if (!download) {
       return res.status(404).json({ error: "Download not found" });
     }
-    if (download.status !== "game_link_required") {
+    if (download.status !== GAME_LINK_REQUIRED_STATUS) {
       return res.status(400).json({ error: "This download does not need to be linked to a game" });
     }
 
@@ -498,6 +499,14 @@ importRouter.post("/:id/link", async (req, res) => {
     }
 
     const updated = await storage.relinkGameDownload(id, gameId);
+    if (!updated) {
+      // Passed the game_link_required check above but the conditional update
+      // still matched nothing — another request already relinked (or otherwise
+      // moved on) this download between the check and the write.
+      return res
+        .status(409)
+        .json({ error: "This download was already linked to a game by another request" });
+    }
     res.json({ success: true, download: updated });
   } catch (error) {
     if (error instanceof z.ZodError) {

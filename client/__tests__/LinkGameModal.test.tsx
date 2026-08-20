@@ -19,6 +19,7 @@ function createJsonResponse(data: unknown, ok = true): Response {
   return {
     ok,
     json: async () => data,
+    text: async () => JSON.stringify(data),
   } as Response;
 }
 
@@ -83,5 +84,67 @@ describe("LinkGameModal", () => {
 
     expect(await screen.findByText(/No games found\. Try a different search/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Link Game" })).toBeDisabled();
+  });
+
+  it("clears the selection when the search text changes", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      createJsonResponse([{ id: "g1", title: "Chrono Trigger", coverUrl: null }])
+    );
+
+    renderModal();
+
+    fireEvent.click(await screen.findByText("Chrono Trigger"));
+    expect(screen.getByRole("button", { name: "Link Game" })).toBeEnabled();
+
+    fireEvent.change(screen.getByLabelText("Search your library"), {
+      target: { value: "chrono" },
+    });
+
+    expect(screen.getByRole("button", { name: "Link Game" })).toBeDisabled();
+  });
+
+  it("resets search and selection and calls onOpenChange when Cancel is clicked", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      createJsonResponse([{ id: "g1", title: "Chrono Trigger", coverUrl: null }])
+    );
+
+    const { onOpenChange } = renderModal();
+
+    fireEvent.change(screen.getByLabelText("Search your library"), {
+      target: { value: "chrono" },
+    });
+    fireEvent.click(await screen.findByText("Chrono Trigger"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("shows an error toast and stays open when linking fails", async () => {
+    globalThis.fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const href = getRequestUrl(url);
+      if (href.startsWith("/api/games")) {
+        return createJsonResponse([{ id: "g1", title: "Chrono Trigger", coverUrl: null }]);
+      }
+      if (href.includes("/api/imports/dl-1/link") && init?.method === "POST") {
+        return createJsonResponse({ error: "Download not found" }, false);
+      }
+      return createJsonResponse({});
+    });
+
+    const { onOpenChange } = renderModal();
+
+    fireEvent.click(await screen.findByText("Chrono Trigger"));
+    fireEvent.click(screen.getByRole("button", { name: "Link Game" }));
+
+    await waitFor(() =>
+      expect(mockToast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Failed to Link Game",
+          variant: "destructive",
+        })
+      )
+    );
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
   });
 });

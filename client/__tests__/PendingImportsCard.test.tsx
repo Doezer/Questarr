@@ -1,18 +1,29 @@
 /** @vitest-environment jsdom */
 import React from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import PendingImportsCard from "../src/components/PendingImportsCard";
 import { createTestQueryClient, getRequestUrl } from "./test-utils";
 
+const { mockImportReviewModal, mockLinkGameModal } = vi.hoisted(() => ({
+  mockImportReviewModal: vi.fn(),
+  mockLinkGameModal: vi.fn(),
+}));
+
 vi.mock("../src/components/ImportReviewModal", () => ({
-  default: () => null,
+  default: (props: Record<string, unknown>) => {
+    mockImportReviewModal(props);
+    return <div data-testid="import-review-modal" />;
+  },
 }));
 vi.mock("../src/components/LinkGameModal", () => ({
-  default: () => null,
+  default: (props: Record<string, unknown>) => {
+    mockLinkGameModal(props);
+    return <div data-testid="link-game-modal" />;
+  },
 }));
 
 function createJsonResponse(data: unknown): Response {
@@ -31,6 +42,11 @@ function renderCard() {
 }
 
 describe("PendingImportsCard", () => {
+  beforeEach(() => {
+    mockImportReviewModal.mockClear();
+    mockLinkGameModal.mockClear();
+  });
+
   it("renders nothing when there are no pending imports", async () => {
     const fetchMock = vi.fn(async () => createJsonResponse([]));
     globalThis.fetch = fetchMock;
@@ -64,7 +80,15 @@ describe("PendingImportsCard", () => {
 
     expect(await screen.findByText("My Game")).toBeInTheDocument();
     expect(screen.getByText("Import failed: disk full")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Review" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
+
+    expect(screen.getByTestId("import-review-modal")).toBeInTheDocument();
+    expect(screen.queryByTestId("link-game-modal")).not.toBeInTheDocument();
+    expect(mockImportReviewModal).toHaveBeenCalledWith(
+      expect.objectContaining({ downloadId: "dl-1", open: true })
+    );
+    expect(mockLinkGameModal).not.toHaveBeenCalled();
   });
 
   it("offers a Link Game action for a download whose game record is missing", async () => {
@@ -95,7 +119,22 @@ describe("PendingImportsCard", () => {
       await screen.findByText("This download's linked game could not be found")
     ).toBeInTheDocument();
     expect(screen.getAllByText("Orphaned.Release-GROUP")).toHaveLength(2);
-    expect(screen.getByRole("button", { name: "Link Game" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Review" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Link Game" }));
+
+    expect(screen.getByTestId("link-game-modal")).toBeInTheDocument();
+    expect(screen.queryByTestId("import-review-modal")).not.toBeInTheDocument();
+    expect(mockLinkGameModal).toHaveBeenCalledWith(
+      expect.objectContaining({ downloadId: "dl-2", open: true })
+    );
+    expect(mockImportReviewModal).not.toHaveBeenCalled();
+
+    // Simulate the modal closing itself (e.g. after a successful link).
+    const { onOpenChange } = mockLinkGameModal.mock.calls.at(-1)?.[0] as {
+      onOpenChange: (open: boolean) => void;
+    };
+    act(() => onOpenChange(false));
+    expect(screen.queryByTestId("link-game-modal")).not.toBeInTheDocument();
   });
 });

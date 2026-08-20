@@ -443,6 +443,134 @@ describe("IGDBClient - Batch Operations", () => {
   });
 });
 
+describe("IGDBClient - canonicalizeVersionedGames (edition/version dedup)", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    vi.resetModules();
+    const { safeFetch } = await import("../ssrf.js");
+    fetchMock = vi.mocked(safeFetch);
+  });
+
+  const authResponse = {
+    ok: true,
+    json: async () => ({
+      access_token: "test-token",
+      expires_in: 3600,
+      token_type: "bearer",
+    }),
+  };
+
+  it("collapses editions sharing the same version_parent into a single canonical result", async () => {
+    const searchResponse = {
+      ok: true,
+      json: async () => [
+        {
+          id: 10,
+          name: "Cyberpunk 2077: Ultimate Edition",
+          first_release_date: 1704067200,
+          version_parent: { id: 100, name: "Cyberpunk 2077" },
+        },
+        {
+          id: 11,
+          name: "Cyberpunk 2077: Digital Deluxe",
+          first_release_date: 1609459200,
+          version_parent: { id: 100, name: "Cyberpunk 2077" },
+        },
+      ],
+    };
+    const parentResponse = {
+      ok: true,
+      json: async () => [{ id: 100, name: "Cyberpunk 2077", first_release_date: 1577836800 }],
+    };
+
+    fetchMock
+      .mockResolvedValueOnce(authResponse)
+      .mockResolvedValueOnce(searchResponse)
+      .mockResolvedValueOnce(parentResponse);
+
+    const { igdbClient } = await import("../igdb.js");
+    const results = await igdbClient.searchGames("Cyberpunk 2077", 20);
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({ id: 100, name: "Cyberpunk 2077" });
+    // auth + search + one batch fetch of the shared canonical parent
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("does NOT merge similarly-named results that lack a version_parent (no name-similarity matching)", async () => {
+    const searchResponse = {
+      ok: true,
+      json: async () => [
+        { id: 20, name: "Halo Infinite", first_release_date: 1704067200 },
+        { id: 21, name: "Halo Infinite: Campaign Edition", first_release_date: 1609459200 },
+      ],
+    };
+
+    fetchMock.mockResolvedValueOnce(authResponse).mockResolvedValueOnce(searchResponse);
+
+    const { igdbClient } = await import("../igdb.js");
+    const results = await igdbClient.searchGames("Halo Infinite", 20);
+
+    expect(results).toHaveLength(2);
+    expect(results.map((g) => g.id).sort()).toEqual([20, 21]);
+    // No version_parent on either result -- must not trigger a parent lookup fetch.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("falls back to the original uncanonicalized entries if fetching the parent game fails", async () => {
+    const searchResponse = {
+      ok: true,
+      json: async () => [
+        {
+          id: 10,
+          name: "Some Game: Special Edition",
+          first_release_date: 1704067200,
+          version_parent: { id: 100, name: "Some Game" },
+        },
+      ],
+    };
+
+    fetchMock
+      .mockResolvedValueOnce(authResponse)
+      .mockResolvedValueOnce(searchResponse)
+      .mockRejectedValueOnce(new Error("network down"));
+
+    const { igdbClient } = await import("../igdb.js");
+    const results = await igdbClient.searchGames("Some Game", 20);
+
+    expect(results).toHaveLength(1);
+    expect(results[0].id).toBe(10);
+    expect(results[0].name).toBe("Some Game: Special Edition");
+  });
+
+  it("does not fetch a parent that's already present among the raw results", async () => {
+    const searchResponse = {
+      ok: true,
+      json: async () => [
+        { id: 100, name: "Some Game", first_release_date: 1577836800 },
+        {
+          id: 10,
+          name: "Some Game: Special Edition",
+          first_release_date: 1704067200,
+          version_parent: { id: 100, name: "Some Game" },
+        },
+      ],
+    };
+
+    fetchMock.mockResolvedValueOnce(authResponse).mockResolvedValueOnce(searchResponse);
+
+    const { igdbClient } = await import("../igdb.js");
+    const results = await igdbClient.searchGames("Some Game", 20);
+
+    expect(results).toHaveLength(1);
+    expect(results[0].id).toBe(100);
+    // No extra fetch for the parent -- it was already in the result set.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("IGDBClient - formatGameData metadata fields", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 

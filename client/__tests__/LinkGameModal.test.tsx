@@ -147,4 +147,23 @@ describe("LinkGameModal", () => {
     );
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
   });
+
+  it("resets search and selection when the dialog is dismissed via its own close control", async () => {
+    globalThis.fetch = vi.fn(async () =>
+      createJsonResponse([{ id: "g1", title: "Chrono Trigger", coverUrl: null }])
+    );
+
+    const { onOpenChange } = renderModal();
+
+    const searchInput = screen.getByLabelText("Search your library") as HTMLInputElement;
+    fireEvent.change(searchInput, { target: { value: "chrono" } });
+    fireEvent.click(await screen.findByText("Chrono Trigger"));
+
+    // Radix's own dismiss path (its built-in close button / Escape), distinct
+    // from our own Cancel button's onClick.
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(searchInput.value).toBe("");
+  });
 });

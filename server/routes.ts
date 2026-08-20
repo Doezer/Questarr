@@ -104,6 +104,62 @@ const normalizeInitialReleaseStatus = <
 // Root directory for the file system browser; restrict browsing to this tree
 const FILE_BROWSER_ROOT = fs.realpathSync(process.cwd());
 
+/**
+ * Whether IGDB credentials are configured (DB takes precedence over env vars),
+ * and which source they came from. Shared between the authenticated
+ * GET /api/config endpoint and the unauthenticated GET /api/auth/status
+ * endpoint (which needs just this boolean to drive the setup wizard, without
+ * exposing anything else config-related pre-login).
+ */
+async function getIgdbConfigStatus(): Promise<{
+  configured: boolean;
+  source: "env" | "database" | undefined;
+}> {
+  const dbClientId = await storage.getSystemConfig("igdb.clientId");
+  const dbClientSecret = await storage.getSystemConfig("igdb.clientSecret");
+
+  if (dbClientId && dbClientSecret) {
+    return { configured: true, source: "database" };
+  }
+  if (appConfig.igdb.isConfigured) {
+    return { configured: true, source: "env" };
+  }
+  return { configured: false, source: undefined };
+}
+
+// ── Default-deny API auth boundary ─────────────────────────────────────────
+// Every /api/* route requires authentication unless explicitly allowlisted
+// here. This is intentionally an allowlist (not a denylist of "routes that
+// need auth") so that a new route added without updating this list fails
+// safe -- it requires a token by default rather than accidentally becoming
+// public. Paths are relative to the "/api" mount point (no leading "/api").
+export const PUBLIC_API_ROUTES = new Set<string>([
+  "GET /auth/status", // setup-wizard / login-page bootstrap check, runs pre-login
+  "POST /auth/setup", // creates the first user; there is no user/token yet
+  "POST /auth/login", // issues the token; obviously can't require one
+  "GET /health", // liveness probe (docker/compose healthcheck, DAST workflow)
+  "GET /ready", // readiness probe (db/IGDB connectivity), no sensitive data
+]);
+
+function isPublicApiRequest(req: Request): boolean {
+  if (req.method === "OPTIONS") return true;
+  return PUBLIC_API_ROUTES.has(`${req.method.toUpperCase()} ${req.path}`);
+}
+
+/**
+ * Default-deny gate for the entire /api surface: anything not explicitly
+ * allowlisted above requires a valid token. Mounted before any /api route is
+ * registered so it always runs first, regardless of whether an individual
+ * route handler also happens to apply authenticateToken itself.
+ */
+export function requireAuthenticationForApi(req: Request, res: Response, next: NextFunction) {
+  if (isPublicApiRequest(req)) {
+    next();
+    return;
+  }
+  authenticateToken(req, res, next);
+}
+
 // Configure multer for memory storage
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -526,6 +582,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/robots.txt", (_req, res) => {
     res.type("text/plain").send("User-agent: *\nDisallow: /\n");
   });
+  // Default-deny auth boundary for the whole /api surface. Mounted before any
+  // /api route (including the routers below) is registered, so every /api/*
+  // request is required to authenticate unless explicitly allowlisted above.
+  app.use("/api", requireAuthenticationForApi);
 
   // Use Steam Routes
   app.use(steamRoutes);
@@ -566,7 +626,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/auth/status", async (_req, res) => {
     try {
       const userCount = await storage.countUsers();
-      res.json({ hasUsers: userCount > 0 });
+      // Also surface IGDB configured-status here (not just hasUsers) so the
+      // unauthenticated setup wizard can decide whether to ask for IGDB
+      // credentials without needing to call the authenticated /api/config
+      // endpoint pre-login.
+      const igdb = await getIgdbConfigStatus();
+      res.json({ hasUsers: userCount > 0, igdb });
     } catch (error) {
       routesLogger.error({ error }, "Failed to check setup status");
       res.status(500).json({ error: "Failed to check setup status" });
@@ -1052,7 +1117,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   );
 
-  // Configuration endpoint - read-only access to key settings
+  // Configuration endpoint - read-only access to key settings. Requires
+  // authentication (enforced by the default-deny API auth boundary below);
+  // the unauthenticated setup flow instead uses the `igdb` field on
+  // GET /api/auth/status, which exposes only the configured/source booleans.
   app.get("/api/config", sensitiveEndpointLimiter, async (req, res) => {
     try {
       // 🛡️ Sentinel: Harden config endpoint to prevent information disclosure.
@@ -1060,21 +1128,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // sensitive details like database URLs or partial API keys.
       // clientId is intentionally omitted here; use the authenticated
       // GET /api/settings/igdb endpoint to retrieve it.
-      let isConfigured = false;
-      let source: "env" | "database" | undefined;
-
-      // Check database first (takes precedence)
-      const dbClientId = await storage.getSystemConfig("igdb.clientId");
-      const dbClientSecret = await storage.getSystemConfig("igdb.clientSecret");
-
-      if (dbClientId && dbClientSecret) {
-        isConfigured = true;
-        source = "database";
-      } else if (appConfig.igdb.isConfigured) {
-        // Fallback to environment variables
-        isConfigured = true;
-        source = "env";
-      }
+      const { configured: isConfigured, source } = await getIgdbConfigStatus();
 
       const xrelApiBase =
         (await storage.getSystemConfig("xrel_api_base"))?.trim() ||
@@ -1095,17 +1149,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Protect all API routes from here
-  app.use("/api", (req, res, next) => {
-    // Skip authentication for specific public endpoints that were already defined or need to be excluded
-    // Note: Auth routes are defined before this middleware, so they are already skipped.
-    // We explicitly skip health check if it matched /api/health (it was defined before, so express handles it first? Yes.)
-
-    // Just applying authenticateToken middleware
-    authenticateToken(req, res, next);
-  });
-
-  // Mount Feature Routers (explicitly protected)
+  // Mount Feature Routers (also explicitly protected as defense-in-depth,
+  // though the default-deny boundary mounted above already covers them)
   app.use("/api/imports", authenticateToken, importRouter);
   app.use("/api/import-tasks", authenticateToken, importTasksRouter);
   app.use("/api/system", authenticateToken, systemRouter);

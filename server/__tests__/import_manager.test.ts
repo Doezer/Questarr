@@ -250,6 +250,35 @@ describe("ImportManager", () => {
     ).rejects.toThrow("Proposed path is outside configured library root");
   });
 
+  it("confirmImport: source path no longer exists on disk → throws a descriptive error", async () => {
+    storage.getGameDownload.mockResolvedValue({ id: "dl-1", gameId: "g1", downloaderId: "d1" });
+    storage.getGame.mockResolvedValue({
+      id: "g1",
+      title: "Game",
+      userId: "u1",
+      status: "wanted",
+      platforms: [6],
+    });
+    storage.getImportConfig.mockResolvedValue({ ...baseConfig, libraryRoot: "/safe/root" });
+    fsMock.pathExists.mockResolvedValueOnce(false);
+
+    const manager = new ImportManager(
+      storage as never, // NOSONAR
+      pathService as never, // NOSONAR
+      platformService as never, // NOSONAR
+      archiveService as never // NOSONAR
+    );
+
+    await expect(
+      manager.confirmImport("dl-1", {
+        strategy: "pc",
+        originalPath: "/downloads/vanished-folder",
+        proposedPath: "/safe/root/PC/Game",
+        needsReview: false,
+      })
+    ).rejects.toThrow("Source path not found: /downloads/vanished-folder");
+  });
+
   it("executes confirmImport for pc strategy and updates statuses", async () => {
     storage.getGameDownload.mockResolvedValue({ id: "dl-1", gameId: "g1", downloaderId: "d1" });
     storage.getGame.mockResolvedValue({

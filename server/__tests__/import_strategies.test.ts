@@ -242,6 +242,45 @@ describe("ImportStrategies", () => {
       expect(await fs.pathExists(path.join(destination, "dlc", "Game DLC Pack.nsp"))).toBe(false);
     });
 
+    it("reports the requested batch mode even when a single file falls back", async () => {
+      const root = tempDir();
+      const sourceDir = path.join(root, "downloads", "game-folder");
+      const destination = path.join(root, "library", "PC", "My Game");
+      await fs.ensureDir(sourceDir);
+      await fs.writeFile(path.join(sourceDir, "game.exe"), "main");
+      await fs.writeFile(path.join(sourceDir, "Game DLC Pack.nsp"), "dlc");
+
+      // Only the DLC file's hardlink fails; the base game file hardlinks fine.
+      vi.spyOn(fs, "link").mockImplementation(async (src) => {
+        if (String(src).endsWith("Game DLC Pack.nsp")) {
+          const err: NodeJS.ErrnoException = new Error("cross-device");
+          err.code = "EXDEV";
+          throw err;
+        }
+      });
+
+      const strategy = new PCImportStrategy();
+      const result = await strategy.executeImport(
+        {
+          needsReview: false,
+          originalPath: sourceDir,
+          proposedPath: destination,
+          strategy: "pc",
+          fileCategories: [
+            { name: "game.exe", category: "main" },
+            { name: "Game DLC Pack.nsp", category: "dlc" },
+          ],
+        },
+        "hardlink"
+      );
+
+      // modeUsed reflects the requested batch mode, not just the last file's
+      // fallback; the per-file fallback is still visible in conflictsResolved.
+      expect(result.modeUsed).toBe("hardlink");
+      expect(result.conflictsResolved).toEqual(["Game DLC Pack.nsp (mode fallback: copy)"]);
+      expect(await fs.pathExists(path.join(destination, "dlc", "Game DLC Pack.nsp"))).toBe(true);
+    });
+
     it("keeps the existing flat destination for a single file when sorting is enabled", async () => {
       const root = tempDir();
       const source = path.join(root, "downloads", "game.exe");

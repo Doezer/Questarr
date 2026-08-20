@@ -205,11 +205,18 @@ export interface IStorage {
   // GameDownload methods
   getDownloadingGameDownloads(): Promise<GameDownload[]>;
   getPendingImportReviews(userId: string): Promise<GameDownload[]>;
+  // Downloads whose linked game record couldn't be found (status "game_link_required").
+  // Unlike getPendingImportReviews, this can't be scoped by userId — there's no game
+  // row left to join against to determine ownership.
+  getUnlinkedImportReviews(): Promise<GameDownload[]>;
   getGameDownload(id: string, userId?: string): Promise<GameDownload | undefined>;
   getDownloadsByGameId(
     gameId: string
   ): Promise<(GameDownload & { downloaderName: string | null })[]>;
   updateGameDownloadStatus(id: string, status: string, errorMessage?: string | null): Promise<void>;
+  // Attaches a "game_link_required" download to the given game and drops it back into
+  // the normal "manual_review_required" path-review flow.
+  relinkGameDownload(id: string, gameId: string): Promise<GameDownload | undefined>;
   addGameDownload(gameDownload: InsertGameDownload): Promise<GameDownload | undefined>;
   removeGameDownload(id: string, gameId: string): Promise<boolean>;
   getDownloadSummaryByGame(userId: string): Promise<Record<string, DownloadSummary>>;
@@ -827,6 +834,23 @@ export class MemStorage implements IStorage {
       const game = this.games.get(d.gameId);
       return game?.userId === userId;
     });
+  }
+
+  async getUnlinkedImportReviews(): Promise<GameDownload[]> {
+    return Array.from(this.gameDownloads.values()).filter((d) => d.status === "game_link_required");
+  }
+
+  async relinkGameDownload(id: string, gameId: string): Promise<GameDownload | undefined> {
+    const gd = this.gameDownloads.get(id);
+    if (!gd) return undefined;
+    const updated: GameDownload = {
+      ...gd,
+      gameId,
+      status: "manual_review_required",
+      errorMessage: null,
+    };
+    this.gameDownloads.set(id, updated);
+    return updated;
   }
 
   async getGameDownload(id: string, userId?: string): Promise<GameDownload | undefined> {
@@ -2064,6 +2088,7 @@ export class DatabaseStorage implements IStorage {
             "error",
             "imported",
             "manual_review_required",
+            "game_link_required",
           ])
         )
       );
@@ -2076,6 +2101,19 @@ export class DatabaseStorage implements IStorage {
       .innerJoin(games, eq(gameDownloads.gameId, games.id))
       .where(and(eq(gameDownloads.status, "manual_review_required"), eq(games.userId, userId)));
     return rows.map((r) => r.gameDownloads);
+  }
+
+  async getUnlinkedImportReviews(): Promise<GameDownload[]> {
+    return db.select().from(gameDownloads).where(eq(gameDownloads.status, "game_link_required"));
+  }
+
+  async relinkGameDownload(id: string, gameId: string): Promise<GameDownload | undefined> {
+    const [updated] = await db
+      .update(gameDownloads)
+      .set({ gameId, status: "manual_review_required", errorMessage: null })
+      .where(eq(gameDownloads.id, id))
+      .returning();
+    return updated;
   }
 
   async getGameDownload(id: string, userId?: string): Promise<GameDownload | undefined> {

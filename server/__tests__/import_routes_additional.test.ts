@@ -6,6 +6,9 @@ const { mockStorage, mockImportManager, mockPlatformMappingService, fsMock } = v
     getImportConfig: vi.fn(),
     getEnabledDownloaders: vi.fn(),
     getPendingImportReviews: vi.fn(),
+    getUnlinkedImportReviews: vi.fn(),
+    relinkGameDownload: vi.fn(),
+    getGameDownload: vi.fn(),
     getGame: vi.fn(),
     getPlatformMappings: vi.fn(),
     getPathMappings: vi.fn(),
@@ -50,6 +53,7 @@ describe("importRouter additional coverage", () => {
     mockStorage.getEnabledDownloaders.mockResolvedValue([]);
     mockStorage.getImportConfig.mockResolvedValue(makeImportConfig({ overwriteExisting: true }));
     mockStorage.getPathMappings.mockResolvedValue([]);
+    mockStorage.getUnlinkedImportReviews.mockResolvedValue([]);
   });
 
   const createApp = (withUser = true) => createImportTestApp(importRouter, withUser);
@@ -85,6 +89,126 @@ describe("importRouter additional coverage", () => {
         status: "manual_review_required",
       }),
     ]);
+  });
+
+  it("merges game-link-required downloads ahead of path reviews, without a game lookup", async () => {
+    mockStorage.getPendingImportReviews.mockResolvedValue([
+      {
+        id: "d-path",
+        gameId: "g1",
+        downloadTitle: "Path Review-GROUP",
+        status: "manual_review_required",
+        downloaderId: "down-1",
+        addedAt: "2026-01-01",
+      },
+    ]);
+    mockStorage.getGame.mockResolvedValueOnce({ title: "Known Game" });
+    mockStorage.getUnlinkedImportReviews.mockResolvedValue([
+      {
+        id: "d-unlinked",
+        gameId: "gone",
+        downloadTitle: "Orphaned-GROUP",
+        status: "game_link_required",
+        downloaderId: "down-1",
+        addedAt: "2026-01-02",
+        errorMessage: "This download's linked game could not be found",
+      },
+    ]);
+
+    const app = createApp();
+    const response = await request(app).get("/api/imports/pending");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual([
+      expect.objectContaining({
+        id: "d-unlinked",
+        gameTitle: "Orphaned-GROUP",
+        status: "game_link_required",
+      }),
+      expect.objectContaining({
+        id: "d-path",
+        gameTitle: "Known Game",
+        status: "manual_review_required",
+      }),
+    ]);
+    // The unlinked entry's title never goes through storage.getGame — there's no
+    // game row to look up.
+    expect(mockStorage.getGame).toHaveBeenCalledTimes(1);
+  });
+
+  describe("POST /:id/link", () => {
+    it("links a game_link_required download to the given game", async () => {
+      mockStorage.getGameDownload.mockResolvedValue({
+        id: "d1",
+        gameId: "gone",
+        status: "game_link_required",
+      });
+      mockStorage.getGame.mockResolvedValue({ id: "g2", title: "Correct Game" });
+      mockStorage.relinkGameDownload.mockResolvedValue({
+        id: "d1",
+        gameId: "g2",
+        status: "manual_review_required",
+      });
+
+      const app = createApp();
+      const response = await request(app).post("/api/imports/d1/link").send({ gameId: "g2" });
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({
+        success: true,
+        download: { id: "d1", gameId: "g2", status: "manual_review_required" },
+      });
+      expect(mockStorage.relinkGameDownload).toHaveBeenCalledWith("d1", "g2");
+    });
+
+    it("returns 404 when the download does not exist", async () => {
+      mockStorage.getGameDownload.mockResolvedValue(undefined);
+
+      const app = createApp();
+      const response = await request(app).post("/api/imports/missing/link").send({ gameId: "g2" });
+
+      expect(response.status).toBe(404);
+      expect(mockStorage.relinkGameDownload).not.toHaveBeenCalled();
+    });
+
+    it("returns 400 when the download isn't awaiting a game link", async () => {
+      mockStorage.getGameDownload.mockResolvedValue({
+        id: "d1",
+        gameId: "g1",
+        status: "manual_review_required",
+      });
+
+      const app = createApp();
+      const response = await request(app).post("/api/imports/d1/link").send({ gameId: "g2" });
+
+      expect(response.status).toBe(400);
+      expect(mockStorage.relinkGameDownload).not.toHaveBeenCalled();
+    });
+
+    it("returns 404 when the target game does not exist", async () => {
+      mockStorage.getGameDownload.mockResolvedValue({
+        id: "d1",
+        gameId: "gone",
+        status: "game_link_required",
+      });
+      mockStorage.getGame.mockResolvedValue(undefined);
+
+      const app = createApp();
+      const response = await request(app)
+        .post("/api/imports/d1/link")
+        .send({ gameId: "nonexistent" });
+
+      expect(response.status).toBe(404);
+      expect(mockStorage.relinkGameDownload).not.toHaveBeenCalled();
+    });
+
+    it("returns 400 for a missing gameId", async () => {
+      const app = createApp();
+      const response = await request(app).post("/api/imports/d1/link").send({});
+
+      expect(response.status).toBe(400);
+      expect(mockStorage.getGameDownload).not.toHaveBeenCalled();
+    });
   });
 
   it("initializes platform mappings via /mappings/platforms/init", async () => {

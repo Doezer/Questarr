@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { AlertCircle } from "lucide-react";
 import ImportReviewModal from "./ImportReviewModal";
+import LinkGameModal from "./LinkGameModal";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { formatDistanceToNow } from "date-fns";
@@ -84,7 +85,9 @@ export default function PendingImportsCard() {
                       className="text-xs text-destructive truncate max-w-[300px]"
                       title={item.errorMessage}
                     >
-                      Import failed: {item.errorMessage}
+                      {item.status === "game_link_required"
+                        ? item.errorMessage
+                        : `Import failed: ${item.errorMessage}`}
                     </p>
                   )}
                 </div>
@@ -98,7 +101,7 @@ export default function PendingImportsCard() {
                     Skip
                   </Button>
                   <Button size="sm" onClick={() => setSelectedImport(item)}>
-                    Review
+                    {item.status === "game_link_required" ? "Link Game" : "Review"}
                   </Button>
                 </div>
               </div>
@@ -107,7 +110,15 @@ export default function PendingImportsCard() {
         </CardContent>
       </Card>
 
-      {selectedImport && (
+      {selectedImport && selectedImport.status === "game_link_required" && (
+        <LinkGameModal
+          open={!!selectedImport}
+          onOpenChange={(open) => !open && setSelectedImport(null)}
+          downloadId={selectedImport.id}
+          downloadTitle={selectedImport.downloadTitle}
+        />
+      )}
+      {selectedImport && selectedImport.status !== "game_link_required" && (
         <ImportReviewModal
           open={!!selectedImport}
           onOpenChange={(open) => !open && setSelectedImport(null)}

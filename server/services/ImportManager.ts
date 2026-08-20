@@ -340,10 +340,18 @@ export class ImportManager {
       // selects "manual_review_required") - a download that lands here would
       // sit invisibly forever even if the underlying issue (e.g. a
       // transiently missing game row) was momentary.
+      //
+      // This is deliberately its own status rather than "manual_review_required":
+      // that review flow (ImportReviewModal) only ever asks the user to confirm
+      // source/destination paths for an *existing* game — it has no way to
+      // recover from there being no game to import into at all. "game_link_required"
+      // is surfaced separately so the user is prompted to pick the right game first;
+      // relinking (POST /api/imports/:id/link) then drops the download back into the
+      // normal "manual_review_required" path-review flow once a game is attached.
       await this.storage.updateGameDownloadStatus(
         downloadId,
-        "manual_review_required",
-        "Game record not found for this download"
+        "game_link_required",
+        "This download's linked game could not be found — select a game to continue importing it."
       );
       return;
     }

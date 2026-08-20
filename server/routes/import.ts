@@ -419,10 +419,16 @@ importRouter.get("/hardlink/check", async (req, res) => {
 importRouter.get("/pending", async (req, res) => {
   try {
     const userId = res.locals.userId as string;
-    const pending = await storage.getPendingImportReviews(userId);
+    const [pathReviews, gameLinkReviews] = await Promise.all([
+      storage.getPendingImportReviews(userId),
+      // Not scoped by userId — a download whose game record is missing has no
+      // game row left to determine ownership from. Fine for Questarr's
+      // single-user model.
+      storage.getUnlinkedImportReviews(),
+    ]);
 
-    const results = await Promise.all(
-      pending.map(async (d) => {
+    const pathResults = await Promise.all(
+      pathReviews.map(async (d) => {
         const game = await storage.getGame(d.gameId);
         return {
           id: d.id,
@@ -436,7 +442,17 @@ importRouter.get("/pending", async (req, res) => {
       })
     );
 
-    res.json(results);
+    const gameLinkResults = gameLinkReviews.map((d) => ({
+      id: d.id,
+      gameTitle: d.downloadTitle,
+      downloadTitle: d.downloadTitle,
+      status: d.status,
+      downloaderId: d.downloaderId,
+      createdAt: d.addedAt,
+      errorMessage: d.errorMessage,
+    }));
+
+    res.json([...gameLinkResults, ...pathResults]);
   } catch (error) {
     logger.error({ error }, "Error fetching pending imports");
     res.status(500).json({ error: "Internal server error" });
@@ -455,6 +471,39 @@ importRouter.delete("/:id", async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     logger.error({ error }, "Error skipping import");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Links a "game_link_required" download to the given game, then drops it back
+// into the normal manual_review_required path-review flow (GET /:id/plan,
+// POST /:id/confirm) so the rest of the import pipeline is reused unchanged.
+importRouter.post("/:id/link", async (req, res) => {
+  const { id } = req.params;
+  try {
+    const schema = z.object({ gameId: z.string().min(1) });
+    const { gameId } = schema.parse(req.body);
+
+    const download = await storage.getGameDownload(id);
+    if (!download) {
+      return res.status(404).json({ error: "Download not found" });
+    }
+    if (download.status !== "game_link_required") {
+      return res.status(400).json({ error: "This download does not need to be linked to a game" });
+    }
+
+    const game = await storage.getGame(gameId);
+    if (!game) {
+      return res.status(404).json({ error: "Game not found" });
+    }
+
+    const updated = await storage.relinkGameDownload(id, gameId);
+    res.json({ success: true, download: updated });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: zodErrorMessage(error) });
+    }
+    logger.error({ error }, "Error linking download to game");
     res.status(500).json({ error: "Internal server error" });
   }
 });

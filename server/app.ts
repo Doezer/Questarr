@@ -26,7 +26,16 @@ export function createApp() {
 
   app.use((_req, res, next) => {
     res.setHeader("Origin-Agent-Cluster", "?1");
+    // Questarr instances are personal/self-hosted and should never be indexed
+    // by search engines, even if exposed to the public internet.
+    res.setHeader("X-Robots-Tag", "noindex, nofollow");
     next();
+  });
+
+  // Explicit robots.txt so well-behaved crawlers stay out even before
+  // fetching any other page (belt-and-suspenders alongside X-Robots-Tag).
+  app.get("/robots.txt", (_req, res) => {
+    res.type("text/plain").send("User-agent: *\nDisallow: /\n");
   });
 
   app.use((req, res, next) => {

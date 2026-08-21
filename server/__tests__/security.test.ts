@@ -161,10 +161,20 @@ describe("Security Headers", () => {
       "permissions-policy",
       "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()",
     ],
+    ["x-robots-tag", "noindex, nofollow"],
   ])("should set %s header to %j", async (headerName, expectedValue) => {
     const app = await createApp();
     const response = await request(app).get("/api/auth/status");
     expect(response.headers[headerName]).toBe(expectedValue);
+  });
+
+  it("should serve a disallow-all robots.txt", async () => {
+    const app = await createApp();
+    const response = await request(app).get("/robots.txt");
+
+    expect(response.status).toBe(200);
+    expect(response.headers["content-type"]).toContain("text/plain");
+    expect(response.text).toContain("Disallow: /");
   });
 });
 

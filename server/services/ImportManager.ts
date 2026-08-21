@@ -9,10 +9,11 @@ import {
   sanitizeFsName,
 } from "./ImportStrategies.js";
 import { DownloaderManager } from "../downloaders.js";
-import { resolveDownloadRelativePath } from "../downloaders/utils.js";
+import { resolveDownloadRelativePath, buildRemoteImportPath } from "../downloaders/utils.js";
 import fs from "fs-extra";
 import path from "node:path";
 import { parseReleaseMetadata } from "../../shared/title-utils.js";
+import { GAME_LINK_REQUIRED_STATUS } from "../../shared/schema.js";
 import { logger } from "../logger.js";
 import { extractHostnameFromUrl } from "../url-utils.js";
 import { isSensitivePath } from "../path-security.js";
@@ -334,7 +335,25 @@ export class ImportManager {
     const game = await this.storage.getGame(download.gameId);
     if (!game) {
       logger.error({ downloadId }, "[ImportManager] Game not found for download");
-      await this.storage.updateGameDownloadStatus(downloadId, "error");
+      // "error" is a dead end: unlike "manual_review_required", nothing ever
+      // re-polls or surfaces it in the UI (getDownloadingGameDownloads only
+      // selects status="downloading", and getPendingImportReviews only
+      // selects "manual_review_required") - a download that lands here would
+      // sit invisibly forever even if the underlying issue (e.g. a
+      // transiently missing game row) was momentary.
+      //
+      // This is deliberately its own status rather than "manual_review_required":
+      // that review flow (ImportReviewModal) only ever asks the user to confirm
+      // source/destination paths for an *existing* game — it has no way to
+      // recover from there being no game to import into at all. "game_link_required"
+      // is surfaced separately so the user is prompted to pick the right game first;
+      // relinking (POST /api/imports/:id/link) then drops the download back into the
+      // normal "manual_review_required" path-review flow once a game is attached.
+      await this.storage.updateGameDownloadStatus(
+        downloadId,
+        GAME_LINK_REQUIRED_STATUS,
+        "This download's linked game could not be found — select a game to continue importing it."
+      );
       return;
     }
 
@@ -458,14 +477,10 @@ export class ImportManager {
     const details = await DownloaderManager.getDownloadDetails(downloader, download.downloadHash);
     if (!details?.downloadDir) return undefined;
 
-    const normalizedDir = details.downloadDir.replace(/[/\\]+$/, "");
-    const normalizedRelativePath = resolveDownloadRelativePath(details).replace(/^[/\\]+/, "");
-    const relativeBaseName = path.basename(normalizedRelativePath).toLowerCase();
-    const lastSegment = normalizedDir.split(/[\\/]/).pop()?.toLowerCase();
-    const remotePath =
-      lastSegment && lastSegment === relativeBaseName
-        ? normalizedDir
-        : `${normalizedDir}/${normalizedRelativePath}`;
+    const remotePath = buildRemoteImportPath(
+      details.downloadDir,
+      resolveDownloadRelativePath(details)
+    );
     const remoteHost = this.extractRemoteHost(downloader.url);
     return this.pathService.translatePath(remotePath, remoteHost);
   }
@@ -567,6 +582,10 @@ export class ImportManager {
       throw new Error(
         "Source path could not be resolved — the download may no longer be tracked by the download client. Please specify the source path manually."
       );
+    }
+
+    if (!(await fs.pathExists(resolvedOriginalPath))) {
+      throw new Error(`Source path not found: ${resolvedOriginalPath}`);
     }
 
     const game = await this.storage.getGame(download.gameId);

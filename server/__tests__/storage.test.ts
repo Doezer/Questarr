@@ -676,6 +676,150 @@ describe("MemStorage", () => {
       expect(downloads[0].downloaderName).toBeNull();
     });
 
+    describe("getUnlinkedImportReviews / relinkGameDownload", () => {
+      it("returns downloads with status game_link_required regardless of their gameId", async () => {
+        const unlinked = await storage.addGameDownload({
+          gameId,
+          downloaderId,
+          downloadHash: "hash-unlinked",
+          downloadTitle: "Orphaned-GROUP",
+          status: "game_link_required",
+          downloadType: "torrent",
+          fileSize: null,
+        } as InsertGameDownload);
+        await storage.addGameDownload({
+          gameId,
+          downloaderId,
+          downloadHash: "hash-reviewing",
+          downloadTitle: "Reviewing-GROUP",
+          status: "manual_review_required",
+          downloadType: "torrent",
+          fileSize: null,
+        } as InsertGameDownload);
+
+        const results = await storage.getUnlinkedImportReviews();
+        expect(results).toHaveLength(1);
+        expect(results[0].id).toBe(unlinked.id);
+      });
+
+      it("relinkGameDownload updates the gameId and returns to manual_review_required", async () => {
+        const otherGame = await storage.addGame({
+          title: "Correct Game",
+          igdbId: 5002,
+          status: "wanted",
+          hidden: false,
+          userId,
+        } as InsertGame);
+
+        const download = await storage.addGameDownload({
+          gameId,
+          downloaderId,
+          downloadHash: "hash-to-relink",
+          downloadTitle: "NeedsLink-GROUP",
+          status: "game_link_required",
+          downloadType: "torrent",
+          fileSize: null,
+        } as InsertGameDownload);
+        await storage.updateGameDownloadStatus(
+          download.id,
+          "game_link_required",
+          "This download's linked game could not be found"
+        );
+
+        const updated = await storage.relinkGameDownload(download.id, otherGame.id);
+
+        expect(updated?.gameId).toBe(otherGame.id);
+        expect(updated?.status).toBe("manual_review_required");
+        expect(updated?.errorMessage).toBeNull();
+
+        // No longer surfaced as needing a game link…
+        expect(await storage.getUnlinkedImportReviews()).toHaveLength(0);
+        // …and now surfaces in the normal path-review list instead.
+        const pending = await storage.getPendingImportReviews(userId);
+        expect(pending.some((d) => d.id === download.id)).toBe(true);
+      });
+
+      it("relinkGameDownload returns undefined for a nonexistent download", async () => {
+        const result = await storage.relinkGameDownload("nonexistent-id", gameId);
+        expect(result).toBeUndefined();
+      });
+
+      it("relinkGameDownload is a no-op once the download has already moved past game_link_required", async () => {
+        const otherGame = await storage.addGame({
+          title: "Second Correct Game",
+          igdbId: 5003,
+          status: "wanted",
+          hidden: false,
+          userId,
+        } as InsertGame);
+
+        const download = await storage.addGameDownload({
+          gameId,
+          downloaderId,
+          downloadHash: "hash-race",
+          downloadTitle: "Race-GROUP",
+          status: "game_link_required",
+          downloadType: "torrent",
+          fileSize: null,
+        } as InsertGameDownload);
+
+        // Simulates a concurrent request winning the race first.
+        await storage.relinkGameDownload(download.id, otherGame.id);
+
+        const secondAttempt = await storage.relinkGameDownload(download.id, gameId);
+        expect(secondAttempt).toBeUndefined();
+
+        // The first relink's choice of game must survive untouched.
+        const current = await storage.getGameDownload(download.id);
+        expect(current?.gameId).toBe(otherGame.id);
+      });
+
+      it("completeUnlinkedGameDownload dismisses a game_link_required download as completed", async () => {
+        const download = await storage.addGameDownload({
+          gameId,
+          downloaderId,
+          downloadHash: "hash-to-skip",
+          downloadTitle: "Skip-GROUP",
+          status: "game_link_required",
+          downloadType: "torrent",
+          fileSize: null,
+        } as InsertGameDownload);
+
+        const updated = await storage.completeUnlinkedGameDownload(download.id);
+
+        expect(updated?.status).toBe("completed");
+        expect(updated?.completedAt).not.toBeNull();
+        expect(await storage.getUnlinkedImportReviews()).toHaveLength(0);
+      });
+
+      it("completeUnlinkedGameDownload returns undefined for a nonexistent download", async () => {
+        const result = await storage.completeUnlinkedGameDownload("nonexistent-id");
+        expect(result).toBeUndefined();
+      });
+
+      it("completeUnlinkedGameDownload is a no-op once the download has already been relinked", async () => {
+        const download = await storage.addGameDownload({
+          gameId,
+          downloaderId,
+          downloadHash: "hash-skip-race",
+          downloadTitle: "SkipRace-GROUP",
+          status: "game_link_required",
+          downloadType: "torrent",
+          fileSize: null,
+        } as InsertGameDownload);
+
+        // Simulates a concurrent POST /:id/link winning the race first.
+        await storage.relinkGameDownload(download.id, gameId);
+
+        const result = await storage.completeUnlinkedGameDownload(download.id);
+        expect(result).toBeUndefined();
+
+        // The relink must survive untouched — not clobbered back to "completed".
+        const current = await storage.getGameDownload(download.id);
+        expect(current?.status).toBe("manual_review_required");
+      });
+    });
+
     describe("getTrackedDownloadKeys", () => {
       it("returns an empty set when there are no game downloads", async () => {
         const keys = await storage.getTrackedDownloadKeys();

@@ -161,10 +161,32 @@ describe("Security Headers", () => {
       "permissions-policy",
       "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()",
     ],
+    ["x-robots-tag", "noindex, nofollow"],
   ])("should set %s header to %j", async (headerName, expectedValue) => {
     const app = await createApp();
     const response = await request(app).get("/api/auth/status");
     expect(response.headers[headerName]).toBe(expectedValue);
+  });
+
+  it("should serve a disallow-all robots.txt", async () => {
+    const app = await createApp();
+    const response = await request(app).get("/robots.txt");
+
+    expect(response.status).toBe(200);
+    expect(response.headers["content-type"]).toContain("text/plain");
+    expect(response.text).toBe("User-agent: *\nDisallow: /\n");
+  });
+
+  it("should still set X-Robots-Tag on a rate-limited (429) response", async () => {
+    const app = await createApp();
+    // generalApiLimiter allows 100 requests/minute per IP before returning 429.
+    let response = await request(app).get("/api/auth/status");
+    for (let attempts = 1; response.status !== 429 && attempts < 101; attempts++) {
+      response = await request(app).get("/api/auth/status");
+    }
+
+    expect(response.status).toBe(429);
+    expect(response.headers["x-robots-tag"]).toBe("noindex, nofollow");
   });
 });
 

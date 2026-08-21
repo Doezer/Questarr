@@ -122,6 +122,14 @@ export interface ImportConfig {
   sortExtras: boolean;
 }
 
+// gameDownloads.status value for a download whose linked game record can't be
+// found. Kept as a shared constant (rather than the literal repeated across
+// server and client) since it's the join key between ImportManager, the
+// storage layer's getUnlinkedImportReviews/relinkGameDownload, the /link
+// route, and the pending-imports UI that decides whether to open
+// LinkGameModal or the regular ImportReviewModal.
+export const GAME_LINK_REQUIRED_STATUS = "game_link_required";
+
 export const IMPORT_TRANSFER_MODES = ["move", "copy", "hardlink", "symlink"] as const;
 
 export type ImportTransferMode = (typeof IMPORT_TRANSFER_MODES)[number];

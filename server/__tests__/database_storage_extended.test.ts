@@ -365,6 +365,57 @@ describe("DatabaseStorage Extended Coverage", () => {
       const current = await storage.getGameDownload(download!.id);
       expect(current?.gameId).toBe(firstGame.id);
     });
+
+    it("completeUnlinkedGameDownload dismisses a game_link_required download as completed", async () => {
+      const { game, downloader } = await setup();
+
+      const download = await storage.addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader.id,
+        downloadHash: "hash-skip",
+        downloadTitle: "Skip-GROUP",
+        status: "game_link_required",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+
+      const updated = await storage.completeUnlinkedGameDownload(download!.id);
+      expect(updated?.status).toBe("completed");
+      expect(updated?.completedAt).not.toBeNull();
+      expect(await storage.getUnlinkedImportReviews()).toHaveLength(0);
+    });
+
+    it("completeUnlinkedGameDownload is a no-op once already relinked (race-safe)", async () => {
+      const { userId, game, downloader } = await setup();
+      const correctGame = await storage.addGame({
+        title: "Relinked First",
+        igdbId: 6004,
+        status: "wanted",
+        hidden: false,
+        userId,
+      } as InsertGame);
+
+      const download = await storage.addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader.id,
+        downloadHash: "hash-skip-race",
+        downloadTitle: "SkipRace-GROUP",
+        status: "game_link_required",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+
+      // Simulates a concurrent POST /:id/link winning the race first.
+      await storage.relinkGameDownload(download!.id, correctGame.id);
+
+      const result = await storage.completeUnlinkedGameDownload(download!.id);
+      expect(result).toBeUndefined();
+
+      // The relink must survive untouched — not clobbered back to "completed".
+      const current = await storage.getGameDownload(download!.id);
+      expect(current?.status).toBe("manual_review_required");
+      expect(current?.gameId).toBe(correctGame.id);
+    });
   });
 
   describe("Import task history", () => {

@@ -773,6 +773,51 @@ describe("MemStorage", () => {
         const current = await storage.getGameDownload(download.id);
         expect(current?.gameId).toBe(otherGame.id);
       });
+
+      it("completeUnlinkedGameDownload dismisses a game_link_required download as completed", async () => {
+        const download = await storage.addGameDownload({
+          gameId,
+          downloaderId,
+          downloadHash: "hash-to-skip",
+          downloadTitle: "Skip-GROUP",
+          status: "game_link_required",
+          downloadType: "torrent",
+          fileSize: null,
+        } as InsertGameDownload);
+
+        const updated = await storage.completeUnlinkedGameDownload(download.id);
+
+        expect(updated?.status).toBe("completed");
+        expect(updated?.completedAt).not.toBeNull();
+        expect(await storage.getUnlinkedImportReviews()).toHaveLength(0);
+      });
+
+      it("completeUnlinkedGameDownload returns undefined for a nonexistent download", async () => {
+        const result = await storage.completeUnlinkedGameDownload("nonexistent-id");
+        expect(result).toBeUndefined();
+      });
+
+      it("completeUnlinkedGameDownload is a no-op once the download has already been relinked", async () => {
+        const download = await storage.addGameDownload({
+          gameId,
+          downloaderId,
+          downloadHash: "hash-skip-race",
+          downloadTitle: "SkipRace-GROUP",
+          status: "game_link_required",
+          downloadType: "torrent",
+          fileSize: null,
+        } as InsertGameDownload);
+
+        // Simulates a concurrent POST /:id/link winning the race first.
+        await storage.relinkGameDownload(download.id, gameId);
+
+        const result = await storage.completeUnlinkedGameDownload(download.id);
+        expect(result).toBeUndefined();
+
+        // The relink must survive untouched — not clobbered back to "completed".
+        const current = await storage.getGameDownload(download.id);
+        expect(current?.status).toBe("manual_review_required");
+      });
     });
 
     describe("getTrackedDownloadKeys", () => {

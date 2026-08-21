@@ -464,24 +464,35 @@ importRouter.delete("/:id", async (req, res) => {
   const { id } = req.params;
   try {
     const userId = res.locals.userId as string;
-    let download = await storage.getGameDownload(id, userId);
-    if (!download) {
-      // getGameDownload(id, userId) scopes ownership by joining through the
-      // download's game — but a game_link_required download has no game row
-      // to join against (that's the whole point of the status), so it can
-      // never be found that way. Fall back to an unscoped lookup, but only
-      // accept it if the record is actually game_link_required, so this
-      // can't be used to bypass ownership scoping for any other download.
-      const unscoped = await storage.getGameDownload(id);
-      if (unscoped?.status === GAME_LINK_REQUIRED_STATUS) {
-        download = unscoped;
-      }
+    const download = await storage.getGameDownload(id, userId);
+    if (download) {
+      await storage.updateGameDownloadStatus(id, "completed");
+      return res.json({ success: true });
     }
-    if (!download) {
+
+    // getGameDownload(id, userId) scopes ownership by joining through the
+    // download's game — but a game_link_required download has no game row
+    // to join against (that's the whole point of the status), so it can
+    // never be found that way. Fall back to an unscoped lookup, but only
+    // accept it if the record is actually game_link_required, so this can't
+    // be used to bypass ownership scoping for any other download.
+    const unscoped = await storage.getGameDownload(id);
+    if (unscoped?.status !== GAME_LINK_REQUIRED_STATUS) {
       return res.status(404).json({ error: "Download not found" });
     }
-    await storage.updateGameDownloadStatus(id, "completed");
-    res.json({ success: true });
+
+    // Transition atomically (conditional on still being game_link_required)
+    // rather than check-then-set: a concurrent POST /:id/link could relink
+    // this same download in the gap between the check above and a plain
+    // update, and an unconditional "completed" write here would silently
+    // clobber that relink instead of just dismissing an unlinked download.
+    const skipped = await storage.completeUnlinkedGameDownload(id);
+    if (!skipped) {
+      return res
+        .status(409)
+        .json({ error: "Download was linked to a game before it could be skipped" });
+    }
+    return res.json({ success: true });
   } catch (error) {
     logger.error({ error }, "Error skipping import");
     res.status(500).json({ error: "Internal server error" });

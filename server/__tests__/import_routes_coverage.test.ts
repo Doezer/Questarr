@@ -19,6 +19,7 @@ const { mockStorage, mockImportManager, mockPlatformMappingService, fsMock } = v
     createUserSettings: vi.fn(),
     getGameDownload: vi.fn(),
     updateGameDownloadStatus: vi.fn(),
+    completeUnlinkedGameDownload: vi.fn(),
   },
   mockImportManager: {
     confirmImport: vi.fn(),
@@ -395,7 +396,8 @@ describe("DELETE /api/imports/:id", () => {
   it("skips a game_link_required download via the unscoped fallback lookup", async () => {
     // The userId-scoped lookup can never find a game_link_required download
     // (it has no game row to join ownership through), so it must fall back
-    // to an unscoped lookup that only accepts a game_link_required record.
+    // to an unscoped lookup that only accepts a game_link_required record,
+    // then complete it via the atomic completeUnlinkedGameDownload path.
     mockStorage.getGameDownload
       .mockResolvedValueOnce(undefined) // scoped lookup: getGameDownload(id, userId)
       .mockResolvedValueOnce({
@@ -403,6 +405,10 @@ describe("DELETE /api/imports/:id", () => {
         gameId: "missing-game",
         status: "game_link_required",
       }); // unscoped fallback: getGameDownload(id)
+    mockStorage.completeUnlinkedGameDownload.mockResolvedValue({
+      id: "dl-unlinked",
+      status: "completed",
+    });
 
     const res = await request(createApp()).delete("/api/imports/dl-unlinked");
 
@@ -410,7 +416,24 @@ describe("DELETE /api/imports/:id", () => {
     expect(res.body.success).toBe(true);
     expect(mockStorage.getGameDownload).toHaveBeenCalledTimes(2);
     expect(mockStorage.getGameDownload).toHaveBeenNthCalledWith(2, "dl-unlinked");
-    expect(mockStorage.updateGameDownloadStatus).toHaveBeenCalledWith("dl-unlinked", "completed");
+    expect(mockStorage.completeUnlinkedGameDownload).toHaveBeenCalledWith("dl-unlinked");
+    expect(mockStorage.updateGameDownloadStatus).not.toHaveBeenCalled();
+  });
+
+  it("returns 409 when a game_link_required download is relinked before it can be skipped", async () => {
+    // A concurrent POST /:id/link raced ahead and relinked this download
+    // between the fallback lookup and the completion write — the atomic
+    // conditional update loses that race and must not silently overwrite
+    // the relink with "completed".
+    mockStorage.getGameDownload
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ id: "dl-race", gameId: "g1", status: "game_link_required" });
+    mockStorage.completeUnlinkedGameDownload.mockResolvedValue(undefined);
+
+    const res = await request(createApp()).delete("/api/imports/dl-race");
+
+    expect(res.status).toBe(409);
+    expect(mockStorage.updateGameDownloadStatus).not.toHaveBeenCalled();
   });
 
   it("does not use the unscoped fallback for a download that isn't game_link_required", async () => {

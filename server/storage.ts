@@ -218,6 +218,10 @@ export interface IStorage {
   // Attaches a "game_link_required" download to the given game and drops it back into
   // the normal "manual_review_required" path-review flow.
   relinkGameDownload(id: string, gameId: string): Promise<GameDownload | undefined>;
+  // Dismisses a "game_link_required" download without linking it to a game.
+  // Conditional on the download still being game_link_required at write time,
+  // so it can't race with a concurrent relinkGameDownload for the same id.
+  completeUnlinkedGameDownload(id: string): Promise<GameDownload | undefined>;
   addGameDownload(gameDownload: InsertGameDownload): Promise<GameDownload | undefined>;
   removeGameDownload(id: string, gameId: string): Promise<boolean>;
   getDownloadSummaryByGame(userId: string): Promise<Record<string, DownloadSummary>>;
@@ -856,6 +860,14 @@ export class MemStorage implements IStorage {
       status: "manual_review_required",
       errorMessage: null,
     };
+    this.gameDownloads.set(id, updated);
+    return updated;
+  }
+
+  async completeUnlinkedGameDownload(id: string): Promise<GameDownload | undefined> {
+    const gd = this.gameDownloads.get(id);
+    if (gd?.status !== GAME_LINK_REQUIRED_STATUS) return undefined;
+    const updated: GameDownload = { ...gd, status: "completed", completedAt: new Date() };
     this.gameDownloads.set(id, updated);
     return updated;
   }
@@ -2126,6 +2138,18 @@ export class DatabaseStorage implements IStorage {
     const [updated] = await db
       .update(gameDownloads)
       .set({ gameId, status: "manual_review_required", errorMessage: null })
+      .where(and(eq(gameDownloads.id, id), eq(gameDownloads.status, GAME_LINK_REQUIRED_STATUS)))
+      .returning();
+    return updated;
+  }
+
+  async completeUnlinkedGameDownload(id: string): Promise<GameDownload | undefined> {
+    // Same conditional-update pattern as relinkGameDownload: only transitions
+    // rows still game_link_required, so this can't race with a concurrent
+    // relink for the same download silently discarding it.
+    const [updated] = await db
+      .update(gameDownloads)
+      .set({ status: "completed", completedAt: new Date() })
       .where(and(eq(gameDownloads.id, id), eq(gameDownloads.status, GAME_LINK_REQUIRED_STATUS)))
       .returning();
     return updated;

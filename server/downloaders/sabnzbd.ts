@@ -520,7 +520,11 @@ export class SABnzbdClient implements DownloaderClient {
 
   private resolveHistoryDownloadDir(item: SABnzbdHistory["slots"][number]): string | undefined {
     const completedPath = item.path
-      ? stripTrailingPathSeparators(item.path.replaceAll("/incomplete/", "/complete/"))
+      ? stripTrailingPathSeparators(
+          item.path
+            .replaceAll("/incomplete/", "/complete/")
+            .replaceAll("\\incomplete\\", "\\complete\\")
+        )
       : undefined;
     // `storage` is SABnzbd's final resting place for the completed job
     if (item.storage) {

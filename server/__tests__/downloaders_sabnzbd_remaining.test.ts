@@ -522,4 +522,48 @@ describe("sabnzbd remaining regression coverage", () => {
       downloadDir: "/downloads/complete/Baldurs.Gate.3.Deluxe.Edition.v6931813.MULTi15-ElAmigos",
     });
   });
+
+  it("resolves the completed directory for Windows backslash-delimited history paths", async () => {
+    const client = new SABnzbdClient(createDownloader());
+    const privateClient = client as unknown as {
+      fetchWithFallback(url: string, options?: RequestInit): Promise<Response>;
+    };
+    const fetchWithFallbackSpy = vi.spyOn(privateClient, "fetchWithFallback");
+
+    fetchWithFallbackSpy
+      .mockResolvedValueOnce(
+        queueResponse([
+          {
+            nzo_id: "job-windows",
+            filename: "Aethus.v1.036-ElAmigos",
+            status: "Completed",
+            percentage: "100",
+            mb: "10",
+            mbleft: "0",
+            timeleft: "0:00:00",
+            cat: "games",
+            avg_age: "2",
+          },
+        ])
+      )
+      .mockResolvedValueOnce(
+        historyResponse([
+          {
+            nzo_id: "job-windows",
+            name: "Aethus.v1.036-ElAmigos",
+            status: "Completed",
+            fail_message: "",
+            path: "C:\\downloads\\incomplete\\Aethus.v1.036-ElAmigos",
+            storage: "C:\\downloads\\complete\\Aethus.v1.036-ElAmigos\\Aethus.iso",
+            size: "1 GB",
+            bytes: 1024,
+            category: "games",
+          },
+        ])
+      );
+
+    await expect(client.getDownloadDetails("job-windows")).resolves.toMatchObject({
+      downloadDir: "C:\\downloads\\complete\\Aethus.v1.036-ElAmigos",
+    });
+  });
 });

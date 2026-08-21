@@ -460,9 +460,10 @@ export class ImportManager {
 
     const normalizedDir = details.downloadDir.replace(/[\\/]+$/, "");
     const normalizedRelativePath = resolveDownloadRelativePath(details).replace(/^[\\/]+/, "");
+    const relativeBaseName = path.basename(normalizedRelativePath).toLowerCase();
     const lastSegment = normalizedDir.split(/[\\/]/).pop()?.toLowerCase();
     const remotePath =
-      lastSegment && lastSegment === normalizedRelativePath.toLowerCase()
+      lastSegment && lastSegment === relativeBaseName
         ? normalizedDir
         : `${normalizedDir}/${normalizedRelativePath}`;
     const remoteHost = this.extractRemoteHost(downloader.url);

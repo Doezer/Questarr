@@ -1,7 +1,6 @@
 import type { Downloader, DownloadStatus, DownloadDetails } from "../../shared/schema.js";
 import { downloadersLogger } from "../logger.js";
 import https from "https";
-import path from "node:path";
 import { isSafeUrl, resolveSafeAddress, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
 import { fixNzbUrlEncoding, logDownloaderDebugResponse } from "./utils.js";
@@ -516,21 +515,27 @@ export class SABnzbdClient implements DownloaderClient {
   }
 
   private resolveHistoryDownloadDir(item: SABnzbdHistory["slots"][number]): string | undefined {
+    const completedPath = item.path
+      ?.replace(/\/incomplete\//g, "/complete/")
+      .replace(/[\\/]+$/, "");
     // `storage` is SABnzbd's final resting place for the completed job
     if (item.storage) {
       const normalizedStorage = item.storage.replace(/[\\/]+$/, "");
-      const normalizedName = item.name.trim().toLowerCase();
-      const storageBase = path.basename(normalizedStorage).toLowerCase();
-      if (storageBase === normalizedName) return normalizedStorage;
-
-      const parentDir = path.dirname(normalizedStorage);
-      const parentBase = path.basename(parentDir).toLowerCase();
-      if (parentBase === normalizedName) return parentDir;
+      if (completedPath) {
+        const normalizedStoragePosix = normalizedStorage.replace(/\\/g, "/");
+        const completedPathPosix = completedPath.replace(/\\/g, "/");
+        if (
+          normalizedStoragePosix === completedPathPosix ||
+          normalizedStoragePosix.startsWith(`${completedPathPosix}/`)
+        ) {
+          return completedPath;
+        }
+      }
 
       return normalizedStorage;
     }
     // Fallback for older SABnzbd versions that don't expose `storage`.
-    return item.path?.replace(/\/incomplete\//g, "/complete/");
+    return completedPath;
   }
 
   async getDownloadDetails(id: string): Promise<DownloadDetails | null> {

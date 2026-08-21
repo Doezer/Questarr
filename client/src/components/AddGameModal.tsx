@@ -110,11 +110,6 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
     queryKey: ["/api/igdb/search", debouncedQuery, showUndatedGames, selectedPlatform, releaseYear],
     queryFn: async () => {
       if (!debouncedQuery.trim()) return [];
-      const token = localStorage.getItem("token");
-      const headers: Record<string, string> = {};
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
       const params = new URLSearchParams({
         q: debouncedQuery,
         limit: "10",
@@ -124,7 +119,7 @@ export default function AddGameModal({ children, initialQuery }: AddGameModalPro
       if (hasValidReleaseYear) {
         params.set("year", releaseYear);
       }
-      const response = await fetch(`/api/igdb/search?${params.toString()}`, { headers });
+      const response = await apiFetch(`/api/igdb/search?${params.toString()}`);
       if (!response.ok) throw new Error("Search failed");
       const data: unknown = await response.json();
       return Array.isArray(data) ? data.slice(0, 10) : [];

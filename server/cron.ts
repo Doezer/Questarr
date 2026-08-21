@@ -2,8 +2,9 @@ import { storage } from "./storage.js";
 import { igdbClient, IGDB_EARLY_ACCESS_STATUS } from "./igdb.js";
 import { igdbLogger } from "./logger.js";
 import { notifyUser } from "./socket.js";
+import { resolvePrefs } from "./notification-prefs.js";
 import { DownloaderManager } from "./downloaders.js";
-import { resolveDownloadRelativePath } from "./downloaders/utils.js";
+import { resolveDownloadRelativePath, buildRemoteImportPath } from "./downloaders/utils.js";
 import { torznabClient } from "./torznab.js";
 import { newznabClient } from "./newznab.js";
 import { searchAllIndexers, filterBlacklistedReleases, type SearchItem } from "./search.js";
@@ -47,31 +48,6 @@ const GAME_UPDATE_TITLE_TO_EVENT: Record<string, NotificationEvent> = {
   "Game Released": "gameReleased",
   "Game Delayed": "gameDelayed",
 };
-
-function resolvePrefs(
-  settings: { notificationPreferences?: string | null } | null | undefined
-): NotificationPreferences {
-  if (!settings?.notificationPreferences) return DEFAULT_NOTIFICATION_PREFERENCES;
-  try {
-    return { ...DEFAULT_NOTIFICATION_PREFERENCES, ...JSON.parse(settings.notificationPreferences) };
-  } catch {
-    igdbLogger.warn(
-      { value: settings.notificationPreferences },
-      "Failed to parse notification preferences, using defaults"
-    );
-    return DEFAULT_NOTIFICATION_PREFERENCES;
-  }
-}
-
-function buildRemoteImportPath(downloadDir: string, name: string): string {
-  const normalizedDir = downloadDir.replace(/[\\/]+$/, "");
-  const normalizedName = name.replace(/^[\\/]+/, "");
-  const lastSegment = normalizedDir.split(/[\\/]/).pop()?.toLowerCase();
-  if (lastSegment && lastSegment === normalizedName.toLowerCase()) {
-    return normalizedDir;
-  }
-  return `${normalizedDir}/${normalizedName}`;
-}
 
 type DownloadSortBy = "seeders" | "date" | "size";
 

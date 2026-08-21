@@ -77,7 +77,15 @@ describe("ImportManager", () => {
     expect(storage.updateGameDownloadStatus).not.toHaveBeenCalled();
   });
 
-  it("marks download as error when game is missing", async () => {
+  it("marks download game_link_required when game is missing", async () => {
+    // Not "error": that status is never re-polled (getDownloadingGameDownloads
+    // only selects "downloading") and never shown in the UI's pending-imports
+    // list, so it would leave the download invisible and stuck forever even if
+    // the missing game was a transient/momentary condition.
+    //
+    // Also not "manual_review_required": that flow only ever asks the user to
+    // confirm source/destination paths for an existing game and has no way to
+    // recover when there's no game to import into at all.
     storage.getGameDownload.mockResolvedValue({
       id: "dl-1",
       gameId: "g1",
@@ -93,7 +101,11 @@ describe("ImportManager", () => {
 
     await manager.processImport("dl-1", "/remote/path");
 
-    expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith("dl-1", "error");
+    expect(storage.updateGameDownloadStatus).toHaveBeenCalledWith(
+      "dl-1",
+      "game_link_required",
+      "This download's linked game could not be found — select a game to continue importing it."
+    );
   });
 
   it("marks download completed when post-processing is disabled", async () => {
@@ -239,6 +251,35 @@ describe("ImportManager", () => {
         needsReview: false,
       })
     ).rejects.toThrow("Proposed path is outside configured library root");
+  });
+
+  it("confirmImport: source path no longer exists on disk → throws a descriptive error", async () => {
+    storage.getGameDownload.mockResolvedValue({ id: "dl-1", gameId: "g1", downloaderId: "d1" });
+    storage.getGame.mockResolvedValue({
+      id: "g1",
+      title: "Game",
+      userId: "u1",
+      status: "wanted",
+      platforms: [6],
+    });
+    storage.getImportConfig.mockResolvedValue({ ...baseConfig, libraryRoot: "/safe/root" });
+    fsMock.pathExists.mockResolvedValueOnce(false);
+
+    const manager = new ImportManager(
+      storage as never, // NOSONAR
+      pathService as never, // NOSONAR
+      platformService as never, // NOSONAR
+      archiveService as never // NOSONAR
+    );
+
+    await expect(
+      manager.confirmImport("dl-1", {
+        strategy: "pc",
+        originalPath: "/downloads/vanished-folder",
+        proposedPath: "/safe/root/PC/Game",
+        needsReview: false,
+      })
+    ).rejects.toThrow("Source path not found: /downloads/vanished-folder");
   });
 
   it("executes confirmImport for pc strategy and updates statuses", async () => {

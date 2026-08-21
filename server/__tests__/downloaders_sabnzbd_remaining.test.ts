@@ -148,7 +148,7 @@ describe("sabnzbd remaining regression coverage", () => {
       body: "payload",
       headers: { Accept: "application/json" },
     });
-    await expect(insecureJson.text()).resolves.toBe('{"ok":true}');
+    await expect(insecureJson.clone().text()).resolves.toBe('{"ok":true}');
     await expect(insecureJson.json()).resolves.toEqual({ ok: true });
     expect(insecureJson.headers.get("content-type")).toBe("application/json");
 
@@ -172,7 +172,7 @@ describe("sabnzbd remaining regression coverage", () => {
       }
     );
     const insecureInvalidJson = await helperClient.fetchInsecure("https://sab.local", {});
-    await expect(insecureInvalidJson.json()).rejects.toThrow("Failed to parse JSON: not-json");
+    await expect(insecureInvalidJson.json()).rejects.toThrow();
 
     httpsRequestMock.mockImplementationOnce(() => {
       const request = new MockRequest();

@@ -859,6 +859,219 @@ describe("qbittorrent regression coverage", () => {
     }
   });
 
+  it("treats a JSON success response from the torrent-file upload endpoint as success (qBittorrent v5.2+)", async () => {
+    // Regression test for https://github.com/Doezer/Questarr/issues/868 —
+    // qBittorrent v5.2+ returns JSON from the multipart upload endpoint too
+    // (not just the URL-add endpoint), and the client was treating that as
+    // an "Unexpected response" failure even though the torrent was added.
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+      callback: TimerHandler,
+      _delay?: number,
+      ...args: unknown[]
+    ) => {
+      if (typeof callback === "function") {
+        callback(...args);
+      }
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    }) as typeof setTimeout);
+
+    try {
+      const client = new QBittorrentClient(createDownloader());
+      const privateClient = client as unknown as {
+        authenticate(force?: boolean): Promise<void>;
+        makeRequest(
+          method: string,
+          path: string,
+          body?: string | Buffer,
+          additionalHeaders?: Record<string, string>
+        ): Promise<Response>;
+      };
+
+      vi.spyOn(privateClient, "authenticate").mockResolvedValue(undefined);
+      const makeRequestSpy = vi
+        .spyOn(privateClient, "makeRequest")
+        .mockImplementation(async (_method, path, body) => {
+          // URL-based add never materializes into a torrent, forcing the
+          // torrent-file upload fallback.
+          if (path === "/api/v2/torrents/add" && typeof body === "string") {
+            return {
+              ok: true,
+              status: 202,
+              text: async () =>
+                JSON.stringify({
+                  added_torrent_ids: [],
+                  failure_count: 0,
+                  pending_count: 1,
+                  success_count: 0,
+                }),
+              headers: jsonHeaders,
+            } as unknown as Response;
+          }
+          if (path.startsWith("/api/v2/torrents/info?tag=")) {
+            return { ok: true, json: async () => [] } as Response;
+          }
+          // The torrent-file upload itself succeeds, but qBittorrent v5.2+
+          // reports it as JSON instead of the legacy plain-text "Ok.".
+          if (path === "/api/v2/torrents/add" && Buffer.isBuffer(body)) {
+            return {
+              ok: true,
+              status: 200,
+              text: async () =>
+                JSON.stringify({
+                  added_torrent_ids: ["torrent_hash_abc123"],
+                  failure_count: 0,
+                  pending_count: 0,
+                  success_count: 1,
+                }),
+              headers: jsonHeaders,
+            } as Response;
+          }
+          if (path === "/api/v2/torrents/info?hashes=torrent_hash_abc123") {
+            return {
+              ok: true,
+              status: 200,
+              json: async () => [{ hash: "torrent_hash_abc123", name: "Pending via Prowlarr" }],
+            } as Response;
+          }
+          if (path === "/api/v2/torrents/removeTags") {
+            return { ok: true, status: 200, text: async () => "" } as Response;
+          }
+          throw new Error(`Unexpected qBittorrent request: ${path}`);
+        });
+
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        headers: { get: () => null },
+        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+      } as Response);
+
+      await expect(
+        client.addDownload({
+          url: "http://prowlarr.local/1/api?t=download&id=pending",
+          title: "Pending via Prowlarr",
+        })
+      ).resolves.toEqual({
+        success: true,
+        id: "torrent_hash_abc123",
+        message: "Download added successfully",
+      });
+
+      expect(
+        makeRequestSpy.mock.calls.some(
+          ([, path, body]) => path === "/api/v2/torrents/add" && Buffer.isBuffer(body)
+        )
+      ).toBe(true);
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
+  });
+
+  it("treats a JSON failure_count response from the torrent-file upload endpoint as a duplicate/invalid download (qBittorrent v5.2+)", async () => {
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+      callback: TimerHandler,
+      _delay?: number,
+      ...args: unknown[]
+    ) => {
+      if (typeof callback === "function") callback(...args);
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    }) as typeof setTimeout);
+
+    try {
+      const client = new QBittorrentClient(createDownloader());
+      const privateClient = client as unknown as {
+        authenticate(force?: boolean): Promise<void>;
+        makeRequest(
+          method: string,
+          path: string,
+          body?: string | Buffer,
+          additionalHeaders?: Record<string, string>
+        ): Promise<Response>;
+      };
+      vi.spyOn(privateClient, "authenticate").mockResolvedValue(undefined);
+      let uploadStarted = false;
+      const makeRequestSpy = vi
+        .spyOn(privateClient, "makeRequest")
+        .mockImplementation(async (_method, path, body) => {
+          if (path === "/api/v2/torrents/add" && typeof body === "string") {
+            return {
+              ok: true,
+              status: 202,
+              text: async () =>
+                JSON.stringify({
+                  added_torrent_ids: [],
+                  failure_count: 0,
+                  pending_count: 1,
+                  success_count: 0,
+                }),
+              headers: jsonHeaders,
+            } as unknown as Response;
+          }
+          if (path.startsWith("/api/v2/torrents/info?tag=") && !uploadStarted) {
+            return { ok: true, json: async () => [] } as Response;
+          }
+          // qBittorrent v5.2+ reports the "already exists / invalid" case as
+          // JSON with a non-zero failure_count instead of the legacy "Fails.".
+          if (path === "/api/v2/torrents/add" && Buffer.isBuffer(body)) {
+            uploadStarted = true;
+            return {
+              ok: true,
+              status: 200,
+              text: async () =>
+                JSON.stringify({
+                  added_torrent_ids: [],
+                  failure_count: 1,
+                  pending_count: 0,
+                  success_count: 0,
+                }),
+              headers: jsonHeaders,
+            } as Response;
+          }
+          if (path.includes("questarr-fallback-")) {
+            return { ok: true, json: async () => [] } as Response;
+          }
+          if (path.startsWith("/api/v2/torrents/info?tag=")) {
+            return {
+              ok: true,
+              json: async () => [{ hash: "existing-hash", name: "Existing torrent", added_on: 1 }],
+            } as Response;
+          }
+          if (path === "/api/v2/torrents/removeTags") {
+            return { ok: true, status: 200, text: async () => "" } as Response;
+          }
+          throw new Error(`Unexpected qBittorrent request: ${path}`);
+        });
+
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        headers: { get: () => null },
+        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+      } as Response);
+
+      await expect(
+        client.addDownload({
+          url: "http://prowlarr.local/1/api?t=download&id=pending",
+          title: "Pending via Prowlarr",
+        })
+      ).resolves.toEqual({
+        success: true,
+        id: "existing-hash",
+        message: "Download already exists or invalid download (qBittorrent)",
+      });
+
+      expect(
+        makeRequestSpy.mock.calls.some(
+          ([, path, body]) => path === "/api/v2/torrents/add" && Buffer.isBuffer(body)
+        )
+      ).toBe(true);
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
+  });
+
   it("tracks the existing torrent when fallback upload is rejected as a duplicate", async () => {
     const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
       callback: TimerHandler,

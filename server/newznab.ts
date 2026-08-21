@@ -54,6 +54,10 @@ const DEFAULT_GAME_CATEGORIES: NewznabCategory[] = [
   { id: "4050", name: "PC > Games" },
 ];
 
+// Overall time budget for getCategories' caps-discovery loop, shared across
+// every URL candidate it tries rather than reset per candidate.
+const CAPS_DISCOVERY_TIMEOUT_MS = 10000;
+
 interface NewznabServerInfo {
   title?: string;
   version?: string;
@@ -417,11 +421,23 @@ class NewznabClient {
       throw new Error(`Unsafe URL detected: ${indexer.url}`);
     }
 
+    // One overall deadline shared across every caps URL candidate, not a
+    // fresh timeout per candidate -- otherwise two unreachable candidates
+    // (buildCapsUrlCandidates can return up to two) each hang for the full
+    // per-request timeout before falling back, roughly doubling worst-case
+    // caps-discovery latency.
+    const deadline = Date.now() + CAPS_DISCOVERY_TIMEOUT_MS;
+
     let lastError: unknown;
     for (const url of this.buildCapsUrlCandidates(indexer)) {
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) {
+        lastError ??= new Error("Caps discovery deadline exceeded");
+        break;
+      }
       try {
         const response = await safeFetch(url.toString(), {
-          signal: AbortSignal.timeout(10000),
+          signal: AbortSignal.timeout(remainingMs),
         });
 
         if (!response.ok) {

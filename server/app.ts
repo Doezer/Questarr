@@ -22,11 +22,10 @@ export function createApp() {
     next();
   });
 
-  // Explicit robots.txt so well-behaved crawlers stay out even before
-  // fetching any other page (belt-and-suspenders alongside X-Robots-Tag).
-  app.get("/robots.txt", (_req, res) => {
-    res.type("text/plain").send("User-agent: *\nDisallow: /\n");
-  });
+  // Note: the /robots.txt route itself is registered later, in routes.ts,
+  // after helmet() -- registering it here would let it bypass helmet's
+  // security headers (CSP, X-Frame-Options, X-Content-Type-Options, etc.)
+  // entirely, since Express stops at the first route that sends a response.
 
   if (config.server.isProduction) {
     app.set("trust proxy", 1);

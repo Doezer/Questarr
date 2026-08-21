@@ -22,8 +22,9 @@ export function createApp() {
   app.use(express.json({ limit: "5mb" }));
   app.use(express.urlencoded({ extended: false }));
 
-  app.use("/api", generalApiLimiter);
-
+  // Registered before the rate limiter so these headers/routes are still
+  // applied on a 429: express-rate-limit responds directly and never calls
+  // next() once the limit is hit, which would otherwise skip anything after it.
   app.use((_req, res, next) => {
     res.setHeader("Origin-Agent-Cluster", "?1");
     // Questarr instances are personal/self-hosted and should never be indexed
@@ -37,6 +38,8 @@ export function createApp() {
   app.get("/robots.txt", (_req, res) => {
     res.type("text/plain").send("User-agent: *\nDisallow: /\n");
   });
+
+  app.use("/api", generalApiLimiter);
 
   app.use((req, res, next) => {
     const start = Date.now();

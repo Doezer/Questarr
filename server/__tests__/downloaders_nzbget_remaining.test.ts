@@ -281,4 +281,111 @@ describe("NZBGet remaining coverage", () => {
     rpcSpy.mockRejectedValueOnce(new Error("queue failed"));
     await expect(client.getAllDownloads()).resolves.toEqual([]);
   });
+
+  it("getDownloadDetails populates downloadDir from history's DestDir for completed downloads", async () => {
+    const client = new NZBGetClient(createDownloader());
+    const rpcSpy = vi.spyOn(
+      client as unknown as { makeXMLRPCRequest: typeof Function },
+      "makeXMLRPCRequest"
+    );
+
+    // getDownloadStatus: not in the live queue, falls back to history.
+    rpcSpy.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      {
+        NZBID: 9,
+        Name: "Finished Game",
+        Status: "SUCCESS/ALL",
+        FileSizeMB: 20,
+        Category: "games",
+        DownloadTimeSec: 90,
+        ParStatus: "NONE",
+        UnpackStatus: "NONE",
+        FailedArticles: 0,
+        DeleteStatus: "NONE",
+        DestDir: "/downloads/nzbget/Questarr/Finished Game",
+      },
+    ]);
+    // The subsequent getHistoryDestDir call for the same completed download.
+    rpcSpy.mockResolvedValueOnce([
+      {
+        NZBID: 9,
+        Name: "Finished Game",
+        Status: "SUCCESS/ALL",
+        FileSizeMB: 20,
+        Category: "games",
+        DownloadTimeSec: 90,
+        ParStatus: "NONE",
+        UnpackStatus: "NONE",
+        FailedArticles: 0,
+        DeleteStatus: "NONE",
+        DestDir: "/downloads/nzbget/Questarr/Finished Game",
+      },
+    ]);
+
+    await expect(client.getDownloadDetails("9")).resolves.toMatchObject({
+      status: "completed",
+      downloadDir: "/downloads/nzbget/Questarr/Finished Game",
+    });
+  });
+
+  it("getDownloadDetails leaves downloadDir unset for downloads still in progress", async () => {
+    const client = new NZBGetClient(createDownloader());
+    const rpcSpy = vi.spyOn(
+      client as unknown as { makeXMLRPCRequest: typeof Function },
+      "makeXMLRPCRequest"
+    );
+
+    rpcSpy.mockResolvedValueOnce([
+      {
+        NZBID: 10,
+        NZBName: "In Progress Game",
+        Status: "DOWNLOADING",
+        FileSizeMB: 10,
+        RemainingSizeMB: 5,
+        DownloadedSizeMB: 5,
+        Category: "games",
+        DownloadRate: 2,
+        PostInfoText: "",
+        PostStageProgress: 0,
+        PostStageTimeSec: 0,
+      },
+    ]);
+
+    const details = await client.getDownloadDetails("10");
+    expect(details).toMatchObject({ status: "downloading" });
+    expect(details?.downloadDir).toBeUndefined();
+    // No extra history round-trip should happen for a non-completed download.
+    expect(rpcSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("getHistoryDestDir logs and returns undefined when the history lookup fails", async () => {
+    const client = new NZBGetClient(createDownloader());
+    const rpcSpy = vi.spyOn(
+      client as unknown as { makeXMLRPCRequest: typeof Function },
+      "makeXMLRPCRequest"
+    );
+
+    rpcSpy
+      .mockResolvedValueOnce([]) // getDownloadStatus: not in queue
+      .mockResolvedValueOnce([
+        {
+          NZBID: 11,
+          Name: "Finished Game",
+          Status: "SUCCESS/ALL",
+          FileSizeMB: 20,
+          Category: "games",
+          DownloadTimeSec: 90,
+          ParStatus: "NONE",
+          UnpackStatus: "NONE",
+          FailedArticles: 0,
+          DeleteStatus: "NONE",
+          DestDir: "/downloads/nzbget/Questarr/Finished Game",
+        },
+      ]) // getFromHistory
+      .mockRejectedValueOnce(new Error("history failed")); // getHistoryDestDir
+
+    const details = await client.getDownloadDetails("11");
+    expect(details).toMatchObject({ status: "completed" });
+    expect(details?.downloadDir).toBeUndefined();
+  });
 });

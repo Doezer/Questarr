@@ -3,7 +3,11 @@ import { downloadersLogger } from "../logger.js";
 import https from "https";
 import { isSafeUrl, resolveSafeAddress, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
-import { fixNzbUrlEncoding, logDownloaderDebugResponse } from "./utils.js";
+import {
+  fixNzbUrlEncoding,
+  logDownloaderDebugResponse,
+  stripTrailingPathSeparators,
+} from "./utils.js";
 
 interface SABnzbdQueue {
   slots: Array<{
@@ -516,11 +520,11 @@ export class SABnzbdClient implements DownloaderClient {
 
   private resolveHistoryDownloadDir(item: SABnzbdHistory["slots"][number]): string | undefined {
     const completedPath = item.path
-      ?.replaceAll("/incomplete/", "/complete/")
-      .replace(/[/\\]+$/, "");
+      ? stripTrailingPathSeparators(item.path.replaceAll("/incomplete/", "/complete/"))
+      : undefined;
     // `storage` is SABnzbd's final resting place for the completed job
     if (item.storage) {
-      const normalizedStorage = item.storage.replace(/[/\\]+$/, "");
+      const normalizedStorage = stripTrailingPathSeparators(item.storage);
       if (completedPath) {
         const normalizedStoragePosix = normalizedStorage.replaceAll("\\", "/");
         const completedPathPosix = completedPath.replaceAll("\\", "/");

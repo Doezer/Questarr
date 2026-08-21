@@ -516,14 +516,14 @@ export class SABnzbdClient implements DownloaderClient {
 
   private resolveHistoryDownloadDir(item: SABnzbdHistory["slots"][number]): string | undefined {
     const completedPath = item.path
-      ?.replace(/\/incomplete\//g, "/complete/")
-      .replace(/[\\/]+$/, "");
+      ?.replaceAll("/incomplete/", "/complete/")
+      .replace(/[/\\]+$/, "");
     // `storage` is SABnzbd's final resting place for the completed job
     if (item.storage) {
-      const normalizedStorage = item.storage.replace(/[\\/]+$/, "");
+      const normalizedStorage = item.storage.replace(/[/\\]+$/, "");
       if (completedPath) {
-        const normalizedStoragePosix = normalizedStorage.replace(/\\/g, "/");
-        const completedPathPosix = completedPath.replace(/\\/g, "/");
+        const normalizedStoragePosix = normalizedStorage.replaceAll("\\", "/");
+        const completedPathPosix = completedPath.replaceAll("\\", "/");
         if (
           normalizedStoragePosix === completedPathPosix ||
           normalizedStoragePosix.startsWith(`${completedPathPosix}/`)

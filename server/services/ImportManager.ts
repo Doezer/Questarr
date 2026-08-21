@@ -458,8 +458,8 @@ export class ImportManager {
     const details = await DownloaderManager.getDownloadDetails(downloader, download.downloadHash);
     if (!details?.downloadDir) return undefined;
 
-    const normalizedDir = details.downloadDir.replace(/[\\/]+$/, "");
-    const normalizedRelativePath = resolveDownloadRelativePath(details).replace(/^[\\/]+/, "");
+    const normalizedDir = details.downloadDir.replace(/[/\\]+$/, "");
+    const normalizedRelativePath = resolveDownloadRelativePath(details).replace(/^[/\\]+/, "");
     const relativeBaseName = path.basename(normalizedRelativePath).toLowerCase();
     const lastSegment = normalizedDir.split(/[\\/]/).pop()?.toLowerCase();
     const remotePath =

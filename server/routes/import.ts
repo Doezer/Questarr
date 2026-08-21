@@ -10,6 +10,7 @@ import {
   updatePathMappingSchema,
   importTransferModeSchema,
   IMPORT_TRANSFER_MODES,
+  GAME_LINK_REQUIRED_STATUS,
 } from "../../shared/schema.js";
 import path from "node:path";
 import fs from "fs-extra";
@@ -419,10 +420,16 @@ importRouter.get("/hardlink/check", async (req, res) => {
 importRouter.get("/pending", async (req, res) => {
   try {
     const userId = res.locals.userId as string;
-    const pending = await storage.getPendingImportReviews(userId);
+    const [pathReviews, gameLinkReviews] = await Promise.all([
+      storage.getPendingImportReviews(userId),
+      // Not scoped by userId — a download whose game record is missing has no
+      // game row left to determine ownership from. Fine for Questarr's
+      // single-user model.
+      storage.getUnlinkedImportReviews(),
+    ]);
 
-    const results = await Promise.all(
-      pending.map(async (d) => {
+    const pathResults = await Promise.all(
+      pathReviews.map(async (d) => {
         const game = await storage.getGame(d.gameId);
         return {
           id: d.id,
@@ -436,7 +443,17 @@ importRouter.get("/pending", async (req, res) => {
       })
     );
 
-    res.json(results);
+    const gameLinkResults = gameLinkReviews.map((d) => ({
+      id: d.id,
+      gameTitle: d.downloadTitle,
+      downloadTitle: d.downloadTitle,
+      status: d.status,
+      downloaderId: d.downloaderId,
+      createdAt: d.addedAt,
+      errorMessage: d.errorMessage,
+    }));
+
+    res.json([...gameLinkResults, ...pathResults]);
   } catch (error) {
     logger.error({ error }, "Error fetching pending imports");
     res.status(500).json({ error: "Internal server error" });
@@ -448,13 +465,77 @@ importRouter.delete("/:id", async (req, res) => {
   try {
     const userId = res.locals.userId as string;
     const download = await storage.getGameDownload(id, userId);
+    if (download) {
+      await storage.updateGameDownloadStatus(id, "completed");
+      return res.json({ success: true });
+    }
+
+    // getGameDownload(id, userId) scopes ownership by joining through the
+    // download's game — but a game_link_required download has no game row
+    // to join against (that's the whole point of the status), so it can
+    // never be found that way. Fall back to an unscoped lookup, but only
+    // accept it if the record is actually game_link_required, so this can't
+    // be used to bypass ownership scoping for any other download.
+    const unscoped = await storage.getGameDownload(id);
+    if (unscoped?.status !== GAME_LINK_REQUIRED_STATUS) {
+      return res.status(404).json({ error: "Download not found" });
+    }
+
+    // Transition atomically (conditional on still being game_link_required)
+    // rather than check-then-set: a concurrent POST /:id/link could relink
+    // this same download in the gap between the check above and a plain
+    // update, and an unconditional "completed" write here would silently
+    // clobber that relink instead of just dismissing an unlinked download.
+    const skipped = await storage.completeUnlinkedGameDownload(id);
+    if (!skipped) {
+      return res
+        .status(409)
+        .json({ error: "Download was linked to a game before it could be skipped" });
+    }
+    return res.json({ success: true });
+  } catch (error) {
+    logger.error({ error }, "Error skipping import");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Links a "game_link_required" download to the given game, then drops it back
+// into the normal manual_review_required path-review flow (GET /:id/plan,
+// POST /:id/confirm) so the rest of the import pipeline is reused unchanged.
+importRouter.post("/:id/link", async (req, res) => {
+  const { id } = req.params;
+  try {
+    const schema = z.object({ gameId: z.string().min(1) });
+    const { gameId } = schema.parse(req.body);
+
+    const download = await storage.getGameDownload(id);
     if (!download) {
       return res.status(404).json({ error: "Download not found" });
     }
-    await storage.updateGameDownloadStatus(id, "completed");
-    res.json({ success: true });
+    if (download.status !== GAME_LINK_REQUIRED_STATUS) {
+      return res.status(400).json({ error: "This download does not need to be linked to a game" });
+    }
+
+    const game = await storage.getGame(gameId);
+    if (!game) {
+      return res.status(404).json({ error: "Game not found" });
+    }
+
+    const updated = await storage.relinkGameDownload(id, gameId);
+    if (!updated) {
+      // Passed the game_link_required check above but the conditional update
+      // still matched nothing — another request already relinked (or otherwise
+      // moved on) this download between the check and the write.
+      return res
+        .status(409)
+        .json({ error: "This download was already linked to a game by another request" });
+    }
+    res.json({ success: true, download: updated });
   } catch (error) {
-    logger.error({ error }, "Error skipping import");
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: zodErrorMessage(error) });
+    }
+    logger.error({ error }, "Error linking download to game");
     res.status(500).json({ error: "Internal server error" });
   }
 });

@@ -179,15 +179,14 @@ describe("Security Headers", () => {
 
   it("should still set X-Robots-Tag on a rate-limited (429) response", async () => {
     const app = await createApp();
-    let response;
     // generalApiLimiter allows 100 requests/minute per IP before returning 429.
-    for (let i = 0; i < 101; i++) {
+    let response = await request(app).get("/api/auth/status");
+    for (let attempts = 1; response.status !== 429 && attempts < 101; attempts++) {
       response = await request(app).get("/api/auth/status");
-      if (response.status === 429) break;
     }
 
-    expect(response?.status).toBe(429);
-    expect(response?.headers["x-robots-tag"]).toBe("noindex, nofollow");
+    expect(response.status).toBe(429);
+    expect(response.headers["x-robots-tag"]).toBe("noindex, nofollow");
   });
 });
 

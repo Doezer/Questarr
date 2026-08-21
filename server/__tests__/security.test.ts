@@ -174,8 +174,7 @@ describe("Security Headers", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers["content-type"]).toContain("text/plain");
-    expect(response.text).toContain("User-agent: *");
-    expect(response.text).toContain("Disallow: /");
+    expect(response.text).toBe("User-agent: *\nDisallow: /\n");
   });
 
   it("should still set X-Robots-Tag on a rate-limited (429) response", async () => {

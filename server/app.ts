@@ -9,22 +9,11 @@ export function createApp() {
   const app = express();
   app.disable("x-powered-by");
 
-  if (config.server.isProduction) {
-    app.set("trust proxy", 1);
-  }
-
-  app.use(
-    cors({
-      origin: config.server.allowedOrigins,
-      credentials: true,
-    })
-  );
-  app.use(express.json({ limit: "5mb" }));
-  app.use(express.urlencoded({ extended: false }));
-
-  // Registered before the rate limiter so these headers/routes are still
-  // applied on a 429: express-rate-limit responds directly and never calls
-  // next() once the limit is hit, which would otherwise skip anything after it.
+  // Registered first, before CORS, body-parsing, and the rate limiter, so
+  // these headers/routes still apply on every response those can produce on
+  // their own -- a CORS rejection, a body-parser error, or a 429 from
+  // generalApiLimiter (express-rate-limit responds directly and never calls
+  // next() once its limit is hit, skipping anything registered after it).
   app.use((_req, res, next) => {
     res.setHeader("Origin-Agent-Cluster", "?1");
     // Questarr instances are personal/self-hosted and should never be indexed
@@ -38,6 +27,19 @@ export function createApp() {
   app.get("/robots.txt", (_req, res) => {
     res.type("text/plain").send("User-agent: *\nDisallow: /\n");
   });
+
+  if (config.server.isProduction) {
+    app.set("trust proxy", 1);
+  }
+
+  app.use(
+    cors({
+      origin: config.server.allowedOrigins,
+      credentials: true,
+    })
+  );
+  app.use(express.json({ limit: "5mb" }));
+  app.use(express.urlencoded({ extended: false }));
 
   app.use("/api", generalApiLimiter);
 

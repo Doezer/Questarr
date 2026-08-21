@@ -120,6 +120,27 @@ describe("Game file routes", () => {
       expect(response.body).toEqual({ files: [] });
     });
 
+    it("returns 500 when an unexpected filesystem error occurs (e.g. permission denied)", async () => {
+      const libraryRoot = path.join(tempRoot, "library");
+      const gameDir = path.join(libraryRoot, "PC", "Test Game");
+      await fs.mkdir(gameDir, { recursive: true });
+
+      vi.mocked(storage.getGame).mockResolvedValue(
+        makeGame({ libraryPath: gameDir }) as unknown as Awaited<ReturnType<typeof storage.getGame>>
+      );
+      vi.mocked(storage.getImportConfig).mockResolvedValue({
+        libraryRoot,
+      } as unknown as ImportConfig);
+
+      const eacces = Object.assign(new Error("permission denied"), { code: "EACCES" });
+      const readdirSpy = vi.spyOn(fs, "readdir").mockRejectedValue(eacces);
+
+      const response = await request(app).get(`/api/games/${gameId}/files`);
+
+      expect(response.status).toBe(500);
+      readdirSpy.mockRestore();
+    });
+
     it("recursively lists files, inheriting category from dlc/extra/packs parent folders", async () => {
       const libraryRoot = path.join(tempRoot, "library");
       const gameDir = path.join(libraryRoot, "PC", "Test Game");

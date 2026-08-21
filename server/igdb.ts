@@ -6,7 +6,7 @@ import { db } from "./db.js";
 import { userSettings } from "../shared/schema.js";
 import { logger } from "./logger.js";
 import { safeFetch } from "./ssrf.js";
-import type { DownloadCategory } from "../shared/download-categorizer.js";
+import type { DownloadCategory } from "@shared/download-categorizer";
 
 // Configuration constants for search limits
 const MAX_SEARCH_ATTEMPTS = 5;

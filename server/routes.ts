@@ -1771,16 +1771,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
     gameIdParamValidation,
     validateRequest,
     async (req: Request, res: Response) => {
+      // A missing path, a path that isn't a directory, or a symlink cycle are expected
+      // conditions for a stale/misconfigured library path — treat them as "nothing here".
+      // Anything else (EACCES, EPERM, other I/O failures) is a real failure and should
+      // surface as a 500 rather than silently reporting an empty or partial scan.
+      const isExpectedFsError = (error: unknown): boolean =>
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        ["ENOENT", "ENOTDIR", "ELOOP"].includes((error as NodeJS.ErrnoException).code ?? "");
+      const realpathOrNull = async (target: string): Promise<string | null> => {
+        try {
+          return await fs.promises.realpath(target);
+        } catch (error) {
+          if (isExpectedFsError(error)) return null;
+          throw error;
+        }
+      };
       try {
         const game = await resolveOwnedGame(req.params.gameId, req.user!.id, res);
         if (!game) return;
         if (!game.libraryPath) return res.json({ files: [] });
 
         const importConfig = await storage.getImportConfig(req.user!.id);
-        const libraryRoot = await fs.promises.realpath(importConfig.libraryRoot).catch(() => null);
-        const scanRoot = await fs.promises.realpath(game.libraryPath).catch(() => null);
+        const libraryRoot = await realpathOrNull(importConfig.libraryRoot);
+        const scanRoot = await realpathOrNull(game.libraryPath);
         const isContained = (candidate: string, root: string) =>
-          candidate === root || candidate.startsWith(root + path.sep);
+          candidate === root ||
+          candidate.startsWith(root.endsWith(path.sep) ? root : root + path.sep);
         if (!libraryRoot || !scanRoot || !isContained(scanRoot, libraryRoot)) {
           return res.json({ files: [] });
         }
@@ -1794,11 +1812,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           category === "packs" ? "extra" : category;
         const files: Array<{ name: string; path: string; category: string; size: number }> = [];
         const walk = async (dir: string, inheritedCategory?: string): Promise<void> => {
-          const canonicalDir = await fs.promises.realpath(dir).catch(() => null);
+          const canonicalDir = await realpathOrNull(dir);
           if (!canonicalDir || !isContained(canonicalDir, libraryRoot)) return;
-          const entries = await fs.promises
-            .readdir(canonicalDir, { withFileTypes: true })
-            .catch(() => [] as fs.Dirent[]);
+          let entries: fs.Dirent[];
+          try {
+            entries = await fs.promises.readdir(canonicalDir, { withFileTypes: true });
+          } catch (error) {
+            if (isExpectedFsError(error)) return;
+            throw error;
+          }
           for (const entry of entries) {
             const fullPath = path.join(canonicalDir, entry.name);
             if (entry.isDirectory()) {
@@ -1809,10 +1831,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
               continue;
             }
             if (!entry.isFile()) continue;
-            const canonicalFile = await fs.promises.realpath(fullPath).catch(() => null);
+            const canonicalFile = await realpathOrNull(fullPath);
             if (!canonicalFile || !isContained(canonicalFile, libraryRoot)) continue;
-            const stat = await fs.promises.stat(canonicalFile).catch(() => null);
-            if (!stat) continue;
+            let stat: Awaited<ReturnType<typeof fs.promises.stat>>;
+            try {
+              stat = await fs.promises.stat(canonicalFile);
+            } catch (error) {
+              if (isExpectedFsError(error)) continue;
+              throw error;
+            }
             const category = normalizeCategory(
               inheritedCategory ?? categorizeDownload(path.parse(entry.name).name).category
             );

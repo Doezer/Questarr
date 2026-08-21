@@ -519,6 +519,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     );
     next();
   });
+  // Explicit robots.txt so well-behaved crawlers stay out even before
+  // fetching any other page (belt-and-suspenders alongside the X-Robots-Tag
+  // header set in app.ts). Registered here, after helmet(), so it still gets
+  // the same security headers as every other response.
+  app.get("/robots.txt", (_req, res) => {
+    res.type("text/plain").send("User-agent: *\nDisallow: /\n");
+  });
+
   // Use Steam Routes
   app.use(steamRoutes);
   // Use PCGamingWiki Routes

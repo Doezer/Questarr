@@ -1786,6 +1786,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
 
         const categoryDirs = new Set(["dlc", "update", "extra", "packs"]);
+        // "packs" is recognized as a category-inheriting folder name, but game_files only
+        // persists the four categories the UI groups by ("main" | "dlc" | "update" | "extra").
+        // Normalize it (and the same category from filename-based categorizeDownload
+        // matches) to "extra" so scan results are always postable via POST /api/game-files.
+        const normalizeCategory = (category: string): string =>
+          category === "packs" ? "extra" : category;
         const files: Array<{ name: string; path: string; category: string; size: number }> = [];
         const walk = async (dir: string, inheritedCategory?: string): Promise<void> => {
           const canonicalDir = await fs.promises.realpath(dir).catch(() => null);
@@ -1807,8 +1813,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
             if (!canonicalFile || !isContained(canonicalFile, libraryRoot)) continue;
             const stat = await fs.promises.stat(canonicalFile).catch(() => null);
             if (!stat) continue;
-            const category =
-              inheritedCategory ?? categorizeDownload(path.parse(entry.name).name).category;
+            const category = normalizeCategory(
+              inheritedCategory ?? categorizeDownload(path.parse(entry.name).name).category
+            );
             files.push({ name: entry.name, path: canonicalFile, category, size: stat.size });
           }
         };

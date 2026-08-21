@@ -197,7 +197,7 @@ describe("NewznabClient", () => {
 
       const categories = await newznabClient.getCategories(rootIndexer);
 
-      expect(categories.length).toBe(5);
+      expect(categories).toHaveLength(5);
       expect(safeFetch).toHaveBeenCalledTimes(2);
     });
   });

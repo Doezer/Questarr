@@ -105,6 +105,13 @@ const normalizeInitialReleaseStatus = <
 // Root directory for the file system browser; restrict browsing to this tree
 const FILE_BROWSER_ROOT = fs.realpathSync(process.cwd());
 
+type IgdbConfigSource = "env" | "database" | undefined;
+
+interface IgdbConfigStatus {
+  configured: boolean;
+  source: IgdbConfigSource;
+}
+
 /**
  * Whether IGDB credentials are configured (DB takes precedence over env vars),
  * and which source they came from. Shared between the authenticated
@@ -112,10 +119,7 @@ const FILE_BROWSER_ROOT = fs.realpathSync(process.cwd());
  * endpoint (which needs just this boolean to drive the setup wizard, without
  * exposing anything else config-related pre-login).
  */
-async function getIgdbConfigStatus(): Promise<{
-  configured: boolean;
-  source: "env" | "database" | undefined;
-}> {
+async function getIgdbConfigStatus(): Promise<IgdbConfigStatus> {
   const dbClientId = await storage.getSystemConfig("igdb.clientId");
   const dbClientSecret = await storage.getSystemConfig("igdb.clientSecret");
 

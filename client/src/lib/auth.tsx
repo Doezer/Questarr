@@ -55,8 +55,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Lazy initializer runs during render, before any child effect (including
   // React Query's own fetch-triggering effects) can fire -- see
-  // migrateLegacyLocalStorageToken's doc comment for why that ordering matters.
-  useState(migrateLegacyLocalStorageToken);
+  // migrateLegacyLocalStorageToken's doc comment for why that ordering
+  // matters. Neither the value nor the setter is needed -- only the
+  // one-time initializer call -- so both are destructured out and unused.
+  const [_migrationRan, _setMigrationRan] = useState(migrateLegacyLocalStorageToken);
 
   const {
     isLoading: isCheckingSetup,

@@ -597,7 +597,7 @@ export class TorznabClient {
     cats.forEach((cat: unknown) => {
       if (!this.isRecord(cat)) return;
       const id = cat["@_id"];
-      const name = cat["@_name"] || cat["#text"] || `Category ${id}`;
+      const name = cat["@_name"] || cat["#text"] || `Category ${String(id)}`;
       if (id) {
         categories.push({ id: String(id), name: String(name) });
       }
@@ -612,11 +612,11 @@ export class TorznabClient {
         subcats.forEach((subcat: unknown) => {
           if (!this.isRecord(subcat)) return;
           const subId = subcat["@_id"];
-          const subName = subcat["@_name"] || subcat["#text"] || `Category ${subId}`;
+          const subName = subcat["@_name"] || subcat["#text"] || `Category ${String(subId)}`;
           if (subId) {
             categories.push({
               id: String(subId),
-              name: name ? `${name} > ${subName}` : String(subName),
+              name: name ? `${String(name)} > ${String(subName)}` : String(subName),
             });
           }
         });

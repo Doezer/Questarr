@@ -43,6 +43,21 @@ interface TorznabServerInfo {
   version?: string;
 }
 
+// Overall time budget for getCategories' caps-discovery loop, shared across
+// every URL candidate it tries rather than reset per candidate.
+const CAPS_DISCOVERY_TIMEOUT_MS = 30000;
+
+// Conservative built-in fallback used when caps discovery can't reach an
+// indexer at all (see getCategories below): the standard Newznab/Torznab
+// category scheme's Console and PC/Games parents, so search category
+// filtering still has something sane to offer instead of leaving the
+// indexer with none.
+const DEFAULT_GAME_CATEGORIES: { id: string; name: string }[] = [
+  { id: "1000", name: "Console" },
+  { id: "4000", name: "PC" },
+  { id: "4050", name: "PC > Games" },
+];
+
 export class TorznabClient {
   private parser: XMLParser;
 
@@ -539,54 +554,150 @@ export class TorznabClient {
   }
 
   /**
-   * Get available categories from an indexer
+   * Build a list of reasonable candidate caps URLs to try in order. Indexers
+   * vary in whether their stored base URL already includes the /api path
+   * segment, so try both the normalized (buildApiUrl) form and the raw
+   * stored URL as-is before giving up.
+   */
+  private buildCapsUrlCandidates(indexer: Indexer): URL[] {
+    const candidates: URL[] = [];
+    const seen = new Set<string>();
+
+    const add = (url: URL) => {
+      url.searchParams.set("t", "caps");
+      url.searchParams.set("apikey", indexer.apiKey);
+      const key = url.toString();
+      if (!seen.has(key)) {
+        candidates.push(url);
+        seen.add(key);
+      }
+    };
+
+    try {
+      add(this.buildApiUrl(indexer.url));
+    } catch {
+      /* invalid URL -- skip this candidate */
+    }
+    try {
+      add(new URL(indexer.url));
+    } catch {
+      /* invalid URL -- skip this candidate */
+    }
+
+    return candidates;
+  }
+
+  private parseCapsCategories(xmlData: string): { id: string; name: string }[] {
+    const parsed: unknown = this.parser.parse(xmlData);
+    const categories: { id: string; name: string }[] = [];
+
+    const categoryNode = this.getCapsCategoryNode(parsed);
+    if (!categoryNode) {
+      return categories;
+    }
+
+    const cats = Array.isArray(categoryNode) ? categoryNode : [categoryNode];
+
+    cats.forEach((cat: unknown) => {
+      if (!this.isRecord(cat)) return;
+      const id = cat["@_id"];
+      const name = cat["@_name"] || cat["#text"] || `Category ${String(id)}`;
+      if (id) {
+        categories.push({ id: String(id), name: String(name) });
+      }
+
+      // Torznab caps commonly nest subcategories under a parent category
+      // (e.g. parent "PC" containing subcat "PC/Games" id 4050) -- descend
+      // into them too, since these are the specific, useful IDs indexers
+      // actually expect in search requests.
+      const subcatNode = cat["subcat"];
+      if (subcatNode !== undefined) {
+        const subcats = Array.isArray(subcatNode) ? subcatNode : [subcatNode];
+        subcats.forEach((subcat: unknown) => {
+          if (!this.isRecord(subcat)) return;
+          const subId = subcat["@_id"];
+          const subName = subcat["@_name"] || subcat["#text"] || `Category ${String(subId)}`;
+          if (subId) {
+            categories.push({
+              id: String(subId),
+              name: name ? `${String(name)} > ${String(subName)}` : String(subName),
+            });
+          }
+        });
+      }
+    });
+
+    return categories;
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null;
+  }
+
+  private getCapsCategoryNode(parsed: unknown): unknown {
+    if (!this.isRecord(parsed)) return undefined;
+    const caps = parsed["caps"];
+    if (!this.isRecord(caps)) return undefined;
+    const categories = caps["categories"];
+    if (!this.isRecord(categories)) return undefined;
+    return categories["category"];
+  }
+
+  /**
+   * Get available categories from an indexer. Tries a couple of reasonable
+   * caps URL variants before giving up, and falls back to a conservative
+   * default game-category list rather than hard-failing the whole indexer
+   * when caps discovery can't be reached at all.
    */
   async getCategories(indexer: Indexer): Promise<{ id: string; name: string }[]> {
     if (!indexer.enabled) {
       throw new Error(`Indexer ${indexer.name} is disabled`);
     }
 
-    const url = new URL(indexer.url);
-    url.searchParams.set("t", "caps");
-    url.searchParams.set("apikey", indexer.apiKey);
+    // One overall deadline shared across every caps URL candidate, not a
+    // fresh timeout per candidate -- otherwise two unreachable candidates
+    // (buildCapsUrlCandidates can return up to two) each hang for the full
+    // per-request timeout before falling back, roughly doubling worst-case
+    // caps-discovery latency.
+    const deadline = Date.now() + CAPS_DISCOVERY_TIMEOUT_MS;
 
-    try {
-      const response = await safeFetch(url.toString(), {
-        headers: { "User-Agent": "Questarr/1.0" },
-        signal: AbortSignal.timeout(30000),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => "No error details available");
-        throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
+    let lastError: unknown;
+    for (const url of this.buildCapsUrlCandidates(indexer)) {
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) {
+        lastError ??= new Error("Caps discovery deadline exceeded");
+        break;
       }
-
-      const xmlData = await response.text();
-      const parsed = this.parser.parse(xmlData);
-
-      const categories: { id: string; name: string }[] = [];
-
-      if (parsed.caps?.categories?.category) {
-        const cats = Array.isArray(parsed.caps.categories.category)
-          ? parsed.caps.categories.category
-          : [parsed.caps.categories.category];
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        cats.forEach((cat: any) => {
-          const id = cat["@_id"];
-          const name = cat["@_name"] || cat["#text"] || `Category ${id}`;
-          if (id) {
-            categories.push({ id, name });
-          }
+      try {
+        const response = await safeFetch(url.toString(), {
+          headers: { "User-Agent": "Questarr/1.0" },
+          signal: AbortSignal.timeout(remainingMs),
         });
-      }
 
-      return categories;
-    } catch (error) {
-      torznabLogger.error({ indexerName: indexer.name, error }, `error getting categories`);
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      throw new Error(`Failed to get categories: ${errorMessage}`);
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => "No error details available");
+          lastError = new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
+          continue;
+        }
+
+        const xmlData = await response.text();
+        const categories = this.parseCapsCategories(xmlData);
+        if (categories.length > 0) {
+          return categories;
+        }
+        // Parsed successfully but no categories were listed -- not worth
+        // retrying other URL variants for, but also not a hard failure.
+        lastError = new Error("Caps response contained no categories");
+      } catch (error) {
+        lastError = error;
+      }
     }
+
+    torznabLogger.warn(
+      { indexerName: indexer.name, error: lastError },
+      "torznab caps discovery failed for all URL variants; falling back to default game categories"
+    );
+    return DEFAULT_GAME_CATEGORIES;
   }
 }
 

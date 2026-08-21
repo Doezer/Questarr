@@ -483,9 +483,6 @@ export default function SettingsPage() {
       const res = await apiFetch("/api/settings/ssl/upload", {
         method: "POST",
         body: formData,
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem("token")}`,
-        },
       });
 
       if (!res.ok) {

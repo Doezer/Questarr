@@ -362,14 +362,38 @@ describe("TorznabClient — getCategories", () => {
     ]);
   });
 
-  it("returns an empty array when there are no categories", async () => {
+  it("descends into nested <subcat> entries and includes their IDs alongside the parent", async () => {
+    mockFetchResponse(
+      `<?xml version="1.0"?><caps><categories>` +
+        `<category id="4000" name="PC">` +
+        `<subcat id="4050" name="Games"/>` +
+        `<subcat id="4060" name="Mods"/>` +
+        `</category>` +
+        `<category id="2000" name="Movies"/>` +
+        `</categories></caps>`
+    );
+
+    const categories = await client.getCategories(makeIndexer());
+    expect(categories).toEqual([
+      { id: "4000", name: "PC" },
+      { id: "4050", name: "PC > Games" },
+      { id: "4060", name: "PC > Mods" },
+      { id: "2000", name: "Movies" },
+    ]);
+  });
+
+  it("falls back to the default game categories when every caps URL variant has none", async () => {
     mockFetchResponse(`<?xml version="1.0"?><caps></caps>`);
 
     const categories = await client.getCategories(makeIndexer());
-    expect(categories).toEqual([]);
+    expect(categories).toEqual([
+      { id: "1000", name: "Console" },
+      { id: "4000", name: "PC" },
+      { id: "4050", name: "PC > Games" },
+    ]);
   });
 
-  it("throws a descriptive error when the response is not ok", async () => {
+  it("falls back to the default game categories instead of throwing when every caps URL variant is non-ok", async () => {
     mockSafeFetch.mockResolvedValue({
       ok: false,
       status: 500,
@@ -377,6 +401,29 @@ describe("TorznabClient — getCategories", () => {
       text: async () => "boom",
     } as Response);
 
-    await expect(client.getCategories(makeIndexer())).rejects.toThrow("Failed to get categories");
+    const categories = await client.getCategories(makeIndexer());
+    expect(categories.length).toBeGreaterThan(0);
+    expect(categories).toEqual([
+      { id: "1000", name: "Console" },
+      { id: "4000", name: "PC" },
+      { id: "4050", name: "PC > Games" },
+    ]);
+  });
+
+  it("tries a second caps URL variant and uses it when the first variant fails outright", async () => {
+    // First candidate (the buildApiUrl-normalized form) fails at the network
+    // level; the second candidate (the raw stored URL) succeeds with real
+    // categories -- the client should use those instead of falling back.
+    mockSafeFetch.mockRejectedValueOnce(new Error("ECONNREFUSED")).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      text: async () =>
+        `<?xml version="1.0"?><caps><categories><category id="2000" name="Movies"/></categories></caps>`,
+    } as Response);
+
+    const categories = await client.getCategories(makeIndexer());
+    expect(categories).toEqual([{ id: "2000", name: "Movies" }]);
+    expect(mockSafeFetch).toHaveBeenCalledTimes(2);
   });
 });

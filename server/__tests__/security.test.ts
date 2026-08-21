@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import express from "express";
+import jwt from "jsonwebtoken";
 import { createApp as createServerApp } from "../app.js";
 
 // Use vi.hoisted to create the mock object before hoisting occurs
@@ -50,6 +51,7 @@ vi.mock("../storage.js", () => ({
   storage: {
     countUsers: vi.fn().mockResolvedValue(0),
     getSystemConfig: vi.fn().mockResolvedValue(null),
+    getUser: vi.fn().mockResolvedValue({ id: "user-1", username: "testuser" }),
   },
 }));
 
@@ -180,19 +182,33 @@ describe("Credential Exposure Prevention", () => {
     return app;
   };
 
-  it("should not expose IGDB clientId in the unauthenticated /api/config response", async () => {
+  const authToken = () =>
+    jwt.sign({ id: "user-1", username: "testuser" }, mockConfig.auth.jwtSecret);
+
+  it("requires authentication for GET /api/config (no unauthenticated access at all)", async () => {
     const app = await createApp();
     const response = await request(app).get("/api/config");
+
+    expect(response.status).toBe(401);
+  });
+
+  it("should not expose IGDB clientId in the authenticated /api/config response", async () => {
+    const app = await createApp();
+    const response = await request(app)
+      .get("/api/config")
+      .set("Authorization", `Bearer ${authToken()}`);
 
     expect(response.status).toBe(200);
     expect(response.body).not.toHaveProperty("igdb.clientId");
-    // The public endpoint should only return whether IGDB is configured
+    // Even authenticated, the endpoint should only return whether IGDB is configured
     expect(response.body.igdb).toHaveProperty("configured");
   });
 
-  it("should not expose IGDB clientSecret in the unauthenticated /api/config response", async () => {
+  it("should not expose IGDB clientSecret in the authenticated /api/config response", async () => {
     const app = await createApp();
-    const response = await request(app).get("/api/config");
+    const response = await request(app)
+      .get("/api/config")
+      .set("Authorization", `Bearer ${authToken()}`);
 
     expect(response.status).toBe(200);
     expect(response.body).not.toHaveProperty("igdb.clientSecret");

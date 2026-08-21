@@ -165,11 +165,7 @@ export default function DownloadersPage() {
 
   const addMutation = useMutation({
     mutationFn: async (data: InsertDownloader) => {
-      const token = localStorage.getItem("token");
       const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
       const response = await apiFetch("/api/downloaders", {
         method: "POST",
         headers,
@@ -191,11 +187,7 @@ export default function DownloadersPage() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: Partial<InsertDownloader> }) => {
-      const token = localStorage.getItem("token");
       const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
       const response = await apiFetch(`/api/downloaders/${id}`, {
         method: "PATCH",
         headers,
@@ -217,14 +209,8 @@ export default function DownloadersPage() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const token = localStorage.getItem("token");
-      const headers: Record<string, string> = {};
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
       const response = await apiFetch(`/api/downloaders/${id}`, {
         method: "DELETE",
-        headers,
       });
       if (!response.ok) throw new Error("Failed to delete downloader");
     },
@@ -239,11 +225,7 @@ export default function DownloadersPage() {
 
   const toggleEnabledMutation = useMutation({
     mutationFn: async ({ id, enabled }: { id: string; enabled: boolean }) => {
-      const token = localStorage.getItem("token");
       const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
       const response = await apiFetch(`/api/downloaders/${id}`, {
         method: "PATCH",
         headers,
@@ -259,11 +241,7 @@ export default function DownloadersPage() {
 
   const updatePriorityMutation = useMutation({
     mutationFn: async ({ id, priority }: { id: string; priority: number }) => {
-      const token = localStorage.getItem("token");
       const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
       const response = await apiFetch(`/api/downloaders/${id}`, {
         method: "PATCH",
         headers,
@@ -279,11 +257,7 @@ export default function DownloadersPage() {
 
   const testConnectionMutation = useMutation({
     mutationFn: async (data: { id?: string; formData?: InsertDownloader }) => {
-      const token = localStorage.getItem("token");
       const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
       if (data.id) {
         // Test existing downloader by ID
         const response = await apiFetch(`/api/downloaders/${data.id}/test`, {
@@ -352,6 +326,7 @@ export default function DownloadersPage() {
       removeCompleted: false,
       postImportCategory: "",
       settings: "",
+      allowSelfSignedCertificate: false,
     },
   });
 
@@ -382,6 +357,7 @@ export default function DownloadersPage() {
       removeCompleted: downloader.removeCompleted ?? false,
       postImportCategory: downloader.postImportCategory ?? "",
       settings: downloader.settings ?? "",
+      allowSelfSignedCertificate: downloader.allowSelfSignedCertificate ?? false,
     });
     setIsDialogOpen(true);
   };
@@ -405,6 +381,7 @@ export default function DownloadersPage() {
       removeCompleted: false,
       postImportCategory: "",
       settings: "",
+      allowSelfSignedCertificate: false,
     });
     setIsDialogOpen(true);
   };
@@ -764,6 +741,29 @@ export default function DownloadersPage() {
                               }
                             }}
                             data-testid="checkbox-downloader-usessl"
+                          />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="allowSelfSignedCertificate"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-2">
+                        <div className="space-y-0">
+                          <FormLabel className="text-sm">Allow self-signed certificate</FormLabel>
+                          <FormDescription className="text-xs">
+                            Skips TLS certificate validation for this downloader over HTTPS. Only
+                            enable this if you trust the network path and understand it allows
+                            man-in-the-middle interception.
+                          </FormDescription>
+                        </div>
+                        <FormControl>
+                          <Checkbox
+                            checked={!!field.value}
+                            onCheckedChange={(checked) => field.onChange(!!checked)}
+                            data-testid="checkbox-downloader-allow-self-signed-certificate"
                           />
                         </FormControl>
                       </FormItem>

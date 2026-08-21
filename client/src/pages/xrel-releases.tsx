@@ -17,6 +17,7 @@ interface XrelRelease {
   sizeUnit?: string;
   ext_info?: { title: string; link_href: string };
   source: "scene" | "p2p";
+  nukeReason?: string;
   isWanted?: boolean;
   libraryStatus?: string;
   gameId?: string;
@@ -67,9 +68,7 @@ export default function XrelReleasesPage() {
     queryKey: ["/api/xrel/latest", page],
     queryFn: async () => {
       const params = new URLSearchParams({ page: String(page) });
-      const res = await apiFetch(`/api/xrel/latest?${params}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-      });
+      const res = await apiFetch(`/api/xrel/latest?${params}`);
       if (!res.ok) throw new Error("Failed to fetch xREL latest");
       return res.json();
     },
@@ -86,10 +85,7 @@ export default function XrelReleasesPage() {
     mutationFn: async (title: string) => {
       const res = await apiFetch("/api/games/match-and-add", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("token")}`,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title }),
       });
       if (!res.ok) {
@@ -222,6 +218,22 @@ export default function XrelReleasesPage() {
                       <Badge variant="outline" className="text-[10px] h-4 px-1.5">
                         {rel.group_name || "—"}
                       </Badge>
+                      {rel.nukeReason && (
+                        <>
+                          <Badge
+                            variant="destructive"
+                            className="text-[10px] h-4 px-1.5"
+                            title={`Nuked: ${rel.nukeReason}`}
+                          >
+                            Nuked
+                          </Badge>
+                          {/* Also shown as visible text, not just the hover title above --
+                              touch/mobile users can't reliably reach a native tooltip. */}
+                          <span className="text-xs text-destructive break-all">
+                            {rel.nukeReason}
+                          </span>
+                        </>
+                      )}
                       {rel.libraryStatus ? (
                         <Badge
                           variant={rel.libraryStatus === "wanted" ? "default" : "secondary"}

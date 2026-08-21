@@ -849,7 +849,7 @@ export class MemStorage implements IStorage {
     // concurrent relink requests for the same download can't race: only the
     // first to observe this status wins, the second sees it already moved on
     // and returns undefined instead of silently overwriting the first pick.
-    if (!gd || gd.status !== GAME_LINK_REQUIRED_STATUS) return undefined;
+    if (gd?.status !== GAME_LINK_REQUIRED_STATUS) return undefined;
     const updated: GameDownload = {
       ...gd,
       gameId,

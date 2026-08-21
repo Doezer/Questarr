@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useDebounce } from "@/hooks/use-debounce";
@@ -67,6 +67,51 @@ export default function LinkGameModal({
     },
   });
 
+  let resultsContent: ReactNode;
+  if (isFetching && games.length === 0) {
+    resultsContent = (
+      <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
+        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+        Searching…
+      </div>
+    );
+  } else if (games.length === 0) {
+    resultsContent = (
+      <div className="flex items-center justify-center h-full text-sm text-muted-foreground px-4 text-center">
+        No games found. Try a different search, or add the game to your library first.
+      </div>
+    );
+  } else {
+    resultsContent = (
+      <div className="p-1">
+        {games.map((game) => (
+          <button
+            key={game.id}
+            type="button"
+            onClick={() => setSelectedGameId(game.id)}
+            className={cn(
+              "flex items-center gap-3 w-full rounded-sm p-2 text-left hover:bg-accent transition-colors",
+              selectedGameId === game.id && "bg-accent"
+            )}
+          >
+            {game.coverUrl ? (
+              <img
+                src={game.coverUrl}
+                alt=""
+                className="h-10 w-8 rounded-sm object-cover shrink-0"
+              />
+            ) : (
+              <div className="h-10 w-8 rounded-sm bg-muted flex items-center justify-center shrink-0">
+                <Gamepad2 className="h-4 w-4 text-muted-foreground" />
+              </div>
+            )}
+            <span className="text-sm font-medium truncate">{game.title}</span>
+          </button>
+        ))}
+      </div>
+    );
+  }
+
   return (
     <Dialog
       open={open}
@@ -109,45 +154,7 @@ export default function LinkGameModal({
             </div>
           </div>
 
-          <ScrollArea className="h-64 rounded-md border">
-            {isFetching && games.length === 0 ? (
-              <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Searching…
-              </div>
-            ) : games.length === 0 ? (
-              <div className="flex items-center justify-center h-full text-sm text-muted-foreground px-4 text-center">
-                No games found. Try a different search, or add the game to your library first.
-              </div>
-            ) : (
-              <div className="p-1">
-                {games.map((game) => (
-                  <button
-                    key={game.id}
-                    type="button"
-                    onClick={() => setSelectedGameId(game.id)}
-                    className={cn(
-                      "flex items-center gap-3 w-full rounded-sm p-2 text-left hover:bg-accent transition-colors",
-                      selectedGameId === game.id && "bg-accent"
-                    )}
-                  >
-                    {game.coverUrl ? (
-                      <img
-                        src={game.coverUrl}
-                        alt=""
-                        className="h-10 w-8 rounded-sm object-cover shrink-0"
-                      />
-                    ) : (
-                      <div className="h-10 w-8 rounded-sm bg-muted flex items-center justify-center shrink-0">
-                        <Gamepad2 className="h-4 w-4 text-muted-foreground" />
-                      </div>
-                    )}
-                    <span className="text-sm font-medium truncate">{game.title}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </ScrollArea>
+          <ScrollArea className="h-64 rounded-md border">{resultsContent}</ScrollArea>
         </div>
 
         <DialogFooter>

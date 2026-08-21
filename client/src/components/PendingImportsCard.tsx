@@ -111,7 +111,7 @@ export default function PendingImportsCard() {
         </CardContent>
       </Card>
 
-      {selectedImport && selectedImport.status === GAME_LINK_REQUIRED_STATUS && (
+      {selectedImport?.status === GAME_LINK_REQUIRED_STATUS && (
         <LinkGameModal
           open={!!selectedImport}
           onOpenChange={(open) => !open && setSelectedImport(null)}

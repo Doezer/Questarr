@@ -11,7 +11,7 @@ WORKDIR /app
 RUN apk add --no-cache g++ make python3
 
 COPY package*.json ./
-RUN npm ci
+RUN npm ci --ignore-scripts
 
 # Build client and server
 FROM base AS builder

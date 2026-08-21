@@ -464,7 +464,19 @@ importRouter.delete("/:id", async (req, res) => {
   const { id } = req.params;
   try {
     const userId = res.locals.userId as string;
-    const download = await storage.getGameDownload(id, userId);
+    let download = await storage.getGameDownload(id, userId);
+    if (!download) {
+      // getGameDownload(id, userId) scopes ownership by joining through the
+      // download's game — but a game_link_required download has no game row
+      // to join against (that's the whole point of the status), so it can
+      // never be found that way. Fall back to an unscoped lookup, but only
+      // accept it if the record is actually game_link_required, so this
+      // can't be used to bypass ownership scoping for any other download.
+      const unscoped = await storage.getGameDownload(id);
+      if (unscoped?.status === GAME_LINK_REQUIRED_STATUS) {
+        download = unscoped;
+      }
+    }
     if (!download) {
       return res.status(404).json({ error: "Download not found" });
     }

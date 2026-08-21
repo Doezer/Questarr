@@ -391,6 +391,41 @@ describe("DELETE /api/imports/:id", () => {
 
     expect(res.status).toBe(500);
   });
+
+  it("skips a game_link_required download via the unscoped fallback lookup", async () => {
+    // The userId-scoped lookup can never find a game_link_required download
+    // (it has no game row to join ownership through), so it must fall back
+    // to an unscoped lookup that only accepts a game_link_required record.
+    mockStorage.getGameDownload
+      .mockResolvedValueOnce(undefined) // scoped lookup: getGameDownload(id, userId)
+      .mockResolvedValueOnce({
+        id: "dl-unlinked",
+        gameId: "missing-game",
+        status: "game_link_required",
+      }); // unscoped fallback: getGameDownload(id)
+
+    const res = await request(createApp()).delete("/api/imports/dl-unlinked");
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(mockStorage.getGameDownload).toHaveBeenCalledTimes(2);
+    expect(mockStorage.getGameDownload).toHaveBeenNthCalledWith(2, "dl-unlinked");
+    expect(mockStorage.updateGameDownloadStatus).toHaveBeenCalledWith("dl-unlinked", "completed");
+  });
+
+  it("does not use the unscoped fallback for a download that isn't game_link_required", async () => {
+    // A download that's simply outside the caller's ownership (e.g. belongs
+    // to another user, or genuinely doesn't exist) must stay 404 — the
+    // fallback is only a carve-out for the ownerless game_link_required case.
+    mockStorage.getGameDownload
+      .mockResolvedValueOnce(undefined) // scoped lookup fails
+      .mockResolvedValueOnce({ id: "dl-2", gameId: "g2", status: "manual_review_required" }); // exists, but not unlinked
+
+    const res = await request(createApp()).delete("/api/imports/dl-2");
+
+    expect(res.status).toBe(404);
+    expect(mockStorage.updateGameDownloadStatus).not.toHaveBeenCalled();
+  });
 });
 
 // ─── POST /:id/confirm — additional coverage ──────────────────────────────────

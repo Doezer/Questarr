@@ -444,4 +444,82 @@ describe("sabnzbd remaining regression coverage", () => {
     fetchWithFallbackSpy.mockRejectedValueOnce(new Error("space boom"));
     await expect(client.getFreeSpace()).resolves.toBe(0);
   });
+
+  it("derives downloadDir from storage for both folder and single-file history entries", async () => {
+    const client = new SABnzbdClient(createDownloader());
+    const privateClient = client as unknown as {
+      fetchWithFallback(url: string, options?: RequestInit): Promise<Response>;
+    };
+    const fetchWithFallbackSpy = vi.spyOn(privateClient, "fetchWithFallback");
+
+    fetchWithFallbackSpy
+      .mockResolvedValueOnce(
+        queueResponse([
+          {
+            nzo_id: "job-folder",
+            filename: "Aethus.v1.036-ElAmigos",
+            status: "Completed",
+            percentage: "100",
+            mb: "10",
+            mbleft: "0",
+            timeleft: "0:00:00",
+            cat: "games",
+            avg_age: "2",
+          },
+        ])
+      )
+      .mockResolvedValueOnce(
+        historyResponse([
+          {
+            nzo_id: "job-folder",
+            name: "Aethus.v1.036-ElAmigos",
+            status: "Completed",
+            fail_message: "",
+            path: "/downloads/incomplete/Aethus.v1.036-ElAmigos",
+            storage: "/downloads/complete/Aethus.v1.036-ElAmigos",
+            size: "1 GB",
+            bytes: 1024,
+            category: "games",
+          },
+        ])
+      )
+      .mockResolvedValueOnce(
+        queueResponse([
+          {
+            nzo_id: "job-file",
+            filename: "Baldurs.Gate.3.Deluxe.Edition.v6931813.MULTi15-ElAmigos",
+            status: "Completed",
+            percentage: "100",
+            mb: "10",
+            mbleft: "0",
+            timeleft: "0:00:00",
+            cat: "games",
+            avg_age: "2",
+          },
+        ])
+      )
+      .mockResolvedValueOnce(
+        historyResponse([
+          {
+            nzo_id: "job-file",
+            name: "Baldurs.Gate.3.Deluxe.Edition.v6931813.MULTi15-ElAmigos",
+            status: "Completed",
+            fail_message: "",
+            path: "/downloads/incomplete/Baldurs.Gate.3.Deluxe.Edition.v6931813.MULTi15-ElAmigos",
+            storage:
+              "/downloads/complete/Baldurs.Gate.3.Deluxe.Edition.v6931813.MULTi15-ElAmigos/Baldurs Gate 3.iso",
+            size: "1 GB",
+            bytes: 2048,
+            category: "games",
+          },
+        ])
+      );
+
+    await expect(client.getDownloadDetails("job-folder")).resolves.toMatchObject({
+      downloadDir: "/downloads/complete/Aethus.v1.036-ElAmigos",
+    });
+    await expect(client.getDownloadDetails("job-file")).resolves.toMatchObject({
+      downloadDir: "/downloads/complete/Baldurs.Gate.3.Deluxe.Edition.v6931813.MULTi15-ElAmigos",
+    });
+  });
 });

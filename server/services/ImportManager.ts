@@ -458,7 +458,13 @@ export class ImportManager {
     const details = await DownloaderManager.getDownloadDetails(downloader, download.downloadHash);
     if (!details?.downloadDir) return undefined;
 
-    const remotePath = `${details.downloadDir}/${resolveDownloadRelativePath(details)}`;
+    const normalizedDir = details.downloadDir.replace(/[\\/]+$/, "");
+    const normalizedRelativePath = resolveDownloadRelativePath(details).replace(/^[\\/]+/, "");
+    const lastSegment = normalizedDir.split(/[\\/]/).pop()?.toLowerCase();
+    const remotePath =
+      lastSegment && lastSegment === normalizedRelativePath.toLowerCase()
+        ? normalizedDir
+        : `${normalizedDir}/${normalizedRelativePath}`;
     const remoteHost = this.extractRemoteHost(downloader.url);
     return this.pathService.translatePath(remotePath, remoteHost);
   }

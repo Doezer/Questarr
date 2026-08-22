@@ -523,6 +523,39 @@ export const sanitizeNexusModsTrendingModsQuery = [
     .toInt(),
 ];
 
+// Sanitization rules for root folder creation
+export const sanitizeRootFolderData = [
+  body("path")
+    .trim()
+    .isLength({ min: 1, max: 1000 })
+    .withMessage("Path must be between 1 and 1000 characters")
+    .custom((value: string) => !value.includes("\0"))
+    .withMessage("Path must not contain null bytes"),
+  body("name")
+    .optional()
+    .trim()
+    .isLength({ max: 200 })
+    .withMessage("Name must be at most 200 characters"),
+  body("enabled").optional().isBoolean().withMessage("Enabled must be a boolean").toBoolean(),
+];
+
+// Sanitization rules for partial root folder updates (PATCH)
+export const sanitizeRootFolderUpdateData = [
+  body("path")
+    .optional()
+    .trim()
+    .isLength({ min: 1, max: 1000 })
+    .withMessage("Path must be between 1 and 1000 characters")
+    .custom((value: string) => !value.includes("\0"))
+    .withMessage("Path must not contain null bytes"),
+  body("name")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 200 })
+    .withMessage("Name must be at most 200 characters"),
+  body("enabled").optional().isBoolean().withMessage("Enabled must be a boolean").toBoolean(),
+];
+
 // 🛡️ Sentinel: Global error handler middleware
 // Standardizes error responses and prevents leakage of sensitive details in production
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

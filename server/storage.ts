@@ -55,6 +55,10 @@ import {
   type InsertGameFile,
   gameFiles,
   GAME_LINK_REQUIRED_STATUS,
+  type RootFolder,
+  type InsertRootFolder,
+  type UpdateRootFolder,
+  rootFolders,
 } from "../shared/schema.js";
 import { randomUUID } from "crypto";
 import { db } from "./db.js";
@@ -322,6 +326,20 @@ export interface IStorage {
   addGameFilesBatch(files: InsertGameFile[]): Promise<GameFile[]>;
   removeGameFile(id: string): Promise<boolean>;
   removeGameFilesByGameId(gameId: string): Promise<number>;
+
+  // RootFolder methods (extra directories scanned for games already on disk)
+  getAllRootFolders(): Promise<RootFolder[]>;
+  getEnabledRootFolders(): Promise<RootFolder[]>;
+  getRootFolder(id: string): Promise<RootFolder | undefined>;
+  getRootFolderByPath(path: string): Promise<RootFolder | undefined>;
+  addRootFolder(folder: InsertRootFolder): Promise<RootFolder>;
+  updateRootFolder(id: string, updates: UpdateRootFolder): Promise<RootFolder | undefined>;
+  updateRootFolderHealth(
+    id: string,
+    health: { accessible: boolean; diskFreeBytes: number | null; diskTotalBytes: number | null }
+  ): Promise<RootFolder | undefined>;
+  touchRootFolderScanned(id: string): Promise<void>;
+  removeRootFolder(id: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -340,6 +358,7 @@ export class MemStorage implements IStorage {
   private readonly platformMappings: Map<string, PlatformMapping>;
   private releaseBlacklists: Map<string, ReleaseBlacklist>;
   private gameFiles: Map<string, GameFile>;
+  private rootFolders: Map<string, RootFolder>;
 
   constructor() {
     this.users = new Map();
@@ -357,6 +376,7 @@ export class MemStorage implements IStorage {
     this.platformMappings = new Map();
     this.releaseBlacklists = new Map();
     this.gameFiles = new Map();
+    this.rootFolders = new Map();
   }
 
   // System Config methods
@@ -1453,6 +1473,69 @@ export class MemStorage implements IStorage {
   }
   async deleteImportTasksOlderThan(_cutoffMs: number): Promise<number> {
     return 0;
+  }
+
+  // RootFolder methods
+  async getAllRootFolders(): Promise<RootFolder[]> {
+    return Array.from(this.rootFolders.values());
+  }
+
+  async getEnabledRootFolders(): Promise<RootFolder[]> {
+    return Array.from(this.rootFolders.values()).filter((f) => f.enabled);
+  }
+
+  async getRootFolder(id: string): Promise<RootFolder | undefined> {
+    return this.rootFolders.get(id);
+  }
+
+  async getRootFolderByPath(path: string): Promise<RootFolder | undefined> {
+    return Array.from(this.rootFolders.values()).find((f) => f.path === path);
+  }
+
+  async addRootFolder(folder: InsertRootFolder): Promise<RootFolder> {
+    const id = randomUUID();
+    const rf: RootFolder = {
+      id,
+      path: folder.path,
+      name: folder.name ?? null,
+      enabled: folder.enabled ?? true,
+      accessible: null,
+      diskFreeBytes: null,
+      diskTotalBytes: null,
+      lastScannedAt: null,
+      createdAt: new Date(),
+    };
+    this.rootFolders.set(id, rf);
+    return rf;
+  }
+
+  async updateRootFolder(id: string, updates: UpdateRootFolder): Promise<RootFolder | undefined> {
+    const existing = this.rootFolders.get(id);
+    if (!existing) return undefined;
+    const updated: RootFolder = { ...existing, ...updates };
+    this.rootFolders.set(id, updated);
+    return updated;
+  }
+
+  async updateRootFolderHealth(
+    id: string,
+    health: { accessible: boolean; diskFreeBytes: number | null; diskTotalBytes: number | null }
+  ): Promise<RootFolder | undefined> {
+    const existing = this.rootFolders.get(id);
+    if (!existing) return undefined;
+    const updated: RootFolder = { ...existing, ...health };
+    this.rootFolders.set(id, updated);
+    return updated;
+  }
+
+  async touchRootFolderScanned(id: string): Promise<void> {
+    const existing = this.rootFolders.get(id);
+    if (!existing) return;
+    this.rootFolders.set(id, { ...existing, lastScannedAt: new Date() });
+  }
+
+  async removeRootFolder(id: string): Promise<boolean> {
+    return this.rootFolders.delete(id);
   }
 }
 
@@ -2697,6 +2780,60 @@ export class DatabaseStorage implements IStorage {
         and(not(eq(importTasks.status, "in_progress")), sql`${importTasks.createdAt} < ${cutoffMs}`)
       );
     return result.changes;
+  }
+
+  // RootFolder methods
+  async getAllRootFolders(): Promise<RootFolder[]> {
+    return db.select().from(rootFolders);
+  }
+
+  async getEnabledRootFolders(): Promise<RootFolder[]> {
+    return db.select().from(rootFolders).where(eq(rootFolders.enabled, true));
+  }
+
+  async getRootFolder(id: string): Promise<RootFolder | undefined> {
+    const [folder] = await db.select().from(rootFolders).where(eq(rootFolders.id, id)).limit(1);
+    return folder;
+  }
+
+  async getRootFolderByPath(path: string): Promise<RootFolder | undefined> {
+    const [folder] = await db.select().from(rootFolders).where(eq(rootFolders.path, path)).limit(1);
+    return folder;
+  }
+
+  async addRootFolder(folder: InsertRootFolder): Promise<RootFolder> {
+    const id = randomUUID();
+    const [rf] = await db
+      .insert(rootFolders)
+      .values({ ...folder, id })
+      .returning();
+    return rf;
+  }
+
+  async updateRootFolder(id: string, updates: UpdateRootFolder): Promise<RootFolder | undefined> {
+    const [rf] = await db
+      .update(rootFolders)
+      .set(updates)
+      .where(eq(rootFolders.id, id))
+      .returning();
+    return rf;
+  }
+
+  async updateRootFolderHealth(
+    id: string,
+    health: { accessible: boolean; diskFreeBytes: number | null; diskTotalBytes: number | null }
+  ): Promise<RootFolder | undefined> {
+    const [rf] = await db.update(rootFolders).set(health).where(eq(rootFolders.id, id)).returning();
+    return rf;
+  }
+
+  async touchRootFolderScanned(id: string): Promise<void> {
+    await db.update(rootFolders).set({ lastScannedAt: new Date() }).where(eq(rootFolders.id, id));
+  }
+
+  async removeRootFolder(id: string): Promise<boolean> {
+    const result = await db.delete(rootFolders).where(eq(rootFolders.id, id));
+    return (result.changes ?? 0) > 0;
   }
 }
 

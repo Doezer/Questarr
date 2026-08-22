@@ -23,6 +23,8 @@ import {
   insertReleaseBlacklistSchema,
   insertGameFileSchema,
   claimDownloadRequestSchema,
+  insertRootFolderSchema,
+  updateRootFolderSchema,
   type Config,
   type Game,
   type Indexer,
@@ -63,6 +65,8 @@ import {
   sanitizeMatchAndAddTitle,
   sanitizeNexusModsGameDomainQuery,
   sanitizeNexusModsTrendingModsQuery,
+  sanitizeRootFolderData,
+  sanitizeRootFolderUpdateData,
 } from "./middleware.js";
 import { config as appConfig } from "./config.js";
 import { configLoader } from "./config-loader.js";
@@ -129,6 +133,14 @@ import { importRouter } from "./routes/import.js";
 import { importTasksRouter } from "./routes/import-tasks.js";
 import { systemRouter } from "./routes/system.js";
 import { pcgamingwikiRouter } from "./pcgamingwiki-router.js";
+import { probeRootFolder } from "./root-folders.js";
+import {
+  scanRootFolderById,
+  scanAllEnabledRootFolders,
+  getAllScanProgress,
+  getAllUnmatched,
+  matchUnmatchedFolder,
+} from "./library-scanner.js";
 
 // Cache-Control header values for IGDB discovery endpoints
 const CC_IGDB_METADATA = "public, max-age=86400, stale-while-revalidate=3600";
@@ -1562,6 +1574,213 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: "Failed to run library health check" });
     }
   });
+
+  // ==========================================================================
+  // Root folders — extra directories scanned (read-only discovery) for games
+  // already on disk outside the configured library root, e.g. an older
+  // library or a secondary drive. Separate from the library root used by the
+  // download-import pipeline.
+  // ==========================================================================
+
+  app.get("/api/root-folders", authenticateToken, async (_req: Request, res: Response) => {
+    try {
+      const folders = await storage.getAllRootFolders();
+      res.json(folders);
+    } catch (error) {
+      routesLogger.error({ error }, "error listing root folders");
+      res.status(500).json({ error: "Failed to list root folders" });
+    }
+  });
+
+  app.post(
+    "/api/root-folders",
+    authenticateToken,
+    sensitiveEndpointLimiter,
+    sanitizeRootFolderData,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const data = insertRootFolderSchema.parse(req.body);
+
+        const existing = await storage.getRootFolderByPath(data.path);
+        if (existing) {
+          return res.status(409).json({ error: "A root folder with this path already exists" });
+        }
+
+        const probe = await probeRootFolder(data.path);
+        if (!probe.accessible) {
+          return res.status(400).json({
+            error: "Path is not accessible",
+            details: probe.error ?? "Path must exist and be a readable directory",
+          });
+        }
+
+        const folder = await storage.addRootFolder(data);
+        const withHealth = await storage.updateRootFolderHealth(folder.id, {
+          accessible: probe.accessible,
+          diskFreeBytes: probe.diskFreeBytes,
+          diskTotalBytes: probe.diskTotalBytes,
+        });
+
+        res.status(201).json(withHealth ?? folder);
+      } catch (error) {
+        if (error instanceof z.ZodError) {
+          return respondWithZodError(res, error, "Invalid root folder data");
+        }
+        routesLogger.error({ error }, "error creating root folder");
+        res.status(500).json({ error: "Failed to create root folder" });
+      }
+    }
+  );
+
+  app.patch(
+    "/api/root-folders/:id",
+    authenticateToken,
+    sensitiveEndpointLimiter,
+    sanitizeRootFolderUpdateData,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const updates = updateRootFolderSchema.parse(req.body);
+
+        if (updates.path) {
+          const clash = await storage.getRootFolderByPath(updates.path);
+          if (clash && clash.id !== req.params.id) {
+            return res.status(409).json({ error: "Another root folder already uses this path" });
+          }
+        }
+
+        const folder = await storage.updateRootFolder(req.params.id, updates);
+        if (!folder) return res.status(404).json({ error: "Root folder not found" });
+        res.json(folder);
+      } catch (error) {
+        if (error instanceof z.ZodError) {
+          return respondWithZodError(res, error, "Invalid root folder data");
+        }
+        routesLogger.error({ error }, "error updating root folder");
+        res.status(500).json({ error: "Failed to update root folder" });
+      }
+    }
+  );
+
+  app.delete(
+    "/api/root-folders/:id",
+    authenticateToken,
+    sensitiveEndpointLimiter,
+    async (req: Request, res: Response) => {
+      try {
+        const success = await storage.removeRootFolder(req.params.id);
+        if (!success) return res.status(404).json({ error: "Root folder not found" });
+        res.status(204).send();
+      } catch (error) {
+        routesLogger.error({ error }, "error deleting root folder");
+        res.status(500).json({ error: "Failed to delete root folder" });
+      }
+    }
+  );
+
+  // Force-refresh accessibility + disk stats for one root folder.
+  app.post(
+    "/api/root-folders/:id/health-check",
+    authenticateToken,
+    sensitiveEndpointLimiter,
+    async (req: Request, res: Response) => {
+      try {
+        const folder = await storage.getRootFolder(req.params.id);
+        if (!folder) return res.status(404).json({ error: "Root folder not found" });
+
+        const probe = await probeRootFolder(folder.path);
+        const updated = await storage.updateRootFolderHealth(folder.id, {
+          accessible: probe.accessible,
+          diskFreeBytes: probe.diskFreeBytes,
+          diskTotalBytes: probe.diskTotalBytes,
+        });
+        res.json({ ...updated, error: probe.error ?? null });
+      } catch (error) {
+        routesLogger.error({ error }, "error running root folder health check");
+        res.status(500).json({ error: "Failed to run health check" });
+      }
+    }
+  );
+
+  // ==========================================================================
+  // Library scanner — scans configured root folders for games not yet
+  // tracked in Questarr and matches them against IGDB.
+  // ==========================================================================
+
+  app.post(
+    "/api/library/scan",
+    authenticateToken,
+    sensitiveEndpointLimiter,
+    async (req: Request, res: Response) => {
+      try {
+        const userId = req.user!.id;
+        const { rootFolderId } = (req.body ?? {}) as { rootFolderId?: string };
+        if (rootFolderId) {
+          const folder = await storage.getRootFolder(rootFolderId);
+          if (!folder) return res.status(404).json({ error: "Root folder not found" });
+          // Fire-and-forget; progress is available via GET /api/library/scan/status
+          scanRootFolderById(rootFolderId, userId).catch((err) =>
+            routesLogger.error({ err }, "scanRootFolderById crashed")
+          );
+          return res.status(202).json({ accepted: true, rootFolderId });
+        }
+        scanAllEnabledRootFolders(userId).catch((err) =>
+          routesLogger.error({ err }, "scanAllEnabledRootFolders crashed")
+        );
+        res.status(202).json({ accepted: true, rootFolderId: null });
+      } catch (error) {
+        routesLogger.error({ error }, "error starting library scan");
+        res.status(500).json({ error: "Failed to start library scan" });
+      }
+    }
+  );
+
+  app.get("/api/library/scan/status", authenticateToken, async (_req: Request, res: Response) => {
+    try {
+      res.json(getAllScanProgress());
+    } catch (error) {
+      routesLogger.error({ error }, "error reading scan status");
+      res.status(500).json({ error: "Failed to read scan status" });
+    }
+  });
+
+  app.get(
+    "/api/library/scan/unmatched",
+    authenticateToken,
+    async (_req: Request, res: Response) => {
+      try {
+        res.json(getAllUnmatched());
+      } catch (error) {
+        routesLogger.error({ error }, "error reading unmatched list");
+        res.status(500).json({ error: "Failed to read unmatched list" });
+      }
+    }
+  );
+
+  app.post(
+    "/api/library/scan/unmatched/match",
+    authenticateToken,
+    sensitiveEndpointLimiter,
+    async (req: Request, res: Response) => {
+      try {
+        const { rootFolderId, folderName, igdbId } = (req.body ?? {}) as {
+          rootFolderId?: string;
+          folderName?: string;
+          igdbId?: number;
+        };
+        if (!rootFolderId || !folderName || typeof igdbId !== "number") {
+          return res.status(400).json({ error: "rootFolderId, folderName, igdbId are required" });
+        }
+        const result = await matchUnmatchedFolder(rootFolderId, folderName, igdbId, req.user!.id);
+        res.json(result);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : "Unknown error";
+        routesLogger.error({ error }, "error resolving unmatched folder");
+        res.status(500).json({ error: msg });
+      }
+    }
+  );
 
   // Remove game from collection
   type FileDeletionResult =

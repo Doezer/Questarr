@@ -362,6 +362,26 @@ describe("TorznabClient — getCategories", () => {
     ]);
   });
 
+  it("descends into nested <subcat> entries and includes their IDs alongside the parent", async () => {
+    mockFetchResponse(
+      `<?xml version="1.0"?><caps><categories>` +
+        `<category id="4000" name="PC">` +
+        `<subcat id="4050" name="Games"/>` +
+        `<subcat id="4060" name="Mods"/>` +
+        `</category>` +
+        `<category id="2000" name="Movies"/>` +
+        `</categories></caps>`
+    );
+
+    const categories = await client.getCategories(makeIndexer());
+    expect(categories).toEqual([
+      { id: "4000", name: "PC" },
+      { id: "4050", name: "PC > Games" },
+      { id: "4060", name: "PC > Mods" },
+      { id: "2000", name: "Movies" },
+    ]);
+  });
+
   it("falls back to the default game categories when every caps URL variant has none", async () => {
     mockFetchResponse(`<?xml version="1.0"?><caps></caps>`);
 

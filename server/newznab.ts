@@ -54,9 +54,50 @@ const DEFAULT_GAME_CATEGORIES: NewznabCategory[] = [
   { id: "4050", name: "PC > Games" },
 ];
 
+// Overall time budget for getCategories' caps-discovery loop, shared across
+// every URL candidate it tries rather than reset per candidate.
+const CAPS_DISCOVERY_TIMEOUT_MS = 10000;
+
 interface NewznabServerInfo {
   title?: string;
   version?: string;
+}
+
+/** Shape of one <category>/<subcat> node as fast-xml-parser produces it. */
+interface RawCapsCategoryNode {
+  "@_id"?: string;
+  "@_name"?: string;
+  subcat?: unknown;
+}
+
+function isRawCapsCategoryNode(value: unknown): value is RawCapsCategoryNode {
+  return typeof value === "object" && value !== null;
+}
+
+/** Converts one <category> node's <subcat> children into flat NewznabCategory entries. */
+function parseSubcategories(subcatNode: unknown, parentName: string): NewznabCategory[] {
+  const subcats = Array.isArray(subcatNode) ? subcatNode : [subcatNode];
+  const results: NewznabCategory[] = [];
+  for (const subcat of subcats) {
+    if (!isRawCapsCategoryNode(subcat)) continue;
+    if (subcat["@_id"] && subcat["@_name"]) {
+      results.push({ id: subcat["@_id"], name: `${parentName} > ${subcat["@_name"]}` });
+    }
+  }
+  return results;
+}
+
+/** Converts one <category> caps node (plus any nested <subcat> children) into flat entries. */
+function parseParentAndSubcategories(cat: unknown): NewznabCategory[] {
+  if (!isRawCapsCategoryNode(cat) || !cat["@_id"] || !cat["@_name"]) {
+    return [];
+  }
+
+  const results: NewznabCategory[] = [{ id: cat["@_id"], name: cat["@_name"] }];
+  if (cat.subcat) {
+    results.push(...parseSubcategories(cat.subcat, cat["@_name"]));
+  }
+  return results;
 }
 
 class NewznabClient {
@@ -360,37 +401,13 @@ class NewznabClient {
 
   private parseCapsCategories(xmlText: string): NewznabCategory[] {
     const data = parser.parse(xmlText);
-    const categories: NewznabCategory[] = [];
-
-    if (data.caps?.categories?.category) {
-      const cats = Array.isArray(data.caps.categories.category)
-        ? data.caps.categories.category
-        : [data.caps.categories.category];
-
-      for (const cat of cats) {
-        if (cat["@_id"] && cat["@_name"]) {
-          categories.push({
-            id: cat["@_id"],
-            name: cat["@_name"],
-          });
-
-          // Add subcategories
-          if (cat.subcat) {
-            const subcats = Array.isArray(cat.subcat) ? cat.subcat : [cat.subcat];
-            for (const subcat of subcats) {
-              if (subcat["@_id"] && subcat["@_name"]) {
-                categories.push({
-                  id: subcat["@_id"],
-                  name: `${cat["@_name"]} > ${subcat["@_name"]}`,
-                });
-              }
-            }
-          }
-        }
-      }
+    const categoryNode = data.caps?.categories?.category;
+    if (!categoryNode) {
+      return [];
     }
 
-    return categories;
+    const cats = Array.isArray(categoryNode) ? categoryNode : [categoryNode];
+    return cats.flatMap((cat) => parseParentAndSubcategories(cat));
   }
 
   /**
@@ -404,11 +421,23 @@ class NewznabClient {
       throw new Error(`Unsafe URL detected: ${indexer.url}`);
     }
 
+    // One overall deadline shared across every caps URL candidate, not a
+    // fresh timeout per candidate -- otherwise two unreachable candidates
+    // (buildCapsUrlCandidates can return up to two) each hang for the full
+    // per-request timeout before falling back, roughly doubling worst-case
+    // caps-discovery latency.
+    const deadline = Date.now() + CAPS_DISCOVERY_TIMEOUT_MS;
+
     let lastError: unknown;
     for (const url of this.buildCapsUrlCandidates(indexer)) {
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) {
+        lastError ??= new Error("Caps discovery deadline exceeded");
+        break;
+      }
       try {
         const response = await safeFetch(url.toString(), {
-          signal: AbortSignal.timeout(10000),
+          signal: AbortSignal.timeout(remainingMs),
         });
 
         if (!response.ok) {

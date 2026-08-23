@@ -43,6 +43,10 @@ interface TorznabServerInfo {
   version?: string;
 }
 
+// Overall time budget for getCategories' caps-discovery loop, shared across
+// every URL candidate it tries rather than reset per candidate.
+const CAPS_DISCOVERY_TIMEOUT_MS = 30000;
+
 // Conservative built-in fallback used when caps discovery can't reach an
 // indexer at all (see getCategories below): the standard Newznab/Torznab
 // category scheme's Console and PC/Games parents, so search category
@@ -584,25 +588,59 @@ export class TorznabClient {
   }
 
   private parseCapsCategories(xmlData: string): { id: string; name: string }[] {
-    const parsed = this.parser.parse(xmlData);
+    const parsed: unknown = this.parser.parse(xmlData);
     const categories: { id: string; name: string }[] = [];
 
-    if (parsed.caps?.categories?.category) {
-      const cats = Array.isArray(parsed.caps.categories.category)
-        ? parsed.caps.categories.category
-        : [parsed.caps.categories.category];
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      cats.forEach((cat: any) => {
-        const id = cat["@_id"];
-        const name = cat["@_name"] || cat["#text"] || `Category ${id}`;
-        if (id) {
-          categories.push({ id, name });
-        }
-      });
+    const categoryNode = this.getCapsCategoryNode(parsed);
+    if (!categoryNode) {
+      return categories;
     }
 
+    const cats = Array.isArray(categoryNode) ? categoryNode : [categoryNode];
+
+    cats.forEach((cat: unknown) => {
+      if (!this.isRecord(cat)) return;
+      const id = cat["@_id"];
+      const name = cat["@_name"] || cat["#text"] || `Category ${String(id)}`;
+      if (id) {
+        categories.push({ id: String(id), name: String(name) });
+      }
+
+      // Torznab caps commonly nest subcategories under a parent category
+      // (e.g. parent "PC" containing subcat "PC/Games" id 4050) -- descend
+      // into them too, since these are the specific, useful IDs indexers
+      // actually expect in search requests.
+      const subcatNode = cat["subcat"];
+      if (subcatNode !== undefined) {
+        const subcats = Array.isArray(subcatNode) ? subcatNode : [subcatNode];
+        subcats.forEach((subcat: unknown) => {
+          if (!this.isRecord(subcat)) return;
+          const subId = subcat["@_id"];
+          const subName = subcat["@_name"] || subcat["#text"] || `Category ${String(subId)}`;
+          if (subId) {
+            categories.push({
+              id: String(subId),
+              name: name ? `${String(name)} > ${String(subName)}` : String(subName),
+            });
+          }
+        });
+      }
+    });
+
     return categories;
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null;
+  }
+
+  private getCapsCategoryNode(parsed: unknown): unknown {
+    if (!this.isRecord(parsed)) return undefined;
+    const caps = parsed["caps"];
+    if (!this.isRecord(caps)) return undefined;
+    const categories = caps["categories"];
+    if (!this.isRecord(categories)) return undefined;
+    return categories["category"];
   }
 
   /**
@@ -616,12 +654,24 @@ export class TorznabClient {
       throw new Error(`Indexer ${indexer.name} is disabled`);
     }
 
+    // One overall deadline shared across every caps URL candidate, not a
+    // fresh timeout per candidate -- otherwise two unreachable candidates
+    // (buildCapsUrlCandidates can return up to two) each hang for the full
+    // per-request timeout before falling back, roughly doubling worst-case
+    // caps-discovery latency.
+    const deadline = Date.now() + CAPS_DISCOVERY_TIMEOUT_MS;
+
     let lastError: unknown;
     for (const url of this.buildCapsUrlCandidates(indexer)) {
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) {
+        lastError ??= new Error("Caps discovery deadline exceeded");
+        break;
+      }
       try {
         const response = await safeFetch(url.toString(), {
           headers: { "User-Agent": "Questarr/1.0" },
-          signal: AbortSignal.timeout(30000),
+          signal: AbortSignal.timeout(remainingMs),
         });
 
         if (!response.ok) {

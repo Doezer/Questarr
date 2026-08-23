@@ -10,16 +10,20 @@ const SECRET_KEY_PATTERN =
  * out of a plain string before it reaches a log sink.
  */
 export function redactSecretText(value: string): string {
-  return value
-    .replace(
-      /\b(apikey|api[_-]?key|token|password|secret)["']?\s*[:=]\s*["']?([^"',\s&]+)["']?/gi,
-      "$1=[redacted]"
-    )
-    .replace(/(Bearer\s+)[A-Za-z0-9._~+/=-]+/gi, "$1[redacted]")
-    .replace(
-      /https:\/\/(?:discord|discordapp)\.com\/api\/webhooks\/[^\s"'<>]+/gi,
-      "[redacted-discord-webhook]"
-    );
+  return (
+    value
+      .replace(
+        /\b(apikey|api[_-]?key|token|password|secret)["']?\s*[:=]\s*["']?([^"',\s&]+)["']?/gi,
+        "$1=[redacted]"
+      )
+      // The /i flag already folds case, so an explicit A-Z range here would
+      // duplicate a-z -- SonarCloud flags that as a redundant character class.
+      .replace(/(Bearer\s+)[a-z0-9._~+/=-]+/gi, "$1[redacted]")
+      .replace(
+        /https:\/\/(?:discord|discordapp)\.com\/api\/webhooks\/[^\s"'<>]+/gi,
+        "[redacted-discord-webhook]"
+      )
+  );
 }
 
 /**

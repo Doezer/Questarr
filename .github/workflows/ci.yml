@@ -128,7 +128,7 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       # Each shard records its own coverage blob; per-shard coverage only reflects
       # the fraction of the suite that shard ran, so thresholds are disabled here

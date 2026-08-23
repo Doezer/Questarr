@@ -109,6 +109,14 @@ export function createStorageMock() {
     removeReleaseBlacklist: vi.fn(),
     getReleaseBlacklistSet: vi.fn().mockResolvedValue(new Set()),
     getImportConfig: vi.fn(),
+    getGameDownload: vi.fn(),
+    getGameFiles: vi.fn().mockResolvedValue([]),
+    getGameFile: vi.fn(),
+    getGameFilesByDownload: vi.fn().mockResolvedValue([]),
+    addGameFile: vi.fn(),
+    addGameFilesBatch: vi.fn(),
+    removeGameFile: vi.fn(),
+    removeGameFilesByGameId: vi.fn(),
   };
 }
 

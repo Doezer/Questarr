@@ -79,7 +79,7 @@ import { getSocket } from "@/lib/socket";
 import { useToast } from "@/hooks/use-toast";
 import { useHiddenMutation } from "@/hooks/use-hidden-mutation";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { type Game, type GameDownload } from "@shared/schema";
+import { type Game, type GameDownload, type ScannedGameFile } from "@shared/schema";
 import StatusBadge, { getStatusLabel } from "./StatusBadge";
 import { apiRequest } from "@/lib/queryClient";
 import { cn, safeUrl, formatBytes, isDiscoveryId } from "@/lib/utils";
@@ -619,7 +619,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     data: gameFiles = [],
     isLoading: filesLoading,
     isError: filesError,
-  } = useQuery<Array<{ name: string; path: string; category: string; size: number }>>({
+  } = useQuery<ScannedGameFile[]>({
     queryKey: [`/api/games/${game?.id}/files`],
     queryFn: async () => {
       const res = await apiRequest("GET", `/api/games/${game!.id}/files`);

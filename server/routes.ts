@@ -104,6 +104,13 @@ const normalizeInitialReleaseStatus = <
 // Root directory for the file system browser; restrict browsing to this tree
 const FILE_BROWSER_ROOT = fs.realpathSync(process.cwd());
 
+type IgdbConfigSource = "env" | "database" | undefined;
+
+interface IgdbConfigStatus {
+  configured: boolean;
+  source: IgdbConfigSource;
+}
+
 /**
  * Whether IGDB credentials are configured (DB takes precedence over env vars),
  * and which source they came from. Shared between the authenticated
@@ -111,10 +118,7 @@ const FILE_BROWSER_ROOT = fs.realpathSync(process.cwd());
  * endpoint (which needs just this boolean to drive the setup wizard, without
  * exposing anything else config-related pre-login).
  */
-async function getIgdbConfigStatus(): Promise<{
-  configured: boolean;
-  source: "env" | "database" | undefined;
-}> {
+async function getIgdbConfigStatus(): Promise<IgdbConfigStatus> {
   const dbClientId = await storage.getSystemConfig("igdb.clientId");
   const dbClientSecret = await storage.getSystemConfig("igdb.clientSecret");
 
@@ -626,12 +630,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/auth/status", async (_req, res) => {
     try {
       const userCount = await storage.countUsers();
+      const hasUsers = userCount > 0;
       // Also surface IGDB configured-status here (not just hasUsers) so the
       // unauthenticated setup wizard can decide whether to ask for IGDB
       // credentials without needing to call the authenticated /api/config
-      // endpoint pre-login.
-      const igdb = await getIgdbConfigStatus();
-      res.json({ hasUsers: userCount > 0, igdb });
+      // endpoint pre-login. This route stays on the public allowlist even
+      // after setup completes (existing sessions re-check it), so once a
+      // user exists, omit the igdb field entirely rather than leaving IGDB
+      // configuration status queryable by any anonymous caller forever.
+      if (!hasUsers) {
+        const igdb = await getIgdbConfigStatus();
+        return res.json({ hasUsers, igdb });
+      }
+      res.json({ hasUsers });
     } catch (error) {
       routesLogger.error({ error }, "Failed to check setup status");
       res.status(500).json({ error: "Failed to check setup status" });

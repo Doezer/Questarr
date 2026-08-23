@@ -168,7 +168,6 @@ describe("scanRootFolderById full scan", () => {
 
     const { storage } = await import("../storage.js");
     vi.mocked(storage.getRootFolder).mockResolvedValue(rootFolder);
-    vi.mocked(storage.getGameFiles).mockResolvedValue([]);
     vi.mocked(storage.addGameFile).mockResolvedValue(undefined as never);
     vi.mocked(storage.updateGame).mockResolvedValue(undefined as never);
     vi.mocked(storage.updateGameStatus).mockResolvedValue(undefined as never);
@@ -182,10 +181,39 @@ describe("scanRootFolderById full scan", () => {
       }
       return undefined;
     });
+    // "Existing Game"'s install.exe is already tracked — exercises the
+    // "skip already-tracked file" branch in assignFilesToGame.
+    vi.mocked(storage.getGameFiles).mockImplementation(async (gameId: string) =>
+      gameId === "existing-game"
+        ? ([{ filePath: path.join(tmpDir, "Existing Game", "install.exe") }] as unknown as Awaited<
+            ReturnType<typeof storage.getGameFiles>
+          >)
+        : []
+    );
 
     const { igdbClient } = await import("../igdb.js");
     vi.mocked(igdbClient.searchGames).mockImplementation(async (query: string) => {
-      if (query === "Halo Infinite") return [{ id: 1, name: "Halo Infinite" }] as never;
+      if (query === "Halo Infinite") {
+        // Full metadata so igdbToInsertGame's optional-field mapping branches
+        // (cover/screenshots/platforms/genres/involved_companies) run too.
+        return [
+          {
+            id: 1,
+            name: "Halo Infinite",
+            summary: "A Spartan's journey.",
+            first_release_date: 1638835200,
+            rating: 87.5,
+            cover: { url: "//images.igdb.com/t_thumb/cover.jpg" },
+            screenshots: [{ url: "//images.igdb.com/t_thumb/shot1.jpg" }],
+            platforms: [{ name: "PC" }],
+            genres: [{ name: "Shooter" }],
+            involved_companies: [
+              { publisher: true, developer: false, company: { name: "Xbox Game Studios" } },
+              { publisher: false, developer: true, company: { name: "343 Industries" } },
+            ],
+          },
+        ] as never;
+      }
       if (query === "Existing Game") return [{ id: 2, name: "Existing Game" }] as never;
       return [];
     });
@@ -229,14 +257,21 @@ describe("scanRootFolderById full scan", () => {
   });
 
   it("scanAllEnabledRootFolders scans every enabled folder", async () => {
+    const tmpDir2 = await fs.promises.mkdtemp(path.join(os.tmpdir(), "questarr-scan-2-"));
+    const folderA: RootFolder = { ...mockRootFolder, id: "rf-1", path: tmpDir };
+    const folderB: RootFolder = { ...mockRootFolder, id: "rf-2", path: tmpDir2 };
+
     const { storage } = await import("../storage.js");
-    vi.mocked(storage.getEnabledRootFolders).mockResolvedValue([
-      { ...mockRootFolder, id: "rf-1", path: tmpDir },
-    ]);
+    vi.mocked(storage.getEnabledRootFolders).mockResolvedValue([folderA, folderB]);
+    vi.mocked(storage.getRootFolder).mockImplementation(async (id: string) =>
+      id === "rf-2" ? folderB : folderA
+    );
 
     await scanAllEnabledRootFolders("user-1");
 
+    // An implementation that only scans folders[0] would leave rf-2 untouched.
     expect(getScanProgress("rf-1")?.status).toBe("completed");
+    expect(getScanProgress("rf-2")?.status).toBe("completed");
   });
 });
 

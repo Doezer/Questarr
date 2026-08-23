@@ -13,7 +13,7 @@ type AuthContextType = {
   user: User | null;
   isLoading: boolean;
   login: (credentials: { username: string; password: string }) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   needsSetup: boolean;
   checkSetup: () => Promise<void>;
 };
@@ -55,8 +55,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Lazy initializer runs during render, before any child effect (including
   // React Query's own fetch-triggering effects) can fire -- see
-  // migrateLegacyLocalStorageToken's doc comment for why that ordering matters.
-  useState(migrateLegacyLocalStorageToken);
+  // migrateLegacyLocalStorageToken's doc comment for why that ordering
+  // matters. Neither the value nor the setter is needed -- only the
+  // one-time initializer call -- so both are destructured out and unused.
+  const [_migrationRan, _setMigrationRan] = useState(migrateLegacyLocalStorageToken);
 
   const {
     isLoading: isCheckingSetup,
@@ -160,11 +162,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await loginMutation.mutateAsync(credentials);
   };
 
-  const logout = () => {
-    // Best-effort: clear the httpOnly cookies server-side. Local state is
-    // cleared regardless of whether this call succeeds, so a network
-    // failure here never strands the user mid-logout.
-    apiRequest("POST", "/api/auth/logout").catch(() => {});
+  const logout = async () => {
+    // Wait for the server to actually clear the httpOnly session cookie
+    // before dropping local state. If this fails (network error, 500,
+    // etc.), the server-side session is still live, so acting as if we'd
+    // logged out would let a later page load / auth/me check silently
+    // restore it -- leave local state untouched and let the user retry.
+    try {
+      await apiRequest("POST", "/api/auth/logout");
+    } catch (error) {
+      toast({
+        title: "Logout failed",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Unable to reach the server. Please check your connection and try again.",
+        variant: "destructive",
+      });
+      return;
+    }
     setBearerToken(null);
     setUser(null);
     queryClient.clear();

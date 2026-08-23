@@ -46,6 +46,11 @@ function findMeCall(fetchMock: ReturnType<typeof vi.fn>) {
   return fetchMock.mock.calls.find((call) => String(call[0]) === "/api/auth/me");
 }
 
+/** All /api/auth/me calls the mock fetch has recorded so far, in order. */
+function findMeCalls(fetchMock: ReturnType<typeof vi.fn>) {
+  return fetchMock.mock.calls.filter((call) => String(call[0]) === "/api/auth/me");
+}
+
 describe("AuthProvider — legacy localStorage token migration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -116,17 +121,19 @@ describe("AuthProvider — legacy localStorage token migration", () => {
   it("clears the in-memory bearer session on a 401 from /api/auth/me", async () => {
     localStorage.setItem("token", "legacy-token");
 
+    // Record the Authorization header seen on every /api/auth/me call here,
+    // rather than asserting inside the mock itself -- an assertion thrown
+    // from within the fetch mock becomes a rejected fetch promise, which
+    // TanStack Query treats as an ordinary network error, silently
+    // swallowing the assertion failure instead of failing the test.
+    const observedAuthHeaders: (string | null)[] = [];
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/auth/status") return jsonResponse(200, { hasUsers: true });
       if (url === "/api/auth/me") {
-        // First call: the legacy bearer session, which the server rejects.
         const headers = new Headers(init?.headers);
-        if (headers.get("Authorization") === "Bearer legacy-token") {
-          return jsonResponse(401, {});
-        }
-        // Any subsequent call must not carry the (now-cleared) bearer token.
-        expect(headers.has("Authorization")).toBe(false);
+        observedAuthHeaders.push(headers.get("Authorization"));
+        // First call: the legacy bearer session, which the server rejects.
         return jsonResponse(401, {});
       }
       throw new Error(`Unhandled URL: ${url}`);
@@ -144,6 +151,13 @@ describe("AuthProvider — legacy localStorage token migration", () => {
     await waitFor(() => {
       expect(findMeCall(fetchMock)).toBeDefined();
     });
+
+    expect(observedAuthHeaders[0]).toBe("Bearer legacy-token");
+    // Any call after the bearer session was cleared must not carry the
+    // (now-cleared) Authorization header.
+    for (const header of observedAuthHeaders.slice(1)) {
+      expect(header).toBeNull();
+    }
   });
 
   it("keeps the in-memory bearer session across a transient network failure (doesn't require re-reading localStorage)", async () => {
@@ -176,9 +190,12 @@ describe("AuthProvider — legacy localStorage token migration", () => {
       { timeout: 9000, interval: 100 }
     );
 
-    // Still carrying the bearer header on every retry.
-    const meCall = findMeCall(fetchMock)!;
-    const headers = new Headers((meCall[1] as RequestInit | undefined)?.headers);
-    expect(headers.get("Authorization")).toBe("Bearer legacy-token");
+    // Still carrying the bearer header on every retry, not just the first.
+    const meCalls = findMeCalls(fetchMock);
+    expect(meCalls.length).toBeGreaterThan(1);
+    for (const call of meCalls) {
+      const headers = new Headers((call[1] as RequestInit | undefined)?.headers);
+      expect(headers.get("Authorization")).toBe("Bearer legacy-token");
+    }
   }, 12000);
 });

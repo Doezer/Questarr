@@ -91,9 +91,15 @@ export async function generateToken(user: User) {
  */
 function getRequestToken(req: Request): { token: string; source: "cookie" | "bearer" } | undefined {
   const authHeader = req.headers["authorization"];
-  const bearerToken = authHeader && authHeader.split(" ")[1];
-  if (bearerToken) {
-    return { token: bearerToken, source: "bearer" };
+  if (authHeader) {
+    const [scheme, ...rest] = authHeader.split(" ");
+    const bearerToken = rest.join(" ");
+    if (scheme?.toLowerCase() === "bearer" && bearerToken) {
+      return { token: bearerToken, source: "bearer" };
+    }
+    // Any other scheme (e.g. Basic) isn't something this server issues or
+    // accepts -- fall through to the cookie check rather than treating an
+    // unrelated credential as a bearer token and failing jwt.verify on it.
   }
 
   const cookieToken = getCookie(req, AUTH_COOKIE_NAME);

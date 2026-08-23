@@ -240,11 +240,17 @@ describe("AuthProvider", () => {
     expect(setLocationMock).toHaveBeenCalledWith("/login");
   });
 
-  it("logout still clears local state even if the server-side logout call fails", async () => {
+  it("leaves local session state alone and shows an error toast when the server-side logout call fails", async () => {
     mockApiRequest.mockRejectedValue(new Error("network down"));
 
     renderAuth(createClient());
     await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+
+    // Mount-time migration already calls setBearerToken(null) once (no
+    // legacy token in this test) -- clear that call so the assertions below
+    // are only about what logout() itself does.
+    mockSetBearerToken.mockClear();
+    setLocationMock.mockClear();
 
     await act(async () => {
       screen.getByRole("button", { name: "Logout" }).click();
@@ -252,8 +258,14 @@ describe("AuthProvider", () => {
       await Promise.resolve();
     });
 
-    expect(mockSetBearerToken).toHaveBeenCalledWith(null);
-    expect(setLocationMock).toHaveBeenCalledWith("/login");
+    // A failed server-side logout means the httpOnly session cookie is
+    // still live server-side -- clearing local state anyway would make the
+    // client silently believe it logged out when it didn't.
+    expect(mockSetBearerToken).not.toHaveBeenCalled();
+    expect(setLocationMock).not.toHaveBeenCalledWith("/login");
+    expect(mockToast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Logout failed", variant: "destructive" })
+    );
   });
 
   it("useAuth throws when used outside an AuthProvider", () => {

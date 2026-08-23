@@ -1203,8 +1203,8 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                   if (!hasMultipleGroups) {
                     return (
                       <div className="space-y-2">
-                        {gameFiles.map((f, i) => (
-                          <div key={i} className="flex items-center gap-2 text-sm py-2">
+                        {gameFiles.map((f) => (
+                          <div key={f.path} className="flex items-center gap-2 text-sm py-2">
                             {f.isDirectory ? (
                               <Folder className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                             ) : (
@@ -1228,8 +1228,8 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                               {categoryLabels[cat] || cat}
                             </h4>
                             <div className="space-y-2">
-                              {catFiles.map((f, i) => (
-                                <div key={i} className="flex items-center gap-2 text-sm py-2">
+                              {catFiles.map((f) => (
+                                <div key={f.path} className="flex items-center gap-2 text-sm py-2">
                                   {f.isDirectory ? (
                                     <Folder className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                                   ) : (

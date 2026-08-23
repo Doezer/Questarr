@@ -67,6 +67,8 @@ vi.mock("lucide-react", () => ({
   Info: (props: Record<string, unknown>) => <div data-testid="icon-info" {...props} />,
   Image: (props: Record<string, unknown>) => <div data-testid="icon-image" {...props} />,
   Link: (props: Record<string, unknown>) => <div data-testid="icon-link" {...props} />,
+  File: (props: Record<string, unknown>) => <div data-testid="icon-file" {...props} />,
+  Folder: (props: Record<string, unknown>) => <div data-testid="icon-folder" {...props} />,
   ChevronLeft: (props: Record<string, unknown>) => (
     <div data-testid="icon-chevron-left" {...props} />
   ),
@@ -677,6 +679,100 @@ describe("GameDetailsModal", () => {
           screen.getByText("Aborted, cannot be completed - https://sabnzbd.org/not-complete")
         ).toBeInTheDocument();
       });
+    });
+  });
+
+  describe("Files tab", () => {
+    it("shows a loading state while files are being fetched", async () => {
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+        () => new Promise(() => {}) // never resolves
+      );
+      renderComponent();
+
+      fireEvent.click(screen.getByRole("tab", { name: /files/i }));
+
+      expect(await screen.findByText(/loading files/i)).toBeInTheDocument();
+    });
+
+    it("shows an error state when the files request fails", async () => {
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+        if (url.includes("/api/games/1/files")) {
+          return Promise.resolve({ ok: false, status: 500, json: vi.fn().mockResolvedValue({}) });
+        }
+        return makeFetchMock()(url);
+      });
+      renderComponent();
+
+      fireEvent.click(screen.getByRole("tab", { name: /files/i }));
+
+      expect(await screen.findByText(/failed to load files/i)).toBeInTheDocument();
+    });
+
+    it("shows an empty state when no files are found", async () => {
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+        makeFetchMock({ "/api/games/1/files": { files: [] } })
+      );
+      renderComponent();
+
+      fireEvent.click(screen.getByRole("tab", { name: /files/i }));
+
+      expect(await screen.findByText(/no files found on disk/i)).toBeInTheDocument();
+    });
+
+    it("renders a flat list when files belong to a single category", async () => {
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+        makeFetchMock({
+          "/api/games/1/files": {
+            files: [
+              { name: "game.exe", path: "/games/game.exe", category: "main", isDirectory: false },
+              { name: "data", path: "/games/data", category: "main", isDirectory: true },
+            ],
+          },
+        })
+      );
+      renderComponent();
+
+      fireEvent.click(screen.getByRole("tab", { name: /files/i }));
+
+      expect(await screen.findByText("game.exe")).toBeInTheDocument();
+      expect(screen.getByText("data")).toBeInTheDocument();
+      expect(screen.queryByText("Main Game")).not.toBeInTheDocument();
+    });
+
+    it("groups files by category when files span multiple categories", async () => {
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+        makeFetchMock({
+          "/api/games/1/files": {
+            files: [
+              { name: "game.exe", path: "/games/game.exe", category: "main", isDirectory: false },
+              {
+                name: "dlc1.pak",
+                path: "/games/dlc/dlc1.pak",
+                category: "dlc",
+                isDirectory: false,
+              },
+            ],
+          },
+        })
+      );
+      renderComponent();
+
+      fireEvent.click(screen.getByRole("tab", { name: /files/i }));
+
+      expect(await screen.findByText("Main Game")).toBeInTheDocument();
+      expect(screen.getByText("DLC & Expansions")).toBeInTheDocument();
+      expect(screen.getByText("game.exe")).toBeInTheDocument();
+      expect(screen.getByText("dlc1.pak")).toBeInTheDocument();
+    });
+
+    it("does not show the Files tab for discovery games", () => {
+      const discoveryGame = {
+        ...mockGame,
+        id: "igdb-123",
+      } as unknown as import("@shared/schema").Game;
+      renderComponent(discoveryGame);
+
+      expect(screen.queryByRole("tab", { name: /files/i })).not.toBeInTheDocument();
     });
   });
 

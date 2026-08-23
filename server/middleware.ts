@@ -51,6 +51,22 @@ export const authRateLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// Rate limiter for expensive per-user filesystem work (recursive scans).
+// Keyed by authenticated user id so one user hammering scans cannot
+// starve other users, with the client IP as fallback for safety.
+export const scanRateLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 10, // limit each user to 10 scans per minute
+  keyGenerator: (req: Request) => {
+    const userId = req.user?.id;
+    if (userId) return `user:${userId}`;
+    return req.ip ?? "unknown";
+  },
+  message: "Too many scan requests, please try again later",
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // General API rate limiter (lenient, just to prevent abuse)
 export const generalApiLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute

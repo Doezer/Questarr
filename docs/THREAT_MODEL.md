@@ -163,7 +163,7 @@ linked file as the source of truth.
   `sanitizeDownloadId`, `sanitizeIgdbId`, `sanitizeGameData`, `sanitizeIndexerData`,
   `sanitizeDownloaderData`, `sanitizeIndexerSearchQuery`)
 - **Rate limiting:** `server/middleware.ts` (`igdbRateLimiter`, `authRateLimiter`,
-  `sensitiveEndpointLimiter`, `generalApiLimiter`); `server/index.ts:34` (global mount)
+  `sensitiveEndpointLimiter`, `generalApiLimiter`, `scanRateLimiter`); `server/index.ts:34` (global mount)
 - **Authentication/session:** `server/auth.ts` (JWT issuance/verification); global gate at
   `server/routes.ts:845`
 - **SQL injection:** not applicable by construction — Drizzle ORM parameterizes all
@@ -182,7 +182,8 @@ linked file as the source of truth.
   [`MAINTAINERS.md`](../.github/MAINTAINERS.md)
 - **Test coverage:** `server/__tests__/ssrf.test.ts`, `ssrf_routes.test.ts`,
   `rss-ssrf.test.ts`, `downloaders_ssrf.test.ts`, `security.test.ts`,
-  `security_error_handling.test.ts`, `auth-setup-ratelimit.test.ts`
+  `security_error_handling.test.ts`, `auth-setup-ratelimit.test.ts`,
+  `scan-ratelimit.test.ts`
 
 ---
 

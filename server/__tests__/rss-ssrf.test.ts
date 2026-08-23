@@ -86,6 +86,11 @@ vi.mock("../middleware.js", () => ({
     res: import("express").Response,
     next: import("express").NextFunction
   ) => next(),
+  scanRateLimiter: (
+    req: import("express").Request,
+    res: import("express").Response,
+    next: import("express").NextFunction
+  ) => next(),
   validateRequest: (
     req: import("express").Request,
     res: import("express").Response,

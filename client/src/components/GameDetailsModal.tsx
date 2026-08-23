@@ -62,7 +62,6 @@ import {
   Image,
   Link,
   File,
-  Folder,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
@@ -620,14 +619,16 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     data: gameFiles = [],
     isLoading: filesLoading,
     isError: filesError,
-  } = useQuery<Array<{ name: string; path: string; category: string; isDirectory: boolean }>>({
+  } = useQuery<Array<{ name: string; path: string; category: string; size: number }>>({
     queryKey: [`/api/games/${game?.id}/files`],
     queryFn: async () => {
       const res = await apiRequest("GET", `/api/games/${game!.id}/files`);
       const data = await res.json();
       return data.files;
     },
-    enabled: open && !!game?.id && !isDiscoveryId(game.id),
+    // The endpoint recursively scans the game's library folder, so only fetch it once the
+    // Files tab is actually opened rather than on every modal open.
+    enabled: open && activeTab === "files" && !!game?.id && !isDiscoveryId(game.id),
   });
 
   const groupedGameFiles = useMemo(() => {
@@ -1205,11 +1206,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                       <div className="space-y-2">
                         {gameFiles.map((f) => (
                           <div key={f.path} className="flex items-center gap-2 text-sm py-2">
-                            {f.isDirectory ? (
-                              <Folder className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                            ) : (
-                              <File className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                            )}
+                            <File className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                             <span className="truncate">{f.name}</span>
                           </div>
                         ))}
@@ -1230,11 +1227,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
                             <div className="space-y-2">
                               {catFiles.map((f) => (
                                 <div key={f.path} className="flex items-center gap-2 text-sm py-2">
-                                  {f.isDirectory ? (
-                                    <Folder className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                                  ) : (
-                                    <File className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                                  )}
+                                  <File className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                                   <span className="truncate">{f.name}</span>
                                 </div>
                               ))}

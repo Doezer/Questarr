@@ -68,7 +68,6 @@ vi.mock("lucide-react", () => ({
   Image: (props: Record<string, unknown>) => <div data-testid="icon-image" {...props} />,
   Link: (props: Record<string, unknown>) => <div data-testid="icon-link" {...props} />,
   File: (props: Record<string, unknown>) => <div data-testid="icon-file" {...props} />,
-  Folder: (props: Record<string, unknown>) => <div data-testid="icon-folder" {...props} />,
   ChevronLeft: (props: Record<string, unknown>) => (
     <div data-testid="icon-chevron-left" {...props} />
   ),
@@ -689,7 +688,7 @@ describe("GameDetailsModal", () => {
       );
       renderComponent();
 
-      fireEvent.click(screen.getByRole("tab", { name: /files/i }));
+      fireEvent.mouseDown(screen.getByRole("tab", { name: /files/i }));
 
       expect(await screen.findByText(/loading files/i)).toBeInTheDocument();
     });
@@ -703,7 +702,7 @@ describe("GameDetailsModal", () => {
       });
       renderComponent();
 
-      fireEvent.click(screen.getByRole("tab", { name: /files/i }));
+      fireEvent.mouseDown(screen.getByRole("tab", { name: /files/i }));
 
       expect(await screen.findByText(/failed to load files/i)).toBeInTheDocument();
     });
@@ -714,7 +713,7 @@ describe("GameDetailsModal", () => {
       );
       renderComponent();
 
-      fireEvent.click(screen.getByRole("tab", { name: /files/i }));
+      fireEvent.mouseDown(screen.getByRole("tab", { name: /files/i }));
 
       expect(await screen.findByText(/no files found on disk/i)).toBeInTheDocument();
     });
@@ -724,18 +723,18 @@ describe("GameDetailsModal", () => {
         makeFetchMock({
           "/api/games/1/files": {
             files: [
-              { name: "game.exe", path: "/games/game.exe", category: "main", isDirectory: false },
-              { name: "data", path: "/games/data", category: "main", isDirectory: true },
+              { name: "game.exe", path: "/games/game.exe", category: "main", size: 1024 },
+              { name: "readme.txt", path: "/games/readme.txt", category: "main", size: 512 },
             ],
           },
         })
       );
       renderComponent();
 
-      fireEvent.click(screen.getByRole("tab", { name: /files/i }));
+      fireEvent.mouseDown(screen.getByRole("tab", { name: /files/i }));
 
       expect(await screen.findByText("game.exe")).toBeInTheDocument();
-      expect(screen.getByText("data")).toBeInTheDocument();
+      expect(screen.getByText("readme.txt")).toBeInTheDocument();
       expect(screen.queryByText("Main Game")).not.toBeInTheDocument();
     });
 
@@ -744,12 +743,12 @@ describe("GameDetailsModal", () => {
         makeFetchMock({
           "/api/games/1/files": {
             files: [
-              { name: "game.exe", path: "/games/game.exe", category: "main", isDirectory: false },
+              { name: "game.exe", path: "/games/game.exe", category: "main", size: 1024 },
               {
                 name: "dlc1.pak",
                 path: "/games/dlc/dlc1.pak",
                 category: "dlc",
-                isDirectory: false,
+                size: 2048,
               },
             ],
           },
@@ -757,7 +756,7 @@ describe("GameDetailsModal", () => {
       );
       renderComponent();
 
-      fireEvent.click(screen.getByRole("tab", { name: /files/i }));
+      fireEvent.mouseDown(screen.getByRole("tab", { name: /files/i }));
 
       expect(await screen.findByText("Main Game")).toBeInTheDocument();
       expect(screen.getByText("DLC & Expansions")).toBeInTheDocument();

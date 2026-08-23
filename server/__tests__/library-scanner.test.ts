@@ -221,7 +221,7 @@ describe("scanRootFolderById full scan", () => {
     // Weak match queued for manual review with no candidates.
     const unmatched = getAllUnmatched();
     expect(unmatched).toHaveLength(1);
-    expect(unmatched[0].folderName).toBe("Mystery Game");
+    expect(unmatched[0].folderName).toBe("Mystery Game.iso");
     expect(unmatched[0].candidates).toEqual([]);
 
     // The IGDB-less ignored folder was never queried.
@@ -237,5 +237,44 @@ describe("scanRootFolderById full scan", () => {
     await scanAllEnabledRootFolders("user-1");
 
     expect(getScanProgress("rf-1")?.status).toBe("completed");
+  });
+});
+
+describe("same-basename standalone files stay independently resolvable", () => {
+  it("keeps Game.iso and Game.zip as distinct unmatched entries", async () => {
+    const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "questarr-basename-"));
+    await fs.promises.writeFile(path.join(tmpDir, "Game.iso"), "x");
+    await fs.promises.writeFile(path.join(tmpDir, "Game.zip"), "x");
+    const rootFolder: RootFolder = { ...mockRootFolder, id: "rf-basename", path: tmpDir };
+
+    const { storage } = await import("../storage.js");
+    vi.mocked(storage.getRootFolder).mockResolvedValue(rootFolder);
+    vi.mocked(storage.getGameFiles).mockResolvedValue([]);
+    vi.mocked(storage.addGameFile).mockResolvedValue(undefined as never);
+    vi.mocked(storage.updateGame).mockResolvedValue(undefined as never);
+    vi.mocked(storage.touchRootFolderScanned).mockResolvedValue(undefined);
+    vi.mocked(storage.getGameByIgdbId).mockResolvedValue(undefined);
+    vi.mocked(storage.addGame).mockImplementation(
+      async (g) => ({ id: `game-${g.igdbId}`, ...g }) as unknown as Game
+    );
+
+    const { igdbClient } = await import("../igdb.js");
+    // No strong match for either — both land in the unmatched queue.
+    vi.mocked(igdbClient.searchGames).mockResolvedValue([]);
+
+    await scanRootFolderById("rf-basename", "user-1");
+
+    const beforeMatch = getAllUnmatched().filter((e) => e.rootFolderId === "rf-basename");
+    expect(beforeMatch.map((e) => e.folderName).sort()).toEqual(["Game.iso", "Game.zip"]);
+    expect(new Set(beforeMatch.map((e) => e.absolutePath)).size).toBe(2);
+
+    // Resolving Game.iso must not clear Game.zip's queued entry too.
+    vi.mocked(igdbClient.searchGames).mockResolvedValueOnce([
+      { id: 99, name: "Some Game" },
+    ] as never);
+    await matchUnmatchedFolder("rf-basename", "Game.iso", 99, "user-1");
+
+    const afterMatch = getAllUnmatched().filter((e) => e.rootFolderId === "rf-basename");
+    expect(afterMatch.map((e) => e.folderName)).toEqual(["Game.zip"]);
   });
 });

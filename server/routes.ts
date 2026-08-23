@@ -67,6 +67,8 @@ import {
   sanitizeNexusModsTrendingModsQuery,
   sanitizeRootFolderData,
   sanitizeRootFolderUpdateData,
+  sanitizeLibraryScanData,
+  sanitizeUnmatchedMatchData,
 } from "./middleware.js";
 import { config as appConfig } from "./config.js";
 import { configLoader } from "./config-loader.js";
@@ -1730,6 +1732,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     "/api/library/scan",
     authenticateToken,
     sensitiveEndpointLimiter,
+    sanitizeLibraryScanData,
+    validateRequest,
     async (req: Request, res: Response) => {
       try {
         const userId = req.user!.id;
@@ -1780,16 +1784,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     "/api/library/scan/unmatched/match",
     authenticateToken,
     sensitiveEndpointLimiter,
+    sanitizeUnmatchedMatchData,
+    validateRequest,
     async (req: Request, res: Response) => {
       try {
-        const { rootFolderId, folderName, igdbId } = (req.body ?? {}) as {
-          rootFolderId?: string;
-          folderName?: string;
-          igdbId?: number;
+        const { rootFolderId, folderName, igdbId } = req.body as {
+          rootFolderId: string;
+          folderName: string;
+          igdbId: number;
         };
-        if (!rootFolderId || !folderName || typeof igdbId !== "number") {
-          return res.status(400).json({ error: "rootFolderId, folderName, igdbId are required" });
-        }
         const result = await matchUnmatchedFolder(rootFolderId, folderName, igdbId, req.user!.id);
         res.json(result);
       } catch (error) {

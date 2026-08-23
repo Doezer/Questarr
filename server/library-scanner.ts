@@ -144,7 +144,11 @@ async function listCandidates(rootPath: string): Promise<FolderCandidate[]> {
         continue; // Unreadable
       }
       candidates.push({
-        folderName: path.parse(e.name).name,
+        // Keep the extension in the identity: two standalone files that
+        // only differ by extension (e.g. "Game.iso" and "Game.zip") must
+        // not collapse to the same folderName — that key is also what
+        // getUnmatchedEntry/clearUnmatched use to disambiguate entries.
+        folderName: e.name,
         absolutePath: abs,
         isFile: true,
         fileSize: size,
@@ -395,8 +399,76 @@ export async function scanRootFolderById(rootFolderId: string, userId: string): 
   }
 }
 
+type RootFolderRow = NonNullable<Awaited<ReturnType<typeof storage.getRootFolder>>>;
+
+/** Auto-link a strongly matched candidate to a game and record its files. */
+async function recordMatchedCandidate(
+  cand: FolderCandidate,
+  best: IGDBGame,
+  userId: string,
+  files: Array<{ absolutePath: string; size: number }>
+): Promise<void> {
+  let game = await storage.getGameByIgdbId(best.id);
+  if (!game) {
+    game = await storage.addGame(igdbToInsertGame(best, userId));
+    await storage.updateGame(game.id, { libraryPath: cand.absolutePath });
+  } else if (game.status !== "owned") {
+    await storage.updateGameStatus(game.id, { status: "owned" });
+  }
+  await assignFilesToGame(game.id, files);
+}
+
+/** Queue a weakly matched (or unmatched) candidate for manual review. */
+function recordUnmatchedCandidate(
+  rootFolder: RootFolderRow,
+  cand: FolderCandidate,
+  igdbCandidates: IGDBGame[]
+): void {
+  const rootFolderId = rootFolder.id;
+  const list = unmatchedByFolder.get(rootFolderId) ?? [];
+  list.push({
+    rootFolderId,
+    rootFolderPath: rootFolder.path,
+    folderName: cand.folderName,
+    absolutePath: cand.absolutePath,
+    candidates: igdbCandidates.slice(0, 5).map((c) => ({
+      igdbId: c.id,
+      name: c.name,
+      releaseYear: c.first_release_date
+        ? new Date(c.first_release_date * 1000).getUTCFullYear()
+        : null,
+    })),
+  });
+  unmatchedByFolder.set(rootFolderId, list);
+}
+
+const AUTO_MATCH_THRESHOLD = 0.85;
+
+/** Classify and (auto-)resolve a single scan candidate, updating `progress` in place. */
+async function processCandidate(
+  rootFolder: RootFolderRow,
+  cand: FolderCandidate,
+  userId: string,
+  progress: ScanProgress
+): Promise<void> {
+  const files = cand.isFile
+    ? [{ absolutePath: cand.absolutePath, size: cand.fileSize ?? 0 }]
+    : await listFiles(cand.absolutePath);
+  if (files.length === 0) return;
+
+  const { best, candidates: igdbCandidates, score } = await bestIgdbMatch(cand.folderName);
+
+  if (best && score >= AUTO_MATCH_THRESHOLD) {
+    await recordMatchedCandidate(cand, best, userId, files);
+    progress.matched += 1;
+  } else {
+    recordUnmatchedCandidate(rootFolder, cand, igdbCandidates);
+    progress.unmatched += 1;
+  }
+}
+
 async function runScan(
-  rootFolder: NonNullable<Awaited<ReturnType<typeof storage.getRootFolder>>>,
+  rootFolder: RootFolderRow,
   progress: ScanProgress,
   userId: string
 ): Promise<void> {
@@ -410,46 +482,7 @@ async function runScan(
       progress.currentCandidate = cand.folderName;
       emitProgress(progress);
       try {
-        const files = cand.isFile
-          ? [{ absolutePath: cand.absolutePath, size: cand.fileSize ?? 0 }]
-          : await listFiles(cand.absolutePath);
-        if (files.length === 0) {
-          progress.processedCandidates += 1;
-          emitProgress(progress);
-          continue;
-        }
-
-        const { best, candidates: igdbCandidates, score } = await bestIgdbMatch(cand.folderName);
-        const AUTO_MATCH_THRESHOLD = 0.85;
-
-        if (best && score >= AUTO_MATCH_THRESHOLD) {
-          let game = await storage.getGameByIgdbId(best.id);
-          if (!game) {
-            game = await storage.addGame(igdbToInsertGame(best, userId));
-            await storage.updateGame(game.id, { libraryPath: cand.absolutePath });
-          } else if (game.status !== "owned") {
-            await storage.updateGameStatus(game.id, { status: "owned" });
-          }
-          await assignFilesToGame(game.id, files);
-          progress.matched += 1;
-        } else {
-          const list = unmatchedByFolder.get(rootFolderId) ?? [];
-          list.push({
-            rootFolderId,
-            rootFolderPath: rootFolder.path,
-            folderName: cand.folderName,
-            absolutePath: cand.absolutePath,
-            candidates: igdbCandidates.slice(0, 5).map((c) => ({
-              igdbId: c.id,
-              name: c.name,
-              releaseYear: c.first_release_date
-                ? new Date(c.first_release_date * 1000).getUTCFullYear()
-                : null,
-            })),
-          });
-          unmatchedByFolder.set(rootFolderId, list);
-          progress.unmatched += 1;
-        }
+        await processCandidate(rootFolder, cand, userId, progress);
       } catch (err) {
         progress.errors += 1;
         routesLogger.error({ err, folder: cand.folderName }, "scan: error processing folder");

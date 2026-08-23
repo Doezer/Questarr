@@ -556,6 +556,25 @@ export const sanitizeRootFolderUpdateData = [
   body("enabled").optional().isBoolean().withMessage("Enabled must be a boolean").toBoolean(),
 ];
 
+// Sanitization rules for POST /api/library/scan (rootFolderId is optional — omit to scan all)
+export const sanitizeLibraryScanData = [
+  body("rootFolderId")
+    .optional()
+    .trim()
+    .isLength({ min: 1, max: 200 })
+    .withMessage("rootFolderId must be a non-empty string"),
+];
+
+// Sanitization rules for POST /api/library/scan/unmatched/match
+export const sanitizeUnmatchedMatchData = [
+  body("rootFolderId")
+    .trim()
+    .isLength({ min: 1, max: 200 })
+    .withMessage("rootFolderId is required"),
+  body("folderName").trim().isLength({ min: 1, max: 1000 }).withMessage("folderName is required"),
+  body("igdbId").isInt({ min: 1 }).withMessage("igdbId must be a positive integer").toInt(),
+];
+
 // 🛡️ Sentinel: Global error handler middleware
 // Standardizes error responses and prevents leakage of sensitive details in production
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

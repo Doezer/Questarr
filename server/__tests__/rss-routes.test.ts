@@ -87,6 +87,8 @@ vi.mock("../middleware.js", () => ({
   sanitizeNexusModsTrendingModsQuery: [],
   sanitizeRootFolderData: [],
   sanitizeRootFolderUpdateData: [],
+  sanitizeLibraryScanData: [],
+  sanitizeUnmatchedMatchData: [],
 }));
 
 describe("RSS Routes", () => {

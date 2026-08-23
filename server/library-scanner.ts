@@ -345,8 +345,13 @@ export async function matchUnmatchedFolder(
   if (!game) {
     game = await storage.addGame(igdbToInsertGame(igdb, userId));
     await storage.updateGame(game.id, { libraryPath: absolutePath });
-  } else if (game.status !== "owned") {
-    await storage.updateGameStatus(game.id, { status: "owned" });
+  } else {
+    if (game.status !== "owned") {
+      await storage.updateGameStatus(game.id, { status: "owned" });
+    }
+    if (!game.libraryPath) {
+      await storage.updateGame(game.id, { libraryPath: absolutePath });
+    }
   }
 
   const files = isFile ? [{ absolutePath, size: standaloneSize }] : await listFiles(absolutePath);
@@ -412,8 +417,15 @@ async function recordMatchedCandidate(
   if (!game) {
     game = await storage.addGame(igdbToInsertGame(best, userId));
     await storage.updateGame(game.id, { libraryPath: cand.absolutePath });
-  } else if (game.status !== "owned") {
-    await storage.updateGameStatus(game.id, { status: "owned" });
+  } else {
+    if (game.status !== "owned") {
+      await storage.updateGameStatus(game.id, { status: "owned" });
+    }
+    // An existing game (e.g. added manually or via wishlist) may not have a
+    // discovered folder yet — set it without clobbering one already managed.
+    if (!game.libraryPath) {
+      await storage.updateGame(game.id, { libraryPath: cand.absolutePath });
+    }
   }
   await assignFilesToGame(game.id, files);
 }

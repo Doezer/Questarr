@@ -243,8 +243,12 @@ describe("scanRootFolderById full scan", () => {
       expect.objectContaining({ category: "dlc", originalName: "bonus.zip" })
     );
 
-    // Existing, not-yet-owned game gets promoted to owned rather than re-created.
+    // Existing, not-yet-owned game gets promoted to owned rather than re-created,
+    // and since it had no libraryPath yet, the discovered folder is set on it too.
     expect(storage.updateGameStatus).toHaveBeenCalledWith("existing-game", { status: "owned" });
+    expect(storage.updateGame).toHaveBeenCalledWith("existing-game", {
+      libraryPath: path.join(tmpDir, "Existing Game"),
+    });
 
     // Weak match queued for manual review with no candidates.
     const unmatched = getAllUnmatched();
@@ -311,5 +315,44 @@ describe("same-basename standalone files stay independently resolvable", () => {
 
     const afterMatch = getAllUnmatched().filter((e) => e.rootFolderId === "rf-basename");
     expect(afterMatch.map((e) => e.folderName)).toEqual(["Game.zip"]);
+  });
+});
+
+describe("existing game libraryPath handling", () => {
+  it("preserves an already-managed libraryPath instead of overwriting it", async () => {
+    const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "questarr-libpath-"));
+    await fs.promises.mkdir(path.join(tmpDir, "Portal 2"));
+    await fs.promises.writeFile(path.join(tmpDir, "Portal 2", "setup.exe"), "x");
+    const rootFolder: RootFolder = { ...mockRootFolder, id: "rf-libpath", path: tmpDir };
+
+    const { storage } = await import("../storage.js");
+    vi.mocked(storage.getRootFolder).mockResolvedValue(rootFolder);
+    vi.mocked(storage.getGameFiles).mockResolvedValue([]);
+    vi.mocked(storage.addGameFile).mockResolvedValue(undefined as never);
+    vi.mocked(storage.updateGame).mockResolvedValue(undefined as never);
+    vi.mocked(storage.updateGameStatus).mockResolvedValue(undefined as never);
+    vi.mocked(storage.touchRootFolderScanned).mockResolvedValue(undefined);
+    // Already owned AND already has a managed libraryPath from a prior import.
+    vi.mocked(storage.getGameByIgdbId).mockResolvedValue({
+      id: "managed-game",
+      status: "owned",
+      igdbId: 7,
+      libraryPath: "/data/library/Portal 2",
+    } as unknown as Game);
+
+    const { igdbClient } = await import("../igdb.js");
+    vi.mocked(igdbClient.searchGames).mockResolvedValue([{ id: 7, name: "Portal 2" }] as never);
+
+    // Other tests in this file reuse these same mocks — reset call history
+    // so this test only sees calls made by its own scan below.
+    vi.mocked(storage.updateGameStatus).mockClear();
+    vi.mocked(storage.updateGame).mockClear();
+
+    await scanRootFolderById("rf-libpath", "user-1");
+
+    // Status is already "owned" and libraryPath is already set — neither
+    // update call should fire, let alone overwrite the managed path.
+    expect(storage.updateGameStatus).not.toHaveBeenCalled();
+    expect(storage.updateGame).not.toHaveBeenCalled();
   });
 });

@@ -248,7 +248,7 @@ export function RootFolderDiscovery() {
                     disabled={!newPath.trim() || addMutation.isPending}
                   >
                     {addMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    Add Folder
+                    Add Root Folder
                   </Button>
                 </div>
               </DialogContent>

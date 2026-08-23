@@ -16,7 +16,7 @@ export const IGDB_EARLY_ACCESS_STATUS = 4;
 
 // Shared field list for all IGDB game queries
 const IGDB_GAME_FIELDS =
-  "name, summary, cover.url, first_release_date, rating, aggregated_rating, aggregated_rating_count, platforms.name, genres.name, themes.name, age_ratings.category, age_ratings.rating, screenshots.url, websites.url, websites.category, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, status, game_type, category, version_parent.name, expansions.name, expansions.cover.url, expansions.first_release_date, expansions.game_type";
+  "name, summary, cover.url, first_release_date, rating, aggregated_rating, aggregated_rating_count, platforms.name, genres.name, themes.name, age_ratings.category, age_ratings.rating, screenshots.url, websites.url, websites.category, involved_companies.company.name, involved_companies.developer, involved_companies.publisher, status, game_type, category, version_parent.id, version_parent.name, expansions.name, expansions.cover.url, expansions.first_release_date, expansions.game_type";
 
 // IGDB theme name flagged as adult content (Erotic)
 const ADULT_THEME_NAMES = new Set(["Erotic"]);
@@ -288,7 +288,17 @@ class IGDBClient {
     let fetchedParentsById = new Map<number, IGDBGame>();
     if (parentIdsToFetch.length > 0) {
       try {
-        const parents = await this.getGamesByIds(parentIdsToFetch);
+        // getGamesByIds does its own internal chunking/rate-limit pacing and
+        // deliberately skips the shared per-request queue for that (see its
+        // `skipQueue: true` makeRequest calls) so its batches aren't
+        // serialized one-request-at-a-time like everything else. That's fine
+        // for a single call, but two concurrent searchGames() calls can each
+        // reach here at once and race on the shared lastRequestTime it reads
+        // to pace itself, so their batches can overlap and jointly exceed
+        // the configured rate limit. Route the whole call through the shared
+        // queue so at most one canonicalization parent-fetch (and no other
+        // queued IGDB request) runs at a time.
+        const parents = await this.queueRequest(() => this.getGamesByIds(parentIdsToFetch));
         fetchedParentsById = new Map(parents.map((game) => [game.id, game] as const));
       } catch (error) {
         igdbLogger.warn(

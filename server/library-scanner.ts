@@ -86,6 +86,7 @@ function isIgnoredFile(filename: string): boolean {
 
 const progressByFolder = new Map<string, ScanProgress>();
 const unmatchedByFolder = new Map<string, UnmatchedEntry[]>();
+const activeScans = new Set<string>();
 
 export function getAllScanProgress(): ScanProgress[] {
   return Array.from(progressByFolder.values());
@@ -108,6 +109,15 @@ export function clearUnmatched(rootFolderId: string, folderName: string): void {
   } else {
     unmatchedByFolder.set(rootFolderId, filtered);
   }
+}
+
+/**
+ * Look up a specific queued unmatched entry. Used to resolve a client-supplied
+ * `folderName` to a server-trusted `absolutePath` without ever joining
+ * client input onto a filesystem path (see `matchUnmatchedFolder`).
+ */
+function getUnmatchedEntry(rootFolderId: string, folderName: string): UnmatchedEntry | undefined {
+  return unmatchedByFolder.get(rootFolderId)?.find((e) => e.folderName === folderName);
 }
 
 function emitProgress(p: ScanProgress) {
@@ -309,27 +319,19 @@ export async function matchUnmatchedFolder(
   const rootFolder = await storage.getRootFolder(rootFolderId);
   if (!rootFolder) throw new Error("Root folder not found");
 
-  const direct = path.join(rootFolder.path, folderName);
-  let absolutePath = direct;
-  let isFile = false;
-  let standaloneSize = 0;
+  // Never join client-supplied `folderName` onto a filesystem path — resolve
+  // it against the server-trusted list of folders/files this root folder's
+  // own scan already discovered and queued for review.
+  const entry = getUnmatchedEntry(rootFolderId, folderName);
+  if (!entry) throw new Error("No matching unmatched entry for this root folder");
+  const absolutePath = entry.absolutePath;
 
-  try {
-    const stat = await fs.promises.stat(direct);
-    isFile = stat.isFile();
-    if (isFile) standaloneSize = stat.size;
-    else if (!stat.isDirectory()) throw new Error("Path is neither a directory nor a file");
-  } catch {
-    // Might be a standalone file with an extension — find a sibling whose
-    // basename (no ext) matches folderName.
-    const siblings = await fs.promises.readdir(rootFolder.path, { withFileTypes: true });
-    const match = siblings.find((e) => e.isFile() && path.parse(e.name).name === folderName);
-    if (!match) throw new Error("Folder or file does not exist");
-    absolutePath = path.join(rootFolder.path, match.name);
-    const stat = await fs.promises.stat(absolutePath);
-    isFile = true;
-    standaloneSize = stat.size;
+  const stat = await fs.promises.stat(absolutePath);
+  if (!stat.isFile() && !stat.isDirectory()) {
+    throw new Error("Path is neither a directory nor a file");
   }
+  const isFile = stat.isFile();
+  const standaloneSize = isFile ? stat.size : 0;
 
   const candidates = await igdbClient.searchGames(folderName, 10);
   const igdb = candidates.find((c) => c.id === igdbId);
@@ -355,28 +357,50 @@ export async function matchUnmatchedFolder(
  * available via `getScanProgress` / `getAllUnmatched` while it runs.
  */
 export async function scanRootFolderById(rootFolderId: string, userId: string): Promise<void> {
-  const rootFolder = await storage.getRootFolder(rootFolderId);
-  if (!rootFolder) throw new Error("Root folder not found");
-  if (!rootFolder.enabled) {
-    igdbLogger.info({ rootFolderId }, "Skipping scan: root folder is disabled");
+  // Guard before the first await so two near-simultaneous requests for the
+  // same root folder can't both pass this check and race on shared
+  // progress/unmatched state or duplicate filesystem/IGDB work.
+  if (activeScans.has(rootFolderId)) {
+    igdbLogger.info({ rootFolderId }, "Skipping scan: already in progress for this root folder");
     return;
   }
+  activeScans.add(rootFolderId);
 
-  const progress: ScanProgress = {
-    rootFolderId,
-    rootFolderPath: rootFolder.path,
-    startedAt: new Date().toISOString(),
-    status: "running",
-    totalCandidates: 0,
-    processedCandidates: 0,
-    matched: 0,
-    unmatched: 0,
-    errors: 0,
-  };
-  progressByFolder.set(rootFolderId, progress);
-  unmatchedByFolder.set(rootFolderId, []);
-  emitProgress(progress);
+  try {
+    const rootFolder = await storage.getRootFolder(rootFolderId);
+    if (!rootFolder) throw new Error("Root folder not found");
+    if (!rootFolder.enabled) {
+      igdbLogger.info({ rootFolderId }, "Skipping scan: root folder is disabled");
+      return;
+    }
 
+    const progress: ScanProgress = {
+      rootFolderId,
+      rootFolderPath: rootFolder.path,
+      startedAt: new Date().toISOString(),
+      status: "running",
+      totalCandidates: 0,
+      processedCandidates: 0,
+      matched: 0,
+      unmatched: 0,
+      errors: 0,
+    };
+    progressByFolder.set(rootFolderId, progress);
+    unmatchedByFolder.set(rootFolderId, []);
+    emitProgress(progress);
+
+    await runScan(rootFolder, progress, userId);
+  } finally {
+    activeScans.delete(rootFolderId);
+  }
+}
+
+async function runScan(
+  rootFolder: NonNullable<Awaited<ReturnType<typeof storage.getRootFolder>>>,
+  progress: ScanProgress,
+  userId: string
+): Promise<void> {
+  const rootFolderId = rootFolder.id;
   try {
     const candidates = await listCandidates(rootFolder.path);
     progress.totalCandidates = candidates.length;

@@ -1648,6 +1648,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (clash && clash.id !== req.params.id) {
             return res.status(409).json({ error: "Another root folder already uses this path" });
           }
+
+          // Re-probe on every path change so stale health from the old path
+          // is never carried over onto the new one.
+          const probe = await probeRootFolder(updates.path);
+          if (!probe.accessible) {
+            return res.status(400).json({
+              error: "Path is not accessible",
+              details: probe.error ?? "Path must exist and be a readable directory",
+            });
+          }
+          const folder = await storage.updateRootFolder(req.params.id, updates);
+          if (!folder) return res.status(404).json({ error: "Root folder not found" });
+          const withHealth = await storage.updateRootFolderHealth(folder.id, {
+            accessible: probe.accessible,
+            diskFreeBytes: probe.diskFreeBytes,
+            diskTotalBytes: probe.diskTotalBytes,
+          });
+          return res.json(withHealth ?? folder);
         }
 
         const folder = await storage.updateRootFolder(req.params.id, updates);

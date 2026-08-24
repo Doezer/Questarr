@@ -239,6 +239,25 @@ describe("cookie-based auth + CSRF", () => {
     const meRes = await agent.get("/api/auth/me");
     expect(meRes.status).toBe(401);
   });
+
+  it("clears the auth cookies on logout even when the auth cookie is expired/invalid", async () => {
+    // A user with a stale/expired session cookie must still be able to log
+    // out and get a clean slate -- previously the default-deny /api
+    // boundary hard-rejected the request (403) before the route handler
+    // ever ran, leaving the stale questarr_auth/questarr_csrf cookies in
+    // the browser forever.
+    const agent = request.agent(app);
+    agent.jar.setCookie("questarr_auth=not-a-real-jwt; Path=/");
+
+    const res = await agent.post("/api/auth/logout").send();
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+
+    const setCookie = res.headers["set-cookie"] as unknown as string[] | undefined;
+    const raw = (setCookie ?? []).join("\n");
+    expect(raw).toMatch(/questarr_auth=;/);
+    expect(raw).toMatch(/questarr_csrf=;/);
+  });
 });
 
 describe("csrfProtection — Origin/Referer same-host fallback", () => {

@@ -165,6 +165,13 @@ export function redactSecrets(value: unknown, depth = 0): unknown {
   if (value instanceof Error) {
     return { name: value.name, message: redactSecretText(value.message) };
   }
+  // These have no useful own-enumerable-property representation --
+  // Object.entries(new Date()) is [], so falling through to the generic
+  // object branch below would silently collapse them to {}.
+  if (value instanceof Date) return value.toISOString();
+  if (Buffer.isBuffer(value)) return `[Buffer ${value.length} bytes]`;
+  if (value instanceof Map) return redactSecrets(Object.fromEntries(value), depth + 1);
+  if (value instanceof Set) return redactSecrets(Array.from(value), depth + 1);
   if (Array.isArray(value)) return value.map((item) => redactSecrets(item, depth + 1));
 
   const redacted: Record<string, unknown> = {};

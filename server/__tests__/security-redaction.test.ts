@@ -79,4 +79,28 @@ describe("redactSecrets", () => {
       message: "token=[redacted] was invalid",
     });
   });
+
+  it("preserves Date values instead of collapsing them to {}", () => {
+    const date = new Date("2026-01-02T03:04:05.000Z");
+    expect(redactSecrets(date)).toBe("2026-01-02T03:04:05.000Z");
+    expect(redactSecrets({ timestamp: date })).toEqual({
+      timestamp: "2026-01-02T03:04:05.000Z",
+    });
+  });
+
+  it("summarizes Buffer values instead of collapsing them to {}", () => {
+    const buf = Buffer.from("hello");
+    expect(redactSecrets(buf)).toBe("[Buffer 5 bytes]");
+  });
+
+  it("redacts through Map and Set values instead of collapsing them to {}", () => {
+    const map = new Map<string, string>([
+      ["username", "alice"],
+      ["password", "hunter2"],
+    ]);
+    expect(redactSecrets(map)).toEqual({ username: "alice", password: "[redacted]" });
+
+    const set = new Set(["plain text", "Bearer sekrettoken123"]);
+    expect(redactSecrets(set)).toEqual(["plain text", "Bearer [redacted]"]);
+  });
 });

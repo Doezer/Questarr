@@ -296,6 +296,39 @@ function isValidDownloaderUrl(value: string, type: unknown): boolean {
   return false;
 }
 
+// The three downloader body validators below (create, test-connection, update)
+// share most of their field rules -- these factories keep each rule defined
+// once instead of copy-pasted per validator array.
+function optionalTrimmedString(field: string, max: number, label: string) {
+  return body(field)
+    .optional()
+    .trim()
+    .isLength({ max })
+    .withMessage(`${label} must be at most ${max} characters`);
+}
+
+function optionalDownloadPath(field = "downloadPath") {
+  return optionalTrimmedString(field, 500, "Download path")
+    .custom((value) => !value.includes(".."))
+    .withMessage("Download path cannot contain '..'");
+}
+
+function optionalBoolean(field: string, label: string) {
+  return body(field)
+    .optional()
+    .isBoolean({ strict: true })
+    .withMessage(`${label} must be a boolean`)
+    .toBoolean();
+}
+
+const downloaderUsername = () => optionalTrimmedString("username", 200, "Username");
+const downloaderPassword = () => optionalTrimmedString("password", 200, "Password");
+const downloaderCategory = () => optionalTrimmedString("category", 100, "Category");
+const downloaderLabel = () => optionalTrimmedString("label", 100, "Label");
+const downloaderUrlPath = () => optionalTrimmedString("urlPath", 200, "URL path");
+const downloaderAllowSelfSignedCertificate = () =>
+  optionalBoolean("allowSelfSignedCertificate", "Allow self-signed certificate");
+
 export const sanitizeDownloaderData = [
   body("name")
     .trim()
@@ -306,41 +339,13 @@ export const sanitizeDownloaderData = [
     .trim()
     .custom((value, { req }) => isValidDownloaderUrl(value, req.body.type))
     .withMessage("Invalid URL or hostname"),
-  body("username")
-    .optional()
-    .trim()
-    .isLength({ max: 200 })
-    .withMessage("Username must be at most 200 characters"),
-  body("password")
-    .optional()
-    .trim()
-    .isLength({ max: 200 })
-    .withMessage("Password must be at most 200 characters"),
+  downloaderUsername(),
+  downloaderPassword(),
   body("enabled").optional().isBoolean().withMessage("Enabled must be a boolean").toBoolean(),
-  body("downloadPath")
-    .optional()
-    .trim()
-    .isLength({ max: 500 })
-    .withMessage("Download path must be at most 500 characters")
-    // 🛡️ Sentinel: Add path traversal validation.
-    // Disallow '..' in download paths to prevent writing files outside the intended directory.
-    .custom((value) => !value.includes(".."))
-    .withMessage("Download path cannot contain '..'"),
-  body("label")
-    .optional()
-    .trim()
-    .isLength({ max: 100 })
-    .withMessage("Label must be at most 100 characters"),
-  body("urlPath")
-    .optional()
-    .trim()
-    .isLength({ max: 200 })
-    .withMessage("URL path must be at most 200 characters"),
-  body("allowSelfSignedCertificate")
-    .optional()
-    .isBoolean()
-    .withMessage("Allow self-signed certificate must be a boolean")
-    .toBoolean(),
+  optionalDownloadPath(),
+  downloaderLabel(),
+  downloaderUrlPath(),
+  downloaderAllowSelfSignedCertificate(),
 ];
 
 // Sanitization rules for POST /api/downloaders/test -- validates the full
@@ -355,63 +360,17 @@ export const sanitizeDownloaderTestData = [
     .custom((value, { req }) => isValidDownloaderUrl(value, req.body.type))
     .withMessage("Invalid URL or hostname"),
   body("port").optional().isInt({ min: 1, max: 65535 }).withMessage("Invalid port").toInt(),
-  body("useSsl")
-    .optional()
-    .isBoolean({ strict: true })
-    .withMessage("useSsl must be a boolean")
-    .toBoolean(),
-  body("urlPath")
-    .optional()
-    .trim()
-    .isLength({ max: 200 })
-    .withMessage("URL path must be at most 200 characters"),
-  body("username")
-    .optional()
-    .trim()
-    .isLength({ max: 200 })
-    .withMessage("Username must be at most 200 characters"),
-  body("password")
-    .optional()
-    .trim()
-    .isLength({ max: 200 })
-    .withMessage("Password must be at most 200 characters"),
-  body("downloadPath")
-    .optional()
-    .trim()
-    .isLength({ max: 500 })
-    .withMessage("Download path must be at most 500 characters")
-    .custom((value) => !value.includes(".."))
-    .withMessage("Download path cannot contain '..'"),
-  body("category")
-    .optional()
-    .trim()
-    .isLength({ max: 100 })
-    .withMessage("Category must be at most 100 characters"),
-  body("label")
-    .optional()
-    .trim()
-    .isLength({ max: 100 })
-    .withMessage("Label must be at most 100 characters"),
-  body("addStopped")
-    .optional()
-    .isBoolean({ strict: true })
-    .withMessage("addStopped must be a boolean")
-    .toBoolean(),
-  body("removeCompleted")
-    .optional()
-    .isBoolean({ strict: true })
-    .withMessage("removeCompleted must be a boolean")
-    .toBoolean(),
-  body("postImportCategory")
-    .optional()
-    .trim()
-    .isLength({ max: 100 })
-    .withMessage("Post-import category must be at most 100 characters"),
-  body("allowSelfSignedCertificate")
-    .optional()
-    .isBoolean({ strict: true })
-    .withMessage("allowSelfSignedCertificate must be a boolean")
-    .toBoolean(),
+  optionalBoolean("useSsl", "useSsl"),
+  downloaderUrlPath(),
+  downloaderUsername(),
+  downloaderPassword(),
+  optionalDownloadPath(),
+  downloaderCategory(),
+  downloaderLabel(),
+  optionalBoolean("addStopped", "addStopped"),
+  optionalBoolean("removeCompleted", "removeCompleted"),
+  optionalTrimmedString("postImportCategory", 100, "Post-import category"),
+  downloaderAllowSelfSignedCertificate(),
 ];
 
 // Sanitization rules for partial downloader updates (PATCH)
@@ -430,51 +389,19 @@ export const sanitizeDownloaderUpdateData = [
       return isValidDownloaderUrl(value, req.body.type);
     })
     .withMessage("Invalid URL or hostname"),
-  body("username")
-    .optional()
-    .trim()
-    .isLength({ max: 200 })
-    .withMessage("Username must be at most 200 characters"),
-  body("password")
-    .optional()
-    .trim()
-    .isLength({ max: 200 })
-    .withMessage("Password must be at most 200 characters"),
+  downloaderUsername(),
+  downloaderPassword(),
   body("enabled").optional().isBoolean().withMessage("Enabled must be a boolean").toBoolean(),
   body("priority")
     .optional()
     .isInt({ min: 1 })
     .withMessage("Priority must be a positive integer")
     .toInt(),
-  body("downloadPath")
-    .optional()
-    .trim()
-    .isLength({ max: 500 })
-    .withMessage("Download path must be at most 500 characters")
-    // 🛡️ Sentinel: Add path traversal validation.
-    // Disallow '..' in download paths to prevent writing files outside the intended directory.
-    .custom((value) => !value.includes(".."))
-    .withMessage("Download path cannot contain '..'"),
-  body("category")
-    .optional()
-    .trim()
-    .isLength({ max: 100 })
-    .withMessage("Category must be at most 100 characters"),
-  body("label")
-    .optional()
-    .trim()
-    .isLength({ max: 100 })
-    .withMessage("Label must be at most 100 characters"),
-  body("urlPath")
-    .optional()
-    .trim()
-    .isLength({ max: 200 })
-    .withMessage("URL path must be at most 200 characters"),
-  body("allowSelfSignedCertificate")
-    .optional()
-    .isBoolean()
-    .withMessage("Allow self-signed certificate must be a boolean")
-    .toBoolean(),
+  optionalDownloadPath(),
+  downloaderCategory(),
+  downloaderLabel(),
+  downloaderUrlPath(),
+  downloaderAllowSelfSignedCertificate(),
 ];
 
 // Sanitization rules for download add requests

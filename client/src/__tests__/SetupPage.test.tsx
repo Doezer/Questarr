@@ -77,7 +77,7 @@ describe("SetupPage", () => {
   it("submits form successfully without IGDB fields when IGDB is already configured", async () => {
     // Mock config as configured
     mockApiRequest.mockImplementation((method, url) => {
-      if (url === "/api/config") {
+      if (url === "/api/auth/status") {
         return Promise.resolve({
           json: async () => ({ igdb: { configured: true } }),
         } as Response);
@@ -94,7 +94,7 @@ describe("SetupPage", () => {
 
     // Wait for config to load and verify IGDB fields are NOT present
     await waitFor(() => {
-      expect(mockApiRequest).toHaveBeenCalledWith("GET", "/api/config");
+      expect(mockApiRequest).toHaveBeenCalledWith("GET", "/api/auth/status");
       expect(screen.queryByLabelText(/client id/i)).not.toBeInTheDocument();
     });
 
@@ -122,7 +122,7 @@ describe("SetupPage", () => {
   it("requires IGDB fields when IGDB is NOT configured", async () => {
     // Mock config as NOT configured
     mockApiRequest.mockImplementation((method, url) => {
-      if (url === "/api/config") {
+      if (url === "/api/auth/status") {
         return Promise.resolve({
           json: async () => ({ igdb: { configured: false } }),
         } as Response);
@@ -136,7 +136,7 @@ describe("SetupPage", () => {
 
     // Wait for config to load and verify IGDB fields ARE present
     await waitFor(() => {
-      expect(mockApiRequest).toHaveBeenCalledWith("GET", "/api/config");
+      expect(mockApiRequest).toHaveBeenCalledWith("GET", "/api/auth/status");
       expect(screen.getByLabelText(/client id/i)).toBeInTheDocument();
     });
 
@@ -172,6 +172,35 @@ describe("SetupPage", () => {
         igdbClientId: "client_id",
         igdbClientSecret: "client_secret",
       });
+    });
+  });
+
+  it("does not crash when GET /api/auth/status returns { hasUsers: true } (no igdb field)", async () => {
+    // Once setup is complete, /api/auth/status omits the igdb field entirely
+    // (see server/routes.ts) -- a direct navigation to /setup racing ahead of
+    // AuthProvider's own redirect must not crash this page while it renders.
+    mockApiRequest.mockImplementation((method, url) => {
+      if (url === "/api/auth/status") {
+        return Promise.resolve({
+          json: async () => ({ hasUsers: true }),
+        } as Response);
+      }
+      return Promise.resolve({ json: async () => ({}) } as Response);
+    });
+
+    renderComponent();
+
+    await waitFor(() => {
+      expect(mockApiRequest).toHaveBeenCalledWith("GET", "/api/auth/status");
+      expect(screen.getByLabelText(/username/i)).toBeInTheDocument();
+    });
+
+    // igdb is absent, so isIgdbConfigured is falsy and the IGDB fields
+    // render as required -- the same as the "not configured" case. The
+    // regression this guards against is a crash reading config.igdb.configured
+    // when igdb itself is undefined, not this field's required-ness.
+    await waitFor(() => {
+      expect(screen.getByLabelText(/client id/i)).toBeInTheDocument();
     });
   });
 });

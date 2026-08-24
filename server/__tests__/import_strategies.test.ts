@@ -290,6 +290,25 @@ describe("ImportStrategies", () => {
       expect(destStat.dev).toBe(sourceStat.dev);
     });
 
+    it("preserves the packs parent directory for neutral filenames", async () => {
+      const root = tempDir();
+      const sourceDir = path.join(root, "downloads", "game-folder");
+      const destination = path.join(root, "library", "PC", "My Game");
+      await fs.ensureDir(path.join(sourceDir, "packs"));
+      await fs.writeFile(path.join(sourceDir, "packs", "content.bin"), "pack");
+
+      const strategy = new PCImportStrategy();
+      const plan = await strategy.planImport(
+        sourceDir,
+        makeGame({ title: "My Game" }),
+        path.join(root, "library"),
+        makeImportConfig({ sortExtras: true, overwriteExisting: true })
+      );
+      const result = await strategy.executeImport(plan, "copy");
+
+      expect(result.filesPlaced).toContain(path.join(destination, "packs", "content.bin"));
+    });
+
     it("keeps the existing flat destination for a single file when sorting is enabled", async () => {
       const root = tempDir();
       const source = path.join(root, "downloads", "game.exe");

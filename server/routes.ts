@@ -30,6 +30,8 @@ import {
   type Indexer,
   type Downloader,
   type InsertImportTaskItem,
+  type ScannedGameFile,
+  type GameFileCategory,
 } from "../shared/schema.js";
 import { isUsenetDownloaderType } from "../shared/downloader-types.js";
 import { torznabClient } from "./torznab.js";
@@ -110,6 +112,66 @@ const normalizeInitialReleaseStatus = <
 // Root directory for the file system browser; restrict browsing to this tree
 const FILE_BROWSER_ROOT = fs.realpathSync(process.cwd());
 
+type IgdbConfigSource = "env" | "database" | undefined;
+
+interface IgdbConfigStatus {
+  configured: boolean;
+  source: IgdbConfigSource;
+}
+
+/**
+ * Whether IGDB credentials are configured (DB takes precedence over env vars),
+ * and which source they came from. Shared between the authenticated
+ * GET /api/config endpoint and the unauthenticated GET /api/auth/status
+ * endpoint (which needs just this boolean to drive the setup wizard, without
+ * exposing anything else config-related pre-login).
+ */
+async function getIgdbConfigStatus(): Promise<IgdbConfigStatus> {
+  const dbClientId = await storage.getSystemConfig("igdb.clientId");
+  const dbClientSecret = await storage.getSystemConfig("igdb.clientSecret");
+
+  if (dbClientId && dbClientSecret) {
+    return { configured: true, source: "database" };
+  }
+  if (appConfig.igdb.isConfigured) {
+    return { configured: true, source: "env" };
+  }
+  return { configured: false, source: undefined };
+}
+
+// ── Default-deny API auth boundary ─────────────────────────────────────────
+// Every /api/* route requires authentication unless explicitly allowlisted
+// here. This is intentionally an allowlist (not a denylist of "routes that
+// need auth") so that a new route added without updating this list fails
+// safe -- it requires a token by default rather than accidentally becoming
+// public. Paths are relative to the "/api" mount point (no leading "/api").
+export const PUBLIC_API_ROUTES = new Set<string>([
+  "GET /auth/status", // setup-wizard / login-page bootstrap check, runs pre-login
+  "POST /auth/setup", // creates the first user; there is no user/token yet
+  "POST /auth/login", // issues the token; obviously can't require one
+  "GET /health", // liveness probe (docker/compose healthcheck, DAST workflow)
+  "GET /ready", // readiness probe (db/IGDB connectivity), no sensitive data
+]);
+
+function isPublicApiRequest(req: Request): boolean {
+  if (req.method === "OPTIONS") return true;
+  return PUBLIC_API_ROUTES.has(`${req.method.toUpperCase()} ${req.path}`);
+}
+
+/**
+ * Default-deny gate for the entire /api surface: anything not explicitly
+ * allowlisted above requires a valid token. Mounted before any /api route is
+ * registered so it always runs first, regardless of whether an individual
+ * route handler also happens to apply authenticateToken itself.
+ */
+export function requireAuthenticationForApi(req: Request, res: Response, next: NextFunction) {
+  if (isPublicApiRequest(req)) {
+    next();
+    return;
+  }
+  authenticateToken(req, res, next);
+}
+
 // Configure multer for memory storage
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -126,7 +188,7 @@ import {
   parseReleaseMetadata,
   matchesPlatformFilter,
 } from "../shared/title-utils.js";
-import { categorizeDownload } from "../shared/download-categorizer.js";
+import { categorizeDownload, type DownloadCategory } from "../shared/download-categorizer.js";
 import { SUPPORT_WORKER_ORIGIN } from "../shared/support-config.js";
 import { ZipArchive } from "archiver";
 import helmet from "helmet";
@@ -540,6 +602,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/robots.txt", (_req, res) => {
     res.type("text/plain").send("User-agent: *\nDisallow: /\n");
   });
+  // Default-deny auth boundary for the whole /api surface. Mounted before any
+  // /api route (including the routers below) is registered, so every /api/*
+  // request is required to authenticate unless explicitly allowlisted above.
+  app.use("/api", requireAuthenticationForApi);
 
   // Use Steam Routes
   app.use(steamRoutes);
@@ -580,7 +646,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/auth/status", async (_req, res) => {
     try {
       const userCount = await storage.countUsers();
-      res.json({ hasUsers: userCount > 0 });
+      const hasUsers = userCount > 0;
+      // Also surface IGDB configured-status here (not just hasUsers) so the
+      // unauthenticated setup wizard can decide whether to ask for IGDB
+      // credentials without needing to call the authenticated /api/config
+      // endpoint pre-login. This route stays on the public allowlist even
+      // after setup completes (existing sessions re-check it), so once a
+      // user exists, omit the igdb field entirely rather than leaving IGDB
+      // configuration status queryable by any anonymous caller forever.
+      if (!hasUsers) {
+        const igdb = await getIgdbConfigStatus();
+        return res.json({ hasUsers, igdb });
+      }
+      res.json({ hasUsers });
     } catch (error) {
       routesLogger.error({ error }, "Failed to check setup status");
       res.status(500).json({ error: "Failed to check setup status" });
@@ -1066,7 +1144,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   );
 
-  // Configuration endpoint - read-only access to key settings
+  // Configuration endpoint - read-only access to key settings. Requires
+  // authentication (enforced by the default-deny API auth boundary below);
+  // the unauthenticated setup flow instead uses the `igdb` field on
+  // GET /api/auth/status, which exposes only the configured/source booleans.
   app.get("/api/config", sensitiveEndpointLimiter, async (req, res) => {
     try {
       // 🛡️ Sentinel: Harden config endpoint to prevent information disclosure.
@@ -1074,21 +1155,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // sensitive details like database URLs or partial API keys.
       // clientId is intentionally omitted here; use the authenticated
       // GET /api/settings/igdb endpoint to retrieve it.
-      let isConfigured = false;
-      let source: "env" | "database" | undefined;
-
-      // Check database first (takes precedence)
-      const dbClientId = await storage.getSystemConfig("igdb.clientId");
-      const dbClientSecret = await storage.getSystemConfig("igdb.clientSecret");
-
-      if (dbClientId && dbClientSecret) {
-        isConfigured = true;
-        source = "database";
-      } else if (appConfig.igdb.isConfigured) {
-        // Fallback to environment variables
-        isConfigured = true;
-        source = "env";
-      }
+      const { configured: isConfigured, source } = await getIgdbConfigStatus();
 
       const xrelApiBase =
         (await storage.getSystemConfig("xrel_api_base"))?.trim() ||
@@ -1109,17 +1176,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Protect all API routes from here
-  app.use("/api", (req, res, next) => {
-    // Skip authentication for specific public endpoints that were already defined or need to be excluded
-    // Note: Auth routes are defined before this middleware, so they are already skipped.
-    // We explicitly skip health check if it matched /api/health (it was defined before, so express handles it first? Yes.)
-
-    // Just applying authenticateToken middleware
-    authenticateToken(req, res, next);
-  });
-
-  // Mount Feature Routers (explicitly protected)
+  // Mount Feature Routers (also explicitly protected as defense-in-depth,
+  // though the default-deny boundary mounted above already covers them)
   app.use("/api/imports", authenticateToken, importRouter);
   app.use("/api/import-tasks", authenticateToken, importTasksRouter);
   app.use("/api/system", authenticateToken, systemRouter);
@@ -2016,6 +2074,98 @@ export async function registerRoutes(app: Express): Promise<Server> {
       .isIn(["main", "dlc", "update", "extra"])
       .withMessage("Invalid game file category"),
   ];
+
+  // Recursively scan a game library folder. This endpoint is read-only; imports are handled separately.
+  app.get(
+    "/api/games/:gameId/files",
+    authenticateToken,
+    gameIdParamValidation,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      // A missing path, a path that isn't a directory, or a symlink cycle are expected
+      // conditions for a stale/misconfigured library path — treat them as "nothing here".
+      // Anything else (EACCES, EPERM, other I/O failures) is a real failure and should
+      // surface as a 500 rather than silently reporting an empty or partial scan.
+      const isExpectedFsError = (error: unknown): boolean =>
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        ["ENOENT", "ENOTDIR", "ELOOP"].includes((error as NodeJS.ErrnoException).code ?? "");
+      const realpathOrNull = async (target: string): Promise<string | null> => {
+        try {
+          return await fs.promises.realpath(target);
+        } catch (error) {
+          if (isExpectedFsError(error)) return null;
+          throw error;
+        }
+      };
+      try {
+        const game = await resolveOwnedGame(req.params.gameId, req.user!.id, res);
+        if (!game) return;
+        if (!game.libraryPath) return res.json({ files: [] });
+
+        const importConfig = await storage.getImportConfig(req.user!.id);
+        const libraryRoot = await realpathOrNull(importConfig.libraryRoot);
+        const scanRoot = await realpathOrNull(game.libraryPath);
+        const isContained = (candidate: string, root: string) =>
+          candidate === root ||
+          candidate.startsWith(root.endsWith(path.sep) ? root : root + path.sep);
+        if (!libraryRoot || !scanRoot || !isContained(scanRoot, libraryRoot)) {
+          return res.json({ files: [] });
+        }
+
+        const categoryDirs = new Set<DownloadCategory>(["dlc", "update", "extra", "packs"]);
+        const isCategoryDirName = (name: string): name is DownloadCategory =>
+          categoryDirs.has(name as DownloadCategory);
+        // "packs" is recognized as a category-inheriting folder name, but game_files only
+        // persists the four categories the UI groups by ("main" | "dlc" | "update" | "extra").
+        // Normalize it (and the same category from filename-based categorizeDownload
+        // matches) to "extra" so scan results are always postable via POST /api/game-files.
+        const normalizeCategory = (category: DownloadCategory): GameFileCategory =>
+          category === "packs" ? "extra" : category;
+        const files: ScannedGameFile[] = [];
+        const walk = async (dir: string, inheritedCategory?: DownloadCategory): Promise<void> => {
+          const canonicalDir = await realpathOrNull(dir);
+          if (!canonicalDir || !isContained(canonicalDir, libraryRoot)) return;
+          let entries: fs.Dirent[];
+          try {
+            entries = await fs.promises.readdir(canonicalDir, { withFileTypes: true });
+          } catch (error) {
+            if (isExpectedFsError(error)) return;
+            throw error;
+          }
+          for (const entry of entries) {
+            const fullPath = path.join(canonicalDir, entry.name);
+            if (entry.isDirectory()) {
+              const lowerName = entry.name.toLowerCase();
+              const nextCategory = isCategoryDirName(lowerName) ? lowerName : inheritedCategory;
+              await walk(fullPath, nextCategory);
+              continue;
+            }
+            if (!entry.isFile()) continue;
+            const canonicalFile = await realpathOrNull(fullPath);
+            if (!canonicalFile || !isContained(canonicalFile, libraryRoot)) continue;
+            let stat: Awaited<ReturnType<typeof fs.promises.stat>>;
+            try {
+              stat = await fs.promises.stat(canonicalFile);
+            } catch (error) {
+              if (isExpectedFsError(error)) continue;
+              throw error;
+            }
+            const category = normalizeCategory(
+              inheritedCategory ?? categorizeDownload(path.parse(entry.name).name).category
+            );
+            files.push({ name: entry.name, path: canonicalFile, category, size: stat.size });
+          }
+        };
+        await walk(scanRoot);
+        res.json({ files });
+      } catch (error) {
+        routesLogger.error({ error }, "error scanning game files");
+        res.status(500).json({ error: "Failed to scan game files" });
+      }
+    }
+  );
 
   // Get game files for a specific game, grouped by category
   app.get(

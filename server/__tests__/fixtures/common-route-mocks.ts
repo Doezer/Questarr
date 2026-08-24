@@ -118,6 +118,14 @@ export function createStorageMock() {
     updateRootFolderHealth: vi.fn(),
     touchRootFolderScanned: vi.fn(),
     removeRootFolder: vi.fn(),
+    getGameDownload: vi.fn(),
+    getGameFiles: vi.fn().mockResolvedValue([]),
+    getGameFile: vi.fn(),
+    getGameFilesByDownload: vi.fn().mockResolvedValue([]),
+    addGameFile: vi.fn(),
+    addGameFilesBatch: vi.fn(),
+    removeGameFile: vi.fn(),
+    removeGameFilesByGameId: vi.fn(),
   };
 }
 

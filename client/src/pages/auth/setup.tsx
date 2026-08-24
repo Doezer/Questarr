@@ -38,10 +38,15 @@ export default function SetupPage() {
   const { toast } = useToast();
   // const [_, setLocation] = useLocation();
 
-  const { data: config, isLoading: isLoadingConfig } = useQuery({
-    queryKey: ["config"],
-    queryFn: () => apiRequest("GET", "/api/config").then((res) => res.json()),
+  // GET /api/config requires authentication, which doesn't exist yet during
+  // setup, so the IGDB-configured status is read from the unauthenticated
+  // GET /api/auth/status endpoint instead (shares the query cache with
+  // AuthProvider's own status check).
+  const { data: statusData, isLoading: isLoadingConfig } = useQuery({
+    queryKey: ["/api/auth/status"],
+    queryFn: () => apiRequest("GET", "/api/auth/status").then((res) => res.json()),
   });
+  const config = statusData;
 
   const setupSchema = useMemo(() => {
     const isIgdbConfigured = config?.igdb?.configured;
@@ -205,7 +210,7 @@ export default function SetupPage() {
                 )}
               />
 
-              {config && !config.igdb.configured && (
+              {config && !config.igdb?.configured && (
                 <>
                   <div className="border-t my-4 pt-4">
                     <div className="flex items-center gap-2 mb-2">

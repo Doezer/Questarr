@@ -275,6 +275,27 @@ export const sanitizeIndexerUpdateData = [
 ];
 
 // Sanitization rules for downloader data
+// Accepts hostname, IP address, or FQDN -- shared by every downloader URL
+// validator below so the pattern (and any future fix to it) lives in one
+// place instead of being copy-pasted per route.
+const DOWNLOADER_HOSTNAME_REGEX =
+  /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+const DOWNLOADER_IP_REGEX = /^(\d{1,3}\.){3}\d{1,3}$/;
+
+/**
+ * A downloader's `url` field accepts either a full http(s) URL, or (for a
+ * recognized downloader type) a bare hostname/IP/FQDN. Shared by
+ * sanitizeDownloaderData, sanitizeDownloaderTestData, and
+ * sanitizeDownloaderUpdateData.
+ */
+function isValidDownloaderUrl(value: string, type: unknown): boolean {
+  if (/^https?:\/\/.+/.test(value)) return true;
+  if (typeof type === "string" && (DOWNLOADER_TYPES as readonly string[]).includes(type)) {
+    return DOWNLOADER_HOSTNAME_REGEX.test(value) || DOWNLOADER_IP_REGEX.test(value);
+  }
+  return false;
+}
+
 export const sanitizeDownloaderData = [
   body("name")
     .trim()
@@ -283,25 +304,7 @@ export const sanitizeDownloaderData = [
   body("type").trim().isIn(DOWNLOADER_TYPES).withMessage("Invalid downloader type"),
   body("url")
     .trim()
-    .custom((value, { req }) => {
-      const type = req.body.type;
-
-      // If it's a valid URL, it's always acceptable
-      const isUrl = /^https?:\/\/.+/.test(value);
-      if (isUrl) return true;
-
-      // For downloaders, allow hostname/IP without protocol
-      if (DOWNLOADER_TYPES.includes(type)) {
-        // Accept hostname, IP address, or FQDN
-        const hostnameRegex =
-          /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
-        const ipRegex = /^(\d{1,3}\.){3}\d{1,3}$/;
-        return hostnameRegex.test(value) || ipRegex.test(value);
-      }
-
-      // Other downloaders require full URL
-      return false;
-    })
+    .custom((value, { req }) => isValidDownloaderUrl(value, req.body.type))
     .withMessage("Invalid URL or hostname"),
   body("username")
     .optional()
@@ -349,18 +352,7 @@ export const sanitizeDownloaderTestData = [
   body("type").trim().isIn(DOWNLOADER_TYPES).withMessage("Invalid downloader type"),
   body("url")
     .trim()
-    .custom((value, { req }) => {
-      const type = req.body.type;
-      const isUrl = /^https?:\/\/.+/.test(value);
-      if (isUrl) return true;
-      if (DOWNLOADER_TYPES.includes(type)) {
-        const hostnameRegex =
-          /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
-        const ipRegex = /^(\d{1,3}\.){3}\d{1,3}$/;
-        return hostnameRegex.test(value) || ipRegex.test(value);
-      }
-      return false;
-    })
+    .custom((value, { req }) => isValidDownloaderUrl(value, req.body.type))
     .withMessage("Invalid URL or hostname"),
   body("port").optional().isInt({ min: 1, max: 65535 }).withMessage("Invalid port").toInt(),
   body("useSsl")
@@ -435,23 +427,7 @@ export const sanitizeDownloaderUpdateData = [
     .trim()
     .custom((value, { req }) => {
       if (!value) return true; // Optional field
-      const type = req.body.type;
-
-      // If it's a valid URL, it's always acceptable
-      const isUrl = /^https?:\/\/.+/.test(value);
-      if (isUrl) return true;
-
-      // For downloaders, allow hostname/IP without protocol
-      if (DOWNLOADER_TYPES.includes(type)) {
-        // Accept hostname, IP address, or FQDN
-        const hostnameRegex =
-          /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
-        const ipRegex = /^(\d{1,3}\.){3}\d{1,3}$/;
-        return hostnameRegex.test(value) || ipRegex.test(value);
-      }
-
-      // Other downloaders require full URL
-      return false;
+      return isValidDownloaderUrl(value, req.body.type);
     })
     .withMessage("Invalid URL or hostname"),
   body("username")

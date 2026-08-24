@@ -525,10 +525,14 @@ class IGDBClient {
     // headroom left after canonicalizeVersionedGames collapses editions down
     // to their canonical parent (which can shrink the result count even for
     // an unfiltered search) and, when platformId/releaseYear are set, after
-    // local filtering against the resolved parent's metadata. Capped at
+    // local filtering against the resolved parent's metadata. A local filter
+    // discards a much larger share of the raw rows than edition dedupe
+    // alone, so ask for more headroom when one is set. Still capped at
     // MAX_LIMIT (IGDB's own relevance ranking keeps this tractable without
-    // needing a larger multiplier).
-    const requestLimit = Math.min(limit * 2, MAX_LIMIT);
+    // needing an even larger multiplier).
+    const hasLocalFilter = options.platformId != null || options.releaseYear != null;
+    const headroomMultiplier = hasLocalFilter ? 5 : 2;
+    const requestLimit = Math.min(limit * headroomMultiplier, MAX_LIMIT);
 
     const exactNameCondition = `name ~= "${sanitizedQuery}"`;
     const partialNameCondition = `name ~ *"${sanitizedQuery}"*`;

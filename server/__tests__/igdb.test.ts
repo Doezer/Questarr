@@ -185,27 +185,42 @@ describe("IGDBClient - Fallback Mechanism", { timeout: 20000 }, () => {
         token_type: "bearer",
       }),
     };
+    const emptyResponse = { ok: true, json: async () => [] };
     const successResponse = {
       ok: true,
       json: async () => [{ id: 1, name: "God of War", first_release_date: 1110844800 }],
     };
 
-    fetchMock.mockResolvedValueOnce(authResponse).mockResolvedValueOnce(successResponse);
+    // Approach 1 (full-text search, no category filter) emits no `where`
+    // clause at all, so it can't exercise the platforms/first_release_date
+    // assertions below. Make it return empty so search falls through to
+    // approach 2, which does have a `where` clause (category = 0).
+    fetchMock
+      .mockResolvedValueOnce(authResponse)
+      .mockResolvedValueOnce(emptyResponse)
+      .mockResolvedValueOnce(successResponse);
 
     const { igdbClient } = await import("../igdb.js");
     await igdbClient.searchGames("God of War", 10, { platformId: 8, releaseYear: 2005 });
 
-    const gameRequest = fetchMock.mock.calls.find(
+    const gameRequests = fetchMock.mock.calls.filter(
       (call) => typeof call[0] === "string" && call[0].includes("api.igdb.com/v4/games")
     );
-    const body = String(gameRequest?.[1]?.body);
-    const whereClause = /where ([^;]*);/.exec(body)?.[1] ?? "";
+    expect(gameRequests).toHaveLength(2);
+    const body = String(gameRequests[1]?.[1]?.body);
+    const whereClauseMatch = /where ([^;]*);/.exec(body);
+    // Confirm a `where` clause was actually emitted before asserting what it
+    // excludes -- otherwise a vacuous (null) match would make the two
+    // negative assertions below pass without checking anything.
+    expect(whereClauseMatch).not.toBeNull();
+    const whereClause = whereClauseMatch?.[1] ?? "";
     expect(whereClause).not.toMatch(/platforms/);
     expect(whereClause).not.toMatch(/first_release_date/);
-    // The upstream request asks for more than the caller's `limit` (capped,
-    // here 10 * 2 = 20) so there's headroom left after local platform/year
-    // filtering and edition->parent dedupe.
-    expect(body).toMatch(/limit 20;/);
+    // The upstream request asks for more than the caller's `limit` when a
+    // local platform/year filter is active (capped, here 10 * 5 = 50) so
+    // there's enough headroom left after that filter discards non-matching
+    // rows and edition->parent dedupe runs.
+    expect(body).toMatch(/limit 50;/);
   });
 
   it("should return empty array when all search approaches fail", async () => {

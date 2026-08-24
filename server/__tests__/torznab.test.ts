@@ -382,6 +382,25 @@ describe("TorznabClient — getCategories", () => {
     ]);
   });
 
+  it("recurses through more than one level of nested <subcat> entries", async () => {
+    mockFetchResponse(
+      `<?xml version="1.0"?><caps><categories>` +
+        `<category id="4000" name="PC">` +
+        `<subcat id="4050" name="Games">` +
+        `<subcat id="4051" name="Action"/>` +
+        `</subcat>` +
+        `</category>` +
+        `</categories></caps>`
+    );
+
+    const categories = await client.getCategories(makeIndexer());
+    expect(categories).toEqual([
+      { id: "4000", name: "PC" },
+      { id: "4050", name: "PC > Games" },
+      { id: "4051", name: "PC > Games > Action" },
+    ]);
+  });
+
   it("falls back to the default game categories when every caps URL variant has none", async () => {
     mockFetchResponse(`<?xml version="1.0"?><caps></caps>`);
 
@@ -427,7 +446,7 @@ describe("TorznabClient — getCategories", () => {
     expect(mockSafeFetch).toHaveBeenCalledTimes(2);
   });
 
-  it("falls back to defaults without trying a second candidate once the shared deadline is exhausted", async () => {
+  it("falls back to defaults, skipping a second candidate, once the deadline expires", async () => {
     // The first candidate's fetch consumes the entire caps-discovery budget
     // itself; the second candidate should be skipped rather than getting a
     // fresh full timeout, since the deadline is shared across candidates.

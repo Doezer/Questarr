@@ -52,11 +52,11 @@ const CAPS_DISCOVERY_TIMEOUT_MS = 30000;
 // category scheme's Console and PC/Games parents, so search category
 // filtering still has something sane to offer instead of leaving the
 // indexer with none.
-const DEFAULT_GAME_CATEGORIES: { id: string; name: string }[] = [
+const DEFAULT_GAME_CATEGORIES: readonly { id: string; name: string }[] = Object.freeze([
   { id: "1000", name: "Console" },
   { id: "4000", name: "PC" },
   { id: "4050", name: "PC > Games" },
-];
+]);
 
 export class TorznabClient {
   private parser: XMLParser;
@@ -587,6 +587,40 @@ export class TorznabClient {
     return candidates;
   }
 
+  /**
+   * Recursively collects <category>/<subcat> entries into a flat list,
+   * composing each descendant's name as "parent > child" at every level --
+   * caps responses can nest subcategories more than one level deep (e.g.
+   * category > subcat > subcat), and earlier only direct children of the
+   * top-level category were visited, silently dropping grandchildren.
+   */
+  private collectCapsCategories(
+    node: unknown,
+    parentName: string | undefined,
+    categories: { id: string; name: string }[]
+  ): void {
+    const nodes = Array.isArray(node) ? node : [node];
+    nodes.forEach((cat: unknown) => {
+      if (!this.isRecord(cat)) return;
+      const id = this.asScalarString(cat["@_id"]);
+      const ownName =
+        this.asScalarString(cat["@_name"]) ?? this.asScalarString(cat["#text"]) ?? `Category ${id}`;
+      const fullName = parentName ? `${parentName} > ${ownName}` : ownName;
+      if (id) {
+        categories.push({ id, name: fullName });
+      }
+
+      // Torznab caps commonly nest subcategories under a parent category
+      // (e.g. parent "PC" containing subcat "PC/Games" id 4050) -- descend
+      // into them too, since these are the specific, useful IDs indexers
+      // actually expect in search requests.
+      const subcatNode = cat["subcat"];
+      if (subcatNode !== undefined) {
+        this.collectCapsCategories(subcatNode, fullName, categories);
+      }
+    });
+  }
+
   private parseCapsCategories(xmlData: string): { id: string; name: string }[] {
     const parsed: unknown = this.parser.parse(xmlData);
     const categories: { id: string; name: string }[] = [];
@@ -596,40 +630,7 @@ export class TorznabClient {
       return categories;
     }
 
-    const cats = Array.isArray(categoryNode) ? categoryNode : [categoryNode];
-
-    cats.forEach((cat: unknown) => {
-      if (!this.isRecord(cat)) return;
-      const id = this.asScalarString(cat["@_id"]);
-      const name =
-        this.asScalarString(cat["@_name"]) ?? this.asScalarString(cat["#text"]) ?? `Category ${id}`;
-      if (id) {
-        categories.push({ id, name });
-      }
-
-      // Torznab caps commonly nest subcategories under a parent category
-      // (e.g. parent "PC" containing subcat "PC/Games" id 4050) -- descend
-      // into them too, since these are the specific, useful IDs indexers
-      // actually expect in search requests.
-      const subcatNode = cat["subcat"];
-      if (subcatNode !== undefined) {
-        const subcats = Array.isArray(subcatNode) ? subcatNode : [subcatNode];
-        subcats.forEach((subcat: unknown) => {
-          if (!this.isRecord(subcat)) return;
-          const subId = this.asScalarString(subcat["@_id"]);
-          const subName =
-            this.asScalarString(subcat["@_name"]) ??
-            this.asScalarString(subcat["#text"]) ??
-            `Category ${subId}`;
-          if (subId) {
-            categories.push({
-              id: subId,
-              name: name ? `${name} > ${subName}` : subName,
-            });
-          }
-        });
-      }
-    });
+    this.collectCapsCategories(categoryNode, undefined, categories);
 
     return categories;
   }
@@ -708,7 +709,7 @@ export class TorznabClient {
       { indexerName: indexer.name, error: lastError },
       "torznab caps discovery failed for all URL variants; falling back to default game categories"
     );
-    return DEFAULT_GAME_CATEGORIES;
+    return [...DEFAULT_GAME_CATEGORIES];
   }
 }
 

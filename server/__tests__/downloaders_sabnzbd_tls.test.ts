@@ -90,7 +90,7 @@ describe("SABnzbd TLS self-signed-certificate opt-in", () => {
     httpsRequestMock.mockReset();
   });
 
-  it("throws the original SSL error and never retries insecurely when allowSelfSignedCertificate is false/unset", async () => {
+  it("throws the original SSL error and never retries insecurely when opt-in is off", async () => {
     safeFetchMock.mockRejectedValue(selfSignedError());
 
     const client = new SABnzbdClient(createDownloader({ allowSelfSignedCertificate: false }));
@@ -109,7 +109,7 @@ describe("SABnzbd TLS self-signed-certificate opt-in", () => {
     expect(loggedFields.url).toContain("apikey=%5Bredacted%5D");
   });
 
-  it("never retries insecurely for an expired certificate, even with allowSelfSignedCertificate enabled", async () => {
+  it("never retries insecurely for an expired certificate, even with opt-in on", async () => {
     // CERT_HAS_EXPIRED is a different failure mode than a self-signed/untrusted
     // chain -- allowSelfSignedCertificate must not paper over it.
     safeFetchMock.mockRejectedValue(expiredCertError());

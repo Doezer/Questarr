@@ -53,7 +53,7 @@ export default function DiscordWebhookSettings() {
   }, []);
 
   const handleSave = useCallback(() => {
-    updateDiscordMutation.mutate(webhookUrl);
+    updateDiscordMutation.mutate(webhookUrl.trim());
   }, [updateDiscordMutation, webhookUrl]);
 
   // Allow saving an empty value to clear an existing webhook, but not when

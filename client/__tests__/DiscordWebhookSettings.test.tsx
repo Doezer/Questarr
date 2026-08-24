@@ -6,7 +6,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestQueryClient } from "./test-utils";
-import DiscordWebhookSettings from "../src/components/DiscordWebhookSettings";
+import DiscordWebhookSettings from "@/components/DiscordWebhookSettings";
 
 const mockToast = vi.fn();
 vi.mock("@/hooks/use-toast", () => ({
@@ -97,6 +97,23 @@ describe("DiscordWebhookSettings", () => {
     await openPopover();
     await screen.findByText("Configured");
 
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(apiRequest).toHaveBeenCalledWith("POST", "/api/settings/discord", {
+        webhookUrl: "",
+      });
+    });
+  });
+
+  it("trims whitespace-only input so it clears the webhook instead of failing URL validation", async () => {
+    mockGetDiscordSettings(true);
+    await openPopover();
+    await screen.findByText("Configured");
+
+    fireEvent.change(screen.getByLabelText("Webhook URL"), {
+      target: { value: "   " },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {

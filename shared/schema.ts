@@ -885,6 +885,18 @@ export const insertGameFileSchema = createInsertSchema(gameFiles, {
 export type GameFile = typeof gameFiles.$inferSelect;
 export type InsertGameFile = (typeof insertGameFileSchema)["_output"];
 
+// A file discovered by scanning a game's library folder on disk, as returned by
+// GET /api/games/:gameId/files. Distinct from GameFile (a persisted game_files row):
+// this reflects the live filesystem scan, not an imported/tracked file. The scan only
+// walks into subdirectories to find files within them — it never lists a directory
+// itself as an entry.
+export interface ScannedGameFile {
+  name: string;
+  path: string;
+  category: GameFileCategory;
+  size: number;
+}
+
 // Response contract for GET/PUT /api/downloaders/debug-logging, shared so the
 // client can validate the payload at runtime instead of trusting a local
 // TypeScript annotation.

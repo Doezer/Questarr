@@ -210,7 +210,7 @@ export default function SetupPage() {
                 )}
               />
 
-              {config && !config.igdb.configured && (
+              {config && !config.igdb?.configured && (
                 <>
                   <div className="border-t my-4 pt-4">
                     <div className="flex items-center gap-2 mb-2">

@@ -158,7 +158,7 @@ export default function SettingsPage() {
     if (!blacklistEntries) return {};
     return blacklistEntries.reduce<Record<string, (ReleaseBlacklist & { gameTitle: string })[]>>(
       (acc, entry) => {
-        (acc[entry.gameTitle] ??= []).push(entry);
+        (acc[entry.gameId] ??= []).push(entry);
         return acc;
       },
       {}
@@ -1220,9 +1220,11 @@ export default function SettingsPage() {
                   <div className="text-sm text-muted-foreground">No blacklisted releases.</div>
                 ) : (
                   <div className="space-y-4">
-                    {Object.entries(blacklistByGame).map(([gameTitle, entries]) => (
-                      <div key={gameTitle}>
-                        <h4 className="text-sm font-semibold mb-2">{gameTitle}</h4>
+                    {Object.entries(blacklistByGame).map(([gameId, entries]) => (
+                      <div key={gameId}>
+                        <h4 className="text-sm font-semibold mb-2">
+                          {entries[0]?.gameTitle ?? "Unknown game"}
+                        </h4>
                         <div className="space-y-2">
                           {entries.map((entry) => (
                             <div

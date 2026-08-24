@@ -600,10 +600,11 @@ export class TorznabClient {
 
     cats.forEach((cat: unknown) => {
       if (!this.isRecord(cat)) return;
-      const id = cat["@_id"];
-      const name = cat["@_name"] || cat["#text"] || `Category ${String(id)}`;
+      const id = this.asScalarString(cat["@_id"]);
+      const name =
+        this.asScalarString(cat["@_name"]) ?? this.asScalarString(cat["#text"]) ?? `Category ${id}`;
       if (id) {
-        categories.push({ id: String(id), name: String(name) });
+        categories.push({ id, name });
       }
 
       // Torznab caps commonly nest subcategories under a parent category
@@ -615,12 +616,15 @@ export class TorznabClient {
         const subcats = Array.isArray(subcatNode) ? subcatNode : [subcatNode];
         subcats.forEach((subcat: unknown) => {
           if (!this.isRecord(subcat)) return;
-          const subId = subcat["@_id"];
-          const subName = subcat["@_name"] || subcat["#text"] || `Category ${String(subId)}`;
+          const subId = this.asScalarString(subcat["@_id"]);
+          const subName =
+            this.asScalarString(subcat["@_name"]) ??
+            this.asScalarString(subcat["#text"]) ??
+            `Category ${subId}`;
           if (subId) {
             categories.push({
-              id: String(subId),
-              name: name ? `${String(name)} > ${String(subName)}` : String(subName),
+              id: subId,
+              name: name ? `${name} > ${subName}` : subName,
             });
           }
         });
@@ -632,6 +636,13 @@ export class TorznabClient {
 
   private isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null;
+  }
+
+  /** Narrows a caps XML attribute value to a string, accepting only string/number scalars. */
+  private asScalarString(value: unknown): string | undefined {
+    if (typeof value === "string") return value;
+    if (typeof value === "number") return String(value);
+    return undefined;
   }
 
   private getCapsCategoryNode(parsed: unknown): unknown {

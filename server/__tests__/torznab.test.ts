@@ -426,4 +426,27 @@ describe("TorznabClient — getCategories", () => {
     expect(categories).toEqual([{ id: "2000", name: "Movies" }]);
     expect(mockSafeFetch).toHaveBeenCalledTimes(2);
   });
+
+  it("falls back to defaults without trying a second candidate once the shared deadline is exhausted", async () => {
+    // The first candidate's fetch consumes the entire caps-discovery budget
+    // itself; the second candidate should be skipped rather than getting a
+    // fresh full timeout, since the deadline is shared across candidates.
+    vi.useFakeTimers();
+    try {
+      mockSafeFetch.mockImplementationOnce(() => {
+        vi.advanceTimersByTime(30000);
+        return Promise.reject(new Error("ETIMEDOUT"));
+      });
+
+      const categories = await client.getCategories(makeIndexer());
+      expect(categories).toEqual([
+        { id: "1000", name: "Console" },
+        { id: "4000", name: "PC" },
+        { id: "4050", name: "PC > Games" },
+      ]);
+      expect(mockSafeFetch).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

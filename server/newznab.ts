@@ -47,12 +47,12 @@ export interface NewznabCategory {
 // indexer at all (see getCategories below): the standard Newznab category
 // scheme's Console and PC/Games parents, so search category filtering still
 // has something sane to offer instead of leaving the indexer with none.
-export const DEFAULT_GAME_CATEGORY_IDS = ["1000", "4000", "4050"];
-const DEFAULT_GAME_CATEGORIES: NewznabCategory[] = [
+export const DEFAULT_GAME_CATEGORY_IDS = ["1000", "4000", "4050"] as const;
+const DEFAULT_GAME_CATEGORIES: readonly NewznabCategory[] = Object.freeze([
   { id: "1000", name: "Console" },
   { id: "4000", name: "PC" },
   { id: "4050", name: "PC > Games" },
-];
+]);
 
 // Overall time budget for getCategories' caps-discovery loop, shared across
 // every URL candidate it tries rather than reset per candidate.
@@ -462,7 +462,7 @@ class NewznabClient {
       { indexer: indexer.name, error: lastError },
       "newznab caps discovery failed for all URL variants; falling back to default game categories"
     );
-    return DEFAULT_GAME_CATEGORIES;
+    return [...DEFAULT_GAME_CATEGORIES];
   }
 
   /**

@@ -1,0 +1,1 @@
+ALTER TABLE `root_folders` ADD `allow_delete` integer DEFAULT false NOT NULL;

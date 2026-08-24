@@ -109,6 +109,15 @@ export function createStorageMock() {
     removeReleaseBlacklist: vi.fn(),
     getReleaseBlacklistSet: vi.fn().mockResolvedValue(new Set()),
     getImportConfig: vi.fn(),
+    getAllRootFolders: vi.fn().mockResolvedValue([]),
+    getEnabledRootFolders: vi.fn().mockResolvedValue([]),
+    getRootFolder: vi.fn(),
+    getRootFolderByPath: vi.fn(),
+    addRootFolder: vi.fn(),
+    updateRootFolder: vi.fn(),
+    updateRootFolderHealth: vi.fn(),
+    touchRootFolderScanned: vi.fn(),
+    removeRootFolder: vi.fn(),
   };
 }
 

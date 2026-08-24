@@ -135,7 +135,7 @@ import { importRouter } from "./routes/import.js";
 import { importTasksRouter } from "./routes/import-tasks.js";
 import { systemRouter } from "./routes/system.js";
 import { pcgamingwikiRouter } from "./pcgamingwiki-router.js";
-import { probeRootFolder } from "./root-folders.js";
+import { probeRootFolder, isWithinDeletableRootFolder } from "./root-folders.js";
 import {
   scanRootFolderById,
   scanAllEnabledRootFolders,
@@ -1831,8 +1831,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const resolvedTarget = path.resolve(game.libraryPath);
             const insideRoot =
               resolvedTarget === resolvedRoot || resolvedTarget.startsWith(resolvedRoot + path.sep);
+            // Games discovered by the root-folder scanner live outside the
+            // configured library root by design. Allow deleting their files
+            // too, but only when the user has explicitly opted that specific
+            // root folder in to deletion — discovery itself never does.
+            const canDelete = insideRoot || (await isWithinDeletableRootFolder(resolvedTarget));
 
-            if (insideRoot) {
+            if (canDelete) {
               try {
                 await fsExtra.remove(resolvedTarget);
                 fileDeletion = { deleted: true, path: game.libraryPath };

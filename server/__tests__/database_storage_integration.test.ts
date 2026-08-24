@@ -203,6 +203,7 @@ describe("DatabaseStorage Integration", () => {
     it("creates, lists, updates, health-checks, touches, and removes a root folder", async () => {
       const folder = await storage.addRootFolder({ path: "/mnt/old-library", name: "Old NAS" });
       expect(folder.enabled).toBe(true);
+      expect(folder.allowDelete).toBe(false);
       expect(folder.accessible).toBeNull();
 
       expect(await storage.getRootFolder(folder.id)).toMatchObject({ path: "/mnt/old-library" });
@@ -216,8 +217,12 @@ describe("DatabaseStorage Integration", () => {
       expect(enabledOnly.map((f) => f.id)).toEqual([folder.id]);
       expect(enabledOnly.some((f) => f.id === disabled.id)).toBe(false);
 
-      const updated = await storage.updateRootFolder(folder.id, { name: "Renamed" });
+      const updated = await storage.updateRootFolder(folder.id, {
+        name: "Renamed",
+        allowDelete: true,
+      });
       expect(updated?.name).toBe("Renamed");
+      expect(updated?.allowDelete).toBe(true);
 
       const withHealth = await storage.updateRootFolderHealth(folder.id, {
         accessible: true,

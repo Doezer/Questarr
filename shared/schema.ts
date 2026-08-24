@@ -893,6 +893,11 @@ export const rootFolders = sqliteTable("root_folders", {
   path: text("path").notNull().unique(),
   name: text("name"),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  // Opt-in, off by default: whether Questarr's normal "delete game + files"
+  // flow is allowed to remove files under this folder. Discovery on its own
+  // never touches disk; this only affects the explicit delete flow, and only
+  // for games whose libraryPath resolves inside this specific folder.
+  allowDelete: integer("allow_delete", { mode: "boolean" }).notNull().default(false),
   accessible: integer("accessible", { mode: "boolean" }),
   diskFreeBytes: integer("disk_free_bytes"),
   diskTotalBytes: integer("disk_total_bytes"),
@@ -918,6 +923,7 @@ export const updateRootFolderSchema = z.object({
   path: z.string().trim().min(1).optional(),
   name: z.string().trim().max(200).nullable().optional(),
   enabled: z.boolean().optional(),
+  allowDelete: z.boolean().optional(),
 });
 
 export type RootFolder = typeof rootFolders.$inferSelect;

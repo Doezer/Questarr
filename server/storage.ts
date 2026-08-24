@@ -1499,6 +1499,7 @@ export class MemStorage implements IStorage {
       path: folder.path,
       name: folder.name ?? null,
       enabled: folder.enabled ?? true,
+      allowDelete: folder.allowDelete ?? false,
       accessible: null,
       diskFreeBytes: null,
       diskTotalBytes: null,

@@ -868,7 +868,13 @@ describe("Root Folder Management", () => {
     expect(folder.path).toBe("/mnt/old-library");
     expect(folder.name).toBeNull();
     expect(folder.enabled).toBe(true);
+    expect(folder.allowDelete).toBe(false);
     expect(folder.accessible).toBeNull();
+  });
+
+  it("creates a root folder with allowDelete explicitly enabled", async () => {
+    const folder = await storage.addRootFolder({ path: "/mnt/old-library", allowDelete: true });
+    expect(folder.allowDelete).toBe(true);
   });
 
   it("lists all root folders and filters to enabled ones", async () => {
@@ -894,9 +900,11 @@ describe("Root Folder Management", () => {
     const updated = await storage.updateRootFolder(folder.id, {
       name: "Renamed",
       enabled: false,
+      allowDelete: true,
     });
     expect(updated?.name).toBe("Renamed");
     expect(updated?.enabled).toBe(false);
+    expect(updated?.allowDelete).toBe(true);
     expect(await storage.updateRootFolder("missing", { enabled: false })).toBeUndefined();
   });
 

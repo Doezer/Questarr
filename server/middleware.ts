@@ -537,6 +537,11 @@ export const sanitizeRootFolderData = [
     .isLength({ max: 200 })
     .withMessage("Name must be at most 200 characters"),
   body("enabled").optional().isBoolean().withMessage("Enabled must be a boolean").toBoolean(),
+  body("allowDelete")
+    .optional()
+    .isBoolean()
+    .withMessage("allowDelete must be a boolean")
+    .toBoolean(),
 ];
 
 // Sanitization rules for partial root folder updates (PATCH)
@@ -554,6 +559,11 @@ export const sanitizeRootFolderUpdateData = [
     .isLength({ max: 200 })
     .withMessage("Name must be at most 200 characters"),
   body("enabled").optional().isBoolean().withMessage("Enabled must be a boolean").toBoolean(),
+  body("allowDelete")
+    .optional()
+    .isBoolean()
+    .withMessage("allowDelete must be a boolean")
+    .toBoolean(),
 ];
 
 // Sanitization rules for POST /api/library/scan (rootFolderId is optional — omit to scan all)

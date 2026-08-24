@@ -83,3 +83,22 @@ export async function refreshAllRootFoldersHealth(): Promise<void> {
     });
   }
 }
+
+/**
+ * Whether `resolvedTarget` (an already `path.resolve`d path) sits inside a
+ * root folder the user has explicitly opted in to deletion for
+ * (`allowDelete: true`). Used by the game-delete flow to extend its
+ * "inside the configured library root" safety check to cover discovered
+ * folders too, but only for folders the user deliberately authorized —
+ * discovery itself never grants delete access.
+ */
+export async function isWithinDeletableRootFolder(resolvedTarget: string): Promise<boolean> {
+  const folders = await storage.getAllRootFolders();
+  return folders.some((folder) => {
+    if (!folder.allowDelete) return false;
+    const resolvedFolder = path.resolve(folder.path);
+    return (
+      resolvedTarget === resolvedFolder || resolvedTarget.startsWith(resolvedFolder + path.sep)
+    );
+  });
+}

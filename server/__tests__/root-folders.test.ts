@@ -2,7 +2,11 @@ import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { probeRootFolder, refreshAllRootFoldersHealth } from "../root-folders.js";
+import {
+  probeRootFolder,
+  refreshAllRootFoldersHealth,
+  isWithinDeletableRootFolder,
+} from "../root-folders.js";
 import type { RootFolder } from "../../shared/schema.js";
 
 vi.mock("../storage.js", () => ({
@@ -94,5 +98,44 @@ describe("refreshAllRootFoldersHealth", () => {
       "rf-2",
       expect.objectContaining({ accessible: false })
     );
+  });
+});
+
+describe("isWithinDeletableRootFolder", () => {
+  it("allows a path inside a root folder that has allowDelete on", async () => {
+    const { storage } = await import("../storage.js");
+    vi.mocked(storage.getAllRootFolders).mockResolvedValue([
+      { id: "rf-1", path: "/mnt/old-library", allowDelete: true } as unknown as RootFolder,
+    ]);
+
+    expect(await isWithinDeletableRootFolder("/mnt/old-library/SomeGame")).toBe(true);
+    expect(await isWithinDeletableRootFolder("/mnt/old-library")).toBe(true);
+  });
+
+  it("rejects a path inside a root folder that has allowDelete off", async () => {
+    const { storage } = await import("../storage.js");
+    vi.mocked(storage.getAllRootFolders).mockResolvedValue([
+      { id: "rf-1", path: "/mnt/old-library", allowDelete: false } as unknown as RootFolder,
+    ]);
+
+    expect(await isWithinDeletableRootFolder("/mnt/old-library/SomeGame")).toBe(false);
+  });
+
+  it("rejects a path outside every configured root folder", async () => {
+    const { storage } = await import("../storage.js");
+    vi.mocked(storage.getAllRootFolders).mockResolvedValue([
+      { id: "rf-1", path: "/mnt/old-library", allowDelete: true } as unknown as RootFolder,
+    ]);
+
+    expect(await isWithinDeletableRootFolder("/etc/passwd")).toBe(false);
+  });
+
+  it("does not match a sibling folder with the same prefix", async () => {
+    const { storage } = await import("../storage.js");
+    vi.mocked(storage.getAllRootFolders).mockResolvedValue([
+      { id: "rf-1", path: "/mnt/old-library", allowDelete: true } as unknown as RootFolder,
+    ]);
+
+    expect(await isWithinDeletableRootFolder("/mnt/old-library-2/SomeGame")).toBe(false);
   });
 });

@@ -49,6 +49,7 @@ const folder: RootFolder = {
   path: "/mnt/old-library",
   name: "Old NAS",
   enabled: true,
+  allowDelete: false,
   accessible: true,
   diskFreeBytes: 1024 * 1024 * 1024,
   diskTotalBytes: 2 * 1024 * 1024 * 1024,
@@ -145,6 +146,26 @@ describe("RootFolderDiscovery", () => {
       expect(apiRequest).toHaveBeenCalledWith("PATCH", "/api/root-folders/rf-1", {
         enabled: false,
       });
+    });
+  });
+
+  it("toggles a folder's allow-delete state and warns when turning it on", async () => {
+    mockFetch([folder]);
+    const { apiRequest } = await import("@/lib/queryClient");
+    renderComponent();
+
+    const toggle = await screen.findByLabelText("Allow deleting files in /mnt/old-library");
+    fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(apiRequest).toHaveBeenCalledWith("PATCH", "/api/root-folders/rf-1", {
+        allowDelete: true,
+      });
+    });
+    await waitFor(() => {
+      expect(mockToast).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Deletion Allowed" })
+      );
     });
   });
 

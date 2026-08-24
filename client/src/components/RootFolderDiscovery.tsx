@@ -131,6 +131,22 @@ export function RootFolderDiscovery() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/root-folders"] }),
   });
 
+  const allowDeleteMutation = useMutation({
+    mutationFn: async ({ id, allowDelete }: { id: string; allowDelete: boolean }) => {
+      await apiRequest("PATCH", `/api/root-folders/${id}`, { allowDelete });
+    },
+    onSuccess: (_data, { allowDelete }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/root-folders"] });
+      if (allowDelete) {
+        toast({
+          title: "Deletion Allowed",
+          description:
+            "Questarr can now delete files in this folder when you remove a game with its files.",
+        });
+      }
+    },
+  });
+
   const healthCheckMutation = useMutation({
     mutationFn: async (id: string) => {
       await apiRequest("POST", `/api/root-folders/${id}/health-check`);
@@ -262,7 +278,8 @@ export function RootFolderDiscovery() {
           <AlertDescription className="text-sm">
             Games found here are added as <strong>owned</strong> and linked to their folder on disk,
             but that folder stays outside your library root — it is never moved, renamed, or deleted
-            by Questarr.
+            by Questarr unless you turn on <strong>Allow Delete</strong> for that folder below. With
+            it off (the default), removing a game with its files skips anything discovered here.
           </AlertDescription>
         </Alert>
 
@@ -285,13 +302,14 @@ export function RootFolderDiscovery() {
               <TableHead>Status</TableHead>
               <TableHead>Free Space</TableHead>
               <TableHead className="w-[80px]">Enabled</TableHead>
+              <TableHead className="w-[110px]">Allow Delete</TableHead>
               <TableHead className="w-[140px]"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {rootFolders.length === 0 && (
               <TableRow>
-                <TableCell colSpan={5} className="text-center text-muted-foreground">
+                <TableCell colSpan={6} className="text-center text-muted-foreground">
                   No root folders configured yet
                 </TableCell>
               </TableRow>
@@ -328,6 +346,15 @@ export function RootFolderDiscovery() {
                         toggleMutation.mutate({ id: folder.id, enabled })
                       }
                       aria-label={`Enable ${folder.path}`}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Switch
+                      checked={folder.allowDelete}
+                      onCheckedChange={(allowDelete) =>
+                        allowDeleteMutation.mutate({ id: folder.id, allowDelete })
+                      }
+                      aria-label={`Allow deleting files in ${folder.path}`}
                     />
                   </TableCell>
                   <TableCell>

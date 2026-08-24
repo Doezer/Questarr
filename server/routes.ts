@@ -1823,6 +1823,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const normalizeCategory = (category: DownloadCategory): GameFileCategory =>
           category === "packs" ? "extra" : category;
         const files: ScannedGameFile[] = [];
+
+        // Resolves and records a single file entry: canonicalizes its path (rejecting
+        // anything that escapes the library root via a symlink), stats it, and derives
+        // its category. Split out of `walk` to keep the directory-traversal logic simple.
+        const recordFileEntry = async (
+          fullPath: string,
+          entryName: string,
+          inheritedCategory?: DownloadCategory
+        ): Promise<void> => {
+          const canonicalFile = await realpathOrNull(fullPath);
+          if (!canonicalFile || !isContained(canonicalFile, libraryRoot)) return;
+          let stat: Awaited<ReturnType<typeof fs.promises.stat>>;
+          try {
+            stat = await fs.promises.stat(canonicalFile);
+          } catch (error) {
+            if (isExpectedFsError(error)) return;
+            throw error;
+          }
+          const category = normalizeCategory(
+            inheritedCategory ?? categorizeDownload(path.parse(entryName).name).category
+          );
+          files.push({ name: entryName, path: canonicalFile, category, size: stat.size });
+        };
+
         const walk = async (dir: string, inheritedCategory?: DownloadCategory): Promise<void> => {
           const canonicalDir = await realpathOrNull(dir);
           if (!canonicalDir || !isContained(canonicalDir, libraryRoot)) return;
@@ -1842,19 +1866,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               continue;
             }
             if (!entry.isFile()) continue;
-            const canonicalFile = await realpathOrNull(fullPath);
-            if (!canonicalFile || !isContained(canonicalFile, libraryRoot)) continue;
-            let stat: Awaited<ReturnType<typeof fs.promises.stat>>;
-            try {
-              stat = await fs.promises.stat(canonicalFile);
-            } catch (error) {
-              if (isExpectedFsError(error)) continue;
-              throw error;
-            }
-            const category = normalizeCategory(
-              inheritedCategory ?? categorizeDownload(path.parse(entry.name).name).category
-            );
-            files.push({ name: entry.name, path: canonicalFile, category, size: stat.size });
+            await recordFileEntry(fullPath, entry.name, inheritedCategory);
           }
         };
         await walk(scanRoot);

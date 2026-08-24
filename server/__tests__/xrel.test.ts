@@ -157,6 +157,41 @@ describe("xREL Client", () => {
       expect(results[0].nukeReason).toBeUndefined();
     });
 
+    it("falls back to a generic nuke reason when flags.nuke_rls is set but nuke_reason is absent", async () => {
+      // xREL can flag a release as nuked without ever populating nuke_reason
+      // -- the badge must still show up rather than silently disappearing.
+      const mockResponse = {
+        results: [
+          {
+            id: "127",
+            dirname: "Flag.Only.Nuke-GROUP",
+            link_href: "/release/127.html",
+            time: 1600000000,
+            group_name: "GROUP",
+            flags: { nuke_rls: true },
+            ext_info: {
+              type: "master_game",
+              id: "game4",
+              title: "Flag Only Nuke",
+              link_href: "/game/game4.html",
+            },
+          } as XrelSceneRelease,
+        ],
+        p2p_results: [],
+      };
+
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => mockResponse,
+      });
+
+      const results = await xrelClient.searchReleases("Flag Only Nuke");
+
+      expect(results).toHaveLength(1);
+      expect(results[0].nukeReason).toBe("Nuked (no reason provided)");
+    });
+
     it("should fetch and parse p2p releases correctly when requested", async () => {
       const mockResponse = {
         results: [],
@@ -320,6 +355,33 @@ describe("xREL Client", () => {
       expect(result.list).toHaveLength(1);
       expect(result.list[0].id).toBe("1");
       expect(result.total_count).toBe(500);
+    });
+
+    it("falls back to a generic nuke reason when flags.nuke_rls is set but nuke_reason is absent", async () => {
+      const mockResponse = {
+        list: [
+          {
+            id: "3",
+            dirname: "Flag.Only.Nuke-SCENE",
+            ext_info: { type: "master_game", title: "Flag Only Nuke" },
+            time: 12347,
+            flags: { nuke_rls: true },
+          },
+        ],
+        pagination: { current_page: 1, per_page: 50, total_pages: 1 },
+        total_count: 1,
+      };
+
+      fetchMock.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => mockResponse,
+      });
+
+      const result = await xrelClient.getLatestReleases();
+
+      expect(result.list).toHaveLength(1);
+      expect(result.list[0].nukeReason).toBe("Nuked (no reason provided)");
     });
   });
 

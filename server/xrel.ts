@@ -116,9 +116,21 @@ export interface XrelReleaseListItem {
   sizeUnit?: string;
   ext_info?: XrelExtInfo;
   source: "scene" | "p2p";
-  // Normalized from XrelSceneRelease.nuke_reason. Only ever set for scene
+  // Normalized from XrelSceneRelease.nuke_reason (with a fallback for
+  // flag-only nukes -- see deriveNukeReason). Only ever set for scene
   // releases -- xREL's p2p releases don't carry nuke metadata.
   nukeReason?: string;
+}
+
+/**
+ * xREL can flag a release as nuked (flags.nuke_rls) without ever populating
+ * nuke_reason -- the scene marked it invalid but didn't record why. Fall
+ * back to a generic label in that case so the client still shows the Nuked
+ * badge instead of silently dropping a flag-only nuke.
+ */
+function deriveNukeReason(r: XrelSceneRelease): string | undefined {
+  if (r.nuke_reason) return r.nuke_reason;
+  return r.flags?.nuke_rls ? "Nuked (no reason provided)" : undefined;
 }
 
 export interface XrelSearchResponse {
@@ -157,7 +169,7 @@ function mergeAndFilterGameReleases(
       sizeUnit: r.size?.unit,
       ext_info: r.ext_info,
       source: "scene",
-      nukeReason: r.nuke_reason || undefined,
+      nukeReason: deriveNukeReason(r),
     });
   }
   for (const r of p2p) {
@@ -277,7 +289,7 @@ export async function getLatestReleases(
     sizeUnit: r.size?.unit,
     ext_info: r.ext_info,
     source: "scene",
-    nukeReason: r.nuke_reason || undefined,
+    nukeReason: deriveNukeReason(r),
   }));
 
   return {

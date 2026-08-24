@@ -88,6 +88,12 @@ describe("redactSecrets", () => {
     });
   });
 
+  it("returns a sentinel for an invalid Date instead of throwing", () => {
+    const invalidDate = new Date("not a real date");
+    expect(() => redactSecrets(invalidDate)).not.toThrow();
+    expect(redactSecrets(invalidDate)).toBe("[Invalid Date]");
+  });
+
   it("summarizes Buffer values instead of collapsing them to {}", () => {
     const buf = Buffer.from("hello");
     expect(redactSecrets(buf)).toBe("[Buffer 5 bytes]");

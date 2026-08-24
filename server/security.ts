@@ -168,7 +168,11 @@ export function redactSecrets(value: unknown, depth = 0): unknown {
   // These have no useful own-enumerable-property representation --
   // Object.entries(new Date()) is [], so falling through to the generic
   // object branch below would silently collapse them to {}.
-  if (value instanceof Date) return value.toISOString();
+  if (value instanceof Date) {
+    // toISOString() throws RangeError for an invalid Date (e.g. new
+    // Date("garbage")) instead of returning a sentinel value.
+    return isNaN(value.getTime()) ? "[Invalid Date]" : value.toISOString();
+  }
   if (Buffer.isBuffer(value)) return `[Buffer ${value.length} bytes]`;
   if (value instanceof Map) return redactSecrets(Object.fromEntries(value), depth + 1);
   if (value instanceof Set) return redactSecrets(Array.from(value), depth + 1);

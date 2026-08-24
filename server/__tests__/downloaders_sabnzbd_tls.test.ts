@@ -76,6 +76,12 @@ const selfSignedError = () => {
   return err;
 };
 
+const expiredCertError = () => {
+  const err = new Error("certificate has expired") as Error & { cause?: { code: string } };
+  err.cause = { code: "CERT_HAS_EXPIRED" };
+  return err;
+};
+
 describe("SABnzbd TLS self-signed-certificate opt-in", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -101,6 +107,18 @@ describe("SABnzbd TLS self-signed-certificate opt-in", () => {
     const [loggedFields] = loggerWarnMock.mock.calls[0];
     expect(loggedFields.url).not.toContain("api-key");
     expect(loggedFields.url).toContain("apikey=%5Bredacted%5D");
+  });
+
+  it("never retries insecurely for an expired certificate, even with allowSelfSignedCertificate enabled", async () => {
+    // CERT_HAS_EXPIRED is a different failure mode than a self-signed/untrusted
+    // chain -- allowSelfSignedCertificate must not paper over it.
+    safeFetchMock.mockRejectedValue(expiredCertError());
+
+    const client = new SABnzbdClient(createDownloader({ allowSelfSignedCertificate: true }));
+    const result = await client.testConnection();
+
+    expect(result.success).toBe(false);
+    expect(httpsRequestMock).not.toHaveBeenCalled();
   });
 
   it("falls back to an insecure connection when allowSelfSignedCertificate is true", async () => {

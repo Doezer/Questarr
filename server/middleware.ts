@@ -340,6 +340,88 @@ export const sanitizeDownloaderData = [
     .toBoolean(),
 ];
 
+// Sanitization rules for POST /api/downloaders/test -- validates the full
+// request body before it's used to build a temporary Downloader and test a
+// live connection, rather than only checking allowSelfSignedCertificate's
+// type. Distinct from sanitizeDownloaderData because this route never takes
+// a `name` (the server synthesizes one) and has its own body shape.
+export const sanitizeDownloaderTestData = [
+  body("type").trim().isIn(DOWNLOADER_TYPES).withMessage("Invalid downloader type"),
+  body("url")
+    .trim()
+    .custom((value, { req }) => {
+      const type = req.body.type;
+      const isUrl = /^https?:\/\/.+/.test(value);
+      if (isUrl) return true;
+      if (DOWNLOADER_TYPES.includes(type)) {
+        const hostnameRegex =
+          /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+        const ipRegex = /^(\d{1,3}\.){3}\d{1,3}$/;
+        return hostnameRegex.test(value) || ipRegex.test(value);
+      }
+      return false;
+    })
+    .withMessage("Invalid URL or hostname"),
+  body("port").optional().isInt({ min: 1, max: 65535 }).withMessage("Invalid port").toInt(),
+  body("useSsl")
+    .optional()
+    .isBoolean({ strict: true })
+    .withMessage("useSsl must be a boolean")
+    .toBoolean(),
+  body("urlPath")
+    .optional()
+    .trim()
+    .isLength({ max: 200 })
+    .withMessage("URL path must be at most 200 characters"),
+  body("username")
+    .optional()
+    .trim()
+    .isLength({ max: 200 })
+    .withMessage("Username must be at most 200 characters"),
+  body("password")
+    .optional()
+    .trim()
+    .isLength({ max: 200 })
+    .withMessage("Password must be at most 200 characters"),
+  body("downloadPath")
+    .optional()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage("Download path must be at most 500 characters")
+    .custom((value) => !value.includes(".."))
+    .withMessage("Download path cannot contain '..'"),
+  body("category")
+    .optional()
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage("Category must be at most 100 characters"),
+  body("label")
+    .optional()
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage("Label must be at most 100 characters"),
+  body("addStopped")
+    .optional()
+    .isBoolean({ strict: true })
+    .withMessage("addStopped must be a boolean")
+    .toBoolean(),
+  body("removeCompleted")
+    .optional()
+    .isBoolean({ strict: true })
+    .withMessage("removeCompleted must be a boolean")
+    .toBoolean(),
+  body("postImportCategory")
+    .optional()
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage("Post-import category must be at most 100 characters"),
+  body("allowSelfSignedCertificate")
+    .optional()
+    .isBoolean({ strict: true })
+    .withMessage("allowSelfSignedCertificate must be a boolean")
+    .toBoolean(),
+];
+
 // Sanitization rules for partial downloader updates (PATCH)
 export const sanitizeDownloaderUpdateData = [
   body("name")

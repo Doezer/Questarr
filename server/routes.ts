@@ -28,6 +28,8 @@ import {
   type Indexer,
   type Downloader,
   type InsertImportTaskItem,
+  type ScannedGameFile,
+  type GameFileCategory,
 } from "../shared/schema.js";
 import { isUsenetDownloaderType } from "../shared/downloader-types.js";
 import { torznabClient } from "./torznab.js";
@@ -198,7 +200,7 @@ import {
   parseReleaseMetadata,
   matchesPlatformFilter,
 } from "../shared/title-utils.js";
-import { categorizeDownload } from "../shared/download-categorizer.js";
+import { categorizeDownload, type DownloadCategory } from "../shared/download-categorizer.js";
 import { SUPPORT_WORKER_ORIGIN } from "../shared/support-config.js";
 import { ZipArchive } from "archiver";
 import helmet from "helmet";
@@ -1914,15 +1916,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.json({ files: [] });
         }
 
-        const categoryDirs = new Set(["dlc", "update", "extra", "packs"]);
+        const categoryDirs = new Set<DownloadCategory>(["dlc", "update", "extra", "packs"]);
+        const isCategoryDirName = (name: string): name is DownloadCategory =>
+          categoryDirs.has(name as DownloadCategory);
         // "packs" is recognized as a category-inheriting folder name, but game_files only
         // persists the four categories the UI groups by ("main" | "dlc" | "update" | "extra").
         // Normalize it (and the same category from filename-based categorizeDownload
         // matches) to "extra" so scan results are always postable via POST /api/game-files.
-        const normalizeCategory = (category: string): string =>
+        const normalizeCategory = (category: DownloadCategory): GameFileCategory =>
           category === "packs" ? "extra" : category;
-        const files: Array<{ name: string; path: string; category: string; size: number }> = [];
-        const walk = async (dir: string, inheritedCategory?: string): Promise<void> => {
+        const files: ScannedGameFile[] = [];
+        const walk = async (dir: string, inheritedCategory?: DownloadCategory): Promise<void> => {
           const canonicalDir = await realpathOrNull(dir);
           if (!canonicalDir || !isContained(canonicalDir, libraryRoot)) return;
           let entries: fs.Dirent[];
@@ -1935,9 +1939,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           for (const entry of entries) {
             const fullPath = path.join(canonicalDir, entry.name);
             if (entry.isDirectory()) {
-              const nextCategory = categoryDirs.has(entry.name.toLowerCase())
-                ? entry.name.toLowerCase()
-                : inheritedCategory;
+              const lowerName = entry.name.toLowerCase();
+              const nextCategory = isCategoryDirName(lowerName) ? lowerName : inheritedCategory;
               await walk(fullPath, nextCategory);
               continue;
             }

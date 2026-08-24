@@ -199,6 +199,49 @@ describe("DatabaseStorage Integration", () => {
     expect(keys.size).toBe(1);
   });
 
+  describe("root folder CRUD", () => {
+    it("creates, lists, updates, health-checks, touches, and removes a root folder", async () => {
+      const folder = await storage.addRootFolder({ path: "/mnt/old-library", name: "Old NAS" });
+      expect(folder.enabled).toBe(true);
+      expect(folder.allowDelete).toBe(false);
+      expect(folder.accessible).toBeNull();
+
+      expect(await storage.getRootFolder(folder.id)).toMatchObject({ path: "/mnt/old-library" });
+      expect(await storage.getRootFolderByPath("/mnt/old-library")).toMatchObject({
+        id: folder.id,
+      });
+
+      const disabled = await storage.addRootFolder({ path: "/mnt/other", enabled: false });
+      expect(await storage.getAllRootFolders()).toHaveLength(2);
+      const enabledOnly = await storage.getEnabledRootFolders();
+      expect(enabledOnly.map((f) => f.id)).toEqual([folder.id]);
+      expect(enabledOnly.some((f) => f.id === disabled.id)).toBe(false);
+
+      const updated = await storage.updateRootFolder(folder.id, {
+        name: "Renamed",
+        allowDelete: true,
+      });
+      expect(updated?.name).toBe("Renamed");
+      expect(updated?.allowDelete).toBe(true);
+
+      const withHealth = await storage.updateRootFolderHealth(folder.id, {
+        accessible: true,
+        diskFreeBytes: 1000,
+        diskTotalBytes: 2000,
+      });
+      expect(withHealth?.accessible).toBe(true);
+      expect(withHealth?.diskFreeBytes).toBe(1000);
+
+      expect((await storage.getRootFolder(folder.id))?.lastScannedAt).toBeNull();
+      await storage.touchRootFolderScanned(folder.id);
+      expect((await storage.getRootFolder(folder.id))?.lastScannedAt).toBeInstanceOf(Date);
+
+      expect(await storage.removeRootFolder(folder.id)).toBe(true);
+      expect(await storage.getRootFolder(folder.id)).toBeUndefined();
+      expect(await storage.removeRootFolder(folder.id)).toBe(false);
+    });
+  });
+
   describe("credential encryption at rest", () => {
     it("encrypts an indexer's apiKey in the DB but returns it decrypted", async () => {
       const added = await storage.addIndexer({

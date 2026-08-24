@@ -107,6 +107,10 @@ vi.mock("../middleware.js", () => ({
   sanitizeMatchAndAddTitle: [],
   sanitizeNexusModsGameDomainQuery: [],
   sanitizeNexusModsTrendingModsQuery: [],
+  sanitizeRootFolderData: [],
+  sanitizeRootFolderUpdateData: [],
+  sanitizeLibraryScanData: [],
+  sanitizeUnmatchedMatchData: [],
 }));
 
 describe("RSS Routes SSRF", () => {

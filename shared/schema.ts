@@ -885,6 +885,51 @@ export const insertGameFileSchema = createInsertSchema(gameFiles, {
 export type GameFile = typeof gameFiles.$inferSelect;
 export type InsertGameFile = (typeof insertGameFileSchema)["_output"];
 
+// Additional folders scanned for games already present on disk outside the
+// configured library root (e.g. an older library, a secondary drive). Purely
+// a discovery source — importing still goes through the normal library root.
+export const rootFolders = sqliteTable("root_folders", {
+  id: text("id").primaryKey(),
+  path: text("path").notNull().unique(),
+  name: text("name"),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  // Opt-in, off by default: whether Questarr's normal "delete game + files"
+  // flow is allowed to remove files under this folder. Discovery on its own
+  // never touches disk; this only affects the explicit delete flow, and only
+  // for games whose libraryPath resolves inside this specific folder.
+  allowDelete: integer("allow_delete", { mode: "boolean" }).notNull().default(false),
+  accessible: integer("accessible", { mode: "boolean" }),
+  diskFreeBytes: integer("disk_free_bytes"),
+  diskTotalBytes: integer("disk_total_bytes"),
+  lastScannedAt: integer("last_scanned_at", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+    sql`(strftime('%s', 'now') * 1000)`
+  ),
+});
+
+export const insertRootFolderSchema = createInsertSchema(rootFolders, {
+  path: (schema) => schema.trim().min(1, "Path is required"),
+  name: (schema) => schema.trim().max(200).optional(),
+}).omit({
+  id: true,
+  accessible: true,
+  diskFreeBytes: true,
+  diskTotalBytes: true,
+  lastScannedAt: true,
+  createdAt: true,
+});
+
+export const updateRootFolderSchema = z.object({
+  path: z.string().trim().min(1).optional(),
+  name: z.string().trim().max(200).nullable().optional(),
+  enabled: z.boolean().optional(),
+  allowDelete: z.boolean().optional(),
+});
+
+export type RootFolder = typeof rootFolders.$inferSelect;
+export type InsertRootFolder = (typeof insertRootFolderSchema)["_output"];
+export type UpdateRootFolder = z.infer<typeof updateRootFolderSchema>;
+
 // A file discovered by scanning a game's library folder on disk, as returned by
 // GET /api/games/:gameId/files. Distinct from GameFile (a persisted game_files row):
 // this reflects the live filesystem scan, not an imported/tracked file. The scan only

@@ -21,6 +21,7 @@ import { useToast } from "@/hooks/use-toast";
 import type { ImportConfig } from "@shared/schema";
 import { PathMappingSettings } from "./PathMappingSettings";
 import { FileBrowser } from "./FileBrowser";
+import { RootFolderDiscovery } from "./RootFolderDiscovery";
 
 type IgdbPlatform = { id: number; name: string };
 type AppConfig = { igdb?: { configured?: boolean } };
@@ -129,6 +130,7 @@ export default function ImportSettings() {
         <TabsList>
           <TabsTrigger value="config">General Config</TabsTrigger>
           <TabsTrigger value="paths">Path Mappings</TabsTrigger>
+          <TabsTrigger value="discover">Discover</TabsTrigger>
           <TabsTrigger value="help">Help</TabsTrigger>
         </TabsList>
 
@@ -424,6 +426,10 @@ export default function ImportSettings() {
 
         <TabsContent value="paths" className="space-y-4">
           <PathMappingSettings />
+        </TabsContent>
+
+        <TabsContent value="discover" className="space-y-4">
+          <RootFolderDiscovery />
         </TabsContent>
 
         <TabsContent value="help" className="space-y-4">

@@ -855,6 +855,91 @@ describe("MemStorage", () => {
   });
 });
 
+describe("Root Folder Management", () => {
+  let storage: MemStorageType;
+
+  beforeEach(() => {
+    storage = new MemStorage();
+  });
+
+  it("creates a root folder with defaults and no health data yet", async () => {
+    const folder = await storage.addRootFolder({ path: "/mnt/old-library" });
+    expect(folder.id).toBeDefined();
+    expect(folder.path).toBe("/mnt/old-library");
+    expect(folder.name).toBeNull();
+    expect(folder.enabled).toBe(true);
+    expect(folder.allowDelete).toBe(false);
+    expect(folder.accessible).toBeNull();
+  });
+
+  it("creates a root folder with allowDelete explicitly enabled", async () => {
+    const folder = await storage.addRootFolder({ path: "/mnt/old-library", allowDelete: true });
+    expect(folder.allowDelete).toBe(true);
+  });
+
+  it("lists all root folders and filters to enabled ones", async () => {
+    await storage.addRootFolder({ path: "/mnt/a" });
+    const disabled = await storage.addRootFolder({ path: "/mnt/b", enabled: false });
+
+    expect(await storage.getAllRootFolders()).toHaveLength(2);
+    const enabled = await storage.getEnabledRootFolders();
+    expect(enabled).toHaveLength(1);
+    expect(enabled.some((f) => f.id === disabled.id)).toBe(false);
+  });
+
+  it("gets a root folder by id and by path", async () => {
+    const folder = await storage.addRootFolder({ path: "/mnt/old-library", name: "Old NAS" });
+    expect((await storage.getRootFolder(folder.id))?.name).toBe("Old NAS");
+    expect((await storage.getRootFolderByPath("/mnt/old-library"))?.id).toBe(folder.id);
+    expect(await storage.getRootFolder("missing")).toBeUndefined();
+    expect(await storage.getRootFolderByPath("/nowhere")).toBeUndefined();
+  });
+
+  it("updates a root folder's fields", async () => {
+    const folder = await storage.addRootFolder({ path: "/mnt/old-library" });
+    const updated = await storage.updateRootFolder(folder.id, {
+      name: "Renamed",
+      enabled: false,
+      allowDelete: true,
+    });
+    expect(updated?.name).toBe("Renamed");
+    expect(updated?.enabled).toBe(false);
+    expect(updated?.allowDelete).toBe(true);
+    expect(await storage.updateRootFolder("missing", { enabled: false })).toBeUndefined();
+  });
+
+  it("updates and touches health/scan metadata", async () => {
+    const folder = await storage.addRootFolder({ path: "/mnt/old-library" });
+    const withHealth = await storage.updateRootFolderHealth(folder.id, {
+      accessible: true,
+      diskFreeBytes: 1000,
+      diskTotalBytes: 2000,
+    });
+    expect(withHealth?.accessible).toBe(true);
+    expect(withHealth?.diskFreeBytes).toBe(1000);
+    expect(
+      await storage.updateRootFolderHealth("missing", {
+        accessible: false,
+        diskFreeBytes: null,
+        diskTotalBytes: null,
+      })
+    ).toBeUndefined();
+
+    expect(folder.lastScannedAt).toBeNull();
+    await storage.touchRootFolderScanned(folder.id);
+    expect((await storage.getRootFolder(folder.id))?.lastScannedAt).toBeInstanceOf(Date);
+    // Touching a missing folder is a silent no-op.
+    await storage.touchRootFolderScanned("missing");
+  });
+
+  it("removes a root folder", async () => {
+    const folder = await storage.addRootFolder({ path: "/mnt/old-library" });
+    expect(await storage.removeRootFolder(folder.id)).toBe(true);
+    expect(await storage.getRootFolder(folder.id)).toBeUndefined();
+    expect(await storage.removeRootFolder(folder.id)).toBe(false);
+  });
+});
+
 describe("Import And Mapping Helpers", () => {
   let storage: MemStorageType;
 

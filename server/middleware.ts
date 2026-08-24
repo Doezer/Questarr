@@ -523,6 +523,68 @@ export const sanitizeNexusModsTrendingModsQuery = [
     .toInt(),
 ];
 
+// Sanitization rules for root folder creation
+export const sanitizeRootFolderData = [
+  body("path")
+    .trim()
+    .isLength({ min: 1, max: 1000 })
+    .withMessage("Path must be between 1 and 1000 characters")
+    .custom((value: string) => !value.includes("\0"))
+    .withMessage("Path must not contain null bytes"),
+  body("name")
+    .optional()
+    .trim()
+    .isLength({ max: 200 })
+    .withMessage("Name must be at most 200 characters"),
+  body("enabled").optional().isBoolean().withMessage("Enabled must be a boolean").toBoolean(),
+  body("allowDelete")
+    .optional()
+    .isBoolean()
+    .withMessage("allowDelete must be a boolean")
+    .toBoolean(),
+];
+
+// Sanitization rules for partial root folder updates (PATCH)
+export const sanitizeRootFolderUpdateData = [
+  body("path")
+    .optional()
+    .trim()
+    .isLength({ min: 1, max: 1000 })
+    .withMessage("Path must be between 1 and 1000 characters")
+    .custom((value: string) => !value.includes("\0"))
+    .withMessage("Path must not contain null bytes"),
+  body("name")
+    .optional({ nullable: true })
+    .trim()
+    .isLength({ max: 200 })
+    .withMessage("Name must be at most 200 characters"),
+  body("enabled").optional().isBoolean().withMessage("Enabled must be a boolean").toBoolean(),
+  body("allowDelete")
+    .optional()
+    .isBoolean()
+    .withMessage("allowDelete must be a boolean")
+    .toBoolean(),
+];
+
+// Sanitization rules for POST /api/library/scan (rootFolderId is optional — omit to scan all)
+export const sanitizeLibraryScanData = [
+  body("rootFolderId")
+    .optional()
+    .trim()
+    .isLength({ min: 1, max: 200 })
+    .withMessage("rootFolderId must be a non-empty string"),
+];
+
+// Sanitization rules for POST /api/library/scan/unmatched/match
+export const sanitizeUnmatchedMatchData = [
+  body("rootFolderId")
+    .trim()
+    .isLength({ min: 1, max: 200 })
+    .withMessage("rootFolderId is required"),
+  body("folderName").trim().isLength({ min: 1, max: 1000 }).withMessage("folderName is required"),
+  body("igdbId").isInt({ min: 1 }).withMessage("igdbId must be a positive integer").toInt(),
+];
+
 // 🛡️ Sentinel: Global error handler middleware
 // Standardizes error responses and prevents leakage of sensitive details in production
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

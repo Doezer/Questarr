@@ -869,6 +869,61 @@ describe("API Routes - Extended Coverage", () => {
       expect(fsExtra.remove).not.toHaveBeenCalled();
     });
 
+    it("should delete library files outside the library root when their root folder has allowDelete on", async () => {
+      const gameId = "123e4567-e89b-12d3-a456-426614174000";
+      vi.mocked(storage.getGame).mockResolvedValue({
+        id: gameId,
+        userId: "user-1",
+        libraryPath: "/mnt/old-library/MyGame",
+      } as unknown as Game);
+      vi.mocked(storage.getImportConfig).mockResolvedValue({
+        libraryRoot: "/data/library",
+      } as any);
+      vi.mocked(storage.getAllRootFolders).mockResolvedValue([
+        { id: "rf-1", path: "/mnt/old-library", allowDelete: true },
+      ] as any);
+      vi.mocked(storage.removeGame).mockResolvedValue(true);
+      vi.mocked(fsExtra.remove).mockResolvedValue(undefined as never);
+
+      const response = await request(app).delete(`/api/games/${gameId}?deleteFiles=true`);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({
+        success: true,
+        fileDeletion: { deleted: true, path: "/mnt/old-library/MyGame" },
+      });
+      expect(fsExtra.remove).toHaveBeenCalledWith(path.resolve("/mnt/old-library/MyGame"));
+    });
+
+    it("should still skip deleting library files outside the library root when their root folder has allowDelete off", async () => {
+      const gameId = "123e4567-e89b-12d3-a456-426614174000";
+      vi.mocked(storage.getGame).mockResolvedValue({
+        id: gameId,
+        userId: "user-1",
+        libraryPath: "/mnt/old-library/MyGame",
+      } as unknown as Game);
+      vi.mocked(storage.getImportConfig).mockResolvedValue({
+        libraryRoot: "/data/library",
+      } as any);
+      vi.mocked(storage.getAllRootFolders).mockResolvedValue([
+        { id: "rf-1", path: "/mnt/old-library", allowDelete: false },
+      ] as any);
+      vi.mocked(storage.removeGame).mockResolvedValue(true);
+
+      const response = await request(app).delete(`/api/games/${gameId}?deleteFiles=true`);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({
+        success: true,
+        fileDeletion: {
+          deleted: false,
+          reason: "outside-library-root",
+          path: "/mnt/old-library/MyGame",
+        },
+      });
+      expect(fsExtra.remove).not.toHaveBeenCalled();
+    });
+
     it("should report deletion failure when fs-extra.remove throws", async () => {
       const gameId = "123e4567-e89b-12d3-a456-426614174000";
       vi.mocked(storage.getGame).mockResolvedValue({

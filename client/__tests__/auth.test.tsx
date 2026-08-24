@@ -166,6 +166,26 @@ describe("AuthProvider", () => {
     expect(localStorage.getItem("token")).toBeNull();
   });
 
+  it("does not wipe the cached /api/auth/status query when /api/auth/me returns 401", async () => {
+    // A prior bug cleared the *entire* QueryClient here, which could cancel
+    // the still-in-flight /api/auth/status query and strand its observers
+    // (setup/config screens) on an indefinite loading state.
+    mockApiFetch.mockImplementation(async (url: string) => {
+      if (url.includes("/api/auth/status")) return jsonResponse(200, { hasUsers: true });
+      if (url.includes("/api/auth/me")) return jsonResponse(401, {});
+      return jsonResponse(404, {});
+    });
+    const client = createClient();
+
+    renderAuth(client);
+
+    await waitFor(() => {
+      expect(client.getQueryData(["/api/auth/status"])).toEqual({ hasUsers: true });
+    });
+    // Cache survives the /api/auth/me 401 handling.
+    expect(client.getQueryData(["/api/auth/status"])).toEqual({ hasUsers: true });
+  });
+
   it("redirects to / when authenticated and sitting on /login", async () => {
     currentLocation = "/login";
     localStorage.setItem("token", "existing-token");
@@ -207,6 +227,40 @@ describe("AuthProvider", () => {
       expect.objectContaining({ title: "Logged in successfully" })
     );
     expect(setLocationMock).toHaveBeenCalledWith("/");
+  });
+
+  it("clears a stale migrated bearer token on successful login, so it can't override the fresh cookie", async () => {
+    // A stale bearer token (migrated from a pre-cookie session) takes
+    // priority over the auth cookie on every request server-side. If login
+    // left it in place, a fresh valid cookie session would keep getting
+    // silently rejected in favor of the stale bearer on every subsequent
+    // /api/auth/me check.
+    localStorage.setItem("token", "stale-legacy-token");
+    mockApiFetch.mockImplementation(async (url: string) => {
+      if (url.includes("/api/auth/status")) return jsonResponse(200, { hasUsers: true });
+      if (url.includes("/api/auth/me")) return jsonResponse(401, {});
+      return jsonResponse(404, {});
+    });
+    mockApiRequest.mockResolvedValue({
+      json: async () => ({ token: "new-token", user: { id: "u1", username: "newuser" } }),
+    });
+
+    renderAuth(createClient());
+
+    // Migrated on mount.
+    await waitFor(() => {
+      expect(mockSetBearerToken).toHaveBeenCalledWith("stale-legacy-token");
+    });
+
+    await act(async () => {
+      screen.getByRole("button", { name: "Login" }).click();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("user")).toHaveTextContent("newuser");
+    });
+    // The last call must be the clear, not a stale re-set of the migrated token.
+    expect(mockSetBearerToken).toHaveBeenLastCalledWith(null);
   });
 
   it("shows an error toast when login fails", async () => {

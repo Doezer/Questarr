@@ -105,7 +105,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       if (res.status === 401 || res.status === 403) {
         setBearerToken(null);
-        queryClient.clear();
+        // Drop every other cached query (stale authenticated data from a
+        // prior session) but deliberately spare "/api/auth/status" --
+        // clearing the whole client here can cancel that query's own
+        // in-flight fetch and strand its observers (setup/config screens)
+        // on an indefinite loading state instead of just re-resolving once
+        // this query itself settles to null.
+        queryClient.removeQueries({
+          predicate: (query) => query.queryKey[0] !== "/api/auth/status",
+        });
         return null;
       }
 
@@ -147,6 +155,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // to store client-side. `data.token` is still returned for backward
       // compatibility with non-browser bearer clients, but the browser
       // client itself never persists it.
+      //
+      // Also clear any in-memory bearer token migrated from a pre-cookie
+      // session (see migrateLegacyLocalStorageToken): the Authorization
+      // header takes priority over the cookie on every subsequent request,
+      // so a stale/invalid migrated bearer left in place would keep
+      // clobbering this fresh, valid cookie session on every later
+      // /api/auth/me check.
+      setBearerToken(null);
       setUser(data.user);
     },
     onSuccess: () => {

@@ -2644,6 +2644,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Type and URL are required" });
       }
 
+      // Reject anything but an actual boolean (or omitted) -- allowing a
+      // truthy non-boolean like the string "false" through here would let a
+      // caller enable the insecure TLS retry without a genuine boolean opt-in.
+      if (
+        allowSelfSignedCertificate !== undefined &&
+        allowSelfSignedCertificate !== null &&
+        typeof allowSelfSignedCertificate !== "boolean"
+      ) {
+        return res.status(400).json({ error: "allowSelfSignedCertificate must be a boolean" });
+      }
+
       // Check for SSRF
       if (!(await isSafeUrl(url))) {
         return res.status(400).json({ error: "Invalid or unsafe URL" });

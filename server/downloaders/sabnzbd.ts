@@ -9,6 +9,23 @@ import {
   stripTrailingPathSeparators,
 } from "./utils.js";
 
+/**
+ * Strips the `apikey` query param from a SABnzbd request URL before it's
+ * passed to a logger -- getApiUrl() embeds the credential directly in the
+ * URL, so logging it unredacted would leak the API key into log output.
+ */
+function redactApiKey(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.searchParams.has("apikey")) {
+      parsed.searchParams.set("apikey", "[redacted]");
+    }
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
 interface SABnzbdQueue {
   slots: Array<{
     nzo_id: string;
@@ -125,16 +142,17 @@ export class SABnzbdClient implements DownloaderClient {
           (error.cause as { code: string })?.code === "CERT_HAS_EXPIRED");
 
       if (isSslError) {
+        const redactedUrl = redactApiKey(url);
         if (!this.downloader.allowSelfSignedCertificate) {
           downloadersLogger.warn(
-            { url, downloaderId: this.downloader.id },
+            { url: redactedUrl, downloaderId: this.downloader.id },
             "SSL verification failed; not retrying insecurely because " +
               "allowSelfSignedCertificate is disabled for this downloader"
           );
           throw error;
         }
         downloadersLogger.debug(
-          { url },
+          { url: redactedUrl },
           "SSL verification failed, retrying with insecure connection (allowSelfSignedCertificate enabled)"
         );
         return this.fetchInsecure(url, options);

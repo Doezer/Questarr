@@ -93,9 +93,14 @@ describe("SABnzbd TLS self-signed-certificate opt-in", () => {
     expect(result.success).toBe(false);
     expect(httpsRequestMock).not.toHaveBeenCalled();
     expect(loggerWarnMock).toHaveBeenCalledWith(
-      expect.objectContaining({ downloaderId: "sab-tls" }),
+      expect.objectContaining({ downloaderId: "sab-tls", url: expect.any(String) }),
       expect.stringContaining("not retrying insecurely")
     );
+    // The downloader's SABnzbd API key (its `username`) must never reach the
+    // logger unredacted -- it's embedded in the request URL's `apikey` param.
+    const [loggedFields] = loggerWarnMock.mock.calls[0];
+    expect(loggedFields.url).not.toContain("api-key");
+    expect(loggedFields.url).toContain("apikey=%5Bredacted%5D");
   });
 
   it("falls back to an insecure connection when allowSelfSignedCertificate is true", async () => {

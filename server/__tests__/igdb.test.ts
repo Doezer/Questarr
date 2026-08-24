@@ -188,7 +188,17 @@ describe("IGDBClient - Fallback Mechanism", { timeout: 20000 }, () => {
     const emptyResponse = { ok: true, json: async () => [] };
     const successResponse = {
       ok: true,
-      json: async () => [{ id: 1, name: "God of War", first_release_date: 1110844800 }],
+      json: async () => [
+        {
+          id: 1,
+          name: "God of War",
+          first_release_date: 1110844800,
+          // Must match the requested platformId (8) -- otherwise local
+          // post-filtering discards this row and search falls through to
+          // further approaches, which this test doesn't mock responses for.
+          platforms: [{ id: 8, name: "PlayStation 2" }],
+        },
+      ],
     };
 
     // Approach 1 (full-text search, no category filter) emits no `where`
@@ -646,6 +656,54 @@ describe("IGDBClient - canonicalization runs before filtering/sorting (edition v
     // The edition matched platformId 5, but the canonical parent it resolves
     // to does not -- the parent's own metadata must govern the filter.
     expect(results).toHaveLength(0);
+  });
+
+  it("continues to the next search approach when local post-processing filters the first approach down to nothing", async () => {
+    // Regression test: postProcessSearchResults can legitimately return an
+    // empty array even when the raw IGDB response for an approach wasn't
+    // empty (canonicalization + platformId filtering collapses this
+    // approach's only row onto a non-matching parent). searchGames must not
+    // treat that as "found nothing more to look for" and stop -- it should
+    // fall through to the next search approach instead.
+    const approach1Response = {
+      ok: true,
+      json: async () => [
+        {
+          id: 20,
+          name: "Test Game 6: Deluxe Edition",
+          platforms: [{ id: 5, name: "PlayStation 5" }],
+          version_parent: { id: 200, name: "Test Game 6" },
+        },
+      ],
+    };
+    // Parent doesn't match the requested platformId -- approach 1's single
+    // row gets filtered out entirely after canonicalization.
+    const parentResponse = {
+      ok: true,
+      json: async () => [
+        { id: 200, name: "Test Game 6", platforms: [{ id: 6, name: "PC (Microsoft Windows)" }] },
+      ],
+    };
+    // Approach 2 (category-filtered search) returns a different game that
+    // does match, with no version_parent -- no further canonicalization needed.
+    const approach2Response = {
+      ok: true,
+      json: async () => [
+        { id: 201, name: "Test Game 6 Sequel", platforms: [{ id: 5, name: "PlayStation 5" }] },
+      ],
+    };
+
+    fetchMock
+      .mockResolvedValueOnce(authResponse)
+      .mockResolvedValueOnce(approach1Response)
+      .mockResolvedValueOnce(parentResponse)
+      .mockResolvedValueOnce(approach2Response);
+
+    const { igdbClient } = await import("../igdb.js");
+    const results = await igdbClient.searchGames("Test Game 6", 20, { platformId: 5 });
+
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({ id: 201, name: "Test Game 6 Sequel" });
   });
 
   it("filters out a canonicalized result whose parent release year doesn't match releaseYear, even though the edition's did", async () => {

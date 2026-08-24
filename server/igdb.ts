@@ -575,7 +575,18 @@ class IGDBClient {
             { approach: i + 1, query: sanitizedQuery, resultCount: results.length },
             `search approach ${i + 1} found ${results.length} results`
           );
-          return await this.postProcessSearchResults(results, limit, options);
+          // postProcessSearchResults can legitimately return an empty array
+          // even though the raw response wasn't empty -- canonicalization
+          // can collapse this approach's rows onto parents that don't match
+          // a platformId/releaseYear filter, or dedupe collapses everything
+          // onto ids already excluded. Only return here if there's something
+          // to show; otherwise fall through to the next search approach
+          // instead of returning an empty result out from under a query
+          // that a later, less-targeted approach might still satisfy.
+          const processedResults = await this.postProcessSearchResults(results, limit, options);
+          if (processedResults.length > 0) {
+            return processedResults;
+          }
         }
       } catch {
         igdbLogger.warn(

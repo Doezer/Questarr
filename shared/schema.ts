@@ -231,6 +231,13 @@ export const downloaders = sqliteTable("downloaders", {
   port: integer("port"),
   useSsl: integer("use_ssl", { mode: "boolean" }).default(false),
   urlPath: text("url_path"),
+  // Opt-in per-downloader bypass for TLS certificate validation. Left off by
+  // default: a hung/failed TLS handshake should surface as an error, not
+  // silently fall back to an insecure connection unless the user explicitly
+  // trusts this downloader's self-signed certificate.
+  allowSelfSignedCertificate: integer("allow_self_signed_certificate", { mode: "boolean" })
+    .notNull()
+    .default(false),
   username: text("username"),
   password: text("password"),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),

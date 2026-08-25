@@ -94,6 +94,36 @@ function parsePriorityInput(value: string, fallback: number): number {
   return parsedValue ?? fallback;
 }
 
+// SABnzbd's default archive password lives in the free-form per-type `settings`
+// JSON blob, alongside qBittorrent's `initialState`. Kept as pure functions so
+// the parsing/serialization logic is testable independently of the form.
+export function getArchivePasswordFromSettings(settingsJson: string | undefined | null): string {
+  try {
+    const settings = JSON.parse(settingsJson || "{}");
+    return settings.archivePassword || "";
+  } catch {
+    return "";
+  }
+}
+
+export function setArchivePasswordInSettings(
+  settingsJson: string | undefined | null,
+  password: string
+): string {
+  let settings: Record<string, unknown>;
+  try {
+    settings = JSON.parse(settingsJson || "{}");
+  } catch {
+    settings = {};
+  }
+  if (password) {
+    settings.archivePassword = password;
+  } else {
+    delete settings.archivePassword;
+  }
+  return JSON.stringify(settings);
+}
+
 function PriorityControl({
   id,
   priority,
@@ -962,28 +992,12 @@ export default function DownloadersPage() {
                       <Input
                         type="password"
                         placeholder="e.g. 404"
-                        value={(() => {
-                          try {
-                            const settings = JSON.parse(form.watch("settings") || "{}");
-                            return settings.archivePassword || "";
-                          } catch {
-                            return "";
-                          }
-                        })()}
+                        value={getArchivePasswordFromSettings(form.watch("settings"))}
                         onChange={(e) => {
-                          const currentSettings = form.getValues("settings") || "{}";
-                          let settings: Record<string, unknown>;
-                          try {
-                            settings = JSON.parse(currentSettings);
-                          } catch {
-                            settings = {};
-                          }
-                          if (e.target.value) {
-                            settings.archivePassword = e.target.value;
-                          } else {
-                            delete settings.archivePassword;
-                          }
-                          form.setValue("settings", JSON.stringify(settings));
+                          form.setValue(
+                            "settings",
+                            setArchivePasswordInSettings(form.getValues("settings"), e.target.value)
+                          );
                         }}
                         data-testid="input-downloader-archive-password"
                       />

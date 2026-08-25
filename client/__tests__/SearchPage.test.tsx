@@ -97,6 +97,16 @@ const TORRENT_ITEM = {
   leechers: 1,
 };
 
+const USENET_ITEM = {
+  title: "Game.Name.v1.0-GROUP",
+  link: "https://example.com/release/nzb",
+  guid: "guid-nzb",
+  pubDate: "2026-01-15T12:00:00Z",
+  size: 1073741824,
+  grabs: 12,
+  downloadType: "usenet" as const,
+};
+
 const OLD_ITEM = {
   title: "Old.Game.2024-GROUP",
   link: "https://example.com/release/2",
@@ -335,6 +345,30 @@ describe("SearchPage", () => {
 
       await waitFor(() => {
         expect(screen.getByRole("heading", { name: "Start Download" })).toBeInTheDocument();
+      });
+    });
+
+    it("submits a usenet download without a password, passing password through as undefined", async () => {
+      const dl = { id: "dl-sab", name: "SABnzbd", type: "sabnzbd", enabled: true };
+      setupApiRequest({ items: [USENET_ITEM], total: 1, downloaders: [dl] });
+      renderSearch();
+      typeSearch("game");
+
+      await waitFor(() => expect(screen.getByTestId("card-torrent-0")).toBeInTheDocument());
+      fireEvent.click(screen.getByTestId("button-download-0"));
+
+      await waitFor(() => {
+        expect(screen.getByRole("heading", { name: "Start Download" })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByTestId("button-start-download"));
+
+      await waitFor(() => {
+        expect(mockApiRequest).toHaveBeenCalledWith(
+          "POST",
+          "/api/downloaders/dl-sab/downloads",
+          expect.objectContaining({ downloadType: "usenet", password: undefined })
+        );
       });
     });
 

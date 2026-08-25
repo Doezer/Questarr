@@ -660,6 +660,19 @@ export default function DownloadersPage() {
                           ) {
                             form.setValue("port", nextDefaultPort);
                           }
+
+                          // Only SABnzbd reads this flag. Clear it when
+                          // switching away from SABnzbd so it can't
+                          // silently carry a stale "true" into a saved
+                          // record for another downloader type, or
+                          // reappear pre-checked if the user switches back
+                          // to SABnzbd without re-confirming it.
+                          if (
+                            nextType !== "sabnzbd" &&
+                            form.getValues("allowSelfSignedCertificate")
+                          ) {
+                            form.setValue("allowSelfSignedCertificate", false);
+                          }
                         }}
                         value={field.value}
                       >

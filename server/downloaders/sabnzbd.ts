@@ -116,18 +116,20 @@ export class SABnzbdClient implements DownloaderClient {
     try {
       return await safeFetch(url, { ...options, allowPrivate: true });
     } catch (error) {
-      const isSslError =
+      // Only fall back to an insecure connection for self-signed certificate
+      // errors. Other TLS failures (expired certs, hostname mismatches,
+      // untrusted CAs, etc.) are not safe to silently bypass and must
+      // continue to surface as errors.
+      const sslErrorCode = (error as { cause?: { code?: string } })?.cause?.code;
+      const isSelfSignedCertError =
         error instanceof Error &&
-        (error.message.includes("self-signed") ||
-          error.message.includes("certificate") ||
-          (error.cause as { code: string })?.code === "DEPTH_ZERO_SELF_SIGNED_CERT" ||
-          (error.cause as { code: string })?.code === "UNABLE_TO_VERIFY_LEAF_SIGNATURE" ||
-          (error.cause as { code: string })?.code === "CERT_HAS_EXPIRED");
+        (sslErrorCode === "DEPTH_ZERO_SELF_SIGNED_CERT" ||
+          sslErrorCode === "SELF_SIGNED_CERT_IN_CHAIN");
 
-      if (isSslError) {
+      if (isSelfSignedCertError) {
         downloadersLogger.debug(
           { url },
-          "SSL verification failed, retrying with insecure connection"
+          "Self-signed certificate detected, retrying with insecure connection"
         );
         return this.fetchInsecure(url, options);
       }

@@ -112,4 +112,21 @@ describe("SABnzbdClient SSL fallback", () => {
       message: "Connected to SABnzbd v4.5.0",
     });
   });
+
+  it("does not bypass TLS verification for non-self-signed certificate errors", async () => {
+    vi.spyOn(ssrf, "safeFetch").mockRejectedValueOnce(
+      Object.assign(new Error("certificate has expired"), {
+        cause: { code: "CERT_HAS_EXPIRED" },
+      })
+    );
+
+    const httpsRequestSpy = vi.spyOn(https, "request");
+
+    const client = new SABnzbdClient(createMockDownloader());
+    const result = await client.testConnection();
+
+    expect(httpsRequestSpy).not.toHaveBeenCalled();
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("certificate has expired");
+  });
 });

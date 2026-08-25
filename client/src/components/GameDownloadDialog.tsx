@@ -240,7 +240,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     [minSeeders]
   );
   const [selectedIndexer, setSelectedIndexer] = useState<string>("all");
-  const [sortBy, setSortBy] = useState<"seeders" | "date" | "size">("seeders");
+  const [sortBy, setSortBy] = useState<"seeders" | "date" | "size" | "priority">("seeders");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [showFilters, setShowFilters] = useState(false);
   const [visibleCategories, setVisibleCategories] = useState<Set<DownloadCategory>>(
@@ -363,6 +363,16 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     enabled: open,
   });
 
+  // Maps indexer name -> configured priority (lower number = higher priority) so
+  // results can be sorted to match the order set on Management > Indexers.
+  const indexerPriorityMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const indexer of enabledIndexers ?? []) {
+      map.set(indexer.name, indexer.priority);
+    }
+    return map;
+  }, [enabledIndexers]);
+
   // Categorize downloads
   const categorizedDownloads = useMemo(() => {
     if (!searchResults?.items) return { main: [], update: [], dlc: [], extra: [], packs: [] };
@@ -460,6 +470,13 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
             const keyB = b.guid || b.link;
             comparison =
               (itemPubDateTimestamps.get(keyB) ?? 0) - (itemPubDateTimestamps.get(keyA) ?? 0);
+          } else if (sortBy === "priority") {
+            // Lower priority number = higher-priority indexer, so it sorts first by default.
+            const aPriority =
+              indexerPriorityMap.get(a.indexerName ?? "") ?? Number.MAX_SAFE_INTEGER;
+            const bPriority =
+              indexerPriorityMap.get(b.indexerName ?? "") ?? Number.MAX_SAFE_INTEGER;
+            comparison = aPriority - bPriority;
           } else {
             comparison = (b.size ?? 0) - (a.size ?? 0);
           }
@@ -479,6 +496,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     selectedGroups,
     selectedPlatforms,
     itemPubDateTimestamps,
+    indexerPriorityMap,
   ]);
 
   // Sorted items for display (by date)
@@ -726,7 +744,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     });
   };
 
-  const toggleSort = (field: "seeders" | "date" | "size") => {
+  const toggleSort = (field: "seeders" | "date" | "size" | "priority") => {
     if (sortBy === field) {
       setSortOrder(sortOrder === "asc" ? "desc" : "asc");
     } else {
@@ -740,7 +758,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     label,
     className = "",
   }: {
-    field: "seeders" | "date" | "size";
+    field: "seeders" | "date" | "size" | "priority";
     label: string;
     className?: string;
   }) => (
@@ -990,6 +1008,13 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                             </span>
                           </div>
                           <div className="flex items-center gap-6 md:gap-10">
+                            {availableIndexers.length > 1 && (
+                              <SortHeader
+                                field="priority"
+                                label="Priority"
+                                className="min-w-[70px] justify-end"
+                              />
+                            )}
                             <SortHeader
                               field="date"
                               label="Date"

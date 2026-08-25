@@ -955,6 +955,47 @@ export default function DownloadersPage() {
                     </FormItem>
                   )}
                 />
+                {form.watch("type") === "sabnzbd" && (
+                  <FormItem>
+                    <FormLabel>Default Archive Password (Optional)</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="password"
+                        placeholder="e.g. 404"
+                        value={(() => {
+                          try {
+                            const settings = JSON.parse(form.watch("settings") || "{}");
+                            return settings.archivePassword || "";
+                          } catch {
+                            return "";
+                          }
+                        })()}
+                        onChange={(e) => {
+                          const currentSettings = form.getValues("settings") || "{}";
+                          let settings: Record<string, unknown>;
+                          try {
+                            settings = JSON.parse(currentSettings);
+                          } catch {
+                            settings = {};
+                          }
+                          if (e.target.value) {
+                            settings.archivePassword = e.target.value;
+                          } else {
+                            delete settings.archivePassword;
+                          }
+                          form.setValue("settings", JSON.stringify(settings));
+                        }}
+                        data-testid="input-downloader-archive-password"
+                      />
+                    </FormControl>
+                    <FormDescription className="text-xs">
+                      Applied automatically to every download sent to this client. Some indexers
+                      (e.g. G4U) ship releases as password-protected archives — SABnzbd will use
+                      this to unpack them. You can still override it per-download in the search
+                      dialog.
+                    </FormDescription>
+                  </FormItem>
+                )}
                 {form.watch("type") === "qbittorrent" && (
                   <FormField
                     control={form.control}

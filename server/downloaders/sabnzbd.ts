@@ -246,6 +246,17 @@ export class SABnzbdClient implements DownloaderClient {
     return (await response.json()) as Record<string, unknown>;
   }
 
+  private getArchivePassword(): string | undefined {
+    if (!this.downloader.settings) return undefined;
+    try {
+      const settings = JSON.parse(this.downloader.settings) as { archivePassword?: string };
+      return settings.archivePassword || undefined;
+    } catch (error) {
+      downloadersLogger.warn({ error }, "Failed to parse SABnzbd settings");
+      return undefined;
+    }
+  }
+
   async addDownload(
     request: DownloadRequest
   ): Promise<{ success: boolean; id?: string; message: string }> {
@@ -263,10 +274,16 @@ export class SABnzbdClient implements DownloaderClient {
       }
       const nzbContent = await nzbResponse.arrayBuffer();
 
+      // Many usenet releases (e.g. G4U) ship as password-protected archives. SABnzbd
+      // can unpack them automatically if we hand it the extraction password up front —
+      // configured per-downloader since it's usually a fixed indexer/group convention.
+      const password = request.password || this.getArchivePassword();
+
       const url = this.getApiUrl("addfile", {
         nzbname: request.title,
         cat: request.category || "games",
         priority: (request.priority || 0).toString(),
+        ...(password ? { password } : {}),
       });
 
       // Build multipart body manually so fetchInsecure (self-signed HTTPS fallback)

@@ -257,6 +257,74 @@ describe("sabnzbd remaining regression coverage", () => {
     });
   });
 
+  it("passes the request password, falling back to the downloader's default archive password", async () => {
+    safeFetchMock.mockResolvedValue({
+      ok: true,
+      arrayBuffer: async () => new TextEncoder().encode("nzb").buffer,
+    } as Response);
+
+    const addfileOk = {
+      ok: true,
+      json: async () => ({ status: true, nzo_ids: ["sab-pw"] }),
+    } as Response;
+
+    // Per-request password wins over the downloader's default.
+    const withDefault = new SABnzbdClient(
+      createDownloader({ settings: JSON.stringify({ archivePassword: "404" }) })
+    );
+    const withDefaultPrivate = withDefault as unknown as {
+      fetchWithFallback(url: string, options?: RequestInit): Promise<Response>;
+    };
+    let fetchWithFallbackSpy = vi
+      .spyOn(withDefaultPrivate, "fetchWithFallback")
+      .mockResolvedValueOnce(addfileOk);
+    await withDefault.addDownload({
+      url: "http://indexer.local/g4u.nzb",
+      title: "G4U Release",
+      password: "override",
+    });
+    expect(fetchWithFallbackSpy).toHaveBeenCalledWith(
+      expect.stringContaining("password=override"),
+      expect.anything()
+    );
+
+    // Falls back to the downloader's default archive password when none is given per-request.
+    fetchWithFallbackSpy.mockResolvedValueOnce(addfileOk);
+    await withDefault.addDownload({ url: "http://indexer.local/g4u.nzb", title: "G4U Release" });
+    expect(fetchWithFallbackSpy).toHaveBeenCalledWith(
+      expect.stringContaining("password=404"),
+      expect.anything()
+    );
+
+    // No password configured anywhere — omitted from the request.
+    const noPassword = new SABnzbdClient(createDownloader());
+    const noPasswordPrivate = noPassword as unknown as {
+      fetchWithFallback(url: string, options?: RequestInit): Promise<Response>;
+    };
+    fetchWithFallbackSpy = vi
+      .spyOn(noPasswordPrivate, "fetchWithFallback")
+      .mockResolvedValueOnce(addfileOk);
+    await noPassword.addDownload({ url: "http://indexer.local/plain.nzb", title: "Plain NZB" });
+    expect(fetchWithFallbackSpy).toHaveBeenCalledWith(
+      expect.not.stringContaining("password="),
+      expect.anything()
+    );
+
+    // Malformed settings JSON is tolerated and treated as no default password.
+    const badSettings = new SABnzbdClient(createDownloader({ settings: "not-json" }));
+    const badSettingsPrivate = badSettings as unknown as {
+      fetchWithFallback(url: string, options?: RequestInit): Promise<Response>;
+    };
+    fetchWithFallbackSpy = vi
+      .spyOn(badSettingsPrivate, "fetchWithFallback")
+      .mockResolvedValueOnce(addfileOk);
+    await badSettings.addDownload({ url: "http://indexer.local/plain.nzb", title: "Plain NZB" });
+    expect(fetchWithFallbackSpy).toHaveBeenCalledWith(
+      expect.not.stringContaining("password="),
+      expect.anything()
+    );
+  });
+
   it("covers queue/history status variants, details fallbacks, and control error branches", async () => {
     const client = new SABnzbdClient(createDownloader({ category: "games" }));
     const privateClient = client as unknown as {

@@ -2770,7 +2770,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     async (req: Request, res: Response) => {
       try {
         const { id } = req.params;
-        const { url, title, category, downloadPath, priority, downloadType } = req.body;
+        const { url, title, category, downloadPath, priority, downloadType, password } = req.body;
 
         if (!url || !title) {
           return res.status(400).json({ error: "URL and title are required" });
@@ -2792,6 +2792,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           downloadPath,
           priority,
           downloadType,
+          password,
         });
 
         res.json(result);
@@ -3468,7 +3469,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     validateRequest,
     async (req: Request, res: Response) => {
       try {
-        const { url, title, category, downloadPath, priority, gameId, downloadType } = req.body;
+        const { url, title, category, downloadPath, priority, gameId, downloadType, password } =
+          req.body;
 
         if (!url || !title) {
           return res.status(400).json({ error: "URL and title are required" });
@@ -3487,6 +3489,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           downloadPath,
           priority,
           downloadType,
+          password,
         });
 
         if (result && result.success === false) {

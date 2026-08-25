@@ -22,6 +22,7 @@ import {
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -80,6 +81,7 @@ const downloadSchema = z.object({
   category: z.string().optional(),
   downloadPath: z.string().optional(),
   priority: z.number().min(1).max(10).optional(),
+  password: z.string().optional(),
 });
 
 type DownloadForm = z.infer<typeof downloadSchema>;
@@ -265,6 +267,7 @@ export default function SearchPage() {
         downloadPath: formData.downloadPath,
         priority: formData.priority,
         downloadType: isUsenetItem(download) ? "usenet" : "torrent",
+        password: formData.password || undefined,
       });
       return r.json();
     },
@@ -291,6 +294,7 @@ export default function SearchPage() {
       category: "",
       downloadPath: "",
       priority: 5,
+      password: "",
     },
   });
 
@@ -319,6 +323,7 @@ export default function SearchPage() {
       category: "",
       downloadPath: "",
       priority: 5,
+      password: "",
     });
     setIsDownloadDialogOpen(true);
   };
@@ -766,6 +771,30 @@ export default function SearchPage() {
                   </FormItem>
                 )}
               />
+              {selectedDownload && isUsenetItem(selectedDownload) && (
+                <FormField
+                  control={form.control}
+                  name="password"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Archive Password (Optional)</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="text"
+                          placeholder="e.g. 404"
+                          {...field}
+                          data-testid="input-download-password"
+                        />
+                      </FormControl>
+                      <FormDescription className="text-xs">
+                        Some usenet releases ship as password-protected archives. SABnzbd will use
+                        this to unpack automatically.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
               <div className="flex justify-end space-x-2">
                 <Button
                   type="button"

@@ -772,29 +772,31 @@ export default function DownloadersPage() {
                       </FormItem>
                     )}
                   />
-                  <FormField
-                    control={form.control}
-                    name="allowSelfSignedCertificate"
-                    render={({ field }) => (
-                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-2">
-                        <div className="space-y-0">
-                          <FormLabel className="text-sm">Allow self-signed certificate</FormLabel>
-                          <FormDescription className="text-xs">
-                            Skips TLS certificate validation for this downloader over HTTPS. Only
-                            enable this if you trust the network path and understand it allows
-                            man-in-the-middle interception.
-                          </FormDescription>
-                        </div>
-                        <FormControl>
-                          <Checkbox
-                            checked={!!field.value}
-                            onCheckedChange={(checked) => field.onChange(!!checked)}
-                            data-testid="checkbox-downloader-allow-self-signed-certificate"
-                          />
-                        </FormControl>
-                      </FormItem>
-                    )}
-                  />
+                  {form.watch("type") === "sabnzbd" && (
+                    <FormField
+                      control={form.control}
+                      name="allowSelfSignedCertificate"
+                      render={({ field }) => (
+                        <FormItem className="flex flex-row items-center justify-between rounded-lg border p-2">
+                          <div className="space-y-0">
+                            <FormLabel className="text-sm">Allow self-signed certificate</FormLabel>
+                            <FormDescription className="text-xs">
+                              Skips TLS certificate validation for this downloader over HTTPS. Only
+                              enable this if you trust the network path and understand it allows
+                              man-in-the-middle interception.
+                            </FormDescription>
+                          </div>
+                          <FormControl>
+                            <Checkbox
+                              checked={!!field.value}
+                              onCheckedChange={(checked) => field.onChange(!!checked)}
+                              data-testid="checkbox-downloader-allow-self-signed-certificate"
+                            />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                  )}
                 </>
                 <FormField
                   control={form.control}

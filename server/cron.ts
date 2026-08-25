@@ -51,13 +51,13 @@ const GAME_UPDATE_TITLE_TO_EVENT: Record<string, NotificationEvent> = {
 
 type DownloadSortBy = "seeders" | "date" | "size" | "priority";
 
-interface AutoSearchRules {
+export interface AutoSearchRules {
   minSeeders: number;
   sortBy: DownloadSortBy;
   visibleCategoriesSet: Set<string>;
 }
 
-interface AutoSearchCategorizedItems {
+export interface AutoSearchCategorizedItems {
   mainItems: SearchItem[];
   updateItems: SearchItem[];
   packsItems: SearchItem[];
@@ -79,7 +79,8 @@ function getAutoSearchRules(downloadRules: string | null): AutoSearchRules {
   return { minSeeders, sortBy, visibleCategoriesSet };
 }
 
-function categorizeSearchItems(
+// Exported for unit testing of the sort/filter/category logic in isolation.
+export function categorizeSearchItems(
   items: SearchItem[],
   rules: AutoSearchRules,
   indexerPriorityMap?: Map<string, number>

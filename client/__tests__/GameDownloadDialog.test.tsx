@@ -187,9 +187,9 @@ const mockTorrents = makeSearchResult(
 );
 
 const mockEnabledIndexers = [
-  { id: 1, name: "Indexer A", enabled: true },
-  { id: 2, name: "Indexer B", enabled: true },
-  { id: 3, name: "Indexer C", enabled: true },
+  { id: 1, name: "Indexer A", enabled: true, priority: 2 },
+  { id: 2, name: "Indexer B", enabled: true, priority: 1 },
+  { id: 3, name: "Indexer C", enabled: true, priority: 3 },
 ];
 
 const mockDownloaders = [
@@ -382,6 +382,30 @@ describe("GameDownloadDialog", () => {
 
     // Should trigger a re-sort -> Ascending -> ArrowUp
     expect(screen.getAllByTestId("icon-sort-up").length).toBeGreaterThan(0);
+  });
+
+  it("sorts results by indexer priority", async () => {
+    renderComponent();
+
+    await waitFor(() => {
+      expect(screen.getByText("Priority")).toBeInTheDocument();
+    });
+
+    // Click the Priority sort header. Default order (desc) shows the
+    // highest-priority indexer (lowest configured priority number) first:
+    // Indexer B (priority 1) < Indexer A (priority 2) < Indexer C (priority 3).
+    fireEvent.click(screen.getByText("Priority"));
+
+    await waitFor(() => {
+      // Dialog content renders into a Radix portal on document.body, not inside `container`.
+      const text = document.body.textContent ?? "";
+      const posIndexerB = text.indexOf("Test Torrent 2"); // Indexer B
+      const posIndexerA = text.indexOf("Test Torrent 1"); // Indexer A
+      const posIndexerC = text.indexOf("Test Usenet NZB"); // Indexer C
+      expect(posIndexerB).toBeGreaterThan(-1);
+      expect(posIndexerA).toBeGreaterThan(posIndexerB);
+      expect(posIndexerC).toBeGreaterThan(posIndexerA);
+    });
   });
 
   it("blacklists a release when clicking 'Blacklist release'", async () => {

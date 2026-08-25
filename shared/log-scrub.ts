@@ -73,18 +73,20 @@ const WINDOWS_USERS_SEGMENT = String.raw`\Users`;
  * Each regex is applied independently so replacements don't interfere.
  */
 export function scrubPii(text: string): string {
-  return redactSecretText(scrubEmailAddresses(text))
-    .replace(JWT_RE, "[jwt]") // before email — JWTs contain dots
-    .replace(IPV6_RE, (match) => (isIpv6(match) ? "[ip]" : match))
-    .replace(IPV4_RE, (match) => (isIpv4(match) ? "[ip]" : match))
-    .replace(UUID_RE, "[uuid]")
-    .replace(HOME_PATH_RE, (_match, _username: string) => {
-      const prefix = _match.startsWith("/")
-        ? "/home"
-        : _match.substring(0, 2) + WINDOWS_USERS_SEGMENT;
-      const sep = _match.includes("\\") ? "\\" : "/";
-      return `${prefix}${sep}[user]`;
-    });
+  return redactSecretText(
+    scrubEmailAddresses(text)
+      .replace(JWT_RE, "[jwt]") // before email — JWTs contain dots
+      .replace(IPV6_RE, (match) => (isIpv6(match) ? "[ip]" : match))
+      .replace(IPV4_RE, (match) => (isIpv4(match) ? "[ip]" : match))
+      .replace(UUID_RE, "[uuid]")
+      .replace(HOME_PATH_RE, (_match, _username: string) => {
+        const prefix = _match.startsWith("/")
+          ? "/home"
+          : _match.substring(0, 2) + WINDOWS_USERS_SEGMENT;
+        const sep = _match.includes("\\") ? "\\" : "/";
+        return `${prefix}${sep}[user]`;
+      })
+  );
 }
 
 function scrubEmailAddresses(text: string): string {

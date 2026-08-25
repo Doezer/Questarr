@@ -8,7 +8,42 @@
  *  - UUIDs             (e.g. socket IDs formatted as UUIDs, download hashes)
  *  - JWT tokens        (defensive — tokens should never be logged)
  *  - OS home-dir paths (e.g. /home/alice/… or C:\Users\alice\…)
+ *  - Secret-shaped text (indexer/downloader API keys, tokens, passwords, Bearer
+ *    headers, webhook URLs — see `redactSecretText` below)
+ *
+ * Server-side, structured log fields are already redacted at write time by
+ * `server/security.ts`'s pino formatter (`redactSecrets`), so `server.log`
+ * should never contain a raw secret in the first place. `redactSecretText` is
+ * defined here (rather than only in `server/security.ts`) so this module's
+ * `scrubPii`/`scrubLogLines` — used by both the client's manual "Send Logs"
+ * flow and the server's automatic error-telemetry flow — apply the exact same
+ * secret redaction as a second layer before log content ever leaves the
+ * instance, in case a secret slips into a log line some other way (e.g. a raw
+ * response body or an un-redacted string field).
  */
+
+// ── Secret-shaped text ────────────────────────────────────────────────────────
+
+/**
+ * Redact common secret-shaped substrings (api_key=..., Bearer <token>, etc.)
+ * out of a plain string before it reaches a log sink or leaves the instance.
+ */
+export function redactSecretText(value: string): string {
+  return (
+    value
+      .replace(
+        /\b(apikey|api[_-]?key|token|password|secret)["']?\s*[:=]\s*["']?([^"',\s&]+)["']?/gi,
+        "$1=[redacted]"
+      )
+      // The /i flag already folds case, so an explicit A-Z range here would
+      // duplicate a-z -- SonarCloud flags that as a redundant character class.
+      .replace(/(Bearer\s+)[a-z0-9._~+/=-]+/gi, "$1[redacted]")
+      .replace(
+        /https:\/\/(?:discord|discordapp)\.com\/api\/webhooks\/[^\s"'<>]+/gi,
+        "[redacted-discord-webhook]"
+      )
+  );
+}
 
 // ── PII patterns ──────────────────────────────────────────────────────────────
 
@@ -38,7 +73,7 @@ const WINDOWS_USERS_SEGMENT = String.raw`\Users`;
  * Each regex is applied independently so replacements don't interfere.
  */
 export function scrubPii(text: string): string {
-  return scrubEmailAddresses(text)
+  return redactSecretText(scrubEmailAddresses(text))
     .replace(JWT_RE, "[jwt]") // before email — JWTs contain dots
     .replace(IPV6_RE, (match) => (isIpv6(match) ? "[ip]" : match))
     .replace(IPV4_RE, (match) => (isIpv4(match) ? "[ip]" : match))

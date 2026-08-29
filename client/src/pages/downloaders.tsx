@@ -34,7 +34,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useForm } from "react-hook-form";
+import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertDownloaderSchema, type Downloader, type InsertDownloader } from "@shared/schema";
 import { isUsenetDownloaderType } from "@shared/downloader-types";
@@ -122,6 +122,33 @@ export function setArchivePasswordInSettings(
     delete settings.archivePassword;
   }
   return JSON.stringify(settings);
+}
+
+export function SabnzbdArchivePasswordField({ form }: { form: UseFormReturn<InsertDownloader> }) {
+  return (
+    <FormItem>
+      <FormLabel>Default Archive Password (Optional)</FormLabel>
+      <FormControl>
+        <Input
+          type="password"
+          placeholder="e.g. 404"
+          value={getArchivePasswordFromSettings(form.watch("settings"))}
+          onChange={(e) => {
+            form.setValue(
+              "settings",
+              setArchivePasswordInSettings(form.getValues("settings"), e.target.value)
+            );
+          }}
+          data-testid="input-downloader-archive-password"
+        />
+      </FormControl>
+      <FormDescription className="text-xs">
+        Applied automatically to every download sent to this client. Some indexers (e.g. G4U) ship
+        releases as password-protected archives — SABnzbd will use this to unpack them. You can
+        still override it per-download in the search dialog.
+      </FormDescription>
+    </FormItem>
+  );
 }
 
 function PriorityControl({
@@ -985,31 +1012,7 @@ export default function DownloadersPage() {
                     </FormItem>
                   )}
                 />
-                {form.watch("type") === "sabnzbd" && (
-                  <FormItem>
-                    <FormLabel>Default Archive Password (Optional)</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="password"
-                        placeholder="e.g. 404"
-                        value={getArchivePasswordFromSettings(form.watch("settings"))}
-                        onChange={(e) => {
-                          form.setValue(
-                            "settings",
-                            setArchivePasswordInSettings(form.getValues("settings"), e.target.value)
-                          );
-                        }}
-                        data-testid="input-downloader-archive-password"
-                      />
-                    </FormControl>
-                    <FormDescription className="text-xs">
-                      Applied automatically to every download sent to this client. Some indexers
-                      (e.g. G4U) ship releases as password-protected archives — SABnzbd will use
-                      this to unpack them. You can still override it per-download in the search
-                      dialog.
-                    </FormDescription>
-                  </FormItem>
-                )}
+                {form.watch("type") === "sabnzbd" && <SabnzbdArchivePasswordField form={form} />}
                 {form.watch("type") === "qbittorrent" && (
                   <FormField
                     control={form.control}

@@ -184,6 +184,7 @@ export class InfiltrationGame {
     while (this.scene.children.length) this.scene.remove(this.scene.children[0]);
   }
 
+  /** Freezes the simulation and drops held input, so nothing drifts while paused. */
   setPaused(paused: boolean) {
     if (this.paused === paused) return;
     this.paused = paused;
@@ -194,6 +195,7 @@ export class InfiltrationGame {
     this.callbacks.onPauseChange?.(paused);
   }
 
+  /** Starts the render loop. Safe to call once; `dispose` stops it. */
   start() {
     this.clock.start();
     const loop = () => {
@@ -206,6 +208,7 @@ export class InfiltrationGame {
     loop();
   }
 
+  /** Detaches every listener and returns all GPU resources. */
   dispose() {
     this.disposed = true;
     cancelAnimationFrame(this.animationHandle);
@@ -263,6 +266,7 @@ export class InfiltrationGame {
     this.scene.add(grid);
   }
 
+  /** Raises the four perimeter walls, each an occluder in its own right. */
   private buildWalls(floorSize: number) {
     const half = floorSize / 2;
     const specs: [number, number, number, number][] = [
@@ -479,6 +483,7 @@ export class InfiltrationGame {
     this.scene.add(this.markerMesh);
   }
 
+  /** Returns the player to the entry point and cancels any order in flight. */
   private resetPlayerToSpawn() {
     const spawnWorld = gridToWorld(this.level.spawn, this.level);
     this.player.position.set(spawnWorld.x, 0, spawnWorld.z);
@@ -553,6 +558,7 @@ export class InfiltrationGame {
     this.renderer.setSize(width, height, false);
   }
 
+  /** Highlights the cell under the cursor, tinted red where it isn't walkable. */
   private updateHoverMesh() {
     if (!this.pointerGround || this.paused) {
       this.hoverMesh.visible = false;
@@ -594,6 +600,7 @@ export class InfiltrationGame {
     this.markerMesh.visible = true;
   }
 
+  /** Walks into console range from the player's current side, then hacks on arrival. */
   private orderInteractWithTerminal() {
     // Stand just short of the console, on the side the player is approaching from.
     const toPlayer = new THREE.Vector3()
@@ -635,6 +642,7 @@ export class InfiltrationGame {
     return this.pathBetween(this.player.position, destination);
   }
 
+  /** Grid route between two world points, smoothed and ending on the exact target. */
   private pathBetween(from: THREE.Vector3, destination: THREE.Vector3): THREE.Vector3[] {
     const startCell = worldToGrid(from.x, from.z, this.level);
     const goalCell = worldToGrid(destination.x, destination.z, this.level);
@@ -691,6 +699,7 @@ export class InfiltrationGame {
 
   // --- per-frame update -------------------------------------------------
 
+  /** One simulation step. Camera, occlusion and marker keep animating while paused. */
   private update(dt: number) {
     if (!this.paused && !this.finished) {
       this.updatePlayerMovement(dt);
@@ -706,6 +715,7 @@ export class InfiltrationGame {
     this.updateMarker(dt);
   }
 
+  /** Advances the player along the current order, with damped acceleration. */
   private updatePlayerMovement(dt: number) {
     this.velocity.multiplyScalar(Math.exp(-8 * dt));
 
@@ -738,6 +748,7 @@ export class InfiltrationGame {
     this.trackWaypointProgress(distance, dt);
   }
 
+  /** Retires the waypoint just arrived at, ending the order if it was the last. */
   private reachWaypoint() {
     this.playerPath.shift();
     this.lastWaypointDistance = Infinity;
@@ -764,6 +775,7 @@ export class InfiltrationGame {
     this.lastWaypointDistance = distance;
   }
 
+  /** Cancels the current order outright, e.g. when the player is wedged. */
   private abortPath() {
     this.playerPath = [];
     this.velocity.set(0, 0);
@@ -772,6 +784,7 @@ export class InfiltrationGame {
     this.markerMesh.visible = false;
   }
 
+  /** Applies movement one axis at a time, so hitting a crate slides along it. */
   private moveWithCollision(dx: number, dz: number) {
     const pos = this.player.position;
     const bound = this.roomHalfExtent - 0.5;
@@ -783,6 +796,7 @@ export class InfiltrationGame {
     if (!this.collides(pos.x, nextZ) && Math.abs(nextZ) < bound) pos.z = nextZ;
   }
 
+  /** True when a player-radius circle at this point overlaps any crate. */
   private collides(x: number, z: number): boolean {
     for (const box of this.crateBoxes) {
       const nearestX = THREE.MathUtils.clamp(x, box.minX, box.maxX);
@@ -793,6 +807,7 @@ export class InfiltrationGame {
     return false;
   }
 
+  /** Samples the sight line for a crate standing between the two points. */
   private lineOfSightBlocked(from: THREE.Vector3, to: THREE.Vector3): boolean {
     const dist = from.distanceTo(to);
     const steps = Math.ceil(dist / 0.6);
@@ -839,12 +854,14 @@ export class InfiltrationGame {
     }
   }
 
+  /** Pulses the destination ring so a pending order stays noticeable. */
   private updateMarker(dt: number) {
     if (!this.markerMesh.visible) return;
     this.markerPulse = (this.markerPulse + dt * 3) % (Math.PI * 2);
     this.markerMaterial.opacity = 0.5 + 0.3 * Math.sin(this.markerPulse);
   }
 
+  /** Lobs a noisemaker at the aim point, pulling nearby guards off patrol. */
   private throwDistraction(aimPoint?: THREE.Vector3) {
     if (this.throwCooldown > 0 || this.paused || this.finished) return;
     const target = aimPoint ?? this.pointerGround;
@@ -873,6 +890,7 @@ export class InfiltrationGame {
     this.player.rotation.y = Math.atan2(velocity.x, velocity.z);
   }
 
+  /** Steps thrown objects through their arc and retires them once spent. */
   private updateProjectiles(dt: number) {
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const projectile = this.projectiles[i];
@@ -895,6 +913,7 @@ export class InfiltrationGame {
     }
   }
 
+  /** Sends every guard within earshot to investigate the noise. */
   private emitNoise(position: THREE.Vector3) {
     for (const guard of this.guards) {
       if (guard.state === "alert") continue;
@@ -944,6 +963,7 @@ export class InfiltrationGame {
     return false;
   }
 
+  /** Sends a guard back to its patrol loop, forcing a fresh route next step. */
   private returnGuardToPatrol(guard: Guard) {
     guard.state = "patrol";
     guard.destination = null;
@@ -970,6 +990,7 @@ export class InfiltrationGame {
     if (guard.spottedFor >= SPOT_GRACE) this.onCaught(guard);
   }
 
+  /** Routes a guard toward its current objective, re-pathing when that changes. */
   private stepGuardMovement(guard: Guard, dt: number) {
     const target =
       guard.state === "investigate" && guard.investigateTarget
@@ -1025,6 +1046,7 @@ export class InfiltrationGame {
     return !this.lineOfSightBlocked(guardEye, playerEye);
   }
 
+  /** Raises the alarm: the guard goes alert and the player restarts from spawn. */
   private onCaught(guard: Guard) {
     guard.state = "alert";
     guard.stateTimer = 1.4;
@@ -1043,6 +1065,7 @@ export class InfiltrationGame {
     this.callbacks.onCaught?.();
   }
 
+  /** Drives console progress while the player holds position in range. */
   private updateHack(dt: number) {
     const dist = Math.hypot(
       this.player.position.x - this.terminalWorld.x,

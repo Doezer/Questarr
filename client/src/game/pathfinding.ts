@@ -96,6 +96,7 @@ function relaxNeighbours(current: GridPos, currentKey: string, state: SearchStat
   }
 }
 
+/** Walks the came-from chain back to the start, dropping the start cell itself. */
 function reconstructPath(cameFrom: Map<string, string>, goalKey: string): GridPos[] {
   const keys: string[] = [goalKey];
   let key = goalKey;

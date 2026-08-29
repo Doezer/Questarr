@@ -53,6 +53,7 @@ export class IsoCamera {
     this.applyTransform();
   }
 
+  /** Keeps the camera target inside the play area, with a margin for the view size. */
   private clampToBounds(position: THREE.Vector3): THREE.Vector3 {
     if (this.boundHalfExtent <= 0) return position;
     // The frustum is rotated 45 degrees against the room, so this is a deliberate
@@ -65,6 +66,7 @@ export class IsoCamera {
     );
   }
 
+  /** Rebuilds the frustum for a new canvas size, preserving the current zoom. */
   resize(width: number, height: number) {
     this.aspect = width / height;
     this.applyFrustum();
@@ -98,12 +100,14 @@ export class IsoCamera {
     return this.camera.position;
   }
 
+  /** Re-seats the camera on the iso diagonal, looking at the current target. */
   private applyTransform() {
     this.camera.position.copy(this.target).addScaledVector(ISO_DIRECTION, CAMERA_DISTANCE);
     this.camera.lookAt(this.target);
     this.camera.updateMatrixWorld();
   }
 
+  /** Sizes the orthographic box so `viewSize` world units fill the canvas height. */
   private applyFrustum() {
     const halfHeight = this.viewSize / 2;
     const halfWidth = halfHeight * this.aspect;

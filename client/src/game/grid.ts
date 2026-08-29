@@ -9,10 +9,12 @@ export interface GridPos {
   z: number;
 }
 
+/** Stable string key for a cell, so cells can live in a Set or Map. */
 export function cellKey(pos: GridPos): string {
   return `${pos.x},${pos.z}`;
 }
 
+/** Inverse of {@link cellKey}. */
 export function parseCellKey(key: string): GridPos {
   const [x, z] = key.split(",").map(Number);
   return { x, z };

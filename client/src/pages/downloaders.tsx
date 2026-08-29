@@ -38,6 +38,7 @@ import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertDownloaderSchema, type Downloader, type InsertDownloader } from "@shared/schema";
 import { isUsenetDownloaderType } from "@shared/downloader-types";
+import { parseJsonObject } from "@shared/json-object-utils";
 import { useToast } from "@/hooks/use-toast";
 import { getDownloadTypeColor } from "@/lib/downloads-utils";
 import PageHeader from "@/components/PageHeader";
@@ -98,23 +99,8 @@ function parsePriorityInput(value: string, fallback: number): number {
 // JSON blob, alongside qBittorrent's `initialState`. Kept as pure functions so
 // the parsing/serialization logic is testable independently of the form.
 
-// Parses settingsJson into a plain settings object, discarding anything that
-// isn't one (null, arrays, primitives) so callers never read/write properties
-// off a non-object.
-function parseSettingsObject(settingsJson: string | undefined | null): Record<string, unknown> {
-  try {
-    const parsed: unknown = JSON.parse(settingsJson || "{}");
-    if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>;
-    }
-    return {};
-  } catch {
-    return {};
-  }
-}
-
 export function getArchivePasswordFromSettings(settingsJson: string | undefined | null): string {
-  const settings = parseSettingsObject(settingsJson);
+  const settings = parseJsonObject(settingsJson);
   return typeof settings.archivePassword === "string" ? settings.archivePassword : "";
 }
 
@@ -122,7 +108,7 @@ export function setArchivePasswordInSettings(
   settingsJson: string | undefined | null,
   password: string
 ): string {
-  const settings = parseSettingsObject(settingsJson);
+  const settings = parseJsonObject(settingsJson);
   if (password) {
     settings.archivePassword = password;
   } else {

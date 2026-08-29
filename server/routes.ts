@@ -32,6 +32,7 @@ import {
   type GameFileCategory,
 } from "../shared/schema.js";
 import { isUsenetDownloaderType } from "../shared/downloader-types.js";
+import { parseJsonObject } from "../shared/json-object-utils.js";
 import { torznabClient } from "./torznab.js";
 import { newznabClient } from "./newznab.js";
 import { rssService } from "./rss.js";
@@ -242,20 +243,8 @@ function maskIndexer(indexer: Indexer): Indexer {
 // The SABnzbd archive password lives inside the free-form `settings` JSON blob
 // (alongside qBittorrent's initialState etc.), so it needs its own mask/restore
 // handling rather than a plain column comparison like `password`.
-function readSettingsObject(settingsJson: string | null | undefined): Record<string, unknown> {
-  if (!settingsJson) return {};
-  try {
-    const parsed: unknown = JSON.parse(settingsJson);
-    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : {};
-  } catch {
-    return {};
-  }
-}
-
 function maskDownloaderSettings(settingsJson: string | null): string | null {
-  const settings = readSettingsObject(settingsJson);
+  const settings = parseJsonObject(settingsJson);
   if (!settings.archivePassword) return settingsJson;
   return JSON.stringify({ ...settings, archivePassword: REDACTED_PLACEHOLDER });
 }
@@ -2533,10 +2522,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // `settings` -- restore the stored value instead of overwriting it with
         // the redaction placeholder the UI echoes back unchanged.
         if (typeof updates.settings === "string") {
-          const incomingSettings = readSettingsObject(updates.settings);
+          const incomingSettings = parseJsonObject(updates.settings);
           if (isUnchangedSentinel(incomingSettings.archivePassword)) {
             const existing = await storage.getDownloader(id);
-            const existingPassword = readSettingsObject(existing?.settings).archivePassword;
+            const existingPassword = parseJsonObject(existing?.settings).archivePassword;
             if (existingPassword) {
               incomingSettings.archivePassword = existingPassword;
             } else {

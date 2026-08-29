@@ -1,4 +1,5 @@
 import type { Downloader, DownloadStatus, DownloadDetails } from "../../shared/schema.js";
+import { parseJsonObject } from "../../shared/json-object-utils.js";
 import { downloadersLogger } from "../logger.js";
 import https from "https";
 import { isSafeUrl, resolveSafeAddress, safeFetch } from "../ssrf.js";
@@ -247,14 +248,8 @@ export class SABnzbdClient implements DownloaderClient {
   }
 
   private getArchivePassword(): string | undefined {
-    if (!this.downloader.settings) return undefined;
-    try {
-      const settings = JSON.parse(this.downloader.settings) as { archivePassword?: string };
-      return settings.archivePassword || undefined;
-    } catch (error) {
-      downloadersLogger.warn({ error }, "Failed to parse SABnzbd settings");
-      return undefined;
-    }
+    const { archivePassword } = parseJsonObject(this.downloader.settings);
+    return typeof archivePassword === "string" ? archivePassword || undefined : undefined;
   }
 
   async addDownload(

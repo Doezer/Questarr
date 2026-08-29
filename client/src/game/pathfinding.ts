@@ -16,51 +16,84 @@ export function findPath(
   const goalKey = cellKey(goal);
   if (startKey === goalKey) return [];
   if (!isInterior(goal, gridSize) || blocked.has(goalKey)) return [];
-  if (!isInterior(start, gridSize)) return [];
+  // A blocked start would otherwise seed the search and route the caller out of
+  // the cell they should never have been standing in.
+  if (!isInterior(start, gridSize) || blocked.has(startKey)) return [];
 
   const heuristic = (pos: GridPos) => Math.abs(pos.x - goal.x) + Math.abs(pos.z - goal.z);
 
   const cameFrom = new Map<string, string>();
   const gScore = new Map<string, number>([[startKey, 0]]);
   const fScore = new Map<string, number>([[startKey, heuristic(start)]]);
-  // The interior is at most a few hundred cells, so scanning the open set for the
-  // cheapest node beats the bookkeeping of a real priority queue.
   const open = new Map<string, GridPos>([[startKey, start]]);
 
   while (open.size > 0) {
-    let currentKey = "";
-    let current: GridPos = start;
-    let bestScore = Infinity;
-    for (const [key, pos] of open) {
-      const score = fScore.get(key) ?? Infinity;
-      if (score < bestScore) {
-        bestScore = score;
-        currentKey = key;
-        current = pos;
-      }
-    }
-
+    const currentKey = cheapestOpenCell(open, fScore);
     if (currentKey === goalKey) return reconstructPath(cameFrom, currentKey);
+
+    const current = open.get(currentKey)!;
     open.delete(currentKey);
-
-    const currentG = gScore.get(currentKey) ?? Infinity;
-    for (const dir of CARDINAL_DIRS) {
-      const next: GridPos = { x: current.x + dir.x, z: current.z + dir.z };
-      if (!isInterior(next, gridSize)) continue;
-      const nextKey = cellKey(next);
-      if (blocked.has(nextKey)) continue;
-
-      const tentative = currentG + 1;
-      if (tentative >= (gScore.get(nextKey) ?? Infinity)) continue;
-
-      cameFrom.set(nextKey, currentKey);
-      gScore.set(nextKey, tentative);
-      fScore.set(nextKey, tentative + heuristic(next));
-      open.set(nextKey, next);
-    }
+    relaxNeighbours(current, currentKey, {
+      gridSize,
+      blocked,
+      heuristic,
+      cameFrom,
+      gScore,
+      fScore,
+      open,
+    });
   }
 
   return [];
+}
+
+/**
+ * The interior is at most a few hundred cells, so scanning the open set for the
+ * cheapest node beats the bookkeeping of a real priority queue.
+ */
+function cheapestOpenCell(
+  open: ReadonlyMap<string, GridPos>,
+  fScore: ReadonlyMap<string, number>
+): string {
+  let bestKey = "";
+  let bestScore = Infinity;
+  for (const key of Array.from(open.keys())) {
+    const score = fScore.get(key) ?? Infinity;
+    if (score < bestScore) {
+      bestScore = score;
+      bestKey = key;
+    }
+  }
+  return bestKey;
+}
+
+interface SearchState {
+  gridSize: number;
+  blocked: ReadonlySet<string>;
+  heuristic: (pos: GridPos) => number;
+  cameFrom: Map<string, string>;
+  gScore: Map<string, number>;
+  fScore: Map<string, number>;
+  open: Map<string, GridPos>;
+}
+
+/** Offers each walkable cardinal neighbour a cheaper route through `current`. */
+function relaxNeighbours(current: GridPos, currentKey: string, state: SearchState) {
+  const currentG = state.gScore.get(currentKey) ?? Infinity;
+  for (const dir of CARDINAL_DIRS) {
+    const next: GridPos = { x: current.x + dir.x, z: current.z + dir.z };
+    if (!isInterior(next, state.gridSize)) continue;
+    const nextKey = cellKey(next);
+    if (state.blocked.has(nextKey)) continue;
+
+    const tentative = currentG + 1;
+    if (tentative >= (state.gScore.get(nextKey) ?? Infinity)) continue;
+
+    state.cameFrom.set(nextKey, currentKey);
+    state.gScore.set(nextKey, tentative);
+    state.fScore.set(nextKey, tentative + state.heuristic(next));
+    state.open.set(nextKey, next);
+  }
 }
 
 function reconstructPath(cameFrom: Map<string, string>, goalKey: string): GridPos[] {

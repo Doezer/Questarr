@@ -88,22 +88,34 @@ export default function PlayPage() {
     };
   }, []);
 
-  const handleStart = () => {
+  const handleStart = useCallback(() => {
     setWon(false);
     gameRef.current?.setPaused(false);
-  };
+  }, []);
 
-  const handlePlayAgain = () => {
+  const handlePlayAgain = useCallback(() => {
     setWon(false);
     gameRef.current?.regenerate(randomSeed());
     gameRef.current?.setPaused(false);
-  };
+  }, []);
+
+  const handlePause = useCallback(() => {
+    gameRef.current?.setPaused(true);
+  }, []);
+
+  const handleExit = useCallback(() => {
+    navigate("/");
+  }, [navigate]);
 
   const overlayOpen = paused || won;
 
   return (
     <div className="fixed inset-0 bg-black">
-      <canvas ref={canvasRef} className="h-full w-full touch-none" />
+      <canvas
+        ref={canvasRef}
+        className="h-full w-full touch-none"
+        aria-label="Infiltration game. Click a tile to move, click the console to hack it, right-click to throw a distraction."
+      />
 
       {/* In-game HUD, always mounted so refs update imperatively without re-render */}
       <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-6">
@@ -137,7 +149,7 @@ export default function PlayPage() {
             variant="outline"
             size="sm"
             aria-label="Pause the infiltration"
-            onClick={() => gameRef.current?.setPaused(true)}
+            onClick={handlePause}
           >
             Pause
           </Button>
@@ -167,7 +179,7 @@ export default function PlayPage() {
             </dl>
             <div className="flex justify-center gap-2 pt-2">
               <Button onClick={handleStart}>Begin infiltration</Button>
-              <Button variant="outline" onClick={() => navigate("/")}>
+              <Button variant="outline" onClick={handleExit}>
                 Exit to Questarr
               </Button>
             </div>
@@ -189,7 +201,7 @@ export default function PlayPage() {
             </p>
             <div className="flex justify-center gap-2 pt-2">
               <Button onClick={handlePlayAgain}>Play again (new layout)</Button>
-              <Button variant="outline" onClick={() => navigate("/")}>
+              <Button variant="outline" onClick={handleExit}>
                 Exit to Questarr
               </Button>
             </div>

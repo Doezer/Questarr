@@ -707,36 +707,10 @@ export class InfiltrationGame {
   }
 
   private updatePlayerMovement(dt: number) {
-    const damping = Math.exp(-8 * dt);
-    this.velocity.multiplyScalar(damping);
+    this.velocity.multiplyScalar(Math.exp(-8 * dt));
 
     const waypoint = this.playerPath[0];
-    if (waypoint) {
-      const dx = waypoint.x - this.player.position.x;
-      const dz = waypoint.z - this.player.position.z;
-      const distance = Math.hypot(dx, dz);
-
-      if (distance <= PLAYER_ARRIVE_EPSILON) {
-        this.playerPath.shift();
-        this.lastWaypointDistance = Infinity;
-        this.stuckTimer = 0;
-        if (this.playerPath.length === 0) this.markerMesh.visible = false;
-      } else {
-        this.velocity.x += (dx / distance) * PLAYER_SPEED * dt * 8;
-        this.velocity.y += (dz / distance) * PLAYER_SPEED * dt * 8;
-        this.velocity.clampLength(0, PLAYER_SPEED);
-
-        // Walking into geometry the smoothed path didn't predict (a guard body, a
-        // corner clipped by the arrival epsilon) would otherwise stall forever.
-        if (distance >= this.lastWaypointDistance - 0.001) {
-          this.stuckTimer += dt;
-          if (this.stuckTimer > PLAYER_STUCK_TIMEOUT) this.abortPath();
-        } else {
-          this.stuckTimer = 0;
-        }
-        this.lastWaypointDistance = distance;
-      }
-    }
+    if (waypoint) this.steerTowardWaypoint(waypoint, dt);
 
     if (this.velocity.lengthSq() < 1e-4) {
       this.velocity.set(0, 0);
@@ -745,6 +719,49 @@ export class InfiltrationGame {
 
     this.moveWithCollision(this.velocity.x * dt, this.velocity.y * dt);
     this.player.rotation.y = Math.atan2(this.velocity.x, this.velocity.y);
+  }
+
+  /** Accelerates toward the current waypoint, or retires it once reached. */
+  private steerTowardWaypoint(waypoint: THREE.Vector3, dt: number) {
+    const dx = waypoint.x - this.player.position.x;
+    const dz = waypoint.z - this.player.position.z;
+    const distance = Math.hypot(dx, dz);
+
+    if (distance <= PLAYER_ARRIVE_EPSILON) {
+      this.reachWaypoint();
+      return;
+    }
+
+    this.velocity.x += (dx / distance) * PLAYER_SPEED * dt * 8;
+    this.velocity.y += (dz / distance) * PLAYER_SPEED * dt * 8;
+    this.velocity.clampLength(0, PLAYER_SPEED);
+    this.trackWaypointProgress(distance, dt);
+  }
+
+  private reachWaypoint() {
+    this.playerPath.shift();
+    this.lastWaypointDistance = Infinity;
+    this.stuckTimer = 0;
+    if (this.playerPath.length === 0) {
+      this.markerMesh.visible = false;
+      // Coasting on residual velocity would drift past the clicked tile.
+      this.velocity.set(0, 0);
+    }
+  }
+
+  /**
+   * Walking into geometry the smoothed path didn't predict (a guard body, a
+   * corner clipped by the arrival epsilon) would otherwise stall forever, so a
+   * waypoint that stops getting closer eventually cancels the order.
+   */
+  private trackWaypointProgress(distance: number, dt: number) {
+    if (distance >= this.lastWaypointDistance - 0.001) {
+      this.stuckTimer += dt;
+      if (this.stuckTimer > PLAYER_STUCK_TIMEOUT) this.abortPath();
+    } else {
+      this.stuckTimer = 0;
+    }
+    this.lastWaypointDistance = distance;
   }
 
   private abortPath() {
@@ -901,45 +918,56 @@ export class InfiltrationGame {
       this.stepGuardMovement(guard, dt);
       guard.coneMaterial.color.setHex(CONE_COLORS[guard.state]);
 
-      if (guard.state === "alert") {
-        guard.spottedFor = 0;
-        guard.stateTimer -= dt;
-        if (guard.stateTimer <= 0) {
-          guard.state = "patrol";
-          guard.destination = null;
-          guard.path = [];
-        }
-        continue;
-      }
+      const alerted = this.tickGuardState(guard, dt);
+      if (alerted) continue;
 
-      if (guard.state === "investigate") {
-        guard.stateTimer -= dt;
-        if (guard.stateTimer <= 0) {
-          guard.state = "patrol";
-          guard.investigateTarget = null;
-          guard.destination = null;
-          guard.path = [];
-        }
-      }
+      if (shouldCheckVision && this.caughtCooldown <= 0) this.processGuardVision(guard);
+    }
+  }
 
-      if (shouldCheckVision && this.caughtCooldown <= 0) {
-        if (this.canSeePlayer(guard)) {
-          guard.spottedFor += VISION_CHECK_INTERVAL;
-          // Closing in on the player reads as the guard reacting, and gives the
-          // player a visible cue that they have been noticed.
-          if (guard.state === "patrol") {
-            guard.state = "investigate";
-            guard.investigateTarget = this.player.position.clone().setY(0);
-            guard.stateTimer = 3;
-            guard.destination = null;
-            guard.path = [];
-          }
-          if (guard.spottedFor >= SPOT_GRACE) this.onCaught(guard);
-        } else {
-          guard.spottedFor = 0;
-        }
+  /** Ages the guard's current state out; returns true while it is still alert. */
+  private tickGuardState(guard: Guard, dt: number): boolean {
+    if (guard.state === "alert") {
+      guard.spottedFor = 0;
+      guard.stateTimer -= dt;
+      if (guard.stateTimer <= 0) this.returnGuardToPatrol(guard);
+      return true;
+    }
+
+    if (guard.state === "investigate") {
+      guard.stateTimer -= dt;
+      if (guard.stateTimer <= 0) {
+        guard.investigateTarget = null;
+        this.returnGuardToPatrol(guard);
       }
     }
+    return false;
+  }
+
+  private returnGuardToPatrol(guard: Guard) {
+    guard.state = "patrol";
+    guard.destination = null;
+    guard.path = [];
+  }
+
+  /** Accumulates sight time and raises the alarm once the grace window elapses. */
+  private processGuardVision(guard: Guard) {
+    if (!this.canSeePlayer(guard)) {
+      guard.spottedFor = 0;
+      return;
+    }
+
+    guard.spottedFor += VISION_CHECK_INTERVAL;
+    // Closing in on the player reads as the guard reacting, and gives the
+    // player a visible cue that they have been noticed.
+    if (guard.state === "patrol") {
+      guard.state = "investigate";
+      guard.investigateTarget = this.player.position.clone().setY(0);
+      guard.stateTimer = 3;
+      guard.destination = null;
+      guard.path = [];
+    }
+    if (guard.spottedFor >= SPOT_GRACE) this.onCaught(guard);
   }
 
   private stepGuardMovement(guard: Guard, dt: number) {
@@ -1002,8 +1030,11 @@ export class InfiltrationGame {
     guard.stateTimer = 1.4;
     guard.destination = null;
     guard.path = [];
-    guard.spottedFor = 0;
     this.caughtCooldown = 1.6;
+    // caughtCooldown suppresses vision checks for everyone, so any guard that
+    // had already banked sight time would otherwise resume the grace period
+    // part-spent and catch the respawned player almost immediately.
+    for (const other of this.guards) other.spottedFor = 0;
     this.hackProgress = 0;
 
     this.resetPlayerToSpawn();

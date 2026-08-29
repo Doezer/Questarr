@@ -66,6 +66,11 @@ describe("findPath", () => {
     expect(findPath({ x: 1, z: 1 }, { x: 1, z: 1 }, GRID, blocked)).toEqual([]);
   });
 
+  it("refuses to path out of a blocked start cell", () => {
+    const blocked = blockedFrom([{ x: 1, z: 1 }]);
+    expect(findPath({ x: 1, z: 1 }, { x: 5, z: 5 }, GRID, blocked)).toEqual([]);
+  });
+
   it("is deterministic", () => {
     const blocked = blockedFrom([
       { x: 3, z: 3 },

@@ -25,6 +25,12 @@ describe("SABnzbd archive password settings helpers", () => {
     it("returns an empty string for malformed settings JSON", () => {
       expect(getArchivePasswordFromSettings("not-json")).toBe("");
     });
+
+    it("returns an empty string when settings JSON is not a plain object", () => {
+      expect(getArchivePasswordFromSettings("null")).toBe("");
+      expect(getArchivePasswordFromSettings("[]")).toBe("");
+      expect(getArchivePasswordFromSettings('["archivePassword","404"]')).toBe("");
+    });
   });
 
   describe("setArchivePasswordInSettings", () => {
@@ -52,6 +58,15 @@ describe("SABnzbd archive password settings helpers", () => {
 
     it("recovers from malformed settings JSON by starting fresh", () => {
       expect(JSON.parse(setArchivePasswordInSettings("not-json", "404"))).toEqual({
+        archivePassword: "404",
+      });
+    });
+
+    it("recovers from non-object settings JSON (null, arrays) by starting fresh", () => {
+      expect(JSON.parse(setArchivePasswordInSettings("null", "404"))).toEqual({
+        archivePassword: "404",
+      });
+      expect(JSON.parse(setArchivePasswordInSettings("[]", "404"))).toEqual({
         archivePassword: "404",
       });
     });

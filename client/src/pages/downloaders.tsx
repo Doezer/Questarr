@@ -97,25 +97,32 @@ function parsePriorityInput(value: string, fallback: number): number {
 // SABnzbd's default archive password lives in the free-form per-type `settings`
 // JSON blob, alongside qBittorrent's `initialState`. Kept as pure functions so
 // the parsing/serialization logic is testable independently of the form.
-export function getArchivePasswordFromSettings(settingsJson: string | undefined | null): string {
+
+// Parses settingsJson into a plain settings object, discarding anything that
+// isn't one (null, arrays, primitives) so callers never read/write properties
+// off a non-object.
+function parseSettingsObject(settingsJson: string | undefined | null): Record<string, unknown> {
   try {
-    const settings = JSON.parse(settingsJson || "{}");
-    return settings.archivePassword || "";
+    const parsed: unknown = JSON.parse(settingsJson || "{}");
+    if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+    return {};
   } catch {
-    return "";
+    return {};
   }
+}
+
+export function getArchivePasswordFromSettings(settingsJson: string | undefined | null): string {
+  const settings = parseSettingsObject(settingsJson);
+  return typeof settings.archivePassword === "string" ? settings.archivePassword : "";
 }
 
 export function setArchivePasswordInSettings(
   settingsJson: string | undefined | null,
   password: string
 ): string {
-  let settings: Record<string, unknown>;
-  try {
-    settings = JSON.parse(settingsJson || "{}");
-  } catch {
-    settings = {};
-  }
+  const settings = parseSettingsObject(settingsJson);
   if (password) {
     settings.archivePassword = password;
   } else {

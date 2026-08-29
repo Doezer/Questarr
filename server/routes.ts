@@ -239,8 +239,33 @@ function maskIndexer(indexer: Indexer): Indexer {
   return indexer.apiKey ? { ...indexer, apiKey: REDACTED_PLACEHOLDER } : indexer;
 }
 
+// The SABnzbd archive password lives inside the free-form `settings` JSON blob
+// (alongside qBittorrent's initialState etc.), so it needs its own mask/restore
+// handling rather than a plain column comparison like `password`.
+function readSettingsObject(settingsJson: string | null | undefined): Record<string, unknown> {
+  if (!settingsJson) return {};
+  try {
+    const parsed: unknown = JSON.parse(settingsJson);
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function maskDownloaderSettings(settingsJson: string | null): string | null {
+  const settings = readSettingsObject(settingsJson);
+  if (!settings.archivePassword) return settingsJson;
+  return JSON.stringify({ ...settings, archivePassword: REDACTED_PLACEHOLDER });
+}
+
 function maskDownloader(downloader: Downloader): Downloader {
-  return downloader.password ? { ...downloader, password: REDACTED_PLACEHOLDER } : downloader;
+  const masked = downloader.password
+    ? { ...downloader, password: REDACTED_PLACEHOLDER }
+    : downloader;
+  const maskedSettings = maskDownloaderSettings(masked.settings);
+  return maskedSettings !== masked.settings ? { ...masked, settings: maskedSettings } : masked;
 }
 
 function respondWithZodError(res: Response, error: z.ZodError, message: string): Response {
@@ -2502,6 +2527,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // A masked sentinel means "keep the existing password unchanged".
         if (isUnchangedSentinel(updates.password)) {
           delete updates.password;
+        }
+
+        // Same masked-sentinel handling for the archive password nested inside
+        // `settings` -- restore the stored value instead of overwriting it with
+        // the redaction placeholder the UI echoes back unchanged.
+        if (typeof updates.settings === "string") {
+          const incomingSettings = readSettingsObject(updates.settings);
+          if (isUnchangedSentinel(incomingSettings.archivePassword)) {
+            const existing = await storage.getDownloader(id);
+            const existingPassword = readSettingsObject(existing?.settings).archivePassword;
+            if (existingPassword) {
+              incomingSettings.archivePassword = existingPassword;
+            } else {
+              delete incomingSettings.archivePassword;
+            }
+            updates.settings = JSON.stringify(incomingSettings);
+          }
         }
 
         const downloader = await storage.updateDownloader(id, updates);

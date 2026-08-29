@@ -268,9 +268,10 @@ describe("sabnzbd remaining regression coverage", () => {
       json: async () => ({ status: true, nzo_ids: ["sab-pw"] }),
     } as Response;
 
-    // Per-request password wins over the downloader's default.
+    // Per-request password wins over the downloader's default. Uses SSL so the
+    // password isn't blocked by the plain-HTTP guard tested separately below.
     const withDefault = new SABnzbdClient(
-      createDownloader({ settings: JSON.stringify({ archivePassword: "404" }) })
+      createDownloader({ useSsl: true, settings: JSON.stringify({ archivePassword: "404" }) })
     );
     const withDefaultPrivate = withDefault as unknown as {
       fetchWithFallback(url: string, options?: RequestInit): Promise<Response>;
@@ -323,6 +324,32 @@ describe("sabnzbd remaining regression coverage", () => {
       expect.not.stringContaining("password="),
       expect.anything()
     );
+  });
+
+  it("refuses to send an archive password over a plain-HTTP SABnzbd connection", async () => {
+    safeFetchMock.mockResolvedValue({
+      ok: true,
+      arrayBuffer: async () => new TextEncoder().encode("nzb").buffer,
+    } as Response);
+
+    const client = new SABnzbdClient(createDownloader({ useSsl: false }));
+    const privateClient = client as unknown as {
+      fetchWithFallback(url: string, options?: RequestInit): Promise<Response>;
+    };
+    const fetchWithFallbackSpy = vi.spyOn(privateClient, "fetchWithFallback");
+
+    const result = await client.addDownload({
+      url: "http://indexer.local/g4u.nzb",
+      title: "G4U Release",
+      password: "404",
+    });
+
+    expect(result).toEqual({
+      success: false,
+      message:
+        "Refusing to send the archive password over an insecure connection. Enable SSL for this SABnzbd downloader, or remove the archive password.",
+    });
+    expect(fetchWithFallbackSpy).not.toHaveBeenCalled();
   });
 
   it("covers queue/history status variants, details fallbacks, and control error branches", async () => {

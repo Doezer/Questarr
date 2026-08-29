@@ -279,6 +279,17 @@ export class SABnzbdClient implements DownloaderClient {
       // configured per-downloader since it's usually a fixed indexer/group convention.
       const password = request.password || this.getArchivePassword();
 
+      // The archive password travels in the addfile query string — never send it
+      // over a plain-HTTP connection to SABnzbd, where it would be readable to
+      // anything on the network path.
+      if (password && !this.getBaseUrl().startsWith("https://")) {
+        return {
+          success: false,
+          message:
+            "Refusing to send the archive password over an insecure connection. Enable SSL for this SABnzbd downloader, or remove the archive password.",
+        };
+      }
+
       const url = this.getApiUrl("addfile", {
         nzbname: request.title,
         cat: request.category || "games",

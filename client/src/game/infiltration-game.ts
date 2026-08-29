@@ -582,17 +582,12 @@ export class InfiltrationGame {
     const destination = this.resolveDestination(point);
     if (!destination) return;
 
+    // pathBetween already falls back to a straight walk when the grid route is
+    // empty, and it tests the same clearance from the same start point, so an
+    // empty path here means the destination simply can't be reached.
     const path = this.pathTo(destination);
-    if (path.length === 0) {
-      // Already close enough that no pathing is needed — just walk straight there.
-      if (this.segmentClear(this.player.position, destination)) {
-        this.playerPath = [destination];
-      } else {
-        return;
-      }
-    } else {
-      this.playerPath = path;
-    }
+    if (path.length === 0) return;
+    this.playerPath = path;
 
     this.stuckTimer = 0;
     this.lastWaypointDistance = Infinity;
@@ -918,17 +913,36 @@ export class InfiltrationGame {
 
   /** Sends every guard within earshot to investigate the noise. */
   private emitNoise(position: THREE.Vector3) {
+    // Earshot is measured from where the noise actually landed, but the guard is
+    // sent to the nearest cell it can stand on: a projectile that comes to rest
+    // on a crate would otherwise hand findPath a blocked goal, leaving the guard
+    // rooted in place for the whole investigate window.
+    const target = this.reachablePointNear(position);
+    if (!target) return;
+
     for (const guard of this.guards) {
       if (guard.state === "alert") continue;
       if (guard.group.position.distanceTo(position) <= NOISE_RADIUS) {
         guard.state = "investigate";
-        guard.investigateTarget = position.clone().setY(0);
+        guard.investigateTarget = target.clone();
         guard.stateTimer = 3;
         // Force a fresh route to the noise on the next movement step.
         guard.destination = null;
         guard.path = [];
       }
     }
+  }
+
+  /** Nearest open interior cell centre to a world point, or null if none exists. */
+  private reachablePointNear(position: THREE.Vector3): THREE.Vector3 | null {
+    const cell = nearestOpenCell(
+      worldToGrid(position.x, position.z, this.level),
+      this.level.gridSize,
+      this.blockedCells
+    );
+    if (!cell) return null;
+    const world = gridToWorld(cell, this.level);
+    return new THREE.Vector3(world.x, 0, world.z);
   }
 
   private updateGuards(dt: number) {
@@ -1000,7 +1014,7 @@ export class InfiltrationGame {
         ? guard.investigateTarget
         : guard.waypoints[guard.waypointIndex];
 
-    if (!guard.destination || !guard.destination.equals(target)) {
+    if (!guard.destination?.equals(target)) {
       guard.destination = target.clone();
       guard.path = this.pathBetween(guard.group.position, target);
     }

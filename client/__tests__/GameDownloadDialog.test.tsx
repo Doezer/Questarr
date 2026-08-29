@@ -944,6 +944,28 @@ describe("GameDownloadDialog", () => {
     });
   });
 
+  it("shows a destructive toast when copying a link fails on non-secure contexts", async () => {
+    Object.assign(navigator, {
+      clipboard: {
+        writeText: vi.fn().mockRejectedValue(new Error("denied")),
+      },
+    });
+    Object.assign(document, { execCommand: vi.fn().mockReturnValue(false) });
+
+    renderComponent();
+
+    expect(await screen.findAllByText("Copy Torrent Link")).not.toHaveLength(0);
+
+    fireEvent.click(screen.getAllByText("Copy Torrent Link")[0]);
+
+    await waitFor(() => {
+      expect(mockToast).toHaveBeenCalledWith({
+        description: "Copy failed",
+        variant: "destructive",
+      });
+    });
+  });
+
   it("lets mobile users select bundle updates and download only the main game", async () => {
     mockIsMobile = true;
     globalThis.fetch = createFetchMock({

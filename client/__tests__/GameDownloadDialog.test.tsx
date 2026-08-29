@@ -408,6 +408,91 @@ describe("GameDownloadDialog", () => {
     });
   });
 
+  it("keeps releases from an indexer with no configured priority sorted last, in both sort directions", async () => {
+    const searchWithUnknownIndexer = makeSearchResult([
+      makeTorrentItem({
+        guid: "known-1",
+        title: "Test Torrent 1",
+        link: "http://test.com/torrent1",
+        indexerName: "Indexer A", // priority 2
+      }),
+      makeTorrentItem({
+        guid: "known-2",
+        title: "Test Torrent 2",
+        link: "http://test.com/torrent2",
+        indexerName: "Indexer B", // priority 1
+      }),
+      makeTorrentItem({
+        guid: "unknown-1",
+        title: "Test Torrent Unknown",
+        link: "http://test.com/torrent-unknown",
+        indexerName: "Indexer Removed", // not present in enabled indexers
+      }),
+    ]);
+    globalThis.fetch = createFetchMock({ search: searchWithUnknownIndexer });
+
+    renderComponent();
+
+    await waitFor(() => {
+      expect(screen.getByText("Priority")).toBeInTheDocument();
+    });
+
+    // Default order (desc): known indexers by priority, unknown last.
+    fireEvent.click(screen.getByText("Priority"));
+    await waitFor(() => {
+      const text = document.body.textContent ?? "";
+      const posB = text.indexOf("Test Torrent 2");
+      const posA = text.indexOf("Test Torrent 1");
+      const posUnknown = text.indexOf("Test Torrent Unknown");
+      expect(posB).toBeGreaterThan(-1);
+      expect(posA).toBeGreaterThan(posB);
+      expect(posUnknown).toBeGreaterThan(posA);
+    });
+
+    // Reversed order (asc): unknown indexer must still sort last, not first.
+    fireEvent.click(screen.getByText("Priority"));
+    await waitFor(() => {
+      const text = document.body.textContent ?? "";
+      const posB = text.indexOf("Test Torrent 2");
+      const posA = text.indexOf("Test Torrent 1");
+      const posUnknown = text.indexOf("Test Torrent Unknown");
+      expect(posA).toBeGreaterThan(-1);
+      expect(posB).toBeGreaterThan(posA);
+      expect(posUnknown).toBeGreaterThan(posB);
+    });
+  });
+
+  it("shows the Priority header and per-row priority when an unrecognized indexer is present", async () => {
+    const searchWithUnknownIndexer = makeSearchResult([
+      makeTorrentItem({
+        guid: "known-1",
+        title: "Test Torrent 1",
+        link: "http://test.com/torrent1",
+        indexerName: "Indexer A", // priority 2
+      }),
+      makeTorrentItem({
+        guid: "unknown-1",
+        title: "Test Torrent Unknown",
+        link: "http://test.com/torrent-unknown",
+        indexerName: "Indexer Removed",
+      }),
+    ]);
+    globalThis.fetch = createFetchMock({ search: searchWithUnknownIndexer });
+
+    renderComponent();
+
+    // The Priority header should render even though only one of the two
+    // result indexers is present in the enabled-indexers list.
+    await waitFor(() => {
+      expect(screen.getByText("Priority")).toBeInTheDocument();
+    });
+
+    // The unrecognized indexer's row shows an em dash instead of a number.
+    await waitFor(() => {
+      expect(screen.getAllByText("—").length).toBeGreaterThan(0);
+    });
+  });
+
   it("blacklists a release when clicking 'Blacklist release'", async () => {
     renderComponent();
 

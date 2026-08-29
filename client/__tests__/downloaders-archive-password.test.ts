@@ -12,30 +12,31 @@ describe("SABnzbd archive password settings helpers", () => {
       );
     });
 
-    it("returns an empty string when no settings are stored", () => {
-      expect(getArchivePasswordFromSettings(undefined)).toBe("");
-      expect(getArchivePasswordFromSettings(null)).toBe("");
-      expect(getArchivePasswordFromSettings("")).toBe("");
-    });
-
     it("returns an empty string when settings JSON has no archivePassword", () => {
       expect(getArchivePasswordFromSettings(JSON.stringify({ initialState: "stopped" }))).toBe("");
     });
 
-    it("returns an empty string for malformed settings JSON", () => {
-      expect(getArchivePasswordFromSettings("not-json")).toBe("");
-    });
-
-    it("returns an empty string when settings JSON is not a plain object", () => {
-      expect(getArchivePasswordFromSettings("null")).toBe("");
-      expect(getArchivePasswordFromSettings("[]")).toBe("");
-      expect(getArchivePasswordFromSettings('["archivePassword","404"]')).toBe("");
+    it.each([
+      ["no settings stored", undefined],
+      ["null settings", null],
+      ["empty string settings", ""],
+      ["malformed JSON", "not-json"],
+      ["JSON null", "null"],
+      ["a JSON array", "[]"],
+      ["a JSON array with content", '["archivePassword","404"]'],
+    ])("returns an empty string for %s", (_label, input) => {
+      expect(getArchivePasswordFromSettings(input)).toBe("");
     });
   });
 
   describe("setArchivePasswordInSettings", () => {
-    it("adds the archive password to empty settings", () => {
-      expect(JSON.parse(setArchivePasswordInSettings(undefined, "404"))).toEqual({
+    it.each([
+      ["empty settings", undefined],
+      ["malformed JSON", "not-json"],
+      ["JSON null", "null"],
+      ["a JSON array", "[]"],
+    ])("starts fresh from %s", (_label, input) => {
+      expect(JSON.parse(setArchivePasswordInSettings(input, "404"))).toEqual({
         archivePassword: "404",
       });
     });
@@ -54,21 +55,6 @@ describe("SABnzbd archive password settings helpers", () => {
         ""
       );
       expect(JSON.parse(result)).toEqual({ initialState: "stopped" });
-    });
-
-    it("recovers from malformed settings JSON by starting fresh", () => {
-      expect(JSON.parse(setArchivePasswordInSettings("not-json", "404"))).toEqual({
-        archivePassword: "404",
-      });
-    });
-
-    it("recovers from non-object settings JSON (null, arrays) by starting fresh", () => {
-      expect(JSON.parse(setArchivePasswordInSettings("null", "404"))).toEqual({
-        archivePassword: "404",
-      });
-      expect(JSON.parse(setArchivePasswordInSettings("[]", "404"))).toEqual({
-        archivePassword: "404",
-      });
     });
   });
 });

@@ -6,25 +6,18 @@ describe("parseJsonObject", () => {
     expect(parseJsonObject(JSON.stringify({ a: 1, b: "two" }))).toEqual({ a: 1, b: "two" });
   });
 
-  it("returns {} for null, undefined, and empty string", () => {
-    expect(parseJsonObject(null)).toEqual({});
-    expect(parseJsonObject(undefined)).toEqual({});
-    expect(parseJsonObject("")).toEqual({});
-  });
-
-  it("returns {} for malformed JSON", () => {
-    expect(parseJsonObject("not-json")).toEqual({});
-  });
-
-  it("returns {} for JSON that parses to null or an array", () => {
-    expect(parseJsonObject("null")).toEqual({});
-    expect(parseJsonObject("[]")).toEqual({});
-    expect(parseJsonObject('["a","b"]')).toEqual({});
-  });
-
-  it("returns {} for JSON primitives", () => {
-    expect(parseJsonObject("42")).toEqual({});
-    expect(parseJsonObject('"hello"')).toEqual({});
-    expect(parseJsonObject("true")).toEqual({});
+  it.each([
+    ["null", null],
+    ["undefined", undefined],
+    ["an empty string", ""],
+    ["malformed JSON", "not-json"],
+    ["JSON null", "null"],
+    ["a JSON array", "[]"],
+    ["a JSON array with content", '["a","b"]'],
+    ["a JSON number", "42"],
+    ["a JSON string", '"hello"'],
+    ["a JSON boolean", "true"],
+  ])("returns {} for %s", (_label, input) => {
+    expect(parseJsonObject(input)).toEqual({});
   });
 });

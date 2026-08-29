@@ -1,9 +1,7 @@
 import { mulberry32 } from "./rng";
+import { bfsDistances, cellKey, type GridPos } from "./grid";
 
-export interface GridPos {
-  x: number;
-  z: number;
-}
+export type { GridPos } from "./grid";
 
 export interface LevelConfig {
   gridSize: number;
@@ -29,41 +27,6 @@ export const DEFAULT_LEVEL_CONFIG: LevelConfig = {
   guardCount: 2,
   waypointsPerGuard: 3,
 };
-
-function cellKey(pos: GridPos): string {
-  return `${pos.x},${pos.z}`;
-}
-
-/** BFS over open (non-crate) interior cells, returns distance-from-start for every reachable cell. */
-function reachableFrom(
-  start: GridPos,
-  gridSize: number,
-  blocked: Set<string>
-): Map<string, number> {
-  const dist = new Map<string, number>([[cellKey(start), 0]]);
-  const queue: GridPos[] = [start];
-  const dirs: GridPos[] = [
-    { x: 1, z: 0 },
-    { x: -1, z: 0 },
-    { x: 0, z: 1 },
-    { x: 0, z: -1 },
-  ];
-
-  let head = 0;
-  while (head < queue.length) {
-    const cur = queue[head++];
-    const curDist = dist.get(cellKey(cur))!;
-    for (const dir of dirs) {
-      const next: GridPos = { x: cur.x + dir.x, z: cur.z + dir.z };
-      if (next.x < 1 || next.z < 1 || next.x > gridSize - 2 || next.z > gridSize - 2) continue;
-      const key = cellKey(next);
-      if (blocked.has(key) || dist.has(key)) continue;
-      dist.set(key, curDist + 1);
-      queue.push(next);
-    }
-  }
-  return dist;
-}
 
 // Waypoints stay a few cells (by walkable BFS distance) from spawn so a guard
 // can't be patrolling right on top of the player when they spawn or respawn.
@@ -96,7 +59,7 @@ function placeCrates(
         }
       }
     }
-    reachable = reachableFrom(spawn, config.gridSize, blocked);
+    reachable = bfsDistances(spawn, config.gridSize, blocked);
     const openCells = interiorCells - crates.length;
     if (reachable.size >= openCells * 0.6) break;
   }
@@ -187,5 +150,18 @@ export function gridToWorld(pos: GridPos, level: Pick<GeneratedLevel, "gridSize"
   return {
     x: (pos.x - offset) * level.cellSize,
     z: (pos.z - offset) * level.cellSize,
+  };
+}
+
+/** Inverse of {@link gridToWorld}: snaps a world-space XZ point to its grid cell. */
+export function worldToGrid(
+  x: number,
+  z: number,
+  level: Pick<GeneratedLevel, "gridSize" | "cellSize">
+): GridPos {
+  const offset = (level.gridSize - 1) / 2;
+  return {
+    x: Math.round(x / level.cellSize + offset),
+    z: Math.round(z / level.cellSize + offset),
   };
 }

@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useLocalStorageState } from "@/hooks/use-local-storage-state";
-import { GhostGame } from "@/game/ghost-game";
+import { InfiltrationGame } from "@/game/infiltration-game";
 import { GHOST_UNLOCK_KEY } from "@/lib/ghost-mode";
 
 function randomSeed() {
@@ -12,21 +12,41 @@ function randomSeed() {
   return crypto.getRandomValues(new Uint32Array(1))[0];
 }
 
+/**
+ * `/play?seed=1234` replays an exact layout, which makes a run shareable and lets
+ * an automated check drive a known facility. Anything unparseable falls back to a
+ * random layout.
+ */
+function initialSeed() {
+  const raw = new URLSearchParams(window.location.search).get("seed");
+  if (raw === null) return randomSeed();
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) ? parsed >>> 0 : randomSeed();
+}
+
+const CONTROLS: { keys: string; action: string }[] = [
+  { keys: "Left click", action: "Move to a tile" },
+  { keys: "Click console", action: "Walk over and hack" },
+  { keys: "Right click / F", action: "Throw a distraction" },
+  { keys: "Scroll", action: "Zoom" },
+  { keys: "Esc", action: "Pause" },
+];
+
 export default function PlayPage() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const [, setGhostUnlocked] = useLocalStorageState(GHOST_UNLOCK_KEY, false);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const gameRef = useRef<GhostGame | null>(null);
+  const gameRef = useRef<InfiltrationGame | null>(null);
   const progressFillRef = useRef<HTMLDivElement>(null);
   const promptRef = useRef<HTMLDivElement>(null);
 
-  const [locked, setLocked] = useState(false);
+  const [paused, setPaused] = useState(true);
   const [won, setWon] = useState(false);
 
   const handleCaught = useCallback(() => {
-    toast({ description: "Incident report filed. Reposition and try again." });
+    toast({ description: "Spotted. Incident report filed — back to the entry point." });
   }, [toast]);
 
   const handleWin = useCallback(() => {
@@ -46,8 +66,8 @@ export default function PlayPage() {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const game = new GhostGame(canvas, randomSeed(), {
-      onLockChange: setLocked,
+    const game = new InfiltrationGame(canvas, initialSeed(), {
+      onPauseChange: setPaused,
       onCaught: () => callbacksRef.current.onCaught(),
       onWin: () => callbacksRef.current.onWin(),
       onHackProgress: (progress, canInteract) => {
@@ -68,71 +88,102 @@ export default function PlayPage() {
     };
   }, []);
 
-  const handlePlay = () => {
+  const handleStart = () => {
     setWon(false);
-    gameRef.current?.lock();
+    gameRef.current?.setPaused(false);
   };
 
   const handlePlayAgain = () => {
     setWon(false);
     gameRef.current?.regenerate(randomSeed());
-    gameRef.current?.lock();
+    gameRef.current?.setPaused(false);
   };
+
+  const overlayOpen = paused || won;
 
   return (
     <div className="fixed inset-0 bg-black">
-      <canvas ref={canvasRef} className="h-full w-full" />
+      <canvas ref={canvasRef} className="h-full w-full touch-none" />
 
       {/* In-game HUD, always mounted so refs update imperatively without re-render */}
-      <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-between p-6">
-        <div className="w-2 h-2 rounded-full bg-white/80 mt-[calc(50vh-4px)]" />
-        <div
-          ref={promptRef}
-          className="mb-24 rounded-md bg-black/70 px-4 py-2 text-sm text-white opacity-0 transition-opacity"
-        >
-          Hold <kbd className="font-mono">E</kbd> to hack
-          <div className="mt-1 h-1.5 w-40 overflow-hidden rounded-full bg-white/20">
-            <div ref={progressFillRef} className="h-full w-0 bg-emerald-400" />
+      <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-6">
+        <div className="rounded-md border border-white/10 bg-black/60 px-4 py-2 text-sm text-white/80 self-start">
+          <span className="text-emerald-400">Objective</span> &mdash; reach the console and hack it
+          unseen
+        </div>
+
+        <div className="flex flex-col items-center gap-2">
+          <div
+            ref={promptRef}
+            className="rounded-md bg-black/70 px-4 py-2 text-sm text-white opacity-0 transition-opacity"
+          >
+            Hacking &mdash; stay in range
+            <div className="mt-1 h-1.5 w-40 overflow-hidden rounded-full bg-white/20">
+              <div ref={progressFillRef} className="h-full w-0 bg-emerald-400" />
+            </div>
+          </div>
+          <div className="rounded-md bg-black/50 px-3 py-1 text-xs text-white/50">
+            Left click to move &middot; right click to throw &middot; Esc to pause
           </div>
         </div>
       </div>
 
-      {!locked && !won && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/80 text-white">
+      {!overlayOpen && (
+        // The Button itself can't carry the positioning: the shared .hover-elevate
+        // utility forces position: relative on every button, which would win over
+        // an `absolute` class here and drop it into normal flow below the canvas.
+        <div className="absolute right-6 top-6">
+          <Button
+            variant="outline"
+            size="sm"
+            aria-label="Pause the infiltration"
+            onClick={() => gameRef.current?.setPaused(true)}
+          >
+            Pause
+          </Button>
+        </div>
+      )}
+
+      {paused && !won && (
+        <section
+          aria-labelledby="play-briefing-title"
+          className="absolute inset-0 flex items-center justify-center bg-black/80 text-white"
+        >
           <div className="max-w-md space-y-4 rounded-lg border border-white/10 bg-black/60 p-8 text-center">
-            <h1 className="text-2xl font-bold">Ghost the Terminal</h1>
+            <h1 id="play-briefing-title" className="text-2xl font-bold">
+              Ghost the Terminal
+            </h1>
             <p className="text-sm text-white/70">
-              Sneak past the guard and hack the terminal without being seen. A fresh, procedurally
-              generated room every run.
+              A procedurally generated facility, patrolling guards, and one console worth hacking.
+              Stay out of the vision cones &mdash; crates break line of sight.
             </p>
-            <ul className="text-left text-sm text-white/70 space-y-1">
-              <li>
-                <kbd className="font-mono">WASD</kbd> move, mouse to look
-              </li>
-              <li>
-                <kbd className="font-mono">F</kbd> throw a distraction
-              </li>
-              <li>
-                Hold <kbd className="font-mono">E</kbd> at the terminal to hack it
-              </li>
-              <li>
-                <kbd className="font-mono">Esc</kbd> to pause
-              </li>
-            </ul>
+            <dl className="mx-auto grid max-w-xs grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-left text-sm text-white/70">
+              {CONTROLS.map(({ keys, action }) => (
+                <div key={keys} className="contents">
+                  <dt className="font-mono text-white/90">{keys}</dt>
+                  <dd>{action}</dd>
+                </div>
+              ))}
+            </dl>
             <div className="flex justify-center gap-2 pt-2">
-              <Button onClick={handlePlay}>Click to play</Button>
+              <Button onClick={handleStart}>Begin infiltration</Button>
               <Button variant="outline" onClick={() => navigate("/")}>
                 Exit to Questarr
               </Button>
             </div>
           </div>
-        </div>
+        </section>
       )}
 
       {won && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/80 text-white">
+        <section
+          aria-labelledby="play-win-title"
+          className="absolute inset-0 flex items-center justify-center bg-black/80 text-white"
+        >
           <div className="max-w-md space-y-4 rounded-lg border border-emerald-400/30 bg-black/60 p-8 text-center">
-            <h1 className="text-2xl font-bold text-emerald-400">Terminal hacked</h1>
+            <h1 id="play-win-title" className="text-2xl font-bold text-emerald-400">
+              Terminal hacked
+            </h1>
             <p className="text-sm text-white/70">
               Ghost Mode is now unlocked &mdash; find it under Settings &rarr; General.
             </p>
@@ -143,7 +194,7 @@ export default function PlayPage() {
               </Button>
             </div>
           </div>
-        </div>
+        </section>
       )}
     </div>
   );

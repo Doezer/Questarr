@@ -706,9 +706,12 @@ export class InfiltrationGame {
       this.updateProjectiles(dt);
       this.updateGuards(dt);
       this.updateHack(dt);
+      // Both cooldowns are game time, so they stop with the simulation: ticking
+      // them while paused would let a player tap Esc to refresh their throw, or
+      // burn off the post-catch grace period the guards are meant to get.
+      if (this.caughtCooldown > 0) this.caughtCooldown -= dt;
+      if (this.throwCooldown > 0) this.throwCooldown -= dt;
     }
-    if (this.caughtCooldown > 0) this.caughtCooldown -= dt;
-    if (this.throwCooldown > 0) this.throwCooldown -= dt;
 
     this.iso.follow(this.player.position, dt);
     this.updateOcclusion();

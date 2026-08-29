@@ -74,6 +74,12 @@ const testDownloader: Downloader = {
   updatedAt: new Date("2024-01-01T00:00:00.000Z"),
 } as unknown as Downloader;
 
+const sabnzbdDownloaderWithArchivePassword: Downloader = {
+  ...testDownloader,
+  type: "sabnzbd",
+  settings: JSON.stringify({ archivePassword: "404" }),
+} as Downloader;
+
 const testIndexer: Indexer = {
   id: "idx-1",
   name: "Test Indexer",
@@ -611,25 +617,15 @@ describe("API Routes - Additional Coverage", () => {
     });
 
     it("redacts the SABnzbd archive password nested in settings on read", async () => {
-      const sabnzbdDownloader = {
-        ...testDownloader,
-        type: "sabnzbd",
-        settings: JSON.stringify({ archivePassword: "404" }),
-      } as Downloader;
-      vi.mocked(storage.getDownloader).mockResolvedValue(sabnzbdDownloader);
+      vi.mocked(storage.getDownloader).mockResolvedValue(sabnzbdDownloaderWithArchivePassword);
       const res = await request(app).get("/api/downloaders/dl-1");
       expect(res.status).toBe(200);
       expect(JSON.parse(res.body.settings)).toEqual({ archivePassword: "********" });
     });
 
     it("restores the existing archive password when the sentinel is sent back in settings", async () => {
-      const sabnzbdDownloader = {
-        ...testDownloader,
-        type: "sabnzbd",
-        settings: JSON.stringify({ archivePassword: "404" }),
-      } as Downloader;
-      vi.mocked(storage.getDownloader).mockResolvedValue(sabnzbdDownloader);
-      vi.mocked(storage.updateDownloader).mockResolvedValue(sabnzbdDownloader);
+      vi.mocked(storage.getDownloader).mockResolvedValue(sabnzbdDownloaderWithArchivePassword);
+      vi.mocked(storage.updateDownloader).mockResolvedValue(sabnzbdDownloaderWithArchivePassword);
 
       const res = await request(app)
         .patch("/api/downloaders/dl-1")
@@ -641,13 +637,8 @@ describe("API Routes - Additional Coverage", () => {
     });
 
     it("accepts a new archive password in settings when it isn't the sentinel", async () => {
-      const sabnzbdDownloader = {
-        ...testDownloader,
-        type: "sabnzbd",
-        settings: JSON.stringify({ archivePassword: "404" }),
-      } as Downloader;
-      vi.mocked(storage.getDownloader).mockResolvedValue(sabnzbdDownloader);
-      vi.mocked(storage.updateDownloader).mockResolvedValue(sabnzbdDownloader);
+      vi.mocked(storage.getDownloader).mockResolvedValue(sabnzbdDownloaderWithArchivePassword);
+      vi.mocked(storage.updateDownloader).mockResolvedValue(sabnzbdDownloaderWithArchivePassword);
 
       const res = await request(app)
         .patch("/api/downloaders/dl-1")

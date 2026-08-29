@@ -117,7 +117,11 @@ export function setArchivePasswordInSettings(
   return JSON.stringify(settings);
 }
 
-export function SabnzbdArchivePasswordField({ form }: { form: UseFormReturn<InsertDownloader> }) {
+interface SabnzbdArchivePasswordFieldProps {
+  readonly form: UseFormReturn<InsertDownloader>;
+}
+
+export function SabnzbdArchivePasswordField({ form }: SabnzbdArchivePasswordFieldProps) {
   return (
     <FormItem>
       <FormLabel>Default Archive Password (Optional)</FormLabel>

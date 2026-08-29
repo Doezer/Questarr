@@ -4,11 +4,15 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { useForm } from "react-hook-form";
 import { describe, expect, it } from "vitest";
-import { Form } from "../src/components/ui/form";
-import { SabnzbdArchivePasswordField } from "../src/pages/downloaders";
+import { Form } from "@/components/ui/form";
+import { SabnzbdArchivePasswordField } from "@/pages/downloaders";
 import type { InsertDownloader } from "@shared/schema";
 
-function Harness({ initialSettings }: { initialSettings?: string }) {
+interface HarnessProps {
+  readonly initialSettings?: string;
+}
+
+function Harness({ initialSettings }: HarnessProps) {
   const form = useForm<InsertDownloader>({
     defaultValues: { settings: initialSettings } as Partial<InsertDownloader>,
   });

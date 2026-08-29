@@ -81,6 +81,14 @@ const historyResponse = (slots?: Array<Record<string, unknown>>) =>
     }),
   }) as Response;
 
+// Casts a client to expose its private fetchWithFallback for spying, without
+// repeating the cast/spy pair at every call site.
+const spyOnFetchWithFallback = (client: InstanceType<typeof SABnzbdClient>) =>
+  vi.spyOn(
+    client as unknown as { fetchWithFallback: (...args: unknown[]) => Promise<Response> },
+    "fetchWithFallback"
+  );
+
 class MockRequest extends EventEmitter {
   public writes: Array<Buffer | string> = [];
 
@@ -273,12 +281,7 @@ describe("sabnzbd remaining regression coverage", () => {
     const withDefault = new SABnzbdClient(
       createDownloader({ useSsl: true, settings: JSON.stringify({ archivePassword: "404" }) })
     );
-    const withDefaultPrivate = withDefault as unknown as {
-      fetchWithFallback(url: string, options?: RequestInit): Promise<Response>;
-    };
-    let fetchWithFallbackSpy = vi
-      .spyOn(withDefaultPrivate, "fetchWithFallback")
-      .mockResolvedValueOnce(addfileOk);
+    let fetchWithFallbackSpy = spyOnFetchWithFallback(withDefault).mockResolvedValueOnce(addfileOk);
     await withDefault.addDownload({
       url: "http://indexer.local/g4u.nzb",
       title: "G4U Release",
@@ -299,12 +302,7 @@ describe("sabnzbd remaining regression coverage", () => {
 
     // No password configured anywhere — omitted from the request.
     const noPassword = new SABnzbdClient(createDownloader());
-    const noPasswordPrivate = noPassword as unknown as {
-      fetchWithFallback(url: string, options?: RequestInit): Promise<Response>;
-    };
-    fetchWithFallbackSpy = vi
-      .spyOn(noPasswordPrivate, "fetchWithFallback")
-      .mockResolvedValueOnce(addfileOk);
+    fetchWithFallbackSpy = spyOnFetchWithFallback(noPassword).mockResolvedValueOnce(addfileOk);
     await noPassword.addDownload({ url: "http://indexer.local/plain.nzb", title: "Plain NZB" });
     expect(fetchWithFallbackSpy).toHaveBeenCalledWith(
       expect.not.stringContaining("password="),
@@ -313,12 +311,7 @@ describe("sabnzbd remaining regression coverage", () => {
 
     // Malformed settings JSON is tolerated and treated as no default password.
     const badSettings = new SABnzbdClient(createDownloader({ settings: "not-json" }));
-    const badSettingsPrivate = badSettings as unknown as {
-      fetchWithFallback(url: string, options?: RequestInit): Promise<Response>;
-    };
-    fetchWithFallbackSpy = vi
-      .spyOn(badSettingsPrivate, "fetchWithFallback")
-      .mockResolvedValueOnce(addfileOk);
+    fetchWithFallbackSpy = spyOnFetchWithFallback(badSettings).mockResolvedValueOnce(addfileOk);
     await badSettings.addDownload({ url: "http://indexer.local/plain.nzb", title: "Plain NZB" });
     expect(fetchWithFallbackSpy).toHaveBeenCalledWith(
       expect.not.stringContaining("password="),
@@ -333,10 +326,7 @@ describe("sabnzbd remaining regression coverage", () => {
     } as Response);
 
     const client = new SABnzbdClient(createDownloader({ useSsl: false }));
-    const privateClient = client as unknown as {
-      fetchWithFallback(url: string, options?: RequestInit): Promise<Response>;
-    };
-    const fetchWithFallbackSpy = vi.spyOn(privateClient, "fetchWithFallback");
+    const fetchWithFallbackSpy = spyOnFetchWithFallback(client);
 
     const result = await client.addDownload({
       url: "http://indexer.local/g4u.nzb",

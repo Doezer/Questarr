@@ -90,6 +90,9 @@ const NOTIFICATION_EVENT_ROWS: { key: NotificationEvent; label: string; group: s
   { key: "errorDetected", label: "Error Detected", group: "system" },
 ];
 
+/**
+ * Configures application preferences, integrations, notifications, account security, and system maintenance settings.
+ */
 export default function SettingsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();

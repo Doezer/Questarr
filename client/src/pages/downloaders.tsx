@@ -117,11 +117,11 @@ export function setArchivePasswordInSettings(
   return JSON.stringify(settings);
 }
 
-interface SabnzbdArchivePasswordFieldProps {
+interface ArchivePasswordFieldProps {
   readonly form: UseFormReturn<InsertDownloader>;
 }
 
-export function SabnzbdArchivePasswordField({ form }: SabnzbdArchivePasswordFieldProps) {
+export function ArchivePasswordField({ form }: ArchivePasswordFieldProps) {
   return (
     <FormItem>
       <FormLabel>Default Archive Password (Optional)</FormLabel>
@@ -141,8 +141,8 @@ export function SabnzbdArchivePasswordField({ form }: SabnzbdArchivePasswordFiel
       </FormControl>
       <FormDescription className="text-xs">
         Applied automatically to every download sent to this client. Some indexers (e.g. G4U) ship
-        releases as password-protected archives — SABnzbd will use this to unpack them. You can
-        still override it per-download in the search dialog.
+        releases as password-protected archives — SABnzbd and NZBGet will use this to unpack them.
+        You can still override it per-download in the search dialog.
       </FormDescription>
     </FormItem>
   );
@@ -1009,7 +1009,9 @@ export default function DownloadersPage() {
                     </FormItem>
                   )}
                 />
-                {form.watch("type") === "sabnzbd" && <SabnzbdArchivePasswordField form={form} />}
+                {(form.watch("type") === "sabnzbd" || form.watch("type") === "nzbget") && (
+                  <ArchivePasswordField form={form} />
+                )}
                 {form.watch("type") === "qbittorrent" && (
                   <FormField
                     control={form.control}

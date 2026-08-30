@@ -5,7 +5,7 @@ import "@testing-library/jest-dom";
 import { useForm } from "react-hook-form";
 import { describe, expect, it } from "vitest";
 import { Form } from "@/components/ui/form";
-import { SabnzbdArchivePasswordField } from "@/pages/downloaders";
+import { ArchivePasswordField } from "@/pages/downloaders";
 import type { InsertDownloader } from "@shared/schema";
 
 interface HarnessProps {
@@ -18,12 +18,12 @@ function Harness({ initialSettings }: HarnessProps) {
   });
   return (
     <Form {...form}>
-      <SabnzbdArchivePasswordField form={form} />
+      <ArchivePasswordField form={form} />
     </Form>
   );
 }
 
-describe("SabnzbdArchivePasswordField", () => {
+describe("ArchivePasswordField", () => {
   it("renders empty when no archive password is stored", () => {
     render(<Harness />);
     expect(screen.getByText("Default Archive Password (Optional)")).toBeInTheDocument();

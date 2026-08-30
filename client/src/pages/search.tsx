@@ -771,33 +771,30 @@ export default function SearchPage() {
                   </FormItem>
                 )}
               />
-              {selectedDownload &&
-                isUsenetItem(selectedDownload) &&
-                downloaders.find((d) => d.id === form.watch("downloaderId"))?.type ===
-                  "sabnzbd" && (
-                  <FormField
-                    control={form.control}
-                    name="password"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Archive Password (Optional)</FormLabel>
-                        <FormControl>
-                          <Input
-                            type="password"
-                            placeholder="e.g. 404"
-                            {...field}
-                            data-testid="input-download-password"
-                          />
-                        </FormControl>
-                        <FormDescription className="text-xs">
-                          Some usenet releases ship as password-protected archives. SABnzbd will use
-                          this to unpack automatically.
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                )}
+              {selectedDownload && isUsenetItem(selectedDownload) && (
+                <FormField
+                  control={form.control}
+                  name="password"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Archive Password (Optional)</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="password"
+                          placeholder="e.g. 404"
+                          {...field}
+                          data-testid="input-download-password"
+                        />
+                      </FormControl>
+                      <FormDescription className="text-xs">
+                        Some usenet releases ship as password-protected archives. SABnzbd and NZBGet
+                        will use this to unpack automatically.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
               <div className="flex justify-end space-x-2">
                 <Button
                   type="button"

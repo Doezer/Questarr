@@ -358,6 +358,91 @@ describe("NZBGet remaining coverage", () => {
     expect(rpcSpy).toHaveBeenCalledTimes(1);
   });
 
+  it("passes the request password, falling back to the downloader's default archive password", async () => {
+    vi.mocked(safeFetch).mockResolvedValue({
+      ok: true,
+      text: async () => "nzb-content",
+    } as Response);
+
+    // Asserts a single addDownload call's PPParameters against the expected password,
+    // reusing one client/spy across sequential calls when reuseSpy is passed.
+    const expectPasswordInRequest = async (
+      client: NZBGetClient,
+      request: Parameters<NZBGetClient["addDownload"]>[0],
+      expectedPassword: string | undefined,
+      reuseSpy?: ReturnType<typeof vi.spyOn>
+    ) => {
+      const spy =
+        reuseSpy ??
+        vi.spyOn(client as unknown as { makeXMLRPCRequest: typeof Function }, "makeXMLRPCRequest");
+      spy.mockResolvedValueOnce(42);
+      await client.addDownload(request);
+      const ppParameters = spy.mock.calls.at(-1)?.[1]?.at(-1);
+      expect(ppParameters).toEqual(
+        expectedPassword ? [{ Name: "*Unpack:Password", Value: expectedPassword }] : []
+      );
+      return spy;
+    };
+
+    // Per-request password wins over the downloader's default. Uses SSL so the
+    // password isn't blocked by the plain-HTTP guard tested separately below.
+    const withDefault = new NZBGetClient(
+      createDownloader({ useSsl: true, settings: JSON.stringify({ archivePassword: "404" }) })
+    );
+    const withDefaultSpy = await expectPasswordInRequest(
+      withDefault,
+      { url: "http://indexer.local/g4u.nzb", title: "G4U Release", password: "override" },
+      "override"
+    );
+    // Falls back to the downloader's default archive password when none is given per-request.
+    await expectPasswordInRequest(
+      withDefault,
+      { url: "http://indexer.local/g4u.nzb", title: "G4U Release" },
+      "404",
+      withDefaultSpy
+    );
+
+    // No password configured anywhere — PPParameters stays empty.
+    await expectPasswordInRequest(
+      new NZBGetClient(createDownloader()),
+      { url: "http://indexer.local/plain.nzb", title: "Plain NZB" },
+      undefined
+    );
+
+    // Malformed settings JSON is tolerated and treated as no default password.
+    await expectPasswordInRequest(
+      new NZBGetClient(createDownloader({ settings: "not-json" })),
+      { url: "http://indexer.local/plain.nzb", title: "Plain NZB" },
+      undefined
+    );
+  });
+
+  it("refuses to send an archive password over a plain-HTTP NZBGet connection", async () => {
+    vi.mocked(safeFetch).mockResolvedValue({
+      ok: true,
+      text: async () => "nzb-content",
+    } as Response);
+
+    const client = new NZBGetClient(createDownloader({ useSsl: false }));
+    const rpcSpy = vi.spyOn(
+      client as unknown as { makeXMLRPCRequest: typeof Function },
+      "makeXMLRPCRequest"
+    );
+
+    const result = await client.addDownload({
+      url: "http://indexer.local/g4u.nzb",
+      title: "G4U Release",
+      password: "404",
+    });
+
+    expect(result).toEqual({
+      success: false,
+      message:
+        "Refusing to send the archive password over an insecure connection. Enable SSL for this NZBGet downloader, or remove the archive password.",
+    });
+    expect(rpcSpy).not.toHaveBeenCalled();
+  });
+
   it("getHistoryDestDir logs and returns undefined when the history lookup fails", async () => {
     const client = new NZBGetClient(createDownloader());
     const rpcSpy = vi.spyOn(

@@ -260,6 +260,14 @@ export class InfiltrationGame {
     // stance the last run happened to end in.
     this.stance = "standing";
     this.movementNoiseAccum = 0;
+    // Input and timer state are per-run too: a key still held when the player
+    // hits "play again" would otherwise carry into the new layout, and a spent
+    // throw cooldown would carry with it.
+    this.keys.clear();
+    this.throwCooldown = 0;
+    this.visionCheckAccum = 0;
+    this.stealthReportAccum = 0;
+    this.pointerGround = null;
     this.buildLevel(seed);
   }
 
@@ -443,8 +451,20 @@ export class InfiltrationGame {
       roughness: 0.4,
       metalness: 0.5,
     });
+    // splitRect cuts along both axes, so a door sits in a wall of either
+    // orientation. Rooms side by side on X are divided by a wall at constant X,
+    // and a panel that always spanned X would leave gaps either side of that
+    // opening while poking into both rooms.
+    const [roomA, roomB] = def.rooms.map((index) => this.level.rooms[index]);
+    const dividedOnX = roomA.x + roomA.w <= roomB.x || roomB.x + roomB.w <= roomA.x;
+    const span = size * 0.92;
+    const thickness = size * 0.5;
     const panel = new THREE.Mesh(
-      new THREE.BoxGeometry(size * 0.92, DOOR_HEIGHT, size * 0.5),
+      new THREE.BoxGeometry(
+        dividedOnX ? thickness : span,
+        DOOR_HEIGHT,
+        dividedOnX ? span : thickness
+      ),
       material
     );
     panel.position.y = DOOR_HEIGHT / 2;
@@ -453,7 +473,11 @@ export class InfiltrationGame {
     // The frame stays put while the panel slides down inside it.
     const frameMaterial = new THREE.MeshStandardMaterial({ color: 0x39435c, roughness: 0.7 });
     const lintel = new THREE.Mesh(
-      new THREE.BoxGeometry(size, WALL_HEIGHT - DOOR_HEIGHT, size * 0.6),
+      new THREE.BoxGeometry(
+        dividedOnX ? size * 0.6 : size,
+        WALL_HEIGHT - DOOR_HEIGHT,
+        dividedOnX ? size : size * 0.6
+      ),
       frameMaterial
     );
     lintel.position.set(world.x, DOOR_HEIGHT + (WALL_HEIGHT - DOOR_HEIGHT) / 2, world.z);

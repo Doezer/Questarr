@@ -64,7 +64,7 @@ import {
   type DownloaderDebugLoggingResponse,
 } from "@shared/schema";
 import { parseJsonStringArray, CANONICAL_PLATFORMS } from "@shared/title-utils";
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import ImportSettings from "@/components/ImportSettings";
 
 interface CertInfo {
@@ -163,6 +163,26 @@ export default function SettingsPage() {
       {}
     );
   }, [blacklistEntries]);
+
+  // Mobile tab scroller: tracks whether the tab strip has more content to
+  // reveal on either side, so we can show a fade hint (tabs overflow on
+  // narrow phones and there's no visible scrollbar to signal that).
+  const tabsScrollRef = useRef<HTMLDivElement>(null);
+  const [tabsCanScrollLeft, setTabsCanScrollLeft] = useState(false);
+  const [tabsCanScrollRight, setTabsCanScrollRight] = useState(false);
+
+  const updateTabsScrollFade = useCallback(() => {
+    const el = tabsScrollRef.current;
+    if (!el) return;
+    setTabsCanScrollLeft(el.scrollLeft > 1);
+    setTabsCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
+  }, []);
+
+  useEffect(() => {
+    updateTabsScrollFade();
+    window.addEventListener("resize", updateTabsScrollFade);
+    return () => window.removeEventListener("resize", updateTabsScrollFade);
+  }, [updateTabsScrollFade]);
 
   // Local state for form
   const [autoSearchEnabled, setAutoSearchEnabled] = useState(true);
@@ -314,7 +334,6 @@ export default function SettingsPage() {
       toast({ title: "Failed to update downloader debug logging", variant: "destructive" });
     },
   });
-
 
   const { data: appriseSettings } = useQuery<{
     configured: boolean;
@@ -876,17 +895,37 @@ export default function SettingsPage() {
         )}
 
         <Tabs defaultValue="general" className="w-full">
-          <TabsList className="mb-4 sm:mb-8 flex w-full flex-nowrap overflow-x-auto [&>*]:shrink-0">
-            <TabsTrigger value="general">General</TabsTrigger>
-            <TabsTrigger value="rules">Rules</TabsTrigger>
-            <TabsTrigger value="notifications">Notifications</TabsTrigger>
-            <TabsTrigger value="services">Services</TabsTrigger>
-            <TabsTrigger value="import">Import</TabsTrigger>
-            <TabsTrigger value="account">Account</TabsTrigger>
-            <TabsTrigger value="security">Security</TabsTrigger>
-            <TabsTrigger value="system">System</TabsTrigger>
-            <TabsTrigger value="blacklist">Blacklist</TabsTrigger>
-          </TabsList>
+          <div className="relative mb-4 sm:mb-8">
+            <TabsList
+              ref={tabsScrollRef}
+              onScroll={updateTabsScrollFade}
+              className="mb-0 flex w-full flex-nowrap overflow-x-auto scroll-smooth [&>*]:shrink-0"
+            >
+              <TabsTrigger value="general">General</TabsTrigger>
+              <TabsTrigger value="rules">Rules</TabsTrigger>
+              <TabsTrigger value="notifications">Notifications</TabsTrigger>
+              <TabsTrigger value="services">Services</TabsTrigger>
+              <TabsTrigger value="import">Import</TabsTrigger>
+              <TabsTrigger value="account">Account</TabsTrigger>
+              <TabsTrigger value="security">Security</TabsTrigger>
+              <TabsTrigger value="system">System</TabsTrigger>
+              <TabsTrigger value="blacklist">Blacklist</TabsTrigger>
+            </TabsList>
+            {/* Edge fades hint that the tab strip scrolls further, since it has
+                no visible scrollbar on touch devices. */}
+            {tabsCanScrollLeft && (
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-y-0 left-0 w-6 rounded-l-md bg-gradient-to-r from-muted to-transparent"
+              />
+            )}
+            {tabsCanScrollRight && (
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-y-0 right-0 w-6 rounded-r-md bg-gradient-to-l from-muted to-transparent"
+              />
+            )}
+          </div>
 
           <TabsContent value="general" className="space-y-6">
             {ghostUnlocked && (

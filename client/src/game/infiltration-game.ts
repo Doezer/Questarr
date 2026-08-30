@@ -125,6 +125,18 @@ const DOOR_OPEN_SECONDS = 0.45;
 /** Below this openness a door still blocks movement and sight. */
 const DOOR_SOLID_UNTIL = 0.5;
 const KEYCARD_PICKUP_RANGE = 1.6;
+/** Height a room lamp hangs at, above the floor plane detection measures on. */
+const LAMP_HEIGHT = 5.5;
+/**
+ * Range for a room lamp.
+ *
+ * `PointLight.distance` is a 3D cutoff while {@link illuminationAt} measures
+ * horizontal distance on the floor, so passing LAMP_RADIUS straight through
+ * would cut the visible pool off at sqrt(r^2 - h^2) — about 7.1 units for a
+ * 9-unit radius hung at 5.5. Going via the hypotenuse puts the *ground* cutoff
+ * exactly on LAMP_RADIUS, which is where detection stops counting the player lit.
+ */
+const LAMP_LIGHT_DISTANCE = Math.hypot(LAMP_RADIUS, LAMP_HEIGHT);
 /** Movement noise is emitted on a cadence, not per frame, so guards re-path sanely. */
 const MOVEMENT_NOISE_INTERVAL = 0.4;
 /** How often the stealth HUD is refreshed; far coarser than the render loop. */
@@ -325,12 +337,12 @@ export class InfiltrationGame {
     // read the same list, so a shadow that looks safe on screen actually is.
     this.lamps = lampPositions(this.level.rooms, (cell) => gridToWorld(cell, this.level));
     for (const centre of this.lamps) {
-      // Range comes from LAMP_RADIUS so the lit pool on screen ends exactly
-      // where detection stops counting the player as lit. Decay 1 rather than
-      // physical 2 keeps the rendered falloff nearer the linear model the
-      // stealth math uses across that same span.
-      const lamp = new THREE.PointLight(0x6ee7ff, LAMP_INTENSITY, LAMP_RADIUS, 1);
-      lamp.position.set(centre.x, 5.5, centre.z);
+      // The lit pool on screen ends exactly where detection stops counting the
+      // player as lit — see LAMP_LIGHT_DISTANCE for why that is not LAMP_RADIUS
+      // itself. Decay 1 rather than physical 2 keeps the rendered falloff nearer
+      // the linear model the stealth math uses across that same span.
+      const lamp = new THREE.PointLight(0x6ee7ff, LAMP_INTENSITY, LAMP_LIGHT_DISTANCE, 1);
+      lamp.position.set(centre.x, LAMP_HEIGHT, centre.z);
       this.scene.add(lamp);
     }
 

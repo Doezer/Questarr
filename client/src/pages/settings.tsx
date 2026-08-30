@@ -167,7 +167,8 @@ export default function SettingsPage() {
   // Mobile tab scroller: tracks whether the tab strip has more content to
   // reveal on either side, so we can show a fade hint (tabs overflow on
   // narrow phones and there's no visible scrollbar to signal that).
-  const tabsScrollRef = useRef<HTMLDivElement>(null);
+  const tabsScrollRef = useRef<HTMLDivElement | null>(null);
+  const tabsResizeObserverRef = useRef<ResizeObserver | null>(null);
   const [tabsCanScrollLeft, setTabsCanScrollLeft] = useState(false);
   const [tabsCanScrollRight, setTabsCanScrollRight] = useState(false);
 
@@ -178,18 +179,32 @@ export default function SettingsPage() {
     setTabsCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
   }, []);
 
+  // A callback ref (rather than measuring in an effect keyed on a stable
+  // callback) so the tab strip is measured whenever it actually mounts —
+  // including after the page's loading branch gives way to the real
+  // content, which a mount-only effect would otherwise miss entirely.
+  const setTabsScrollNode = useCallback(
+    (el: HTMLDivElement | null) => {
+      tabsScrollRef.current = el;
+      tabsResizeObserverRef.current?.disconnect();
+      tabsResizeObserverRef.current = null;
+      // A ResizeObserver also catches reflows a window resize won't fire
+      // for (e.g. web font swap changing tab label widths right after load).
+      if (el && typeof ResizeObserver !== "undefined") {
+        const observer = new ResizeObserver(updateTabsScrollFade);
+        observer.observe(el);
+        tabsResizeObserverRef.current = observer;
+      }
+      updateTabsScrollFade();
+    },
+    [updateTabsScrollFade]
+  );
+
   useEffect(() => {
-    const el = tabsScrollRef.current;
-    updateTabsScrollFade();
     window.addEventListener("resize", updateTabsScrollFade);
-    // A ResizeObserver also catches reflows a window resize won't fire for
-    // (e.g. web font swap changing tab label widths right after load).
-    const observer =
-      typeof ResizeObserver !== "undefined" ? new ResizeObserver(updateTabsScrollFade) : null;
-    if (el && observer) observer.observe(el);
     return () => {
       window.removeEventListener("resize", updateTabsScrollFade);
-      observer?.disconnect();
+      tabsResizeObserverRef.current?.disconnect();
     };
   }, [updateTabsScrollFade]);
 
@@ -906,7 +921,7 @@ export default function SettingsPage() {
         <Tabs defaultValue="general" className="w-full">
           <div className="relative mb-4 sm:mb-8">
             <TabsList
-              ref={tabsScrollRef}
+              ref={setTabsScrollNode}
               onScroll={updateTabsScrollFade}
               className="mb-0 flex w-full flex-nowrap justify-start overflow-x-auto scroll-smooth [&>*]:shrink-0"
             >

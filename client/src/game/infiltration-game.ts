@@ -136,6 +136,8 @@ export class InfiltrationGame {
   private solidBoxes: Box[] = [];
   private doors: Door[] = [];
   private keycardMesh: THREE.Mesh | null = null;
+  /** Tracked separately from the card so pickup hides the glow with it. */
+  private keycardHalo: THREE.Mesh | null = null;
   private hasKeycard = false;
   private occluders: Occluder[] = [];
   private facilityHalfExtent = 0;
@@ -203,6 +205,7 @@ export class InfiltrationGame {
     this.occluders = [];
     this.doors = [];
     this.keycardMesh = null;
+    this.keycardHalo = null;
     this.hasKeycard = false;
     this.playerPath = [];
     this.clearScene();
@@ -450,6 +453,7 @@ export class InfiltrationGame {
     this.scene.add(halo);
 
     this.keycardMesh = mesh;
+    this.keycardHalo = halo;
   }
 
   /** The objective terminal, and the world position proximity checks measure against. */
@@ -1087,6 +1091,7 @@ export class InfiltrationGame {
 
     this.hasKeycard = true;
     this.keycardMesh.visible = false;
+    if (this.keycardHalo) this.keycardHalo.visible = false;
     // A route plotted around the locked door is no longer the shortest one.
     this.abortPath();
     this.reportObjective();

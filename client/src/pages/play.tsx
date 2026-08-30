@@ -138,8 +138,8 @@ export default function PlayPage() {
             <div
               className={
                 objective.hasKeycard
-                  ? "rounded-md border border-amber-300/40 bg-amber-300/15 px-3 py-2 text-sm text-amber-200"
-                  : "rounded-md border border-white/10 bg-black/60 px-3 py-2 text-sm text-white/40"
+                  ? "rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-sm text-amber-300"
+                  : "rounded-md border border-white/10 bg-black/60 px-4 py-2 text-sm text-white/40"
               }
             >
               {objective.hasKeycard ? "Keycard acquired" : "Keycard"}

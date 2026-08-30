@@ -118,6 +118,20 @@ describe("generateLevel", () => {
     }
   });
 
+  it("never lets a crate layout strand the keycard or the terminal", () => {
+    // At this density the first roll frequently strands an objective, so both
+    // the reroll and its no-crates fallback are exercised across these seeds.
+    for (const seed of SEEDS) {
+      const level = generateLevel(seed, { crateDensity: 0.3 });
+      expect(
+        findPath(level.spawn, level.keycard!, level.gridSize, blockedWithoutKeycard(level)).length
+      ).toBeGreaterThan(0);
+      expect(
+        findPath(level.spawn, level.terminal, level.gridSize, structuralBlocked(level)).length
+      ).toBeGreaterThan(0);
+    }
+  });
+
   it("gives every guard a patrol on open cells away from the entrance room", () => {
     for (const seed of SEEDS) {
       const level = generateLevel(seed);

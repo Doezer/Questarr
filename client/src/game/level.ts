@@ -19,6 +19,7 @@ export interface DoorDef {
   rooms: [number, number];
 }
 
+/** Knobs the generator reads; {@link DEFAULT_LEVEL_CONFIG} supplies every default. */
 export interface LevelConfig {
   gridSize: number;
   cellSize: number;
@@ -28,6 +29,7 @@ export interface LevelConfig {
   waypointsPerGuard: number;
 }
 
+/** One fully generated facility: its geometry, its objectives and its patrols. */
 export interface GeneratedLevel {
   gridSize: number;
   cellSize: number;
@@ -57,6 +59,7 @@ const MIN_ROOM_SPAN = 4;
 /** Doors are kept off a wall's ends so they never open into a corner. */
 const DOOR_EDGE_MARGIN = 1;
 
+/** One BSP cut: the wall line it lays down, its single door, and the halves either side. */
 interface Split {
   wall: GridPos[];
   door: GridPos;
@@ -64,16 +67,19 @@ interface Split {
   b: Rect;
 }
 
+/** Cell equality, for filtering a door back out of the wall line it sits in. */
 function sameCell(a: GridPos, b: GridPos): boolean {
   return a.x === b.x && a.z === b.z;
 }
 
+/** True when the cell falls inside the rectangle's floor area. */
 function rectContains(rect: Rect, cell: GridPos): boolean {
   return (
     cell.x >= rect.x && cell.x < rect.x + rect.w && cell.z >= rect.z && cell.z < rect.z + rect.h
   );
 }
 
+/** Every cell in a rectangle, in column-major order. */
 function rectCells(rect: Rect): GridPos[] {
   const cells: GridPos[] = [];
   for (let x = rect.x; x < rect.x + rect.w; x++) {
@@ -262,41 +268,81 @@ function doorApproaches(doors: DoorDef[]): GridPos[] {
   ]);
 }
 
+/** The cells a layout must keep connected, and the lock that gates the last one. */
+interface CrateConstraints {
+  spawn: GridPos;
+  terminal: GridPos;
+  keycard: GridPos | null;
+  lockedDoor: DoorDef | null;
+}
+
+/**
+ * True when crates would cut the player off from an objective.
+ *
+ * The two legs are checked under the lock state the player actually faces on
+ * each: the keycard has to be collectable while the locked door is still shut,
+ * and the terminal has to be reachable once it is open. An aggregate "most of
+ * the floor is still reachable" test would pass layouts that strand exactly the
+ * one cell the run depends on.
+ */
+function strandsObjective(
+  blocked: ReadonlySet<string>,
+  gridSize: number,
+  constraints: CrateConstraints
+): boolean {
+  const { spawn, terminal, keycard, lockedDoor } = constraints;
+  if (keycard && lockedDoor) {
+    const locked = new Set(blocked);
+    locked.add(cellKey(lockedDoor.pos));
+    if (!bfsDistances(spawn, gridSize, locked).has(cellKey(keycard))) return true;
+  }
+  return !bfsDistances(spawn, gridSize, blocked).has(cellKey(terminal));
+}
+
+/** Rolls one crate layout, skipping reserved and already-blocked cells. */
+function rollCrates(
+  rooms: Rect[],
+  reserved: ReadonlySet<string>,
+  structural: ReadonlySet<string>,
+  density: number,
+  rand: () => number
+): GridPos[] {
+  const crates: GridPos[] = [];
+  const taken = new Set(structural);
+  for (const room of rooms) {
+    for (const cell of rectCells(room)) {
+      const key = cellKey(cell);
+      if (reserved.has(key) || taken.has(key)) continue;
+      if (rand() < density) {
+        crates.push(cell);
+        taken.add(key);
+      }
+    }
+  }
+  return crates;
+}
+
 /**
  * Scatters crates inside rooms for cover, keeping doorways and objective cells
- * clear and retrying if a layout would wall off too much of the facility.
+ * clear. A layout that strands an objective is rerolled; if no roll in 25 tries
+ * is sound, the level ships with no crates at all — a plain facility beats an
+ * unwinnable one.
  */
 function placeCrates(
   rooms: Rect[],
   reserved: ReadonlySet<string>,
   structural: ReadonlySet<string>,
-  spawn: GridPos,
+  constraints: CrateConstraints,
   gridSize: number,
   density: number,
   rand: () => number
 ): GridPos[] {
-  const floorCells = rooms.reduce((sum, room) => sum + room.w * room.h, 0);
-  let crates: GridPos[] = [];
-
   for (let attempt = 0; attempt < 25; attempt++) {
-    crates = [];
-    const blocked = new Set(structural);
-    for (const room of rooms) {
-      for (const cell of rectCells(room)) {
-        const key = cellKey(cell);
-        if (reserved.has(key) || blocked.has(key)) continue;
-        if (rand() < density) {
-          crates.push(cell);
-          blocked.add(key);
-        }
-      }
-    }
-    // Doors are open cells here, so this walks the whole facility.
-    const reachable = bfsDistances(spawn, gridSize, blocked);
-    if (reachable.size >= (floorCells - crates.length) * 0.75) break;
+    const crates = rollCrates(rooms, reserved, structural, density, rand);
+    const blocked = new Set([...structural, ...crates.map(cellKey)]);
+    if (!strandsObjective(blocked, gridSize, constraints)) return crates;
   }
-
-  return crates;
+  return [];
 }
 
 /**
@@ -373,7 +419,7 @@ export function generateLevel(seed: number, overrides: Partial<LevelConfig> = {}
     rooms,
     reserved,
     structural,
-    spawn,
+    { spawn, terminal, keycard, lockedDoor },
     config.gridSize,
     config.crateDensity,
     rand

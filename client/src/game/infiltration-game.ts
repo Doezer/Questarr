@@ -26,6 +26,7 @@ export interface ObjectiveState {
   hasKeycard: boolean;
 }
 
+/** Axis-aligned XZ footprint of a solid object, used for circle-vs-box collision. */
 interface Box {
   minX: number;
   maxX: number;
@@ -35,6 +36,7 @@ interface Box {
 
 type GuardState = "patrol" | "investigate" | "alert";
 
+/** A patrolling guard: its meshes, its route, and the FSM state driving both. */
 interface Guard {
   group: THREE.Group;
   coneMaterial: THREE.MeshBasicMaterial;
@@ -60,6 +62,7 @@ interface Door {
   openness: number;
 }
 
+/** A thrown distraction in flight, or resting on the floor until it expires. */
 interface Projectile {
   mesh: THREE.Mesh;
   velocity: THREE.Vector3;
@@ -265,6 +268,7 @@ export class InfiltrationGame {
 
   // --- level construction -------------------------------------------------
 
+  /** Generates a facility for the seed and raises every mesh and collider for it. */
   private buildLevel(seed: number) {
     this.level = generateLevel(seed);
     this.facilityHalfExtent = (this.level.gridSize * this.level.cellSize) / 2;
@@ -310,6 +314,7 @@ export class InfiltrationGame {
     this.reportObjective();
   }
 
+  /** Pushes the current objective to the HUD, which owns no per-frame state itself. */
   private reportObjective() {
     this.callbacks.onObjectiveChange?.({
       needsKeycard: this.level.doors.some((door) => door.locked),
@@ -343,6 +348,7 @@ export class InfiltrationGame {
     }
   }
 
+  /** A waist-high crate: cover from sight, and a solid box for collision. */
   private buildCrate(gridPos: GridPos) {
     const world = gridToWorld(gridPos, this.level);
     const material = new THREE.MeshStandardMaterial({ color: 0x49536b, roughness: 0.7 });
@@ -371,6 +377,7 @@ export class InfiltrationGame {
     this.solidBoxes.push(boxAround(world.x, world.z, size));
   }
 
+  /** A door panel plus its collider, tinted by lock state and tracked for sliding. */
   private buildDoor(def: DoorDef) {
     const world = gridToWorld(def.pos, this.level);
     const size = this.level.cellSize;
@@ -413,6 +420,7 @@ export class InfiltrationGame {
     });
   }
 
+  /** The pickup that unlocks the terminal's door, if this layout has a lock. */
   private buildKeycard() {
     if (!this.level.keycard) return;
     const world = gridToWorld(this.level.keycard, this.level);
@@ -444,6 +452,7 @@ export class InfiltrationGame {
     this.keycardMesh = mesh;
   }
 
+  /** The objective terminal, and the world position proximity checks measure against. */
   private buildTerminal() {
     const world = gridToWorld(this.level.terminal, this.level);
     this.terminalWorld.set(world.x, 0, world.z);
@@ -507,6 +516,7 @@ export class InfiltrationGame {
     this.scene.add(group);
   }
 
+  /** Spawns a guard per patrol in the level, each on the first cell of its route. */
   private buildGuards() {
     for (const guardDef of this.level.guards) {
       const waypoints = guardDef.waypoints.map((wp) => {
@@ -564,6 +574,7 @@ export class InfiltrationGame {
     }
   }
 
+  /** The player avatar: a capsule with a wedge marking the direction it faces. */
   private buildPlayer() {
     this.player = new THREE.Group();
     const body = new THREE.Mesh(
@@ -592,6 +603,7 @@ export class InfiltrationGame {
     this.iso.jumpTo(this.player.position);
   }
 
+  /** The hover tile and move marker that make click-to-move destinations legible. */
   private buildCursorMeshes() {
     const cell = this.level.cellSize;
     this.hoverMaterial = new THREE.MeshBasicMaterial({
@@ -691,6 +703,7 @@ export class InfiltrationGame {
     this.orderMoveTo(ground);
   };
 
+  /** Resizes the renderer and reshapes the orthographic frustum to the new canvas. */
   private handleResize() {
     const rect = this.canvas.getBoundingClientRect();
     const width = Math.max(rect.width, 1);
@@ -776,7 +789,7 @@ export class InfiltrationGame {
    * as the geometry allows and ending on the exact requested point.
    */
   private pathTo(destination: THREE.Vector3): THREE.Vector3[] {
-    return this.pathBetween(this.player.position, destination, this.playerBlockedCells());
+    return this.pathBetween(this.player.position, destination, this.playerBlockedCells(), true);
   }
 
   /**
@@ -799,7 +812,8 @@ export class InfiltrationGame {
   private pathBetween(
     from: THREE.Vector3,
     destination: THREE.Vector3,
-    blocked: ReadonlySet<string>
+    blocked: ReadonlySet<string>,
+    forPlayer: boolean
   ): THREE.Vector3[] {
     const startCell = worldToGrid(from.x, from.z, this.level);
     const goalCell = worldToGrid(destination.x, destination.z, this.level);
@@ -811,23 +825,27 @@ export class InfiltrationGame {
     });
     // The last grid cell is only the destination's cell; finish on the real point.
     if (points.length > 0) points[points.length - 1] = destination.clone();
-    else if (this.segmentClear(from, destination)) points.push(destination.clone());
+    else if (this.segmentClear(from, destination, forPlayer)) points.push(destination.clone());
 
-    return this.smoothPath(from, points);
+    return this.smoothPath(from, points, forPlayer);
   }
 
   /**
    * String-pulling: repeatedly jump to the furthest waypoint still reachable in a
    * straight line, which turns A*'s cardinal staircase into natural diagonals.
    */
-  private smoothPath(from: THREE.Vector3, points: THREE.Vector3[]): THREE.Vector3[] {
+  private smoothPath(
+    from: THREE.Vector3,
+    points: THREE.Vector3[],
+    forPlayer: boolean
+  ): THREE.Vector3[] {
     const out: THREE.Vector3[] = [];
     let cursor = from.clone();
     let i = 0;
     while (i < points.length) {
       let furthest = i;
       for (let j = points.length - 1; j > i; j--) {
-        if (this.segmentClear(cursor, points[j])) {
+        if (this.segmentClear(cursor, points[j], forPlayer)) {
           furthest = j;
           break;
         }
@@ -840,7 +858,7 @@ export class InfiltrationGame {
   }
 
   /** Samples the straight line for player-radius clearance against crates and walls. */
-  private segmentClear(from: THREE.Vector3, to: THREE.Vector3): boolean {
+  private segmentClear(from: THREE.Vector3, to: THREE.Vector3, forPlayer = true): boolean {
     const dist = Math.hypot(to.x - from.x, to.z - from.z);
     const steps = Math.max(1, Math.ceil(dist / 0.3));
     const bound = this.facilityHalfExtent - 0.5;
@@ -849,7 +867,7 @@ export class InfiltrationGame {
       const x = THREE.MathUtils.lerp(from.x, to.x, t);
       const z = THREE.MathUtils.lerp(from.z, to.z, t);
       if (Math.abs(x) >= bound || Math.abs(z) >= bound) return false;
-      if (this.collides(x, z)) return false;
+      if (this.collides(x, z, forPlayer)) return false;
     }
     return true;
   }
@@ -958,17 +976,30 @@ export class InfiltrationGame {
     if (!this.collides(pos.x, nextZ) && Math.abs(nextZ) < bound) pos.z = nextZ;
   }
 
-  /** True when a player-radius circle here overlaps a wall, crate or shut door. */
-  private collides(x: number, z: number): boolean {
+  /**
+   * True when a player-radius circle here overlaps a wall, crate or barring door.
+   *
+   * `forPlayer` matters at a locked door: a guard standing at one holds it open,
+   * and without this the player could simply walk through the gap and skip the
+   * keycard entirely — the lock is only enforced in the pathfinder, and a
+   * straight-line fallback never consults it.
+   */
+  private collides(x: number, z: number, forPlayer = true): boolean {
     for (const box of this.solidBoxes) {
       if (overlapsBox(x, z, box, PLAYER_RADIUS)) return true;
     }
     for (const door of this.doors) {
-      if (door.openness < DOOR_SOLID_UNTIL && overlapsBox(x, z, door.box, PLAYER_RADIUS)) {
+      if (this.doorBars(door, forPlayer) && overlapsBox(x, z, door.box, PLAYER_RADIUS)) {
         return true;
       }
     }
     return false;
+  }
+
+  /** Whether a door currently bars whoever is asking. */
+  private doorBars(door: Door, forPlayer: boolean): boolean {
+    if (forPlayer && door.def.locked && !this.hasKeycard) return true;
+    return door.openness < DOOR_SOLID_UNTIL;
   }
 
   /** Samples the sight line for a crate standing between the two points. */
@@ -1034,6 +1065,7 @@ export class InfiltrationGame {
     }
   }
 
+  /** True while someone authorised to pass is standing within trigger range. */
   private doorShouldOpen(door: Door): boolean {
     const playerMayPass = !door.def.locked || this.hasKeycard;
     if (playerMayPass && this.player.position.distanceTo(door.world) <= DOOR_TRIGGER_RANGE) {
@@ -1154,6 +1186,7 @@ export class InfiltrationGame {
     return new THREE.Vector3(world.x, 0, world.z);
   }
 
+  /** Advances every guard: vision on its own interval, then movement and FSM. */
   private updateGuards(dt: number) {
     this.visionCheckAccum += dt;
     const shouldCheckVision = this.visionCheckAccum >= VISION_CHECK_INTERVAL;
@@ -1225,7 +1258,7 @@ export class InfiltrationGame {
 
     if (!guard.destination?.equals(target)) {
       guard.destination = target.clone();
-      guard.path = this.pathBetween(guard.group.position, target, this.guardBlockedCells());
+      guard.path = this.pathBetween(guard.group.position, target, this.guardBlockedCells(), false);
     }
 
     const waypoint = guard.path[0];

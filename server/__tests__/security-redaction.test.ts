@@ -1,28 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { redactSecretText, redactSecrets } from "../security.js";
+import { redactSecrets } from "../security.js";
 
-describe("redactSecretText", () => {
-  it("redacts key=value style secrets", () => {
-    expect(redactSecretText("apikey=abc123&other=fine")).toBe("apikey=[redacted]&other=fine");
-    expect(redactSecretText('password: "hunter2"')).toContain("password=[redacted]");
-  });
-
-  it("redacts Bearer tokens", () => {
-    const input = "Authorization header was Bearer eyJhbGciOiJIUzI1NiJ9.abc.def";
-    expect(redactSecretText(input)).toBe("Authorization header was Bearer [redacted]");
-  });
-
-  it("redacts Discord webhook URLs", () => {
-    const input = "https://discord.com/api/webhooks/12345/abcdef-token";
-    expect(redactSecretText(input)).toBe("[redacted-discord-webhook]");
-  });
-
-  it("leaves ordinary text untouched", () => {
-    const input = "Search completed with 12 results for query 'zelda'";
-    expect(redactSecretText(input)).toBe(input);
-  });
-});
-
+// `redactSecretText` (the plain-string secret redaction `redactSecrets` is built
+// on) now lives in shared/log-scrub.ts, re-exported here for pino-formatter use
+// -- its own tests live in shared/__tests__/log-scrub.test.ts. This file covers
+// only redactSecrets' server-specific behavior: recursive object/array redaction
+// by key shape.
 describe("redactSecrets", () => {
   it("redacts values whose key looks secret-shaped", () => {
     const result = redactSecrets({

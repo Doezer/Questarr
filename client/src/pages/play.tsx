@@ -58,6 +58,7 @@ export default function PlayPage() {
   // Stealth updates ten times a second, so they are written straight to the DOM
   // rather than through React state — the render loop must never re-render.
   const detectionFillRef = useRef<HTMLDivElement>(null);
+  const detectionBarRef = useRef<HTMLSpanElement>(null);
   const stanceRef = useRef<HTMLSpanElement>(null);
   const exposureRef = useRef<HTMLSpanElement>(null);
 
@@ -88,17 +89,28 @@ export default function PlayPage() {
   // Written straight to the DOM: this fires on a 10Hz cadence from the render
   // loop, and routing it through state would re-render the page around the canvas.
   const applyStealth = useCallback(({ stance, awareness, illumination }: StealthState) => {
+    const percent = Math.round(awareness * 100);
     if (detectionFillRef.current) {
-      detectionFillRef.current.style.width = `${Math.round(awareness * 100)}%`;
+      detectionFillRef.current.style.width = `${percent}%`;
       detectionFillRef.current.style.backgroundColor = detectionColor(awareness);
     }
+    // The bar carries the value for assistive tech, since width and colour alone
+    // convey nothing without sight.
+    detectionBarRef.current?.setAttribute("aria-valuenow", String(percent));
+
+    // Only write text that actually changed. These nodes are rewritten ten times
+    // a second, and needless mutations are wasted work whatever is reading them.
     if (stanceRef.current) {
-      stanceRef.current.textContent = stance === "crouched" ? "Crouched" : "Standing";
+      const label = stance === "crouched" ? "Crouched" : "Standing";
+      if (stanceRef.current.textContent !== label) stanceRef.current.textContent = label;
     }
     if (exposureRef.current) {
       const hidden = illumination < 0.25;
-      exposureRef.current.textContent = hidden ? "In shadow" : "In the open";
-      exposureRef.current.className = hidden ? "text-sky-300" : "text-white/40";
+      const label = hidden ? "In shadow" : "In the open";
+      if (exposureRef.current.textContent !== label) {
+        exposureRef.current.textContent = label;
+        exposureRef.current.className = hidden ? "text-sky-300" : "text-white/40";
+      }
     }
   }, []);
 
@@ -189,9 +201,14 @@ export default function PlayPage() {
               <div ref={progressFillRef} className="h-full w-0 bg-emerald-400" />
             </div>
           </div>
+          {/*
+            Deliberately not a live region. This is a continuous readout that
+            updates ten times a second, so `role="status"` (or <output>, which
+            carries it implicitly) would have a screen reader narrating the whole
+            group nonstop for the length of a run.
+          */}
           <div
             className="flex items-center gap-3 rounded-md border border-white/10 bg-black/60 px-4 py-2 text-xs text-white/70"
-            role="status"
             aria-label="Stealth status"
           >
             <span ref={stanceRef}>Standing</span>
@@ -200,7 +217,15 @@ export default function PlayPage() {
             </span>
             <span className="flex items-center gap-2">
               Detection
-              <span className="block h-1.5 w-24 overflow-hidden rounded-full bg-white/20">
+              <span
+                ref={detectionBarRef}
+                role="progressbar"
+                aria-label="Guard detection"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={0}
+                className="block h-1.5 w-24 overflow-hidden rounded-full bg-white/20"
+              >
                 <span ref={detectionFillRef} className="block h-full w-0 bg-emerald-400" />
               </span>
             </span>

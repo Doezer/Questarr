@@ -33,8 +33,18 @@ export const STANCES: Record<Stance, StanceProfile> = {
   crouched: { speed: 0.45, noise: 0.35, visibility: 0.55, height: 0.6 },
 };
 
-/** World-space radius over which a room lamp still contributes light. */
+/**
+ * World-space radius over which a room lamp still contributes light.
+ *
+ * This is the single cutoff: the engine hands it to each `THREE.PointLight` as
+ * its range, so the pool a player can see and the pool detection reads end at
+ * the same place. The falloff *shapes* still differ — the renderer is physical
+ * (inverse-square), this is linear — but a spot that looks dark is dark, which
+ * is the property the stealth routing depends on.
+ */
 export const LAMP_RADIUS = 9;
+/** Intensity for a lamp of {@link LAMP_RADIUS}, tuned so the pool reads on screen. */
+export const LAMP_INTENSITY = 30;
 
 /**
  * Illumination at a world-space point, 0 in full shadow to 1 directly beneath a

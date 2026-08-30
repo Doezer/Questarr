@@ -12,6 +12,8 @@ import {
 import {
   AWARENESS_FULL,
   AWARENESS_SUSPICIOUS,
+  LAMP_INTENSITY,
+  LAMP_RADIUS,
   STANCES,
   THROW_NOISE_RADIUS,
   awarenessRate,
@@ -323,7 +325,11 @@ export class InfiltrationGame {
     // read the same list, so a shadow that looks safe on screen actually is.
     this.lamps = lampPositions(this.level.rooms, (cell) => gridToWorld(cell, this.level));
     for (const centre of this.lamps) {
-      const lamp = new THREE.PointLight(0x6ee7ff, 26, 26, 2);
+      // Range comes from LAMP_RADIUS so the lit pool on screen ends exactly
+      // where detection stops counting the player as lit. Decay 1 rather than
+      // physical 2 keeps the rendered falloff nearer the linear model the
+      // stealth math uses across that same span.
+      const lamp = new THREE.PointLight(0x6ee7ff, LAMP_INTENSITY, LAMP_RADIUS, 1);
       lamp.position.set(centre.x, 5.5, centre.z);
       this.scene.add(lamp);
     }
@@ -729,7 +735,11 @@ export class InfiltrationGame {
     if (this.paused) return;
     this.keys.add(event.code);
     if (event.code === "KeyF") this.throwDistraction();
-    if (event.code === "ControlLeft" || event.code === "ControlRight") this.toggleStance();
+    // Browsers auto-repeat keydown while a key is held; without this the stance
+    // would flip many times a second, oscillating speed, noise and the avatar.
+    if (!event.repeat && (event.code === "ControlLeft" || event.code === "ControlRight")) {
+      this.toggleStance();
+    }
   };
 
   private handleKeyUp = (event: KeyboardEvent) => {

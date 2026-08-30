@@ -744,7 +744,7 @@ export default function SettingsPage() {
       updates: {
         igdbRateLimitPerSecond,
       },
-      successMessage: "Advanced settings have been saved.",
+      successMessage: "IGDB rate limit has been saved.",
     });
   };
 

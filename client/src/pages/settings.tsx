@@ -179,9 +179,18 @@ export default function SettingsPage() {
   }, []);
 
   useEffect(() => {
+    const el = tabsScrollRef.current;
     updateTabsScrollFade();
     window.addEventListener("resize", updateTabsScrollFade);
-    return () => window.removeEventListener("resize", updateTabsScrollFade);
+    // A ResizeObserver also catches reflows a window resize won't fire for
+    // (e.g. web font swap changing tab label widths right after load).
+    const observer =
+      typeof ResizeObserver !== "undefined" ? new ResizeObserver(updateTabsScrollFade) : null;
+    if (el && observer) observer.observe(el);
+    return () => {
+      window.removeEventListener("resize", updateTabsScrollFade);
+      observer?.disconnect();
+    };
   }, [updateTabsScrollFade]);
 
   // Local state for form
@@ -899,7 +908,7 @@ export default function SettingsPage() {
             <TabsList
               ref={tabsScrollRef}
               onScroll={updateTabsScrollFade}
-              className="mb-0 flex w-full flex-nowrap overflow-x-auto scroll-smooth [&>*]:shrink-0"
+              className="mb-0 flex w-full flex-nowrap justify-start overflow-x-auto scroll-smooth [&>*]:shrink-0"
             >
               <TabsTrigger value="general">General</TabsTrigger>
               <TabsTrigger value="rules">Rules</TabsTrigger>

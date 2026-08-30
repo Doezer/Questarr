@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useLocalStorageState } from "@/hooks/use-local-storage-state";
-import { InfiltrationGame, type ObjectiveState } from "@/game/infiltration-game";
+import { InfiltrationGame, type ObjectiveState, type StealthState } from "@/game/infiltration-game";
 import { GHOST_UNLOCK_KEY } from "@/lib/ghost-mode";
 
 function randomSeed() {
@@ -28,9 +28,17 @@ const CONTROLS: { keys: string; action: string }[] = [
   { keys: "Left click", action: "Move to a tile" },
   { keys: "Click console", action: "Walk over and hack" },
   { keys: "Right click / F", action: "Throw a distraction" },
+  { keys: "Ctrl", action: "Crouch — slower, quieter, harder to see" },
   { keys: "Scroll", action: "Zoom" },
   { keys: "Esc", action: "Pause" },
 ];
+
+/** Detection bar colour, so the meter reads as a threat level and not just a number. */
+function detectionColor(awareness: number): string {
+  if (awareness >= 0.66) return "#ff3b3b";
+  if (awareness >= 0.3) return "#ffb020";
+  return "#35f0b0";
+}
 
 /** The single next step, so the HUD never asks the player to hold two goals. */
 function objectiveText({ needsKeycard, hasKeycard }: ObjectiveState): string {
@@ -47,6 +55,11 @@ export default function PlayPage() {
   const gameRef = useRef<InfiltrationGame | null>(null);
   const progressFillRef = useRef<HTMLDivElement>(null);
   const promptRef = useRef<HTMLDivElement>(null);
+  // Stealth updates ten times a second, so they are written straight to the DOM
+  // rather than through React state — the render loop must never re-render.
+  const detectionFillRef = useRef<HTMLDivElement>(null);
+  const stanceRef = useRef<HTMLSpanElement>(null);
+  const exposureRef = useRef<HTMLSpanElement>(null);
 
   const [paused, setPaused] = useState(true);
   const [won, setWon] = useState(false);
@@ -72,6 +85,23 @@ export default function PlayPage() {
     callbacksRef.current = { onCaught: handleCaught, onWin: handleWin };
   }, [handleCaught, handleWin]);
 
+  // Written straight to the DOM: this fires on a 10Hz cadence from the render
+  // loop, and routing it through state would re-render the page around the canvas.
+  const applyStealth = useCallback(({ stance, awareness, illumination }: StealthState) => {
+    if (detectionFillRef.current) {
+      detectionFillRef.current.style.width = `${Math.round(awareness * 100)}%`;
+      detectionFillRef.current.style.backgroundColor = detectionColor(awareness);
+    }
+    if (stanceRef.current) {
+      stanceRef.current.textContent = stance === "crouched" ? "Crouched" : "Standing";
+    }
+    if (exposureRef.current) {
+      const hidden = illumination < 0.25;
+      exposureRef.current.textContent = hidden ? "In shadow" : "In the open";
+      exposureRef.current.className = hidden ? "text-sky-300" : "text-white/40";
+    }
+  }, []);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -81,6 +111,7 @@ export default function PlayPage() {
       onObjectiveChange: setObjective,
       onCaught: () => callbacksRef.current.onCaught(),
       onWin: () => callbacksRef.current.onWin(),
+      onStealthChange: (stealth) => applyStealth(stealth),
       onHackProgress: (progress, canInteract) => {
         if (progressFillRef.current) {
           progressFillRef.current.style.width = `${progress * 100}%`;
@@ -97,7 +128,8 @@ export default function PlayPage() {
       game.dispose();
       gameRef.current = null;
     };
-  }, []);
+    // applyStealth is a stable useCallback, so this still mounts exactly once.
+  }, [applyStealth]);
 
   const handleStart = useCallback(() => {
     setWon(false);
@@ -125,7 +157,7 @@ export default function PlayPage() {
       <canvas
         ref={canvasRef}
         className="h-full w-full touch-none"
-        aria-label="Infiltration game. Click a tile to move, click the console to hack it, right-click to throw a distraction."
+        aria-label="Infiltration game. Click a tile to move, click the console to hack it, right-click to throw a distraction, Ctrl to crouch."
       />
 
       {/* In-game HUD, always mounted so refs update imperatively without re-render */}
@@ -157,8 +189,25 @@ export default function PlayPage() {
               <div ref={progressFillRef} className="h-full w-0 bg-emerald-400" />
             </div>
           </div>
+          <div
+            className="flex items-center gap-3 rounded-md border border-white/10 bg-black/60 px-4 py-2 text-xs text-white/70"
+            role="status"
+            aria-label="Stealth status"
+          >
+            <span ref={stanceRef}>Standing</span>
+            <span ref={exposureRef} className="text-white/40">
+              In the open
+            </span>
+            <span className="flex items-center gap-2">
+              Detection
+              <span className="block h-1.5 w-24 overflow-hidden rounded-full bg-white/20">
+                <span ref={detectionFillRef} className="block h-full w-0 bg-emerald-400" />
+              </span>
+            </span>
+          </div>
           <div className="rounded-md bg-black/50 px-3 py-1 text-xs text-white/50">
-            Left click to move &middot; right click to throw &middot; Esc to pause
+            Left click to move &middot; Ctrl to crouch &middot; right click to throw &middot; Esc to
+            pause
           </div>
         </div>
       </div>

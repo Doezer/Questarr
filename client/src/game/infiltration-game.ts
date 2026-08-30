@@ -9,6 +9,18 @@ import {
   type DoorDef,
   type GeneratedLevel,
 } from "./level";
+import {
+  AWARENESS_FULL,
+  AWARENESS_SUSPICIOUS,
+  STANCES,
+  THROW_NOISE_RADIUS,
+  awarenessRate,
+  illuminationAt,
+  lampPositions,
+  noiseRadiusFor,
+  stepAwareness,
+  type Stance,
+} from "./detection";
 
 export interface InfiltrationGameCallbacks {
   onPauseChange?: (paused: boolean) => void;
@@ -18,6 +30,17 @@ export interface InfiltrationGameCallbacks {
   onHackProgress?: (progress: number, canInteract: boolean) => void;
   /** Fires when the level is built and whenever the keycard is picked up. */
   onObjectiveChange?: (objective: ObjectiveState) => void;
+  /** Fires on a fixed cadence with the player's stance and worst guard awareness. */
+  onStealthChange?: (stealth: StealthState) => void;
+}
+
+/** What the HUD needs to show about how exposed the player currently is. */
+export interface StealthState {
+  stance: Stance;
+  /** Highest awareness across all guards, in [0, 1]. */
+  awareness: number;
+  /** Illumination at the player's feet, in [0, 1]. */
+  illumination: number;
 }
 
 export interface ObjectiveState {
@@ -34,7 +57,7 @@ interface Box {
   maxZ: number;
 }
 
-type GuardState = "patrol" | "investigate" | "alert";
+type GuardState = "patrol" | "suspicious" | "investigate" | "alert";
 
 /** A patrolling guard: its meshes, its route, and the FSM state driving both. */
 interface Guard {
@@ -47,8 +70,10 @@ interface Guard {
   investigateTarget: THREE.Vector3 | null;
   path: THREE.Vector3[];
   destination: THREE.Vector3 | null;
-  /** Seconds this guard has held the player in sight, reset when the view breaks. */
-  spottedFor: number;
+  /** How certain this guard is that it has seen the player, in [0, 1]. */
+  awareness: number;
+  /** Last sampled line of sight, refreshed on the vision interval. */
+  seen: boolean;
 }
 
 /** A powered door in an interior wall, sliding into the floor as it opens. */
@@ -87,17 +112,8 @@ const DOOR_HEIGHT = 2.8;
 const VISION_RANGE = 9;
 const VISION_HALF_FOV = THREE.MathUtils.degToRad(32);
 const VISION_CHECK_INTERVAL = 0.15;
-/**
- * How long a guard must hold the player in sight before raising the alarm. The
- * first-person build could catch on the first frame because the player could see
- * only what was in front of them; from a fixed isometric view the vision cones are
- * drawn on the floor, so the player deserves the moment it takes to react to one
- * sweeping over them.
- */
-const SPOT_GRACE = 0.55;
 const GUARD_SPEED = 2.2;
 const GUARD_EYE_HEIGHT = 1.2;
-const NOISE_RADIUS = 6.5;
 const INTERACT_DISTANCE = 2.4;
 const HACK_DURATION = 2;
 const THROW_COOLDOWN = 1;
@@ -107,9 +123,14 @@ const DOOR_OPEN_SECONDS = 0.45;
 /** Below this openness a door still blocks movement and sight. */
 const DOOR_SOLID_UNTIL = 0.5;
 const KEYCARD_PICKUP_RANGE = 1.6;
+/** Movement noise is emitted on a cadence, not per frame, so guards re-path sanely. */
+const MOVEMENT_NOISE_INTERVAL = 0.4;
+/** How often the stealth HUD is refreshed; far coarser than the render loop. */
+const STEALTH_REPORT_INTERVAL = 0.1;
 const DOOR_COLORS = { locked: 0xff3b3b, unlocked: 0x35f0b0 };
 const CONE_COLORS: Record<GuardState, number> = {
   patrol: 0xffd23c,
+  suspicious: 0xffb020,
   investigate: 0xff9f1c,
   alert: 0xff3b3b,
 };
@@ -157,6 +178,14 @@ export class InfiltrationGame {
   private markerMesh!: THREE.Mesh;
   private markerMaterial!: THREE.MeshBasicMaterial;
   private markerPulse = 0;
+
+  private stance: Stance = "standing";
+  /** Room lamp centres in world space, the light sources detection reads. */
+  private lamps: { x: number; z: number }[] = [];
+  /** Scaled on crouch so the stance is readable from the isometric camera. */
+  private playerBody: THREE.Group | null = null;
+  private movementNoiseAccum = 0;
+  private stealthReportAccum = 0;
 
   private keys = new Set<string>();
   private pointerGround: THREE.Vector3 | null = null;
@@ -213,6 +242,10 @@ export class InfiltrationGame {
     this.autoHack = false;
     this.finished = false;
     this.caughtCooldown = 0;
+    // A fresh layout is a fresh run: start it upright rather than inheriting the
+    // stance the last run happened to end in.
+    this.stance = "standing";
+    this.movementNoiseAccum = 0;
     this.buildLevel(seed);
   }
 
@@ -286,11 +319,10 @@ export class InfiltrationGame {
     this.scene.add(key);
     // A lamp per room, so rooms read as separately lit spaces rather than one
     // hall with a hotspot in the middle.
-    for (const room of this.level.rooms) {
-      const centre = gridToWorld(
-        { x: room.x + (room.w - 1) / 2, z: room.z + (room.h - 1) / 2 },
-        this.level
-      );
+    // One source of truth for where light is: the meshes and the detection math
+    // read the same list, so a shadow that looks safe on screen actually is.
+    this.lamps = lampPositions(this.level.rooms, (cell) => gridToWorld(cell, this.level));
+    for (const centre of this.lamps) {
       const lamp = new THREE.PointLight(0x6ee7ff, 26, 26, 2);
       lamp.position.set(centre.x, 5.5, centre.z);
       this.scene.add(lamp);
@@ -573,7 +605,8 @@ export class InfiltrationGame {
         investigateTarget: null,
         path: [],
         destination: null,
-        spottedFor: 0,
+        awareness: 0,
+        seen: false,
       });
     }
   }
@@ -601,10 +634,45 @@ export class InfiltrationGame {
     shadow.rotation.x = -Math.PI / 2;
     shadow.position.y = 0.02;
 
-    this.player.add(body, nose, shadow);
+    // Body and nose ride in their own group: crouch scales that, leaving the
+    // ground shadow (which reads as the player's footprint) at full size.
+    const upper = new THREE.Group();
+    upper.add(body, nose);
+    this.playerBody = upper;
+    this.player.add(upper, shadow);
     this.scene.add(this.player);
+    this.applyStance();
     this.resetPlayerToSpawn();
     this.iso.jumpTo(this.player.position);
+  }
+
+  /** Flips between standing and crouched, and tells the HUD immediately. */
+  private toggleStance() {
+    this.stance = this.stance === "standing" ? "crouched" : "standing";
+    this.applyStance();
+    this.reportStealth();
+  }
+
+  /** Reflects the current stance in the player mesh. */
+  private applyStance() {
+    if (this.playerBody) this.playerBody.scale.y = STANCES[this.stance].height;
+  }
+
+  /** Pushes stance, exposure and the worst guard's awareness to the HUD. */
+  private reportStealth() {
+    if (!this.callbacks.onStealthChange) return;
+    let awareness = 0;
+    for (const guard of this.guards) awareness = Math.max(awareness, guard.awareness);
+    this.callbacks.onStealthChange({
+      stance: this.stance,
+      awareness,
+      illumination: this.playerIllumination(),
+    });
+  }
+
+  /** Illumination at the player's feet, which is what guards actually read. */
+  private playerIllumination(): number {
+    return illuminationAt(this.player.position.x, this.player.position.z, this.lamps);
   }
 
   /** The hover tile and move marker that make click-to-move destinations legible. */
@@ -661,6 +729,7 @@ export class InfiltrationGame {
     if (this.paused) return;
     this.keys.add(event.code);
     if (event.code === "KeyF") this.throwDistraction();
+    if (event.code === "ControlLeft" || event.code === "ControlRight") this.toggleStance();
   };
 
   private handleKeyUp = (event: KeyboardEvent) => {
@@ -913,6 +982,24 @@ export class InfiltrationGame {
 
     this.moveWithCollision(this.velocity.x * dt, this.velocity.y * dt);
     this.player.rotation.y = Math.atan2(this.velocity.x, this.velocity.y);
+    this.emitFootstepNoise(dt);
+  }
+
+  /**
+   * Leaks the player's own position to nearby guards while they move.
+   *
+   * Emitted on a cadence rather than per frame: the target moves with the
+   * player, and re-pathing every guard on every frame toward a target that has
+   * shifted a few centimetres is both wasteful and jittery.
+   */
+  private emitFootstepNoise(dt: number) {
+    this.movementNoiseAccum += dt;
+    if (this.movementNoiseAccum < MOVEMENT_NOISE_INTERVAL) return;
+    this.movementNoiseAccum = 0;
+
+    const topSpeed = PLAYER_SPEED * STANCES[this.stance].speed;
+    const radius = noiseRadiusFor(this.stance, this.velocity.length() / topSpeed);
+    if (radius > 0) this.emitNoise(this.player.position, radius);
   }
 
   /** Accelerates toward the current waypoint, or retires it once reached. */
@@ -926,9 +1013,10 @@ export class InfiltrationGame {
       return;
     }
 
-    this.velocity.x += (dx / distance) * PLAYER_SPEED * dt * 8;
-    this.velocity.y += (dz / distance) * PLAYER_SPEED * dt * 8;
-    this.velocity.clampLength(0, PLAYER_SPEED);
+    const topSpeed = PLAYER_SPEED * STANCES[this.stance].speed;
+    this.velocity.x += (dx / distance) * topSpeed * dt * 8;
+    this.velocity.y += (dz / distance) * topSpeed * dt * 8;
+    this.velocity.clampLength(0, topSpeed);
     this.trackWaypointProgress(distance, dt);
   }
 
@@ -1158,7 +1246,7 @@ export class InfiltrationGame {
   }
 
   /** Sends every guard within earshot to investigate the noise. */
-  private emitNoise(position: THREE.Vector3) {
+  private emitNoise(position: THREE.Vector3, radius: number = THROW_NOISE_RADIUS) {
     // Earshot is measured from where the noise actually landed, but the guard is
     // sent to the nearest cell it can stand on: a projectile that comes to rest
     // on a crate would otherwise hand findPath a blocked goal, leaving the guard
@@ -1168,7 +1256,7 @@ export class InfiltrationGame {
 
     for (const guard of this.guards) {
       if (guard.state === "alert") continue;
-      if (guard.group.position.distanceTo(position) <= NOISE_RADIUS) {
+      if (guard.group.position.distanceTo(position) <= radius) {
         guard.state = "investigate";
         guard.investigateTarget = target.clone();
         guard.stateTimer = 3;
@@ -1194,6 +1282,9 @@ export class InfiltrationGame {
   /** Advances every guard: vision on its own interval, then movement and FSM. */
   private updateGuards(dt: number) {
     this.visionCheckAccum += dt;
+    // Line-of-sight raycasts are the expensive part, so they keep their own
+    // coarse interval; the meter itself integrates every frame off the last
+    // sample, which keeps it smooth enough to render as a bar.
     const shouldCheckVision = this.visionCheckAccum >= VISION_CHECK_INTERVAL;
     if (shouldCheckVision) this.visionCheckAccum = 0;
 
@@ -1204,14 +1295,21 @@ export class InfiltrationGame {
       const alerted = this.tickGuardState(guard, dt);
       if (alerted) continue;
 
-      if (shouldCheckVision && this.caughtCooldown <= 0) this.processGuardVision(guard);
+      if (shouldCheckVision) guard.seen = this.caughtCooldown <= 0 && this.canSeePlayer(guard);
+      this.processGuardAwareness(guard, dt);
+    }
+
+    this.stealthReportAccum += dt;
+    if (this.stealthReportAccum >= STEALTH_REPORT_INTERVAL) {
+      this.stealthReportAccum = 0;
+      this.reportStealth();
     }
   }
 
   /** Ages the guard's current state out; returns true while it is still alert. */
   private tickGuardState(guard: Guard, dt: number): boolean {
     if (guard.state === "alert") {
-      guard.spottedFor = 0;
+      guard.awareness = 0;
       guard.stateTimer -= dt;
       if (guard.stateTimer <= 0) this.returnGuardToPatrol(guard);
       return true;
@@ -1234,28 +1332,56 @@ export class InfiltrationGame {
     guard.path = [];
   }
 
-  /** Accumulates sight time and raises the alarm once the grace window elapses. */
-  private processGuardVision(guard: Guard) {
-    if (!this.canSeePlayer(guard)) {
-      guard.spottedFor = 0;
+  /**
+   * Fills or drains this guard's awareness, and moves it through the states the
+   * meter implies.
+   *
+   * Distance, light and stance all feed the fill rate, so the same cone sweeping
+   * over a crouched player in shadow is survivable where it would be fatal to
+   * someone sprinting upright under a lamp.
+   */
+  private processGuardAwareness(guard: Guard, dt: number) {
+    const rate = guard.seen
+      ? awarenessRate({
+          distance: guard.group.position.distanceTo(this.player.position),
+          visionRange: VISION_RANGE,
+          illumination: this.playerIllumination(),
+          stance: this.stance,
+        })
+      : 0;
+    guard.awareness = stepAwareness(guard.awareness, rate, guard.seen, dt);
+
+    if (guard.awareness >= AWARENESS_FULL) {
+      this.onCaught(guard);
       return;
     }
-
-    guard.spottedFor += VISION_CHECK_INTERVAL;
-    // Closing in on the player reads as the guard reacting, and gives the
-    // player a visible cue that they have been noticed.
-    if (guard.state === "patrol") {
-      guard.state = "investigate";
-      guard.investigateTarget = this.player.position.clone().setY(0);
-      guard.stateTimer = 3;
-      guard.destination = null;
-      guard.path = [];
+    if (guard.awareness >= AWARENESS_SUSPICIOUS) {
+      this.raiseSuspicion(guard);
+    } else if (guard.state === "suspicious" && guard.awareness <= 0) {
+      this.returnGuardToPatrol(guard);
     }
-    if (guard.spottedFor >= SPOT_GRACE) this.onCaught(guard);
+  }
+
+  /**
+   * Halts a guard that has half-noticed something, facing the player's last
+   * known position. Standing still is the tell: a cone that stops sweeping is
+   * the player's cue to break line of sight before the meter tops out.
+   */
+  private raiseSuspicion(guard: Guard) {
+    if (guard.state === "investigate" || guard.state === "alert") return;
+    guard.state = "suspicious";
+    guard.investigateTarget = this.player.position.clone().setY(0);
+    guard.destination = null;
+    guard.path = [];
   }
 
   /** Routes a guard toward its current objective, re-pathing when that changes. */
   private stepGuardMovement(guard: Guard, dt: number) {
+    if (guard.state === "suspicious") {
+      this.faceSuspicion(guard, dt);
+      return;
+    }
+
     const target =
       guard.state === "investigate" && guard.investigateTarget
         ? guard.investigateTarget
@@ -1286,6 +1412,16 @@ export class InfiltrationGame {
     guard.group.position.addScaledVector(toWaypoint, GUARD_SPEED * dt);
     const desiredYaw = Math.atan2(toWaypoint.x, toWaypoint.z);
     guard.group.rotation.y = lerpAngle(guard.group.rotation.y, desiredYaw, Math.min(1, dt * 6));
+  }
+
+  /** Turns a suspicious guard toward what it half-saw, without closing the distance. */
+  private faceSuspicion(guard: Guard, dt: number) {
+    const target = guard.investigateTarget;
+    if (!target) return;
+    const toTarget = new THREE.Vector3().subVectors(target, guard.group.position).setY(0);
+    if (toTarget.lengthSq() < 1e-6) return;
+    const desiredYaw = Math.atan2(toTarget.x, toTarget.z);
+    guard.group.rotation.y = lerpAngle(guard.group.rotation.y, desiredYaw, Math.min(1, dt * 4));
   }
 
   /** True when the guard currently has an unobstructed view of the player. */
@@ -1320,7 +1456,10 @@ export class InfiltrationGame {
     // caughtCooldown suppresses vision checks for everyone, so any guard that
     // had already banked sight time would otherwise resume the grace period
     // part-spent and catch the respawned player almost immediately.
-    for (const other of this.guards) other.spottedFor = 0;
+    for (const other of this.guards) {
+      other.awareness = 0;
+      other.seen = false;
+    }
     this.hackProgress = 0;
 
     this.resetPlayerToSpawn();

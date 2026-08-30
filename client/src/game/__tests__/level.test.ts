@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cellKey, type GridPos } from "../grid";
+import { cellKey, isInterior, type GridPos } from "../grid";
 import { findPath } from "../pathfinding";
 import { generateLevel, gridToWorld, worldToGrid, type GeneratedLevel } from "../level";
 
@@ -75,6 +75,38 @@ describe("generateLevel", () => {
         expect(door.rooms[0]).not.toBe(door.rooms[1]);
         expect(level.rooms[door.rooms[0]]).toBeDefined();
         expect(level.rooms[door.rooms[1]]).toBeDefined();
+      }
+    }
+  });
+
+  it("leaves no interior cell that is neither floor, wall nor door", () => {
+    // A later perpendicular split can strand an earlier door so it joins fewer
+    // than two rooms. Its cell is already cut from its wall line, so if it is
+    // not sealed it becomes a hole the engine builds no collider for.
+    for (const seed of SEEDS) {
+      const level = generateLevel(seed);
+      const floor = new Set(level.rooms.flatMap(rectCells).map(cellKey));
+      const walls = new Set(level.walls.map(cellKey));
+      const doors = new Set(level.doors.map((door) => cellKey(door.pos)));
+
+      for (let x = 1; x <= level.gridSize - 2; x++) {
+        for (let z = 1; z <= level.gridSize - 2; z++) {
+          const cell = { x, z };
+          if (!isInterior(cell, level.gridSize)) continue;
+          const key = cellKey(cell);
+          expect(floor.has(key) || walls.has(key) || doors.has(key)).toBe(true);
+        }
+      }
+    }
+  });
+
+  it("gives each guard distinct patrol waypoints", () => {
+    // Repeated waypoints leave a guard with a zero-length route: it never moves
+    // and its cone never sweeps, so it stops being an obstacle.
+    for (const seed of SEEDS) {
+      for (const guard of generateLevel(seed).guards) {
+        const unique = new Set(guard.waypoints.map(cellKey));
+        expect(unique.size).toBe(guard.waypoints.length);
       }
     }
   });

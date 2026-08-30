@@ -169,12 +169,26 @@ function partitionRooms(interior: Rect, roomCount: number, rand: () => number) {
     splits.push(split);
   }
 
-  const walls = splits.flatMap((split) => split.wall.filter((cell) => !sameCell(cell, split.door)));
   const doors: DoorDef[] = [];
+  const orphans: GridPos[] = [];
   for (const split of splits) {
     const joined = roomsBesideDoor(rooms, split.door);
     if (joined) doors.push({ pos: split.door, locked: false, rooms: joined });
+    // A later perpendicular split can wall off the cell beside an earlier door,
+    // leaving that door joining fewer than two rooms. Its cell was already
+    // removed from its own wall line, so without sealing it here it becomes a
+    // gap that is neither floor, wall nor door — and so gets no collider at all.
+    else orphans.push(split.door);
   }
+
+  const cut = splits.flatMap((split) => split.wall.filter((cell) => !sameCell(cell, split.door)));
+  const seen = new Set<string>();
+  const walls = [...cut, ...orphans].filter((cell) => {
+    const key = cellKey(cell);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 
   return { rooms, walls, doors };
 }
@@ -361,9 +375,13 @@ function assignGuardWaypoints(
     const room = rooms[patrolRooms[g % patrolRooms.length]];
     const open = rectCells(room).filter((cell) => !blocked.has(cellKey(cell)));
     if (open.length === 0) continue;
+    // Sampled without replacement: drawing the same cell twice would give this
+    // guard a zero-length route, so it would stand still and its cone would
+    // never sweep — a patrol that is no obstacle at all.
+    const pool = [...open];
     const waypoints: GridPos[] = [];
-    for (let i = 0; i < config.waypointsPerGuard; i++) {
-      waypoints.push(open[Math.floor(rand() * open.length)]);
+    for (let i = 0; i < config.waypointsPerGuard && pool.length > 0; i++) {
+      waypoints.push(pool.splice(Math.floor(rand() * pool.length), 1)[0]);
     }
     guards.push({ waypoints });
   }

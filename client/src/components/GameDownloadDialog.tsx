@@ -240,7 +240,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     [minSeeders]
   );
   const [selectedIndexer, setSelectedIndexer] = useState<string>("all");
-  const [sortBy, setSortBy] = useState<"seeders" | "date" | "size">("seeders");
+  const [sortBy, setSortBy] = useState<"seeders" | "date" | "size" | "priority">("seeders");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [showFilters, setShowFilters] = useState(false);
   const [visibleCategories, setVisibleCategories] = useState<Set<DownloadCategory>>(
@@ -363,27 +363,44 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     enabled: open,
   });
 
+  // Maps indexer name -> configured priority (lower number = higher priority) so
+  // results can be sorted to match the order set on Management > Indexers.
+  const indexerPriorityMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const indexer of enabledIndexers ?? []) {
+      map.set(indexer.name, indexer.priority);
+    }
+    return map;
+  }, [enabledIndexers]);
+
   // Categorize downloads
   const categorizedDownloads = useMemo(() => {
     if (!searchResults?.items) return { main: [], update: [], dlc: [], extra: [], packs: [] };
     return groupDownloadsByCategory(searchResults.items);
   }, [searchResults?.items]);
 
-  const availableIndexers = useMemo(() => {
+  // Distinct indexer names actually present in the current results, regardless of
+  // whether they're still in the user's enabled-indexers list. Used to decide when
+  // the Priority column is meaningful (i.e. results span more than one indexer).
+  const resultIndexerNames = useMemo(() => {
     if (!searchResults?.items) return [];
     const indexers = new Set(
       searchResults.items
         .map((item) => item.indexerName)
         .filter((name): name is string => Boolean(name))
     );
+    return Array.from(indexers);
+  }, [searchResults?.items]);
+
+  const availableIndexers = useMemo(() => {
     if (enabledIndexers) {
       const enabledNames = new Set(enabledIndexers.map((i) => i.name));
-      return Array.from(indexers)
+      return resultIndexerNames
         .filter((name) => enabledNames.has(name))
         .sort((a, b) => a.localeCompare(b));
     }
-    return Array.from(indexers).sort((a, b) => a.localeCompare(b));
-  }, [searchResults?.items, enabledIndexers]);
+    return [...resultIndexerNames].sort((a, b) => a.localeCompare(b));
+  }, [resultIndexerNames, enabledIndexers]);
 
   const availableGroups = useMemo(() => {
     if (!searchResults?.items) return [];
@@ -460,6 +477,17 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
             const keyB = b.guid || b.link;
             comparison =
               (itemPubDateTimestamps.get(keyB) ?? 0) - (itemPubDateTimestamps.get(keyA) ?? 0);
+          } else if (sortBy === "priority") {
+            // Lower priority number = higher-priority indexer, so it sorts first by default.
+            // Indexers with no configured priority (e.g. since removed/disabled) always sort
+            // last, regardless of the chosen sort direction.
+            const aPriority = indexerPriorityMap.get(a.indexerName ?? "");
+            const bPriority = indexerPriorityMap.get(b.indexerName ?? "");
+            if (aPriority === undefined || bPriority === undefined) {
+              if (aPriority === undefined && bPriority === undefined) return 0;
+              return aPriority === undefined ? 1 : -1;
+            }
+            comparison = aPriority - bPriority;
           } else {
             comparison = (b.size ?? 0) - (a.size ?? 0);
           }
@@ -479,6 +507,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     selectedGroups,
     selectedPlatforms,
     itemPubDateTimestamps,
+    indexerPriorityMap,
   ]);
 
   // Sorted items for display (by date)
@@ -726,7 +755,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     });
   };
 
-  const toggleSort = (field: "seeders" | "date" | "size") => {
+  const toggleSort = (field: "seeders" | "date" | "size" | "priority") => {
     if (sortBy === field) {
       setSortOrder(sortOrder === "asc" ? "desc" : "asc");
     } else {
@@ -740,7 +769,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
     label,
     className = "",
   }: {
-    field: "seeders" | "date" | "size";
+    field: "seeders" | "date" | "size" | "priority";
     label: string;
     className?: string;
   }) => (
@@ -990,6 +1019,13 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                             </span>
                           </div>
                           <div className="flex items-center gap-6 md:gap-10">
+                            {resultIndexerNames.length > 1 && (
+                              <SortHeader
+                                field="priority"
+                                label="Priority"
+                                className="min-w-[70px] justify-end"
+                              />
+                            )}
                             <SortHeader
                               field="date"
                               label="Date"
@@ -1310,6 +1346,12 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                               </div>
 
                               <div className="flex items-center gap-6 md:gap-10 flex-shrink-0">
+                                {resultIndexerNames.length > 1 && (
+                                  <div className="min-w-[70px] text-right font-mono text-xs font-bold">
+                                    {indexerPriorityMap.get(download.indexerName ?? "") ?? "—"}
+                                  </div>
+                                )}
+
                                 <div className="min-w-[70px] text-right">
                                   <div className="text-xs font-medium">
                                     {formatDate(download.pubDate)}

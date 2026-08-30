@@ -3,6 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Downloader } from "../../shared/schema.js";
 import { NZBGetClient } from "../downloaders/nzbget.js";
 
+// Exposes NZBGetClient's private makeXMLRPCRequest with its real signature for
+// spying, rather than casting through the untyped `typeof Function` at each call site.
+interface NZBGetClientInternals {
+  makeXMLRPCRequest: (method: string, params?: unknown[]) => Promise<unknown>;
+}
+
 vi.mock("../logger.js", () => ({
   downloadersLogger: {
     debug: vi.fn(),
@@ -270,10 +276,7 @@ describe("NZBGet remaining coverage", () => {
   it("covers detail and queue error fallbacks", async () => {
     const client = new NZBGetClient(createDownloader());
     const statusSpy = vi.spyOn(client, "getDownloadStatus");
-    const rpcSpy = vi.spyOn(
-      client as unknown as { makeXMLRPCRequest: typeof Function },
-      "makeXMLRPCRequest"
-    );
+    const rpcSpy = vi.spyOn(client as unknown as NZBGetClientInternals, "makeXMLRPCRequest");
 
     statusSpy.mockResolvedValueOnce(null);
     await expect(client.getDownloadDetails("missing")).resolves.toBeNull();
@@ -284,10 +287,7 @@ describe("NZBGet remaining coverage", () => {
 
   it("getDownloadDetails populates downloadDir from history's DestDir for completed downloads", async () => {
     const client = new NZBGetClient(createDownloader());
-    const rpcSpy = vi.spyOn(
-      client as unknown as { makeXMLRPCRequest: typeof Function },
-      "makeXMLRPCRequest"
-    );
+    const rpcSpy = vi.spyOn(client as unknown as NZBGetClientInternals, "makeXMLRPCRequest");
 
     // getDownloadStatus: not in the live queue, falls back to history.
     rpcSpy.mockResolvedValueOnce([]).mockResolvedValueOnce([
@@ -330,10 +330,7 @@ describe("NZBGet remaining coverage", () => {
 
   it("getDownloadDetails leaves downloadDir unset for downloads still in progress", async () => {
     const client = new NZBGetClient(createDownloader());
-    const rpcSpy = vi.spyOn(
-      client as unknown as { makeXMLRPCRequest: typeof Function },
-      "makeXMLRPCRequest"
-    );
+    const rpcSpy = vi.spyOn(client as unknown as NZBGetClientInternals, "makeXMLRPCRequest");
 
     rpcSpy.mockResolvedValueOnce([
       {
@@ -373,8 +370,7 @@ describe("NZBGet remaining coverage", () => {
       reuseSpy?: ReturnType<typeof vi.spyOn>
     ) => {
       const spy =
-        reuseSpy ??
-        vi.spyOn(client as unknown as { makeXMLRPCRequest: typeof Function }, "makeXMLRPCRequest");
+        reuseSpy ?? vi.spyOn(client as unknown as NZBGetClientInternals, "makeXMLRPCRequest");
       spy.mockResolvedValueOnce(42);
       await client.addDownload(request);
       const ppParameters = spy.mock.calls.at(-1)?.[1]?.at(-1);
@@ -424,10 +420,7 @@ describe("NZBGet remaining coverage", () => {
     } as Response);
 
     const client = new NZBGetClient(createDownloader({ useSsl: false }));
-    const rpcSpy = vi.spyOn(
-      client as unknown as { makeXMLRPCRequest: typeof Function },
-      "makeXMLRPCRequest"
-    );
+    const rpcSpy = vi.spyOn(client as unknown as NZBGetClientInternals, "makeXMLRPCRequest");
 
     const result = await client.addDownload({
       url: "http://indexer.local/g4u.nzb",
@@ -480,10 +473,7 @@ describe("NZBGet remaining coverage", () => {
 
   it("getHistoryDestDir logs and returns undefined when the history lookup fails", async () => {
     const client = new NZBGetClient(createDownloader());
-    const rpcSpy = vi.spyOn(
-      client as unknown as { makeXMLRPCRequest: typeof Function },
-      "makeXMLRPCRequest"
-    );
+    const rpcSpy = vi.spyOn(client as unknown as NZBGetClientInternals, "makeXMLRPCRequest");
 
     rpcSpy
       .mockResolvedValueOnce([]) // getDownloadStatus: not in queue

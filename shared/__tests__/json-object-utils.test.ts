@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseJsonObject } from "../json-object-utils.js";
+import { parseJsonObject } from "@shared/json-object-utils";
 
 describe("parseJsonObject", () => {
   it("parses a plain object", () => {

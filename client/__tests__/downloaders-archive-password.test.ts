@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  getArchivePasswordFromSettings,
-  setArchivePasswordInSettings,
-} from "../src/pages/downloaders";
+import { getArchivePasswordFromSettings, setArchivePasswordInSettings } from "@/pages/downloaders";
 
 describe("SABnzbd archive password settings helpers", () => {
   describe("getArchivePasswordFromSettings", () => {

@@ -443,6 +443,41 @@ describe("NZBGet remaining coverage", () => {
     expect(rpcSpy).not.toHaveBeenCalled();
   });
 
+  it("redacts the archive password in PPParameters debug logging", async () => {
+    const { downloadersLogger } = await import("../logger.js");
+    vi.mocked(safeFetch).mockImplementation(async (url: string) => {
+      if (url.includes("g4u.nzb")) {
+        return { ok: true, text: async () => "nzb-content" } as Response;
+      }
+      return {
+        ok: true,
+        text: async () =>
+          `<?xml version="1.0"?>
+           <methodResponse>
+             <params>
+               <param><value><int>99</int></value></param>
+             </params>
+           </methodResponse>`,
+      } as Response;
+    });
+
+    const client = new NZBGetClient(createDownloader({ useSsl: true }));
+    await client.addDownload({
+      url: "http://indexer.local/g4u.nzb",
+      title: "G4U Release",
+      password: "404",
+    });
+
+    const debugCalls = vi.mocked(downloadersLogger.debug).mock.calls;
+    const rpcLogCall = debugCalls.find(
+      ([, message]) => message === "Making NZBGet XML-RPC request"
+    );
+    expect(rpcLogCall).toBeDefined();
+    expect(JSON.stringify(rpcLogCall)).not.toContain("404");
+    const loggedParams = (rpcLogCall?.[0] as { params: unknown[] }).params;
+    expect(loggedParams.at(-1)).toEqual([{ Name: "*Unpack:Password", Value: "<redacted>" }]);
+  });
+
   it("getHistoryDestDir logs and returns undefined when the history lookup fails", async () => {
     const client = new NZBGetClient(createDownloader());
     const rpcSpy = vi.spyOn(

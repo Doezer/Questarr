@@ -190,9 +190,24 @@ export class NZBGetClient implements DownloaderClient {
       headers["Authorization"] = `Basic ${auth}`;
     }
 
+    // PPParameters (the trailing "append" param) can carry secrets we hand NZBGet's
+    // post-processors -- e.g. "*Unpack:Password" for the archive password -- so redact
+    // every entry's value rather than logging it in the clear alongside the NZB content.
+    const redactPPParameters = (values: unknown[]): unknown[] => {
+      const lastIndex = values.length - 1;
+      const ppParameters = values[lastIndex];
+      if (!Array.isArray(ppParameters)) return values;
+      const redacted = ppParameters.map((param) =>
+        param && typeof param === "object" && "Name" in param
+          ? { ...param, Value: "<redacted>" }
+          : param
+      );
+      return [...values.slice(0, lastIndex), redacted];
+    };
+
     const logParams =
       method === "append" && params.length > 1
-        ? [params[0], "<base64_content_truncated>", ...params.slice(2)]
+        ? redactPPParameters([params[0], "<base64_content_truncated>", ...params.slice(2)])
         : params;
 
     downloadersLogger.debug({ url, method, params: logParams }, "Making NZBGet XML-RPC request");

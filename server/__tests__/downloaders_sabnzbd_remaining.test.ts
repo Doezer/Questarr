@@ -291,7 +291,10 @@ describe("sabnzbd remaining regression coverage", () => {
         expectedPassword
           ? expect.stringContaining(`password=${expectedPassword}`)
           : expect.not.stringContaining("password="),
-        expect.anything()
+        expect.anything(),
+        // A request carrying a password must disable the insecure-cert fallback,
+        // never silently downgrade transport security for a credential.
+        !expectedPassword
       );
       return spy;
     };
@@ -350,6 +353,39 @@ describe("sabnzbd remaining regression coverage", () => {
         "Refusing to send the archive password over an insecure connection. Enable SSL for this SABnzbd downloader, or remove the archive password.",
     });
     expect(fetchWithFallbackSpy).not.toHaveBeenCalled();
+  });
+
+  it("does not downgrade to the insecure self-signed-cert fallback when a password is sent", async () => {
+    safeFetchMock.mockImplementation(async (_url: string, options: RequestInit = {}) => {
+      // The NZB content fetch (no method override) should succeed normally; only the
+      // addfile POST needs to hit the self-signed-cert failure this test is probing.
+      if (options.method !== "POST") {
+        return {
+          ok: true,
+          arrayBuffer: async () => new TextEncoder().encode("nzb").buffer,
+        } as Response;
+      }
+      const error = new Error("self-signed certificate");
+      throw error;
+    });
+
+    const client = new SABnzbdClient(createDownloader({ useSsl: true }));
+    const fetchInsecureSpy = vi.spyOn(
+      client as unknown as { fetchInsecure: (...args: unknown[]) => Promise<Response> },
+      "fetchInsecure"
+    );
+
+    await expect(
+      client.addDownload({
+        url: "http://indexer.local/g4u.nzb",
+        title: "G4U Release",
+        password: "404",
+      })
+    ).resolves.toEqual({
+      success: false,
+      message: "Failed to add NZB to SABnzbd: self-signed certificate",
+    });
+    expect(fetchInsecureSpy).not.toHaveBeenCalled();
   });
 
   it("covers queue/history status variants, details fallbacks, and control error branches", async () => {

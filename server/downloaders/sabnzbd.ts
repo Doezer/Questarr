@@ -107,13 +107,21 @@ export class SABnzbdClient implements DownloaderClient {
     return url.toString();
   }
 
-  private async fetchWithFallback(url: string, options: RequestInit = {}): Promise<Response> {
-    const response = await this.doFetchWithFallback(url, options);
+  private async fetchWithFallback(
+    url: string,
+    options: RequestInit = {},
+    allowInsecureFallback = true
+  ): Promise<Response> {
+    const response = await this.doFetchWithFallback(url, options, allowInsecureFallback);
     await logDownloaderDebugResponse("sabnzbd", options.method ?? "GET", url, response);
     return response;
   }
 
-  private async doFetchWithFallback(url: string, options: RequestInit = {}): Promise<Response> {
+  private async doFetchWithFallback(
+    url: string,
+    options: RequestInit = {},
+    allowInsecureFallback = true
+  ): Promise<Response> {
     try {
       return await safeFetch(url, { ...options, allowPrivate: true });
     } catch (error) {
@@ -125,7 +133,13 @@ export class SABnzbdClient implements DownloaderClient {
           (error.cause as { code: string })?.code === "UNABLE_TO_VERIFY_LEAF_SIGNATURE" ||
           (error.cause as { code: string })?.code === "CERT_HAS_EXPIRED");
 
-      if (isSslError) {
+      // The insecure fallback (rejectUnauthorized: false) accepts *any* certificate,
+      // including one presented by an attacker impersonating the configured host. That's
+      // an acceptable trade-off for routine status polling, but never for a request
+      // carrying the archive password -- callers pass allowInsecureFallback: false there
+      // so a cert failure surfaces as an error instead of silently downgrading transport
+      // security for a credential.
+      if (isSslError && allowInsecureFallback) {
         downloadersLogger.debug(
           { url },
           "SSL verification failed, retrying with insecure connection"
@@ -305,12 +319,16 @@ export class SABnzbdClient implements DownloaderClient {
         Buffer.from(`\r\n--${boundary}--\r\n`),
       ]);
 
-      const response = await this.fetchWithFallback(url, {
-        method: "POST",
-        body: multipartBody,
-        headers: { "Content-Type": `multipart/form-data; boundary=${boundary}` },
-        signal: AbortSignal.timeout(30000),
-      });
+      const response = await this.fetchWithFallback(
+        url,
+        {
+          method: "POST",
+          body: multipartBody,
+          headers: { "Content-Type": `multipart/form-data; boundary=${boundary}` },
+          signal: AbortSignal.timeout(30000),
+        },
+        !password
+      );
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => "No error details");

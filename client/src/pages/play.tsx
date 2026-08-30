@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useLocalStorageState } from "@/hooks/use-local-storage-state";
-import { InfiltrationGame } from "@/game/infiltration-game";
+import { InfiltrationGame, type ObjectiveState } from "@/game/infiltration-game";
 import { GHOST_UNLOCK_KEY } from "@/lib/ghost-mode";
 
 function randomSeed() {
@@ -32,6 +32,12 @@ const CONTROLS: { keys: string; action: string }[] = [
   { keys: "Esc", action: "Pause" },
 ];
 
+/** The single next step, so the HUD never asks the player to hold two goals. */
+function objectiveText({ needsKeycard, hasKeycard }: ObjectiveState): string {
+  if (needsKeycard && !hasKeycard) return "find the keycard, then reach the console";
+  return "reach the console and hack it unseen";
+}
+
 export default function PlayPage() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
@@ -44,6 +50,10 @@ export default function PlayPage() {
 
   const [paused, setPaused] = useState(true);
   const [won, setWon] = useState(false);
+  const [objective, setObjective] = useState<ObjectiveState>({
+    needsKeycard: false,
+    hasKeycard: false,
+  });
 
   const handleCaught = useCallback(() => {
     toast({ description: "Spotted. Incident report filed — back to the entry point." });
@@ -68,6 +78,7 @@ export default function PlayPage() {
 
     const game = new InfiltrationGame(canvas, initialSeed(), {
       onPauseChange: setPaused,
+      onObjectiveChange: setObjective,
       onCaught: () => callbacksRef.current.onCaught(),
       onWin: () => callbacksRef.current.onWin(),
       onHackProgress: (progress, canInteract) => {
@@ -119,9 +130,21 @@ export default function PlayPage() {
 
       {/* In-game HUD, always mounted so refs update imperatively without re-render */}
       <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-6">
-        <div className="rounded-md border border-white/10 bg-black/60 px-4 py-2 text-sm text-white/80 self-start">
-          <span className="text-emerald-400">Objective</span> &mdash; reach the console and hack it
-          unseen
+        <div className="flex items-center gap-2 self-start">
+          <div className="rounded-md border border-white/10 bg-black/60 px-4 py-2 text-sm text-white/80">
+            <span className="text-emerald-400">Objective</span> &mdash; {objectiveText(objective)}
+          </div>
+          {objective.needsKeycard && (
+            <div
+              className={
+                objective.hasKeycard
+                  ? "rounded-md border border-amber-300/40 bg-amber-300/15 px-3 py-2 text-sm text-amber-200"
+                  : "rounded-md border border-white/10 bg-black/60 px-3 py-2 text-sm text-white/40"
+              }
+            >
+              {objective.hasKeycard ? "Keycard acquired" : "Keycard"}
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col items-center gap-2">
@@ -166,8 +189,9 @@ export default function PlayPage() {
               Ghost the Terminal
             </h1>
             <p className="text-sm text-white/70">
-              A procedurally generated facility, patrolling guards, and one console worth hacking.
-              Stay out of the vision cones &mdash; crates break line of sight.
+              A procedurally generated facility of connected rooms, patrolling guards, and one
+              console worth hacking. The door to it is locked, so find the keycard first. Stay out
+              of the vision cones &mdash; walls and crates break line of sight.
             </p>
             <dl className="mx-auto grid max-w-xs grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-left text-sm text-white/70">
               {CONTROLS.map(({ keys, action }) => (

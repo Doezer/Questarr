@@ -13,7 +13,9 @@ const ISO_DIRECTION = new THREE.Vector3(1, 1, 1).normalize();
 const CAMERA_DISTANCE = 60;
 const DEFAULT_VIEW_SIZE = 26;
 const MIN_VIEW_SIZE = 14;
-const MAX_VIEW_SIZE = 40;
+// Wide enough to take in several rooms at once for route planning, while still
+// well short of the whole facility: not seeing what is coming is the game.
+const MAX_VIEW_SIZE = 56;
 const FOLLOW_LERP_RATE = 6;
 
 export class IsoCamera {

@@ -2,7 +2,13 @@ import * as THREE from "three";
 import { IsoCamera } from "./iso-camera";
 import { cellKey, isInterior, type GridPos } from "./grid";
 import { findPath, nearestOpenCell } from "./pathfinding";
-import { generateLevel, gridToWorld, worldToGrid, type GeneratedLevel } from "./level";
+import {
+  generateLevel,
+  gridToWorld,
+  worldToGrid,
+  type DoorDef,
+  type GeneratedLevel,
+} from "./level";
 
 export interface InfiltrationGameCallbacks {
   onPauseChange?: (paused: boolean) => void;
@@ -10,6 +16,14 @@ export interface InfiltrationGameCallbacks {
   onWin?: () => void;
   /** Fires every frame while near the terminal, progress in [0, 1]. */
   onHackProgress?: (progress: number, canInteract: boolean) => void;
+  /** Fires when the level is built and whenever the keycard is picked up. */
+  onObjectiveChange?: (objective: ObjectiveState) => void;
+}
+
+export interface ObjectiveState {
+  /** True when a locked door stands between the player and the terminal. */
+  needsKeycard: boolean;
+  hasKeycard: boolean;
 }
 
 interface Box {
@@ -35,6 +49,17 @@ interface Guard {
   spottedFor: number;
 }
 
+/** A powered door in an interior wall, sliding into the floor as it opens. */
+interface Door {
+  def: DoorDef;
+  group: THREE.Group;
+  material: THREE.MeshStandardMaterial;
+  world: THREE.Vector3;
+  box: Box;
+  /** 0 fully closed, 1 fully open. */
+  openness: number;
+}
+
 interface Projectile {
   mesh: THREE.Mesh;
   velocity: THREE.Vector3;
@@ -55,6 +80,7 @@ const PLAYER_STUCK_TIMEOUT = 1.2;
 const CRATE_SIZE = 2.2;
 const CRATE_HEIGHT = 1.8;
 const WALL_HEIGHT = 4;
+const DOOR_HEIGHT = 2.8;
 const VISION_RANGE = 9;
 const VISION_HALF_FOV = THREE.MathUtils.degToRad(32);
 const VISION_CHECK_INTERVAL = 0.15;
@@ -73,6 +99,12 @@ const INTERACT_DISTANCE = 2.4;
 const HACK_DURATION = 2;
 const THROW_COOLDOWN = 1;
 const OCCLUDED_OPACITY = 0.2;
+const DOOR_TRIGGER_RANGE = 3.2;
+const DOOR_OPEN_SECONDS = 0.45;
+/** Below this openness a door still blocks movement and sight. */
+const DOOR_SOLID_UNTIL = 0.5;
+const KEYCARD_PICKUP_RANGE = 1.6;
+const DOOR_COLORS = { locked: 0xff3b3b, unlocked: 0x35f0b0 };
 const CONE_COLORS: Record<GuardState, number> = {
   patrol: 0xffd23c,
   investigate: 0xff9f1c,
@@ -96,10 +128,14 @@ export class InfiltrationGame {
   private callbacks: InfiltrationGameCallbacks;
 
   private level!: GeneratedLevel;
-  private blockedCells = new Set<string>();
-  private crateBoxes: Box[] = [];
+  /** Walls and crates: cells nothing can ever walk through. */
+  private staticBlockedCells = new Set<string>();
+  private solidBoxes: Box[] = [];
+  private doors: Door[] = [];
+  private keycardMesh: THREE.Mesh | null = null;
+  private hasKeycard = false;
   private occluders: Occluder[] = [];
-  private roomHalfExtent = 0;
+  private facilityHalfExtent = 0;
   private terminalWorld = new THREE.Vector3();
   private guards: Guard[] = [];
   private projectiles: Projectile[] = [];
@@ -140,7 +176,7 @@ export class InfiltrationGame {
 
     this.iso = new IsoCamera(canvas);
 
-    this.scene.fog = new THREE.Fog(0x0d121b, 62, 130);
+    this.scene.fog = new THREE.Fog(0x0d121b, 78, 165);
     this.scene.background = new THREE.Color(0x0d121b);
 
     this.buildLevel(seed);
@@ -162,6 +198,9 @@ export class InfiltrationGame {
     this.guards = [];
     this.projectiles = [];
     this.occluders = [];
+    this.doors = [];
+    this.keycardMesh = null;
+    this.hasKeycard = false;
     this.playerPath = [];
     this.clearScene();
     this.hackProgress = 0;
@@ -228,19 +267,27 @@ export class InfiltrationGame {
 
   private buildLevel(seed: number) {
     this.level = generateLevel(seed);
-    this.roomHalfExtent = (this.level.gridSize * this.level.cellSize) / 2;
-    this.iso.setBounds(this.roomHalfExtent);
-    this.crateBoxes = [];
-    this.blockedCells = new Set(this.level.crates.map(cellKey));
+    this.facilityHalfExtent = (this.level.gridSize * this.level.cellSize) / 2;
+    this.iso.setBounds(this.facilityHalfExtent);
+    this.solidBoxes = [];
+    this.staticBlockedCells = new Set([...this.level.crates, ...this.level.walls].map(cellKey));
 
     this.scene.add(new THREE.HemisphereLight(0x9fb4ff, 0x232a3a, 1.5));
     this.scene.add(new THREE.AmbientLight(0xffffff, 0.55));
     const key = new THREE.DirectionalLight(0xd6e4ff, 1.15);
     key.position.set(12, 20, 8);
     this.scene.add(key);
-    const accent = new THREE.PointLight(0x6ee7ff, 40, 30, 2);
-    accent.position.set(0, 6, 0);
-    this.scene.add(accent);
+    // A lamp per room, so rooms read as separately lit spaces rather than one
+    // hall with a hotspot in the middle.
+    for (const room of this.level.rooms) {
+      const centre = gridToWorld(
+        { x: room.x + (room.w - 1) / 2, z: room.z + (room.h - 1) / 2 },
+        this.level
+      );
+      const lamp = new THREE.PointLight(0x6ee7ff, 26, 26, 2);
+      lamp.position.set(centre.x, 5.5, centre.z);
+      this.scene.add(lamp);
+    }
 
     const floorSize = this.level.gridSize * this.level.cellSize;
     const floor = new THREE.Mesh(
@@ -251,12 +298,23 @@ export class InfiltrationGame {
     this.scene.add(floor);
     this.buildFloorGrid(floorSize);
 
-    this.buildWalls(floorSize);
+    this.buildPerimeter(floorSize);
+    for (const wallCell of this.level.walls) this.buildInteriorWall(wallCell);
     for (const cratePos of this.level.crates) this.buildCrate(cratePos);
+    for (const door of this.level.doors) this.buildDoor(door);
     this.buildTerminal();
+    this.buildKeycard();
     this.buildGuards();
     this.buildCursorMeshes();
     this.buildPlayer();
+    this.reportObjective();
+  }
+
+  private reportObjective() {
+    this.callbacks.onObjectiveChange?.({
+      needsKeycard: this.level.doors.some((door) => door.locked),
+      hasKeycard: this.hasKeycard,
+    });
   }
 
   /** Faint tile lines, so click-to-move destinations are readable at a glance. */
@@ -267,7 +325,7 @@ export class InfiltrationGame {
   }
 
   /** Raises the four perimeter walls, each an occluder in its own right. */
-  private buildWalls(floorSize: number) {
+  private buildPerimeter(floorSize: number) {
     const half = floorSize / 2;
     const specs: [number, number, number, number][] = [
       [0, half, floorSize, 0.4], // north (thin in z)
@@ -295,12 +353,95 @@ export class InfiltrationGame {
     crate.position.set(world.x, CRATE_HEIGHT / 2, world.z);
     this.scene.add(crate);
     this.occluders.push({ mesh: crate, material });
-    this.crateBoxes.push({
-      minX: world.x - CRATE_SIZE / 2,
-      maxX: world.x + CRATE_SIZE / 2,
-      minZ: world.z - CRATE_SIZE / 2,
-      maxZ: world.z + CRATE_SIZE / 2,
+    this.solidBoxes.push(boxAround(world.x, world.z, CRATE_SIZE));
+  }
+
+  /**
+   * One box per interior wall cell rather than per wall run: the occlusion fade
+   * then dissolves just the segment covering the player instead of a whole wall.
+   */
+  private buildInteriorWall(cell: GridPos) {
+    const world = gridToWorld(cell, this.level);
+    const size = this.level.cellSize;
+    const material = new THREE.MeshStandardMaterial({ color: 0x4a5570, roughness: 0.8 });
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(size, WALL_HEIGHT, size), material);
+    mesh.position.set(world.x, WALL_HEIGHT / 2, world.z);
+    this.scene.add(mesh);
+    this.occluders.push({ mesh, material });
+    this.solidBoxes.push(boxAround(world.x, world.z, size));
+  }
+
+  private buildDoor(def: DoorDef) {
+    const world = gridToWorld(def.pos, this.level);
+    const size = this.level.cellSize;
+    const group = new THREE.Group();
+
+    const material = new THREE.MeshStandardMaterial({
+      color: 0x1b2330,
+      emissive: DOOR_COLORS.locked,
+      emissiveIntensity: 0.6,
+      roughness: 0.4,
+      metalness: 0.5,
     });
+    const panel = new THREE.Mesh(
+      new THREE.BoxGeometry(size * 0.92, DOOR_HEIGHT, size * 0.5),
+      material
+    );
+    panel.position.y = DOOR_HEIGHT / 2;
+    group.add(panel);
+
+    // The frame stays put while the panel slides down inside it.
+    const frameMaterial = new THREE.MeshStandardMaterial({ color: 0x39435c, roughness: 0.7 });
+    const lintel = new THREE.Mesh(
+      new THREE.BoxGeometry(size, WALL_HEIGHT - DOOR_HEIGHT, size * 0.6),
+      frameMaterial
+    );
+    lintel.position.set(world.x, DOOR_HEIGHT + (WALL_HEIGHT - DOOR_HEIGHT) / 2, world.z);
+    this.scene.add(lintel);
+    this.occluders.push({ mesh: lintel, material: frameMaterial });
+
+    group.position.set(world.x, 0, world.z);
+    this.scene.add(group);
+
+    this.doors.push({
+      def,
+      group,
+      material,
+      world: new THREE.Vector3(world.x, 0, world.z),
+      box: boxAround(world.x, world.z, size),
+      openness: 0,
+    });
+  }
+
+  private buildKeycard() {
+    if (!this.level.keycard) return;
+    const world = gridToWorld(this.level.keycard, this.level);
+    const mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(0.5, 0.05, 0.34),
+      new THREE.MeshStandardMaterial({
+        color: 0xffd23c,
+        emissive: 0x6b5200,
+        emissiveIntensity: 1.2,
+      })
+    );
+    mesh.position.set(world.x, 0.9, world.z);
+    this.scene.add(mesh);
+
+    const halo = new THREE.Mesh(
+      new THREE.RingGeometry(0.7, 0.9, 24),
+      new THREE.MeshBasicMaterial({
+        color: 0xffd23c,
+        transparent: true,
+        opacity: 0.35,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      })
+    );
+    halo.rotation.x = -Math.PI / 2;
+    halo.position.set(world.x, 0.02, world.z);
+    this.scene.add(halo);
+
+    this.keycardMesh = mesh;
   }
 
   private buildTerminal() {
@@ -568,7 +709,8 @@ export class InfiltrationGame {
     const world = gridToWorld(cell, this.level);
     this.hoverMesh.position.set(world.x, 0.02, world.z);
     this.hoverMesh.visible = true;
-    const walkable = isInterior(cell, this.level.gridSize) && !this.blockedCells.has(cellKey(cell));
+    const walkable =
+      isInterior(cell, this.level.gridSize) && !this.playerBlockedCells().has(cellKey(cell));
     this.hoverMaterial.color.setHex(walkable ? 0xffffff : 0xff6b6b);
     this.hoverMaterial.opacity = walkable ? 0.1 : 0.16;
   }
@@ -611,7 +753,7 @@ export class InfiltrationGame {
 
   /** Snaps a clicked point to somewhere the player can actually stand. */
   private resolveDestination(point: THREE.Vector3): THREE.Vector3 | null {
-    const bound = this.roomHalfExtent - 0.6;
+    const bound = this.facilityHalfExtent - 0.6;
     const clamped = new THREE.Vector3(
       THREE.MathUtils.clamp(point.x, -bound, bound),
       0,
@@ -622,7 +764,7 @@ export class InfiltrationGame {
     const cell = nearestOpenCell(
       worldToGrid(clamped.x, clamped.z, this.level),
       this.level.gridSize,
-      this.blockedCells
+      this.playerBlockedCells()
     );
     if (!cell) return null;
     const world = gridToWorld(cell, this.level);
@@ -634,14 +776,34 @@ export class InfiltrationGame {
    * as the geometry allows and ending on the exact requested point.
    */
   private pathTo(destination: THREE.Vector3): THREE.Vector3[] {
-    return this.pathBetween(this.player.position, destination);
+    return this.pathBetween(this.player.position, destination, this.playerBlockedCells());
+  }
+
+  /**
+   * Cells the player may not route through. A locked door counts as solid until
+   * the keycard is found, so click-to-move never plots a course through it.
+   */
+  private playerBlockedCells(): ReadonlySet<string> {
+    if (this.hasKeycard) return this.staticBlockedCells;
+    const locked = this.level.doors.filter((door) => door.locked);
+    if (locked.length === 0) return this.staticBlockedCells;
+    return new Set([...this.staticBlockedCells, ...locked.map((door) => cellKey(door.pos))]);
+  }
+
+  /** Guards work here, so every door opens for them. */
+  private guardBlockedCells(): ReadonlySet<string> {
+    return this.staticBlockedCells;
   }
 
   /** Grid route between two world points, smoothed and ending on the exact target. */
-  private pathBetween(from: THREE.Vector3, destination: THREE.Vector3): THREE.Vector3[] {
+  private pathBetween(
+    from: THREE.Vector3,
+    destination: THREE.Vector3,
+    blocked: ReadonlySet<string>
+  ): THREE.Vector3[] {
     const startCell = worldToGrid(from.x, from.z, this.level);
     const goalCell = worldToGrid(destination.x, destination.z, this.level);
-    const cells = findPath(startCell, goalCell, this.level.gridSize, this.blockedCells);
+    const cells = findPath(startCell, goalCell, this.level.gridSize, blocked);
 
     const points = cells.map((cell) => {
       const world = gridToWorld(cell, this.level);
@@ -681,7 +843,7 @@ export class InfiltrationGame {
   private segmentClear(from: THREE.Vector3, to: THREE.Vector3): boolean {
     const dist = Math.hypot(to.x - from.x, to.z - from.z);
     const steps = Math.max(1, Math.ceil(dist / 0.3));
-    const bound = this.roomHalfExtent - 0.5;
+    const bound = this.facilityHalfExtent - 0.5;
     for (let i = 1; i <= steps; i++) {
       const t = i / steps;
       const x = THREE.MathUtils.lerp(from.x, to.x, t);
@@ -700,6 +862,8 @@ export class InfiltrationGame {
       this.updatePlayerMovement(dt);
       this.updateProjectiles(dt);
       this.updateGuards(dt);
+      this.updateDoors(dt);
+      this.updateKeycard();
       this.updateHack(dt);
       // Both cooldowns are game time, so they stop with the simulation: ticking
       // them while paused would let a player tap Esc to refresh their throw, or
@@ -785,7 +949,7 @@ export class InfiltrationGame {
   /** Applies movement one axis at a time, so hitting a crate slides along it. */
   private moveWithCollision(dx: number, dz: number) {
     const pos = this.player.position;
-    const bound = this.roomHalfExtent - 0.5;
+    const bound = this.facilityHalfExtent - 0.5;
 
     const nextX = pos.x + dx;
     if (!this.collides(nextX, pos.z) && Math.abs(nextX) < bound) pos.x = nextX;
@@ -794,13 +958,15 @@ export class InfiltrationGame {
     if (!this.collides(pos.x, nextZ) && Math.abs(nextZ) < bound) pos.z = nextZ;
   }
 
-  /** True when a player-radius circle at this point overlaps any crate. */
+  /** True when a player-radius circle here overlaps a wall, crate or shut door. */
   private collides(x: number, z: number): boolean {
-    for (const box of this.crateBoxes) {
-      const nearestX = THREE.MathUtils.clamp(x, box.minX, box.maxX);
-      const nearestZ = THREE.MathUtils.clamp(z, box.minZ, box.maxZ);
-      const distSq = (x - nearestX) ** 2 + (z - nearestZ) ** 2;
-      if (distSq < PLAYER_RADIUS * PLAYER_RADIUS) return true;
+    for (const box of this.solidBoxes) {
+      if (overlapsBox(x, z, box, PLAYER_RADIUS)) return true;
+    }
+    for (const door of this.doors) {
+      if (door.openness < DOOR_SOLID_UNTIL && overlapsBox(x, z, door.box, PLAYER_RADIUS)) {
+        return true;
+      }
     }
     return false;
   }
@@ -813,16 +979,11 @@ export class InfiltrationGame {
       const t = i / steps;
       const x = THREE.MathUtils.lerp(from.x, to.x, t);
       const z = THREE.MathUtils.lerp(from.z, to.z, t);
-      for (const box of this.crateBoxes) {
-        if (
-          x >= box.minX - 0.3 &&
-          x <= box.maxX + 0.3 &&
-          z >= box.minZ - 0.3 &&
-          z <= box.maxZ + 0.3
-        ) {
-          return true;
-        }
-      }
+      if (this.solidBoxes.some((box) => overlapsBox(x, z, box, 0.3))) return true;
+      const shutDoor = this.doors.some(
+        (door) => door.openness < DOOR_SOLID_UNTIL && overlapsBox(x, z, door.box, 0.3)
+      );
+      if (shutDoor) return true;
     }
     return false;
   }
@@ -852,8 +1013,56 @@ export class InfiltrationGame {
     }
   }
 
+  /**
+   * Slides each door open for anyone standing at it who may pass, and shut again
+   * once they leave. Guards carry keys; the player needs the keycard.
+   */
+  private updateDoors(dt: number) {
+    for (const door of this.doors) {
+      const target = this.doorShouldOpen(door) ? 1 : 0;
+      const step = dt / DOOR_OPEN_SECONDS;
+      door.openness = THREE.MathUtils.clamp(
+        door.openness + THREE.MathUtils.clamp(target - door.openness, -step, step),
+        0,
+        1
+      );
+      // The panel retracts into the floor; the frame above it stays put.
+      door.group.position.y = -door.openness * DOOR_HEIGHT;
+
+      const passable = !door.def.locked || this.hasKeycard;
+      door.material.emissive.setHex(passable ? DOOR_COLORS.unlocked : DOOR_COLORS.locked);
+    }
+  }
+
+  private doorShouldOpen(door: Door): boolean {
+    const playerMayPass = !door.def.locked || this.hasKeycard;
+    if (playerMayPass && this.player.position.distanceTo(door.world) <= DOOR_TRIGGER_RANGE) {
+      return true;
+    }
+    return this.guards.some(
+      (guard) => guard.group.position.distanceTo(door.world) <= DOOR_TRIGGER_RANGE
+    );
+  }
+
+  /** Picks the keycard up on contact, which unlocks every locked door. */
+  private updateKeycard() {
+    if (!this.keycardMesh || this.hasKeycard) return;
+    const distance = Math.hypot(
+      this.player.position.x - this.keycardMesh.position.x,
+      this.player.position.z - this.keycardMesh.position.z
+    );
+    if (distance > KEYCARD_PICKUP_RANGE) return;
+
+    this.hasKeycard = true;
+    this.keycardMesh.visible = false;
+    // A route plotted around the locked door is no longer the shortest one.
+    this.abortPath();
+    this.reportObjective();
+  }
+
   /** Pulses the destination ring so a pending order stays noticeable. */
   private updateMarker(dt: number) {
+    if (this.keycardMesh?.visible) this.keycardMesh.rotation.y += dt * 1.4;
     if (!this.markerMesh.visible) return;
     this.markerPulse = (this.markerPulse + dt * 3) % (Math.PI * 2);
     this.markerMaterial.opacity = 0.5 + 0.3 * Math.sin(this.markerPulse);
@@ -933,12 +1142,12 @@ export class InfiltrationGame {
     }
   }
 
-  /** Nearest open interior cell centre to a world point, or null if none exists. */
+  /** Nearest cell a guard can stand on near a world point, or null if none exists. */
   private reachablePointNear(position: THREE.Vector3): THREE.Vector3 | null {
     const cell = nearestOpenCell(
       worldToGrid(position.x, position.z, this.level),
       this.level.gridSize,
-      this.blockedCells
+      this.guardBlockedCells()
     );
     if (!cell) return null;
     const world = gridToWorld(cell, this.level);
@@ -1016,7 +1225,7 @@ export class InfiltrationGame {
 
     if (!guard.destination?.equals(target)) {
       guard.destination = target.clone();
-      guard.path = this.pathBetween(guard.group.position, target);
+      guard.path = this.pathBetween(guard.group.position, target, this.guardBlockedCells());
     }
 
     const waypoint = guard.path[0];
@@ -1105,6 +1314,19 @@ export class InfiltrationGame {
 
     this.callbacks.onHackProgress?.(this.hackProgress, canInteract);
   }
+}
+
+/** Axis-aligned square of `size` centred on a world XZ point. */
+function boxAround(x: number, z: number, size: number): Box {
+  const half = size / 2;
+  return { minX: x - half, maxX: x + half, minZ: z - half, maxZ: z + half };
+}
+
+/** True when a circle of `radius` at (x, z) overlaps the box. */
+function overlapsBox(x: number, z: number, box: Box, radius: number): boolean {
+  const nearestX = THREE.MathUtils.clamp(x, box.minX, box.maxX);
+  const nearestZ = THREE.MathUtils.clamp(z, box.minZ, box.maxZ);
+  return (x - nearestX) ** 2 + (z - nearestZ) ** 2 < radius * radius;
 }
 
 /** Lerps between angles the short way round, so guards never spin the long way. */

@@ -186,10 +186,21 @@ export default function SettingsPage() {
   const setTabsScrollNode = useCallback(
     (el: HTMLDivElement | null) => {
       tabsScrollRef.current = el;
+      updateTabsScrollFade();
+    },
+    [updateTabsScrollFade]
+  );
+
+  // The scroll container itself is pinned to w-full, so a ResizeObserver on
+  // it won't fire when only its (overflowing) content grows — e.g. this app
+  // ships variable web fonts, and the fallback-font layout can be narrower
+  // than the loaded-font layout, widening tab labels after the swap without
+  // changing the container's own box. Observe the intrinsic-width inner
+  // wrapper instead, whose box does reflect that.
+  const setTabsInnerNode = useCallback(
+    (el: HTMLDivElement | null) => {
       tabsResizeObserverRef.current?.disconnect();
       tabsResizeObserverRef.current = null;
-      // A ResizeObserver also catches reflows a window resize won't fire
-      // for (e.g. web font swap changing tab label widths right after load).
       if (el && typeof ResizeObserver !== "undefined") {
         const observer = new ResizeObserver(updateTabsScrollFade);
         observer.observe(el);
@@ -923,17 +934,19 @@ export default function SettingsPage() {
             <TabsList
               ref={setTabsScrollNode}
               onScroll={updateTabsScrollFade}
-              className="mb-0 flex w-full flex-nowrap justify-start overflow-x-auto scroll-smooth [&>*]:shrink-0"
+              className="mb-0 flex w-full flex-nowrap justify-start overflow-x-auto scroll-smooth"
             >
-              <TabsTrigger value="general">General</TabsTrigger>
-              <TabsTrigger value="rules">Rules</TabsTrigger>
-              <TabsTrigger value="notifications">Notifications</TabsTrigger>
-              <TabsTrigger value="services">Services</TabsTrigger>
-              <TabsTrigger value="import">Import</TabsTrigger>
-              <TabsTrigger value="account">Account</TabsTrigger>
-              <TabsTrigger value="security">Security</TabsTrigger>
-              <TabsTrigger value="system">System</TabsTrigger>
-              <TabsTrigger value="blacklist">Blacklist</TabsTrigger>
+              <div ref={setTabsInnerNode} className="flex w-max flex-nowrap [&>*]:shrink-0">
+                <TabsTrigger value="general">General</TabsTrigger>
+                <TabsTrigger value="rules">Rules</TabsTrigger>
+                <TabsTrigger value="notifications">Notifications</TabsTrigger>
+                <TabsTrigger value="services">Services</TabsTrigger>
+                <TabsTrigger value="import">Import</TabsTrigger>
+                <TabsTrigger value="account">Account</TabsTrigger>
+                <TabsTrigger value="security">Security</TabsTrigger>
+                <TabsTrigger value="system">System</TabsTrigger>
+                <TabsTrigger value="blacklist">Blacklist</TabsTrigger>
+              </div>
             </TabsList>
             {/* Edge fades hint that the tab strip scrolls further, since it has
                 no visible scrollbar on touch devices. */}

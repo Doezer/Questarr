@@ -17,6 +17,13 @@ function blockedWithoutKeycard(level: GeneratedLevel): Set<string> {
   return blocked;
 }
 
+/** True when the cell falls inside the rectangle's floor area. */
+function containsCell(rect: { x: number; z: number; w: number; h: number }, cell: GridPos) {
+  return (
+    cell.x >= rect.x && cell.x < rect.x + rect.w && cell.z >= rect.z && cell.z < rect.z + rect.h
+  );
+}
+
 function rectCells(rect: { x: number; z: number; w: number; h: number }): GridPos[] {
   const cells: GridPos[] = [];
   for (let x = rect.x; x < rect.x + rect.w; x++) {
@@ -168,26 +175,18 @@ describe("generateLevel", () => {
     for (const seed of SEEDS) {
       const level = generateLevel(seed);
       const blocked = structuralBlocked(level);
-      const spawnRoom = level.rooms.findIndex(
-        (room) =>
-          level.spawn.x >= room.x &&
-          level.spawn.x < room.x + room.w &&
-          level.spawn.z >= room.z &&
-          level.spawn.z < room.z + room.h
-      );
+      const spawnRoom = level.rooms.findIndex((room) => containsCell(room, level.spawn));
 
       expect(level.guards.length).toBeGreaterThan(0);
       for (const guard of level.guards) {
         expect(guard.waypoints.length).toBeGreaterThan(0);
         for (const waypoint of guard.waypoints) {
           expect(blocked.has(cellKey(waypoint))).toBe(false);
-          const room = level.rooms.findIndex(
-            (r) =>
-              waypoint.x >= r.x &&
-              waypoint.x < r.x + r.w &&
-              waypoint.z >= r.z &&
-              waypoint.z < r.z + r.h
-          );
+          const room = level.rooms.findIndex((r) => containsCell(r, waypoint));
+          // findIndex returns -1 for a waypoint in no room at all, and -1 is not
+          // spawnRoom either — so without this the assertion below would pass a
+          // waypoint that had escaped the facility entirely.
+          expect(room).toBeGreaterThanOrEqual(0);
           expect(room).not.toBe(spawnRoom);
         }
       }

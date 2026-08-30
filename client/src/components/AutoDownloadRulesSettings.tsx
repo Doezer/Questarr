@@ -63,7 +63,9 @@ export default function AutoDownloadRulesSettings({
   const queryClient = useQueryClient();
 
   const [minSeeders, setMinSeeders] = useState<number>(rules?.minSeeders ?? 0);
-  const [sortBy, setSortBy] = useState<"seeders" | "date" | "size">(rules?.sortBy ?? "seeders");
+  const [sortBy, setSortBy] = useState<"seeders" | "date" | "size" | "priority">(
+    rules?.sortBy ?? "seeders"
+  );
   const [visibleCategories, setVisibleCategories] = useState<Set<DownloadCategory>>(
     new Set(
       (rules?.visibleCategories ?? [
@@ -145,7 +147,7 @@ export default function AutoDownloadRulesSettings({
     setMinSeeders(value);
   };
 
-  const handleSortByChange = (value: "seeders" | "date" | "size") => {
+  const handleSortByChange = (value: "seeders" | "date" | "size" | "priority") => {
     setSortBy(value);
   };
 
@@ -190,7 +192,9 @@ export default function AutoDownloadRulesSettings({
             </Label>
             <Select
               value={sortBy}
-              onValueChange={(v) => handleSortByChange(v as "seeders" | "date" | "size")}
+              onValueChange={(v) =>
+                handleSortByChange(v as "seeders" | "date" | "size" | "priority")
+              }
             >
               <SelectTrigger id="sortBy">
                 <SelectValue />
@@ -199,6 +203,7 @@ export default function AutoDownloadRulesSettings({
                 <SelectItem value="seeders">Seeders (High to Low)</SelectItem>
                 <SelectItem value="date">Date (Newest First)</SelectItem>
                 <SelectItem value="size">Size (Largest First)</SelectItem>
+                <SelectItem value="priority">Indexer Priority</SelectItem>
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">

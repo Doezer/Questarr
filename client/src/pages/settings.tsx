@@ -17,7 +17,6 @@ import {
   ShieldAlert,
   Upload,
   Gamepad2,
-  Webhook,
   Ban,
   Trash2,
   Bell,
@@ -203,8 +202,6 @@ export default function SettingsPage() {
   const [hideAgeRestrictedContent, setHideAgeRestrictedContent] = useState(true);
   const [telemetryEnabled, setTelemetryEnabled] = useState(false);
   const [xrelApiBase, setXrelApiBase] = useState("");
-  const [discordWebhookUrl, setDiscordWebhookUrl] = useState("");
-  const [showDiscordWebhook, setShowDiscordWebhook] = useState(false);
   const [nexusApiKey, setNexusApiKey] = useState("");
   const [showNexusApiKey, setShowNexusApiKey] = useState(false);
 
@@ -288,11 +285,6 @@ export default function SettingsPage() {
     },
   });
 
-  const { data: discordSettings } = useQuery<{ configured: boolean; webhookUrl?: string }>({
-    queryKey: ["/api/settings/discord"],
-    queryFn: () => apiRequest("GET", "/api/settings/discord").then((r) => r.json()),
-  });
-
   const {
     data: downloaderDebugLogging,
     isLoading: isDownloaderDebugLoggingLoading,
@@ -325,13 +317,6 @@ export default function SettingsPage() {
       toast({ title: "Failed to update downloader debug logging", variant: "destructive" });
     },
   });
-
-  // Populate Discord webhook input with the stored URL when it loads
-  useEffect(() => {
-    if (discordSettings?.webhookUrl) {
-      setDiscordWebhookUrl(discordSettings.webhookUrl);
-    }
-  }, [discordSettings?.webhookUrl]);
 
   const { data: appriseSettings } = useQuery<{
     configured: boolean;
@@ -419,20 +404,6 @@ export default function SettingsPage() {
       });
     }, 500);
   };
-
-  const updateDiscordMutation = useMutation({
-    mutationFn: async (webhookUrl: string) => {
-      const res = await apiRequest("POST", "/api/settings/discord", { webhookUrl });
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/settings/discord"] });
-      toast({ title: "Discord webhook saved" });
-    },
-    onError: () => {
-      toast({ title: "Failed to save Discord webhook", variant: "destructive" });
-    },
-  });
 
   const updateNexusMutation = useMutation({
     mutationFn: async (apiKey: string) => {
@@ -1950,74 +1921,6 @@ export default function SettingsPage() {
                       </>
                     )}
                   </Button>
-                </div>
-              </CardContent>
-            </Card>
-            {/* Discord Webhook Card */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <Webhook className="h-5 w-5 text-muted-foreground" />
-                    <CardTitle className="text-lg">Discord Webhook</CardTitle>
-                  </div>
-                  {discordSettings?.configured ? (
-                    <Badge
-                      variant="default"
-                      className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
-                    >
-                      Configured
-                    </Badge>
-                  ) : (
-                    <Badge variant="outline">Not configured</Badge>
-                  )}
-                </div>
-                <CardDescription>
-                  Set a Discord webhook URL to share library stats directly to a Discord channel.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="discord-webhook">Webhook URL</Label>
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    <div className="relative flex-1">
-                      <Input
-                        id="discord-webhook"
-                        type={showDiscordWebhook ? "text" : "password"}
-                        placeholder={
-                          discordSettings?.configured
-                            ? "Enter new URL to replace existing webhook"
-                            : "https://discord.com/api/webhooks/..."
-                        }
-                        value={discordWebhookUrl}
-                        onChange={(e) => setDiscordWebhookUrl(e.target.value)}
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        aria-label={showDiscordWebhook ? "Hide webhook URL" : "Show webhook URL"}
-                        className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
-                        onClick={() => setShowDiscordWebhook((v) => !v)}
-                      >
-                        {showDiscordWebhook ? (
-                          <EyeOff className="h-4 w-4" />
-                        ) : (
-                          <Eye className="h-4 w-4" />
-                        )}
-                      </Button>
-                    </div>
-                    <Button
-                      onClick={() => updateDiscordMutation.mutate(discordWebhookUrl)}
-                      disabled={updateDiscordMutation.isPending || !discordWebhookUrl.trim()}
-                      className="shrink-0 w-full sm:w-auto"
-                    >
-                      {updateDiscordMutation.isPending ? "Saving..." : "Save"}
-                    </Button>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Create a webhook in your Discord server under Channel Settings → Integrations.
-                  </p>
                 </div>
               </CardContent>
             </Card>

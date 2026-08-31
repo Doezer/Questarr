@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useLocalStorageState } from "@/hooks/use-local-storage-state";
-import { InfiltrationGame } from "@/game/infiltration-game";
+import { InfiltrationGame, type ObjectiveState, type StealthState } from "@/game/infiltration-game";
 import { GHOST_UNLOCK_KEY } from "@/lib/ghost-mode";
 
 function randomSeed() {
@@ -28,9 +28,23 @@ const CONTROLS: { keys: string; action: string }[] = [
   { keys: "Left click", action: "Move to a tile" },
   { keys: "Click console", action: "Walk over and hack" },
   { keys: "Right click / F", action: "Throw a distraction" },
+  { keys: "Ctrl", action: "Crouch — slower, quieter, harder to see" },
   { keys: "Scroll", action: "Zoom" },
   { keys: "Esc", action: "Pause" },
 ];
+
+/** Detection bar colour, so the meter reads as a threat level and not just a number. */
+function detectionColor(awareness: number): string {
+  if (awareness >= 0.66) return "#ff3b3b";
+  if (awareness >= 0.3) return "#ffb020";
+  return "#35f0b0";
+}
+
+/** The single next step, so the HUD never asks the player to hold two goals. */
+function objectiveText({ needsKeycard, hasKeycard }: ObjectiveState): string {
+  if (needsKeycard && !hasKeycard) return "find the keycard, then reach the console";
+  return "reach the console and hack it unseen";
+}
 
 export default function PlayPage() {
   const [, navigate] = useLocation();
@@ -41,9 +55,19 @@ export default function PlayPage() {
   const gameRef = useRef<InfiltrationGame | null>(null);
   const progressFillRef = useRef<HTMLDivElement>(null);
   const promptRef = useRef<HTMLDivElement>(null);
+  // Stealth updates ten times a second, so they are written straight to the DOM
+  // rather than through React state — the render loop must never re-render.
+  const detectionFillRef = useRef<HTMLDivElement>(null);
+  const detectionBarRef = useRef<HTMLSpanElement>(null);
+  const stanceRef = useRef<HTMLSpanElement>(null);
+  const exposureRef = useRef<HTMLSpanElement>(null);
 
   const [paused, setPaused] = useState(true);
   const [won, setWon] = useState(false);
+  const [objective, setObjective] = useState<ObjectiveState>({
+    needsKeycard: false,
+    hasKeycard: false,
+  });
 
   const handleCaught = useCallback(() => {
     toast({ description: "Spotted. Incident report filed — back to the entry point." });
@@ -62,14 +86,44 @@ export default function PlayPage() {
     callbacksRef.current = { onCaught: handleCaught, onWin: handleWin };
   }, [handleCaught, handleWin]);
 
+  // Written straight to the DOM: this fires on a 10Hz cadence from the render
+  // loop, and routing it through state would re-render the page around the canvas.
+  const applyStealth = useCallback(({ stance, awareness, illumination }: StealthState) => {
+    const percent = Math.round(awareness * 100);
+    if (detectionFillRef.current) {
+      detectionFillRef.current.style.width = `${percent}%`;
+      detectionFillRef.current.style.backgroundColor = detectionColor(awareness);
+    }
+    // The bar carries the value for assistive tech, since width and colour alone
+    // convey nothing without sight.
+    detectionBarRef.current?.setAttribute("aria-valuenow", String(percent));
+
+    // Only write text that actually changed. These nodes are rewritten ten times
+    // a second, and needless mutations are wasted work whatever is reading them.
+    if (stanceRef.current) {
+      const label = stance === "crouched" ? "Crouched" : "Standing";
+      if (stanceRef.current.textContent !== label) stanceRef.current.textContent = label;
+    }
+    if (exposureRef.current) {
+      const hidden = illumination < 0.25;
+      const label = hidden ? "In shadow" : "In the open";
+      if (exposureRef.current.textContent !== label) {
+        exposureRef.current.textContent = label;
+        exposureRef.current.className = hidden ? "text-sky-300" : "text-white/40";
+      }
+    }
+  }, []);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     const game = new InfiltrationGame(canvas, initialSeed(), {
       onPauseChange: setPaused,
+      onObjectiveChange: setObjective,
       onCaught: () => callbacksRef.current.onCaught(),
       onWin: () => callbacksRef.current.onWin(),
+      onStealthChange: (stealth) => applyStealth(stealth),
       onHackProgress: (progress, canInteract) => {
         if (progressFillRef.current) {
           progressFillRef.current.style.width = `${progress * 100}%`;
@@ -86,7 +140,8 @@ export default function PlayPage() {
       game.dispose();
       gameRef.current = null;
     };
-  }, []);
+    // applyStealth is a stable useCallback, so this still mounts exactly once.
+  }, [applyStealth]);
 
   const handleStart = useCallback(() => {
     setWon(false);
@@ -114,14 +169,26 @@ export default function PlayPage() {
       <canvas
         ref={canvasRef}
         className="h-full w-full touch-none"
-        aria-label="Infiltration game. Click a tile to move, click the console to hack it, right-click to throw a distraction."
+        aria-label="Infiltration game. Click a tile to move, click the console to hack it, right-click to throw a distraction, Ctrl to crouch."
       />
 
       {/* In-game HUD, always mounted so refs update imperatively without re-render */}
       <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-6">
-        <div className="rounded-md border border-white/10 bg-black/60 px-4 py-2 text-sm text-white/80 self-start">
-          <span className="text-emerald-400">Objective</span> &mdash; reach the console and hack it
-          unseen
+        <div className="flex items-center gap-2 self-start">
+          <div className="rounded-md border border-white/10 bg-black/60 px-4 py-2 text-sm text-white/80">
+            <span className="text-emerald-400">Objective</span> &mdash; {objectiveText(objective)}
+          </div>
+          {objective.needsKeycard && (
+            <div
+              className={
+                objective.hasKeycard
+                  ? "rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-sm text-amber-300"
+                  : "rounded-md border border-white/10 bg-black/60 px-4 py-2 text-sm text-white/40"
+              }
+            >
+              {objective.hasKeycard ? "Keycard acquired" : "Keycard"}
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col items-center gap-2">
@@ -134,8 +201,38 @@ export default function PlayPage() {
               <div ref={progressFillRef} className="h-full w-0 bg-emerald-400" />
             </div>
           </div>
+          {/*
+            Deliberately not a live region. This is a continuous readout that
+            updates ten times a second, so `role="status"` (or <output>, which
+            carries it implicitly) would have a screen reader narrating the whole
+            group nonstop for the length of a run.
+          */}
+          <div
+            className="flex items-center gap-3 rounded-md border border-white/10 bg-black/60 px-4 py-2 text-xs text-white/70"
+            aria-label="Stealth status"
+          >
+            <span ref={stanceRef}>Standing</span>
+            <span ref={exposureRef} className="text-white/40">
+              In the open
+            </span>
+            <span className="flex items-center gap-2">
+              Detection
+              <span
+                ref={detectionBarRef}
+                role="progressbar"
+                aria-label="Guard detection"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={0}
+                className="block h-1.5 w-24 overflow-hidden rounded-full bg-white/20"
+              >
+                <span ref={detectionFillRef} className="block h-full w-0 bg-emerald-400" />
+              </span>
+            </span>
+          </div>
           <div className="rounded-md bg-black/50 px-3 py-1 text-xs text-white/50">
-            Left click to move &middot; right click to throw &middot; Esc to pause
+            Left click to move &middot; Ctrl to crouch &middot; right click to throw &middot; Esc to
+            pause
           </div>
         </div>
       </div>
@@ -166,8 +263,9 @@ export default function PlayPage() {
               Ghost the Terminal
             </h1>
             <p className="text-sm text-white/70">
-              A procedurally generated facility, patrolling guards, and one console worth hacking.
-              Stay out of the vision cones &mdash; crates break line of sight.
+              A procedurally generated facility of connected rooms, patrolling guards, and one
+              console worth hacking. The door to it is locked, so find the keycard first. Stay out
+              of the vision cones &mdash; walls and crates break line of sight.
             </p>
             <dl className="mx-auto grid max-w-xs grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-left text-sm text-white/70">
               {CONTROLS.map(({ keys, action }) => (

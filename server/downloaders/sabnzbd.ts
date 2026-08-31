@@ -156,7 +156,15 @@ export class SABnzbdClient implements DownloaderClient {
     allowInsecureFallback = true
   ): Promise<Response> {
     try {
-      return await safeFetch(url, { ...options, allowPrivate: true });
+      // allowInsecureFallback is false exactly when this request carries the archive
+      // password (see addDownload) -- in that case also refuse to follow a redirect to
+      // a non-HTTPS hop, since a compromised or MITM'd SABnzbd could otherwise bounce the
+      // credential-bearing request to a plaintext endpoint mid-flight.
+      return await safeFetch(url, {
+        ...options,
+        allowPrivate: true,
+        requireHttps: !allowInsecureFallback,
+      });
     } catch (error) {
       const isSslError =
         error instanceof Error &&

@@ -160,7 +160,11 @@ export class NZBGetClient implements DownloaderClient {
     return String(Object.values(rec)[0]);
   }
 
-  private async makeXMLRPCRequest(method: string, params: unknown[] = []): Promise<unknown> {
+  private async makeXMLRPCRequest(
+    method: string,
+    params: unknown[] = [],
+    requireHttps = false
+  ): Promise<unknown> {
     const baseUrl = this.getBaseUrl();
     const path = this.downloader.urlPath || "xmlrpc";
     const url = `${baseUrl}/${path.replace(/^\//, "")}`;
@@ -212,11 +216,16 @@ export class NZBGetClient implements DownloaderClient {
 
     downloadersLogger.debug({ url, method, params: logParams }, "Making NZBGet XML-RPC request");
 
+    // requireHttps is set by addDownload exactly when this request carries the archive
+    // password -- refuse to follow a redirect to a non-HTTPS hop, since a compromised or
+    // MITM'd NZBGet could otherwise bounce the credential-bearing request body to a
+    // plaintext endpoint mid-flight (a 307/308 redirect preserves the POST body as-is).
     const response = await safeFetch(url, {
       method: "POST",
       headers,
       body: xmlBody,
       signal: AbortSignal.timeout(30000),
+      requireHttps,
     });
 
     await logDownloaderDebugResponse("NZBGet", method, url, response);
@@ -322,18 +331,22 @@ export class NZBGetClient implements DownloaderClient {
         return { success: false, message: passwordError };
       }
 
-      const nzbId = (await this.makeXMLRPCRequest("append", [
-        request.title || "download.nzb",
-        base64Content,
-        category,
-        request.priority || 0,
-        false, // AddToTop
-        false, // AddPaused
-        "", // DupeKey
-        0, // DupeScore
-        "SCORE", // DupeMode
-        password ? [{ Name: "*Unpack:Password", Value: password }] : [], // PPParameters
-      ])) as number;
+      const nzbId = (await this.makeXMLRPCRequest(
+        "append",
+        [
+          request.title || "download.nzb",
+          base64Content,
+          category,
+          request.priority || 0,
+          false, // AddToTop
+          false, // AddPaused
+          "", // DupeKey
+          0, // DupeScore
+          "SCORE", // DupeMode
+          password ? [{ Name: "*Unpack:Password", Value: password }] : [], // PPParameters
+        ],
+        !!password
+      )) as number;
 
       if (nzbId > 0) {
         return {

@@ -355,6 +355,39 @@ describe("sabnzbd remaining regression coverage", () => {
     expect(fetchWithFallbackSpy).not.toHaveBeenCalled();
   });
 
+  it("requires HTTPS on every hop (rejecting an insecure redirect) only when a password is sent", async () => {
+    safeFetchMock.mockImplementation(async (_url: string, options: RequestInit = {}) => {
+      if (options.method !== "POST") {
+        return {
+          ok: true,
+          arrayBuffer: async () => new TextEncoder().encode("nzb").buffer,
+        } as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({ status: true, nzo_ids: ["sab-https"] }),
+      } as Response;
+    });
+
+    const client = new SABnzbdClient(createDownloader({ useSsl: true }));
+    await client.addDownload({
+      url: "http://indexer.local/g4u.nzb",
+      title: "G4U Release",
+      password: "404",
+    });
+    const [, postOptionsWithPassword] = safeFetchMock.mock.calls.find(
+      ([, options]) => (options as RequestInit)?.method === "POST"
+    ) as [string, RequestInit & { requireHttps?: boolean }];
+    expect(postOptionsWithPassword.requireHttps).toBe(true);
+
+    safeFetchMock.mockClear();
+    await client.addDownload({ url: "http://indexer.local/plain.nzb", title: "Plain NZB" });
+    const [, postOptionsWithoutPassword] = safeFetchMock.mock.calls.find(
+      ([, options]) => (options as RequestInit)?.method === "POST"
+    ) as [string, RequestInit & { requireHttps?: boolean }];
+    expect(postOptionsWithoutPassword.requireHttps).toBe(false);
+  });
+
   it("does not downgrade to the insecure self-signed-cert fallback when a password is sent", async () => {
     safeFetchMock.mockImplementation(async (_url: string, options: RequestInit = {}) => {
       // The NZB content fetch (no method override) should succeed normally; only the

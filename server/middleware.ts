@@ -453,6 +453,8 @@ export const sanitizeDownloaderDownloadData = [
     .withMessage("Invalid game ID format"),
   body("password")
     .optional()
+    .isString()
+    .withMessage("Password must be a string")
     .isLength({ max: 200 })
     .withMessage("Password must be at most 200 characters"),
 ];

@@ -6,7 +6,11 @@ import { NZBGetClient } from "../downloaders/nzbget.js";
 // Exposes NZBGetClient's private makeXMLRPCRequest with its real signature for
 // spying, rather than casting through the untyped `typeof Function` at each call site.
 interface NZBGetClientInternals {
-  makeXMLRPCRequest: (method: string, params?: unknown[]) => Promise<unknown>;
+  makeXMLRPCRequest: (
+    method: string,
+    params?: unknown[],
+    requireHttps?: boolean
+  ) => Promise<unknown>;
 }
 
 vi.mock("../logger.js", () => ({
@@ -373,10 +377,14 @@ describe("NZBGet remaining coverage", () => {
         reuseSpy ?? vi.spyOn(client as unknown as NZBGetClientInternals, "makeXMLRPCRequest");
       spy.mockResolvedValueOnce(42);
       await client.addDownload(request);
-      const ppParameters = spy.mock.calls.at(-1)?.[1]?.at(-1);
+      const lastCall = spy.mock.calls.at(-1);
+      const ppParameters = lastCall?.[1]?.at(-1);
       expect(ppParameters).toEqual(
         expectedPassword ? [{ Name: "*Unpack:Password", Value: expectedPassword }] : []
       );
+      // A password-bearing append call must also require HTTPS on every hop,
+      // rejecting a redirect that would resend it over plaintext.
+      expect(lastCall?.[2]).toBe(!!expectedPassword);
       return spy;
     };
 

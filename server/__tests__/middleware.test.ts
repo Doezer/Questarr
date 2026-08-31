@@ -530,6 +530,26 @@ describe("Middleware - Input Sanitization", () => {
 
       expect(res.status).toHaveBeenCalledWith(400);
     });
+
+    it("should reject a non-string password", async () => {
+      const req = createMockRequest({
+        body: {
+          url: "https://example.com/file.zip",
+          title: "Test",
+          password: 404,
+        },
+      });
+      const res = createMockResponse();
+      const next = createMockNext();
+
+      for (const validator of sanitizeDownloaderDownloadData) {
+        await validator(req as Request, res as Response, next);
+      }
+
+      validateRequest(req as Request, res as Response, next);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
   });
 
   describe("sanitizeIndexerSearchQuery", () => {

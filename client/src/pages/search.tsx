@@ -96,6 +96,9 @@ function formatDate(dateString: string): string {
 
 const PAGE_SIZE = 50;
 
+/**
+ * Provides a search interface for finding releases across configured indexers, matching results to library games, filtering by release date, and starting downloads.
+ */
 export default function SearchPage() {
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");

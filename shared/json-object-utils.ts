@@ -1,10 +1,8 @@
 /**
- * Parses a JSON string into a plain object, rejecting anything that isn't one
- * (null, arrays, primitives, or invalid JSON) by falling back to `{}`.
+ * Parses a JSON string into an object for use as key-value settings.
  *
- * Used for free-form per-type settings blobs (e.g. a downloader's `settings`
- * column) where callers read/write individual keys and must never operate on
- * a non-object value.
+ * @param value - The JSON string to parse
+ * @returns The parsed object, or an empty object for missing, invalid, or non-object JSON values
  */
 export function parseJsonObject(value: string | null | undefined): Record<string, unknown> {
   if (!value) return {};

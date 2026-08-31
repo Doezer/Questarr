@@ -90,6 +90,13 @@ function parseIntegerInput(value: string): number | undefined {
   return Number.isNaN(parsedValue) ? undefined : parsedValue;
 }
 
+/**
+ * Parses a priority input and uses a fallback when the value is invalid or empty.
+ *
+ * @param value - The priority input to parse
+ * @param fallback - The value to use when parsing fails
+ * @returns The parsed integer or the fallback value
+ */
 function parsePriorityInput(value: string, fallback: number): number {
   const parsedValue = parseIntegerInput(value);
   return parsedValue ?? fallback;
@@ -97,13 +104,25 @@ function parsePriorityInput(value: string, fallback: number): number {
 
 // SABnzbd's default archive password lives in the free-form per-type `settings`
 // JSON blob, alongside qBittorrent's `initialState`. Kept as pure functions so
-// the parsing/serialization logic is testable independently of the form.
+/**
+ * Reads the archive password from serialized downloader settings.
+ *
+ * @param settingsJson - The serialized settings object.
+ * @returns The archive password, or an empty string when none is configured.
+ */
 
 export function getArchivePasswordFromSettings(settingsJson: string | undefined | null): string {
   const settings = parseJsonObject(settingsJson);
   return typeof settings.archivePassword === "string" ? settings.archivePassword : "";
 }
 
+/**
+ * Updates the archive password in serialized downloader settings.
+ *
+ * @param settingsJson - The serialized settings to update.
+ * @param password - The archive password to store; an empty value removes it.
+ * @returns The updated settings serialized as JSON.
+ */
 export function setArchivePasswordInSettings(
   settingsJson: string | undefined | null,
   password: string
@@ -121,6 +140,12 @@ interface ArchivePasswordFieldProps {
   readonly form: UseFormReturn<InsertDownloader>;
 }
 
+/**
+ * Renders an optional archive-password field for a downloader form.
+ *
+ * @param form - The downloader form whose serialized settings contain the archive password
+ * @returns The archive-password form field and its explanatory description
+ */
 export function ArchivePasswordField({ form }: ArchivePasswordFieldProps) {
   return (
     <FormItem>
@@ -148,6 +173,13 @@ export function ArchivePasswordField({ form }: ArchivePasswordFieldProps) {
   );
 }
 
+/**
+ * Provides an editable priority control constrained to values from 1 through 100.
+ *
+ * @param id - Identifier of the downloader whose priority is being edited
+ * @param priority - Current downloader priority
+ * @param onSave - Callback invoked when the priority changes
+ */
 function PriorityControl({
   id,
   priority,
@@ -203,6 +235,9 @@ function PriorityControl({
   );
 }
 
+/**
+ * Manages configured downloader clients, including creation, editing, deletion, status changes, priority updates, and connection testing.
+ */
 export default function DownloadersPage() {
   const { toast } = useToast();
   const [isDialogOpen, setIsDialogOpen] = useState(false);

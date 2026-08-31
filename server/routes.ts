@@ -237,19 +237,36 @@ function isValidDiscordWebhook(value: string): boolean {
   }
 }
 
+/**
+ * Masks an indexer's API key before exposing its configuration.
+ *
+ * @param indexer - The indexer configuration to sanitize
+ * @returns The indexer with its API key replaced by a redaction placeholder when configured
+ */
 function maskIndexer(indexer: Indexer): Indexer {
   return indexer.apiKey ? { ...indexer, apiKey: REDACTED_PLACEHOLDER } : indexer;
 }
 
 // The SABnzbd archive password lives inside the free-form `settings` JSON blob
 // (alongside qBittorrent's initialState etc.), so it needs its own mask/restore
-// handling rather than a plain column comparison like `password`.
+/**
+ * Masks the archive password in serialized downloader settings.
+ *
+ * @param settingsJson - The serialized downloader settings, or `null`
+ * @returns The settings with the archive password redacted, or the original value when no archive password is configured
+ */
 function maskDownloaderSettings(settingsJson: string | null): string | null {
   const settings = parseJsonObject(settingsJson);
   if (!settings.archivePassword) return settingsJson;
   return JSON.stringify({ ...settings, archivePassword: REDACTED_PLACEHOLDER });
 }
 
+/**
+ * Masks sensitive credentials in a downloader configuration.
+ *
+ * @param downloader - The downloader configuration whose credentials should be masked
+ * @returns A downloader configuration with its password and archive password redacted
+ */
 function maskDownloader(downloader: Downloader): Downloader {
   const masked = downloader.password
     ? { ...downloader, password: REDACTED_PLACEHOLDER }
@@ -258,6 +275,14 @@ function maskDownloader(downloader: Downloader): Downloader {
   return maskedSettings !== masked.settings ? { ...masked, settings: maskedSettings } : masked;
 }
 
+/**
+ * Sends a bad-request response containing a message and Zod validation issues.
+ *
+ * @param res - The response used to send the error
+ * @param error - The Zod validation error containing issue details
+ * @param message - The error message included in the response
+ * @returns The configured response
+ */
 function respondWithZodError(res: Response, error: z.ZodError, message: string): Response {
   return res.status(400).json({ error: message, details: error.issues });
 }
@@ -541,6 +566,12 @@ function registerIgdbParamListRoute(
   });
 }
 
+/**
+ * Registers application middleware and API routes, then creates the HTTP server.
+ *
+ * @param app - The Express application to configure
+ * @returns The configured HTTP server
+ */
 export async function registerRoutes(app: Express): Promise<Server> {
   // 🛡️ Sentinel: Add security headers with Helmet
   // Configured to allow Vite/React (unsafe-inline/eval) in dev, and IGDB images everywhere

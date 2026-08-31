@@ -2,6 +2,16 @@ import * as THREE from "three";
 import { IsoCamera } from "./iso-camera";
 import { cellKey, isInterior, type GridPos } from "./grid";
 import { findPath, nearestOpenCell } from "./pathfinding";
+import { mulberry32 } from "./rng";
+import {
+  applyTexture,
+  disposeVaultTextures,
+  ironTexture,
+  masonryTexture,
+  stoneFloorTexture,
+  timberTexture,
+} from "./textures";
+import { blockJitter, cellNoise, pillarCells, rubbleSpots } from "./vault-decor";
 import {
   generateLevel,
   gridToWorld,
@@ -138,6 +148,28 @@ const LAMP_HEIGHT = 5.5;
  */
 const LAMP_LIGHT_DISTANCE = Math.hypot(LAMP_RADIUS, LAMP_HEIGHT);
 /** Movement noise is emitted on a cadence, not per frame, so guards re-path sanely. */
+/**
+ * How far a pillar rises past the wall it stands in.
+ *
+ * Enough that a length of shaft is visible above the coping. A shorter overhang
+ * shows only the capital, which from a fixed overhead angle reads as a disc
+ * lying on the wall rather than as a column passing through it.
+ */
+const PILLAR_OVERHANG = 2.3;
+/** Depth of the capping course laid along the top of every wall run. */
+const WALL_CAP_HEIGHT = 0.22;
+/** How far the cap oversails the wall below it, giving the run a lip. */
+const WALL_CAP_OVERSAIL = 0.12;
+/** Peak variation in a masonry block's height, so no run tops out dead level. */
+const BLOCK_HEIGHT_JITTER = 0.28;
+/** Base size of a piece of floor debris, before its per-piece scale. */
+const RUBBLE_SIZE = 0.26;
+/** Motes of dust hanging in the air, which give the lamp pools some depth. */
+const DUST_COUNT = 420;
+/** How fast a mote drifts upward before it wraps back to the floor. */
+const DUST_RISE = 0.12;
+/** Height the motes fill, a little above the walls so the lamps sit inside it. */
+const DUST_CEILING = 6.5;
 const MOVEMENT_NOISE_INTERVAL = 0.4;
 /** How often the stealth HUD is refreshed; far coarser than the render loop. */
 const STEALTH_REPORT_INTERVAL = 0.1;
@@ -153,9 +185,6 @@ const PALETTE = {
   /** Fog and background: the unlit rock the vault is cut out of. */
   void: 0x0a0705,
   floor: 0x2b241d,
-  /** Flagstone joints, bright and dim. */
-  mortar: 0x3a3129,
-  mortarDim: 0x2f2822,
   perimeterWall: 0x3c332a,
   /** A shade up from the perimeter so interior walls read as separate masonry. */
   interiorWall: 0x473c31,
@@ -169,6 +198,14 @@ const PALETTE = {
   /** Rusted iron door leaf, in its stone lintel. */
   doorPanel: 0x2b231b,
   doorFrame: 0x4a3d30,
+  /** Load-bearing columns: paler than the walls, as dressed stone would be. */
+  pillar: 0x554a3d,
+  /** Fallen masonry on the floor, a touch darker than the flagstones. */
+  rubble: 0x3d342b,
+  /** The iron cage a lamp hangs in, and the chain it hangs from. */
+  lampHousing: 0x1c1712,
+  /** Motes in the air, lit warm so they only show inside a lamp pool. */
+  dust: 0xd9b98a,
 } as const;
 
 const DOOR_COLORS = { locked: 0xff3b3b, unlocked: 0x35f0b0 };
@@ -200,6 +237,10 @@ export class InfiltrationGame {
   private staticBlockedCells = new Set<string>();
   private solidBoxes: Box[] = [];
   private doors: Door[] = [];
+  /** Seed for the level's decorative jitter, so a replay of it looks the same. */
+  private decorSeed = 0;
+  /** Dust motes drifting in the air; animated, so held for the update loop. */
+  private dust: THREE.Points | null = null;
   private keycardMesh: THREE.Mesh | null = null;
   /** Tracked separately from the card so pickup hides the glow with it. */
   private keycardHalo: THREE.Mesh | null = null;
@@ -279,6 +320,7 @@ export class InfiltrationGame {
     this.doors = [];
     this.keycardMesh = null;
     this.keycardHalo = null;
+    this.dust = null;
     this.hasKeycard = false;
     this.playerPath = [];
     this.clearScene();
@@ -304,9 +346,16 @@ export class InfiltrationGame {
   /** Removes and disposes every scene child so replays don't leak GPU memory. */
   private clearScene() {
     this.scene.traverse((object) => {
-      // Meshes, lines and the floor GridHelper all carry geometry/material that
+      // Meshes, lines and the dust point cloud all carry geometry/material that
       // has to go back to the GPU, or replays leak a level's worth each time.
-      if (!(object instanceof THREE.Mesh) && !(object instanceof THREE.Line)) return;
+      // Points is neither a Mesh nor a Line, so it needs naming explicitly.
+      if (
+        !(object instanceof THREE.Mesh) &&
+        !(object instanceof THREE.Line) &&
+        !(object instanceof THREE.Points)
+      ) {
+        return;
+      }
       object.geometry.dispose();
       const materials = Array.isArray(object.material) ? object.material : [object.material];
       for (const material of materials) material.dispose();
@@ -351,6 +400,9 @@ export class InfiltrationGame {
     this.canvas.removeEventListener("wheel", this.handleWheel);
     this.resizeObserver.disconnect();
     this.clearScene();
+    // The texture cache is shared across replays and outlives every material, so
+    // it is only safe to drop once the game itself is going away.
+    disposeVaultTextures();
     this.renderer.dispose();
   }
 
@@ -359,6 +411,7 @@ export class InfiltrationGame {
   /** Generates a facility for the seed and raises every mesh and collider for it. */
   private buildLevel(seed: number) {
     this.level = generateLevel(seed);
+    this.decorSeed = seed;
     this.facilityHalfExtent = (this.level.gridSize * this.level.cellSize) / 2;
     this.iso.setBounds(this.facilityHalfExtent);
     this.solidBoxes = [];
@@ -367,7 +420,7 @@ export class InfiltrationGame {
     // Underground there is no sun: the hemisphere and key lights are reduced to
     // weak bounce that keeps geometry readable, leaving the lamps to do the work.
     this.scene.add(new THREE.HemisphereLight(PALETTE.bounceSky, PALETTE.bounceGround, 1.0));
-    this.scene.add(new THREE.AmbientLight(PALETTE.fill, 0.3));
+    this.scene.add(new THREE.AmbientLight(PALETTE.fill, 0.36));
     const key = new THREE.DirectionalLight(PALETTE.fill, 0.5);
     key.position.set(12, 20, 8);
     this.scene.add(key);
@@ -384,21 +437,25 @@ export class InfiltrationGame {
       const lamp = new THREE.PointLight(PALETTE.lamp, LAMP_INTENSITY, LAMP_LIGHT_DISTANCE, 1);
       lamp.position.set(centre.x, LAMP_HEIGHT, centre.z);
       this.scene.add(lamp);
+      this.buildLampFixture(centre);
     }
 
     const floorSize = this.level.gridSize * this.level.cellSize;
-    const floor = new THREE.Mesh(
-      new THREE.PlaneGeometry(floorSize, floorSize),
-      new THREE.MeshStandardMaterial({ color: PALETTE.floor, roughness: 1 })
-    );
+    const floorMaterial = new THREE.MeshStandardMaterial({ color: PALETTE.floor, roughness: 1 });
+    // Two flagstones to a cell: fine enough to read as stone from the isometric
+    // camera, coarse enough that the slabs are still individually visible.
+    applyTexture(floorMaterial, stoneFloorTexture(this.level.gridSize / 2));
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(floorSize, floorSize), floorMaterial);
     floor.rotation.x = -Math.PI / 2;
     this.scene.add(floor);
-    this.buildFloorGrid(floorSize);
 
     this.buildPerimeter(floorSize);
     for (const wallCell of this.level.walls) this.buildInteriorWall(wallCell);
+    for (const cell of pillarCells(this.level.walls, this.level.gridSize)) this.buildPillar(cell);
     for (const cratePos of this.level.crates) this.buildCrate(cratePos);
     for (const door of this.level.doors) this.buildDoor(door);
+    this.buildRubble();
+    this.buildDust(floorSize);
     this.buildTerminal();
     this.buildKeycard();
     this.buildGuards();
@@ -413,18 +470,6 @@ export class InfiltrationGame {
       needsKeycard: this.level.doors.some((door) => door.locked),
       hasKeycard: this.hasKeycard,
     });
-  }
-
-  /** Faint tile lines, so click-to-move destinations are readable at a glance. */
-  private buildFloorGrid(floorSize: number) {
-    const grid = new THREE.GridHelper(
-      floorSize,
-      this.level.gridSize,
-      PALETTE.mortar,
-      PALETTE.mortarDim
-    );
-    grid.position.y = 0.01;
-    this.scene.add(grid);
   }
 
   /** Raises the four perimeter walls, each an occluder in its own right. */
@@ -442,25 +487,67 @@ export class InfiltrationGame {
         color: PALETTE.perimeterWall,
         roughness: 0.95,
       });
+      // One course of masonry per cell of length, so the block scale matches the
+      // interior walls it meets rather than stretching along the whole run.
+      applyTexture(material, masonryTexture(Math.max(w, d) / this.level.cellSize));
       const wall = new THREE.Mesh(new THREE.BoxGeometry(w, WALL_HEIGHT, d), material);
       wall.position.set(x, WALL_HEIGHT / 2, z);
       this.scene.add(wall);
       this.occluders.push({ mesh: wall, material });
+      this.buildWallCap(x, z, w, d, WALL_HEIGHT);
     }
   }
 
-  /** A waist-high crate: cover from sight, and a solid box for collision. */
+  /**
+   * The oversailing course along the top of a wall.
+   *
+   * A wall that simply stops is a box; a wall that finishes with a lip that
+   * catches the lamplight along its edge reads as built. Purely decorative — it
+   * sits above head height and adds no collider.
+   */
+  private buildWallCap(x: number, z: number, w: number, d: number, top: number) {
+    const material = new THREE.MeshStandardMaterial({
+      color: PALETTE.pillar,
+      roughness: 0.9,
+    });
+    const cap = new THREE.Mesh(
+      new THREE.BoxGeometry(w + WALL_CAP_OVERSAIL * 2, WALL_CAP_HEIGHT, d + WALL_CAP_OVERSAIL * 2),
+      material
+    );
+    cap.position.set(x, top + WALL_CAP_HEIGHT / 2, z);
+    this.scene.add(cap);
+    this.occluders.push({ mesh: cap, material });
+  }
+
+  /** A waist-high timber crate: cover from sight, and a solid box for collision. */
   private buildCrate(gridPos: GridPos) {
     const world = gridToWorld(gridPos, this.level);
     const material = new THREE.MeshStandardMaterial({ color: PALETTE.crate, roughness: 0.85 });
-    const crate = new THREE.Mesh(
-      new THREE.BoxGeometry(CRATE_SIZE, CRATE_HEIGHT, CRATE_SIZE),
-      material
-    );
-    crate.position.set(world.x, CRATE_HEIGHT / 2, world.z);
+    applyTexture(material, timberTexture(1));
+    // Height varies per crate; the footprint never does. The collider below is
+    // built from CRATE_SIZE either way, so what the player can walk past stays
+    // exactly what it was — only the silhouette changes.
+    const height = CRATE_HEIGHT * (1 + blockJitter(gridPos, this.decorSeed) * 0.12);
+    const crate = new THREE.Mesh(new THREE.BoxGeometry(CRATE_SIZE, height, CRATE_SIZE), material);
+    crate.position.set(world.x, height / 2, world.z);
+    // A few degrees off square: crates were stacked by hand, not laid out on the
+    // grid. Kept small so the rotated box stays inside its own cell.
+    crate.rotation.y = blockJitter({ x: gridPos.z, z: gridPos.x }, this.decorSeed) * 0.09;
     this.scene.add(crate);
     this.occluders.push({ mesh: crate, material });
     this.solidBoxes.push(boxAround(world.x, world.z, CRATE_SIZE));
+
+    // Roughly a third of them carry a smaller box on top, which breaks up the
+    // repeated silhouette. It rides above the collider, so it changes nothing.
+    if (cellNoise(gridPos, this.decorSeed ^ 0x1d) >= 0.34) return;
+    const lidMaterial = new THREE.MeshStandardMaterial({ color: PALETTE.crate, roughness: 0.9 });
+    applyTexture(lidMaterial, timberTexture(1));
+    const lidSize = CRATE_SIZE * 0.55;
+    const lid = new THREE.Mesh(new THREE.BoxGeometry(lidSize, lidSize * 0.7, lidSize), lidMaterial);
+    lid.position.set(world.x, height + lidSize * 0.35, world.z);
+    lid.rotation.y = cellNoise(gridPos, this.decorSeed ^ 0x2e) * 0.8 - 0.4;
+    this.scene.add(lid);
+    this.occluders.push({ mesh: lid, material: lidMaterial });
   }
 
   /**
@@ -474,11 +561,64 @@ export class InfiltrationGame {
       color: PALETTE.interiorWall,
       roughness: 0.95,
     });
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(size, WALL_HEIGHT, size), material);
-    mesh.position.set(world.x, WALL_HEIGHT / 2, world.z);
+    applyTexture(material, masonryTexture(1));
+    // Each block tops out a little above or below its neighbours. The collider
+    // is unchanged and the wall never drops below head height, so this is a
+    // silhouette detail only: nothing becomes see-over or walk-through.
+    const height = WALL_HEIGHT + blockJitter(cell, this.decorSeed) * BLOCK_HEIGHT_JITTER;
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(size, height, size), material);
+    mesh.position.set(world.x, height / 2, world.z);
     this.scene.add(mesh);
     this.occluders.push({ mesh, material });
     this.solidBoxes.push(boxAround(world.x, world.z, size));
+    this.buildWallCap(world.x, world.z, size, size, height);
+  }
+
+  /**
+   * A dressed column at a corner or junction of the masonry.
+   *
+   * Every pillar cell comes from {@link pillarCells}, which only ever returns
+   * cells that are already walls — so a pillar stands inside an existing
+   * collider and cannot become an obstacle the pathfinder does not know about.
+   */
+  private buildPillar(cell: GridPos) {
+    const world = gridToWorld(cell, this.level);
+    const size = this.level.cellSize;
+    const height = WALL_HEIGHT + PILLAR_OVERHANG;
+    const material = new THREE.MeshStandardMaterial({ color: PALETTE.pillar, roughness: 0.85 });
+    applyTexture(material, masonryTexture(1));
+
+    // Octagonal rather than round: eight faces catch the lamplight in flat
+    // bands, which reads as cut stone where a smooth cylinder reads as a pipe.
+    const radius = size * 0.34;
+    const shaft = new THREE.Mesh(
+      new THREE.CylinderGeometry(radius * 0.92, radius, height, 8),
+      material
+    );
+    shaft.position.set(world.x, height / 2, world.z);
+    this.scene.add(shaft);
+    this.occluders.push({ mesh: shaft, material });
+
+    // Base and capital, each a drum a little wider than the shaft. Kept narrow:
+    // a broad capital seen from above is a disc, and the point of the capital is
+    // to terminate a column the player can see rising out of the wall.
+    for (const [y, drumHeight] of [
+      [0.18, 0.36],
+      [height - 0.22, 0.44],
+    ]) {
+      const trimMaterial = new THREE.MeshStandardMaterial({
+        color: PALETTE.pillar,
+        roughness: 0.8,
+      });
+      applyTexture(trimMaterial, masonryTexture(1));
+      const drum = new THREE.Mesh(
+        new THREE.CylinderGeometry(radius * 1.14, radius * 1.14, drumHeight, 8),
+        trimMaterial
+      );
+      drum.position.set(world.x, y, world.z);
+      this.scene.add(drum);
+      this.occluders.push({ mesh: drum, material: trimMaterial });
+    }
   }
 
   /** A door panel plus its collider, tinted by lock state and tracked for sliding. */
@@ -495,6 +635,7 @@ export class InfiltrationGame {
       roughness: 0.65,
       metalness: 0.7,
     });
+    applyTexture(material, ironTexture(1));
     // splitRect cuts along both axes, so a door sits in a wall of either
     // orientation. Rooms side by side on X are divided by a wall at constant X,
     // and a panel that always spanned X would leave gaps either side of that
@@ -519,6 +660,7 @@ export class InfiltrationGame {
       color: PALETTE.doorFrame,
       roughness: 0.9,
     });
+    applyTexture(frameMaterial, masonryTexture(1));
     const lintel = new THREE.Mesh(
       new THREE.BoxGeometry(
         dividedOnX ? size * 0.6 : size,
@@ -531,6 +673,40 @@ export class InfiltrationGame {
     this.scene.add(lintel);
     this.occluders.push({ mesh: lintel, material: frameMaterial });
 
+    // A relieving arch springing from the opening, which is what actually makes
+    // a hole in a stone wall read as a doorway rather than a missing block.
+    //
+    // One on each face rather than one in the middle: an arch inside the wall's
+    // own thickness is buried by the lintel and invisible. Standing them proud
+    // of both faces frames the opening from whichever room the camera is over.
+    const archTube = size * 0.13;
+    const archRadius = span / 2 + archTube * 0.5;
+    const archOffset = thickness / 2 + archTube;
+    for (const side of [-1, 1]) {
+      const archMaterial = new THREE.MeshStandardMaterial({
+        color: PALETTE.pillar,
+        roughness: 0.85,
+      });
+      applyTexture(archMaterial, masonryTexture(1));
+      const arch = new THREE.Mesh(
+        new THREE.TorusGeometry(archRadius, archTube, 6, 20, Math.PI),
+        archMaterial
+      );
+      // A half torus lies in its own XY plane, springing from -X to +X and
+      // arcing up through +Y: upright already, and spanning X. Rooms divided on
+      // X are separated by a wall at constant X, whose opening runs along Z, so
+      // that case is the one that needs turning a quarter turn — and its faces
+      // are then offset on X rather than Z.
+      if (dividedOnX) arch.rotation.y = Math.PI / 2;
+      arch.position.set(
+        world.x + (dividedOnX ? side * archOffset : 0),
+        DOOR_HEIGHT * 0.86,
+        world.z + (dividedOnX ? 0 : side * archOffset)
+      );
+      this.scene.add(arch);
+      this.occluders.push({ mesh: arch, material: archMaterial });
+    }
+
     group.position.set(world.x, 0, world.z);
     this.scene.add(group);
 
@@ -542,6 +718,132 @@ export class InfiltrationGame {
       box: boxAround(world.x, world.z, size),
       openness: 0,
     });
+  }
+
+  /**
+   * The iron lamp a room's light visibly hangs from.
+   *
+   * The `PointLight` alone is a glow with no cause; hanging a caged bulb at the
+   * same point gives the pool a source the player can see and read the room by.
+   * It hangs above wall height and holds no collider.
+   */
+  private buildLampFixture(centre: { x: number; z: number }) {
+    const housing = new THREE.MeshStandardMaterial({
+      color: PALETTE.lampHousing,
+      roughness: 0.6,
+      metalness: 0.8,
+    });
+    const chain = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.045, 0.045, LAMP_HEIGHT * 0.4, 5),
+      housing
+    );
+    chain.position.set(centre.x, LAMP_HEIGHT + LAMP_HEIGHT * 0.2, centre.z);
+
+    const cage = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.05, 5, 12), housing);
+    cage.rotation.x = Math.PI / 2;
+    cage.position.set(centre.x, LAMP_HEIGHT, centre.z);
+
+    // Emissive rather than lit: the bulb has to read as bright from any angle,
+    // and its own PointLight cannot illuminate the mesh it sits inside.
+    const bulb = new THREE.Mesh(
+      new THREE.SphereGeometry(0.26, 12, 8),
+      new THREE.MeshStandardMaterial({
+        color: PALETTE.lamp,
+        emissive: PALETTE.lamp,
+        emissiveIntensity: 1.4,
+      })
+    );
+    bulb.position.set(centre.x, LAMP_HEIGHT, centre.z);
+
+    this.scene.add(chain, cage, bulb);
+  }
+
+  /**
+   * Fallen masonry scattered over the floor.
+   *
+   * Placement comes from {@link rubbleSpots}, which keeps debris off the cells
+   * the player has to read and off anything solid. The pieces carry no collider
+   * and are shorter than a step, so they are walked over, not around.
+   */
+  private buildRubble() {
+    const reserved = new Set(
+      [
+        this.level.spawn,
+        this.level.terminal,
+        ...(this.level.keycard ? [this.level.keycard] : []),
+        ...this.level.doors.map((door) => door.pos),
+      ].map(cellKey)
+    );
+    const spots = rubbleSpots(
+      this.decorSeed,
+      this.level.gridSize,
+      this.staticBlockedCells,
+      reserved
+    );
+
+    // One material for the lot: debris is never an occluder, so nothing ever
+    // needs to fade a single piece independently of the rest.
+    const material = new THREE.MeshStandardMaterial({ color: PALETTE.rubble, roughness: 1 });
+    applyTexture(material, masonryTexture(1));
+
+    for (const spot of spots) {
+      const world = gridToWorld(spot.cell, this.level);
+      const size = RUBBLE_SIZE * spot.scale;
+      // A dodecahedron at detail 0 is an irregular lump for the price of a few
+      // triangles, which is exactly what a broken stone should look like.
+      const shard = new THREE.Mesh(new THREE.DodecahedronGeometry(size, 0), material);
+      shard.position.set(
+        world.x + spot.offsetX * this.level.cellSize,
+        size * 0.45,
+        world.z + spot.offsetZ * this.level.cellSize
+      );
+      shard.rotation.set(spot.rotation * 0.3, spot.rotation, spot.rotation * 0.2);
+      shard.scale.y = 0.6;
+      this.scene.add(shard);
+    }
+  }
+
+  /**
+   * Motes of dust hanging in the air.
+   *
+   * Vertex-coloured warm and additively blended, so a mote only shows where a
+   * lamp is already bright: the effect appears inside the pools and vanishes in
+   * the dark, which is the whole reason it reads as air rather than as noise.
+   */
+  private buildDust(floorSize: number) {
+    const positions = new Float32Array(DUST_COUNT * 3);
+    const random = mulberry32(this.decorSeed ^ 0xd0570);
+    for (let i = 0; i < DUST_COUNT; i++) {
+      positions[i * 3] = (random() - 0.5) * floorSize;
+      positions[i * 3 + 1] = random() * DUST_CEILING;
+      positions[i * 3 + 2] = (random() - 0.5) * floorSize;
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    this.dust = new THREE.Points(
+      geometry,
+      new THREE.PointsMaterial({
+        color: PALETTE.dust,
+        size: 0.07,
+        transparent: true,
+        opacity: 0.5,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      })
+    );
+    this.scene.add(this.dust);
+  }
+
+  /** Drifts the dust upward, wrapping each mote back to the floor at the top. */
+  private updateDust(dt: number) {
+    if (!this.dust) return;
+    const attribute = this.dust.geometry.getAttribute("position") as THREE.BufferAttribute;
+    const array = attribute.array as Float32Array;
+    for (let i = 1; i < array.length; i += 3) {
+      array[i] += DUST_RISE * dt;
+      if (array[i] > DUST_CEILING) array[i] -= DUST_CEILING;
+    }
+    attribute.needsUpdate = true;
   }
 
   /** The pickup that unlocks the terminal's door, if this layout has a lock. */
@@ -1063,6 +1365,9 @@ export class InfiltrationGame {
       if (this.throwCooldown > 0) this.throwCooldown -= dt;
     }
 
+    // Outside the paused/finished gate: the air keeps moving while the player
+    // reads a pause or win overlay, which stops the scene looking frozen solid.
+    this.updateDust(dt);
     this.iso.follow(this.player.position, dt);
     this.updateOcclusion();
     this.updateMarker(dt);

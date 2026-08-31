@@ -2,7 +2,27 @@ import * as THREE from "three";
 import { IsoCamera } from "./iso-camera";
 import { cellKey, isInterior, type GridPos } from "./grid";
 import { findPath, nearestOpenCell } from "./pathfinding";
-import { generateLevel, gridToWorld, worldToGrid, type GeneratedLevel } from "./level";
+import {
+  generateLevel,
+  gridToWorld,
+  worldToGrid,
+  type DoorDef,
+  type GeneratedLevel,
+} from "./level";
+import {
+  AWARENESS_FULL,
+  AWARENESS_SUSPICIOUS,
+  LAMP_INTENSITY,
+  LAMP_RADIUS,
+  STANCES,
+  THROW_NOISE_RADIUS,
+  awarenessRate,
+  illuminationAt,
+  lampPositions,
+  noiseRadiusFor,
+  stepAwareness,
+  type Stance,
+} from "./detection";
 
 export interface InfiltrationGameCallbacks {
   onPauseChange?: (paused: boolean) => void;
@@ -10,8 +30,28 @@ export interface InfiltrationGameCallbacks {
   onWin?: () => void;
   /** Fires every frame while near the terminal, progress in [0, 1]. */
   onHackProgress?: (progress: number, canInteract: boolean) => void;
+  /** Fires when the level is built and whenever the keycard is picked up. */
+  onObjectiveChange?: (objective: ObjectiveState) => void;
+  /** Fires on a fixed cadence with the player's stance and worst guard awareness. */
+  onStealthChange?: (stealth: StealthState) => void;
 }
 
+/** What the HUD needs to show about how exposed the player currently is. */
+export interface StealthState {
+  stance: Stance;
+  /** Highest awareness across all guards, in [0, 1]. */
+  awareness: number;
+  /** Illumination at the player's feet, in [0, 1]. */
+  illumination: number;
+}
+
+export interface ObjectiveState {
+  /** True when a locked door stands between the player and the terminal. */
+  needsKeycard: boolean;
+  hasKeycard: boolean;
+}
+
+/** Axis-aligned XZ footprint of a solid object, used for circle-vs-box collision. */
 interface Box {
   minX: number;
   maxX: number;
@@ -19,8 +59,9 @@ interface Box {
   maxZ: number;
 }
 
-type GuardState = "patrol" | "investigate" | "alert";
+type GuardState = "patrol" | "suspicious" | "investigate" | "alert";
 
+/** A patrolling guard: its meshes, its route, and the FSM state driving both. */
 interface Guard {
   group: THREE.Group;
   coneMaterial: THREE.MeshBasicMaterial;
@@ -31,10 +72,24 @@ interface Guard {
   investigateTarget: THREE.Vector3 | null;
   path: THREE.Vector3[];
   destination: THREE.Vector3 | null;
-  /** Seconds this guard has held the player in sight, reset when the view breaks. */
-  spottedFor: number;
+  /** How certain this guard is that it has seen the player, in [0, 1]. */
+  awareness: number;
+  /** Last sampled line of sight, refreshed on the vision interval. */
+  seen: boolean;
 }
 
+/** A powered door in an interior wall, sliding into the floor as it opens. */
+interface Door {
+  def: DoorDef;
+  group: THREE.Group;
+  material: THREE.MeshStandardMaterial;
+  world: THREE.Vector3;
+  box: Box;
+  /** 0 fully closed, 1 fully open. */
+  openness: number;
+}
+
+/** A thrown distraction in flight, or resting on the floor until it expires. */
 interface Projectile {
   mesh: THREE.Mesh;
   velocity: THREE.Vector3;
@@ -55,26 +110,41 @@ const PLAYER_STUCK_TIMEOUT = 1.2;
 const CRATE_SIZE = 2.2;
 const CRATE_HEIGHT = 1.8;
 const WALL_HEIGHT = 4;
+const DOOR_HEIGHT = 2.8;
 const VISION_RANGE = 9;
 const VISION_HALF_FOV = THREE.MathUtils.degToRad(32);
 const VISION_CHECK_INTERVAL = 0.15;
-/**
- * How long a guard must hold the player in sight before raising the alarm. The
- * first-person build could catch on the first frame because the player could see
- * only what was in front of them; from a fixed isometric view the vision cones are
- * drawn on the floor, so the player deserves the moment it takes to react to one
- * sweeping over them.
- */
-const SPOT_GRACE = 0.55;
 const GUARD_SPEED = 2.2;
 const GUARD_EYE_HEIGHT = 1.2;
-const NOISE_RADIUS = 6.5;
 const INTERACT_DISTANCE = 2.4;
 const HACK_DURATION = 2;
 const THROW_COOLDOWN = 1;
 const OCCLUDED_OPACITY = 0.2;
+const DOOR_TRIGGER_RANGE = 3.2;
+const DOOR_OPEN_SECONDS = 0.45;
+/** Below this openness a door still blocks movement and sight. */
+const DOOR_SOLID_UNTIL = 0.5;
+const KEYCARD_PICKUP_RANGE = 1.6;
+/** Height a room lamp hangs at, above the floor plane detection measures on. */
+const LAMP_HEIGHT = 5.5;
+/**
+ * Range for a room lamp.
+ *
+ * `PointLight.distance` is a 3D cutoff while {@link illuminationAt} measures
+ * horizontal distance on the floor, so passing LAMP_RADIUS straight through
+ * would cut the visible pool off at sqrt(r^2 - h^2) — about 7.1 units for a
+ * 9-unit radius hung at 5.5. Going via the hypotenuse puts the *ground* cutoff
+ * exactly on LAMP_RADIUS, which is where detection stops counting the player lit.
+ */
+const LAMP_LIGHT_DISTANCE = Math.hypot(LAMP_RADIUS, LAMP_HEIGHT);
+/** Movement noise is emitted on a cadence, not per frame, so guards re-path sanely. */
+const MOVEMENT_NOISE_INTERVAL = 0.4;
+/** How often the stealth HUD is refreshed; far coarser than the render loop. */
+const STEALTH_REPORT_INTERVAL = 0.1;
+const DOOR_COLORS = { locked: 0xff3b3b, unlocked: 0x35f0b0 };
 const CONE_COLORS: Record<GuardState, number> = {
   patrol: 0xffd23c,
+  suspicious: 0xffb020,
   investigate: 0xff9f1c,
   alert: 0xff3b3b,
 };
@@ -96,10 +166,16 @@ export class InfiltrationGame {
   private callbacks: InfiltrationGameCallbacks;
 
   private level!: GeneratedLevel;
-  private blockedCells = new Set<string>();
-  private crateBoxes: Box[] = [];
+  /** Walls and crates: cells nothing can ever walk through. */
+  private staticBlockedCells = new Set<string>();
+  private solidBoxes: Box[] = [];
+  private doors: Door[] = [];
+  private keycardMesh: THREE.Mesh | null = null;
+  /** Tracked separately from the card so pickup hides the glow with it. */
+  private keycardHalo: THREE.Mesh | null = null;
+  private hasKeycard = false;
   private occluders: Occluder[] = [];
-  private roomHalfExtent = 0;
+  private facilityHalfExtent = 0;
   private terminalWorld = new THREE.Vector3();
   private guards: Guard[] = [];
   private projectiles: Projectile[] = [];
@@ -116,6 +192,14 @@ export class InfiltrationGame {
   private markerMesh!: THREE.Mesh;
   private markerMaterial!: THREE.MeshBasicMaterial;
   private markerPulse = 0;
+
+  private stance: Stance = "standing";
+  /** Room lamp centres in world space, the light sources detection reads. */
+  private lamps: { x: number; z: number }[] = [];
+  /** Scaled on crouch so the stance is readable from the isometric camera. */
+  private playerBody: THREE.Group | null = null;
+  private movementNoiseAccum = 0;
+  private stealthReportAccum = 0;
 
   private keys = new Set<string>();
   private pointerGround: THREE.Vector3 | null = null;
@@ -140,7 +224,7 @@ export class InfiltrationGame {
 
     this.iso = new IsoCamera(canvas);
 
-    this.scene.fog = new THREE.Fog(0x0d121b, 62, 130);
+    this.scene.fog = new THREE.Fog(0x0d121b, 78, 165);
     this.scene.background = new THREE.Color(0x0d121b);
 
     this.buildLevel(seed);
@@ -162,12 +246,28 @@ export class InfiltrationGame {
     this.guards = [];
     this.projectiles = [];
     this.occluders = [];
+    this.doors = [];
+    this.keycardMesh = null;
+    this.keycardHalo = null;
+    this.hasKeycard = false;
     this.playerPath = [];
     this.clearScene();
     this.hackProgress = 0;
     this.autoHack = false;
     this.finished = false;
     this.caughtCooldown = 0;
+    // A fresh layout is a fresh run: start it upright rather than inheriting the
+    // stance the last run happened to end in.
+    this.stance = "standing";
+    this.movementNoiseAccum = 0;
+    // Input and timer state are per-run too: a key still held when the player
+    // hits "play again" would otherwise carry into the new layout, and a spent
+    // throw cooldown would carry with it.
+    this.keys.clear();
+    this.throwCooldown = 0;
+    this.visionCheckAccum = 0;
+    this.stealthReportAccum = 0;
+    this.pointerGround = null;
     this.buildLevel(seed);
   }
 
@@ -226,21 +326,33 @@ export class InfiltrationGame {
 
   // --- level construction -------------------------------------------------
 
+  /** Generates a facility for the seed and raises every mesh and collider for it. */
   private buildLevel(seed: number) {
     this.level = generateLevel(seed);
-    this.roomHalfExtent = (this.level.gridSize * this.level.cellSize) / 2;
-    this.iso.setBounds(this.roomHalfExtent);
-    this.crateBoxes = [];
-    this.blockedCells = new Set(this.level.crates.map(cellKey));
+    this.facilityHalfExtent = (this.level.gridSize * this.level.cellSize) / 2;
+    this.iso.setBounds(this.facilityHalfExtent);
+    this.solidBoxes = [];
+    this.staticBlockedCells = new Set([...this.level.crates, ...this.level.walls].map(cellKey));
 
     this.scene.add(new THREE.HemisphereLight(0x9fb4ff, 0x232a3a, 1.5));
     this.scene.add(new THREE.AmbientLight(0xffffff, 0.55));
     const key = new THREE.DirectionalLight(0xd6e4ff, 1.15);
     key.position.set(12, 20, 8);
     this.scene.add(key);
-    const accent = new THREE.PointLight(0x6ee7ff, 40, 30, 2);
-    accent.position.set(0, 6, 0);
-    this.scene.add(accent);
+    // A lamp per room, so rooms read as separately lit spaces rather than one
+    // hall with a hotspot in the middle.
+    // One source of truth for where light is: the meshes and the detection math
+    // read the same list, so a shadow that looks safe on screen actually is.
+    this.lamps = lampPositions(this.level.rooms, (cell) => gridToWorld(cell, this.level));
+    for (const centre of this.lamps) {
+      // The lit pool on screen ends exactly where detection stops counting the
+      // player as lit — see LAMP_LIGHT_DISTANCE for why that is not LAMP_RADIUS
+      // itself. Decay 1 rather than physical 2 keeps the rendered falloff nearer
+      // the linear model the stealth math uses across that same span.
+      const lamp = new THREE.PointLight(0x6ee7ff, LAMP_INTENSITY, LAMP_LIGHT_DISTANCE, 1);
+      lamp.position.set(centre.x, LAMP_HEIGHT, centre.z);
+      this.scene.add(lamp);
+    }
 
     const floorSize = this.level.gridSize * this.level.cellSize;
     const floor = new THREE.Mesh(
@@ -251,12 +363,24 @@ export class InfiltrationGame {
     this.scene.add(floor);
     this.buildFloorGrid(floorSize);
 
-    this.buildWalls(floorSize);
+    this.buildPerimeter(floorSize);
+    for (const wallCell of this.level.walls) this.buildInteriorWall(wallCell);
     for (const cratePos of this.level.crates) this.buildCrate(cratePos);
+    for (const door of this.level.doors) this.buildDoor(door);
     this.buildTerminal();
+    this.buildKeycard();
     this.buildGuards();
     this.buildCursorMeshes();
     this.buildPlayer();
+    this.reportObjective();
+  }
+
+  /** Pushes the current objective to the HUD, which owns no per-frame state itself. */
+  private reportObjective() {
+    this.callbacks.onObjectiveChange?.({
+      needsKeycard: this.level.doors.some((door) => door.locked),
+      hasKeycard: this.hasKeycard,
+    });
   }
 
   /** Faint tile lines, so click-to-move destinations are readable at a glance. */
@@ -267,7 +391,7 @@ export class InfiltrationGame {
   }
 
   /** Raises the four perimeter walls, each an occluder in its own right. */
-  private buildWalls(floorSize: number) {
+  private buildPerimeter(floorSize: number) {
     const half = floorSize / 2;
     const specs: [number, number, number, number][] = [
       [0, half, floorSize, 0.4], // north (thin in z)
@@ -285,6 +409,7 @@ export class InfiltrationGame {
     }
   }
 
+  /** A waist-high crate: cover from sight, and a solid box for collision. */
   private buildCrate(gridPos: GridPos) {
     const world = gridToWorld(gridPos, this.level);
     const material = new THREE.MeshStandardMaterial({ color: 0x49536b, roughness: 0.7 });
@@ -295,14 +420,117 @@ export class InfiltrationGame {
     crate.position.set(world.x, CRATE_HEIGHT / 2, world.z);
     this.scene.add(crate);
     this.occluders.push({ mesh: crate, material });
-    this.crateBoxes.push({
-      minX: world.x - CRATE_SIZE / 2,
-      maxX: world.x + CRATE_SIZE / 2,
-      minZ: world.z - CRATE_SIZE / 2,
-      maxZ: world.z + CRATE_SIZE / 2,
+    this.solidBoxes.push(boxAround(world.x, world.z, CRATE_SIZE));
+  }
+
+  /**
+   * One box per interior wall cell rather than per wall run: the occlusion fade
+   * then dissolves just the segment covering the player instead of a whole wall.
+   */
+  private buildInteriorWall(cell: GridPos) {
+    const world = gridToWorld(cell, this.level);
+    const size = this.level.cellSize;
+    const material = new THREE.MeshStandardMaterial({ color: 0x4a5570, roughness: 0.8 });
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(size, WALL_HEIGHT, size), material);
+    mesh.position.set(world.x, WALL_HEIGHT / 2, world.z);
+    this.scene.add(mesh);
+    this.occluders.push({ mesh, material });
+    this.solidBoxes.push(boxAround(world.x, world.z, size));
+  }
+
+  /** A door panel plus its collider, tinted by lock state and tracked for sliding. */
+  private buildDoor(def: DoorDef) {
+    const world = gridToWorld(def.pos, this.level);
+    const size = this.level.cellSize;
+    const group = new THREE.Group();
+
+    const material = new THREE.MeshStandardMaterial({
+      color: 0x1b2330,
+      emissive: DOOR_COLORS.locked,
+      emissiveIntensity: 0.6,
+      roughness: 0.4,
+      metalness: 0.5,
+    });
+    // splitRect cuts along both axes, so a door sits in a wall of either
+    // orientation. Rooms side by side on X are divided by a wall at constant X,
+    // and a panel that always spanned X would leave gaps either side of that
+    // opening while poking into both rooms.
+    const [roomA, roomB] = def.rooms.map((index) => this.level.rooms[index]);
+    const dividedOnX = roomA.x + roomA.w <= roomB.x || roomB.x + roomB.w <= roomA.x;
+    const span = size * 0.92;
+    const thickness = size * 0.5;
+    const panel = new THREE.Mesh(
+      new THREE.BoxGeometry(
+        dividedOnX ? thickness : span,
+        DOOR_HEIGHT,
+        dividedOnX ? span : thickness
+      ),
+      material
+    );
+    panel.position.y = DOOR_HEIGHT / 2;
+    group.add(panel);
+
+    // The frame stays put while the panel slides down inside it.
+    const frameMaterial = new THREE.MeshStandardMaterial({ color: 0x39435c, roughness: 0.7 });
+    const lintel = new THREE.Mesh(
+      new THREE.BoxGeometry(
+        dividedOnX ? size * 0.6 : size,
+        WALL_HEIGHT - DOOR_HEIGHT,
+        dividedOnX ? size : size * 0.6
+      ),
+      frameMaterial
+    );
+    lintel.position.set(world.x, DOOR_HEIGHT + (WALL_HEIGHT - DOOR_HEIGHT) / 2, world.z);
+    this.scene.add(lintel);
+    this.occluders.push({ mesh: lintel, material: frameMaterial });
+
+    group.position.set(world.x, 0, world.z);
+    this.scene.add(group);
+
+    this.doors.push({
+      def,
+      group,
+      material,
+      world: new THREE.Vector3(world.x, 0, world.z),
+      box: boxAround(world.x, world.z, size),
+      openness: 0,
     });
   }
 
+  /** The pickup that unlocks the terminal's door, if this layout has a lock. */
+  private buildKeycard() {
+    if (!this.level.keycard) return;
+    const world = gridToWorld(this.level.keycard, this.level);
+    const mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(0.5, 0.05, 0.34),
+      new THREE.MeshStandardMaterial({
+        color: 0xffd23c,
+        emissive: 0x6b5200,
+        emissiveIntensity: 1.2,
+      })
+    );
+    mesh.position.set(world.x, 0.9, world.z);
+    this.scene.add(mesh);
+
+    const halo = new THREE.Mesh(
+      new THREE.RingGeometry(0.7, 0.9, 24),
+      new THREE.MeshBasicMaterial({
+        color: 0xffd23c,
+        transparent: true,
+        opacity: 0.35,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      })
+    );
+    halo.rotation.x = -Math.PI / 2;
+    halo.position.set(world.x, 0.02, world.z);
+    this.scene.add(halo);
+
+    this.keycardMesh = mesh;
+    this.keycardHalo = halo;
+  }
+
+  /** The objective terminal, and the world position proximity checks measure against. */
   private buildTerminal() {
     const world = gridToWorld(this.level.terminal, this.level);
     this.terminalWorld.set(world.x, 0, world.z);
@@ -366,6 +594,7 @@ export class InfiltrationGame {
     this.scene.add(group);
   }
 
+  /** Spawns a guard per patrol in the level, each on the first cell of its route. */
   private buildGuards() {
     for (const guardDef of this.level.guards) {
       const waypoints = guardDef.waypoints.map((wp) => {
@@ -418,11 +647,13 @@ export class InfiltrationGame {
         investigateTarget: null,
         path: [],
         destination: null,
-        spottedFor: 0,
+        awareness: 0,
+        seen: false,
       });
     }
   }
 
+  /** The player avatar: a capsule with a wedge marking the direction it faces. */
   private buildPlayer() {
     this.player = new THREE.Group();
     const body = new THREE.Mesh(
@@ -445,12 +676,48 @@ export class InfiltrationGame {
     shadow.rotation.x = -Math.PI / 2;
     shadow.position.y = 0.02;
 
-    this.player.add(body, nose, shadow);
+    // Body and nose ride in their own group: crouch scales that, leaving the
+    // ground shadow (which reads as the player's footprint) at full size.
+    const upper = new THREE.Group();
+    upper.add(body, nose);
+    this.playerBody = upper;
+    this.player.add(upper, shadow);
     this.scene.add(this.player);
+    this.applyStance();
     this.resetPlayerToSpawn();
     this.iso.jumpTo(this.player.position);
   }
 
+  /** Flips between standing and crouched, and tells the HUD immediately. */
+  private toggleStance() {
+    this.stance = this.stance === "standing" ? "crouched" : "standing";
+    this.applyStance();
+    this.reportStealth();
+  }
+
+  /** Reflects the current stance in the player mesh. */
+  private applyStance() {
+    if (this.playerBody) this.playerBody.scale.y = STANCES[this.stance].height;
+  }
+
+  /** Pushes stance, exposure and the worst guard's awareness to the HUD. */
+  private reportStealth() {
+    if (!this.callbacks.onStealthChange) return;
+    let awareness = 0;
+    for (const guard of this.guards) awareness = Math.max(awareness, guard.awareness);
+    this.callbacks.onStealthChange({
+      stance: this.stance,
+      awareness,
+      illumination: this.playerIllumination(),
+    });
+  }
+
+  /** Illumination at the player's feet, which is what guards actually read. */
+  private playerIllumination(): number {
+    return illuminationAt(this.player.position.x, this.player.position.z, this.lamps);
+  }
+
+  /** The hover tile and move marker that make click-to-move destinations legible. */
   private buildCursorMeshes() {
     const cell = this.level.cellSize;
     this.hoverMaterial = new THREE.MeshBasicMaterial({
@@ -504,6 +771,11 @@ export class InfiltrationGame {
     if (this.paused) return;
     this.keys.add(event.code);
     if (event.code === "KeyF") this.throwDistraction();
+    // Browsers auto-repeat keydown while a key is held; without this the stance
+    // would flip many times a second, oscillating speed, noise and the avatar.
+    if (!event.repeat && (event.code === "ControlLeft" || event.code === "ControlRight")) {
+      this.toggleStance();
+    }
   };
 
   private handleKeyUp = (event: KeyboardEvent) => {
@@ -550,6 +822,7 @@ export class InfiltrationGame {
     this.orderMoveTo(ground);
   };
 
+  /** Resizes the renderer and reshapes the orthographic frustum to the new canvas. */
   private handleResize() {
     const rect = this.canvas.getBoundingClientRect();
     const width = Math.max(rect.width, 1);
@@ -568,7 +841,8 @@ export class InfiltrationGame {
     const world = gridToWorld(cell, this.level);
     this.hoverMesh.position.set(world.x, 0.02, world.z);
     this.hoverMesh.visible = true;
-    const walkable = isInterior(cell, this.level.gridSize) && !this.blockedCells.has(cellKey(cell));
+    const walkable =
+      isInterior(cell, this.level.gridSize) && !this.playerBlockedCells().has(cellKey(cell));
     this.hoverMaterial.color.setHex(walkable ? 0xffffff : 0xff6b6b);
     this.hoverMaterial.opacity = walkable ? 0.1 : 0.16;
   }
@@ -611,7 +885,7 @@ export class InfiltrationGame {
 
   /** Snaps a clicked point to somewhere the player can actually stand. */
   private resolveDestination(point: THREE.Vector3): THREE.Vector3 | null {
-    const bound = this.roomHalfExtent - 0.6;
+    const bound = this.facilityHalfExtent - 0.6;
     const clamped = new THREE.Vector3(
       THREE.MathUtils.clamp(point.x, -bound, bound),
       0,
@@ -622,7 +896,7 @@ export class InfiltrationGame {
     const cell = nearestOpenCell(
       worldToGrid(clamped.x, clamped.z, this.level),
       this.level.gridSize,
-      this.blockedCells
+      this.playerBlockedCells()
     );
     if (!cell) return null;
     const world = gridToWorld(cell, this.level);
@@ -634,14 +908,35 @@ export class InfiltrationGame {
    * as the geometry allows and ending on the exact requested point.
    */
   private pathTo(destination: THREE.Vector3): THREE.Vector3[] {
-    return this.pathBetween(this.player.position, destination);
+    return this.pathBetween(this.player.position, destination, this.playerBlockedCells(), true);
+  }
+
+  /**
+   * Cells the player may not route through. A locked door counts as solid until
+   * the keycard is found, so click-to-move never plots a course through it.
+   */
+  private playerBlockedCells(): ReadonlySet<string> {
+    if (this.hasKeycard) return this.staticBlockedCells;
+    const locked = this.level.doors.filter((door) => door.locked);
+    if (locked.length === 0) return this.staticBlockedCells;
+    return new Set([...this.staticBlockedCells, ...locked.map((door) => cellKey(door.pos))]);
+  }
+
+  /** Guards work here, so every door opens for them. */
+  private guardBlockedCells(): ReadonlySet<string> {
+    return this.staticBlockedCells;
   }
 
   /** Grid route between two world points, smoothed and ending on the exact target. */
-  private pathBetween(from: THREE.Vector3, destination: THREE.Vector3): THREE.Vector3[] {
+  private pathBetween(
+    from: THREE.Vector3,
+    destination: THREE.Vector3,
+    blocked: ReadonlySet<string>,
+    forPlayer: boolean
+  ): THREE.Vector3[] {
     const startCell = worldToGrid(from.x, from.z, this.level);
     const goalCell = worldToGrid(destination.x, destination.z, this.level);
-    const cells = findPath(startCell, goalCell, this.level.gridSize, this.blockedCells);
+    const cells = findPath(startCell, goalCell, this.level.gridSize, blocked);
 
     const points = cells.map((cell) => {
       const world = gridToWorld(cell, this.level);
@@ -649,23 +944,27 @@ export class InfiltrationGame {
     });
     // The last grid cell is only the destination's cell; finish on the real point.
     if (points.length > 0) points[points.length - 1] = destination.clone();
-    else if (this.segmentClear(from, destination)) points.push(destination.clone());
+    else if (this.segmentClear(from, destination, forPlayer)) points.push(destination.clone());
 
-    return this.smoothPath(from, points);
+    return this.smoothPath(from, points, forPlayer);
   }
 
   /**
    * String-pulling: repeatedly jump to the furthest waypoint still reachable in a
    * straight line, which turns A*'s cardinal staircase into natural diagonals.
    */
-  private smoothPath(from: THREE.Vector3, points: THREE.Vector3[]): THREE.Vector3[] {
+  private smoothPath(
+    from: THREE.Vector3,
+    points: THREE.Vector3[],
+    forPlayer: boolean
+  ): THREE.Vector3[] {
     const out: THREE.Vector3[] = [];
     let cursor = from.clone();
     let i = 0;
     while (i < points.length) {
       let furthest = i;
       for (let j = points.length - 1; j > i; j--) {
-        if (this.segmentClear(cursor, points[j])) {
+        if (this.segmentClear(cursor, points[j], forPlayer)) {
           furthest = j;
           break;
         }
@@ -678,16 +977,16 @@ export class InfiltrationGame {
   }
 
   /** Samples the straight line for player-radius clearance against crates and walls. */
-  private segmentClear(from: THREE.Vector3, to: THREE.Vector3): boolean {
+  private segmentClear(from: THREE.Vector3, to: THREE.Vector3, forPlayer = true): boolean {
     const dist = Math.hypot(to.x - from.x, to.z - from.z);
     const steps = Math.max(1, Math.ceil(dist / 0.3));
-    const bound = this.roomHalfExtent - 0.5;
+    const bound = this.facilityHalfExtent - 0.5;
     for (let i = 1; i <= steps; i++) {
       const t = i / steps;
       const x = THREE.MathUtils.lerp(from.x, to.x, t);
       const z = THREE.MathUtils.lerp(from.z, to.z, t);
       if (Math.abs(x) >= bound || Math.abs(z) >= bound) return false;
-      if (this.collides(x, z)) return false;
+      if (this.collides(x, z, forPlayer)) return false;
     }
     return true;
   }
@@ -700,6 +999,8 @@ export class InfiltrationGame {
       this.updatePlayerMovement(dt);
       this.updateProjectiles(dt);
       this.updateGuards(dt);
+      this.updateDoors(dt);
+      this.updateKeycard();
       this.updateHack(dt);
       // Both cooldowns are game time, so they stop with the simulation: ticking
       // them while paused would let a player tap Esc to refresh their throw, or
@@ -727,6 +1028,24 @@ export class InfiltrationGame {
 
     this.moveWithCollision(this.velocity.x * dt, this.velocity.y * dt);
     this.player.rotation.y = Math.atan2(this.velocity.x, this.velocity.y);
+    this.emitFootstepNoise(dt);
+  }
+
+  /**
+   * Leaks the player's own position to nearby guards while they move.
+   *
+   * Emitted on a cadence rather than per frame: the target moves with the
+   * player, and re-pathing every guard on every frame toward a target that has
+   * shifted a few centimetres is both wasteful and jittery.
+   */
+  private emitFootstepNoise(dt: number) {
+    this.movementNoiseAccum += dt;
+    if (this.movementNoiseAccum < MOVEMENT_NOISE_INTERVAL) return;
+    this.movementNoiseAccum = 0;
+
+    const topSpeed = PLAYER_SPEED * STANCES[this.stance].speed;
+    const radius = noiseRadiusFor(this.stance, this.velocity.length() / topSpeed);
+    if (radius > 0) this.emitNoise(this.player.position, radius);
   }
 
   /** Accelerates toward the current waypoint, or retires it once reached. */
@@ -740,9 +1059,10 @@ export class InfiltrationGame {
       return;
     }
 
-    this.velocity.x += (dx / distance) * PLAYER_SPEED * dt * 8;
-    this.velocity.y += (dz / distance) * PLAYER_SPEED * dt * 8;
-    this.velocity.clampLength(0, PLAYER_SPEED);
+    const topSpeed = PLAYER_SPEED * STANCES[this.stance].speed;
+    this.velocity.x += (dx / distance) * topSpeed * dt * 8;
+    this.velocity.y += (dz / distance) * topSpeed * dt * 8;
+    this.velocity.clampLength(0, topSpeed);
     this.trackWaypointProgress(distance, dt);
   }
 
@@ -785,7 +1105,7 @@ export class InfiltrationGame {
   /** Applies movement one axis at a time, so hitting a crate slides along it. */
   private moveWithCollision(dx: number, dz: number) {
     const pos = this.player.position;
-    const bound = this.roomHalfExtent - 0.5;
+    const bound = this.facilityHalfExtent - 0.5;
 
     const nextX = pos.x + dx;
     if (!this.collides(nextX, pos.z) && Math.abs(nextX) < bound) pos.x = nextX;
@@ -794,15 +1114,30 @@ export class InfiltrationGame {
     if (!this.collides(pos.x, nextZ) && Math.abs(nextZ) < bound) pos.z = nextZ;
   }
 
-  /** True when a player-radius circle at this point overlaps any crate. */
-  private collides(x: number, z: number): boolean {
-    for (const box of this.crateBoxes) {
-      const nearestX = THREE.MathUtils.clamp(x, box.minX, box.maxX);
-      const nearestZ = THREE.MathUtils.clamp(z, box.minZ, box.maxZ);
-      const distSq = (x - nearestX) ** 2 + (z - nearestZ) ** 2;
-      if (distSq < PLAYER_RADIUS * PLAYER_RADIUS) return true;
+  /**
+   * True when a player-radius circle here overlaps a wall, crate or barring door.
+   *
+   * `forPlayer` matters at a locked door: a guard standing at one holds it open,
+   * and without this the player could simply walk through the gap and skip the
+   * keycard entirely — the lock is only enforced in the pathfinder, and a
+   * straight-line fallback never consults it.
+   */
+  private collides(x: number, z: number, forPlayer = true): boolean {
+    for (const box of this.solidBoxes) {
+      if (overlapsBox(x, z, box, PLAYER_RADIUS)) return true;
+    }
+    for (const door of this.doors) {
+      if (this.doorBars(door, forPlayer) && overlapsBox(x, z, door.box, PLAYER_RADIUS)) {
+        return true;
+      }
     }
     return false;
+  }
+
+  /** Whether a door currently bars whoever is asking. */
+  private doorBars(door: Door, forPlayer: boolean): boolean {
+    if (forPlayer && door.def.locked && !this.hasKeycard) return true;
+    return door.openness < DOOR_SOLID_UNTIL;
   }
 
   /** Samples the sight line for a crate standing between the two points. */
@@ -813,16 +1148,11 @@ export class InfiltrationGame {
       const t = i / steps;
       const x = THREE.MathUtils.lerp(from.x, to.x, t);
       const z = THREE.MathUtils.lerp(from.z, to.z, t);
-      for (const box of this.crateBoxes) {
-        if (
-          x >= box.minX - 0.3 &&
-          x <= box.maxX + 0.3 &&
-          z >= box.minZ - 0.3 &&
-          z <= box.maxZ + 0.3
-        ) {
-          return true;
-        }
-      }
+      if (this.solidBoxes.some((box) => overlapsBox(x, z, box, 0.3))) return true;
+      const shutDoor = this.doors.some(
+        (door) => door.openness < DOOR_SOLID_UNTIL && overlapsBox(x, z, door.box, 0.3)
+      );
+      if (shutDoor) return true;
     }
     return false;
   }
@@ -852,8 +1182,58 @@ export class InfiltrationGame {
     }
   }
 
+  /**
+   * Slides each door open for anyone standing at it who may pass, and shut again
+   * once they leave. Guards carry keys; the player needs the keycard.
+   */
+  private updateDoors(dt: number) {
+    for (const door of this.doors) {
+      const target = this.doorShouldOpen(door) ? 1 : 0;
+      const step = dt / DOOR_OPEN_SECONDS;
+      door.openness = THREE.MathUtils.clamp(
+        door.openness + THREE.MathUtils.clamp(target - door.openness, -step, step),
+        0,
+        1
+      );
+      // The panel retracts into the floor; the frame above it stays put.
+      door.group.position.y = -door.openness * DOOR_HEIGHT;
+
+      const passable = !door.def.locked || this.hasKeycard;
+      door.material.emissive.setHex(passable ? DOOR_COLORS.unlocked : DOOR_COLORS.locked);
+    }
+  }
+
+  /** True while someone authorised to pass is standing within trigger range. */
+  private doorShouldOpen(door: Door): boolean {
+    const playerMayPass = !door.def.locked || this.hasKeycard;
+    if (playerMayPass && this.player.position.distanceTo(door.world) <= DOOR_TRIGGER_RANGE) {
+      return true;
+    }
+    return this.guards.some(
+      (guard) => guard.group.position.distanceTo(door.world) <= DOOR_TRIGGER_RANGE
+    );
+  }
+
+  /** Picks the keycard up on contact, which unlocks every locked door. */
+  private updateKeycard() {
+    if (!this.keycardMesh || this.hasKeycard) return;
+    const distance = Math.hypot(
+      this.player.position.x - this.keycardMesh.position.x,
+      this.player.position.z - this.keycardMesh.position.z
+    );
+    if (distance > KEYCARD_PICKUP_RANGE) return;
+
+    this.hasKeycard = true;
+    this.keycardMesh.visible = false;
+    if (this.keycardHalo) this.keycardHalo.visible = false;
+    // A route plotted around the locked door is no longer the shortest one.
+    this.abortPath();
+    this.reportObjective();
+  }
+
   /** Pulses the destination ring so a pending order stays noticeable. */
   private updateMarker(dt: number) {
+    if (this.keycardMesh?.visible) this.keycardMesh.rotation.y += dt * 1.4;
     if (!this.markerMesh.visible) return;
     this.markerPulse = (this.markerPulse + dt * 3) % (Math.PI * 2);
     this.markerMaterial.opacity = 0.5 + 0.3 * Math.sin(this.markerPulse);
@@ -912,7 +1292,7 @@ export class InfiltrationGame {
   }
 
   /** Sends every guard within earshot to investigate the noise. */
-  private emitNoise(position: THREE.Vector3) {
+  private emitNoise(position: THREE.Vector3, radius: number = THROW_NOISE_RADIUS) {
     // Earshot is measured from where the noise actually landed, but the guard is
     // sent to the nearest cell it can stand on: a projectile that comes to rest
     // on a crate would otherwise hand findPath a blocked goal, leaving the guard
@@ -922,7 +1302,7 @@ export class InfiltrationGame {
 
     for (const guard of this.guards) {
       if (guard.state === "alert") continue;
-      if (guard.group.position.distanceTo(position) <= NOISE_RADIUS) {
+      if (guard.group.position.distanceTo(position) <= radius) {
         guard.state = "investigate";
         guard.investigateTarget = target.clone();
         guard.stateTimer = 3;
@@ -933,20 +1313,24 @@ export class InfiltrationGame {
     }
   }
 
-  /** Nearest open interior cell centre to a world point, or null if none exists. */
+  /** Nearest cell a guard can stand on near a world point, or null if none exists. */
   private reachablePointNear(position: THREE.Vector3): THREE.Vector3 | null {
     const cell = nearestOpenCell(
       worldToGrid(position.x, position.z, this.level),
       this.level.gridSize,
-      this.blockedCells
+      this.guardBlockedCells()
     );
     if (!cell) return null;
     const world = gridToWorld(cell, this.level);
     return new THREE.Vector3(world.x, 0, world.z);
   }
 
+  /** Advances every guard: vision on its own interval, then movement and FSM. */
   private updateGuards(dt: number) {
     this.visionCheckAccum += dt;
+    // Line-of-sight raycasts are the expensive part, so they keep their own
+    // coarse interval; the meter itself integrates every frame off the last
+    // sample, which keeps it smooth enough to render as a bar.
     const shouldCheckVision = this.visionCheckAccum >= VISION_CHECK_INTERVAL;
     if (shouldCheckVision) this.visionCheckAccum = 0;
 
@@ -957,14 +1341,21 @@ export class InfiltrationGame {
       const alerted = this.tickGuardState(guard, dt);
       if (alerted) continue;
 
-      if (shouldCheckVision && this.caughtCooldown <= 0) this.processGuardVision(guard);
+      if (shouldCheckVision) guard.seen = this.caughtCooldown <= 0 && this.canSeePlayer(guard);
+      this.processGuardAwareness(guard, dt);
+    }
+
+    this.stealthReportAccum += dt;
+    if (this.stealthReportAccum >= STEALTH_REPORT_INTERVAL) {
+      this.stealthReportAccum = 0;
+      this.reportStealth();
     }
   }
 
   /** Ages the guard's current state out; returns true while it is still alert. */
   private tickGuardState(guard: Guard, dt: number): boolean {
     if (guard.state === "alert") {
-      guard.spottedFor = 0;
+      guard.awareness = 0;
       guard.stateTimer -= dt;
       if (guard.stateTimer <= 0) this.returnGuardToPatrol(guard);
       return true;
@@ -987,28 +1378,56 @@ export class InfiltrationGame {
     guard.path = [];
   }
 
-  /** Accumulates sight time and raises the alarm once the grace window elapses. */
-  private processGuardVision(guard: Guard) {
-    if (!this.canSeePlayer(guard)) {
-      guard.spottedFor = 0;
+  /**
+   * Fills or drains this guard's awareness, and moves it through the states the
+   * meter implies.
+   *
+   * Distance, light and stance all feed the fill rate, so the same cone sweeping
+   * over a crouched player in shadow is survivable where it would be fatal to
+   * someone sprinting upright under a lamp.
+   */
+  private processGuardAwareness(guard: Guard, dt: number) {
+    const rate = guard.seen
+      ? awarenessRate({
+          distance: guard.group.position.distanceTo(this.player.position),
+          visionRange: VISION_RANGE,
+          illumination: this.playerIllumination(),
+          stance: this.stance,
+        })
+      : 0;
+    guard.awareness = stepAwareness(guard.awareness, rate, guard.seen, dt);
+
+    if (guard.awareness >= AWARENESS_FULL) {
+      this.onCaught(guard);
       return;
     }
-
-    guard.spottedFor += VISION_CHECK_INTERVAL;
-    // Closing in on the player reads as the guard reacting, and gives the
-    // player a visible cue that they have been noticed.
-    if (guard.state === "patrol") {
-      guard.state = "investigate";
-      guard.investigateTarget = this.player.position.clone().setY(0);
-      guard.stateTimer = 3;
-      guard.destination = null;
-      guard.path = [];
+    if (guard.awareness >= AWARENESS_SUSPICIOUS) {
+      this.raiseSuspicion(guard);
+    } else if (guard.state === "suspicious" && guard.awareness <= 0) {
+      this.returnGuardToPatrol(guard);
     }
-    if (guard.spottedFor >= SPOT_GRACE) this.onCaught(guard);
+  }
+
+  /**
+   * Halts a guard that has half-noticed something, facing the player's last
+   * known position. Standing still is the tell: a cone that stops sweeping is
+   * the player's cue to break line of sight before the meter tops out.
+   */
+  private raiseSuspicion(guard: Guard) {
+    if (guard.state === "investigate" || guard.state === "alert") return;
+    guard.state = "suspicious";
+    guard.investigateTarget = this.player.position.clone().setY(0);
+    guard.destination = null;
+    guard.path = [];
   }
 
   /** Routes a guard toward its current objective, re-pathing when that changes. */
   private stepGuardMovement(guard: Guard, dt: number) {
+    if (guard.state === "suspicious") {
+      this.faceSuspicion(guard, dt);
+      return;
+    }
+
     const target =
       guard.state === "investigate" && guard.investigateTarget
         ? guard.investigateTarget
@@ -1016,7 +1435,7 @@ export class InfiltrationGame {
 
     if (!guard.destination?.equals(target)) {
       guard.destination = target.clone();
-      guard.path = this.pathBetween(guard.group.position, target);
+      guard.path = this.pathBetween(guard.group.position, target, this.guardBlockedCells(), false);
     }
 
     const waypoint = guard.path[0];
@@ -1039,6 +1458,16 @@ export class InfiltrationGame {
     guard.group.position.addScaledVector(toWaypoint, GUARD_SPEED * dt);
     const desiredYaw = Math.atan2(toWaypoint.x, toWaypoint.z);
     guard.group.rotation.y = lerpAngle(guard.group.rotation.y, desiredYaw, Math.min(1, dt * 6));
+  }
+
+  /** Turns a suspicious guard toward what it half-saw, without closing the distance. */
+  private faceSuspicion(guard: Guard, dt: number) {
+    const target = guard.investigateTarget;
+    if (!target) return;
+    const toTarget = new THREE.Vector3().subVectors(target, guard.group.position).setY(0);
+    if (toTarget.lengthSq() < 1e-6) return;
+    const desiredYaw = Math.atan2(toTarget.x, toTarget.z);
+    guard.group.rotation.y = lerpAngle(guard.group.rotation.y, desiredYaw, Math.min(1, dt * 4));
   }
 
   /** True when the guard currently has an unobstructed view of the player. */
@@ -1073,7 +1502,10 @@ export class InfiltrationGame {
     // caughtCooldown suppresses vision checks for everyone, so any guard that
     // had already banked sight time would otherwise resume the grace period
     // part-spent and catch the respawned player almost immediately.
-    for (const other of this.guards) other.spottedFor = 0;
+    for (const other of this.guards) {
+      other.awareness = 0;
+      other.seen = false;
+    }
     this.hackProgress = 0;
 
     this.resetPlayerToSpawn();
@@ -1105,6 +1537,19 @@ export class InfiltrationGame {
 
     this.callbacks.onHackProgress?.(this.hackProgress, canInteract);
   }
+}
+
+/** Axis-aligned square of `size` centred on a world XZ point. */
+function boxAround(x: number, z: number, size: number): Box {
+  const half = size / 2;
+  return { minX: x - half, maxX: x + half, minZ: z - half, maxZ: z + half };
+}
+
+/** True when a circle of `radius` at (x, z) overlaps the box. */
+function overlapsBox(x: number, z: number, box: Box, radius: number): boolean {
+  const nearestX = THREE.MathUtils.clamp(x, box.minX, box.maxX);
+  const nearestZ = THREE.MathUtils.clamp(z, box.minZ, box.maxZ);
+  return (x - nearestX) ** 2 + (z - nearestZ) ** 2 < radius * radius;
 }
 
 /** Lerps between angles the short way round, so guards never spin the long way. */

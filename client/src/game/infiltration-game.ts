@@ -141,6 +141,36 @@ const LAMP_LIGHT_DISTANCE = Math.hypot(LAMP_RADIUS, LAMP_HEIGHT);
 const MOVEMENT_NOISE_INTERVAL = 0.4;
 /** How often the stealth HUD is refreshed; far coarser than the render loop. */
 const STEALTH_REPORT_INTERVAL = 0.1;
+/**
+ * The vault's palette, in one place.
+ *
+ * Surfaces are warm damp stone so the sodium lamps read as the only light down
+ * here. Everything that carries *meaning* — the door locks, the guard cones, the
+ * terminal, the keycard, the player — deliberately stays outside this warm range
+ * so it reads as signal against the rock rather than blending into it.
+ */
+const PALETTE = {
+  /** Fog and background: the unlit rock the vault is cut out of. */
+  void: 0x0a0705,
+  floor: 0x2b241d,
+  /** Flagstone joints, bright and dim. */
+  mortar: 0x3a3129,
+  mortarDim: 0x2f2822,
+  perimeterWall: 0x3c332a,
+  /** A shade up from the perimeter so interior walls read as separate masonry. */
+  interiorWall: 0x473c31,
+  crate: 0x5a4530,
+  /** Sodium lamp — the one warm light source, and the one detection reads. */
+  lamp: 0xffb35c,
+  /** Weak bounce off the ceiling, and off the floor beneath it. */
+  bounceSky: 0x5a4736,
+  bounceGround: 0x120d09,
+  fill: 0xffe9d0,
+  /** Rusted iron door leaf, in its stone lintel. */
+  doorPanel: 0x2b231b,
+  doorFrame: 0x4a3d30,
+} as const;
+
 const DOOR_COLORS = { locked: 0xff3b3b, unlocked: 0x35f0b0 };
 const CONE_COLORS: Record<GuardState, number> = {
   patrol: 0xffd23c,
@@ -224,8 +254,8 @@ export class InfiltrationGame {
 
     this.iso = new IsoCamera(canvas);
 
-    this.scene.fog = new THREE.Fog(0x0d121b, 78, 165);
-    this.scene.background = new THREE.Color(0x0d121b);
+    this.scene.fog = new THREE.Fog(PALETTE.void, 78, 165);
+    this.scene.background = new THREE.Color(PALETTE.void);
 
     this.buildLevel(seed);
 
@@ -334,9 +364,11 @@ export class InfiltrationGame {
     this.solidBoxes = [];
     this.staticBlockedCells = new Set([...this.level.crates, ...this.level.walls].map(cellKey));
 
-    this.scene.add(new THREE.HemisphereLight(0x9fb4ff, 0x232a3a, 1.5));
-    this.scene.add(new THREE.AmbientLight(0xffffff, 0.55));
-    const key = new THREE.DirectionalLight(0xd6e4ff, 1.15);
+    // Underground there is no sun: the hemisphere and key lights are reduced to
+    // weak bounce that keeps geometry readable, leaving the lamps to do the work.
+    this.scene.add(new THREE.HemisphereLight(PALETTE.bounceSky, PALETTE.bounceGround, 1.0));
+    this.scene.add(new THREE.AmbientLight(PALETTE.fill, 0.3));
+    const key = new THREE.DirectionalLight(PALETTE.fill, 0.5);
     key.position.set(12, 20, 8);
     this.scene.add(key);
     // A lamp per room, so rooms read as separately lit spaces rather than one
@@ -349,7 +381,7 @@ export class InfiltrationGame {
       // player as lit — see LAMP_LIGHT_DISTANCE for why that is not LAMP_RADIUS
       // itself. Decay 1 rather than physical 2 keeps the rendered falloff nearer
       // the linear model the stealth math uses across that same span.
-      const lamp = new THREE.PointLight(0x6ee7ff, LAMP_INTENSITY, LAMP_LIGHT_DISTANCE, 1);
+      const lamp = new THREE.PointLight(PALETTE.lamp, LAMP_INTENSITY, LAMP_LIGHT_DISTANCE, 1);
       lamp.position.set(centre.x, LAMP_HEIGHT, centre.z);
       this.scene.add(lamp);
     }
@@ -357,7 +389,7 @@ export class InfiltrationGame {
     const floorSize = this.level.gridSize * this.level.cellSize;
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(floorSize, floorSize),
-      new THREE.MeshStandardMaterial({ color: 0x222b3b, roughness: 0.95 })
+      new THREE.MeshStandardMaterial({ color: PALETTE.floor, roughness: 1 })
     );
     floor.rotation.x = -Math.PI / 2;
     this.scene.add(floor);
@@ -385,7 +417,12 @@ export class InfiltrationGame {
 
   /** Faint tile lines, so click-to-move destinations are readable at a glance. */
   private buildFloorGrid(floorSize: number) {
-    const grid = new THREE.GridHelper(floorSize, this.level.gridSize, 0x3c4c68, 0x2f3c53);
+    const grid = new THREE.GridHelper(
+      floorSize,
+      this.level.gridSize,
+      PALETTE.mortar,
+      PALETTE.mortarDim
+    );
     grid.position.y = 0.01;
     this.scene.add(grid);
   }
@@ -401,7 +438,10 @@ export class InfiltrationGame {
     ];
     for (const [x, z, w, d] of specs) {
       // Each wall owns its material so fading one occluder doesn't fade all four.
-      const material = new THREE.MeshStandardMaterial({ color: 0x333c50, roughness: 0.8 });
+      const material = new THREE.MeshStandardMaterial({
+        color: PALETTE.perimeterWall,
+        roughness: 0.95,
+      });
       const wall = new THREE.Mesh(new THREE.BoxGeometry(w, WALL_HEIGHT, d), material);
       wall.position.set(x, WALL_HEIGHT / 2, z);
       this.scene.add(wall);
@@ -412,7 +452,7 @@ export class InfiltrationGame {
   /** A waist-high crate: cover from sight, and a solid box for collision. */
   private buildCrate(gridPos: GridPos) {
     const world = gridToWorld(gridPos, this.level);
-    const material = new THREE.MeshStandardMaterial({ color: 0x49536b, roughness: 0.7 });
+    const material = new THREE.MeshStandardMaterial({ color: PALETTE.crate, roughness: 0.85 });
     const crate = new THREE.Mesh(
       new THREE.BoxGeometry(CRATE_SIZE, CRATE_HEIGHT, CRATE_SIZE),
       material
@@ -430,7 +470,10 @@ export class InfiltrationGame {
   private buildInteriorWall(cell: GridPos) {
     const world = gridToWorld(cell, this.level);
     const size = this.level.cellSize;
-    const material = new THREE.MeshStandardMaterial({ color: 0x4a5570, roughness: 0.8 });
+    const material = new THREE.MeshStandardMaterial({
+      color: PALETTE.interiorWall,
+      roughness: 0.95,
+    });
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(size, WALL_HEIGHT, size), material);
     mesh.position.set(world.x, WALL_HEIGHT / 2, world.z);
     this.scene.add(mesh);
@@ -445,11 +488,12 @@ export class InfiltrationGame {
     const group = new THREE.Group();
 
     const material = new THREE.MeshStandardMaterial({
-      color: 0x1b2330,
+      color: PALETTE.doorPanel,
       emissive: DOOR_COLORS.locked,
       emissiveIntensity: 0.6,
-      roughness: 0.4,
-      metalness: 0.5,
+      // Pitted iron rather than the polished panel a facility would have.
+      roughness: 0.65,
+      metalness: 0.7,
     });
     // splitRect cuts along both axes, so a door sits in a wall of either
     // orientation. Rooms side by side on X are divided by a wall at constant X,
@@ -471,7 +515,10 @@ export class InfiltrationGame {
     group.add(panel);
 
     // The frame stays put while the panel slides down inside it.
-    const frameMaterial = new THREE.MeshStandardMaterial({ color: 0x39435c, roughness: 0.7 });
+    const frameMaterial = new THREE.MeshStandardMaterial({
+      color: PALETTE.doorFrame,
+      roughness: 0.9,
+    });
     const lintel = new THREE.Mesh(
       new THREE.BoxGeometry(
         dividedOnX ? size * 0.6 : size,
@@ -658,7 +705,14 @@ export class InfiltrationGame {
     this.player = new THREE.Group();
     const body = new THREE.Mesh(
       new THREE.CapsuleGeometry(0.34, 1, 4, 10),
-      new THREE.MeshStandardMaterial({ color: 0x5eb0ff, roughness: 0.5 })
+      // Faintly self-lit: the vault is dark enough that an unlit avatar gets lost
+      // against the floor, and losing track of yourself is never good tension.
+      new THREE.MeshStandardMaterial({
+        color: 0x5eb0ff,
+        emissive: 0x14364f,
+        emissiveIntensity: 0.9,
+        roughness: 0.5,
+      })
     );
     body.position.y = 0.85;
     // A small nose cone makes the player's facing (and so their approach angle)

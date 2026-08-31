@@ -89,6 +89,9 @@ const NOTIFICATION_EVENT_ROWS: { key: NotificationEvent; label: string; group: s
   { key: "errorDetected", label: "Error Detected", group: "system" },
 ];
 
+/**
+ * Configures application preferences, integrations, notifications, account security, and system maintenance settings.
+ */
 export default function SettingsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -157,7 +160,7 @@ export default function SettingsPage() {
     if (!blacklistEntries) return {};
     return blacklistEntries.reduce<Record<string, (ReleaseBlacklist & { gameTitle: string })[]>>(
       (acc, entry) => {
-        (acc[entry.gameTitle] ??= []).push(entry);
+        (acc[entry.gameId] ??= []).push(entry);
         return acc;
       },
       {}
@@ -314,7 +317,6 @@ export default function SettingsPage() {
       toast({ title: "Failed to update downloader debug logging", variant: "destructive" });
     },
   });
-
 
   const { data: appriseSettings } = useQuery<{
     configured: boolean;
@@ -742,7 +744,7 @@ export default function SettingsPage() {
       updates: {
         igdbRateLimitPerSecond,
       },
-      successMessage: "Advanced settings have been saved.",
+      successMessage: "IGDB rate limit has been saved.",
     });
   };
 
@@ -852,6 +854,76 @@ export default function SettingsPage() {
     );
   }
 
+  // Content Filtering governs both display (what shows in the library/UI) and
+  // discovery (what search/discover surface), so the same card is rendered in
+  // both the Appearance and Discovery & Downloads tabs.
+  const contentFilteringCard = (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center space-x-3">
+          <EyeOff className="h-5 w-5 text-muted-foreground" />
+          <CardTitle className="text-lg">Content Filtering</CardTitle>
+        </div>
+        <CardDescription>
+          Control which games appear in your library and discovery results
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <Label htmlFor="hide-adult-content" className="text-sm font-medium">
+              Hide erotic content
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              Hide games flagged with an explicit/erotic theme from your library, search, and
+              discovery pages
+            </p>
+          </div>
+          <Switch
+            id="hide-adult-content"
+            checked={hideAdultContent}
+            onCheckedChange={setHideAdultContent}
+          />
+        </div>
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <Label htmlFor="hide-age-restricted-content" className="text-sm font-medium">
+              Hide age-restricted content
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              Hide games rated ESRB Adults Only (AO) or PEGI 18 from your library, search, and
+              discovery pages
+            </p>
+          </div>
+          <Switch
+            id="hide-age-restricted-content"
+            checked={hideAgeRestrictedContent}
+            onCheckedChange={setHideAgeRestrictedContent}
+          />
+        </div>
+        <div className="flex justify-end pt-4 border-t">
+          <Button
+            onClick={handleSaveContentFilter}
+            disabled={updateSettingsMutation.isPending}
+            className="gap-2"
+          >
+            {updateSettingsMutation.isPending ? (
+              <>
+                <RefreshCw className="h-4 w-4 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <EyeOff className="h-4 w-4" />
+                Save Content Filtering
+              </>
+            )}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+
   return (
     <div className="h-full overflow-auto p-4 pb-20 sm:p-6 md:pb-6">
       <div className="mb-6">
@@ -875,20 +947,18 @@ export default function SettingsPage() {
           </Alert>
         )}
 
-        <Tabs defaultValue="general" className="w-full">
+        <Tabs defaultValue="appearance" className="w-full">
           <TabsList className="mb-4 sm:mb-8 flex w-full flex-nowrap overflow-x-auto [&>*]:shrink-0">
-            <TabsTrigger value="general">General</TabsTrigger>
-            <TabsTrigger value="rules">Rules</TabsTrigger>
+            <TabsTrigger value="appearance">Appearance</TabsTrigger>
+            <TabsTrigger value="discovery">Discovery & Downloads</TabsTrigger>
             <TabsTrigger value="notifications">Notifications</TabsTrigger>
-            <TabsTrigger value="services">Services</TabsTrigger>
+            <TabsTrigger value="integrations">Integrations</TabsTrigger>
             <TabsTrigger value="import">Import</TabsTrigger>
-            <TabsTrigger value="account">Account</TabsTrigger>
-            <TabsTrigger value="security">Security</TabsTrigger>
+            <TabsTrigger value="account-security">Account & Security</TabsTrigger>
             <TabsTrigger value="system">System</TabsTrigger>
-            <TabsTrigger value="blacklist">Blacklist</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="general" className="space-y-6">
+          <TabsContent value="appearance" className="space-y-6">
             {ghostUnlocked && (
               <Card>
                 <CardHeader>
@@ -950,6 +1020,10 @@ export default function SettingsPage() {
               </CardContent>
             </Card>
 
+            {contentFilteringCard}
+          </TabsContent>
+
+          <TabsContent value="discovery" className="space-y-6">
             {/* Auto-Search Settings */}
             <Card>
               <CardHeader>
@@ -1089,74 +1163,6 @@ export default function SettingsPage() {
               </CardContent>
             </Card>
 
-            {/* Content Filtering */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center space-x-3">
-                  <EyeOff className="h-5 w-5 text-muted-foreground" />
-                  <CardTitle className="text-lg">Content Filtering</CardTitle>
-                </div>
-                <CardDescription>
-                  Control which games appear in your library and discovery results
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="hide-adult-content" className="text-sm font-medium">
-                      Hide erotic content
-                    </Label>
-                    <p className="text-xs text-muted-foreground">
-                      Hide games flagged with an explicit/erotic theme from your library, search,
-                      and discovery pages
-                    </p>
-                  </div>
-                  <Switch
-                    id="hide-adult-content"
-                    checked={hideAdultContent}
-                    onCheckedChange={setHideAdultContent}
-                  />
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="hide-age-restricted-content" className="text-sm font-medium">
-                      Hide age-restricted content
-                    </Label>
-                    <p className="text-xs text-muted-foreground">
-                      Hide games rated ESRB Adults Only (AO) or PEGI 18 from your library, search,
-                      and discovery pages
-                    </p>
-                  </div>
-                  <Switch
-                    id="hide-age-restricted-content"
-                    checked={hideAgeRestrictedContent}
-                    onCheckedChange={setHideAgeRestrictedContent}
-                  />
-                </div>
-                <div className="flex justify-end pt-4 border-t">
-                  <Button
-                    onClick={handleSaveContentFilter}
-                    disabled={updateSettingsMutation.isPending}
-                    className="gap-2"
-                  >
-                    {updateSettingsMutation.isPending ? (
-                      <>
-                        <RefreshCw className="h-4 w-4 animate-spin" />
-                        Saving...
-                      </>
-                    ) : (
-                      <>
-                        <EyeOff className="h-4 w-4" />
-                        Save Content Filtering
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="rules" className="space-y-6">
             <AutoDownloadRulesSettings
               rules={downloadRules}
               onChange={setDownloadRules}
@@ -1168,6 +1174,72 @@ export default function SettingsPage() {
               onGroupsChange={setPreferredReleaseGroups}
               onFilterChange={setFilterByPreferredGroups}
             />
+
+            {/* Blacklisted Releases */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Ban className="h-5 w-5" />
+                  Blacklisted Releases
+                </CardTitle>
+                <CardDescription>
+                  Releases hidden from search results. They will not appear in game download
+                  searches or be auto-downloaded.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {blacklistLoading ? (
+                  <div className="text-sm text-muted-foreground">Loading...</div>
+                ) : !blacklistEntries || blacklistEntries.length === 0 ? (
+                  <div className="text-sm text-muted-foreground">No blacklisted releases.</div>
+                ) : (
+                  <div className="space-y-4">
+                    {Object.entries(blacklistByGame).map(([gameId, entries]) => (
+                      <div key={gameId}>
+                        <h4 className="text-sm font-semibold mb-2">
+                          {entries[0]?.gameTitle ?? "Unknown game"}
+                        </h4>
+                        <div className="space-y-2">
+                          {entries.map((entry) => (
+                            <div
+                              key={entry.id}
+                              className="flex items-center justify-between rounded-md border p-3"
+                            >
+                              <div className="space-y-1">
+                                <p className="text-sm font-medium leading-none">
+                                  {entry.releaseTitle}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {entry.indexerName ? `${entry.indexerName} · ` : ""}
+                                  {entry.createdAt
+                                    ? new Date(entry.createdAt).toISOString().split("T")[0]
+                                    : ""}
+                                </p>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                aria-label={`Remove ${entry.releaseTitle} from blacklist`}
+                                onClick={() =>
+                                  removeBlacklistMutation.mutate({
+                                    gameId: entry.gameId,
+                                    id: entry.id,
+                                  })
+                                }
+                              >
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {contentFilteringCard}
           </TabsContent>
 
           <TabsContent value="notifications" className="space-y-6">
@@ -1377,7 +1449,7 @@ export default function SettingsPage() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="services" className="space-y-6">
+          <TabsContent value="integrations" className="space-y-6">
             {/* Steam Integration Card */}
             <Card id="steam-config">
               <CardHeader>
@@ -1713,6 +1785,55 @@ export default function SettingsPage() {
                     )}
                   </Button>
                 </div>
+
+                {/* Rate limit (formerly a standalone "Advanced" card) */}
+                <div className="space-y-3 pt-4 border-t">
+                  <Label htmlFor="igdb-rate-limit" className="text-sm font-medium">
+                    IGDB API Rate Limit (requests/second)
+                  </Label>
+                  <Input
+                    id="igdb-rate-limit"
+                    type="number"
+                    min="1"
+                    max="4"
+                    value={igdbRateLimitPerSecond}
+                    onChange={(e) => setIgdbRateLimitPerSecond(parseInt(e.target.value) || 3)}
+                    className="w-32"
+                  />
+                  <div className="text-xs text-muted-foreground space-y-1">
+                    <p>
+                      <strong>IGDB allows 4 requests per second.</strong> Default is 3 to be
+                      conservative.
+                    </p>
+                    <p>
+                      Only increase if you experience slow loading times and are confident your
+                      usage won&apos;t exceed the limit.
+                    </p>
+                    <p className="text-amber-500">
+                      ⚠️ Setting too high may result in API blacklisting.
+                    </p>
+                  </div>
+                  <div className="flex justify-end">
+                    <Button
+                      onClick={handleSaveAdvanced}
+                      disabled={updateAdvancedSettingsMutation.isPending}
+                      variant="outline"
+                      className="gap-2"
+                    >
+                      {updateAdvancedSettingsMutation.isPending ? (
+                        <>
+                          <RefreshCw className="h-4 w-4 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <Gauge className="h-4 w-4" />
+                          Save Rate Limit
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </div>
               </CardContent>
             </Card>
 
@@ -1803,74 +1924,6 @@ export default function SettingsPage() {
                 </div>
               </CardContent>
             </Card>
-
-            {/* Advanced Settings */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center space-x-3">
-                  <Gauge className="h-5 w-5 text-muted-foreground" />
-                  <CardTitle className="text-lg">Advanced</CardTitle>
-                </div>
-                <CardDescription>
-                  Advanced performance and API settings. Change these only if needed.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="space-y-4">
-                  <div className="space-y-3">
-                    <Label htmlFor="igdb-rate-limit" className="text-sm font-medium">
-                      IGDB API Rate Limit (requests/second)
-                    </Label>
-                    <Input
-                      id="igdb-rate-limit"
-                      type="number"
-                      min="1"
-                      max="4"
-                      value={igdbRateLimitPerSecond}
-                      onChange={(e) => setIgdbRateLimitPerSecond(parseInt(e.target.value) || 3)}
-                      className="w-32"
-                    />
-                    <div className="text-xs text-muted-foreground space-y-1">
-                      <p>
-                        <strong>IGDB allows 4 requests per second.</strong> Default is 3 to be
-                        conservative.
-                      </p>
-                      <p>
-                        Only increase if you experience slow loading times and are confident your
-                        usage won't exceed the limit.
-                      </p>
-                      <p className="text-amber-500">
-                        ⚠️ Setting too high may result in API blacklisting.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex justify-end pt-4 border-t">
-                  <Button
-                    onClick={handleSaveAdvanced}
-                    disabled={updateAdvancedSettingsMutation.isPending}
-                    className="gap-2"
-                  >
-                    {updateAdvancedSettingsMutation.isPending ? (
-                      <>
-                        <RefreshCw className="h-4 w-4 animate-spin" />
-                        Saving...
-                      </>
-                    ) : (
-                      <>
-                        <Download className="h-4 w-4" />
-                        Save Advanced Settings
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="account" className="space-y-6">
-            <PasswordSettings />
           </TabsContent>
 
           <TabsContent value="import" className="space-y-6">
@@ -2104,7 +2157,9 @@ export default function SettingsPage() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="security" className="space-y-6">
+          <TabsContent value="account-security" className="space-y-6">
+            <PasswordSettings />
+
             <Card>
               <CardHeader>
                 <div className="flex items-center space-x-3">
@@ -2387,68 +2442,6 @@ export default function SettingsPage() {
                       </Button>
                     </div>
                   </>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="blacklist" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Ban className="h-5 w-5" />
-                  Blacklisted Releases
-                </CardTitle>
-                <CardDescription>
-                  Releases hidden from search results. They will not appear in game download
-                  searches or be auto-downloaded.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {blacklistLoading ? (
-                  <div className="text-sm text-muted-foreground">Loading...</div>
-                ) : !blacklistEntries || blacklistEntries.length === 0 ? (
-                  <div className="text-sm text-muted-foreground">No blacklisted releases.</div>
-                ) : (
-                  <div className="space-y-4">
-                    {Object.entries(blacklistByGame).map(([gameTitle, entries]) => (
-                      <div key={gameTitle}>
-                        <h4 className="text-sm font-semibold mb-2">{gameTitle}</h4>
-                        <div className="space-y-2">
-                          {entries.map((entry) => (
-                            <div
-                              key={entry.id}
-                              className="flex items-center justify-between rounded-md border p-3"
-                            >
-                              <div className="space-y-1">
-                                <p className="text-sm font-medium leading-none">
-                                  {entry.releaseTitle}
-                                </p>
-                                <p className="text-xs text-muted-foreground">
-                                  {entry.indexerName ? `${entry.indexerName} · ` : ""}
-                                  {entry.createdAt
-                                    ? new Date(entry.createdAt).toISOString().split("T")[0]
-                                    : ""}
-                                </p>
-                              </div>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() =>
-                                  removeBlacklistMutation.mutate({
-                                    gameId: entry.gameId,
-                                    id: entry.id,
-                                  })
-                                }
-                              >
-                                <Trash2 className="h-4 w-4 text-destructive" />
-                              </Button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
                 )}
               </CardContent>
             </Card>

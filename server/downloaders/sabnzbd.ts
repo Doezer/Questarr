@@ -307,6 +307,51 @@ export class SABnzbdClient implements DownloaderClient {
     return typeof archivePassword === "string" ? archivePassword || undefined : undefined;
   }
 
+  // The archive password travels in the addfile query string — never send it
+  // over a plain-HTTP connection to SABnzbd, where it would be readable to
+  // anything on the network path.
+  private resolveArchivePassword(request: DownloadRequest): { password?: string; error?: string } {
+    // Many usenet releases (e.g. G4U) ship as password-protected archives. SABnzbd
+    // can unpack them automatically if we hand it the extraction password up front —
+    // configured per-downloader since it's usually a fixed indexer/group convention.
+    const password = request.password || this.getArchivePassword();
+    if (password && !this.getBaseUrl().startsWith("https://")) {
+      return {
+        error:
+          "Refusing to send the archive password over an insecure connection. Enable SSL for this SABnzbd downloader, or remove the archive password.",
+      };
+    }
+    return { password };
+  }
+
+  private parseAddFileResponse(data: { status?: boolean; nzo_ids?: string[]; error?: string }): {
+    success: boolean;
+    id?: string;
+    message: string;
+  } {
+    if (data.status === true) {
+      if (data.nzo_ids && data.nzo_ids.length > 0) {
+        return { success: true, id: data.nzo_ids[0], message: "NZB added successfully" };
+      }
+      // Status true but no ID usually means duplicate in SABnzbd (or merged)
+      return { success: true, message: "NZB added successfully (likely duplicate or merged)" };
+    }
+
+    // Check for specific duplicate error
+    if (
+      data.error &&
+      typeof data.error === "string" &&
+      data.error.toLowerCase().includes("duplicate")
+    ) {
+      return { success: true, message: `NZB already exists: ${data.error}` };
+    }
+
+    return {
+      success: false,
+      message: data.error || "Failed to add NZB - SABnzbd returned success:false",
+    };
+  }
+
   async addDownload(
     request: DownloadRequest
   ): Promise<{ success: boolean; id?: string; message: string }> {
@@ -324,20 +369,9 @@ export class SABnzbdClient implements DownloaderClient {
       }
       const nzbContent = await nzbResponse.arrayBuffer();
 
-      // Many usenet releases (e.g. G4U) ship as password-protected archives. SABnzbd
-      // can unpack them automatically if we hand it the extraction password up front —
-      // configured per-downloader since it's usually a fixed indexer/group convention.
-      const password = request.password || this.getArchivePassword();
-
-      // The archive password travels in the addfile query string — never send it
-      // over a plain-HTTP connection to SABnzbd, where it would be readable to
-      // anything on the network path.
-      if (password && !this.getBaseUrl().startsWith("https://")) {
-        return {
-          success: false,
-          message:
-            "Refusing to send the archive password over an insecure connection. Enable SSL for this SABnzbd downloader, or remove the archive password.",
-        };
+      const { password, error: passwordError } = this.resolveArchivePassword(request);
+      if (passwordError) {
+        return { success: false, message: passwordError };
       }
 
       const url = this.getApiUrl("addfile", {
@@ -351,12 +385,11 @@ export class SABnzbdClient implements DownloaderClient {
       // can write it as a Buffer — FormData is not serialisable via req.write().
       const boundary = `questarr${Date.now().toString(16)}`;
       const safeName = request.title.replace(/["\\]/g, "_");
-      const nzbBuffer = Buffer.from(nzbContent);
       const multipartBody = Buffer.concat([
         Buffer.from(
           `--${boundary}\r\nContent-Disposition: form-data; name="name"; filename="${safeName}.nzb"\r\nContent-Type: application/x-nzb\r\n\r\n`
         ),
-        nzbBuffer,
+        Buffer.from(nzbContent),
         Buffer.from(`\r\n--${boundary}--\r\n`),
       ]);
 
@@ -377,39 +410,7 @@ export class SABnzbdClient implements DownloaderClient {
       }
 
       const data = await response.json();
-
-      if (data.status === true) {
-        if (data.nzo_ids && data.nzo_ids.length > 0) {
-          return {
-            success: true,
-            id: data.nzo_ids[0],
-            message: "NZB added successfully",
-          };
-        } else {
-          // Status true but no ID usually means duplicate in SABnzbd (or merged)
-          return {
-            success: true,
-            message: "NZB added successfully (likely duplicate or merged)",
-          };
-        }
-      }
-
-      // Check for specific duplicate error
-      if (
-        data.error &&
-        typeof data.error === "string" &&
-        data.error.toLowerCase().includes("duplicate")
-      ) {
-        return {
-          success: true,
-          message: `NZB already exists: ${data.error}`,
-        };
-      }
-
-      return {
-        success: false,
-        message: data.error || "Failed to add NZB - SABnzbd returned success:false",
-      };
+      return this.parseAddFileResponse(data);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       return {

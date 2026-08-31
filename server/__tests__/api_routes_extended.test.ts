@@ -623,31 +623,28 @@ describe("API Routes - Additional Coverage", () => {
       expect(JSON.parse(res.body.settings)).toEqual({ archivePassword: "********" });
     });
 
-    it("restores the existing archive password when the sentinel is sent back in settings", async () => {
-      vi.mocked(storage.getDownloader).mockResolvedValue(sabnzbdDownloaderWithArchivePassword);
-      vi.mocked(storage.updateDownloader).mockResolvedValue(sabnzbdDownloaderWithArchivePassword);
+    it.each([
+      // Sending back the redaction sentinel restores the real stored password...
+      ["********", "404"],
+      // ...while any other value is accepted as a genuine new password.
+      ["new-pw", "new-pw"],
+    ])(
+      "resolves settings.archivePassword %j to %j on PATCH",
+      async (submittedPassword, expectedPassword) => {
+        vi.mocked(storage.getDownloader).mockResolvedValue(sabnzbdDownloaderWithArchivePassword);
+        vi.mocked(storage.updateDownloader).mockResolvedValue(sabnzbdDownloaderWithArchivePassword);
 
-      const res = await request(app)
-        .patch("/api/downloaders/dl-1")
-        .send({ settings: JSON.stringify({ archivePassword: "********" }) });
+        const res = await request(app)
+          .patch("/api/downloaders/dl-1")
+          .send({ settings: JSON.stringify({ archivePassword: submittedPassword }) });
 
-      expect(res.status).toBe(200);
-      const updateCall = vi.mocked(storage.updateDownloader).mock.calls[0][1];
-      expect(JSON.parse(updateCall.settings as string)).toEqual({ archivePassword: "404" });
-    });
-
-    it("accepts a new archive password in settings when it isn't the sentinel", async () => {
-      vi.mocked(storage.getDownloader).mockResolvedValue(sabnzbdDownloaderWithArchivePassword);
-      vi.mocked(storage.updateDownloader).mockResolvedValue(sabnzbdDownloaderWithArchivePassword);
-
-      const res = await request(app)
-        .patch("/api/downloaders/dl-1")
-        .send({ settings: JSON.stringify({ archivePassword: "new-pw" }) });
-
-      expect(res.status).toBe(200);
-      const updateCall = vi.mocked(storage.updateDownloader).mock.calls[0][1];
-      expect(JSON.parse(updateCall.settings as string)).toEqual({ archivePassword: "new-pw" });
-    });
+        expect(res.status).toBe(200);
+        const updateCall = vi.mocked(storage.updateDownloader).mock.calls[0][1];
+        expect(JSON.parse(updateCall.settings as string)).toEqual({
+          archivePassword: expectedPassword,
+        });
+      }
+    );
 
     it("rejects adding an indexer with an unsafe URL", async () => {
       const res = await request(app).post("/api/indexers").send({

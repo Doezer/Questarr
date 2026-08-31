@@ -1,8 +1,10 @@
 import { parseJsonObject } from "./json-object-utils.js";
 
 /**
- * Reads the default archive-unpack password configured for a downloader out of
- * its free-form `settings` JSON blob (the `archivePassword` key).
+ * Reads the configured default archive-unpack password from a downloader's settings.
+ *
+ * @param settings - A JSON-encoded settings object
+ * @returns The non-empty configured password, or `undefined` when no valid password is configured
  */
 export function getArchivePasswordSetting(settings: string | null | undefined): string | undefined {
   const { archivePassword } = parseJsonObject(settings);
@@ -10,12 +12,13 @@ export function getArchivePasswordSetting(settings: string | null | undefined): 
 }
 
 /**
- * Resolves the archive-unpack password a Usenet downloader (SABnzbd, NZBGet)
- * should send for a download: the per-request override if given, otherwise
- * the downloader's configured default. Refuses to hand back a password at all
- * when it would travel over a plain-HTTP connection, since both clients send
- * it in the clear (a query string or an XML-RPC request body) rather than
- * over an authenticated/encrypted channel.
+ * Resolves the archive password for a download and enforces HTTPS when a password is available.
+ *
+ * @param requestPassword - The password specified for the individual request
+ * @param settings - JSON-encoded downloader settings containing the default password
+ * @param baseUrl - The downloader base URL used to determine connection security
+ * @param downloaderTypeLabel - The downloader name included in an insecure-connection error
+ * @returns The resolved password, or an error message when sending it over HTTP is refused
  */
 export function resolveArchivePassword(
   requestPassword: string | undefined,

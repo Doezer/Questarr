@@ -1007,7 +1007,7 @@ export default function SettingsPage() {
             <TabsList
               ref={setTabsScrollNode}
               onScroll={updateTabsScrollFade}
-              className="mb-0 flex w-full flex-nowrap justify-start overflow-x-auto scroll-smooth"
+              className="mb-0 flex w-full flex-nowrap justify-start overflow-x-auto motion-safe:scroll-smooth motion-reduce:scroll-auto"
             >
               <div ref={setTabsInnerNode} className="flex w-max flex-nowrap [&>*]:shrink-0">
                 <TabsTrigger value="appearance">Appearance</TabsTrigger>

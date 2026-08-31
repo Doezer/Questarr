@@ -1,5 +1,5 @@
 import type { Downloader, DownloadStatus, DownloadDetails } from "../../shared/schema.js";
-import { parseJsonObject } from "../../shared/json-object-utils.js";
+import { resolveArchivePassword } from "../../shared/archive-password.js";
 import { downloadersLogger } from "../logger.js";
 import { XMLParser } from "fast-xml-parser";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
@@ -288,11 +288,6 @@ export class NZBGetClient implements DownloaderClient {
     );
   }
 
-  private getArchivePassword(): string | undefined {
-    const { archivePassword } = parseJsonObject(this.downloader.settings);
-    return typeof archivePassword === "string" ? archivePassword || undefined : undefined;
-  }
-
   async addDownload(
     request: DownloadRequest
   ): Promise<{ success: boolean; id?: string; message: string }> {
@@ -317,17 +312,14 @@ export class NZBGetClient implements DownloaderClient {
       // built-in Unpack post-processor reads a per-NZB override via the well-known
       // "*Unpack:Password" PPParameter — configured per-downloader since it's usually
       // a fixed indexer/group convention.
-      const password = request.password || this.getArchivePassword();
-
-      // The archive password travels in the XML-RPC request body — never send it
-      // over a plain-HTTP connection to NZBGet, where it would be readable to
-      // anything on the network path.
-      if (password && !this.getBaseUrl().startsWith("https://")) {
-        return {
-          success: false,
-          message:
-            "Refusing to send the archive password over an insecure connection. Enable SSL for this NZBGet downloader, or remove the archive password.",
-        };
+      const { password, error: passwordError } = resolveArchivePassword(
+        request.password,
+        this.downloader.settings,
+        this.getBaseUrl(),
+        "NZBGet"
+      );
+      if (passwordError) {
+        return { success: false, message: passwordError };
       }
 
       const nzbId = (await this.makeXMLRPCRequest("append", [

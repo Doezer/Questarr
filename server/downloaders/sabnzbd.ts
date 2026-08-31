@@ -1,5 +1,5 @@
 import type { Downloader, DownloadStatus, DownloadDetails } from "../../shared/schema.js";
-import { parseJsonObject } from "../../shared/json-object-utils.js";
+import { resolveArchivePassword } from "../../shared/archive-password.js";
 import { downloadersLogger } from "../logger.js";
 import https from "https";
 import { isSafeUrl, resolveSafeAddress, safeFetch } from "../ssrf.js";
@@ -302,28 +302,6 @@ export class SABnzbdClient implements DownloaderClient {
     return (await response.json()) as Record<string, unknown>;
   }
 
-  private getArchivePassword(): string | undefined {
-    const { archivePassword } = parseJsonObject(this.downloader.settings);
-    return typeof archivePassword === "string" ? archivePassword || undefined : undefined;
-  }
-
-  // The archive password travels in the addfile query string — never send it
-  // over a plain-HTTP connection to SABnzbd, where it would be readable to
-  // anything on the network path.
-  private resolveArchivePassword(request: DownloadRequest): { password?: string; error?: string } {
-    // Many usenet releases (e.g. G4U) ship as password-protected archives. SABnzbd
-    // can unpack them automatically if we hand it the extraction password up front —
-    // configured per-downloader since it's usually a fixed indexer/group convention.
-    const password = request.password || this.getArchivePassword();
-    if (password && !this.getBaseUrl().startsWith("https://")) {
-      return {
-        error:
-          "Refusing to send the archive password over an insecure connection. Enable SSL for this SABnzbd downloader, or remove the archive password.",
-      };
-    }
-    return { password };
-  }
-
   private parseAddFileResponse(data: { status?: boolean; nzo_ids?: string[]; error?: string }): {
     success: boolean;
     id?: string;
@@ -369,7 +347,15 @@ export class SABnzbdClient implements DownloaderClient {
       }
       const nzbContent = await nzbResponse.arrayBuffer();
 
-      const { password, error: passwordError } = this.resolveArchivePassword(request);
+      // Many usenet releases (e.g. G4U) ship as password-protected archives. SABnzbd
+      // can unpack them automatically if we hand it the extraction password up front —
+      // configured per-downloader since it's usually a fixed indexer/group convention.
+      const { password, error: passwordError } = resolveArchivePassword(
+        request.password,
+        this.downloader.settings,
+        this.getBaseUrl(),
+        "SABnzbd"
+      );
       if (passwordError) {
         return { success: false, message: passwordError };
       }

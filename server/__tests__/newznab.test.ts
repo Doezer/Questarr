@@ -200,8 +200,8 @@ describe("NewznabClient", () => {
       expect(categories).toHaveLength(5);
       expect(safeFetch).toHaveBeenCalledTimes(2);
       const [firstUrl, secondUrl] = (safeFetch as Mock).mock.calls.map((call) => call[0] as string);
-      expect(firstUrl).toBe("http://example.com/api?apikey=secret&t=caps");
-      expect(secondUrl).toBe("http://example.com/?apikey=secret&t=caps");
+      expect(firstUrl).toBe("http://example.com/api?t=caps&apikey=secret");
+      expect(secondUrl).toBe("http://example.com/?t=caps&apikey=secret");
     });
   });
 

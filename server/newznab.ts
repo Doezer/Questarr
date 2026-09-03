@@ -1,7 +1,14 @@
 import { XMLParser } from "fast-xml-parser";
 import { type Indexer } from "@shared/schema";
+import {
+  buildCapsUrlCandidates,
+  CAPS_DISCOVERY_TIMEOUT_MS,
+  DEFAULT_GAME_CATEGORIES,
+} from "./indexer-caps.js";
 import { routesLogger } from "./logger.js";
 import { isSafeUrl, safeFetch } from "./ssrf.js";
+
+export { DEFAULT_GAME_CATEGORY_IDS } from "./indexer-caps.js";
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -42,21 +49,6 @@ export interface NewznabCategory {
   id: string;
   name: string;
 }
-
-// Conservative built-in fallback used when caps discovery can't reach an
-// indexer at all (see getCategories below): the standard Newznab category
-// scheme's Console and PC/Games parents, so search category filtering still
-// has something sane to offer instead of leaving the indexer with none.
-export const DEFAULT_GAME_CATEGORY_IDS = ["1000", "4000", "4050"] as const;
-const DEFAULT_GAME_CATEGORIES: readonly NewznabCategory[] = Object.freeze([
-  { id: "1000", name: "Console" },
-  { id: "4000", name: "PC" },
-  { id: "4050", name: "PC > Games" },
-]);
-
-// Overall time budget for getCategories' caps-discovery loop, shared across
-// every URL candidate it tries rather than reset per candidate.
-const CAPS_DISCOVERY_TIMEOUT_MS = 10000;
 
 interface NewznabServerInfo {
   title?: string;
@@ -365,40 +357,6 @@ class NewznabClient {
     };
   }
 
-  /**
-   * Build a list of reasonable candidate caps URLs to try in order. Indexers
-   * vary in whether their stored base URL already includes the /api path
-   * segment, so try both the normalized (buildApiUrl) form and the raw
-   * stored URL as-is before giving up.
-   */
-  private buildCapsUrlCandidates(indexer: Indexer): URL[] {
-    const candidates: URL[] = [];
-    const seen = new Set<string>();
-
-    const add = (url: URL) => {
-      url.searchParams.set("apikey", indexer.apiKey);
-      url.searchParams.set("t", "caps");
-      const key = url.toString();
-      if (!seen.has(key)) {
-        candidates.push(url);
-        seen.add(key);
-      }
-    };
-
-    try {
-      add(this.buildApiUrl(indexer.url));
-    } catch {
-      /* invalid URL -- skip this candidate */
-    }
-    try {
-      add(new URL(indexer.url));
-    } catch {
-      /* invalid URL -- skip this candidate */
-    }
-
-    return candidates;
-  }
-
   private parseCapsCategories(xmlText: string): NewznabCategory[] {
     const data = parser.parse(xmlText);
     const categoryNode = data.caps?.categories?.category;
@@ -429,7 +387,7 @@ class NewznabClient {
     const deadline = Date.now() + CAPS_DISCOVERY_TIMEOUT_MS;
 
     let lastError: unknown;
-    for (const url of this.buildCapsUrlCandidates(indexer)) {
+    for (const url of buildCapsUrlCandidates(indexer, this.buildApiUrl.bind(this))) {
       const remainingMs = deadline - Date.now();
       if (remainingMs <= 0) {
         lastError ??= new Error("Caps discovery deadline exceeded");

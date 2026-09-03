@@ -1,4 +1,9 @@
 import { type Indexer } from "@shared/schema";
+import {
+  buildCapsUrlCandidates,
+  CAPS_DISCOVERY_TIMEOUT_MS,
+  DEFAULT_GAME_CATEGORIES,
+} from "./indexer-caps.js";
 import { torznabLogger } from "./logger.js";
 import { isSafeUrl, safeFetch } from "./ssrf.js";
 import { XMLParser } from "fast-xml-parser";
@@ -42,21 +47,6 @@ interface TorznabServerInfo {
   title?: string;
   version?: string;
 }
-
-// Overall time budget for getCategories' caps-discovery loop, shared across
-// every URL candidate it tries rather than reset per candidate.
-const CAPS_DISCOVERY_TIMEOUT_MS = 30000;
-
-// Conservative built-in fallback used when caps discovery can't reach an
-// indexer at all (see getCategories below): the standard Newznab/Torznab
-// category scheme's Console and PC/Games parents, so search category
-// filtering still has something sane to offer instead of leaving the
-// indexer with none.
-const DEFAULT_GAME_CATEGORIES: readonly { id: string; name: string }[] = Object.freeze([
-  { id: "1000", name: "Console" },
-  { id: "4000", name: "PC" },
-  { id: "4050", name: "PC > Games" },
-]);
 
 export class TorznabClient {
   private parser: XMLParser;
@@ -554,40 +544,6 @@ export class TorznabClient {
   }
 
   /**
-   * Build a list of reasonable candidate caps URLs to try in order. Indexers
-   * vary in whether their stored base URL already includes the /api path
-   * segment, so try both the normalized (buildApiUrl) form and the raw
-   * stored URL as-is before giving up.
-   */
-  private buildCapsUrlCandidates(indexer: Indexer): URL[] {
-    const candidates: URL[] = [];
-    const seen = new Set<string>();
-
-    const add = (url: URL) => {
-      url.searchParams.set("t", "caps");
-      url.searchParams.set("apikey", indexer.apiKey);
-      const key = url.toString();
-      if (!seen.has(key)) {
-        candidates.push(url);
-        seen.add(key);
-      }
-    };
-
-    try {
-      add(this.buildApiUrl(indexer.url));
-    } catch {
-      /* invalid URL -- skip this candidate */
-    }
-    try {
-      add(new URL(indexer.url));
-    } catch {
-      /* invalid URL -- skip this candidate */
-    }
-
-    return candidates;
-  }
-
-  /**
    * Recursively collects <category>/<subcat> entries into a flat list,
    * composing each descendant's name as "parent > child" at every level --
    * caps responses can nest subcategories more than one level deep (e.g.
@@ -674,7 +630,7 @@ export class TorznabClient {
     const deadline = Date.now() + CAPS_DISCOVERY_TIMEOUT_MS;
 
     let lastError: unknown;
-    for (const url of this.buildCapsUrlCandidates(indexer)) {
+    for (const url of buildCapsUrlCandidates(indexer, this.buildApiUrl.bind(this))) {
       const remainingMs = deadline - Date.now();
       if (remainingMs <= 0) {
         lastError ??= new Error("Caps discovery deadline exceeded");

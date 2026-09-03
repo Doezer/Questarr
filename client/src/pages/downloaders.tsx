@@ -352,6 +352,7 @@ export default function DownloadersPage() {
       removeCompleted: false,
       postImportCategory: "",
       settings: "",
+      allowSelfSignedCertificate: false,
     },
   });
 
@@ -382,6 +383,7 @@ export default function DownloadersPage() {
       removeCompleted: downloader.removeCompleted ?? false,
       postImportCategory: downloader.postImportCategory ?? "",
       settings: downloader.settings ?? "",
+      allowSelfSignedCertificate: downloader.allowSelfSignedCertificate ?? false,
     });
     setIsDialogOpen(true);
   };
@@ -405,6 +407,7 @@ export default function DownloadersPage() {
       removeCompleted: false,
       postImportCategory: "",
       settings: "",
+      allowSelfSignedCertificate: false,
     });
     setIsDialogOpen(true);
   };
@@ -657,6 +660,19 @@ export default function DownloadersPage() {
                           ) {
                             form.setValue("port", nextDefaultPort);
                           }
+
+                          // Only SABnzbd reads this flag. Clear it when
+                          // switching away from SABnzbd so it can't
+                          // silently carry a stale "true" into a saved
+                          // record for another downloader type, or
+                          // reappear pre-checked if the user switches back
+                          // to SABnzbd without re-confirming it.
+                          if (
+                            nextType !== "sabnzbd" &&
+                            form.getValues("allowSelfSignedCertificate")
+                          ) {
+                            form.setValue("allowSelfSignedCertificate", false);
+                          }
                         }}
                         value={field.value}
                       >
@@ -769,6 +785,31 @@ export default function DownloadersPage() {
                       </FormItem>
                     )}
                   />
+                  {form.watch("type") === "sabnzbd" && (
+                    <FormField
+                      control={form.control}
+                      name="allowSelfSignedCertificate"
+                      render={({ field }) => (
+                        <FormItem className="flex flex-row items-center justify-between rounded-lg border p-2">
+                          <div className="space-y-0">
+                            <FormLabel className="text-sm">Allow self-signed certificate</FormLabel>
+                            <FormDescription className="text-xs">
+                              Skips TLS certificate validation for this downloader over HTTPS. Only
+                              enable this if you trust the network path and understand it allows
+                              man-in-the-middle interception.
+                            </FormDescription>
+                          </div>
+                          <FormControl>
+                            <Checkbox
+                              checked={!!field.value}
+                              onCheckedChange={(checked) => field.onChange(!!checked)}
+                              data-testid="checkbox-downloader-allow-self-signed-certificate"
+                            />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                  )}
                 </>
                 <FormField
                   control={form.control}

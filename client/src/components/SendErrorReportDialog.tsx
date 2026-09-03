@@ -13,6 +13,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, ApiError } from "@/lib/queryClient";
 import { buildGitHubIssueUrl } from "@/lib/send-logs";
+import { copyToClipboard } from "@/lib/utils";
 
 interface SendErrorReportDialogProps {
   open: boolean;
@@ -104,27 +105,17 @@ export default function SendErrorReportDialog({
 
   const handleCopyCode = useCallback(() => {
     if (!result) return;
-    const clipboard = navigator.clipboard;
-    if (!clipboard) {
-      toast({
-        title: "Copy failed",
-        description: "Clipboard API not supported in this browser",
-        variant: "destructive",
-      });
-      return;
-    }
-    clipboard
-      .writeText(result.code)
-      .then(() => {
+    copyToClipboard(result.code).then((succeeded) => {
+      if (succeeded) {
         toast({ title: "Copied", description: `Code ${result.code} copied to clipboard` });
-      })
-      .catch(() => {
+      } else {
         toast({
           title: "Copy failed",
           description: "Clipboard access denied",
           variant: "destructive",
         });
-      });
+      }
+    });
   }, [result, toast]);
 
   const issueUrl =

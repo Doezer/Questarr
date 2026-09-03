@@ -251,7 +251,7 @@ if [ -f "${LOCAL_INSTALLER}" ]; then
   pct push "${CTID}" "${LOCAL_INSTALLER}" /root/questarr-install.sh --perms 0755
 else
   pct exec "${CTID}" -- bash -c \
-    "apt-get update -qq && apt-get install -y -qq --no-install-recommends curl ca-certificates >/dev/null && curl -fsSL '${INSTALLER_URL}' -o /root/questarr-install.sh && chmod 0755 /root/questarr-install.sh"
+    "apt-get update -qq && apt-get install -y -qq --no-install-recommends curl ca-certificates >/dev/null && curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' '${INSTALLER_URL}' -o /root/questarr-install.sh && chmod 0755 /root/questarr-install.sh"
 fi
 
 pct exec "${CTID}" -- env \

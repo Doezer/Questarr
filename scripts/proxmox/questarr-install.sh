@@ -32,6 +32,11 @@ APP_USER="questarr"
 VERSION_FILE="${APP_DIR}/.questarr_version"
 STAGE_DIR="/opt/.questarr-stage"
 
+# curl follows redirects (-L) for every download below, so pin both the initial
+# request and any redirect to HTTPS. Without --proto-redir a redirect could
+# downgrade to plaintext, and these downloads are piped into gpg and bash.
+CURL_OPTS=(--fail --silent --show-error --location --proto '=https' --proto-redir '=https')
+
 RED=$'\033[0;31m'
 GREEN=$'\033[0;32m'
 YELLOW=$'\033[0;33m'
@@ -68,7 +73,7 @@ ok "OS dependencies installed"
 install_node() {
   msg "Installing Node.js ${NODE_MAJOR}.x from NodeSource"
   install -d -m 0755 /etc/apt/keyrings
-  curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key |
+  curl "${CURL_OPTS[@]}" https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key |
     gpg --dearmor --yes -o /etc/apt/keyrings/nodesource.gpg
   chmod 0644 /etc/apt/keyrings/nodesource.gpg
   echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${NODE_MAJOR}.x nodistro main" \
@@ -103,7 +108,7 @@ resolve_ref() {
     return
   fi
   local tag
-  tag=$(curl -fsSL "https://api.github.com/repos/${QUESTARR_REPO}/releases/latest" 2>/dev/null |
+  tag=$(curl "${CURL_OPTS[@]}" "https://api.github.com/repos/${QUESTARR_REPO}/releases/latest" 2>/dev/null |
     jq -r '.tag_name // empty' 2>/dev/null || true)
   if [ -z "${tag}" ]; then
     # No published release, or the unauthenticated GitHub API rate limit was hit
@@ -125,7 +130,7 @@ cleanup() { rm -rf "${TMP_DIR}" "${STAGE_DIR}"; }
 trap cleanup EXIT
 
 TARBALL="${TMP_DIR}/questarr.tar.gz"
-curl -fsSL "https://codeload.github.com/${QUESTARR_REPO}/tar.gz/${REF}" -o "${TARBALL}" ||
+curl "${CURL_OPTS[@]}" "https://codeload.github.com/${QUESTARR_REPO}/tar.gz/${REF}" -o "${TARBALL}" ||
   die "Could not download ${QUESTARR_REPO} at ref '${REF}'."
 # Clear any leftovers from a previous run that died before its cleanup trap.
 rm -rf "${STAGE_DIR}"
@@ -246,7 +251,7 @@ QUESTARR_REPO="${QUESTARR_REPO}" \\
 QUESTARR_PORT="${QUESTARR_PORT}" \\
 QUESTARR_HOST="${QUESTARR_HOST}" \\
 NODE_MAJOR="${NODE_MAJOR}" \\
-  bash -c "\$(curl -fsSL https://raw.githubusercontent.com/${QUESTARR_REPO}/main/scripts/proxmox/questarr-install.sh)"
+  bash -c "\$(curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' https://raw.githubusercontent.com/${QUESTARR_REPO}/main/scripts/proxmox/questarr-install.sh)"
 EOF
 chmod 0755 /usr/bin/update
 

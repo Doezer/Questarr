@@ -236,6 +236,11 @@ export default function Library() {
     [hiddenMutation]
   );
 
+  const handleSortChange = useCallback(
+    (value: string) => setSortBy(value as LibrarySortOption),
+    [setSortBy]
+  );
+
   return (
     <div className="h-full overflow-auto p-6" data-testid="layout-dashboard">
       <div className="space-y-3">
@@ -315,7 +320,7 @@ export default function Library() {
             </div>
           }
           sortValue={sortBy}
-          onSortChange={(v) => setSortBy(v as LibrarySortOption)}
+          onSortChange={handleSortChange}
           sortOptions={LIBRARY_SORT_OPTIONS}
           viewControls={{
             viewMode,

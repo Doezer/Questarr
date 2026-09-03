@@ -1,5 +1,8 @@
 import { titleMatches } from "../shared/title-utils.js";
+import type { XrelExtInfo, XrelReleaseListItem } from "../shared/xrel-types.js";
 import { safeFetch } from "./ssrf.js";
+
+export type { XrelExtInfo, XrelReleaseListItem } from "../shared/xrel-types.js";
 
 /**
  * xREL.to API client (no official Node SDK).
@@ -64,15 +67,6 @@ function checkHourlyLimit(): void {
   hourlyCount++;
 }
 
-export interface XrelExtInfo {
-  type: string;
-  id: string;
-  title: string;
-  link_href: string;
-  rating?: number;
-  num_ratings?: number;
-}
-
 export interface XrelSceneRelease {
   id: string;
   dirname: string;
@@ -104,22 +98,6 @@ export interface XrelP2pRelease {
   ext_info?: XrelExtInfo;
   comments?: number;
   main_lang?: string;
-}
-
-export interface XrelReleaseListItem {
-  id: string;
-  dirname: string;
-  link_href: string;
-  time: number;
-  group_name: string;
-  sizeMb?: number;
-  sizeUnit?: string;
-  ext_info?: XrelExtInfo;
-  source: "scene" | "p2p";
-  // Normalized from XrelSceneRelease.nuke_reason (with a fallback for
-  // flag-only nukes -- see deriveNukeReason). Only ever set for scene
-  // releases -- xREL's p2p releases don't carry nuke metadata.
-  nukeReason?: string;
 }
 
 /**

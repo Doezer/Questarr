@@ -6,18 +6,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/queryClient";
+import type { XrelReleaseListItem } from "@shared/xrel-types";
 
-interface XrelRelease {
-  id: string;
-  dirname: string;
-  link_href: string;
-  time: number;
-  group_name: string;
-  sizeMb?: number;
-  sizeUnit?: string;
-  ext_info?: { title: string; link_href: string };
-  source: "scene" | "p2p";
-  nukeReason?: string;
+// The transport fields (id, dirname, nukeReason, ...) come from the
+// server's XrelReleaseListItem DTO; these are page-only fields the server
+// attaches/derives for display and aren't part of that shared contract.
+interface XrelRelease extends XrelReleaseListItem {
   isWanted?: boolean;
   libraryStatus?: string;
   gameId?: string;

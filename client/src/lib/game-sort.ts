@@ -19,7 +19,7 @@ export const LIBRARY_SORT_OPTIONS: { value: LibrarySortOption; label: string }[]
 
 // Missing values always sort to the end, regardless of direction, so games without
 // a release date/rating/etc. don't jump to the top of an ascending sort.
-const missingRank = (a: unknown, b: unknown): number | null => {
+export const missingRank = (a: unknown, b: unknown): number | null => {
   const missingA = a === null || a === undefined;
   const missingB = b === null || b === undefined;
   if (missingA && missingB) return 0;
@@ -33,7 +33,7 @@ const missingRank = (a: unknown, b: unknown): number | null => {
 const toComparableDateString = (value: Date | string): string =>
   value instanceof Date ? value.toISOString() : value;
 
-const compareDates = (
+export const compareDates = (
   dateA: Date | string | null | undefined,
   dateB: Date | string | null | undefined,
   asc: boolean

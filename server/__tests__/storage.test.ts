@@ -852,6 +852,67 @@ describe("MemStorage", () => {
         expect(keys.size).toBe(2);
       });
     });
+
+    describe("getDashboardStatus", () => {
+      it("counts games, wishlist items, active downloads and recent imports for the user", async () => {
+        // A second "wanted" game to exercise pendingWishlist counting.
+        await storage.addGame({
+          title: "Wishlist Game",
+          igdbId: 5002,
+          status: "wanted",
+          hidden: false,
+          userId,
+        } as InsertGame);
+
+        await storage.addGameDownload({
+          gameId,
+          downloaderId,
+          downloadHash: "active-1",
+          downloadTitle: "Active-GROUP",
+          status: "downloading",
+          downloadType: "torrent",
+          fileSize: null,
+        } as InsertGameDownload);
+        const completed = await storage.addGameDownload({
+          gameId,
+          downloaderId,
+          downloadHash: "completed-1",
+          downloadTitle: "Completed-GROUP",
+          status: "downloading",
+          downloadType: "torrent",
+          fileSize: null,
+        } as InsertGameDownload);
+        await storage.updateGameDownloadStatus(completed.id, "completed");
+
+        const status = await storage.getDashboardStatus(userId);
+
+        expect(status.totalGames).toBe(2);
+        expect(status.pendingWishlist).toBe(2);
+        expect(status.activeDownloads).toBe(1);
+        expect(status.recentImports.count).toBe(1);
+        expect(status.recentImports.items).toHaveLength(1);
+        expect(status.recentImports.items[0]).toMatchObject({
+          gameId,
+          title: "Download Game",
+        });
+      });
+
+      it("returns zeroed stats for a user with no games", async () => {
+        const otherUser = await storage.createUser({
+          username: "emptyuser",
+          passwordHash: "hash",
+        });
+
+        const status = await storage.getDashboardStatus(otherUser.id);
+
+        expect(status).toEqual({
+          totalGames: 0,
+          pendingWishlist: 0,
+          activeDownloads: 0,
+          recentImports: { count: 0, items: [] },
+        });
+      });
+    });
   });
 });
 

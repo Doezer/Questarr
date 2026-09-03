@@ -169,6 +169,60 @@ describe("DatabaseStorage Integration", () => {
     expect(summary[gameB.id].downloadTypes).toContain("torrent");
   });
 
+  it("getDashboardStatus should aggregate library, wishlist, downloads and imports in the database layer", async () => {
+    const userId = randomUUID();
+    await db.insert(users).values({ id: userId, username: "dash_test_user", passwordHash: "hash" });
+
+    const wantedGame = await storage.addGame({
+      title: "Wanted Game",
+      status: "wanted",
+      userId,
+      hidden: false,
+    });
+    const ownedGame = await storage.addGame({
+      title: "Owned Game",
+      status: "owned",
+      userId,
+      hidden: false,
+    });
+
+    const downloaderId = randomUUID();
+    await db
+      .insert(downloaders)
+      .values({ id: downloaderId, name: "Test Client", type: "torrent", url: "http://localhost" });
+
+    await storage.addGameDownload({
+      gameId: ownedGame.id,
+      downloaderId,
+      downloadType: "torrent",
+      downloadHash: randomUUID(),
+      downloadTitle: "Owned.Game-GROUP",
+      status: "downloading",
+    });
+    const completedDownload = await storage.addGameDownload({
+      gameId: ownedGame.id,
+      downloaderId,
+      downloadType: "torrent",
+      downloadHash: randomUUID(),
+      downloadTitle: "Owned.Game.Update-GROUP",
+      status: "downloading",
+    });
+    await storage.updateGameDownloadStatus(completedDownload!.id, "completed");
+
+    const status = await storage.getDashboardStatus(userId);
+
+    expect(status.totalGames).toBe(2);
+    expect(status.pendingWishlist).toBe(1);
+    expect(status.activeDownloads).toBe(1);
+    expect(status.recentImports.count).toBe(1);
+    expect(status.recentImports.items).toHaveLength(1);
+    expect(status.recentImports.items[0]).toMatchObject({
+      gameId: ownedGame.id,
+      title: "Owned Game",
+    });
+    expect(wantedGame.status).toBe("wanted");
+  });
+
   it("getTrackedDownloadKeys returns downloaderId:downloadHash keys for all game downloads", async () => {
     const userId = randomUUID();
     await db.insert(users).values({ id: userId, username: "user_" + userId, passwordHash: "hash" });

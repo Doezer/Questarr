@@ -437,6 +437,39 @@ describe("API Routes - Extended Coverage", () => {
     });
   });
 
+  // ─── Dashboard status ───
+  describe("GET /api/v1/status", () => {
+    it("returns dashboard stats for the authenticated user", async () => {
+      const dashboardStatus = {
+        totalGames: 12,
+        pendingWishlist: 3,
+        activeDownloads: 2,
+        recentImports: {
+          count: 1,
+          items: [
+            { gameId: "game-1", title: "Some Game", completedAt: "2026-01-01T00:00:00.000Z" },
+          ],
+        },
+      };
+      vi.mocked(storage.getDashboardStatus).mockResolvedValue(dashboardStatus);
+
+      const res = await request(app).get("/api/v1/status");
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual(dashboardStatus);
+      expect(storage.getDashboardStatus).toHaveBeenCalledWith("user-1");
+    });
+
+    it("returns 500 when the storage layer throws", async () => {
+      vi.mocked(storage.getDashboardStatus).mockRejectedValue(new Error("boom"));
+
+      const res = await request(app).get("/api/v1/status");
+
+      expect(res.status).toBe(500);
+      expect(res.body.error).toBeTruthy();
+    });
+  });
+
   // ─── Game routes ───
   describe("GET /api/games", () => {
     it("should return user games", async () => {

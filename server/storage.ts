@@ -11,6 +11,7 @@ import {
   type GameDownload,
   type InsertGameDownload,
   type DownloadSummary,
+  type DashboardStatus,
   type Notification,
   type InsertNotification,
   type UserSettings,
@@ -227,6 +228,8 @@ export interface IStorage {
   getDownloadSummaryByGame(userId: string): Promise<Record<string, DownloadSummary>>;
   getTrackedDownloadKeys(): Promise<Set<string>>;
   getTrackedDownloadGameStatuses(): Promise<Map<string, string>>;
+  // Lightweight aggregate stats for the /api/v1/status dashboard endpoint.
+  getDashboardStatus(userId: string): Promise<DashboardStatus>;
 
   // Notification methods
   getNotifications(userId: string, limit?: number): Promise<Notification[]>;
@@ -992,6 +995,51 @@ export class MemStorage implements IStorage {
       }
     }
     return result;
+  }
+
+  async getDashboardStatus(userId: string): Promise<DashboardStatus> {
+    const userGames = new Map(
+      Array.from(this.games.values())
+        .filter((g) => g.userId === userId)
+        .map((g) => [g.id, g] as const)
+    );
+
+    const totalGames = userGames.size;
+    const pendingWishlist = Array.from(userGames.values()).filter(
+      (g) => g.status === "wanted"
+    ).length;
+
+    const userDownloads = Array.from(this.gameDownloads.values()).filter((gd) =>
+      userGames.has(gd.gameId)
+    );
+
+    const activeDownloads = userDownloads.filter((gd) =>
+      ["downloading", "paused"].includes(gd.status)
+    ).length;
+
+    const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const completed = userDownloads
+      .filter((gd) => gd.status === "completed")
+      .sort(
+        (a, b) => new Date(b.completedAt || 0).getTime() - new Date(a.completedAt || 0).getTime()
+      );
+    const recentCount = completed.filter(
+      (gd) => gd.completedAt && new Date(gd.completedAt).getTime() >= sevenDaysAgo
+    ).length;
+
+    return {
+      totalGames,
+      pendingWishlist,
+      activeDownloads,
+      recentImports: {
+        count: recentCount,
+        items: completed.slice(0, 5).map((gd) => ({
+          gameId: gd.gameId,
+          title: userGames.get(gd.gameId)?.title ?? gd.downloadTitle,
+          completedAt: gd.completedAt ? new Date(gd.completedAt).toISOString() : null,
+        })),
+      },
+    };
   }
 
   // Notification methods
@@ -2313,6 +2361,63 @@ export class DatabaseStorage implements IStorage {
         ];
       })
     );
+  }
+
+  async getDashboardStatus(userId: string): Promise<DashboardStatus> {
+    const [gameCounts] = await db
+      .select({
+        totalGames: sql<number>`count(*)`,
+        pendingWishlist: sql<number>`sum(CASE WHEN ${games.status} = 'wanted' THEN 1 ELSE 0 END)`,
+      })
+      .from(games)
+      .where(eq(games.userId, userId));
+
+    const [activeDownloadsResult] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(gameDownloads)
+      .innerJoin(games, eq(gameDownloads.gameId, games.id))
+      .where(
+        and(eq(games.userId, userId), inArray(gameDownloads.status, ["downloading", "paused"]))
+      );
+
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const [recentImportsCountResult] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(gameDownloads)
+      .innerJoin(games, eq(gameDownloads.gameId, games.id))
+      .where(
+        and(
+          eq(games.userId, userId),
+          eq(gameDownloads.status, "completed"),
+          sql`${gameDownloads.completedAt} >= ${sevenDaysAgo.getTime()}`
+        )
+      );
+
+    const recentImportItems = await db
+      .select({
+        gameId: gameDownloads.gameId,
+        title: games.title,
+        completedAt: gameDownloads.completedAt,
+      })
+      .from(gameDownloads)
+      .innerJoin(games, eq(gameDownloads.gameId, games.id))
+      .where(and(eq(games.userId, userId), eq(gameDownloads.status, "completed")))
+      .orderBy(desc(gameDownloads.completedAt))
+      .limit(5);
+
+    return {
+      totalGames: gameCounts?.totalGames ?? 0,
+      pendingWishlist: gameCounts?.pendingWishlist ?? 0,
+      activeDownloads: activeDownloadsResult?.count ?? 0,
+      recentImports: {
+        count: recentImportsCountResult?.count ?? 0,
+        items: recentImportItems.map((row) => ({
+          gameId: row.gameId,
+          title: row.title,
+          completedAt: row.completedAt ? new Date(row.completedAt).toISOString() : null,
+        })),
+      },
+    };
   }
 
   // Notification methods

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Indexer } from "@shared/schema";
+import { DEFAULT_GAME_CATEGORIES } from "../indexer-caps.js";
 
 vi.mock("../db.js", () => ({ pool: {}, db: {} }));
 vi.mock("../logger.js", () => ({
@@ -405,11 +406,7 @@ describe("TorznabClient — getCategories", () => {
     mockFetchResponse(`<?xml version="1.0"?><caps></caps>`);
 
     const categories = await client.getCategories(makeIndexer());
-    expect(categories).toEqual([
-      { id: "1000", name: "Console" },
-      { id: "4000", name: "PC" },
-      { id: "4050", name: "PC > Games" },
-    ]);
+    expect(categories).toEqual(DEFAULT_GAME_CATEGORIES);
   });
 
   it("falls back to the default game categories instead of throwing when every caps URL variant is non-ok", async () => {
@@ -422,11 +419,7 @@ describe("TorznabClient — getCategories", () => {
 
     const categories = await client.getCategories(makeIndexer());
     expect(categories.length).toBeGreaterThan(0);
-    expect(categories).toEqual([
-      { id: "1000", name: "Console" },
-      { id: "4000", name: "PC" },
-      { id: "4050", name: "PC > Games" },
-    ]);
+    expect(categories).toEqual(DEFAULT_GAME_CATEGORIES);
   });
 
   it("tries a second caps URL variant and uses it when the first variant fails outright", async () => {
@@ -458,11 +451,7 @@ describe("TorznabClient — getCategories", () => {
       });
 
       const categories = await client.getCategories(makeIndexer());
-      expect(categories).toEqual([
-        { id: "1000", name: "Console" },
-        { id: "4000", name: "PC" },
-        { id: "4050", name: "PC > Games" },
-      ]);
+      expect(categories).toEqual(DEFAULT_GAME_CATEGORIES);
       expect(mockSafeFetch).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();

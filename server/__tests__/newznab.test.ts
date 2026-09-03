@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 import { newznabClient } from "../newznab.js";
+import { DEFAULT_GAME_CATEGORIES } from "../indexer-caps.js";
 import { routesLogger } from "../logger.js";
 
 vi.mock("../ssrf.js", () => ({
@@ -179,11 +180,7 @@ describe("NewznabClient", () => {
 
       const categories = await newznabClient.getCategories(mockIndexer);
 
-      expect(categories).toEqual([
-        { id: "1000", name: "Console" },
-        { id: "4000", name: "PC" },
-        { id: "4050", name: "PC > Games" },
-      ]);
+      expect(categories).toEqual(DEFAULT_GAME_CATEGORIES);
     });
 
     it("tries a second caps URL variant when the first one fails outright", async () => {

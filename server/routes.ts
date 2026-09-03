@@ -58,6 +58,7 @@ import {
   sanitizeIndexerData,
   sanitizeIndexerUpdateData,
   sanitizeDownloaderData,
+  sanitizeDownloaderTestData,
   sanitizeDownloaderUpdateData,
   sanitizeDownloaderDownloadData,
   sanitizeIndexerSearchQuery,
@@ -2726,67 +2727,70 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Downloader integration routes
 
   // Test downloader connection with provided configuration (doesn't require saving first)
-  app.post("/api/downloaders/test", async (req, res) => {
-    try {
-      const {
-        type,
-        url,
-        port,
-        useSsl,
-        urlPath,
-        username,
-        password,
-        downloadPath,
-        category,
-        label,
-        addStopped,
-        removeCompleted,
-        postImportCategory,
-        settings,
-      } = req.body;
+  app.post(
+    "/api/downloaders/test",
+    sanitizeDownloaderTestData,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const {
+          type,
+          url,
+          port,
+          useSsl,
+          urlPath,
+          username,
+          password,
+          downloadPath,
+          category,
+          label,
+          addStopped,
+          removeCompleted,
+          postImportCategory,
+          settings,
+          allowSelfSignedCertificate,
+        } = req.body;
 
-      if (!type || !url) {
-        return res.status(400).json({ error: "Type and URL are required" });
+        // Check for SSRF
+        if (!(await isSafeUrl(url))) {
+          return res.status(400).json({ error: "Invalid or unsafe URL" });
+        }
+
+        // Create a temporary downloader object for testing
+        const tempDownloader: Downloader = {
+          id: "test",
+          name: "Test Connection",
+          type,
+          url,
+          port: port || null,
+          useSsl: useSsl ?? false,
+          urlPath: urlPath || null,
+          username: username || null,
+          password: password || null,
+          enabled: true,
+          priority: 1,
+          downloadPath: downloadPath || null,
+          category: category || null,
+          label: label || "Questarr",
+          addStopped: addStopped ?? false,
+          removeCompleted: removeCompleted ?? false,
+          postImportCategory: postImportCategory || null,
+          settings: settings || null,
+          allowSelfSignedCertificate: allowSelfSignedCertificate ?? false,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+
+        const result = await DownloaderManager.testDownloader(tempDownloader);
+        res.json(result);
+      } catch (error) {
+        routesLogger.error({ error }, "error testing downloader");
+        res.status(500).json({
+          error: "Failed to test downloader connection",
+        });
       }
-
-      // Check for SSRF
-      if (!(await isSafeUrl(url))) {
-        return res.status(400).json({ error: "Invalid or unsafe URL" });
-      }
-
-      // Create a temporary downloader object for testing
-      const tempDownloader: Downloader = {
-        id: "test",
-        name: "Test Connection",
-        type,
-        url,
-        port: port || null,
-        useSsl: useSsl ?? false,
-        urlPath: urlPath || null,
-        username: username || null,
-        password: password || null,
-        enabled: true,
-        priority: 1,
-        downloadPath: downloadPath || null,
-        category: category || null,
-        label: label || "Questarr",
-        addStopped: addStopped ?? false,
-        removeCompleted: removeCompleted ?? false,
-        postImportCategory: postImportCategory || null,
-        settings: settings || null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-
-      const result = await DownloaderManager.testDownloader(tempDownloader);
-      res.json(result);
-    } catch (error) {
-      routesLogger.error({ error }, "error testing downloader");
-      res.status(500).json({
-        error: "Failed to test downloader connection",
-      });
     }
-  });
+  );
 
   // Test existing downloader connection by ID
   app.post("/api/downloaders/:id/test", async (req, res) => {

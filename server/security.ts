@@ -126,29 +126,16 @@ export function csrfProtection(req: Request, res: Response, next: NextFunction):
   res.status(403).json({ error: "CSRF validation failed" });
 }
 
+// The text-level secret redaction (`redactSecretText`) lives in
+// `shared/log-scrub.ts` so the client's manual "Send Logs" flow and the
+// server's automatic error-telemetry flow -- neither of which import from
+// `server/` -- apply the exact same redaction as this pino formatter. Re-exported
+// here so existing server-side callers/imports are unaffected.
+import { redactSecretText } from "../shared/log-scrub.js";
+export { redactSecretText } from "../shared/log-scrub.js";
+
 const SECRET_KEY_PATTERN =
   /(api[_-]?key|apikey|authorization|bearer|client[_-]?secret|cookie|csrf|jwt|password|secret|token|webhook)/i;
-
-/**
- * Redact common secret-shaped substrings (api_key=..., Bearer <token>, etc.)
- * out of a plain string before it reaches a log sink.
- */
-export function redactSecretText(value: string): string {
-  return (
-    value
-      .replace(
-        /\b(apikey|api[_-]?key|token|password|secret)["']?\s*[:=]\s*["']?([^"',\s&]+)["']?/gi,
-        "$1=[redacted]"
-      )
-      // The /i flag already folds case, so an explicit A-Z range here would
-      // duplicate a-z -- SonarCloud flags that as a redundant character class.
-      .replace(/(Bearer\s+)[a-z0-9._~+/=-]+/gi, "$1[redacted]")
-      .replace(
-        /https:\/\/(?:discord|discordapp)\.com\/api\/webhooks\/[^\s"'<>]+/gi,
-        "[redacted-discord-webhook]"
-      )
-  );
-}
 
 /**
  * Recursively redact values whose key looks secret-shaped (api_key, token,

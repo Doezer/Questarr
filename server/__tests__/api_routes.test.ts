@@ -2057,6 +2057,29 @@ describe("API Routes - Extended Coverage", () => {
         })
       );
     });
+
+    it("should reject a non-boolean allowSelfSignedCertificate", async () => {
+      const response = await request(app).post("/api/downloaders/test").send({
+        type: "synology",
+        url: "https://example.com",
+        allowSelfSignedCertificate: "false",
+      });
+
+      expect(response.status).toBe(400);
+      expect(DownloaderManager.testDownloader).not.toHaveBeenCalled();
+    });
+
+    it("should accept an omitted allowSelfSignedCertificate and default it to false", async () => {
+      const response = await request(app).post("/api/downloaders/test").send({
+        type: "synology",
+        url: "https://example.com",
+      });
+
+      expect(response.status).toBe(200);
+      expect(DownloaderManager.testDownloader).toHaveBeenCalledWith(
+        expect.objectContaining({ allowSelfSignedCertificate: false })
+      );
+    });
   });
 
   // ─── Download details route ───

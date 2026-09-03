@@ -1,0 +1,34 @@
+manifestVersion: 1
+id: questarr
+category: media
+name: Questarr
+version: "1.4.3"
+tagline: Discover, track and download your video games
+description: >-
+  Questarr is a video game management application inspired by the *Arr apps (Sonarr, Radarr,
+  Prowlarr).
+
+
+  Track your collection with status indicators, discover new releases through IGDB, RSS feeds and
+  xREL, sync your Steam wishlist, search your Torznab/Newznab indexers, and send releases straight to
+  qBittorrent, Transmission, rTorrent, Deluge, Synology Download Station, SABnzbd or NZBGet.
+
+
+  Questarr stores everything in a self-contained SQLite database. To let it import finished
+  downloads, mount the same root your download client writes into and add a matching entry under
+  Settings -> Path Mappings.
+releaseNotes: >-
+  See https://github.com/Doezer/Questarr/releases for the full changelog.
+developer: Doezer
+website: https://github.com/Doezer/Questarr
+dependencies: []
+repo: https://github.com/Doezer/Questarr
+support: https://github.com/Doezer/Questarr/issues
+port: 5000
+gallery:
+  - https://raw.githubusercontent.com/Doezer/Questarr/main/images/Screenshots/library.png
+  - https://raw.githubusercontent.com/Doezer/Questarr/main/images/Screenshots/discover.png
+  - https://raw.githubusercontent.com/Doezer/Questarr/main/images/Screenshots/calendar.png
+path: ""
+submitter: Doezer
+submission: https://github.com/Doezer/Questarr

@@ -1,0 +1,17 @@
+{
+  "questarr": {
+    "name": "Questarr",
+    "description": "Video game management application inspired by the *Arr apps. Discover, track and automatically download the games you want.",
+    "longDescription": "Questarr is a video game management application inspired by the *Arr apps (Sonarr, Radarr, Prowlarr). Track your collection with status indicators, discover new releases through IGDB, RSS feeds and xREL, sync your Steam wishlist, search your Torznab/Newznab indexers, and send releases straight to qBittorrent, Transmission, rTorrent, Deluge, Synology Download Station, SABnzbd or NZBGet.",
+    "icon": "https://raw.githubusercontent.com/Doezer/Questarr/main/images/Questarr_icon.png",
+    "screenshots": [
+      "https://raw.githubusercontent.com/Doezer/Questarr/main/images/Screenshots/library.png",
+      "https://raw.githubusercontent.com/Doezer/Questarr/main/images/Screenshots/discover.png",
+      "https://raw.githubusercontent.com/Doezer/Questarr/main/images/Screenshots/calendar.png"
+    ],
+    "compose": "https://raw.githubusercontent.com/Doezer/Questarr/main/cosmos/questarr.cosmos-compose.json",
+    "tags": ["media", "games", "downloader", "arr"],
+    "repository": "https://github.com/Doezer/Questarr",
+    "supported_architectures": ["amd64", "arm64"]
+  }
+}

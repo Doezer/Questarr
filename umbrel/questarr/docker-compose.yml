@@ -1,0 +1,23 @@
+version: "3.7"
+
+services:
+  app_proxy:
+    environment:
+      APP_HOST: questarr_web_1
+      APP_PORT: 5000
+
+  web:
+    image: ghcr.io/doezer/questarr:latest
+    restart: on-failure
+    stop_grace_period: 1m
+    environment:
+      PORT: 5000
+      SQLITE_DB_PATH: /app/data/sqlite.db
+      PUID: 1000
+      PGID: 1000
+      UMASK: "022"
+    volumes:
+      - ${APP_DATA_DIR}/data:/app/data
+      # Optional: mount the same root your download client writes into so Questarr can import
+      # finished downloads, then add a matching entry under Settings -> Path Mappings.
+      - ${UMBREL_ROOT}/data/storage/downloads:/data

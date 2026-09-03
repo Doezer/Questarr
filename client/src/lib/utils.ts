@@ -124,6 +124,47 @@ export function safeUrl(url: string, fallback = "#"): string {
 }
 
 /**
+ * Copies text to the clipboard, falling back to the legacy `document.execCommand("copy")`
+ * approach when the async Clipboard API is unavailable (e.g. non-secure/plain-HTTP contexts,
+ * where `navigator.clipboard` is `undefined`).
+ *
+ * Resolves `true` on success, `false` if every copy method failed or is unsupported.
+ */
+export async function copyToClipboard(text: string): Promise<boolean> {
+  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Fall through to the legacy fallback below.
+    }
+  }
+
+  if (typeof document === "undefined") return false;
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  // Keep the textarea out of view and out of the tab/scroll flow.
+  textarea.style.position = "fixed";
+  textarea.style.top = "-9999px";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+
+  let succeeded = false;
+  try {
+    succeeded = document.execCommand("copy");
+  } catch {
+    succeeded = false;
+  } finally {
+    document.body.removeChild(textarea);
+  }
+
+  return succeeded;
+}
+
+/**
  * Parses an ISO release date string into a display year and an optional full date.
  * IGDB represents year-only known dates as YYYY-12-31; fullDate is null in that case.
  * fullDate is formatted as dd/mm/yyyy using UTC to avoid timezone shifts.

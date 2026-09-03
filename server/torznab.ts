@@ -1,9 +1,5 @@
 import { type Indexer } from "@shared/schema";
-import {
-  buildCapsUrlCandidates,
-  CAPS_DISCOVERY_TIMEOUT_MS,
-  DEFAULT_GAME_CATEGORIES,
-} from "./indexer-caps.js";
+import { DEFAULT_GAME_CATEGORIES, discoverCapsCategories } from "./indexer-caps.js";
 import { torznabLogger } from "./logger.js";
 import { isSafeUrl, safeFetch } from "./ssrf.js";
 import { XMLParser } from "fast-xml-parser";
@@ -612,60 +608,24 @@ export class TorznabClient {
   }
 
   /**
-   * Get available categories from an indexer. Tries a couple of reasonable
-   * caps URL variants before giving up, and falls back to a conservative
-   * default game-category list rather than hard-failing the whole indexer
-   * when caps discovery can't be reached at all.
+   * Get available categories from an indexer. See discoverCapsCategories
+   * for the retry/fallback behavior.
    */
   async getCategories(indexer: Indexer): Promise<{ id: string; name: string }[]> {
-    if (!indexer.enabled) {
-      throw new Error(`Indexer ${indexer.name} is disabled`);
-    }
-
-    // One overall deadline shared across every caps URL candidate, not a
-    // fresh timeout per candidate -- otherwise two unreachable candidates
-    // (buildCapsUrlCandidates can return up to two) each hang for the full
-    // per-request timeout before falling back, roughly doubling worst-case
-    // caps-discovery latency.
-    const deadline = Date.now() + CAPS_DISCOVERY_TIMEOUT_MS;
-
-    let lastError: unknown;
-    for (const url of buildCapsUrlCandidates(indexer, this.buildApiUrl.bind(this))) {
-      const remainingMs = deadline - Date.now();
-      if (remainingMs <= 0) {
-        lastError ??= new Error("Caps discovery deadline exceeded");
-        break;
-      }
-      try {
-        const response = await safeFetch(url.toString(), {
-          headers: { "User-Agent": "Questarr/1.0" },
-          signal: AbortSignal.timeout(remainingMs),
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text().catch(() => "No error details available");
-          lastError = new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
-          continue;
+    return discoverCapsCategories({
+      indexer,
+      buildApiUrl: this.buildApiUrl.bind(this),
+      assertAllowed: () => {
+        if (!indexer.enabled) {
+          throw new Error(`Indexer ${indexer.name} is disabled`);
         }
-
-        const xmlData = await response.text();
-        const categories = this.parseCapsCategories(xmlData);
-        if (categories.length > 0) {
-          return categories;
-        }
-        // Parsed successfully but no categories were listed -- not worth
-        // retrying other URL variants for, but also not a hard failure.
-        lastError = new Error("Caps response contained no categories");
-      } catch (error) {
-        lastError = error;
-      }
-    }
-
-    torznabLogger.warn(
-      { indexerName: indexer.name, error: lastError },
-      "torznab caps discovery failed for all URL variants; falling back to default game categories"
-    );
-    return [...DEFAULT_GAME_CATEGORIES];
+      },
+      fetchHeaders: { "User-Agent": "Questarr/1.0" },
+      parseCaps: (xmlData) => this.parseCapsCategories(xmlData),
+      fallback: DEFAULT_GAME_CATEGORIES,
+      logger: torznabLogger,
+      protocolName: "torznab",
+    });
   }
 }
 

@@ -4,7 +4,7 @@ import { igdbLogger } from "./logger.js";
 import { notifyUser } from "./socket.js";
 import { resolvePrefs } from "./notification-prefs.js";
 import { DownloaderManager } from "./downloaders.js";
-import { resolveDownloadRelativePath } from "./downloaders/utils.js";
+import { resolveDownloadRelativePath, buildRemoteImportPath } from "./downloaders/utils.js";
 import { torznabClient } from "./torznab.js";
 import { newznabClient } from "./newznab.js";
 import { searchAllIndexers, filterBlacklistedReleases, type SearchItem } from "./search.js";
@@ -49,25 +49,15 @@ const GAME_UPDATE_TITLE_TO_EVENT: Record<string, NotificationEvent> = {
   "Game Delayed": "gameDelayed",
 };
 
-function buildRemoteImportPath(downloadDir: string, name: string): string {
-  const normalizedDir = downloadDir.replace(/[\\/]+$/, "");
-  const normalizedName = name.replace(/^[\\/]+/, "");
-  const lastSegment = normalizedDir.split(/[\\/]/).pop()?.toLowerCase();
-  if (lastSegment && lastSegment === normalizedName.toLowerCase()) {
-    return normalizedDir;
-  }
-  return `${normalizedDir}/${normalizedName}`;
-}
+type DownloadSortBy = "seeders" | "date" | "size" | "priority";
 
-type DownloadSortBy = "seeders" | "date" | "size";
-
-interface AutoSearchRules {
+export interface AutoSearchRules {
   minSeeders: number;
   sortBy: DownloadSortBy;
   visibleCategoriesSet: Set<string>;
 }
 
-interface AutoSearchCategorizedItems {
+export interface AutoSearchCategorizedItems {
   mainItems: SearchItem[];
   updateItems: SearchItem[];
   packsItems: SearchItem[];
@@ -89,9 +79,11 @@ function getAutoSearchRules(downloadRules: string | null): AutoSearchRules {
   return { minSeeders, sortBy, visibleCategoriesSet };
 }
 
-function categorizeSearchItems(
+// Exported for unit testing of the sort/filter/category logic in isolation.
+export function categorizeSearchItems(
   items: SearchItem[],
-  rules: AutoSearchRules
+  rules: AutoSearchRules,
+  indexerPriorityMap?: Map<string, number>
 ): AutoSearchCategorizedItems {
   const sortedItems = items
     .filter((item) => {
@@ -104,6 +96,12 @@ function categorizeSearchItems(
       }
       if (rules.sortBy === "date") {
         return new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime();
+      }
+      if (rules.sortBy === "priority") {
+        // Lower priority number = higher-priority indexer, so it sorts first.
+        const aPriority = indexerPriorityMap?.get(a.indexerId) ?? Infinity;
+        const bPriority = indexerPriorityMap?.get(b.indexerId) ?? Infinity;
+        return aPriority - bPriority;
       }
       return (b.size ?? 0) - (a.size ?? 0);
     });
@@ -191,7 +189,8 @@ function applyPreferredPlatformFilter(
 
 async function searchAndCategorizeItemsForGame(
   game: Pick<Game, "id" | "title">,
-  downloadRules: string | null
+  downloadRules: string | null,
+  indexerPriorityMap?: Map<string, number>
 ): Promise<AutoSearchCategorizedItems | null> {
   const { items, errors } = await searchAllIndexers({
     query: game.title,
@@ -255,7 +254,7 @@ async function searchAndCategorizeItemsForGame(
     rules = getAutoSearchRules(null);
   }
 
-  return categorizeSearchItems(nonBlacklisted, rules);
+  return categorizeSearchItems(nonBlacklisted, rules, indexerPriorityMap);
 }
 
 export function startCronJobs() {
@@ -976,7 +975,8 @@ export async function checkAutoSearch() {
 
             const searchResult = await searchAndCategorizeItemsForGame(
               game,
-              settings.downloadRules
+              settings.downloadRules,
+              indexerPriorityMap
             );
             if (!searchResult) {
               // No results at all (zero results or all blacklisted) — clear the badge
@@ -1104,7 +1104,8 @@ export async function checkAutoSearch() {
 
             const searchResult = await searchAndCategorizeItemsForGame(
               game,
-              settings.downloadRules
+              settings.downloadRules,
+              indexerPriorityMap
             );
             if (!searchResult) {
               await storage.updateGameSearchResultsAvailable(game.id, false);

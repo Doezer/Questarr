@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import express from "express";
+import jwt from "jsonwebtoken";
 import { createApp as createServerApp } from "../app.js";
 
 // Use vi.hoisted to create the mock object before hoisting occurs
@@ -50,6 +51,7 @@ vi.mock("../storage.js", () => ({
   storage: {
     countUsers: vi.fn().mockResolvedValue(0),
     getSystemConfig: vi.fn().mockResolvedValue(null),
+    getUser: vi.fn().mockResolvedValue({ id: "user-1", username: "testuser" }),
   },
 }));
 
@@ -161,10 +163,32 @@ describe("Security Headers", () => {
       "permissions-policy",
       "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()",
     ],
+    ["x-robots-tag", "noindex, nofollow"],
   ])("should set %s header to %j", async (headerName, expectedValue) => {
     const app = await createApp();
     const response = await request(app).get("/api/auth/status");
     expect(response.headers[headerName]).toBe(expectedValue);
+  });
+
+  it("should serve a disallow-all robots.txt", async () => {
+    const app = await createApp();
+    const response = await request(app).get("/robots.txt");
+
+    expect(response.status).toBe(200);
+    expect(response.headers["content-type"]).toContain("text/plain");
+    expect(response.text).toBe("User-agent: *\nDisallow: /\n");
+  });
+
+  it("should still set X-Robots-Tag on a rate-limited (429) response", async () => {
+    const app = await createApp();
+    // generalApiLimiter allows 100 requests/minute per IP before returning 429.
+    let response = await request(app).get("/api/auth/status");
+    for (let attempts = 1; response.status !== 429 && attempts < 101; attempts++) {
+      response = await request(app).get("/api/auth/status");
+    }
+
+    expect(response.status).toBe(429);
+    expect(response.headers["x-robots-tag"]).toBe("noindex, nofollow");
   });
 });
 
@@ -180,19 +204,33 @@ describe("Credential Exposure Prevention", () => {
     return app;
   };
 
-  it("should not expose IGDB clientId in the unauthenticated /api/config response", async () => {
+  const authToken = () =>
+    jwt.sign({ id: "user-1", username: "testuser" }, mockConfig.auth.jwtSecret);
+
+  it("requires authentication for GET /api/config (no unauthenticated access at all)", async () => {
     const app = await createApp();
     const response = await request(app).get("/api/config");
+
+    expect(response.status).toBe(401);
+  });
+
+  it("should not expose IGDB clientId in the authenticated /api/config response", async () => {
+    const app = await createApp();
+    const response = await request(app)
+      .get("/api/config")
+      .set("Authorization", `Bearer ${authToken()}`);
 
     expect(response.status).toBe(200);
     expect(response.body).not.toHaveProperty("igdb.clientId");
-    // The public endpoint should only return whether IGDB is configured
+    // Even authenticated, the endpoint should only return whether IGDB is configured
     expect(response.body.igdb).toHaveProperty("configured");
   });
 
-  it("should not expose IGDB clientSecret in the unauthenticated /api/config response", async () => {
+  it("should not expose IGDB clientSecret in the authenticated /api/config response", async () => {
     const app = await createApp();
-    const response = await request(app).get("/api/config");
+    const response = await request(app)
+      .get("/api/config")
+      .set("Authorization", `Bearer ${authToken()}`);
 
     expect(response.status).toBe(200);
     expect(response.body).not.toHaveProperty("igdb.clientSecret");

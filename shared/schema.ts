@@ -122,6 +122,14 @@ export interface ImportConfig {
   sortExtras: boolean;
 }
 
+// gameDownloads.status value for a download whose linked game record can't be
+// found. Kept as a shared constant (rather than the literal repeated across
+// server and client) since it's the join key between ImportManager, the
+// storage layer's getUnlinkedImportReviews/relinkGameDownload, the /link
+// route, and the pending-imports UI that decides whether to open
+// LinkGameModal or the regular ImportReviewModal.
+export const GAME_LINK_REQUIRED_STATUS = "game_link_required";
+
 export const IMPORT_TRANSFER_MODES = ["move", "copy", "hardlink", "symlink"] as const;
 
 export type ImportTransferMode = (typeof IMPORT_TRANSFER_MODES)[number];
@@ -223,6 +231,13 @@ export const downloaders = sqliteTable("downloaders", {
   port: integer("port"),
   useSsl: integer("use_ssl", { mode: "boolean" }).default(false),
   urlPath: text("url_path"),
+  // Opt-in per-downloader bypass for TLS certificate validation. Left off by
+  // default: a hung/failed TLS handshake should surface as an error, not
+  // silently fall back to an insecure connection unless the user explicitly
+  // trusts this downloader's self-signed certificate.
+  allowSelfSignedCertificate: integer("allow_self_signed_certificate", { mode: "boolean" })
+    .notNull()
+    .default(false),
   username: text("username"),
   password: text("password"),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
@@ -452,7 +467,7 @@ export const insertNotificationSchema = createInsertSchema(notifications).omit({
 // Download rules schema for auto-download filtering
 export const downloadRulesSchema = z.object({
   minSeeders: z.number().int().min(0).default(0),
-  sortBy: z.enum(["seeders", "date", "size"]).default("seeders"),
+  sortBy: z.enum(["seeders", "date", "size", "priority"]).default("seeders"),
   visibleCategories: z
     .array(z.enum(["main", "update", "dlc", "extra", "packs"]))
     .default(["main", "update", "dlc", "extra", "packs"]),
@@ -876,6 +891,18 @@ export const insertGameFileSchema = createInsertSchema(gameFiles, {
 
 export type GameFile = typeof gameFiles.$inferSelect;
 export type InsertGameFile = (typeof insertGameFileSchema)["_output"];
+
+// A file discovered by scanning a game's library folder on disk, as returned by
+// GET /api/games/:gameId/files. Distinct from GameFile (a persisted game_files row):
+// this reflects the live filesystem scan, not an imported/tracked file. The scan only
+// walks into subdirectories to find files within them — it never lists a directory
+// itself as an entry.
+export interface ScannedGameFile {
+  name: string;
+  path: string;
+  category: GameFileCategory;
+  size: number;
+}
 
 // Response contract for GET/PUT /api/downloaders/debug-logging, shared so the
 // client can validate the payload at runtime instead of trusting a local

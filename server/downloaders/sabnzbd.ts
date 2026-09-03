@@ -3,7 +3,44 @@ import { downloadersLogger } from "../logger.js";
 import https from "https";
 import { isSafeUrl, resolveSafeAddress, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
-import { fixNzbUrlEncoding, logDownloaderDebugResponse } from "./utils.js";
+import {
+  fixNzbUrlEncoding,
+  logDownloaderDebugResponse,
+  stripTrailingPathSeparators,
+} from "./utils.js";
+
+/**
+ * Strips the `apikey` query param from a SABnzbd request URL before it's
+ * passed to a logger -- getApiUrl() embeds the credential directly in the
+ * URL, so logging it unredacted would leak the API key into log output.
+ */
+function redactApiKey(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.searchParams.has("apikey")) {
+      parsed.searchParams.set("apikey", "[redacted]");
+    }
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * Node TLS error codes that genuinely indicate a self-signed or otherwise
+ * untrusted certificate chain -- the specific failure modes
+ * allowSelfSignedCertificate exists to bypass. Deliberately excludes
+ * CERT_HAS_EXPIRED and any other certificate-related code: an expired
+ * certificate is a different, unrelated problem that this opt-in was never
+ * meant to paper over.
+ */
+const SELF_SIGNED_TLS_ERROR_CODES = new Set([
+  "DEPTH_ZERO_SELF_SIGNED_CERT",
+  "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "SELF_SIGNED_CERT_IN_CHAIN",
+  "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+  "UNABLE_TO_GET_ISSUER_CERT",
+]);
 
 interface SABnzbdQueue {
   slots: Array<{
@@ -114,16 +151,26 @@ export class SABnzbdClient implements DownloaderClient {
     } catch (error) {
       const isSslError =
         error instanceof Error &&
-        (error.message.includes("self-signed") ||
-          error.message.includes("certificate") ||
-          (error.cause as { code: string })?.code === "DEPTH_ZERO_SELF_SIGNED_CERT" ||
-          (error.cause as { code: string })?.code === "UNABLE_TO_VERIFY_LEAF_SIGNATURE" ||
-          (error.cause as { code: string })?.code === "CERT_HAS_EXPIRED");
+        // Only Node's self-signed/untrusted-chain TLS error codes qualify for
+        // the insecure retry -- NOT a generic message.includes("certificate")
+        // (too broad) or CERT_HAS_EXPIRED (an expired cert is a different,
+        // unrelated failure that allowSelfSignedCertificate was never meant
+        // to bypass).
+        SELF_SIGNED_TLS_ERROR_CODES.has((error.cause as { code?: string })?.code ?? "");
 
       if (isSslError) {
+        const redactedUrl = redactApiKey(url);
+        if (!this.downloader.allowSelfSignedCertificate) {
+          downloadersLogger.warn(
+            { url: redactedUrl, downloaderId: this.downloader.id },
+            "SSL verification failed; not retrying insecurely because " +
+              "allowSelfSignedCertificate is disabled for this downloader"
+          );
+          throw error;
+        }
         downloadersLogger.debug(
-          { url },
-          "SSL verification failed, retrying with insecure connection"
+          { url: redactedUrl },
+          "SSL verification failed, retrying with insecure connection (allowSelfSignedCertificate enabled)"
         );
         return this.fetchInsecure(url, options);
       }
@@ -198,13 +245,11 @@ export class SABnzbdClient implements DownloaderClient {
       return { success: false, message: "Invalid SABnzbd response - missing version field" };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      downloadersLogger.error(
-        { error, url: this.getApiUrl("version") },
-        "SABnzbd connection test failed"
-      );
+      const redactedUrl = redactApiKey(this.getApiUrl("version"));
+      downloadersLogger.error({ error, url: redactedUrl }, "SABnzbd connection test failed");
       return {
         success: false,
-        message: `Failed to connect to SABnzbd at ${this.getApiUrl("version")}: ${errorMessage}`,
+        message: `Failed to connect to SABnzbd at ${redactedUrl}: ${errorMessage}`,
       };
     }
   }
@@ -231,7 +276,7 @@ export class SABnzbdClient implements DownloaderClient {
 
   private async getVersionInfo(): Promise<Record<string, unknown>> {
     const url = this.getApiUrl("version");
-    downloadersLogger.debug({ url }, "Testing SABnzbd connection");
+    downloadersLogger.debug({ url: redactApiKey(url) }, "Testing SABnzbd connection");
     const response = await this.fetchWithFallback(url, { signal: AbortSignal.timeout(10000) });
 
     if (!response.ok) {
@@ -515,10 +560,31 @@ export class SABnzbdClient implements DownloaderClient {
   }
 
   private resolveHistoryDownloadDir(item: SABnzbdHistory["slots"][number]): string | undefined {
+    const completedPath = item.path
+      ? stripTrailingPathSeparators(
+          item.path
+            .replaceAll("/incomplete/", "/complete/")
+            .replaceAll("\\incomplete\\", "\\complete\\")
+        )
+      : undefined;
     // `storage` is SABnzbd's final resting place for the completed job
-    if (item.storage) return item.storage;
+    if (item.storage) {
+      const normalizedStorage = stripTrailingPathSeparators(item.storage);
+      if (completedPath) {
+        const normalizedStoragePosix = normalizedStorage.replaceAll("\\", "/");
+        const completedPathPosix = completedPath.replaceAll("\\", "/");
+        if (
+          normalizedStoragePosix === completedPathPosix ||
+          normalizedStoragePosix.startsWith(`${completedPathPosix}/`)
+        ) {
+          return completedPath;
+        }
+      }
+
+      return normalizedStorage;
+    }
     // Fallback for older SABnzbd versions that don't expose `storage`.
-    return item.path?.replace(/\/incomplete\//g, "/complete/");
+    return completedPath;
   }
 
   async getDownloadDetails(id: string): Promise<DownloadDetails | null> {

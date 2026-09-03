@@ -4,6 +4,7 @@ import { DelugeClient } from "../downloaders/deluge.js";
 import { DownloaderManager } from "../downloaders.js";
 import {
   DOWNLOAD_CLIENT_USER_AGENT,
+  buildRemoteImportPath,
   extractHashFromUrl,
   fetchWithMagnetDetection,
   fixNzbUrlEncoding,
@@ -91,6 +92,23 @@ describe("downloaders utils", () => {
     );
     expect(fixNzbUrlEncoding("http://indexer.local/download?flag")).toBe(
       "http://indexer.local/download?flag"
+    );
+  });
+
+  it("does not duplicate the release name when downloadDir already ends with it", () => {
+    // NZBGet/SABnzbd report downloadDir as the final content directory itself.
+    expect(
+      buildRemoteImportPath(
+        "/downloads/nzbget/Questarr/Xenoblade.Chronicles.3.Update.v2.2.1.NSW-SUXXORS",
+        "Xenoblade.Chronicles.3.Update.v2.2.1.NSW-SUXXORS"
+      )
+    ).toBe("/downloads/nzbget/Questarr/Xenoblade.Chronicles.3.Update.v2.2.1.NSW-SUXXORS");
+  });
+
+  it("appends the relative path when downloadDir is a genuine parent directory", () => {
+    // Torrent clients report downloadDir as the parent, requiring the subpath appended.
+    expect(buildRemoteImportPath("/downloads/deluge/complete", "My Game Release")).toBe(
+      "/downloads/deluge/complete/My Game Release"
     );
   });
 

@@ -54,6 +54,7 @@ import {
   type GameFile,
   type InsertGameFile,
   gameFiles,
+  GAME_LINK_REQUIRED_STATUS,
 } from "../shared/schema.js";
 import { randomUUID } from "crypto";
 import { db } from "./db.js";
@@ -205,11 +206,22 @@ export interface IStorage {
   // GameDownload methods
   getDownloadingGameDownloads(): Promise<GameDownload[]>;
   getPendingImportReviews(userId: string): Promise<GameDownload[]>;
+  // Downloads whose linked game record couldn't be found (status "game_link_required").
+  // Unlike getPendingImportReviews, this can't be scoped by userId — there's no game
+  // row left to join against to determine ownership.
+  getUnlinkedImportReviews(): Promise<GameDownload[]>;
   getGameDownload(id: string, userId?: string): Promise<GameDownload | undefined>;
   getDownloadsByGameId(
     gameId: string
   ): Promise<(GameDownload & { downloaderName: string | null })[]>;
   updateGameDownloadStatus(id: string, status: string, errorMessage?: string | null): Promise<void>;
+  // Attaches a "game_link_required" download to the given game and drops it back into
+  // the normal "manual_review_required" path-review flow.
+  relinkGameDownload(id: string, gameId: string): Promise<GameDownload | undefined>;
+  // Dismisses a "game_link_required" download without linking it to a game.
+  // Conditional on the download still being game_link_required at write time,
+  // so it can't race with a concurrent relinkGameDownload for the same id.
+  completeUnlinkedGameDownload(id: string): Promise<GameDownload | undefined>;
   addGameDownload(gameDownload: InsertGameDownload): Promise<GameDownload | undefined>;
   removeGameDownload(id: string, gameId: string): Promise<boolean>;
   getDownloadSummaryByGame(userId: string): Promise<Record<string, DownloadSummary>>;
@@ -788,6 +800,7 @@ export class MemStorage implements IStorage {
       removeCompleted: insertDownloader.removeCompleted ?? false,
       postImportCategory: insertDownloader.postImportCategory ?? null,
       settings: insertDownloader.settings ?? null,
+      allowSelfSignedCertificate: insertDownloader.allowSelfSignedCertificate ?? false,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -827,6 +840,37 @@ export class MemStorage implements IStorage {
       const game = this.games.get(d.gameId);
       return game?.userId === userId;
     });
+  }
+
+  async getUnlinkedImportReviews(): Promise<GameDownload[]> {
+    return Array.from(this.gameDownloads.values()).filter(
+      (d) => d.status === GAME_LINK_REQUIRED_STATUS
+    );
+  }
+
+  async relinkGameDownload(id: string, gameId: string): Promise<GameDownload | undefined> {
+    const gd = this.gameDownloads.get(id);
+    // Conditional on still being game_link_required, not just present, so two
+    // concurrent relink requests for the same download can't race: only the
+    // first to observe this status wins, the second sees it already moved on
+    // and returns undefined instead of silently overwriting the first pick.
+    if (gd?.status !== GAME_LINK_REQUIRED_STATUS) return undefined;
+    const updated: GameDownload = {
+      ...gd,
+      gameId,
+      status: "manual_review_required",
+      errorMessage: null,
+    };
+    this.gameDownloads.set(id, updated);
+    return updated;
+  }
+
+  async completeUnlinkedGameDownload(id: string): Promise<GameDownload | undefined> {
+    const gd = this.gameDownloads.get(id);
+    if (gd?.status !== GAME_LINK_REQUIRED_STATUS) return undefined;
+    const updated: GameDownload = { ...gd, status: "completed", completedAt: new Date() };
+    this.gameDownloads.set(id, updated);
+    return updated;
   }
 
   async getGameDownload(id: string, userId?: string): Promise<GameDownload | undefined> {
@@ -2064,6 +2108,7 @@ export class DatabaseStorage implements IStorage {
             "error",
             "imported",
             "manual_review_required",
+            GAME_LINK_REQUIRED_STATUS,
           ])
         )
       );
@@ -2076,6 +2121,39 @@ export class DatabaseStorage implements IStorage {
       .innerJoin(games, eq(gameDownloads.gameId, games.id))
       .where(and(eq(gameDownloads.status, "manual_review_required"), eq(games.userId, userId)));
     return rows.map((r) => r.gameDownloads);
+  }
+
+  async getUnlinkedImportReviews(): Promise<GameDownload[]> {
+    return db
+      .select()
+      .from(gameDownloads)
+      .where(eq(gameDownloads.status, GAME_LINK_REQUIRED_STATUS));
+  }
+
+  async relinkGameDownload(id: string, gameId: string): Promise<GameDownload | undefined> {
+    // Conditional on still being game_link_required, not just id, so two
+    // concurrent relink requests for the same download can't race: only the
+    // first to match this predicate updates anything, the second's WHERE
+    // matches zero rows and it returns undefined instead of silently
+    // overwriting the first pick.
+    const [updated] = await db
+      .update(gameDownloads)
+      .set({ gameId, status: "manual_review_required", errorMessage: null })
+      .where(and(eq(gameDownloads.id, id), eq(gameDownloads.status, GAME_LINK_REQUIRED_STATUS)))
+      .returning();
+    return updated;
+  }
+
+  async completeUnlinkedGameDownload(id: string): Promise<GameDownload | undefined> {
+    // Same conditional-update pattern as relinkGameDownload: only transitions
+    // rows still game_link_required, so this can't race with a concurrent
+    // relink for the same download silently discarding it.
+    const [updated] = await db
+      .update(gameDownloads)
+      .set({ status: "completed", completedAt: new Date() })
+      .where(and(eq(gameDownloads.id, id), eq(gameDownloads.status, GAME_LINK_REQUIRED_STATUS)))
+      .returning();
+    return updated;
   }
 
   async getGameDownload(id: string, userId?: string): Promise<GameDownload | undefined> {

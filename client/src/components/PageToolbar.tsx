@@ -35,6 +35,8 @@ interface PageToolbarProps {
   sortValue?: string;
   onSortChange?: (value: string) => void;
   sortOptions?: SortOption[];
+  /** Accessible name for the sort control (its visible "Sort" label is hidden on mobile). */
+  sortAriaLabel?: string;
   /** Grid/list view toggle and list density selector. */
   viewControls?: ViewControlsConfig;
   /** Extra elements at the far right (e.g. settings button, refresh). */
@@ -49,6 +51,7 @@ export default function PageToolbar({
   sortValue,
   onSortChange,
   sortOptions,
+  sortAriaLabel = "Sort",
   viewControls,
   actions,
 }: PageToolbarProps) {
@@ -108,7 +111,10 @@ export default function PageToolbar({
             <div className="flex flex-1 items-center gap-1.5 md:flex-initial">
               <span className="text-xs text-muted-foreground hidden sm:inline">Sort</span>
               <Select value={sortValue} onValueChange={onSortChange}>
-                <SelectTrigger className="h-8 w-full text-sm md:w-[160px]">
+                <SelectTrigger
+                  className="h-8 w-full text-sm md:w-[160px]"
+                  aria-label={sortAriaLabel}
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

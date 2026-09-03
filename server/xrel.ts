@@ -1,5 +1,9 @@
 import { titleMatches } from "../shared/title-utils.js";
-import type { XrelExtInfo, XrelReleaseListItem } from "../shared/xrel-types.js";
+import type {
+  XrelExtInfo,
+  XrelReleaseIdentity,
+  XrelReleaseListItem,
+} from "../shared/xrel-types.js";
 import { safeFetch } from "./ssrf.js";
 
 export type { XrelExtInfo, XrelReleaseListItem } from "../shared/xrel-types.js";
@@ -67,10 +71,7 @@ function checkHourlyLimit(): void {
   hourlyCount++;
 }
 
-export interface XrelSceneRelease {
-  id: string;
-  dirname: string;
-  link_href: string;
+export interface XrelSceneRelease extends XrelReleaseIdentity {
   time: number;
   group_name: string;
   size?: { number: number; unit: string };
@@ -87,10 +88,7 @@ export interface XrelSceneRelease {
   nuke_reason?: string;
 }
 
-export interface XrelP2pRelease {
-  id: string;
-  dirname: string;
-  link_href: string;
+export interface XrelP2pRelease extends XrelReleaseIdentity {
   pub_time: number;
   size_mb?: number;
   group?: { id: string; name: string };

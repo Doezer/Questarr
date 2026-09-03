@@ -13,10 +13,16 @@ export interface XrelExtInfo {
   num_ratings?: number;
 }
 
-export interface XrelReleaseListItem {
+// Identity fields common to every xREL release shape -- xREL's raw scene
+// and p2p release types (server/xrel.ts) and the normalized list item
+// below -- factored out so they're declared once instead of drifting.
+export interface XrelReleaseIdentity {
   id: string;
   dirname: string;
   link_href: string;
+}
+
+export interface XrelReleaseListItem extends XrelReleaseIdentity {
   time: number;
   group_name: string;
   sizeMb?: number;

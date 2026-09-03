@@ -243,6 +243,12 @@ documented under [Settings](#settings).
 | GET    | `/api/ready`  | JWT (registered after the global auth gate, so a token is required despite being a readiness probe) | —            | `{ status: "ok" }` (200) if DB + IGDB checks succeed, else `{ status: "error" }` (503) |
 | GET    | `/api/config` | `sensitiveEndpointLimiter` only, no JWT (public, pre-gate)                                          | —            | `{ igdb: { configured, source }, xrel: { apiBase } }`                                  |
 
+## Dashboard Status
+
+| Method | Path             | Auth Required | Request Body | Response                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------ | ---------------- | ------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/v1/status` | JWT           | —            | `{ totalGames, pendingWishlist, activeDownloads, recentImports: { count, items: [{ gameId, title, completedAt }] } }` — lightweight stats for external dashboard widgets (Homepage, Homarr, Organizr, etc.). `pendingWishlist` counts games with status `wanted`; `activeDownloads` counts downloads with status `downloading`/`paused`; `recentImports.count` is completed downloads in the last 7 days, `items` are the 5 most recent. |
+
 ## HowLongToBeat
 
 | Method | Path               | Auth Required  | Request Body              | Response                                             |

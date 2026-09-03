@@ -322,6 +322,7 @@ export default function Library() {
           sortValue={sortBy}
           onSortChange={handleSortChange}
           sortOptions={LIBRARY_SORT_OPTIONS}
+          sortAriaLabel="Sort library games"
           viewControls={{
             viewMode,
             onViewModeChange: setViewMode,

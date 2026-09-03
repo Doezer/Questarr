@@ -1,0 +1,193 @@
+# Default values for the Questarr chart.
+# See charts/questarr/README.md for the full option reference.
+
+image:
+  repository: ghcr.io/doezer/questarr
+  # Overrides the image tag; defaults to the chart's appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# Questarr stores its state in a single SQLite database on a ReadWriteOnce
+# volume, so more than one replica would corrupt the database. Keep this at 1.
+replicaCount: 1
+
+# Recreate avoids two pods holding the same RWO volume / SQLite file during a
+# rollout. Do not use RollingUpdate unless you know what you are doing.
+strategy:
+  type: Recreate
+
+questarr:
+  # HTTP port the server listens on (PORT).
+  port: 5000
+  # LinuxServer.io-style ownership handling applied by the container entrypoint.
+  puid: 1000
+  pgid: 1000
+  umask: "022"
+  # Serve the app from a subdirectory (QUESTARR_BASE_PATH), e.g. "/questarr".
+  # Leave empty to serve from the root. See docs/REVERSE_PROXY.md.
+  basePath: ""
+  # Container timezone (TZ), e.g. "Europe/Paris". Empty leaves it unset (UTC).
+  timezone: ""
+  # Path of the SQLite database inside the container (SQLITE_DB_PATH).
+  # It must live under the persisted data directory (/app/data).
+  databasePath: /app/data/sqlite.db
+  # Comma-separated extra CORS origins (ALLOWED_ORIGINS). Optional.
+  allowedOrigins: ""
+  # Public URL of the instance (APP_URL), used in notification links. Optional.
+  appUrl: ""
+
+  # Optional secret values. Every one of them is optional: Questarr generates
+  # and persists its own JWT secret and credentials encryption key when they
+  # are unset, and the API keys can also be entered in the UI.
+  #
+  # When existingSecret is set, the chart creates no Secret of its own and
+  # reads the keys below from that Secret instead. Missing keys are simply
+  # not injected (`optional: true`), so a Secret carrying only some of them
+  # works fine.
+  existingSecret: ""
+  existingSecretKeys:
+    jwtSecret: JWT_SECRET
+    credentialsEncryptionKey: CREDENTIALS_ENCRYPTION_KEY
+    igdbClientId: IGDB_CLIENT_ID
+    igdbClientSecret: IGDB_CLIENT_SECRET
+    nexusmodsApiKey: NEXUSMODS_API_KEY
+  secrets:
+    # Keeps sessions valid across restarts. Auto-generated when empty.
+    jwtSecret: ""
+    # 64-character hex string (32 bytes), e.g. `openssl rand -hex 32`.
+    # Encrypts stored indexer/downloader credentials. Auto-generated when empty.
+    credentialsEncryptionKey: ""
+    # IGDB / Twitch credentials, required for discovery and metadata.
+    igdbClientId: ""
+    igdbClientSecret: ""
+    # NexusMods API key (optional).
+    nexusmodsApiKey: ""
+
+# Extra plain environment variables, e.g.
+#   - name: DISABLE_HSTS
+#     value: "true"
+extraEnv: []
+# Extra envFrom sources (ConfigMaps / Secrets).
+extraEnvFrom: []
+
+persistence:
+  data:
+    enabled: true
+    # Use an existing PVC instead of creating one.
+    existingClaim: ""
+    # "" uses the cluster default StorageClass; "-" disables dynamic provisioning.
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+    size: 2Gi
+    annotations: {}
+    # Keep the PVC when the release is uninstalled.
+    retain: false
+
+# Extra volumes and mounts — typically the shared media/downloads storage that
+# has to be visible under the same path as in your download client so that
+# imports stay atomic moves. Example:
+#   extraVolumes:
+#     - name: media
+#       persistentVolumeClaim:
+#         claimName: media
+#   extraVolumeMounts:
+#     - name: media
+#       mountPath: /data
+extraVolumes: []
+extraVolumeMounts: []
+
+service:
+  type: ClusterIP
+  port: 5000
+  # Only used when type is NodePort or LoadBalancer.
+  nodePort: ""
+  annotations: {}
+  labels: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: questarr.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: questarr-tls
+  #    hosts:
+  #      - questarr.local
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+  automountServiceAccountToken: false
+
+# fsGroup lets the kubelet hand the volume to the questarr group without a
+# recursive chown by the entrypoint. Keep it aligned with questarr.pgid.
+podSecurityContext:
+  fsGroup: 1000
+  fsGroupChangePolicy: OnRootMismatch
+
+# The container intentionally starts as root: entrypoint.sh applies PUID/PGID
+# to /app/data and then drops privileges via `su-exec questarr` before the app
+# runs. That needs CHOWN/SETUID/SETGID/FOWNER/DAC_OVERRIDE, and nothing else.
+# See the chart README for running fully non-root instead.
+securityContext:
+  runAsUser: 0
+  runAsNonRoot: false
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop:
+      - ALL
+    add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+
+resources: {}
+  # limits:
+  #   cpu: 1000m
+  #   memory: 1Gi
+  # requests:
+  #   cpu: 100m
+  #   memory: 256Mi
+
+livenessProbe:
+  enabled: true
+  initialDelaySeconds: 30
+  periodSeconds: 30
+  timeoutSeconds: 5
+  failureThreshold: 3
+readinessProbe:
+  enabled: true
+  initialDelaySeconds: 10
+  periodSeconds: 15
+  timeoutSeconds: 5
+  failureThreshold: 3
+startupProbe:
+  enabled: true
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 5
+  failureThreshold: 30
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+priorityClassName: ""
+topologySpreadConstraints: []
+dnsPolicy: ""
+dnsConfig: {}
+terminationGracePeriodSeconds: 30

@@ -22,6 +22,11 @@ on:
         required: false
         default: false
         type: boolean
+      build_windows_installer:
+        description: "Also build the Windows installer (.exe, optional extra build)"
+        required: false
+        default: false
+        type: boolean
       comment-id: # ← passed automatically by slash-command-dispatch
         required: false
       repository: # ← also passed automatically
@@ -375,3 +380,307 @@ jobs:
           repository: ${{ inputs.repository }}
           comment-id: ${{ inputs.comment-id }}
           body: ${{ steps.summary.outputs.content }}
+
+  # Optional extra build target, mirroring how ARM64 is an opt-in extra
+  # platform for build-and-push above: this never runs unless explicitly
+  # requested via workflow_dispatch. Unlike ARM64 (which production Docker
+  # builds always turn on, since published images need to run on ARM SBCs),
+  # there's no equivalent "production always needs this" case for a Windows
+  # desktop/server installer, so this only runs when build_windows_installer
+  # is explicitly set to true on a manual dispatch.
+  windows-installer:
+    runs-on: windows-latest
+    needs: sca-gate
+    if: github.event_name == 'workflow_dispatch' && inputs.build_windows_installer == true
+    permissions:
+      contents: write
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js 22.x
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.x
+          cache: "npm"
+
+      - name: Setup .NET 8 SDK
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --version=6.7.1 --no-progress -y
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript type check
+        run: npm run check
+
+      - name: Build project
+        run: npm run build
+
+      - name: Publish Windows service host
+        shell: pwsh
+        run: |
+          dotnet publish installer/windows/Questarr.Service/Questarr.Service.csproj `
+            --configuration Release `
+            --runtime win-x64 `
+            --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:PublishTrimmed=false `
+            --output release/service
+
+      - name: Prune development dependencies
+        run: npm prune --omit=dev
+
+      # 7zip-bin (used for mod/archive extraction) ships prebuilt 7za
+      # binaries for every OS/arch it supports; only linux/win-x64 is
+      # relevant to a Windows install, so drop the rest to keep the
+      # installer lean. Defensive: no-ops if the package or its layout
+      # isn't what's expected, rather than failing the build.
+      - name: Strip non-Windows-x64 7zip-bin binaries
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $root = "node_modules/7zip-bin"
+          if (-not (Test-Path $root)) {
+            Write-Host "7zip-bin not present; nothing to strip."
+            return
+          }
+
+          foreach ($platform in @("mac", "linux")) {
+            $dir = Join-Path $root $platform
+            if (Test-Path $dir) {
+              Remove-Item -Recurse -Force $dir
+            }
+          }
+
+          $winDir = Join-Path $root "win"
+          if (Test-Path $winDir) {
+            Get-ChildItem -LiteralPath $winDir -Directory |
+              Where-Object { $_.Name -ne "x64" } |
+              Remove-Item -Recurse -Force
+
+            if (-not (Test-Path (Join-Path $winDir "x64"))) {
+              throw "Expected 7zip-bin/win/x64 to remain after pruning"
+            }
+          }
+
+      - name: Resolve release metadata
+        id: meta
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $packageJson = Get-Content package.json | ConvertFrom-Json
+          $version = $packageJson.version
+          $artifact = "QuestarrSetup-$version-windows-x64.exe"
+
+          Write-Host "Resolved Windows installer version: $version"
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "artifact=$artifact" >> $env:GITHUB_OUTPUT
+
+      - name: Prepare installer payload
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $payloadRoot = Join-Path "release" "payload"
+          $binDir = Join-Path $payloadRoot "bin"
+
+          New-Item -ItemType Directory -Force -Path $payloadRoot, $binDir | Out-Null
+          # dist/ already contains the compiled server AND compiled shared/
+          # code (tsconfig.build.json builds server/** and shared/** into a
+          # single dist/ tree), so shared/ does not need to be copied
+          # separately the way the Dockerfile does defensively.
+          Copy-Item -Path dist, migrations, node_modules -Destination $payloadRoot -Recurse
+          Copy-Item -Path package.json, package-lock.json, README.md, COPYING -Destination $payloadRoot
+          Copy-Item -Path installer/windows/README.txt -Destination (Join-Path $payloadRoot "README-WINDOWS.txt")
+          Copy-Item -Path release/service/Questarr.Service.exe -Destination (Join-Path $payloadRoot "Questarr.Service.exe")
+
+          if (Test-Path docs) {
+            Copy-Item -Path docs -Destination $payloadRoot -Recurse
+          }
+
+          $nodePath = (Get-Command node).Source
+          Copy-Item -Path $nodePath -Destination (Join-Path $binDir "node.exe")
+
+          $payloadRootPath = (Get-Item -LiteralPath $payloadRoot).FullName
+          $manifestPath = Join-Path $payloadRootPath "questarr-install-manifest.json"
+          $includePath = Join-Path "release" "questarr-files.iss"
+
+          function ConvertTo-InnoString {
+            param([Parameter(Mandatory = $true)][string] $Value)
+            return $Value.Replace('"', '""')
+          }
+
+          function ConvertTo-InnoSingleQuotedString {
+            param([Parameter(Mandatory = $true)][string] $Value)
+            return $Value.Replace("'", "''")
+          }
+
+          $payloadRootPrefix = $payloadRootPath.TrimEnd('\') + '\'
+          $payloadFiles = Get-ChildItem -LiteralPath $payloadRootPath -Recurse -File |
+            Where-Object { $_.FullName -ne $manifestPath } |
+            Sort-Object FullName
+
+          $manifestFiles = foreach ($file in $payloadFiles) {
+            if (-not $file.FullName.StartsWith($payloadRootPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+              throw "Payload file is outside the payload root: $($file.FullName)"
+            }
+
+            $relativePath = $file.FullName.Substring($payloadRootPrefix.Length).Replace('\', '/')
+            [ordered]@{
+              path = $relativePath
+              size = $file.Length
+              sha256 = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+          }
+
+          [ordered]@{
+            version = "${{ steps.meta.outputs.version }}"
+            generatedAt = (Get-Date).ToUniversalTime().ToString("o")
+            files = @($manifestFiles)
+          } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $manifestPath -Encoding utf8
+
+          $includeLines = foreach ($entry in $manifestFiles) {
+            $relativeWindowsPath = $entry.path.Replace('/', '\')
+            $sourcePath = Join-Path $payloadRootPath $relativeWindowsPath
+            $relativeDir = Split-Path $relativeWindowsPath -Parent
+            $destDir = if ([string]::IsNullOrWhiteSpace($relativeDir)) {
+              "{app}"
+            } else {
+              "{app}\$relativeDir"
+            }
+
+            'Source: "' + (ConvertTo-InnoString $sourcePath) + '"; DestDir: "' + (ConvertTo-InnoString $destDir) + '"; Flags: ignoreversion; Check: ShouldInstallPayloadFile(''' + (ConvertTo-InnoSingleQuotedString $entry.path) + ''')'
+          }
+
+          $includeLines | Set-Content -LiteralPath $includePath -Encoding utf8
+          if (Select-String -LiteralPath $includePath -Pattern "createallsubdirs" -Quiet) {
+            throw "Generated Inno file list must not use createallsubdirs for per-file entries"
+          }
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $installerOutput = Join-Path "release" "installer"
+          New-Item -ItemType Directory -Force -Path $installerOutput | Out-Null
+
+          $env:QUESTARR_VERSION = "${{ steps.meta.outputs.version }}"
+          $env:QUESTARR_SOURCE_DIR = (Resolve-Path (Join-Path "release" "payload")).Path
+          $env:QUESTARR_OUTPUT_DIR = (Resolve-Path $installerOutput).Path
+          $env:QUESTARR_FILES_INCLUDE = (Resolve-Path (Join-Path "release" "questarr-files.iss")).Path
+
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
+          & $iscc installer/windows/Questarr.iss
+          if ($LASTEXITCODE -ne 0) {
+            throw "Inno Setup failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Validate installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $installerPath = Join-Path "release/installer" "${{ steps.meta.outputs.artifact }}"
+          if (-not (Test-Path $installerPath)) {
+            throw "Missing installer: $installerPath"
+          }
+
+          $installer = Get-Item $installerPath
+          if ($installer.Length -lt 10MB) {
+            throw "Installer looks too small: $($installer.Length) bytes"
+          }
+          $hash = (Get-FileHash -LiteralPath $installerPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $($installer.Name)" | Set-Content -LiteralPath "$installerPath.sha256" -Encoding ascii
+
+          $requiredPaths = @(
+            "release/payload/bin/node.exe",
+            "release/payload/Questarr.Service.exe",
+            "release/payload/dist/server/index.js",
+            "release/payload/migrations/meta/_journal.json",
+            "release/payload/node_modules/better-sqlite3",
+            "release/payload/README-WINDOWS.txt",
+            "release/payload/questarr-install-manifest.json",
+            "release/questarr-files.iss"
+          )
+
+          foreach ($path in $requiredPaths) {
+            if (-not (Test-Path $path)) {
+              throw "Missing installer payload file: $path"
+            }
+          }
+
+          & release/payload/bin/node.exe --check release/payload/dist/server/index.js
+
+      - name: Upload Windows installer artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: QuestarrSetup-${{ steps.meta.outputs.version }}-windows-x64
+          path: |
+            release/installer/${{ steps.meta.outputs.artifact }}
+            release/installer/${{ steps.meta.outputs.artifact }}.sha256
+          if-no-files-found: error
+
+      # Best-effort: attach the installer to the matching GitHub Release when
+      # one was requested and already exists. This deliberately never fails
+      # the job - workflow_dispatch can be run with no tag at all (there's
+      # then nothing to attach to), and even with a tag, release.yml may not
+      # have created that release yet (or never will, for an ad-hoc
+      # dispatch). `gh release view` tells us which case we're in; only
+      # `gh release upload` runs when it confirms the release exists, so a
+      # missing release is a logged no-op rather than a failure.
+      - name: Attach installer to matching GitHub release
+        if: inputs.tag != ''
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $installerPath = Join-Path "release/installer" "${{ steps.meta.outputs.artifact }}"
+          $checksumPath = "$installerPath.sha256"
+
+          gh release view $env:RELEASE_TAG --repo ${{ github.repository }} | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "No GitHub release found for tag '$env:RELEASE_TAG'; skipping installer attachment (this is not an error - the release may not exist yet, or this run had no matching release to attach to)."
+            exit 0
+          }
+
+          gh release upload $env:RELEASE_TAG $installerPath $checksumPath --repo ${{ github.repository }} --clobber
+
+      - name: Windows installer summary
+        shell: pwsh
+        env:
+          # Routed through env rather than interpolated directly into the
+          # script body, since inputs.tag is arbitrary user-supplied text at
+          # workflow_dispatch time (same reasoning as the release-attachment
+          # step above).
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          $releaseNote = if ([string]::IsNullOrEmpty($env:RELEASE_TAG)) {
+            "skipped - no tag input was provided"
+          } else {
+            "attempted for tag $($env:RELEASE_TAG) (no-op if that release does not exist)"
+          }
+
+          $SUMMARY = @"
+          ## Windows Installer
+
+          - **Artifact:** ${{ steps.meta.outputs.artifact }} (+ matching .sha256)
+          - **Version:** ${{ steps.meta.outputs.version }}
+          - **Download:** workflow artifact ``QuestarrSetup-${{ steps.meta.outputs.version }}-windows-x64`` on this run
+          - **Release attachment:** $releaseNote
+          "@
+
+          $SUMMARY | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8

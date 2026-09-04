@@ -61,6 +61,8 @@ services:
               Optional. Mount the same root your download client writes into so Questarr can import
               completed downloads. Add a matching entry under Settings -> Path Mappings.
 x-casaos:
+  id: com.doezer.questarr
+  version: "1.4.3"
   architectures:
     - amd64
     - arm64

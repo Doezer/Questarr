@@ -157,8 +157,8 @@ Questarr is available in the Unraid **Apps** tab via Community Applications:
 1. In umbrelOS, open the **App Store**.
 2. Click the **⋮** menu (top right) → **Community App Stores**.
 3. Add this repository URL: `https://github.com/Doezer/Questarr`
-4. Open the **Questarr** store and install the app, then open it from your dashboard
-   (`http://umbrel.local:5000`).
+4. Open the **Doezer** store and install **Questarr** (app ID `doezer-questarr`), then open it from
+   your dashboard (`http://umbrel.local:5000`).
 
 </details>
 

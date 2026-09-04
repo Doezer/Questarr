@@ -852,6 +852,133 @@ describe("MemStorage", () => {
         expect(keys.size).toBe(2);
       });
     });
+
+    describe("getDashboardStatus", () => {
+      it("counts games, wishlist items, active downloads and recent imports for the user", async () => {
+        // A second "wanted" game to exercise pendingWishlist counting.
+        await storage.addGame({
+          title: "Wishlist Game",
+          igdbId: 5002,
+          status: "wanted",
+          hidden: false,
+          userId,
+        } as InsertGame);
+
+        await storage.addGameDownload({
+          gameId,
+          downloaderId,
+          downloadHash: "active-1",
+          downloadTitle: "Active-GROUP",
+          status: "downloading",
+          downloadType: "torrent",
+          fileSize: null,
+        } as InsertGameDownload);
+        const completed = await storage.addGameDownload({
+          gameId,
+          downloaderId,
+          downloadHash: "completed-1",
+          downloadTitle: "Completed-GROUP",
+          status: "downloading",
+          downloadType: "torrent",
+          fileSize: null,
+        } as InsertGameDownload);
+        await storage.updateGameDownloadStatus(completed.id, "completed");
+
+        const status = await storage.getDashboardStatus(userId);
+
+        expect(status.totalGames).toBe(2);
+        expect(status.pendingWishlist).toBe(2);
+        expect(status.activeDownloads).toBe(1);
+        expect(status.recentImports.count).toBe(1);
+        expect(status.recentImports.items).toHaveLength(1);
+        expect(status.recentImports.items[0]).toMatchObject({
+          gameId,
+          title: "Download Game",
+        });
+      });
+
+      it("returns zeroed stats for a user with no games", async () => {
+        const otherUser = await storage.createUser({
+          username: "emptyuser",
+          passwordHash: "hash",
+        });
+
+        const status = await storage.getDashboardStatus(otherUser.id);
+
+        expect(status).toEqual({
+          totalGames: 0,
+          pendingWishlist: 0,
+          activeDownloads: 0,
+          recentImports: { count: 0, items: [] },
+        });
+      });
+
+      it("excludes hidden games from every metric", async () => {
+        const hiddenGame = await storage.addGame({
+          title: "Hidden Game",
+          igdbId: 5003,
+          status: "wanted",
+          hidden: true,
+          userId,
+        } as InsertGame);
+
+        const hiddenDownload = await storage.addGameDownload({
+          gameId: hiddenGame.id,
+          downloaderId,
+          downloadHash: "hidden-completed-1",
+          downloadTitle: "Hidden-Completed-GROUP",
+          status: "downloading",
+          downloadType: "torrent",
+          fileSize: null,
+        } as InsertGameDownload);
+        await storage.updateGameDownloadStatus(hiddenDownload.id, "completed");
+        await storage.addGameDownload({
+          gameId: hiddenGame.id,
+          downloaderId,
+          downloadHash: "hidden-active-1",
+          downloadTitle: "Hidden-Active-GROUP",
+          status: "downloading",
+          downloadType: "torrent",
+          fileSize: null,
+        } as InsertGameDownload);
+
+        const status = await storage.getDashboardStatus(userId);
+
+        // Only the non-hidden "Download Game" from the outer beforeEach counts;
+        // the hidden game and its downloads are excluded from every metric.
+        expect(status.totalGames).toBe(1);
+        expect(status.pendingWishlist).toBe(1);
+        expect(status.activeDownloads).toBe(0);
+        expect(status.recentImports.count).toBe(0);
+        expect(status.recentImports.items).toHaveLength(0);
+      });
+
+      it("excludes completed downloads older than seven days from both count and items", async () => {
+        vi.useFakeTimers();
+        try {
+          vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+          const oldDownload = await storage.addGameDownload({
+            gameId,
+            downloaderId,
+            downloadHash: "old-completed-1",
+            downloadTitle: "Old-Completed-GROUP",
+            status: "downloading",
+            downloadType: "torrent",
+            fileSize: null,
+          } as InsertGameDownload);
+          await storage.updateGameDownloadStatus(oldDownload.id, "completed");
+
+          // 8 days later: outside the 7-day recent-imports window.
+          vi.setSystemTime(new Date("2026-01-09T00:00:00.000Z"));
+          const status = await storage.getDashboardStatus(userId);
+
+          expect(status.recentImports.count).toBe(0);
+          expect(status.recentImports.items).toHaveLength(0);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+    });
   });
 });
 

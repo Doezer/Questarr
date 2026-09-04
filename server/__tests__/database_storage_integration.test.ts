@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { eq } from "drizzle-orm";
-import { users, downloaders, indexers, type InsertGame } from "../../shared/schema";
+import { users, downloaders, indexers, gameDownloads, type InsertGame } from "../../shared/schema";
 import { randomUUID } from "crypto";
 import type { DatabaseStorage } from "../storage";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
@@ -167,6 +167,154 @@ describe("DatabaseStorage Integration", () => {
     expect(summary[gameB.id].count).toBe(1);
     expect(summary[gameB.id].topStatus).toBe("failed");
     expect(summary[gameB.id].downloadTypes).toContain("torrent");
+  });
+
+  it("getDashboardStatus should aggregate library, wishlist, downloads and imports in the database layer", async () => {
+    const userId = randomUUID();
+    await db.insert(users).values({ id: userId, username: "dash_test_user", passwordHash: "hash" });
+
+    const wantedGame = await storage.addGame({
+      title: "Wanted Game",
+      status: "wanted",
+      userId,
+      hidden: false,
+    });
+    const ownedGame = await storage.addGame({
+      title: "Owned Game",
+      status: "owned",
+      userId,
+      hidden: false,
+    });
+
+    const downloaderId = randomUUID();
+    await db
+      .insert(downloaders)
+      .values({ id: downloaderId, name: "Test Client", type: "torrent", url: "http://localhost" });
+
+    await storage.addGameDownload({
+      gameId: ownedGame.id,
+      downloaderId,
+      downloadType: "torrent",
+      downloadHash: randomUUID(),
+      downloadTitle: "Owned.Game-GROUP",
+      status: "downloading",
+    });
+    const completedDownload = await storage.addGameDownload({
+      gameId: ownedGame.id,
+      downloaderId,
+      downloadType: "torrent",
+      downloadHash: randomUUID(),
+      downloadTitle: "Owned.Game.Update-GROUP",
+      status: "downloading",
+    });
+    await storage.updateGameDownloadStatus(completedDownload!.id, "completed");
+
+    const status = await storage.getDashboardStatus(userId);
+
+    expect(status.totalGames).toBe(2);
+    expect(status.pendingWishlist).toBe(1);
+    expect(status.activeDownloads).toBe(1);
+    expect(status.recentImports.count).toBe(1);
+    expect(status.recentImports.items).toHaveLength(1);
+    expect(status.recentImports.items[0]).toMatchObject({
+      gameId: ownedGame.id,
+      title: "Owned Game",
+    });
+    expect(wantedGame.status).toBe("wanted");
+  });
+
+  it("getDashboardStatus should exclude hidden games from every metric", async () => {
+    const userId = randomUUID();
+    await db
+      .insert(users)
+      .values({ id: userId, username: "dash_hidden_user", passwordHash: "hash" });
+
+    const visibleGame = await storage.addGame({
+      title: "Visible Game",
+      status: "wanted",
+      userId,
+      hidden: false,
+    });
+    const hiddenGame = await storage.addGame({
+      title: "Hidden Game",
+      status: "wanted",
+      userId,
+      hidden: true,
+    });
+
+    const downloaderId = randomUUID();
+    await db
+      .insert(downloaders)
+      .values({ id: downloaderId, name: "Test Client", type: "torrent", url: "http://localhost" });
+
+    const hiddenCompletedDownload = await storage.addGameDownload({
+      gameId: hiddenGame.id,
+      downloaderId,
+      downloadType: "torrent",
+      downloadHash: randomUUID(),
+      downloadTitle: "Hidden.Game-GROUP",
+      status: "downloading",
+    });
+    await storage.updateGameDownloadStatus(hiddenCompletedDownload!.id, "completed");
+    await storage.addGameDownload({
+      gameId: hiddenGame.id,
+      downloaderId,
+      downloadType: "torrent",
+      downloadHash: randomUUID(),
+      downloadTitle: "Hidden.Game.Update-GROUP",
+      status: "downloading",
+    });
+
+    const status = await storage.getDashboardStatus(userId);
+
+    // Only the visible game counts; the hidden game and its downloads are excluded entirely.
+    expect(status.totalGames).toBe(1);
+    expect(status.pendingWishlist).toBe(1);
+    expect(status.activeDownloads).toBe(0);
+    expect(status.recentImports.count).toBe(0);
+    expect(status.recentImports.items).toHaveLength(0);
+    expect(visibleGame.hidden).toBe(false);
+  });
+
+  it("getDashboardStatus should exclude completed downloads older than seven days from count and items", async () => {
+    const userId = randomUUID();
+    await db
+      .insert(users)
+      .values({ id: userId, username: "dash_old_import_user", passwordHash: "hash" });
+
+    const game = await storage.addGame({
+      title: "Old Import Game",
+      status: "owned",
+      userId,
+      hidden: false,
+    });
+
+    const downloaderId = randomUUID();
+    await db
+      .insert(downloaders)
+      .values({ id: downloaderId, name: "Test Client", type: "torrent", url: "http://localhost" });
+
+    const oldDownload = await storage.addGameDownload({
+      gameId: game.id,
+      downloaderId,
+      downloadType: "torrent",
+      downloadHash: randomUUID(),
+      downloadTitle: "Old.Import-GROUP",
+      status: "downloading",
+    });
+    await storage.updateGameDownloadStatus(oldDownload!.id, "completed");
+
+    // Backdate completedAt to 8 days ago, outside the 7-day recent-imports window.
+    const eightDaysAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+    await db
+      .update(gameDownloads)
+      .set({ completedAt: eightDaysAgo })
+      .where(eq(gameDownloads.id, oldDownload!.id));
+
+    const status = await storage.getDashboardStatus(userId);
+
+    expect(status.recentImports.count).toBe(0);
+    expect(status.recentImports.items).toHaveLength(0);
   });
 
   it("getTrackedDownloadKeys returns downloaderId:downloadHash keys for all game downloads", async () => {

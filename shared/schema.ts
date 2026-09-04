@@ -618,6 +618,21 @@ export interface DownloadSummary {
   hasUpdateDownload: boolean;
 }
 
+// Lightweight stats surfaced via /api/status for external dashboards (Homepage, Homarr, etc.)
+export interface DashboardStatus {
+  totalGames: number;
+  pendingWishlist: number;
+  activeDownloads: number;
+  recentImports: {
+    count: number;
+    items: Array<{
+      gameId: string;
+      title: string;
+      completedAt: string | null;
+    }>;
+  };
+}
+
 // Application configuration type
 export interface Config {
   igdb: {

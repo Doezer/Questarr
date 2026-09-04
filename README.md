@@ -63,7 +63,7 @@ A video game management application inspired by the -Arr apps (Sonarr, Radarr, P
 | **Rich Game Metadata**      | Details enriched with IGDB, Steam, PCGamingWiki, and NexusMods, including trending mods where available.                                                                      |
 | **Statistics**              | Visualize collection statistics with Discord sharing support. 🚧                                                                                                              |
 | **Security Focused**        | General security hardening, SSL support, and [OpenSSF certified](https://www.bestpractices.dev/projects/13450) — see [SECURITY.md](.github/SECURITY.md) for the full process. |
-| **Integrations**            | Deployable on UNRAID and as a Home Assistant add-on. 🚧                                                                                                                       |
+| **Integrations**            | One-click install on UNRAID, CasaOS, Umbrel and Cosmos Cloud, plus a Home Assistant add-on. 🚧                                                                                |
 | **Design**                  | Clean, minimalist, dark-first UI built with mobile usage in mind.                                                                                                             |
 
 ### Supported Indexers/Downloaders
@@ -157,6 +157,48 @@ Questarr is available in the Unraid **Apps** tab via Community Applications:
 
 </details>
 
+### CasaOS
+
+<details>
+<summary><b>Install via Custom Install (AppFile)</b></summary>
+
+1. Open the **App Store** and click **Custom Install**.
+2. Click the **import** icon (top right) and paste this URL:
+   `https://raw.githubusercontent.com/Doezer/Questarr/main/casaos/docker-compose.yml`
+3. Review the mounts — by default `/DATA/AppData/questarr` holds Questarr's data and
+   `/DATA/Downloads` is mounted at `/data` so Questarr can import finished downloads. If you keep
+   that second mount, add a matching entry under **Settings → Path Mappings**.
+4. Click **Install**, then open Questarr from the CasaOS dashboard (port `5000`).
+
+</details>
+
+### Umbrel
+
+<details>
+<summary><b>Install via Community App Store</b></summary>
+
+1. In umbrelOS, open the **App Store**.
+2. Click the **⋮** menu (top right) → **Community App Stores**.
+3. Add this repository URL: `https://github.com/Doezer/Questarr`
+4. Open the **Doezer** store and install **Questarr** (app ID `doezer-questarr`), then open it from
+   your dashboard (`http://umbrel.local:5000`).
+
+</details>
+
+### Cosmos Cloud
+
+<details>
+<summary><b>Install as a ServApp</b></summary>
+
+1. Open **Market Place → Custom Install** (or **Servapps → Add**).
+2. Paste this URL:
+   `https://raw.githubusercontent.com/Doezer/Questarr/main/cosmos/questarr.cosmos-compose.json`
+3. Fill in the install form: **Data folder**, optional **Library folder** (the root your download
+   client writes into, mounted at `/data`), and `PUID`/`PGID`.
+4. Install. Cosmos creates the route `questarr.<your-server-hostname>` and handles HTTPS for you.
+
+</details>
+
 ### Home Assistant Add-on
 
 <details>
@@ -171,6 +213,9 @@ You can install Questarr as a Home Assistant add-on from this repository:
 5. Open `http://<home-assistant-host>:5000` to access the UI.
 
 </details>
+
+All platform definitions live in the repository and share the same mounts and ports — see
+[docs/HOME_SERVER_APPS.md](docs/HOME_SERVER_APPS.md) for details.
 
 ## Screenshots
 

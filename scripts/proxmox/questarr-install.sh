@@ -264,7 +264,9 @@ apt-get -y -qq clean
 IP_ADDR="$(hostname -I 2>/dev/null | awk '{print $1}')"
 echo
 ok "Questarr ${REF} is installed."
-echo "   URL:      http://${IP_ADDR:-<container-ip>}:${QUESTARR_PORT}"
+# Informational only: this is the address of the user's own freshly created
+# container, matching Questarr's own HTTP-by-default listener.
+echo "   URL:      http://${IP_ADDR:-<container-ip>}:${QUESTARR_PORT}" # NOSONAR
 echo "   Config:   ${APP_DIR}/.env"
 echo "   Data:     ${DATA_DIR}"
 echo "   Logs:     journalctl -u questarr -f"

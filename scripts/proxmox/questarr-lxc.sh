@@ -151,8 +151,14 @@ ask DISK "Disk (GiB)" "${DISK}"
 ask STORAGE "Storage" "${STORAGE}"
 ask BRIDGE "Network bridge" "${BRIDGE}"
 ask NET "IPv4 (dhcp or CIDR e.g. 192.168.1.50/24)" "${NET}"
-if [ "${NET}" != "dhcp" ] && [ -z "${GATEWAY}" ]; then
-  ask GATEWAY "Gateway" "${GATEWAY}"
+if [[ "${NET}" != "dhcp" ]]; then
+  if [[ -z "${GATEWAY}" ]]; then
+    ask GATEWAY "Gateway" "${GATEWAY}"
+  fi
+  # Non-interactive runs (--yes, or no /dev/tty) never prompt, so a static
+  # address without GATEWAY would otherwise reach pct create silently and
+  # leave the container with no default route.
+  [[ -n "${GATEWAY}" ]] || die "GATEWAY is required when NET is a static address (not 'dhcp')."
 fi
 ask QUESTARR_PORT "Questarr HTTP port" "${QUESTARR_PORT}"
 
@@ -267,7 +273,9 @@ CT_IP="$(pct exec "${CTID}" -- hostname -I 2>/dev/null | awk '{print $1}')"
 
 echo
 ok "${BOLD}Questarr is deployed in LXC ${CTID} (${CT_HOSTNAME}).${RESET}"
-echo "   URL:     http://${CT_IP:-<container-ip>}:${QUESTARR_PORT}"
+# Informational only: this is the address of the user's own freshly created
+# container, matching Questarr's own HTTP-by-default listener.
+echo "   URL:     http://${CT_IP:-<container-ip>}:${QUESTARR_PORT}" # NOSONAR
 echo "   Shell:   pct enter ${CTID}"
 echo "   Logs:    pct exec ${CTID} -- journalctl -u questarr -f"
 echo "   Update:  pct exec ${CTID} -- update"

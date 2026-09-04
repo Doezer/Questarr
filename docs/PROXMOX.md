@@ -117,8 +117,10 @@ vzdump 210 --mode snapshot --compress zstd
 All of the options in [`.env.example`](../.env.example) apply. Edit `/opt/questarr/.env` and restart:
 
 ```bash
-pct exec 210 -- sh -c 'nano /opt/questarr/.env && systemctl restart questarr'
+pct exec 210 -- sh -c 'vi /opt/questarr/.env && systemctl restart questarr'
 ```
+
+(`vi` ships with the base Debian template; install `nano` first with `apt-get install -y nano` if you prefer it.)
 
 IGDB credentials, indexers, and download clients are configured in the web UI under **Settings**, so
 you normally do not need to touch `.env` at all.

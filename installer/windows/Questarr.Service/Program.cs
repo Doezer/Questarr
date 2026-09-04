@@ -62,6 +62,10 @@ internal sealed class QuestarrWorker : BackgroundService
         var nodeExe = Path.Combine(installDir, "bin", "node.exe");
         if (!File.Exists(nodeExe))
         {
+            logger.LogWarning(
+                "Bundled Node runtime not found at {BundledNodeExe}; falling back to 'node' on PATH",
+                nodeExe
+            );
             nodeExe = "node";
         }
 
@@ -130,14 +134,44 @@ internal sealed class QuestarrWorker : BackgroundService
             await questarrProcess.WaitForExitAsync(stoppingToken);
             if (!stoppingToken.IsCancellationRequested && questarrProcess.ExitCode != 0)
             {
-                throw new InvalidOperationException(
-                    $"Questarr exited unexpectedly with code {questarrProcess.ExitCode}."
+                // Throwing here would only trigger the default
+                // BackgroundServiceExceptionBehavior.StopHost, which stops the
+                // host gracefully - the Windows SCM sees that as a normal
+                // stop, not a crash, and never runs the `sc failure ...
+                // restart` actions configured in Questarr.iss. Terminate the
+                // process directly with a non-zero exit code so the SCM
+                // recognizes this as a failure and restarts the service.
+                logger.LogCritical(
+                    "Questarr exited unexpectedly with code {ExitCode}; terminating service process so Windows can restart it",
+                    questarrProcess.ExitCode
                 );
+                Environment.Exit(1);
             }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
             StopQuestarrProcess();
+        }
+        finally
+        {
+            // OutputDataReceived/ErrorDataReceived callbacks run on threadpool
+            // threads and can still fire after this method returns (e.g.
+            // while StopQuestarrProcess() above is killing the tree).
+            // Cancelling the readers here, before the `await using` log
+            // writer/stream above are disposed, keeps a late callback from
+            // writing to an already-disposed StreamWriter and crashing the
+            // service process. WriteProcessLog also guards its own write as
+            // a second line of defense against the same race.
+            try
+            {
+                questarrProcess.CancelOutputRead();
+                questarrProcess.CancelErrorRead();
+            }
+            catch (InvalidOperationException)
+            {
+                // Reader was never started, or the process already exited
+                // and readers were auto-cancelled.
+            }
         }
     }
 
@@ -161,6 +195,27 @@ internal sealed class QuestarrWorker : BackgroundService
 
         return string.IsNullOrWhiteSpace(value) ? fallback : value;
     }
+
+    // The full set of environment variables Questarr itself reads, per
+    // .env.example. config.env is meant for exactly these - the service
+    // otherwise copies every parsed key straight into the Node child
+    // process's environment, and it runs as LocalSystem, so an allowlist
+    // here (rather than trusting whatever keys happen to be in the file) is
+    // what stops a key like NODE_OPTIONS from being used to get arbitrary
+    // code execution at LocalSystem privilege on the next service start.
+    private static readonly HashSet<string> AllowedConfigKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "JWT_SECRET",
+        "CREDENTIALS_ENCRYPTION_KEY",
+        "NEXUSMODS_API_KEY",
+        "IGDB_CLIENT_ID",
+        "IGDB_CLIENT_SECRET",
+        "PORT",
+        "HOST",
+        "NODE_ENV",
+        "SQLITE_DB_PATH",
+        "QUESTARR_BASE_PATH",
+    };
 
     private static IReadOnlyDictionary<string, string> ReadConfigFile(string path)
     {
@@ -186,7 +241,7 @@ internal sealed class QuestarrWorker : BackgroundService
 
             var key = line[..separatorIndex].Trim();
             var value = line[(separatorIndex + 1)..].Trim().Trim('"');
-            if (key.Length > 0)
+            if (key.Length > 0 && AllowedConfigKeys.Contains(key))
             {
                 values[key] = value;
             }
@@ -202,9 +257,18 @@ internal sealed class QuestarrWorker : BackgroundService
             return;
         }
 
-        lock (writer)
+        try
         {
-            writer.WriteLine(line);
+            lock (writer)
+            {
+                writer.WriteLine(line);
+            }
+        }
+        catch (ObjectDisposedException)
+        {
+            // The log writer was disposed (service shutting down) while a
+            // late OutputDataReceived/ErrorDataReceived callback was still
+            // draining the process's output on a threadpool thread.
         }
     }
 

@@ -44,9 +44,21 @@ CloseApplications=no
 ; directory junction to {commonappdata}\Questarr\data in the [Run] section
 ; below, once this directory exists to link to. See the comment above the
 ; junction [Run] entry for why.
-Name: "{commonappdata}\Questarr"
-Name: "{commonappdata}\Questarr\data"
-Name: "{commonappdata}\Questarr\logs"
+;
+; Permissions below give Questarr.iss a non-inherited ACL instead of the
+; default %ProgramData% ACL, which grants BUILTIN\Users Create Files/Write
+; Data. The service reads every key out of config.env (which lives directly
+; under {commonappdata}\Questarr) into the Node child process's environment
+; and runs as LocalSystem, so if a standard user could write that file they
+; could set e.g. NODE_OPTIONS=--require <payload> and get code execution at
+; LocalSystem privilege on the next service start. Administrators/SYSTEM
+; always get Full Control regardless of what's listed here; only the root
+; and \data directories are restricted to admins/SYSTEM-only, since neither
+; needs to be touched by a non-admin user. \logs keeps read access for
+; standard users so the "Questarr Logs" Start Menu shortcut still works.
+Name: "{commonappdata}\Questarr"; Permissions: admins-full system-full
+Name: "{commonappdata}\Questarr\data"; Permissions: admins-full system-full
+Name: "{commonappdata}\Questarr\logs"; Permissions: admins-full system-full users-readexec
 
 [Files]
 Source: "{#MySourceDir}\questarr-install-manifest.json"; DestDir: "{app}"; Flags: ignoreversion
@@ -54,7 +66,10 @@ Source: "{#MySourceDir}\questarr-install-manifest.json"; Flags: dontcopy
 #include MyFilesInclude
 
 [Icons]
-Name: "{group}\Questarr"; Filename: "http://localhost:5000"
+; Points at the default port. A custom PORT set in config.env after install
+; is not reflected here since Inno's static [Icons] section cannot read that
+; file - see README.txt for how to reach Questarr on a non-default port.
+Name: "{group}\Questarr (default port 5000)"; Filename: "http://localhost:5000"
 Name: "{group}\Questarr Logs"; Filename: "{commonappdata}\Questarr\logs"
 Name: "{group}\Uninstall Questarr"; Filename: "{uninstallexe}"
 
@@ -307,18 +322,7 @@ begin
     '  Start-Sleep -Seconds 1' + #13#10 +
     '}' + #13#10 +
     'Write-Error (''Questarr files are still locked: '' + ($locked -join '', ''))' + #13#10 +
-    'exit 21' + #13#10 +
-    'Start-Sleep -Seconds 1' + #13#10 +
-    'Get-CimInstance Win32_Process | ForEach-Object {' + #13#10 +
-    '  if ($_.ExecutablePath) {' + #13#10 +
-    '    try { $exe = [System.IO.Path]::GetFullPath($_.ExecutablePath) } catch { $exe = $null }' + #13#10 +
-    '    if ($exe -and $exe.StartsWith($installDir, [System.StringComparison]::OrdinalIgnoreCase)) {' + #13#10 +
-    '      Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue' + #13#10 +
-    '    }' + #13#10 +
-    '  }' + #13#10 +
-    '}' + #13#10 +
-    'Start-Sleep -Seconds 1' + #13#10 +
-    'exit 0' + #13#10;
+    'exit 21' + #13#10;
 
   Log('Preparing Questarr ' + Context + ' by stopping the service and install-directory processes.');
   if not SaveStringToFile(ScriptPath, Script, False) then

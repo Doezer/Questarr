@@ -9,7 +9,7 @@ no image layers) and makes it behave like any other service on your Proxmox node
 Run this **on the Proxmox host** (the node itself, not inside a container or VM), as `root`:
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/Doezer/Questarr/main/scripts/proxmox/questarr-lxc.sh)"
+bash -c "$(curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' https://raw.githubusercontent.com/Doezer/Questarr/main/scripts/proxmox/questarr-lxc.sh)"
 ```
 
 The script will:
@@ -32,7 +32,7 @@ prompting:
 ```bash
 CTID=210 CT_HOSTNAME=questarr CORES=2 RAM=2048 DISK=8 \
 STORAGE=local-lvm BRIDGE=vmbr0 NET=dhcp \
-  bash -c "$(curl -fsSL https://raw.githubusercontent.com/Doezer/Questarr/main/scripts/proxmox/questarr-lxc.sh)" -- --yes
+  bash -c "$(curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' https://raw.githubusercontent.com/Doezer/Questarr/main/scripts/proxmox/questarr-lxc.sh)" -- --yes
 ```
 
 | Variable           | Default           | Description                                        |
@@ -103,7 +103,7 @@ development code. Pin a release with `QUESTARR_REF` if you want to avoid that.
 To move to a specific version instead:
 
 ```bash
-pct exec 210 -- env QUESTARR_REF=v1.4.3 bash -c "$(curl -fsSL https://raw.githubusercontent.com/Doezer/Questarr/main/scripts/proxmox/questarr-install.sh)"
+pct exec 210 -- env QUESTARR_REF=v1.4.3 bash -c "$(curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' https://raw.githubusercontent.com/Doezer/Questarr/main/scripts/proxmox/questarr-install.sh)"
 ```
 
 Take a Proxmox snapshot or backup before updating if you want a quick way back:
@@ -131,7 +131,7 @@ you normally do not need to touch `.env` at all.
 this inside it as `root`:
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/Doezer/Questarr/main/scripts/proxmox/questarr-install.sh)"
+bash -c "$(curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' https://raw.githubusercontent.com/Doezer/Questarr/main/scripts/proxmox/questarr-install.sh)"
 ```
 
 It installs the same `systemd` service and `update` helper. It is safe to re-run: it replaces the

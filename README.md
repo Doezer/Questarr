@@ -124,7 +124,7 @@ Run this **on your Proxmox VE host**, as `root`, to create an LXC container with
 and running as a `systemd` service:
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/Doezer/Questarr/main/scripts/proxmox/questarr-lxc.sh)"
+bash -c "$(curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' https://raw.githubusercontent.com/Doezer/Questarr/main/scripts/proxmox/questarr-lxc.sh)"
 ```
 
 The script picks the next free container ID, downloads a Debian template if needed, creates an

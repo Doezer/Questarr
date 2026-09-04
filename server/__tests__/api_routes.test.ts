@@ -438,8 +438,8 @@ describe("API Routes - Extended Coverage", () => {
   });
 
   // ─── Dashboard status ───
-  describe("GET /api/v1/status", () => {
-    it("returns dashboard stats for the authenticated user", async () => {
+  describe("GET /api/status", () => {
+    it("returns dashboard stats for the authenticated user with a no-store cache header", async () => {
       const dashboardStatus = {
         totalGames: 12,
         pendingWishlist: 3,
@@ -453,17 +453,18 @@ describe("API Routes - Extended Coverage", () => {
       };
       vi.mocked(storage.getDashboardStatus).mockResolvedValue(dashboardStatus);
 
-      const res = await request(app).get("/api/v1/status");
+      const res = await request(app).get("/api/status");
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual(dashboardStatus);
+      expect(res.headers["cache-control"]).toBe("no-store");
       expect(storage.getDashboardStatus).toHaveBeenCalledWith("user-1");
     });
 
     it("returns 500 when the storage layer throws", async () => {
       vi.mocked(storage.getDashboardStatus).mockRejectedValue(new Error("boom"));
 
-      const res = await request(app).get("/api/v1/status");
+      const res = await request(app).get("/api/status");
 
       expect(res.status).toBe(500);
       expect(res.body.error).toBeTruthy();

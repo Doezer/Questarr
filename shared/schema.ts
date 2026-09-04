@@ -618,7 +618,7 @@ export interface DownloadSummary {
   hasUpdateDownload: boolean;
 }
 
-// Lightweight stats surfaced via /api/v1/status for external dashboards (Homepage, Homarr, etc.)
+// Lightweight stats surfaced via /api/status for external dashboards (Homepage, Homarr, etc.)
 export interface DashboardStatus {
   totalGames: number;
   pendingWishlist: number;

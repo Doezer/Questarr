@@ -912,6 +912,46 @@ describe("MemStorage", () => {
           recentImports: { count: 0, items: [] },
         });
       });
+
+      it("excludes hidden games from every metric", async () => {
+        const hiddenGame = await storage.addGame({
+          title: "Hidden Game",
+          igdbId: 5003,
+          status: "wanted",
+          hidden: true,
+          userId,
+        } as InsertGame);
+
+        const hiddenDownload = await storage.addGameDownload({
+          gameId: hiddenGame.id,
+          downloaderId,
+          downloadHash: "hidden-completed-1",
+          downloadTitle: "Hidden-Completed-GROUP",
+          status: "downloading",
+          downloadType: "torrent",
+          fileSize: null,
+        } as InsertGameDownload);
+        await storage.updateGameDownloadStatus(hiddenDownload.id, "completed");
+        await storage.addGameDownload({
+          gameId: hiddenGame.id,
+          downloaderId,
+          downloadHash: "hidden-active-1",
+          downloadTitle: "Hidden-Active-GROUP",
+          status: "downloading",
+          downloadType: "torrent",
+          fileSize: null,
+        } as InsertGameDownload);
+
+        const status = await storage.getDashboardStatus(userId);
+
+        // Only the non-hidden "Download Game" from the outer beforeEach counts;
+        // the hidden game and its downloads are excluded from every metric.
+        expect(status.totalGames).toBe(1);
+        expect(status.pendingWishlist).toBe(1);
+        expect(status.activeDownloads).toBe(0);
+        expect(status.recentImports.count).toBe(0);
+        expect(status.recentImports.items).toHaveLength(0);
+      });
     });
   });
 });

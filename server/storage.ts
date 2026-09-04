@@ -228,7 +228,7 @@ export interface IStorage {
   getDownloadSummaryByGame(userId: string): Promise<Record<string, DownloadSummary>>;
   getTrackedDownloadKeys(): Promise<Set<string>>;
   getTrackedDownloadGameStatuses(): Promise<Map<string, string>>;
-  // Lightweight aggregate stats for the /api/v1/status dashboard endpoint.
+  // Lightweight aggregate stats for the /api/status dashboard endpoint.
   getDashboardStatus(userId: string): Promise<DashboardStatus>;
 
   // Notification methods
@@ -1000,7 +1000,7 @@ export class MemStorage implements IStorage {
   async getDashboardStatus(userId: string): Promise<DashboardStatus> {
     const userGames = new Map(
       Array.from(this.games.values())
-        .filter((g) => g.userId === userId)
+        .filter((g) => g.userId === userId && !g.hidden)
         .map((g) => [g.id, g] as const)
     );
 
@@ -2370,14 +2370,18 @@ export class DatabaseStorage implements IStorage {
         pendingWishlist: sql<number>`sum(CASE WHEN ${games.status} = 'wanted' THEN 1 ELSE 0 END)`,
       })
       .from(games)
-      .where(eq(games.userId, userId));
+      .where(and(eq(games.userId, userId), eq(games.hidden, false)));
 
     const [activeDownloadsResult] = await db
       .select({ count: sql<number>`count(*)` })
       .from(gameDownloads)
       .innerJoin(games, eq(gameDownloads.gameId, games.id))
       .where(
-        and(eq(games.userId, userId), inArray(gameDownloads.status, ["downloading", "paused"]))
+        and(
+          eq(games.userId, userId),
+          eq(games.hidden, false),
+          inArray(gameDownloads.status, ["downloading", "paused"])
+        )
       );
 
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
@@ -2388,6 +2392,7 @@ export class DatabaseStorage implements IStorage {
       .where(
         and(
           eq(games.userId, userId),
+          eq(games.hidden, false),
           eq(gameDownloads.status, "completed"),
           sql`${gameDownloads.completedAt} >= ${sevenDaysAgo.getTime()}`
         )
@@ -2401,7 +2406,13 @@ export class DatabaseStorage implements IStorage {
       })
       .from(gameDownloads)
       .innerJoin(games, eq(gameDownloads.gameId, games.id))
-      .where(and(eq(games.userId, userId), eq(gameDownloads.status, "completed")))
+      .where(
+        and(
+          eq(games.userId, userId),
+          eq(games.hidden, false),
+          eq(gameDownloads.status, "completed")
+        )
+      )
       .orderBy(desc(gameDownloads.completedAt))
       .limit(5);
 

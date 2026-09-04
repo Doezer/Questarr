@@ -223,6 +223,59 @@ describe("DatabaseStorage Integration", () => {
     expect(wantedGame.status).toBe("wanted");
   });
 
+  it("getDashboardStatus should exclude hidden games from every metric", async () => {
+    const userId = randomUUID();
+    await db
+      .insert(users)
+      .values({ id: userId, username: "dash_hidden_user", passwordHash: "hash" });
+
+    const visibleGame = await storage.addGame({
+      title: "Visible Game",
+      status: "wanted",
+      userId,
+      hidden: false,
+    });
+    const hiddenGame = await storage.addGame({
+      title: "Hidden Game",
+      status: "wanted",
+      userId,
+      hidden: true,
+    });
+
+    const downloaderId = randomUUID();
+    await db
+      .insert(downloaders)
+      .values({ id: downloaderId, name: "Test Client", type: "torrent", url: "http://localhost" });
+
+    const hiddenCompletedDownload = await storage.addGameDownload({
+      gameId: hiddenGame.id,
+      downloaderId,
+      downloadType: "torrent",
+      downloadHash: randomUUID(),
+      downloadTitle: "Hidden.Game-GROUP",
+      status: "downloading",
+    });
+    await storage.updateGameDownloadStatus(hiddenCompletedDownload!.id, "completed");
+    await storage.addGameDownload({
+      gameId: hiddenGame.id,
+      downloaderId,
+      downloadType: "torrent",
+      downloadHash: randomUUID(),
+      downloadTitle: "Hidden.Game.Update-GROUP",
+      status: "downloading",
+    });
+
+    const status = await storage.getDashboardStatus(userId);
+
+    // Only the visible game counts; the hidden game and its downloads are excluded entirely.
+    expect(status.totalGames).toBe(1);
+    expect(status.pendingWishlist).toBe(1);
+    expect(status.activeDownloads).toBe(0);
+    expect(status.recentImports.count).toBe(0);
+    expect(status.recentImports.items).toHaveLength(0);
+    expect(visibleGame.hidden).toBe(false);
+  });
+
   it("getTrackedDownloadKeys returns downloaderId:downloadHash keys for all game downloads", async () => {
     const userId = randomUUID();
     await db.insert(users).values({ id: userId, username: "user_" + userId, passwordHash: "hash" });

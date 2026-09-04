@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { eq } from "drizzle-orm";
-import { users, downloaders, indexers, type InsertGame } from "../../shared/schema";
+import { users, downloaders, indexers, gameDownloads, type InsertGame } from "../../shared/schema";
 import { randomUUID } from "crypto";
 import type { DatabaseStorage } from "../storage";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
@@ -274,6 +274,47 @@ describe("DatabaseStorage Integration", () => {
     expect(status.recentImports.count).toBe(0);
     expect(status.recentImports.items).toHaveLength(0);
     expect(visibleGame.hidden).toBe(false);
+  });
+
+  it("getDashboardStatus should exclude completed downloads older than seven days from count and items", async () => {
+    const userId = randomUUID();
+    await db
+      .insert(users)
+      .values({ id: userId, username: "dash_old_import_user", passwordHash: "hash" });
+
+    const game = await storage.addGame({
+      title: "Old Import Game",
+      status: "owned",
+      userId,
+      hidden: false,
+    });
+
+    const downloaderId = randomUUID();
+    await db
+      .insert(downloaders)
+      .values({ id: downloaderId, name: "Test Client", type: "torrent", url: "http://localhost" });
+
+    const oldDownload = await storage.addGameDownload({
+      gameId: game.id,
+      downloaderId,
+      downloadType: "torrent",
+      downloadHash: randomUUID(),
+      downloadTitle: "Old.Import-GROUP",
+      status: "downloading",
+    });
+    await storage.updateGameDownloadStatus(oldDownload!.id, "completed");
+
+    // Backdate completedAt to 8 days ago, outside the 7-day recent-imports window.
+    const eightDaysAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+    await db
+      .update(gameDownloads)
+      .set({ completedAt: eightDaysAgo })
+      .where(eq(gameDownloads.id, oldDownload!.id));
+
+    const status = await storage.getDashboardStatus(userId);
+
+    expect(status.recentImports.count).toBe(0);
+    expect(status.recentImports.items).toHaveLength(0);
   });
 
   it("getTrackedDownloadKeys returns downloaderId:downloadHash keys for all game downloads", async () => {

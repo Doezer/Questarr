@@ -1018,22 +1018,24 @@ export class MemStorage implements IStorage {
     ).length;
 
     const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-    const completed = userDownloads
-      .filter((gd) => gd.status === "completed")
+    const recentCompleted = userDownloads
+      .filter(
+        (gd) =>
+          gd.status === "completed" &&
+          gd.completedAt &&
+          new Date(gd.completedAt).getTime() >= sevenDaysAgo
+      )
       .sort(
         (a, b) => new Date(b.completedAt || 0).getTime() - new Date(a.completedAt || 0).getTime()
       );
-    const recentCount = completed.filter(
-      (gd) => gd.completedAt && new Date(gd.completedAt).getTime() >= sevenDaysAgo
-    ).length;
 
     return {
       totalGames,
       pendingWishlist,
       activeDownloads,
       recentImports: {
-        count: recentCount,
-        items: completed.slice(0, 5).map((gd) => ({
+        count: recentCompleted.length,
+        items: recentCompleted.slice(0, 5).map((gd) => ({
           gameId: gd.gameId,
           title: userGames.get(gd.gameId)?.title ?? gd.downloadTitle,
           completedAt: gd.completedAt ? new Date(gd.completedAt).toISOString() : null,
@@ -2410,7 +2412,8 @@ export class DatabaseStorage implements IStorage {
         and(
           eq(games.userId, userId),
           eq(games.hidden, false),
-          eq(gameDownloads.status, "completed")
+          eq(gameDownloads.status, "completed"),
+          sql`${gameDownloads.completedAt} >= ${sevenDaysAgo.getTime()}`
         )
       )
       .orderBy(desc(gameDownloads.completedAt))

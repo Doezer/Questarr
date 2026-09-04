@@ -952,6 +952,32 @@ describe("MemStorage", () => {
         expect(status.recentImports.count).toBe(0);
         expect(status.recentImports.items).toHaveLength(0);
       });
+
+      it("excludes completed downloads older than seven days from both count and items", async () => {
+        vi.useFakeTimers();
+        try {
+          vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+          const oldDownload = await storage.addGameDownload({
+            gameId,
+            downloaderId,
+            downloadHash: "old-completed-1",
+            downloadTitle: "Old-Completed-GROUP",
+            status: "downloading",
+            downloadType: "torrent",
+            fileSize: null,
+          } as InsertGameDownload);
+          await storage.updateGameDownloadStatus(oldDownload.id, "completed");
+
+          // 8 days later: outside the 7-day recent-imports window.
+          vi.setSystemTime(new Date("2026-01-09T00:00:00.000Z"));
+          const status = await storage.getDashboardStatus(userId);
+
+          expect(status.recentImports.count).toBe(0);
+          expect(status.recentImports.items).toHaveLength(0);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
     });
   });
 });

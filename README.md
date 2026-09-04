@@ -115,6 +115,29 @@ docker run -d -p 5000:5000 -v ./data:/app/data --name questarr ghcr.io/doezer/qu
 3. **Access the application:**
    Open your browser to `http://localhost:5000`
 
+### Proxmox VE (LXC)
+
+<details>
+<summary><b>Deploy as a Proxmox LXC container — no Docker</b></summary>
+
+Run this **on your Proxmox VE host**, as `root`, to create an LXC container with Questarr installed
+and running as a `systemd` service:
+
+```bash
+bash -c "$(curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' https://raw.githubusercontent.com/Doezer/Questarr/main/scripts/proxmox/questarr-lxc.sh)"
+```
+
+The script picks the next free container ID, downloads a Debian template if needed, creates an
+unprivileged container, builds Questarr from source, and prints the URL to open. Every prompt has a
+default, so you can accept them all and be done in a few minutes.
+
+Update later with `pct exec <ctid> -- update`.
+
+See [docs/PROXMOX.md](docs/PROXMOX.md) for non-interactive installs, sizing guidance, configuration,
+and troubleshooting.
+
+</details>
+
 ### UNRAID
 
 <details>

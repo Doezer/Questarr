@@ -25,12 +25,20 @@ The first account you create in the UI becomes the administrator.
 WARNING: persistence.data.enabled is false. /app/data is an emptyDir, so your
 library, settings and SQLite database are lost when the pod is replaced.
 {{- end }}
-{{- if not (or .Values.questarr.existingSecret .Values.questarr.secrets.igdbClientId) }}
-IGDB credentials were not provided. Game discovery and metadata stay disabled
-until you add them in Settings → Services, or set questarr.secrets.igdbClientId
+{{- if .Values.questarr.existingSecret }}
+Secrets come from the existing Secret {{ .Values.questarr.existingSecret | quote }}. Keys it does not
+carry are simply not injected, so check that it holds the ones you rely on
+(IGDB_CLIENT_ID / IGDB_CLIENT_SECRET for discovery, JWT_SECRET for sessions
+that outlive the data volume). Questarr generates and persists its own values
+for the ones that stay unset.
+{{- else }}
+{{- if not (and .Values.questarr.secrets.igdbClientId .Values.questarr.secrets.igdbClientSecret) }}
+IGDB credentials are incomplete. Game discovery and metadata stay disabled until
+you add them in Settings → Services, or set both questarr.secrets.igdbClientId
 and questarr.secrets.igdbClientSecret.
 {{- end }}
-{{- if not (or .Values.questarr.existingSecret .Values.questarr.secrets.jwtSecret) }}
+{{- if not .Values.questarr.secrets.jwtSecret }}
 No JWT_SECRET was provided: Questarr generated one and persisted it to its
 database, so sessions survive restarts as long as the data volume does.
+{{- end }}
 {{- end }}

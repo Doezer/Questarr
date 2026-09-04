@@ -155,7 +155,7 @@ kubectl port-forward -n questarr svc/questarr 5000:5000
 ```
 
 Questarr keeps its state in a single SQLite database on a ReadWriteOnce volume, so the
-chart runs exactly one replica. See [`charts/questarr/README.md`](charts/questarr/README.md)
+chart never runs more than one replica. See [`charts/questarr/README.md`](charts/questarr/README.md)
 for the full option reference — persistence, media mounts, secrets, Ingress and
 subdirectory deployments.
 

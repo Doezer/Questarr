@@ -49,6 +49,9 @@ questarr:
   # not injected (`optional: true`), so a Secret carrying only some of them
   # works fine.
   existingSecret: ""
+  # Which key of that Secret holds each value. Only the key is configurable —
+  # the environment variable Questarr reads it from is fixed by the app — so
+  # override an entry only when your Secret stores it under another name.
   existingSecretKeys:
     jwtSecret: JWT_SECRET
     credentialsEncryptionKey: CREDENTIALS_ENCRYPTION_KEY
@@ -154,13 +157,16 @@ securityContext:
       - SETGID
       - SETUID
 
-resources: {}
-  # limits:
-  #   cpu: 1000m
-  #   memory: 1Gi
-  # requests:
-  #   cpu: 100m
-  #   memory: 256Mi
+# Conservative defaults for a personal instance. Raise them if imports of large
+# archives get OOM-killed or evicted; `resources: {}` removes them entirely.
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+    ephemeral-storage: 256Mi
+  limits:
+    memory: 1Gi
+    ephemeral-storage: 2Gi
 
 livenessProbe:
   enabled: true

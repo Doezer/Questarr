@@ -1,6 +1,6 @@
 {{/*
 Fail fast on value combinations that would silently break the instance.
-Rendered for its side effects from NOTES.txt and the Deployment.
+Included for its side effects at the top of the Deployment template.
 */}}
 {{- define "questarr.validateValues" -}}
 {{- if gt (int .Values.replicaCount) 1 -}}
@@ -8,6 +8,12 @@ Rendered for its side effects from NOTES.txt and the Deployment.
 {{- end -}}
 {{- if and .Values.persistence.data.enabled (not (hasPrefix "/app/data/" .Values.questarr.databasePath)) -}}
 {{- fail (printf "questarr.databasePath (%s) must live under /app/data, the persisted data directory, or the database is lost on every restart." .Values.questarr.databasePath) -}}
+{{- end -}}
+{{- $envNames := fromYaml (include "questarr.secretEnvNames" .) -}}
+{{- range $name, $value := .Values.questarr.secrets -}}
+{{- if not (hasKey $envNames $name) -}}
+{{- fail (printf "questarr.secrets has no setting named %q; known settings are: %s." $name (join ", " (sortAlpha (keys $envNames)))) -}}
+{{- end -}}
 {{- end -}}
 {{- $key := .Values.questarr.secrets.credentialsEncryptionKey -}}
 {{- if and $key (not (regexMatch "^[0-9a-fA-F]{64}$" $key)) -}}

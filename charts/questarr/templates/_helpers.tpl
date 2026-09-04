@@ -60,6 +60,29 @@ user-provided one when set, otherwise the one this chart renders.
 {{- end }}
 
 {{/*
+Maps each `questarr.secrets` entry to the environment variable Questarr reads it
+from (see server/config.ts). These names are fixed by the application; only the
+Secret *key* holding each value is configurable, via questarr.existingSecretKeys.
+*/}}
+{{- define "questarr.secretEnvNames" -}}
+jwtSecret: JWT_SECRET
+credentialsEncryptionKey: CREDENTIALS_ENCRYPTION_KEY
+igdbClientId: IGDB_CLIENT_ID
+igdbClientSecret: IGDB_CLIENT_SECRET
+nexusmodsApiKey: NEXUSMODS_API_KEY
+{{- end }}
+
+{{/*
+Secret key holding a given setting: the configured override, else the
+environment variable name. Call with (dict "root" $ "name" "jwtSecret").
+*/}}
+{{- define "questarr.secretKeyFor" -}}
+{{- $envNames := fromYaml (include "questarr.secretEnvNames" .root) }}
+{{- $configured := index (default (dict) .root.Values.questarr.existingSecretKeys) .name }}
+{{- default (index $envNames .name) $configured }}
+{{- end }}
+
+{{/*
 True when at least one inline secret value is set, i.e. the chart has a Secret
 to render. Empty (falsey) otherwise.
 */}}

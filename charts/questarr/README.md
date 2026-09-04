@@ -78,7 +78,7 @@ in Settings → Services.
 | Key                                         | Default           | Description                                               |
 | ------------------------------------------- | ----------------- | --------------------------------------------------------- |
 | `questarr.existingSecret`                   | `""`              | Read the secrets from this Secret instead of creating one |
-| `questarr.existingSecretKeys`               | see `values.yaml` | Maps each secret to the key holding it                    |
+| `questarr.existingSecretKeys`               | see `values.yaml` | Secret key holding each value (the env var name is fixed) |
 | `questarr.secrets.jwtSecret`                | `""`              | `JWT_SECRET`                                              |
 | `questarr.secrets.credentialsEncryptionKey` | `""`              | `CREDENTIALS_ENCRYPTION_KEY`, 64 hex chars                |
 | `questarr.secrets.igdbClientId`             | `""`              | `IGDB_CLIENT_ID`                                          |
@@ -101,7 +101,12 @@ helm install questarr charts/questarr --namespace questarr \
 ```
 
 Keys absent from that Secret are injected as `optional`, so a Secret carrying only some
-of them works.
+of them works — Questarr falls back to its own generated values for what is missing.
+
+`questarr.existingSecretKeys` only renames the _key_ each value is read from inside the
+Secret; the environment variable Questarr sees (`JWT_SECRET`, `IGDB_CLIENT_ID`, …) is
+fixed by the application. So a Secret that stores the JWT secret under `release-jwt`
+needs `questarr.existingSecretKeys.jwtSecret=release-jwt` and nothing else.
 
 ### Storage
 
@@ -172,10 +177,19 @@ TLS at the Ingress instead.
 | `securityContext`                                                          | root + narrowed capabilities | Container security context (see below)   |
 | `serviceAccount.create`                                                    | `true`                       | Create a ServiceAccount                  |
 | `serviceAccount.automountServiceAccountToken`                              | `false`                      | Questarr never calls the Kubernetes API  |
-| `resources`                                                                | `{}`                         | Resource requests and limits             |
+| `resources`                                                                | modest defaults              | Resource requests and limits             |
 | `livenessProbe` / `readinessProbe` / `startupProbe`                        | enabled                      | Probe tuning; each has an `enabled` flag |
 | `nodeSelector`, `tolerations`, `affinity`                                  | empty                        | Scheduling controls                      |
 | `topologySpreadConstraints`, `priorityClassName`, `dnsPolicy`, `dnsConfig` | empty                        | Further pod-spec controls                |
+
+`resources` ships with conservative defaults (256Mi memory / 100m CPU requested, 1Gi
+memory and 2Gi ephemeral-storage limits) so the pod is schedulable under a
+`LimitRange` or a namespace quota. Raise them if imports of large archives get
+OOM-killed, or set `resources: {}` to run without any.
+
+`extraEnv` is rendered before the chart-managed variables, so entries there cannot
+override `SQLITE_DB_PATH`, `PORT`, `PUID`/`PGID` or the base path — use the dedicated
+values for those.
 
 Liveness and startup probes hit `/api/health`, which stays reachable unprefixed even
 when `questarr.basePath` is set; readiness hits `/api/ready` under the base path, which

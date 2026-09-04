@@ -64,9 +64,24 @@ jobs:
             --set questarr.databasePath=/app/data/sqlite.db \
             > /dev/null
 
-      - name: Reject a second replica
+      # Every rule in templates/_validate.tpl gets a negative case here.
+      - name: Reject invalid values
         run: |
-          if helm template questarr charts/questarr --set replicaCount=2 > /dev/null 2>&1; then
-            echo "::error::replicaCount=2 should have been rejected (SQLite on a RWO volume)"
-            exit 1
-          fi
+          assert_rejected() {
+            description="$1"
+            shift
+            if helm template questarr charts/questarr "$@" > /dev/null 2>&1; then
+              echo "::error::$description should have been rejected"
+              exit 1
+            fi
+            echo "rejected as expected: $description"
+          }
+
+          assert_rejected "a second replica (SQLite on a RWO volume)" \
+            --set replicaCount=2
+          assert_rejected "a database path outside the persisted /app/data" \
+            --set questarr.databasePath=/app/sqlite.db
+          assert_rejected "a malformed credentials encryption key" \
+            --set questarr.secrets.credentialsEncryptionKey=not-hex
+          assert_rejected "an unknown entry under questarr.secrets" \
+            --set questarr.secrets.notASetting=value

@@ -1,7 +1,7 @@
 {{- include "questarr.validateValues" . -}}
 {{- $basePath := include "questarr.basePath" . -}}
 {{- $secretName := include "questarr.secretName" . -}}
-{{- $secretKeys := .Values.questarr.existingSecretKeys -}}
+{{- $secretEnvNames := fromYaml (include "questarr.secretEnvNames" .) -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -64,6 +64,13 @@ spec:
               containerPort: {{ .Values.questarr.port }}
               protocol: TCP
           env:
+            # extraEnv comes first on purpose: Kubernetes lets the last entry
+            # with a given name win, so the chart-managed variables below —
+            # SQLITE_DB_PATH in particular, which the templates validate
+            # against the persisted volume — cannot be overridden from here.
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
             - name: PORT
               value: {{ .Values.questarr.port | quote }}
             - name: SQLITE_DB_PATH
@@ -91,17 +98,14 @@ spec:
               value: {{ . | quote }}
             {{- end }}
             {{- if or .Values.questarr.existingSecret (include "questarr.hasInlineSecrets" .) }}
-            {{- range $env, $key := $secretKeys }}
-            - name: {{ $key }}
+            {{- range $name, $envName := $secretEnvNames }}
+            - name: {{ $envName }}
               valueFrom:
                 secretKeyRef:
                   name: {{ $secretName }}
-                  key: {{ $key }}
+                  key: {{ include "questarr.secretKeyFor" (dict "root" $ "name" $name) }}
                   optional: true
             {{- end }}
-            {{- end }}
-            {{- with .Values.extraEnv }}
-            {{- toYaml . | nindent 12 }}
             {{- end }}
           {{- with .Values.extraEnvFrom }}
           envFrom:

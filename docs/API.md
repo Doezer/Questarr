@@ -25,7 +25,9 @@ PCGamingWiki sections when `server/steam-routes.ts` or
   global gate — `app.use("/api", authenticateToken)` in `server/routes.ts` —
   requires a valid JWT for every route registered after it; a small set of
   routes registered earlier remain public (see the Authentication section
-  below).
+  below). The `/api/integration` subtree additionally accepts a long-lived
+  integration API key (see the Integration API section); every other route,
+  including key management, is JWT-only.
 - **Rate limiting**: `generalApiLimiter` (100 req/min/IP) applies to all
   `/api` routes; `authRateLimiter` additionally guards login;
   `sensitiveEndpointLimiter` additionally guards write-heavy/sensitive
@@ -275,6 +277,63 @@ router), both behind the global auth gate plus explicit `authenticateToken`.
 | Method | Path                         | Auth Required | Request Body                                     | Response                                                                                                   |
 | ------ | ---------------------------- | ------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
 | GET    | `/api/external/pcgamingwiki` | JWT           | Query: `steamAppId` (required, positive integer) | `{ url: string \| null }`; 400 if `steamAppId` missing/invalid; result cached 24h (5min on lookup failure) |
+
+## Integration API (external clients)
+
+`server/routes/integration.ts` — 4 routes, mounted at `/api/integration`.
+
+This is the one part of the API that accepts a long-lived **integration API
+key** in addition to a JWT, for machine clients that cannot run the interactive
+login flow — the [Playnite extension](../extensions/playnite-questarr/README.md),
+scripts, other self-hosted tools. The key is presented as `X-Api-Key: <key>` or
+`Authorization: Bearer <key>` (keys are recognised by their `qsr_` prefix, so a
+Bearer header is unambiguous between a key and a JWT).
+
+Authentication is handled by `authenticateApiKeyOrToken` in `server/auth.ts`,
+selected by `requireAuthenticationForApi` for paths under `/integration` only.
+Everywhere else on `/api` — key management included — stays JWT-only, so a
+leaked key cannot escalate into minting or revoking other keys.
+
+| Method | Path                             | Auth Required  | Request Body                                                                                                                 | Response                                                                                             |
+| ------ | -------------------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| GET    | `/api/integration/ping`          | JWT or API key | —                                                                                                                            | `{ service: "questarr", version, apiVersion, authenticatedAs: { id, username }, usingApiKey }`       |
+| GET    | `/api/integration/library`       | JWT or API key | Query: `status` (optional, comma-separated), `includeHidden` (optional, `"true"`/`"false"`)                                  | `{ games: IntegrationGame[], count }`; 400 on invalid query                                          |
+| POST   | `/api/integration/library/sync`  | JWT or API key | `{ games: Array<{ title, externalId?, installed?, steamAppId? }> (1–5000), markInstalledAsOwned?: boolean }` — Zod-validated | `{ received, matched, unmatched, promotedToOwned }`; 400 on invalid payload                          |
+| POST   | `/api/integration/games/request` | JWT or API key | `{ title: string, status?: "wanted" \| "owned" }` — Zod-validated                                                            | 201 `{ game }`; 404 if IGDB has no match or the match is content-filtered; 409 if already in library |
+
+`IntegrationGame` is a deliberately narrow projection of a library game —
+`id`, `title`, `igdbId`, `steamAppId`, `status`, `releaseStatus`, `releaseDate`,
+`coverUrl`, `platforms`, `genres`, `libraryPath`, `addedAt`. Internal fields
+(`userId`, `notes`, search-result bookkeeping) are never exposed.
+
+`apiVersion` (`INTEGRATION_API_VERSION`) describes the integration contract
+itself and is bumped only when a change would break an already-released client,
+so an extension can fail loudly on a mismatch instead of misbehaving mid-sync.
+
+**Sync matching**: an incoming entry is matched against the caller's library by
+Steam App ID first, then by normalized title (`normalizeTitle` from
+`shared/title-utils.ts`). Unmatched entries are reported back rather than
+added — a sync never creates library entries on its own. `markInstalledAsOwned`
+promotes a matched game from `wanted` to `owned` only when the client reports it
+installed, and is off by default.
+
+**Requesting a game**: a requested game is added with status `wanted`, which is
+what hands it to the existing auto-search pipeline (`checkAutoSearch` in
+`server/cron.ts`) — that is how a request from the couch turns into a download.
+
+## API Keys (management)
+
+`server/routes/api-keys.ts` — 3 routes, mounted at `/api/api-keys`, **JWT only**.
+
+Keys are stored as a SHA-256 hash plus a short display prefix; the raw key is
+returned exactly once, in the 201 response that creates it, and is not
+recoverable afterwards. A user may hold at most 25 keys.
+
+| Method | Path                | Auth Required                    | Request Body                     | Response                                                                                                          |
+| ------ | ------------------- | -------------------------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/api-keys`     | JWT                              | —                                | `Array<{ id, userId, name, prefix, createdAt, lastUsedAt }>` — never includes the hash                            |
+| POST   | `/api/api-keys`     | JWT + `sensitiveEndpointLimiter` | `{ name: string }` (1–100 chars) | 201 `{ id, userId, name, prefix, createdAt, lastUsedAt, key }` — `key` is shown only here; 409 once 25 keys exist |
+| DELETE | `/api/api-keys/:id` | JWT + `sensitiveEndpointLimiter` | —                                | 204; 404 if the key does not exist or belongs to another user                                                     |
 
 ## Error Format
 

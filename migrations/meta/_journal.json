@@ -225,6 +225,13 @@
       "when": 1788446008916,
       "tag": "0030_spicy_captain_flint",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1788462667167,
+      "tag": "0031_nasty_green_goblin",
+      "breakpoints": true
     }
   ]
 }

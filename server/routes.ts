@@ -77,6 +77,7 @@ import {
   generateToken,
   authenticateToken,
   optionalAuthenticateToken,
+  authenticateApiKeyOrToken,
 } from "./auth.js";
 import { nexusmodsClient } from "./nexusmods.js";
 import {
@@ -90,19 +91,6 @@ import path from "path";
 import fs from "fs";
 import fsExtra from "fs-extra";
 import { readLastLogLines } from "./log-file.js";
-
-const normalizeInitialReleaseStatus = <
-  T extends { releaseDate?: string | null; releaseStatus?: string | null },
->(
-  gameData: T
-): T => {
-  const releaseDate = gameData.releaseDate?.slice(0, 10);
-  const today = new Date().toISOString().slice(0, 10);
-  if (releaseDate && /^\d{4}-\d{2}-\d{2}$/.test(releaseDate) && releaseDate <= today) {
-    return { ...gameData, releaseStatus: "released" };
-  }
-  return gameData;
-};
 
 // Root directory for the file system browser; restrict browsing to this tree
 const FILE_BROWSER_ROOT = fs.realpathSync(process.cwd());
@@ -153,6 +141,11 @@ function isPublicApiRequest(req: Request): boolean {
   return PUBLIC_API_ROUTES.has(`${req.method.toUpperCase()} ${req.path}`);
 }
 
+/** Paths under the /api mount that accept an integration API key as well as a JWT. */
+function isIntegrationApiRequest(req: Request): boolean {
+  return req.path === "/integration" || req.path.startsWith("/integration/");
+}
+
 /**
  * Default-deny gate for the entire /api surface: anything not explicitly
  * allowlisted above requires a valid token. Mounted before any /api route is
@@ -162,6 +155,14 @@ function isPublicApiRequest(req: Request): boolean {
 export function requireAuthenticationForApi(req: Request, res: Response, next: NextFunction) {
   if (isPublicApiRequest(req)) {
     next();
+    return;
+  }
+  // The integration surface is the one place that also accepts a long-lived
+  // API key, for machine clients (the Playnite extension, scripts) that cannot
+  // run the interactive login flow. Everything else — key management included —
+  // stays JWT-only, so a leaked key can never mint or revoke another one.
+  if (isIntegrationApiRequest(req)) {
+    authenticateApiKeyOrToken(req, res, next);
     return;
   }
   authenticateToken(req, res, next);
@@ -188,10 +189,18 @@ import { SUPPORT_WORKER_ORIGIN } from "../shared/support-config.js";
 import { ZipArchive } from "archiver";
 import helmet from "helmet";
 import { steamRoutes } from "./steam-routes.js";
+import {
+  getContentFilterFlags,
+  isContentFiltered,
+  excludeFilteredContent,
+} from "./content-filter.js";
+import { normalizeInitialReleaseStatus } from "./game-status.js";
 import { importRouter } from "./routes/import.js";
 import { importTasksRouter } from "./routes/import-tasks.js";
 import { systemRouter } from "./routes/system.js";
 import { pcgamingwikiRouter } from "./pcgamingwiki-router.js";
+import { integrationRouter } from "./routes/integration.js";
+import { apiKeysRouter } from "./routes/api-keys.js";
 
 // Cache-Control header values for IGDB discovery endpoints
 const CC_IGDB_METADATA = "public, max-age=86400, stale-while-revalidate=3600";
@@ -410,36 +419,6 @@ function validatePaginationParams(query: { limit?: string; offset?: string }): {
   const limit = Math.min(Math.max(1, Number.parseInt(query.limit as string, 10) || 20), 100);
   const offset = Math.max(0, Number.parseInt(query.offset as string, 10) || 0);
   return { limit, offset };
-}
-
-interface ContentFilterFlags {
-  hideAdultContent: boolean;
-  hideAgeRestrictedContent: boolean;
-}
-
-/** The two content-filter signals are independent user settings: "Erotic" theme vs. ESRB AO/PEGI 18 age ratings. */
-async function getContentFilterFlags(userId: string): Promise<ContentFilterFlags> {
-  const settings = await storage.getUserSettings(userId);
-  return {
-    hideAdultContent: settings?.hideAdultContent ?? true,
-    hideAgeRestrictedContent: settings?.hideAgeRestrictedContent ?? true,
-  };
-}
-
-function isContentFiltered(
-  game: { isAdultContent?: boolean; isAgeRestricted?: boolean },
-  flags: ContentFilterFlags
-): boolean {
-  return (
-    (flags.hideAdultContent && game.isAdultContent === true) ||
-    (flags.hideAgeRestrictedContent && game.isAgeRestricted === true)
-  );
-}
-
-function excludeFilteredContent<T>(games: T[], flags: ContentFilterFlags): T[] {
-  return games.filter(
-    (g) => !isContentFiltered(g as { isAdultContent?: boolean; isAgeRestricted?: boolean }, flags)
-  );
 }
 
 /** Filters an already-fetched list of library games according to the user's content-filter preferences. */
@@ -1168,6 +1147,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/imports", authenticateToken, importRouter);
   app.use("/api/import-tasks", authenticateToken, importTasksRouter);
   app.use("/api/system", authenticateToken, systemRouter);
+  // Authenticated by the /api gate above (JWT or integration API key); the
+  // router re-checks req.user as defence-in-depth.
+  app.use("/api/integration", integrationRouter);
+  app.use("/api/api-keys", authenticateToken, apiKeysRouter);
 
   // Sync indexers from Prowlarr
   app.post("/api/indexers/prowlarr/sync", sensitiveEndpointLimiter, async (req, res, next) => {

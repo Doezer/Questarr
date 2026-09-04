@@ -181,12 +181,12 @@ Features are ordered by current priority. Each section includes the user value a
 
 **Problem:** Self-hosters already use tools like Playnite, Gameyfin, and RomM. Questarr should fit into those ecosystems rather than compete with them.
 
-**Planned integrations:**
+**Integrations:**
 
-- **Playnite**: Export library or sync game metadata/status
-- **RomM**: Tag ROMs with metadata from Questarr; trigger ROM downloads via Questarr pipeline
-- **Gameyfin**: Notify or sync when a new game is added/downloaded
-- **Generic webhook**: POST to a user-defined URL on events (game added, download complete, post-processing done) — enables any integration not explicitly supported
+- **Playnite** ✅ Shipped — a Playnite extension (`extensions/playnite-questarr/`) syncs the local library up to Questarr (matched by Steam App ID, then normalized title), can promote installed games from `wanted` to `owned`, and can request a game from Playnite's right-click menu, which adds it as `wanted` and hands it to the existing auto-search pipeline. Backed by a dedicated integration API (`/api/integration`, see `docs/API.md`) authenticated with a long-lived API key minted in Settings → Integrations, kept separate from the interactive JWT session so a leaked key cannot manage other keys or reach the rest of the app.
+- **RomM** (planned): Tag ROMs with metadata from Questarr; trigger ROM downloads via Questarr pipeline
+- **Gameyfin** (planned): Notify or sync when a new game is added/downloaded
+- **Generic webhook** (planned): POST to a user-defined URL on events (game added, download complete, post-processing done) — enables any integration not explicitly supported
 
 **Why:** Lowers switching cost and increases stickiness for users already in the self-hosted ecosystem.
 
@@ -287,5 +287,4 @@ The following will not be built within this roadmap and are not planned:
 | -------------------------------------- | -------------------------------------------------------------------- |
 | Which debrid API to support first?     | Real-Debrid has the largest user base in the community               |
 | GOG library import — API or file scan? | GOG's public API is limited; may need to read the GOG Galaxy DB file |
-| Playnite integration shape             | Plugin (runs in Playnite) vs. webhook-based (runs in Questarr)?      |
 | PostgreSQL migration tooling           | Provide an official migration script or leave it to the user?        |

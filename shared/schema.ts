@@ -192,6 +192,7 @@ export const games = sqliteTable("games", {
   searchResultsAvailable: integer("search_results_available", { mode: "boolean" })
     .default(false)
     .notNull(),
+  searchResultsAvailableAt: integer("search_results_available_at", { mode: "timestamp_ms" }),
   updateSearchResultsAvailable: integer("update_search_results_available", { mode: "boolean" })
     .default(false)
     .notNull(),

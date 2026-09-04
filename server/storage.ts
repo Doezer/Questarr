@@ -500,6 +500,7 @@ export class MemStorage implements IStorage {
       releaseStatus: insertGame.releaseStatus || "upcoming",
       earlyAccess: insertGame.earlyAccess ?? false,
       searchResultsAvailable: false,
+      searchResultsAvailableAt: null,
       updateSearchResultsAvailable: false,
       packsSearchResultsAvailable: false,
       userRating: null,
@@ -577,6 +578,9 @@ export class MemStorage implements IStorage {
   async updateGameSearchResultsAvailable(gameId: string, available: boolean): Promise<void> {
     const game = this.games.get(gameId);
     if (game) {
+      if (available && !game.searchResultsAvailable) {
+        game.searchResultsAvailableAt = new Date();
+      }
       game.searchResultsAvailable = available;
       this.games.set(gameId, game);
     }
@@ -588,9 +592,14 @@ export class MemStorage implements IStorage {
   ): Promise<void> {
     const game = this.games.get(gameId);
     if (game) {
+      const wasAvailable = game.searchResultsAvailable;
+      const nowAvailable = availability.updates || availability.packs;
+      if (nowAvailable && !wasAvailable) {
+        game.searchResultsAvailableAt = new Date();
+      }
       game.updateSearchResultsAvailable = availability.updates;
       game.packsSearchResultsAvailable = availability.packs;
-      game.searchResultsAvailable = availability.updates || availability.packs;
+      game.searchResultsAvailable = nowAvailable;
       this.games.set(gameId, game);
     }
   }
@@ -1824,7 +1833,12 @@ export class DatabaseStorage implements IStorage {
       .update(games)
       .set(
         available
-          ? { searchResultsAvailable: true }
+          ? {
+              searchResultsAvailable: true,
+              // Only stamp the "became downloadable" time on the false→true transition,
+              // so re-confirming availability on subsequent cron runs doesn't keep bumping it.
+              searchResultsAvailableAt: sql`CASE WHEN ${games.searchResultsAvailable} = 0 THEN ${Date.now()} ELSE ${games.searchResultsAvailableAt} END`,
+            }
           : {
               searchResultsAvailable: false,
               updateSearchResultsAvailable: false,
@@ -1838,12 +1852,16 @@ export class DatabaseStorage implements IStorage {
     gameId: string,
     availability: { updates: boolean; packs: boolean }
   ): Promise<void> {
+    const nowAvailable = availability.updates || availability.packs;
     await db
       .update(games)
       .set({
         updateSearchResultsAvailable: availability.updates,
         packsSearchResultsAvailable: availability.packs,
-        searchResultsAvailable: availability.updates || availability.packs,
+        searchResultsAvailable: nowAvailable,
+        searchResultsAvailableAt: nowAvailable
+          ? sql`CASE WHEN ${games.searchResultsAvailable} = 0 THEN ${Date.now()} ELSE ${games.searchResultsAvailableAt} END`
+          : games.searchResultsAvailableAt,
       })
       .where(eq(games.id, gameId));
   }

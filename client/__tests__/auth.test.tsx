@@ -18,9 +18,11 @@ vi.mock("wouter", () => ({
 
 const mockApiFetch = vi.fn();
 const mockApiRequest = vi.fn();
+const mockSetBearerToken = vi.fn();
 vi.mock("@/lib/queryClient", () => ({
   apiFetch: (...args: unknown[]) => mockApiFetch(...args),
   apiRequest: (...args: unknown[]) => mockApiRequest(...args),
+  setBearerToken: (...args: unknown[]) => mockSetBearerToken(...args),
 }));
 
 import { AuthProvider, useAuth } from "../src/lib/auth";
@@ -72,6 +74,10 @@ describe("AuthProvider", () => {
       if (url.includes("/api/auth/me")) return jsonResponse(200, null);
       return jsonResponse(404, {});
     });
+    // logout() calls apiRequest("POST", "/api/auth/logout") best-effort; give
+    // it a sane default so tests that don't care about that call directly
+    // don't have to configure it themselves.
+    mockApiRequest.mockResolvedValue(jsonResponse(200, { success: true }));
   });
 
   it("redirects to /setup when no users exist yet", async () => {
@@ -139,7 +145,7 @@ describe("AuthProvider", () => {
     });
   });
 
-  it("clears the token when /api/auth/me returns 401", async () => {
+  it("clears the in-memory bearer session when /api/auth/me returns 401", async () => {
     localStorage.setItem("token", "stale-token");
     mockApiFetch.mockImplementation(async (url: string) => {
       if (url.includes("/api/auth/status")) return jsonResponse(200, { hasUsers: true });
@@ -149,9 +155,35 @@ describe("AuthProvider", () => {
 
     renderAuth(createClient());
 
+    // Migrated once synchronously on mount (with the legacy token)...
     await waitFor(() => {
-      expect(localStorage.getItem("token")).toBeNull();
+      expect(mockSetBearerToken).toHaveBeenCalledWith("stale-token");
     });
+    // ...then cleared once the server rejects it.
+    await waitFor(() => {
+      expect(mockSetBearerToken).toHaveBeenCalledWith(null);
+    });
+    expect(localStorage.getItem("token")).toBeNull();
+  });
+
+  it("does not wipe the cached /api/auth/status query when /api/auth/me returns 401", async () => {
+    // A prior bug cleared the *entire* QueryClient here, which could cancel
+    // the still-in-flight /api/auth/status query and strand its observers
+    // (setup/config screens) on an indefinite loading state.
+    mockApiFetch.mockImplementation(async (url: string) => {
+      if (url.includes("/api/auth/status")) return jsonResponse(200, { hasUsers: true });
+      if (url.includes("/api/auth/me")) return jsonResponse(401, {});
+      return jsonResponse(404, {});
+    });
+    const client = createClient();
+
+    renderAuth(client);
+
+    await waitFor(() => {
+      expect(client.getQueryData(["/api/auth/status"])).toEqual({ hasUsers: true });
+    });
+    // Cache survives the /api/auth/me 401 handling.
+    expect(client.getQueryData(["/api/auth/status"])).toEqual({ hasUsers: true });
   });
 
   it("redirects to / when authenticated and sitting on /login", async () => {
@@ -172,32 +204,70 @@ describe("AuthProvider", () => {
     });
   });
 
-  it("login mutates state, stores the token, and navigates home", async () => {
+  it("login mutates state and navigates home without touching localStorage (cookies carry the session)", async () => {
     mockApiRequest.mockResolvedValue({
       json: async () => ({ token: "new-token", user: { id: "u1", username: "newuser" } }),
     });
 
     renderAuth(createClient());
-    await waitFor(() => screen.getByTestId("user"));
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
 
     await act(async () => {
       screen.getByRole("button", { name: "Login" }).click();
     });
 
     await waitFor(() => {
-      expect(localStorage.getItem("token")).toBe("new-token");
+      expect(screen.getByTestId("user")).toHaveTextContent("newuser");
     });
+    // The server has already set the httpOnly auth cookie; the client never
+    // persists the token returned in the body (kept only for backward
+    // compatibility with non-browser bearer clients).
+    expect(localStorage.getItem("token")).toBeNull();
     expect(mockToast).toHaveBeenCalledWith(
       expect.objectContaining({ title: "Logged in successfully" })
     );
     expect(setLocationMock).toHaveBeenCalledWith("/");
   });
 
+  it("clears a stale migrated bearer token on successful login, so it can't override the fresh cookie", async () => {
+    // A stale bearer token (migrated from a pre-cookie session) takes
+    // priority over the auth cookie on every request server-side. If login
+    // left it in place, a fresh valid cookie session would keep getting
+    // silently rejected in favor of the stale bearer on every subsequent
+    // /api/auth/me check.
+    localStorage.setItem("token", "stale-legacy-token");
+    mockApiFetch.mockImplementation(async (url: string) => {
+      if (url.includes("/api/auth/status")) return jsonResponse(200, { hasUsers: true });
+      if (url.includes("/api/auth/me")) return jsonResponse(401, {});
+      return jsonResponse(404, {});
+    });
+    mockApiRequest.mockResolvedValue({
+      json: async () => ({ token: "new-token", user: { id: "u1", username: "newuser" } }),
+    });
+
+    renderAuth(createClient());
+
+    // Migrated on mount.
+    await waitFor(() => {
+      expect(mockSetBearerToken).toHaveBeenCalledWith("stale-legacy-token");
+    });
+
+    await act(async () => {
+      screen.getByRole("button", { name: "Login" }).click();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("user")).toHaveTextContent("newuser");
+    });
+    // The last call must be the clear, not a stale re-set of the migrated token.
+    expect(mockSetBearerToken).toHaveBeenLastCalledWith(null);
+  });
+
   it("shows an error toast when login fails", async () => {
     mockApiRequest.mockRejectedValue(new Error("Invalid credentials"));
 
     renderAuth(createClient());
-    await waitFor(() => screen.getByTestId("user"));
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
 
     await act(async () => {
       screen.getByRole("button", { name: "Login" }).click();
@@ -210,17 +280,46 @@ describe("AuthProvider", () => {
     });
   });
 
-  it("logout clears the token and redirects to /login", async () => {
-    localStorage.setItem("token", "existing-token");
+  it("logout clears the in-memory bearer session, best-effort calls the logout endpoint, and redirects to /login", async () => {
     renderAuth(createClient());
-    await waitFor(() => screen.getByTestId("user"));
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
 
     await act(async () => {
       screen.getByRole("button", { name: "Logout" }).click();
     });
 
+    expect(mockApiRequest).toHaveBeenCalledWith("POST", "/api/auth/logout");
+    expect(mockSetBearerToken).toHaveBeenCalledWith(null);
     expect(localStorage.getItem("token")).toBeNull();
     expect(setLocationMock).toHaveBeenCalledWith("/login");
+  });
+
+  it("leaves local session state alone and shows an error toast when the server-side logout call fails", async () => {
+    mockApiRequest.mockRejectedValue(new Error("network down"));
+
+    renderAuth(createClient());
+    await waitFor(() => expect(screen.getByTestId("loading")).toHaveTextContent("false"));
+
+    // Mount-time migration already calls setBearerToken(null) once (no
+    // legacy token in this test) -- clear that call so the assertions below
+    // are only about what logout() itself does.
+    mockSetBearerToken.mockClear();
+    setLocationMock.mockClear();
+
+    await act(async () => {
+      screen.getByRole("button", { name: "Logout" }).click();
+      // Let the rejected apiRequest promise settle before asserting.
+      await Promise.resolve();
+    });
+
+    // A failed server-side logout means the httpOnly session cookie is
+    // still live server-side -- clearing local state anyway would make the
+    // client silently believe it logged out when it didn't.
+    expect(mockSetBearerToken).not.toHaveBeenCalled();
+    expect(setLocationMock).not.toHaveBeenCalledWith("/login");
+    expect(mockToast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Logout failed", variant: "destructive" })
+    );
   });
 
   it("useAuth throws when used outside an AuthProvider", () => {

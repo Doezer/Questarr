@@ -33,39 +33,72 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
-function withAuthorization(headers?: HeadersInit): HeadersInit | undefined {
-  const token = localStorage.getItem("token");
-  if (!token) {
-    return headers;
-  }
+// Auth is primarily cookie-based (httpOnly JWT cookie set by the server on
+// login/setup, sent automatically via credentials: "include" below). This
+// in-memory-only bearer token exists solely to bridge a browser session that
+// was already logged in via the old localStorage-token flow across the
+// migration to cookies, without stranding it -- see auth.tsx, which is the
+// only caller of setBearerToken. New logins never populate this; it is never
+// written to localStorage or any other persistent storage.
+let inMemoryBearerToken: string | null = null;
+export function setBearerToken(token: string | null): void {
+  inMemoryBearerToken = token;
+}
 
-  const authorization = `Bearer ${token}`;
+// Must match CSRF_COOKIE_NAME in server/security.ts. Kept as a plain literal
+// (not imported) since client and server are separate bundles.
+const CSRF_COOKIE_NAME = "questarr_csrf";
 
+function getCsrfTokenFromCookie(): string | undefined {
+  if (typeof document === "undefined") return undefined;
+  const match = document.cookie.match(new RegExp(`(?:^|; )${CSRF_COOKIE_NAME}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : undefined;
+}
+
+/** Set `name: value` on a HeadersInit of any shape, without overwriting a value the caller already set explicitly. */
+function withHeader(headers: HeadersInit | undefined, name: string, value: string): HeadersInit {
   if (!headers) {
-    return { Authorization: authorization };
+    return { [name]: value };
   }
 
   if (headers instanceof Headers) {
     const newHeaders = new Headers(headers);
-    if (!newHeaders.has("Authorization")) {
-      newHeaders.set("Authorization", authorization);
+    if (!newHeaders.has(name)) {
+      newHeaders.set(name, value);
     }
     return newHeaders;
   }
 
   if (Array.isArray(headers)) {
-    const hasAuthorization = headers.some(([key]) => key.toLowerCase() === "authorization");
-    return hasAuthorization ? headers : [...headers, ["Authorization", authorization]];
+    const hasHeader = headers.some(([key]) => key.toLowerCase() === name.toLowerCase());
+    return hasHeader ? headers : [...headers, [name, value]];
   }
 
-  const hasAuthorization = Object.keys(headers).some(
-    (key) => key.toLowerCase() === "authorization"
-  );
-  return hasAuthorization ? headers : { ...headers, Authorization: authorization };
+  const hasHeader = Object.keys(headers).some((key) => key.toLowerCase() === name.toLowerCase());
+  return hasHeader ? headers : { ...headers, [name]: value };
 }
 
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
 export function apiFetch(url: string, init: RequestInit = {}): Promise<Response> {
-  const headers = withAuthorization(init.headers);
+  let headers = init.headers;
+
+  if (inMemoryBearerToken) {
+    headers = withHeader(headers, "Authorization", `Bearer ${inMemoryBearerToken}`);
+  }
+
+  // Attach the double-submit CSRF token on state-changing requests when the
+  // (non-httpOnly, readable) CSRF cookie is present -- i.e. whenever this
+  // session is cookie-authenticated. Bearer-only sessions have no CSRF
+  // cookie, so this is a no-op for them (the server also skips CSRF
+  // enforcement for bearer-authenticated requests, see server/security.ts).
+  const method = (init.method || "GET").toUpperCase();
+  if (!SAFE_METHODS.has(method)) {
+    const csrfToken = getCsrfTokenFromCookie();
+    if (csrfToken) {
+      headers = withHeader(headers, "X-CSRF-Token", csrfToken);
+    }
+  }
 
   return fetch(withBasePath(url), {
     ...init,

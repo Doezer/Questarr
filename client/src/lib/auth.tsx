@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { apiFetch, apiRequest } from "./queryClient";
+import { apiFetch, apiRequest, setBearerToken } from "./queryClient";
 import { useToast } from "@/hooks/use-toast";
 
 type User = {
@@ -13,7 +13,7 @@ type AuthContextType = {
   user: User | null;
   isLoading: boolean;
   login: (credentials: { username: string; password: string }) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   needsSetup: boolean;
   checkSetup: () => Promise<void>;
 };
@@ -22,13 +22,47 @@ const AuthContext = createContext<AuthContextType | null>(null);
 
 type FetchUserError = Error & { status?: number };
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
+/**
+ * Auth is primarily cookie-based (httpOnly JWT cookie set by the server on
+ * login/setup, sent automatically via credentials: "include"). This runs
+ * once, synchronously, before anything else in AuthProvider mounts: it
+ * migrates a session that logged in before this change (localStorage-token
+ * only, no cookie yet) into an in-memory bearer token for the current tab,
+ * and scrubs the token out of localStorage immediately so it's no longer
+ * sitting in persistent storage. New logins never write here again -- from
+ * their perspective, everything after this migration is cookie-only.
+ */
+function migrateLegacyLocalStorageToken(): void {
+  const legacyToken = localStorage.getItem("token");
+  if (legacyToken) {
+    setBearerToken(legacyToken);
+    localStorage.removeItem("token");
+  } else {
+    // Deterministically reset the in-memory bearer token on every mount
+    // (rather than only ever setting it), so a stale value from a prior
+    // AuthProvider instance -- e.g. across remounts, or between tests --
+    // can never leak into a session that has no legacy token to migrate.
+    setBearerToken(null);
+  }
+}
+
+interface AuthProviderProps {
+  children: React.ReactNode;
+}
+
+export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(localStorage.getItem("token"));
   const [needsSetup, setNeedsSetup] = useState(false);
   const [location, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+
+  // Lazy initializer runs during render, before any child effect (including
+  // React Query's own fetch-triggering effects) can fire -- see
+  // migrateLegacyLocalStorageToken's doc comment for why that ordering
+  // matters. Neither the value nor the setter is needed -- only the
+  // one-time initializer call -- so both are destructured out and unused.
+  const [_migrationRan, _setMigrationRan] = useState(migrateLegacyLocalStorageToken);
 
   const {
     isLoading: isCheckingSetup,
@@ -57,24 +91,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [statusData]);
 
   const { isLoading: isFetchingUser, data: meData } = useQuery({
-    queryKey: ["/api/auth/me", token],
+    queryKey: ["/api/auth/me"],
     queryFn: async () => {
-      // Read token directly from localStorage for freshness
-      const currentToken = localStorage.getItem("token");
-      if (!currentToken) return null;
-
-      const res = await apiFetch("/api/auth/me", {
-        headers: { Authorization: `Bearer ${currentToken}` },
-      });
+      // No Authorization header needed for the common case -- the httpOnly
+      // auth cookie is sent automatically. apiFetch also attaches an
+      // in-memory bearer token here if migrateLegacyLocalStorageToken found
+      // one for this tab.
+      const res = await apiFetch("/api/auth/me");
 
       if (res.ok) {
         return await res.json();
       }
 
       if (res.status === 401 || res.status === 403) {
-        localStorage.removeItem("token");
-        setToken(null);
-        queryClient.clear();
+        setBearerToken(null);
+        // Drop every other cached query (stale authenticated data from a
+        // prior session) but deliberately spare "/api/auth/status" --
+        // clearing the whole client here can cancel that query's own
+        // in-flight fetch and strand its observers (setup/config screens)
+        // on an indefinite loading state instead of just re-resolving once
+        // this query itself settles to null.
+        queryClient.removeQueries({
+          predicate: (query) => query.queryKey[0] !== "/api/auth/status",
+        });
         return null;
       }
 
@@ -84,7 +123,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       error.status = res.status;
       throw error;
     },
-    enabled: !!token,
+    // Always attempt this -- a valid session may exist purely via the
+    // httpOnly cookie, with nothing for the client to check beforehand.
     retry: (failureCount, error) => {
       const status = (error as FetchUserError).status;
       if (typeof status === "number") {
@@ -111,8 +151,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     mutationFn: async (credentials: { username: string; password: string }) => {
       const res = await apiRequest("POST", "/api/auth/login", credentials);
       const data = await res.json();
-      localStorage.setItem("token", data.token);
-      setToken(data.token);
+      // The server has already set the httpOnly auth + CSRF cookies; nothing
+      // to store client-side. `data.token` is still returned for backward
+      // compatibility with non-browser bearer clients, but the browser
+      // client itself never persists it.
+      //
+      // Also clear any in-memory bearer token migrated from a pre-cookie
+      // session (see migrateLegacyLocalStorageToken): the Authorization
+      // header takes priority over the cookie on every subsequent request,
+      // so a stale/invalid migrated bearer left in place would keep
+      // clobbering this fresh, valid cookie session on every later
+      // /api/auth/me check.
+      setBearerToken(null);
       setUser(data.user);
     },
     onSuccess: () => {
@@ -132,9 +182,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await loginMutation.mutateAsync(credentials);
   };
 
-  const logout = () => {
-    localStorage.removeItem("token");
-    setToken(null);
+  const logout = async () => {
+    // Wait for the server to actually clear the httpOnly session cookie
+    // before dropping local state. If this fails (network error, 500,
+    // etc.), the server-side session is still live, so acting as if we'd
+    // logged out would let a later page load / auth/me check silently
+    // restore it -- leave local state untouched and let the user retry.
+    try {
+      await apiRequest("POST", "/api/auth/logout");
+    } catch (error) {
+      toast({
+        title: "Logout failed",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Unable to reach the server. Please check your connection and try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setBearerToken(null);
     setUser(null);
     queryClient.clear();
     setLocation("/login");

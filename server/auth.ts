@@ -6,6 +6,7 @@ import { config } from "./config.js";
 import { type User } from "@shared/schema";
 import crypto from "crypto";
 import { logger } from "./logger.js";
+import { AUTH_COOKIE_NAME, getCookie } from "./security.js";
 
 const SALT_ROUNDS = 10;
 
@@ -82,18 +83,48 @@ export async function generateToken(user: User) {
 }
 
 /**
+ * Resolve the JWT for this request, from EITHER the Authorization: Bearer
+ * header or the httpOnly auth cookie, and report which source it came from
+ * so callers (csrfProtection in particular) can key off it. The Authorization
+ * header takes priority when both are present -- it's an explicit assertion
+ * by the caller that it wants bearer semantics for this request.
+ */
+function getRequestToken(req: Request): { token: string; source: "cookie" | "bearer" } | undefined {
+  const authHeader = req.headers["authorization"];
+  if (authHeader) {
+    const [scheme, ...rest] = authHeader.split(" ");
+    const bearerToken = rest.join(" ");
+    if (scheme?.toLowerCase() === "bearer" && bearerToken) {
+      return { token: bearerToken, source: "bearer" };
+    }
+    // Any other scheme (e.g. Basic) isn't something this server issues or
+    // accepts -- fall through to the cookie check rather than treating an
+    // unrelated credential as a bearer token and failing jwt.verify on it.
+  }
+
+  const cookieToken = getCookie(req, AUTH_COOKIE_NAME);
+  if (cookieToken) {
+    return { token: cookieToken, source: "cookie" };
+  }
+
+  return undefined;
+}
+
+/**
  * Optional authentication middleware. Sets req.user when a valid JWT is present
  * but never blocks the request — unauthenticated callers simply get no req.user.
  */
 export async function optionalAuthenticateToken(req: Request, _res: Response, next: NextFunction) {
-  const authHeader = req.headers["authorization"];
-  const token = authHeader && authHeader.split(" ")[1];
-  if (token) {
+  const requestToken = getRequestToken(req);
+  if (requestToken) {
     try {
       const secret = await getJwtSecret();
-      const payload = jwt.verify(token, secret) as { id: string; username: string };
+      const payload = jwt.verify(requestToken.token, secret) as { id: string; username: string };
       const user = await storage.getUser(payload.id);
-      if (user) req.user = user;
+      if (user) {
+        req.user = user;
+        req.authSource = requestToken.source;
+      }
     } catch {
       // Invalid token — continue without user context
     }
@@ -102,16 +133,15 @@ export async function optionalAuthenticateToken(req: Request, _res: Response, ne
 }
 
 export async function authenticateToken(req: Request, res: Response, next: NextFunction) {
-  const authHeader = req.headers["authorization"];
-  const token = authHeader && authHeader.split(" ")[1];
+  const requestToken = getRequestToken(req);
 
-  if (!token) {
+  if (!requestToken) {
     return res.status(401).json({ error: "Authentication required" });
   }
 
   try {
     const secret = await getJwtSecret();
-    const payload = jwt.verify(token, secret) as { id: string; username: string };
+    const payload = jwt.verify(requestToken.token, secret) as { id: string; username: string };
     const user = await storage.getUser(payload.id);
 
     if (!user) {
@@ -119,6 +149,7 @@ export async function authenticateToken(req: Request, res: Response, next: NextF
     }
 
     req.user = user;
+    req.authSource = requestToken.source;
     next();
   } catch {
     return res.status(403).json({ error: "Invalid or expired token" });

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 import { newznabClient } from "../newznab.js";
+import { DEFAULT_GAME_CATEGORIES } from "../indexer-caps.js";
 import { routesLogger } from "../logger.js";
 
 vi.mock("../ssrf.js", () => ({
@@ -171,6 +172,33 @@ describe("NewznabClient", () => {
           { id: "4000", name: "PC" },
         ])
       );
+    });
+
+    it("falls back to default game categories instead of throwing when caps discovery fails entirely", async () => {
+      (isSafeUrl as Mock).mockResolvedValue(true);
+      (safeFetch as Mock).mockRejectedValue(new Error("ECONNREFUSED"));
+
+      const categories = await newznabClient.getCategories(mockIndexer);
+
+      expect(categories).toEqual(DEFAULT_GAME_CATEGORIES);
+    });
+
+    it("tries a second caps URL variant when the first one fails outright", async () => {
+      // A bare-root indexer URL (no /api path segment) produces two distinct
+      // candidates: the normalized (buildApiUrl) form and the raw URL as-is.
+      const rootIndexer = { ...mockIndexer, url: "http://example.com" };
+      (isSafeUrl as Mock).mockResolvedValue(true);
+      (safeFetch as Mock)
+        .mockRejectedValueOnce(new Error("ECONNREFUSED"))
+        .mockResolvedValueOnce({ ok: true, text: async () => mockCapsXml });
+
+      const categories = await newznabClient.getCategories(rootIndexer);
+
+      expect(categories).toHaveLength(5);
+      expect(safeFetch).toHaveBeenCalledTimes(2);
+      const [firstUrl, secondUrl] = (safeFetch as Mock).mock.calls.map((call) => call[0] as string);
+      expect(firstUrl).toBe("http://example.com/api?t=caps&apikey=secret");
+      expect(secondUrl).toBe("http://example.com/?t=caps&apikey=secret");
     });
   });
 

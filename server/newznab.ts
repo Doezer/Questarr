@@ -1,7 +1,10 @@
 import { XMLParser } from "fast-xml-parser";
 import { type Indexer } from "@shared/schema";
+import { DEFAULT_GAME_CATEGORIES, discoverCapsCategories } from "./indexer-caps.js";
 import { routesLogger } from "./logger.js";
 import { isSafeUrl, safeFetch } from "./ssrf.js";
+
+export { DEFAULT_GAME_CATEGORY_IDS } from "./indexer-caps.js";
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -46,6 +49,43 @@ export interface NewznabCategory {
 interface NewznabServerInfo {
   title?: string;
   version?: string;
+}
+
+/** Shape of one <category>/<subcat> node as fast-xml-parser produces it. */
+interface RawCapsCategoryNode {
+  "@_id"?: string;
+  "@_name"?: string;
+  subcat?: unknown;
+}
+
+function isRawCapsCategoryNode(value: unknown): value is RawCapsCategoryNode {
+  return typeof value === "object" && value !== null;
+}
+
+/** Converts one <category> node's <subcat> children into flat NewznabCategory entries. */
+function parseSubcategories(subcatNode: unknown, parentName: string): NewznabCategory[] {
+  const subcats = Array.isArray(subcatNode) ? subcatNode : [subcatNode];
+  const results: NewznabCategory[] = [];
+  for (const subcat of subcats) {
+    if (!isRawCapsCategoryNode(subcat)) continue;
+    if (subcat["@_id"] && subcat["@_name"]) {
+      results.push({ id: subcat["@_id"], name: `${parentName} > ${subcat["@_name"]}` });
+    }
+  }
+  return results;
+}
+
+/** Converts one <category> caps node (plus any nested <subcat> children) into flat entries. */
+function parseParentAndSubcategories(cat: unknown): NewznabCategory[] {
+  if (!isRawCapsCategoryNode(cat) || !cat["@_id"] || !cat["@_name"]) {
+    return [];
+  }
+
+  const results: NewznabCategory[] = [{ id: cat["@_id"], name: cat["@_name"] }];
+  if (cat.subcat) {
+    results.push(...parseSubcategories(cat.subcat, cat["@_name"]));
+  }
+  return results;
 }
 
 class NewznabClient {
@@ -313,65 +353,35 @@ class NewznabClient {
     };
   }
 
+  private parseCapsCategories(xmlText: string): NewznabCategory[] {
+    const data = parser.parse(xmlText);
+    const categoryNode = data.caps?.categories?.category;
+    if (!categoryNode) {
+      return [];
+    }
+
+    const cats = Array.isArray(categoryNode) ? categoryNode : [categoryNode];
+    return cats.flatMap((cat) => parseParentAndSubcategories(cat));
+  }
+
   /**
-   * Get available categories from a Newznab indexer
+   * Get available categories from a Newznab indexer. See
+   * discoverCapsCategories for the retry/fallback behavior.
    */
   async getCategories(indexer: Indexer): Promise<NewznabCategory[]> {
-    try {
-      if (!(await isSafeUrl(indexer.url))) {
-        throw new Error(`Unsafe URL detected: ${indexer.url}`);
-      }
-
-      const url = this.buildApiUrl(indexer.url);
-      url.searchParams.set("apikey", indexer.apiKey);
-      url.searchParams.set("t", "caps"); // Get capabilities
-
-      const response = await safeFetch(url.toString(), {
-        signal: AbortSignal.timeout(10000),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-
-      const xmlText = await response.text();
-      const data = parser.parse(xmlText);
-
-      const categories: NewznabCategory[] = [];
-
-      if (data.caps?.categories?.category) {
-        const cats = Array.isArray(data.caps.categories.category)
-          ? data.caps.categories.category
-          : [data.caps.categories.category];
-
-        for (const cat of cats) {
-          if (cat["@_id"] && cat["@_name"]) {
-            categories.push({
-              id: cat["@_id"],
-              name: cat["@_name"],
-            });
-
-            // Add subcategories
-            if (cat.subcat) {
-              const subcats = Array.isArray(cat.subcat) ? cat.subcat : [cat.subcat];
-              for (const subcat of subcats) {
-                if (subcat["@_id"] && subcat["@_name"]) {
-                  categories.push({
-                    id: subcat["@_id"],
-                    name: `${cat["@_name"]} > ${subcat["@_name"]}`,
-                  });
-                }
-              }
-            }
-          }
+    return discoverCapsCategories({
+      indexer,
+      buildApiUrl: this.buildApiUrl.bind(this),
+      assertAllowed: async () => {
+        if (!(await isSafeUrl(indexer.url))) {
+          throw new Error(`Unsafe URL detected: ${indexer.url}`);
         }
-      }
-
-      return categories;
-    } catch (error) {
-      routesLogger.error({ indexer: indexer.name, error }, "failed to get newznab categories");
-      throw error;
-    }
+      },
+      parseCaps: (xmlText) => this.parseCapsCategories(xmlText),
+      fallback: DEFAULT_GAME_CATEGORIES,
+      logger: routesLogger,
+      protocolName: "newznab",
+    });
   }
 
   /**

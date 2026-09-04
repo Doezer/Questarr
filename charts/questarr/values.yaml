@@ -150,10 +150,13 @@ securityContext:
   capabilities:
     drop:
       - ALL
+    # CHOWN for the ownership fix on /app/data, SETGID/SETUID for the su-exec
+    # drop to the questarr user. DAC_OVERRIDE and FOWNER are deliberately NOT
+    # granted: as root the entrypoint owns everything it writes, so it only
+    # needs them for volumes with hostile modes — and DAC_OVERRIDE bypasses
+    # every file permission check, which is the one worth keeping out.
     add:
       - CHOWN
-      - DAC_OVERRIDE
-      - FOWNER
       - SETGID
       - SETUID
 

@@ -197,7 +197,10 @@ also checks database connectivity.
 
 The container starts as root on purpose: its entrypoint applies `PUID`/`PGID` to
 `/app/data` and then drops privileges with `su-exec` before the app runs. The default
-`securityContext` keeps only the capabilities that needs. If your cluster forbids root
+`securityContext` keeps only the capabilities that needs — `CHOWN`, `SETGID` and
+`SETUID`, on top of `drop: ALL` and `allowPrivilegeEscalation: false`. `DAC_OVERRIDE`
+is deliberately not granted, so a volume whose modes deny root will fail the
+entrypoint's writability check with a clear error rather than being forced open. If your cluster forbids root
 containers, pre-create the volume with the right ownership and run fully unprivileged:
 
 ```yaml

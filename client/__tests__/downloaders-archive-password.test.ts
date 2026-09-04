@@ -14,6 +14,14 @@ describe("SABnzbd archive password settings helpers", () => {
     });
 
     it.each([
+      ["a number", 404],
+      ["a boolean", true],
+      ["an object", { value: "404" }],
+    ])("returns an empty string when archivePassword is %s", (_label, archivePassword) => {
+      expect(getArchivePasswordFromSettings(JSON.stringify({ archivePassword }))).toBe("");
+    });
+
+    it.each([
       ["no settings stored", undefined],
       ["null settings", null],
       ["empty string settings", ""],

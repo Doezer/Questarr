@@ -13,6 +13,15 @@ describe("getArchivePasswordSetting", () => {
   it("returns undefined for missing settings", () => {
     expect(getArchivePasswordSetting(undefined)).toBeUndefined();
   });
+
+  it.each([
+    ["an empty string", ""],
+    ["a number", 404],
+    ["a boolean", true],
+    ["an object", { value: "404" }],
+  ])("ignores %s stored as archivePassword", (_label, archivePassword) => {
+    expect(getArchivePasswordSetting(JSON.stringify({ archivePassword }))).toBeUndefined();
+  });
 });
 
 describe("resolveArchivePassword", () => {
@@ -36,6 +45,17 @@ describe("resolveArchivePassword", () => {
         "NZBGet"
       )
     ).toEqual({ password: "404" });
+  });
+
+  it("treats an empty per-request password as no override", () => {
+    expect(
+      resolveArchivePassword(
+        "",
+        JSON.stringify({ archivePassword: "default" }),
+        "https://example.com",
+        "SABnzbd"
+      )
+    ).toEqual({ password: "default" });
   });
 
   it("resolves to no password when neither is set", () => {

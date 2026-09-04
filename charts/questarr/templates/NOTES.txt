@@ -1,0 +1,44 @@
+Questarr {{ .Chart.AppVersion }} has been deployed as release {{ .Release.Name }}.
+
+Reach the UI:
+{{- if .Values.ingress.enabled }}
+{{- range $host := .Values.ingress.hosts }}
+{{- range $host.paths }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ $host.host }}{{ .path }}
+{{- end }}
+{{- end }}
+{{- else if eq .Values.service.type "NodePort" }}
+  export NODE_PORT=$(kubectl get svc {{ include "questarr.fullname" . }} -n {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}")
+  export NODE_IP=$(kubectl get nodes -o jsonpath="{.items[0].status.addresses[0].address}")
+  echo "http://$NODE_IP:$NODE_PORT{{ include "questarr.basePath" . }}/"
+{{- else if eq .Values.service.type "LoadBalancer" }}
+  Watch for the load balancer address (it can take a minute to be assigned):
+  kubectl get svc {{ include "questarr.fullname" . }} -n {{ .Release.Namespace }} -w
+{{- else }}
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "questarr.fullname" . }} 5000:{{ .Values.service.port }}
+  then open http://127.0.0.1:5000{{ include "questarr.basePath" . }}/
+{{- end }}
+
+The first account you create in the UI becomes the administrator.
+
+{{ if not .Values.persistence.data.enabled -}}
+WARNING: persistence.data.enabled is false. /app/data is an emptyDir, so your
+library, settings and SQLite database are lost when the pod is replaced.
+{{- end }}
+{{- if .Values.questarr.existingSecret }}
+Secrets come from the existing Secret {{ .Values.questarr.existingSecret | quote }}. Keys it does not
+carry are simply not injected, so check that it holds the ones you rely on
+(IGDB_CLIENT_ID / IGDB_CLIENT_SECRET for discovery, JWT_SECRET for sessions
+that outlive the data volume). Questarr generates and persists its own values
+for the ones that stay unset.
+{{- else }}
+{{- if not (and .Values.questarr.secrets.igdbClientId .Values.questarr.secrets.igdbClientSecret) }}
+IGDB credentials are incomplete. Game discovery and metadata stay disabled until
+you add them in Settings → Services, or set both questarr.secrets.igdbClientId
+and questarr.secrets.igdbClientSecret.
+{{- end }}
+{{- if not .Values.questarr.secrets.jwtSecret }}
+No JWT_SECRET was provided: Questarr generated one and persisted it to its
+database, so sessions survive restarts as long as the data volume does.
+{{- end }}
+{{- end }}

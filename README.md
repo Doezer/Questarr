@@ -134,6 +134,33 @@ Questarr is available in the Unraid **Apps** tab via Community Applications:
 
 </details>
 
+### Kubernetes (Helm)
+
+<details>
+<summary><b>Install with the bundled Helm chart</b></summary>
+
+A Helm chart lives in [`charts/questarr`](charts/questarr). It is not published to a Helm
+repository yet, so install it from a clone:
+
+```bash
+git clone https://github.com/Doezer/Questarr.git
+cd Questarr
+helm install questarr charts/questarr --namespace questarr --create-namespace
+```
+
+Then port-forward (or enable the Ingress) and open the UI:
+
+```bash
+kubectl port-forward -n questarr svc/questarr 5000:5000
+```
+
+Questarr keeps its state in a single SQLite database on a ReadWriteOnce volume, so the
+chart never runs more than one replica. See [`charts/questarr/README.md`](charts/questarr/README.md)
+for the full option reference — persistence, media mounts, secrets, Ingress and
+subdirectory deployments.
+
+</details>
+
 ### Home Assistant Add-on
 
 <details>

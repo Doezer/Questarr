@@ -1,0 +1,87 @@
+name: Helm chart
+
+on:
+  push:
+    branches: [main, release/*]
+    paths:
+      - "charts/**"
+      - ".github/workflows/helm-chart.yml"
+  pull_request:
+    branches: [main, release/*]
+    paths:
+      - "charts/**"
+      - ".github/workflows/helm-chart.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-template:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6.2.0
+
+      # Helm ships with the GitHub-hosted Ubuntu runner image, so no extra
+      # action or download is needed. Fail loudly if that ever changes.
+      - name: Show Helm version
+        run: helm version
+
+      - name: Lint the chart with default values
+        run: helm lint charts/questarr
+
+      - name: Render the chart with default values
+        run: helm template questarr charts/questarr > /dev/null
+
+      # Exercises the option combinations most likely to break templating:
+      # ingress, a subpath deployment, inline secrets and extra mounts.
+      - name: Render the chart with a full set of options
+        run: |
+          helm template questarr charts/questarr \
+            --set ingress.enabled=true \
+            --set ingress.className=nginx \
+            --set questarr.basePath=/questarr \
+            --set questarr.timezone=Europe/Paris \
+            --set service.type=NodePort \
+            --set service.nodePort=30500 \
+            --set questarr.secrets.igdbClientId=id \
+            --set questarr.secrets.igdbClientSecret=secret \
+            --set persistence.data.existingClaim=questarr-data \
+            > /dev/null
+
+      - name: Render the chart with an existing Secret and no persistence
+        run: |
+          helm template questarr charts/questarr \
+            --set questarr.existingSecret=questarr-secrets \
+            --set persistence.data.enabled=false \
+            --set questarr.databasePath=/app/data/sqlite.db \
+            > /dev/null
+
+      # Every rule in templates/_validate.tpl gets a negative case here.
+      - name: Reject invalid values
+        run: |
+          assert_rejected() {
+            description="$1"
+            shift
+            if helm template questarr charts/questarr "$@" > /dev/null 2>&1; then
+              echo "::error::$description should have been rejected"
+              exit 1
+            fi
+            echo "rejected as expected: $description"
+          }
+
+          assert_rejected "a second replica (SQLite on a RWO volume)" \
+            --set replicaCount=2
+          assert_rejected "a database path outside the persisted /app/data" \
+            --set questarr.databasePath=/app/sqlite.db
+          assert_rejected "a malformed credentials encryption key" \
+            --set questarr.secrets.credentialsEncryptionKey=not-hex
+          assert_rejected "an unknown entry under questarr.secrets" \
+            --set questarr.secrets.notASetting=value

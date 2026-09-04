@@ -205,6 +205,48 @@ describe("safeFetch", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
+  it("should refuse a credential-bearing request to a plain-HTTP URL with requireHttps", async () => {
+    await expect(safeFetch("http://example.com/rpc", { requireHttps: true })).rejects.toThrow(
+      "non-HTTPS"
+    );
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("should refuse to follow a redirect to a plain-HTTP hop with requireHttps", async () => {
+    vi.mocked(dns.lookup as unknown as import("node:dns").LookupAddress[]).mockResolvedValueOnce([
+      { address: "1.2.3.4", family: 4 },
+    ]);
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(null, {
+        status: 307,
+        headers: { location: "http://downgraded.example.com/rpc" },
+      })
+    );
+
+    await expect(safeFetch("https://example.com/rpc", { requireHttps: true })).rejects.toThrow(
+      "non-HTTPS"
+    );
+    // The insecure hop is never dialed -- only the first, HTTPS leg was fetched.
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("should allow an all-HTTPS redirect chain with requireHttps", async () => {
+    vi.mocked(dns.lookup as unknown as import("node:dns").LookupAddress[]).mockResolvedValueOnce([
+      { address: "1.2.3.4", family: 4 },
+    ]);
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(null, { status: 307, headers: { location: "https://example.com/rpc2" } })
+    );
+    vi.mocked(dns.lookup as unknown as import("node:dns").LookupAddress[]).mockResolvedValueOnce([
+      { address: "1.2.3.4", family: 4 },
+    ]);
+    vi.mocked(fetch).mockResolvedValueOnce(new Response("ok"));
+
+    const response = await safeFetch("https://example.com/rpc", { requireHttps: true });
+    expect(await response.text()).toBe("ok");
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
   it("should strip Authorization/Cookie headers when a redirect crosses origins", async () => {
     // Initial request to example.com...
     vi.mocked(dns.lookup as unknown as import("node:dns").LookupAddress[]).mockResolvedValueOnce([

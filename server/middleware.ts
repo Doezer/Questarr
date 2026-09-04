@@ -451,6 +451,12 @@ export const sanitizeDownloaderDownloadData = [
     .trim()
     .matches(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
     .withMessage("Invalid game ID format"),
+  body("password")
+    .optional()
+    .isString()
+    .withMessage("Password must be a string")
+    .isLength({ max: 200 })
+    .withMessage("Password must be at most 200 characters"),
 ];
 
 // Sanitization rules for indexer search queries

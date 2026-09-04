@@ -81,6 +81,14 @@ const historyResponse = (slots?: Array<Record<string, unknown>>) =>
     }),
   }) as Response;
 
+// Casts a client to expose its private fetchWithFallback for spying, without
+// repeating the cast/spy pair at every call site.
+const spyOnFetchWithFallback = (client: InstanceType<typeof SABnzbdClient>) =>
+  vi.spyOn(
+    client as unknown as { fetchWithFallback: (...args: unknown[]) => Promise<Response> },
+    "fetchWithFallback"
+  );
+
 class MockRequest extends EventEmitter {
   public writes: Array<Buffer | string> = [];
 
@@ -255,6 +263,162 @@ describe("sabnzbd remaining regression coverage", () => {
       success: false,
       message: "Failed to add NZB to SABnzbd: Unknown error",
     });
+  });
+
+  it("passes the request password, falling back to the downloader's default archive password", async () => {
+    safeFetchMock.mockResolvedValue({
+      ok: true,
+      arrayBuffer: async () => new TextEncoder().encode("nzb").buffer,
+    } as Response);
+
+    const addfileOk = {
+      ok: true,
+      json: async () => ({ status: true, nzo_ids: ["sab-pw"] }),
+    } as Response;
+
+    // Asserts a single addDownload call against the given expected password matcher,
+    // reusing one client/spy across sequential calls when reuseSpy is passed.
+    const expectPasswordInRequest = async (
+      client: InstanceType<typeof SABnzbdClient>,
+      request: Parameters<InstanceType<typeof SABnzbdClient>["addDownload"]>[0],
+      expectedPassword: string | undefined,
+      reuseSpy?: ReturnType<typeof spyOnFetchWithFallback>
+    ) => {
+      const spy = reuseSpy ?? spyOnFetchWithFallback(client);
+      spy.mockResolvedValueOnce(addfileOk);
+      await client.addDownload(request);
+      expect(spy).toHaveBeenCalledWith(
+        expectedPassword
+          ? expect.stringContaining(`password=${expectedPassword}`)
+          : expect.not.stringContaining("password="),
+        expect.anything(),
+        // A request carrying a password must disable the insecure-cert fallback,
+        // never silently downgrade transport security for a credential.
+        !expectedPassword
+      );
+      return spy;
+    };
+
+    // Per-request password wins over the downloader's default. Uses SSL so the
+    // password isn't blocked by the plain-HTTP guard tested separately below.
+    const withDefault = new SABnzbdClient(
+      createDownloader({ useSsl: true, settings: JSON.stringify({ archivePassword: "404" }) })
+    );
+    const withDefaultSpy = await expectPasswordInRequest(
+      withDefault,
+      { url: "http://indexer.local/g4u.nzb", title: "G4U Release", password: "override" },
+      "override"
+    );
+    // Falls back to the downloader's default archive password when none is given per-request.
+    await expectPasswordInRequest(
+      withDefault,
+      { url: "http://indexer.local/g4u.nzb", title: "G4U Release" },
+      "404",
+      withDefaultSpy
+    );
+
+    // No password configured anywhere — omitted from the request.
+    await expectPasswordInRequest(
+      new SABnzbdClient(createDownloader()),
+      { url: "http://indexer.local/plain.nzb", title: "Plain NZB" },
+      undefined
+    );
+
+    // Malformed settings JSON is tolerated and treated as no default password.
+    await expectPasswordInRequest(
+      new SABnzbdClient(createDownloader({ settings: "not-json" })),
+      { url: "http://indexer.local/plain.nzb", title: "Plain NZB" },
+      undefined
+    );
+  });
+
+  it("refuses to send an archive password over a plain-HTTP SABnzbd connection", async () => {
+    safeFetchMock.mockResolvedValue({
+      ok: true,
+      arrayBuffer: async () => new TextEncoder().encode("nzb").buffer,
+    } as Response);
+
+    const client = new SABnzbdClient(createDownloader({ useSsl: false }));
+    const fetchWithFallbackSpy = spyOnFetchWithFallback(client);
+
+    const result = await client.addDownload({
+      url: "http://indexer.local/g4u.nzb",
+      title: "G4U Release",
+      password: "404",
+    });
+
+    expect(result).toEqual({
+      success: false,
+      message:
+        "Refusing to send the archive password over an insecure connection. Enable SSL for this SABnzbd downloader, or remove the archive password.",
+    });
+    expect(fetchWithFallbackSpy).not.toHaveBeenCalled();
+  });
+
+  it("requires HTTPS on every hop (rejecting an insecure redirect) only when a password is sent", async () => {
+    safeFetchMock.mockImplementation(async (_url: string, options: RequestInit = {}) => {
+      if (options.method !== "POST") {
+        return {
+          ok: true,
+          arrayBuffer: async () => new TextEncoder().encode("nzb").buffer,
+        } as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({ status: true, nzo_ids: ["sab-https"] }),
+      } as Response;
+    });
+
+    const client = new SABnzbdClient(createDownloader({ useSsl: true }));
+    await client.addDownload({
+      url: "http://indexer.local/g4u.nzb",
+      title: "G4U Release",
+      password: "404",
+    });
+    const [, postOptionsWithPassword] = safeFetchMock.mock.calls.find(
+      ([, options]) => (options as RequestInit)?.method === "POST"
+    ) as [string, RequestInit & { requireHttps?: boolean }];
+    expect(postOptionsWithPassword.requireHttps).toBe(true);
+
+    safeFetchMock.mockClear();
+    await client.addDownload({ url: "http://indexer.local/plain.nzb", title: "Plain NZB" });
+    const [, postOptionsWithoutPassword] = safeFetchMock.mock.calls.find(
+      ([, options]) => (options as RequestInit)?.method === "POST"
+    ) as [string, RequestInit & { requireHttps?: boolean }];
+    expect(postOptionsWithoutPassword.requireHttps).toBe(false);
+  });
+
+  it("does not downgrade to the insecure self-signed-cert fallback when a password is sent", async () => {
+    safeFetchMock.mockImplementation(async (_url: string, options: RequestInit = {}) => {
+      // The NZB content fetch (no method override) should succeed normally; only the
+      // addfile POST needs to hit the self-signed-cert failure this test is probing.
+      if (options.method !== "POST") {
+        return {
+          ok: true,
+          arrayBuffer: async () => new TextEncoder().encode("nzb").buffer,
+        } as Response;
+      }
+      const error = new Error("self-signed certificate");
+      throw error;
+    });
+
+    const client = new SABnzbdClient(createDownloader({ useSsl: true }));
+    const fetchInsecureSpy = vi.spyOn(
+      client as unknown as { fetchInsecure: (...args: unknown[]) => Promise<Response> },
+      "fetchInsecure"
+    );
+
+    await expect(
+      client.addDownload({
+        url: "http://indexer.local/g4u.nzb",
+        title: "G4U Release",
+        password: "404",
+      })
+    ).resolves.toEqual({
+      success: false,
+      message: "Failed to add NZB to SABnzbd: self-signed certificate",
+    });
+    expect(fetchInsecureSpy).not.toHaveBeenCalled();
   });
 
   it("covers queue/history status variants, details fallbacks, and control error branches", async () => {

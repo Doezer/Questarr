@@ -9,6 +9,10 @@ type SafeFetchOptions = RequestInit & {
   allowPrivate?: boolean;
   timeoutMs?: number;
   maxRedirects?: number;
+  // Reject the initial URL and every redirect hop that isn't HTTPS. Set this
+  // whenever the request carries a credential (a password, an API key) that
+  // must never travel -- or be replayed by a redirect -- over plaintext.
+  requireHttps?: boolean;
 };
 
 interface SafeFetchTarget {
@@ -375,19 +379,23 @@ export function isSafeIp(ip: string, allowPrivate = true): boolean {
 }
 
 /**
- * Perform a safe fetch that avoids SSRF and DNS rebinding.
- * It resolves the hostname once, validates the IP, and then performs the request.
+ * Fetches a URL while validating each request target against SSRF risks and DNS rebinding.
  *
- * For HTTP: rewrites URL to use IP address to prevent DNS rebinding.
- * For HTTPS: uses original hostname because SSL certificates are issued for
- * hostnames, not IP addresses. The DNS resolution still validates the target IP
- * is safe before making the request.
+ * Follows redirects when configured, validating every redirect target and applying redirect
+ * method and header rules. When `requireHttps` is enabled, rejects the initial URL and every
+ * redirect that does not use HTTPS.
+ *
+ * @param urlStr - The URL to fetch
+ * @param options - Request, network-access, timeout, redirect, and HTTPS requirements
+ * @returns The validated HTTP response
+ * @throws If a target is unsafe, HTTPS is required but unavailable, or the redirect limit is exceeded
  */
 export async function safeFetch(urlStr: string, options: SafeFetchOptions = {}): Promise<Response> {
   const {
     allowPrivate,
     maxRedirects = DEFAULT_SAFE_FETCH_MAX_REDIRECTS,
     redirect = "follow",
+    requireHttps = false,
     signal,
     timeoutMs = DEFAULT_SAFE_FETCH_TIMEOUT_MS,
     ...fetchOptions
@@ -401,6 +409,16 @@ export async function safeFetch(urlStr: string, options: SafeFetchOptions = {}):
   let redirectCount = 0;
 
   while (true) {
+    // Checked on every hop, not just the first: a same-host redirect (301/302/303/307/308)
+    // keeps credentials in the request (a query string, an XML-RPC body) and stays within
+    // this loop rather than going through a fresh safeFetch call, so the initial check alone
+    // wouldn't catch a compromised or MITM'd server redirecting to a plaintext endpoint.
+    if (requireHttps && currentUrl.protocol !== "https:") {
+      throw new Error(
+        `Refusing to send a credential-bearing request over a non-HTTPS connection: ${currentUrl.origin}`
+      );
+    }
+
     const response = await fetchValidatedOnce(
       currentUrl,
       {

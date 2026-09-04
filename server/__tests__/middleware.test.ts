@@ -530,6 +530,75 @@ describe("Middleware - Input Sanitization", () => {
 
       expect(res.status).toHaveBeenCalledWith(400);
     });
+
+    it("should reject a non-string password", async () => {
+      const req = createMockRequest({
+        body: {
+          url: "https://example.com/file.zip",
+          title: "Test",
+          password: 404,
+        },
+      });
+      const res = createMockResponse();
+      const next = createMockNext();
+
+      for (const validator of sanitizeDownloaderDownloadData) {
+        await validator(req as Request, res as Response, next);
+      }
+
+      validateRequest(req as Request, res as Response, next);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+    });
+
+    it("should allow a password at the 200-character limit", async () => {
+      const req = createMockRequest({
+        body: {
+          url: "https://example.com/file.zip",
+          title: "Test",
+          password: "p".repeat(200),
+        },
+      });
+      const res = createMockResponse();
+      const next = createMockNext();
+
+      for (const validator of sanitizeDownloaderDownloadData) {
+        await validator(req as Request, res as Response, next);
+      }
+
+      validateRequest(req as Request, res as Response, next);
+
+      expect(next).toHaveBeenCalled();
+      expect(res.status).not.toHaveBeenCalled();
+    });
+
+    it("should reject a password over the 200-character limit", async () => {
+      const req = createMockRequest({
+        body: {
+          url: "https://example.com/file.zip",
+          title: "Test",
+          password: "p".repeat(201),
+        },
+      });
+      const res = createMockResponse();
+      const next = createMockNext();
+
+      for (const validator of sanitizeDownloaderDownloadData) {
+        await validator(req as Request, res as Response, next);
+      }
+
+      validateRequest(req as Request, res as Response, next);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          error: "Validation failed",
+          details: expect.arrayContaining([
+            expect.objectContaining({ msg: "Password must be at most 200 characters" }),
+          ]),
+        })
+      );
+    });
   });
 
   describe("sanitizeIndexerSearchQuery", () => {

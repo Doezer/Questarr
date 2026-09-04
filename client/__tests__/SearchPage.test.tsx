@@ -71,15 +71,22 @@ vi.mock("@/components/ui/tooltip", () => ({
   TooltipContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
-// Stub react-hook-form Form components
-vi.mock("@/components/ui/form", () => ({
-  Form: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  FormControl: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  FormField: () => null,
-  FormItem: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  FormLabel: ({ children }: { children: React.ReactNode }) => <label>{children}</label>,
-  FormMessage: () => null,
-}));
+// Stub react-hook-form Form components. Most fields stay omitted to keep this
+// page-level suite lightweight; the changed archive-password field uses the
+// real Controller so its value can be exercised through the rendered input.
+vi.mock("@/components/ui/form", async () => {
+  const { Controller } = await import("react-hook-form");
+  return {
+    Form: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+    FormControl: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+    FormField: (props: React.ComponentProps<typeof Controller>) =>
+      props.name === "password" ? <Controller {...props} /> : null,
+    FormItem: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+    FormLabel: ({ children }: { children: React.ReactNode }) => <label>{children}</label>,
+    FormDescription: ({ children }: { children: React.ReactNode }) => <p>{children}</p>,
+    FormMessage: () => null,
+  };
+});
 
 function makeSearchResult(items: object[], total = items.length, errors?: string[]) {
   return {
@@ -95,6 +102,16 @@ const TORRENT_ITEM = {
   size: 1073741824,
   seeders: 5,
   leechers: 1,
+};
+
+const USENET_ITEM = {
+  title: "Game.Name.v1.0-GROUP",
+  link: "https://example.com/release/nzb",
+  guid: "guid-nzb",
+  pubDate: "2026-01-15T12:00:00Z",
+  size: 1073741824,
+  grabs: 12,
+  downloadType: "usenet" as const,
 };
 
 const OLD_ITEM = {
@@ -335,6 +352,52 @@ describe("SearchPage", () => {
 
       await waitFor(() => {
         expect(screen.getByRole("heading", { name: "Start Download" })).toBeInTheDocument();
+      });
+    });
+
+    it("submits a usenet download without a password, passing password through as undefined", async () => {
+      const dl = { id: "dl-sab", name: "SABnzbd", type: "sabnzbd", enabled: true };
+      setupApiRequest({ items: [USENET_ITEM], total: 1, downloaders: [dl] });
+      renderSearch();
+      typeSearch("game");
+
+      await waitFor(() => expect(screen.getByTestId("card-torrent-0")).toBeInTheDocument());
+      fireEvent.click(screen.getByTestId("button-download-0"));
+
+      await waitFor(() => {
+        expect(screen.getByRole("heading", { name: "Start Download" })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByTestId("button-start-download"));
+
+      await waitFor(() => {
+        expect(mockApiRequest).toHaveBeenCalledWith(
+          "POST",
+          "/api/downloaders/dl-sab/downloads",
+          expect.objectContaining({ downloadType: "usenet", password: undefined })
+        );
+      });
+    });
+
+    it("submits the archive password entered for a usenet download", async () => {
+      const dl = { id: "dl-nzbget", name: "NZBGet", type: "nzbget", enabled: true };
+      setupApiRequest({ items: [USENET_ITEM], total: 1, downloaders: [dl] });
+      renderSearch();
+      typeSearch("game");
+
+      await waitFor(() => expect(screen.getByTestId("card-torrent-0")).toBeInTheDocument());
+      fireEvent.click(screen.getByTestId("button-download-0"));
+
+      const passwordInput = await screen.findByTestId("input-download-password");
+      fireEvent.change(passwordInput, { target: { value: "g4u-password" } });
+      fireEvent.click(screen.getByTestId("button-start-download"));
+
+      await waitFor(() => {
+        expect(mockApiRequest).toHaveBeenCalledWith(
+          "POST",
+          "/api/downloaders/dl-nzbget/downloads",
+          expect.objectContaining({ downloadType: "usenet", password: "g4u-password" })
+        );
       });
     });
 

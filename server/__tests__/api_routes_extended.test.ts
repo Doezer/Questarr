@@ -74,6 +74,12 @@ const testDownloader: Downloader = {
   updatedAt: new Date("2024-01-01T00:00:00.000Z"),
 } as unknown as Downloader;
 
+const sabnzbdDownloaderWithArchivePassword: Downloader = {
+  ...testDownloader,
+  type: "sabnzbd",
+  settings: JSON.stringify({ archivePassword: "404" }),
+} as Downloader;
+
 const testIndexer: Indexer = {
   id: "idx-1",
   name: "Test Indexer",
@@ -609,6 +615,36 @@ describe("API Routes - Additional Coverage", () => {
       const updateCall = vi.mocked(storage.updateDownloader).mock.calls[0][1];
       expect(updateCall).not.toHaveProperty("password");
     });
+
+    it("redacts the SABnzbd archive password nested in settings on read", async () => {
+      vi.mocked(storage.getDownloader).mockResolvedValue(sabnzbdDownloaderWithArchivePassword);
+      const res = await request(app).get("/api/downloaders/dl-1");
+      expect(res.status).toBe(200);
+      expect(JSON.parse(res.body.settings)).toEqual({ archivePassword: "********" });
+    });
+
+    it.each([
+      // Sending back the redaction sentinel restores the real stored password...
+      ["********", "404"],
+      // ...while any other value is accepted as a genuine new password.
+      ["new-pw", "new-pw"],
+    ])(
+      "resolves settings.archivePassword %j to %j on PATCH",
+      async (submittedPassword, expectedPassword) => {
+        vi.mocked(storage.getDownloader).mockResolvedValue(sabnzbdDownloaderWithArchivePassword);
+        vi.mocked(storage.updateDownloader).mockResolvedValue(sabnzbdDownloaderWithArchivePassword);
+
+        const res = await request(app)
+          .patch("/api/downloaders/dl-1")
+          .send({ settings: JSON.stringify({ archivePassword: submittedPassword }) });
+
+        expect(res.status).toBe(200);
+        const updateCall = vi.mocked(storage.updateDownloader).mock.calls[0][1];
+        expect(JSON.parse(updateCall.settings as string)).toEqual({
+          archivePassword: expectedPassword,
+        });
+      }
+    );
 
     it("rejects adding an indexer with an unsafe URL", async () => {
       const res = await request(app).post("/api/indexers").send({

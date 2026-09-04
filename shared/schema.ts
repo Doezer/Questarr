@@ -912,3 +912,45 @@ export const downloaderDebugLoggingResponseSchema = z.object({
   enabled: z.boolean(),
 });
 export type DownloaderDebugLoggingResponse = z.infer<typeof downloaderDebugLoggingResponseSchema>;
+
+// ── Integration API keys ─────────────────────────────────────────────────────
+// Long-lived credentials for machine clients that cannot run the interactive
+// login flow (the Playnite extension, scripts, other self-hosted tools). Only a
+// SHA-256 hash of the key is stored, so a database leak never yields a usable
+// credential; the raw key is shown to the user once, at creation.
+export const apiKeys = sqliteTable(
+  "api_keys",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    keyHash: text("key_hash").notNull(),
+    // Leading characters of the raw key, kept so the UI can tell two keys apart
+    // without being able to reconstruct either of them.
+    prefix: text("prefix").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).default(
+      sql`(strftime('%s', 'now') * 1000)`
+    ),
+    lastUsedAt: integer("last_used_at", { mode: "timestamp_ms" }),
+  },
+  (t) => [
+    uniqueIndex("api_keys_key_hash_idx").on(t.keyHash),
+    index("api_keys_user_id_idx").on(t.userId),
+  ]
+);
+
+export const insertApiKeySchema = createInsertSchema(apiKeys, {
+  name: (schema) => schema.trim().min(1, "Name is required").max(100, "Name is too long"),
+}).omit({
+  id: true,
+  createdAt: true,
+  lastUsedAt: true,
+});
+
+export type ApiKey = typeof apiKeys.$inferSelect;
+export type InsertApiKey = (typeof insertApiKeySchema)["_output"];
+
+// An API key as returned to the client: never includes the hash.
+export type ApiKeyPublic = Omit<ApiKey, "keyHash">;

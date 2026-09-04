@@ -65,7 +65,8 @@ Solid core. Direct download and library sync are the missing pieces.
 - [ ] GOG library import (P3)
 - [ ] Local filesystem scanner (P3)
 - [ ] Webhook outbound events (P4)
-- [ ] Playnite / Gameyfin / RomM integrations (P4)
+- [x] Playnite integration (library sync + request-to-download) (P4)
+- [ ] Gameyfin / RomM integrations (P4)
 - [ ] Indexer page links ("View on indexer") (P5)
 - [ ] DB system agnostic backend (P6)
 

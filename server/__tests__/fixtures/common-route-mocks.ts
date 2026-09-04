@@ -117,6 +117,11 @@ export function createStorageMock() {
     addGameFilesBatch: vi.fn(),
     removeGameFile: vi.fn(),
     removeGameFilesByGameId: vi.fn(),
+    getApiKeys: vi.fn().mockResolvedValue([]),
+    addApiKey: vi.fn(),
+    getApiKeyByHash: vi.fn().mockResolvedValue(undefined),
+    touchApiKey: vi.fn().mockResolvedValue(undefined),
+    removeApiKey: vi.fn().mockResolvedValue(false),
   };
 }
 
@@ -143,6 +148,12 @@ export async function createAuthMock() {
   return {
     ...actual,
     authenticateToken: (req: Request, res: Response, next: NextFunction) => {
+      (req as Request).user = { id: "user-1", username: "testuser" } as unknown as User;
+      next();
+    },
+    // Mirrors authenticateToken so route suites using this mock can exercise
+    // the /api/integration surface without minting a real API key.
+    authenticateApiKeyOrToken: (req: Request, res: Response, next: NextFunction) => {
       (req as Request).user = { id: "user-1", username: "testuser" } as unknown as User;
       next();
     },

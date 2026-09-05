@@ -1480,6 +1480,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
             side="fullscreen"
             className="flex flex-col overflow-hidden gap-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]"
             onClick={(e) => e.stopPropagation()}
+            onOpenAutoFocus={(e) => e.preventDefault()}
           >
             {detailsBody}
           </SheetContent>

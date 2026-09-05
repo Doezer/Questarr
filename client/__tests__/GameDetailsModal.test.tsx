@@ -242,6 +242,26 @@ describe("GameDetailsModal", () => {
     });
   });
 
+  it("does not auto-focus the notes textarea when the mobile sheet opens", async () => {
+    const originalInnerWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { writable: true, configurable: true, value: 375 });
+
+    try {
+      renderComponent();
+
+      const notes = await screen.findByRole("textbox", { name: /personal notes for this game/i });
+      expect(notes).toBeInTheDocument();
+      // Radix would otherwise auto-focus this first focusable field and open the keyboard.
+      expect(notes).not.toHaveFocus();
+    } finally {
+      Object.defineProperty(window, "innerWidth", {
+        writable: true,
+        configurable: true,
+        value: originalInnerWidth,
+      });
+    }
+  });
+
   it("opens the screenshot lightbox as a fullscreen sheet on mobile", async () => {
     const originalInnerWidth = window.innerWidth;
     Object.defineProperty(window, "innerWidth", { writable: true, configurable: true, value: 375 });

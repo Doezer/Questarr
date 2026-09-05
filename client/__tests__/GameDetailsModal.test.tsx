@@ -306,6 +306,79 @@ describe("GameDetailsModal", () => {
     }
   });
 
+  it("shows the empty-state fallback for whitespace-only mobile notes", async () => {
+    const originalInnerWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { writable: true, configurable: true, value: 375 });
+
+    try {
+      renderComponent();
+
+      fireEvent.click(screen.getByRole("button", { name: /edit personal notes/i }));
+      const notes = await screen.findByRole("textbox", { name: /personal notes for this game/i });
+
+      fireEvent.change(notes, { target: { value: "   " } });
+      fireEvent.blur(notes);
+
+      // Whitespace-only input is normalized to null on save, so the preview
+      // should fall back to the empty-state text rather than rendering blank.
+      await waitFor(() => {
+        expect(screen.getByText("No personal notes yet")).toBeInTheDocument();
+      });
+    } finally {
+      Object.defineProperty(window, "innerWidth", {
+        writable: true,
+        configurable: true,
+        value: originalInnerWidth,
+      });
+    }
+  });
+
+  it("keeps the mobile notes editor open with the draft when saving fails", async () => {
+    const originalInnerWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { writable: true, configurable: true, value: 375 });
+
+    try {
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+        if (typeof url === "string" && url.includes("/notes")) {
+          return Promise.resolve({
+            ok: false,
+            status: 500,
+            statusText: "Internal Server Error",
+            text: vi.fn().mockResolvedValue("Server error"),
+          });
+        }
+        return makeFetchMock()(url);
+      });
+
+      renderComponent();
+
+      fireEvent.click(screen.getByRole("button", { name: /edit personal notes/i }));
+      const notes = await screen.findByRole("textbox", { name: /personal notes for this game/i });
+
+      fireEvent.change(notes, { target: { value: "Draft that fails to save" } });
+      fireEvent.blur(notes);
+
+      await waitFor(() => {
+        expect(global.fetch).toHaveBeenCalledWith(
+          expect.stringContaining(`/api/games/${mockGame.id}/notes`),
+          expect.objectContaining({ method: "PATCH" })
+        );
+      });
+
+      // The save failed, so the editor stays open with the unsaved draft instead
+      // of collapsing back to a preview that would look like it was persisted.
+      expect(
+        await screen.findByRole("textbox", { name: /personal notes for this game/i })
+      ).toHaveValue("Draft that fails to save");
+    } finally {
+      Object.defineProperty(window, "innerWidth", {
+        writable: true,
+        configurable: true,
+        value: originalInnerWidth,
+      });
+    }
+  });
+
   it("keeps personal notes directly editable on desktop", () => {
     renderComponent();
 

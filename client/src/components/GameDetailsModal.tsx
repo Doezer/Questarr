@@ -784,7 +784,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
             // Tapping "Edit" is an explicit user gesture, so autofocus there is expected.
             <div className="flex items-start justify-between gap-2">
               <p className="flex-1 min-w-0 line-clamp-2 text-sm text-muted-foreground">
-                {notesValue || "No personal notes yet"}
+                {notesValue.trim() || "No personal notes yet"}
               </p>
               <Button
                 variant="ghost"
@@ -804,9 +804,15 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
               onBlur={() => {
                 const trimmed = notesValue.trim() || null;
                 if (trimmed !== (game.notes ?? null)) {
-                  notesMutation.mutate(trimmed);
-                }
-                if (isMobile) {
+                  // On mobile, only collapse back to the preview once the save
+                  // succeeds — a failed save keeps the editor open so the draft
+                  // isn't lost or shown as if it were persisted.
+                  notesMutation.mutate(trimmed, {
+                    onSuccess: () => {
+                      if (isMobile) setIsEditingNotes(false);
+                    },
+                  });
+                } else if (isMobile) {
                   setIsEditingNotes(false);
                 }
               }}

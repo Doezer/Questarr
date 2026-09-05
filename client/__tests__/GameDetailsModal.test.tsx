@@ -74,6 +74,7 @@ vi.mock("lucide-react", () => ({
   ChevronRight: (props: Record<string, unknown>) => (
     <div data-testid="icon-chevron-right" {...props} />
   ),
+  Pencil: (props: Record<string, unknown>) => <div data-testid="icon-pencil" {...props} />,
 }));
 
 vi.mock("react-icons/fa", () => ({
@@ -262,6 +263,56 @@ describe("GameDetailsModal", () => {
         value: originalInnerWidth,
       });
     }
+  });
+
+  it("collapses personal notes on mobile until Edit is tapped, without stealing focus on open", async () => {
+    const originalInnerWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { writable: true, configurable: true, value: 375 });
+
+    try {
+      renderComponent();
+
+      await screen.findByRole("heading", { name: "Test Game" });
+
+      // No textarea should exist yet, so opening the sheet can't pop the keyboard.
+      expect(
+        screen.queryByRole("textbox", { name: /personal notes for this game/i })
+      ).not.toBeInTheDocument();
+      expect(screen.getByText("No personal notes yet")).toBeInTheDocument();
+
+      const editButton = screen.getByRole("button", { name: /edit personal notes/i });
+      fireEvent.click(editButton);
+
+      // Tapping Edit is a deliberate gesture, so autofocus here is expected.
+      const notes = await screen.findByRole("textbox", { name: /personal notes for this game/i });
+      expect(notes).toHaveFocus();
+
+      fireEvent.change(notes, { target: { value: "Great co-op game" } });
+      fireEvent.blur(notes);
+
+      // Blurring returns to the collapsed preview showing the saved text.
+      await waitFor(() => {
+        expect(screen.getByText("Great co-op game")).toBeInTheDocument();
+      });
+      expect(
+        screen.queryByRole("textbox", { name: /personal notes for this game/i })
+      ).not.toBeInTheDocument();
+    } finally {
+      Object.defineProperty(window, "innerWidth", {
+        writable: true,
+        configurable: true,
+        value: originalInnerWidth,
+      });
+    }
+  });
+
+  it("keeps personal notes directly editable on desktop", () => {
+    renderComponent();
+
+    expect(
+      screen.getByRole("textbox", { name: /personal notes for this game/i })
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /edit personal notes/i })).not.toBeInTheDocument();
   });
 
   it("opens download dialog when download button is clicked", async () => {

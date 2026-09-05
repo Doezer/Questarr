@@ -64,6 +64,7 @@ import {
   File,
   ChevronLeft,
   ChevronRight,
+  Pencil,
 } from "lucide-react";
 import { FaSteam, FaRedditAlien, FaDiscord, FaWikipediaW, FaTwitch } from "react-icons/fa";
 import {
@@ -355,6 +356,7 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
   const [notesValue, setNotesValue] = useState<string>("");
+  const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
   const [removeFromClient, setRemoveFromClient] = useState(true);
   const [deleteFiles, setDeleteFiles] = useState(true);
@@ -372,12 +374,14 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
       setIsSummaryExpanded(false);
       setSelectedScreenshotIndex(null);
       setDownloadOpen(false);
+      setIsEditingNotes(false);
     }
   }, [open]);
 
   useEffect(() => {
     setIsSummaryExpanded(false);
     setNotesValue(game?.notes ?? "");
+    setIsEditingNotes(false);
   }, [game?.id, game?.notes]);
 
   useEffect(() => {
@@ -774,21 +778,45 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
 
         {/* Personal notes */}
         <div className="mt-3">
-          <Textarea
-            value={notesValue}
-            onChange={(e) => setNotesValue(e.target.value)}
-            onBlur={() => {
-              const trimmed = notesValue.trim() || null;
-              if (trimmed !== (game.notes ?? null)) {
-                notesMutation.mutate(trimmed);
-              }
-            }}
-            placeholder="Personal notes..."
-            className="resize-none min-h-[56px] sm:min-h-[72px] text-sm"
-            maxLength={10000}
-            aria-label="Personal notes for this game"
-            disabled={notesMutation.isPending}
-          />
+          {isMobile && !isEditingNotes ? (
+            // Mobile: notes start collapsed to a read-only preview so opening the sheet
+            // never lands focus on a text field and pops the on-screen keyboard.
+            // Tapping "Edit" is an explicit user gesture, so autofocus there is expected.
+            <div className="flex items-start justify-between gap-2">
+              <p className="flex-1 min-w-0 line-clamp-2 text-sm text-muted-foreground">
+                {notesValue || "No personal notes yet"}
+              </p>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 flex-shrink-0"
+                aria-label="Edit personal notes"
+                onClick={() => setIsEditingNotes(true)}
+              >
+                <Pencil className="h-4 w-4" />
+              </Button>
+            </div>
+          ) : (
+            <Textarea
+              autoFocus={isMobile}
+              value={notesValue}
+              onChange={(e) => setNotesValue(e.target.value)}
+              onBlur={() => {
+                const trimmed = notesValue.trim() || null;
+                if (trimmed !== (game.notes ?? null)) {
+                  notesMutation.mutate(trimmed);
+                }
+                if (isMobile) {
+                  setIsEditingNotes(false);
+                }
+              }}
+              placeholder="Personal notes..."
+              className="resize-none min-h-[56px] sm:min-h-[72px] text-sm"
+              maxLength={10000}
+              aria-label="Personal notes for this game"
+              disabled={notesMutation.isPending}
+            />
+          )}
           {notesMutation.isPending && (
             <p className="text-xs text-muted-foreground mt-1">Saving...</p>
           )}

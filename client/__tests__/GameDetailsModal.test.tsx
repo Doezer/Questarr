@@ -333,6 +333,57 @@ describe("GameDetailsModal", () => {
     }
   });
 
+  it("does not discard a newer draft if the user edits again while an earlier save is still in flight", async () => {
+    const originalInnerWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { writable: true, configurable: true, value: 375 });
+
+    let resolveSave: () => void = () => {};
+    const pendingSave = new Promise<void>((resolve) => {
+      resolveSave = resolve;
+    });
+
+    try {
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+        if (typeof url === "string" && url.includes("/notes")) {
+          return pendingSave.then(() => ({ ok: true, json: vi.fn().mockResolvedValue({}) }));
+        }
+        return makeFetchMock()(url);
+      });
+
+      renderComponent();
+
+      fireEvent.click(screen.getByRole("button", { name: /edit personal notes/i }));
+      const notes = await screen.findByRole("textbox", { name: /personal notes for this game/i });
+
+      fireEvent.change(notes, { target: { value: "First draft" } });
+      fireEvent.blur(notes);
+
+      // The first save is still in flight; the user edits again before it resolves.
+      fireEvent.change(notes, { target: { value: "Second, newer draft" } });
+
+      resolveSave();
+
+      await waitFor(() => {
+        expect(global.fetch).toHaveBeenCalledWith(
+          expect.stringContaining(`/api/games/${mockGame.id}/notes`),
+          expect.objectContaining({ method: "PATCH" })
+        );
+      });
+
+      // The stale save's success shouldn't collapse the editor out from under
+      // the newer, still-unsaved draft.
+      expect(
+        await screen.findByRole("textbox", { name: /personal notes for this game/i })
+      ).toHaveValue("Second, newer draft");
+    } finally {
+      Object.defineProperty(window, "innerWidth", {
+        writable: true,
+        configurable: true,
+        value: originalInnerWidth,
+      });
+    }
+  });
+
   it("keeps the mobile notes editor open with the draft when saving fails", async () => {
     const originalInnerWidth = window.innerWidth;
     Object.defineProperty(window, "innerWidth", { writable: true, configurable: true, value: 375 });

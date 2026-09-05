@@ -357,6 +357,13 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
   const [notesValue, setNotesValue] = useState<string>("");
   const [isEditingNotes, setIsEditingNotes] = useState(false);
+  // Tracks the live notesValue so the async save's onSuccess (below) can tell
+  // whether the user kept typing after blur, instead of seeing the stale
+  // value it closed over.
+  const notesValueRef = useRef(notesValue);
+  useEffect(() => {
+    notesValueRef.current = notesValue;
+  }, [notesValue]);
   const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
   const [removeFromClient, setRemoveFromClient] = useState(true);
   const [deleteFiles, setDeleteFiles] = useState(true);
@@ -802,14 +809,20 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
               value={notesValue}
               onChange={(e) => setNotesValue(e.target.value)}
               onBlur={() => {
-                const trimmed = notesValue.trim() || null;
+                const valueAtBlur = notesValue;
+                const trimmed = valueAtBlur.trim() || null;
                 if (trimmed !== (game.notes ?? null)) {
                   // On mobile, only collapse back to the preview once the save
                   // succeeds — a failed save keeps the editor open so the draft
-                  // isn't lost or shown as if it were persisted.
+                  // isn't lost or shown as if it were persisted. Also skip the
+                  // collapse if the user has kept typing since this blur (the
+                  // save is async, so a slow one shouldn't yank focus away
+                  // from — or hide — newer, still-unsaved keystrokes).
                   notesMutation.mutate(trimmed, {
                     onSuccess: () => {
-                      if (isMobile) setIsEditingNotes(false);
+                      if (isMobile && notesValueRef.current === valueAtBlur) {
+                        setIsEditingNotes(false);
+                      }
                     },
                   });
                 } else if (isMobile) {

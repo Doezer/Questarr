@@ -358,6 +358,10 @@ describe("GameDetailsModal", () => {
       fireEvent.change(notes, { target: { value: "First draft" } });
       fireEvent.blur(notes);
 
+      // The field must stay enabled on mobile during the save — otherwise a
+      // real browser would block the very typing this test exercises next.
+      expect(notes).not.toBeDisabled();
+
       // The first save is still in flight; the user edits again before it resolves.
       fireEvent.change(notes, { target: { value: "Second, newer draft" } });
 
@@ -437,6 +441,37 @@ describe("GameDetailsModal", () => {
       screen.getByRole("textbox", { name: /personal notes for this game/i })
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /edit personal notes/i })).not.toBeInTheDocument();
+  });
+
+  it("disables the notes textarea while saving on desktop", async () => {
+    let resolveSave: () => void = () => {};
+    const pendingSave = new Promise<void>((resolve) => {
+      resolveSave = resolve;
+    });
+
+    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (typeof url === "string" && url.includes("/notes")) {
+        return pendingSave.then(() => ({ ok: true, json: vi.fn().mockResolvedValue({}) }));
+      }
+      return makeFetchMock()(url);
+    });
+
+    renderComponent();
+
+    const notes = screen.getByRole("textbox", { name: /personal notes for this game/i });
+    fireEvent.change(notes, { target: { value: "Desktop note" } });
+    fireEvent.blur(notes);
+
+    // Desktop keeps the pre-existing disable-while-saving behavior; only the
+    // mobile editor needed to stay writable for the stale-save guard.
+    await waitFor(() => {
+      expect(notes).toBeDisabled();
+    });
+
+    resolveSave();
+    await waitFor(() => {
+      expect(notes).not.toBeDisabled();
+    });
   });
 
   it("opens download dialog when download button is clicked", async () => {

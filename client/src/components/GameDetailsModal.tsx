@@ -833,7 +833,11 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
               className="resize-none min-h-[56px] sm:min-h-[72px] text-sm"
               maxLength={10000}
               aria-label="Personal notes for this game"
-              disabled={notesMutation.isPending}
+              // On mobile, keep the field editable through the save so the
+              // stale-save guard above is actually reachable — a disabled
+              // field would block the very typing it's meant to protect.
+              // Desktop keeps the pre-existing disable-while-saving behavior.
+              disabled={!isMobile && notesMutation.isPending}
             />
           )}
           {notesMutation.isPending && (

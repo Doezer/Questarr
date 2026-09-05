@@ -333,6 +333,69 @@ describe("GameDetailsModal", () => {
     }
   });
 
+  it("serializes mobile note saves so an older request can't overwrite a newer draft on the server", async () => {
+    const originalInnerWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { writable: true, configurable: true, value: 375 });
+
+    const savedNotes: (string | null)[] = [];
+    let resolveFirstSave: () => void = () => {};
+    let resolveSecondSave: () => void = () => {};
+    const firstSave = new Promise<void>((resolve) => {
+      resolveFirstSave = resolve;
+    });
+    const secondSave = new Promise<void>((resolve) => {
+      resolveSecondSave = resolve;
+    });
+
+    try {
+      (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+        (url: string, init?: RequestInit) => {
+          if (typeof url === "string" && url.includes("/notes")) {
+            const body = init?.body
+              ? (JSON.parse(init.body as string).notes as string | null)
+              : null;
+            savedNotes.push(body);
+            const pending = savedNotes.length === 1 ? firstSave : secondSave;
+            return pending.then(() => ({ ok: true, json: vi.fn().mockResolvedValue({}) }));
+          }
+          return makeFetchMock()(url);
+        }
+      );
+
+      renderComponent();
+
+      fireEvent.click(screen.getByRole("button", { name: /edit personal notes/i }));
+      const notes = await screen.findByRole("textbox", { name: /personal notes for this game/i });
+
+      fireEvent.change(notes, { target: { value: "First draft" } });
+      fireEvent.blur(notes);
+      await waitFor(() => expect(savedNotes).toHaveLength(1));
+
+      // A second blur while the first save is still in flight must be queued
+      // behind it, not fired as an overlapping request that could resolve
+      // out of order and let the older draft win on the server.
+      fireEvent.change(notes, { target: { value: "Second, newer draft" } });
+      fireEvent.blur(notes);
+      expect(savedNotes).toHaveLength(1);
+
+      // Resolve the older, first-in-flight save before the newer one is even sent.
+      resolveFirstSave();
+      await waitFor(() => expect(savedNotes).toHaveLength(2));
+
+      resolveSecondSave();
+
+      await waitFor(() => {
+        expect(savedNotes).toEqual(["First draft", "Second, newer draft"]);
+      });
+    } finally {
+      Object.defineProperty(window, "innerWidth", {
+        writable: true,
+        configurable: true,
+        value: originalInnerWidth,
+      });
+    }
+  });
+
   it("does not discard a newer draft if the user edits again while an earlier save is still in flight", async () => {
     const originalInnerWidth = window.innerWidth;
     Object.defineProperty(window, "innerWidth", { writable: true, configurable: true, value: 375 });

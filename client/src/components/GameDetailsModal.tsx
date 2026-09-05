@@ -364,6 +364,13 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   useEffect(() => {
     notesValueRef.current = notesValue;
   }, [notesValue]);
+  // Serializes mobile note saves: only one PATCH is ever in flight. A save
+  // requested while one is pending is queued (overwriting any earlier queued
+  // value — only the latest draft matters) and fired once the in-flight one
+  // settles, so two overlapping requests can never complete out of order and
+  // let an older draft silently overwrite a newer one on the server.
+  const notesSaveInFlightRef = useRef(false);
+  const queuedNotesSaveRef = useRef<{ value: string | null } | null>(null);
   const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
   const [removeFromClient, setRemoveFromClient] = useState(true);
   const [deleteFiles, setDeleteFiles] = useState(true);
@@ -594,6 +601,31 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     },
   });
 
+  // Fires a notes save, or queues it if one is already in flight (see the
+  // refs above) — never lets two PATCH requests race each other.
+  const saveNotes = (trimmed: string | null) => {
+    if (notesSaveInFlightRef.current) {
+      queuedNotesSaveRef.current = { value: trimmed };
+      return;
+    }
+    notesSaveInFlightRef.current = true;
+    notesMutation.mutate(trimmed, {
+      onSuccess: () => {
+        if (isMobile && notesValueRef.current.trim() === (trimmed ?? "")) {
+          setIsEditingNotes(false);
+        }
+      },
+      onSettled: () => {
+        notesSaveInFlightRef.current = false;
+        const queued = queuedNotesSaveRef.current;
+        queuedNotesSaveRef.current = null;
+        if (queued) {
+          saveNotes(queued.value);
+        }
+      },
+    });
+  };
+
   const hiddenMutation = useHiddenMutation({
     hiddenSuccessMessage: "Game hidden from library",
     unhiddenSuccessMessage: "Game unhidden",
@@ -809,22 +841,14 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
               value={notesValue}
               onChange={(e) => setNotesValue(e.target.value)}
               onBlur={() => {
-                const valueAtBlur = notesValue;
-                const trimmed = valueAtBlur.trim() || null;
+                const trimmed = notesValue.trim() || null;
                 if (trimmed !== (game.notes ?? null)) {
-                  // On mobile, only collapse back to the preview once the save
-                  // succeeds — a failed save keeps the editor open so the draft
-                  // isn't lost or shown as if it were persisted. Also skip the
-                  // collapse if the user has kept typing since this blur (the
-                  // save is async, so a slow one shouldn't yank focus away
-                  // from — or hide — newer, still-unsaved keystrokes).
-                  notesMutation.mutate(trimmed, {
-                    onSuccess: () => {
-                      if (isMobile && notesValueRef.current === valueAtBlur) {
-                        setIsEditingNotes(false);
-                      }
-                    },
-                  });
+                  // saveNotes serializes this behind any already-in-flight
+                  // save, and its own onSuccess (above) only collapses the
+                  // mobile editor once the latest saved value matches what's
+                  // currently typed — a failed or superseded save leaves it
+                  // open instead of losing or misrepresenting the draft.
+                  saveNotes(trimmed);
                 } else if (isMobile) {
                   setIsEditingNotes(false);
                 }

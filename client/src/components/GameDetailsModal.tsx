@@ -64,6 +64,7 @@ import {
   File,
   ChevronLeft,
   ChevronRight,
+  Pencil,
 } from "lucide-react";
 import { FaSteam, FaRedditAlien, FaDiscord, FaWikipediaW, FaTwitch } from "react-icons/fa";
 import {
@@ -355,6 +356,21 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
   const [notesValue, setNotesValue] = useState<string>("");
+  const [isEditingNotes, setIsEditingNotes] = useState(false);
+  // Tracks the live notesValue so the async save's onSuccess (below) can tell
+  // whether the user kept typing after blur, instead of seeing the stale
+  // value it closed over.
+  const notesValueRef = useRef(notesValue);
+  useEffect(() => {
+    notesValueRef.current = notesValue;
+  }, [notesValue]);
+  // Serializes mobile note saves: only one PATCH is ever in flight. A save
+  // requested while one is pending is queued (overwriting any earlier queued
+  // value — only the latest draft matters) and fired once the in-flight one
+  // settles, so two overlapping requests can never complete out of order and
+  // let an older draft silently overwrite a newer one on the server.
+  const notesSaveInFlightRef = useRef(false);
+  const queuedNotesSaveRef = useRef<{ value: string | null } | null>(null);
   const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
   const [removeFromClient, setRemoveFromClient] = useState(true);
   const [deleteFiles, setDeleteFiles] = useState(true);
@@ -372,12 +388,14 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
       setIsSummaryExpanded(false);
       setSelectedScreenshotIndex(null);
       setDownloadOpen(false);
+      setIsEditingNotes(false);
     }
   }, [open]);
 
   useEffect(() => {
     setIsSummaryExpanded(false);
     setNotesValue(game?.notes ?? "");
+    setIsEditingNotes(false);
   }, [game?.id, game?.notes]);
 
   useEffect(() => {
@@ -583,6 +601,31 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     },
   });
 
+  // Fires a notes save, or queues it if one is already in flight (see the
+  // refs above) — never lets two PATCH requests race each other.
+  const saveNotes = (trimmed: string | null) => {
+    if (notesSaveInFlightRef.current) {
+      queuedNotesSaveRef.current = { value: trimmed };
+      return;
+    }
+    notesSaveInFlightRef.current = true;
+    notesMutation.mutate(trimmed, {
+      onSuccess: () => {
+        if (isMobile && notesValueRef.current.trim() === (trimmed ?? "")) {
+          setIsEditingNotes(false);
+        }
+      },
+      onSettled: () => {
+        notesSaveInFlightRef.current = false;
+        const queued = queuedNotesSaveRef.current;
+        queuedNotesSaveRef.current = null;
+        if (queued) {
+          saveNotes(queued.value);
+        }
+      },
+    });
+  };
+
   const hiddenMutation = useHiddenMutation({
     hiddenSuccessMessage: "Game hidden from library",
     unhiddenSuccessMessage: "Game unhidden",
@@ -774,21 +817,53 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
 
         {/* Personal notes */}
         <div className="mt-3">
-          <Textarea
-            value={notesValue}
-            onChange={(e) => setNotesValue(e.target.value)}
-            onBlur={() => {
-              const trimmed = notesValue.trim() || null;
-              if (trimmed !== (game.notes ?? null)) {
-                notesMutation.mutate(trimmed);
-              }
-            }}
-            placeholder="Personal notes..."
-            className="resize-none min-h-[56px] sm:min-h-[72px] text-sm"
-            maxLength={10000}
-            aria-label="Personal notes for this game"
-            disabled={notesMutation.isPending}
-          />
+          {isMobile && !isEditingNotes ? (
+            // Mobile: notes start collapsed to a read-only preview so opening the sheet
+            // never lands focus on a text field and pops the on-screen keyboard.
+            // Tapping "Edit" is an explicit user gesture, so autofocus there is expected.
+            <div className="flex items-start justify-between gap-2">
+              <p className="flex-1 min-w-0 line-clamp-2 text-sm text-muted-foreground">
+                {notesValue.trim() || "No personal notes yet"}
+              </p>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 flex-shrink-0"
+                aria-label="Edit personal notes"
+                onClick={() => setIsEditingNotes(true)}
+              >
+                <Pencil className="h-4 w-4" />
+              </Button>
+            </div>
+          ) : (
+            <Textarea
+              autoFocus={isMobile}
+              value={notesValue}
+              onChange={(e) => setNotesValue(e.target.value)}
+              onBlur={() => {
+                const trimmed = notesValue.trim() || null;
+                if (trimmed !== (game.notes ?? null)) {
+                  // saveNotes serializes this behind any already-in-flight
+                  // save, and its own onSuccess (above) only collapses the
+                  // mobile editor once the latest saved value matches what's
+                  // currently typed — a failed or superseded save leaves it
+                  // open instead of losing or misrepresenting the draft.
+                  saveNotes(trimmed);
+                } else if (isMobile) {
+                  setIsEditingNotes(false);
+                }
+              }}
+              placeholder="Personal notes..."
+              className="resize-none min-h-[56px] sm:min-h-[72px] text-sm"
+              maxLength={10000}
+              aria-label="Personal notes for this game"
+              // On mobile, keep the field editable through the save so the
+              // stale-save guard above is actually reachable — a disabled
+              // field would block the very typing it's meant to protect.
+              // Desktop keeps the pre-existing disable-while-saving behavior.
+              disabled={!isMobile && notesMutation.isPending}
+            />
+          )}
           {notesMutation.isPending && (
             <p className="text-xs text-muted-foreground mt-1">Saving...</p>
           )}

@@ -351,6 +351,7 @@ function StarRatingInput({
 
 export default function GameDetailsModal({ game, open, onOpenChange }: GameDetailsModalProps) {
   const isMobile = useIsMobile();
+  const initialFocusRef = useRef<HTMLHeadingElement>(null);
   const [selectedScreenshotIndex, setSelectedScreenshotIndex] = useState<number | null>(null);
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
@@ -686,6 +687,8 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1 min-w-0">
             <DialogTitle
+              ref={initialFocusRef}
+              tabIndex={-1}
               className="text-2xl font-bold mb-2 leading-tight"
               data-testid={`text-game-title-${game.id}`}
             >
@@ -1480,7 +1483,10 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
             side="fullscreen"
             className="flex flex-col overflow-hidden gap-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]"
             onClick={(e) => e.stopPropagation()}
-            onOpenAutoFocus={(e) => e.preventDefault()}
+            onOpenAutoFocus={(e) => {
+              e.preventDefault();
+              initialFocusRef.current?.focus();
+            }}
           >
             {detailsBody}
           </SheetContent>

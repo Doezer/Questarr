@@ -249,9 +249,10 @@ describe("GameDetailsModal", () => {
     try {
       renderComponent();
 
+      const title = await screen.findByRole("heading", { name: "Test Game" });
       const notes = await screen.findByRole("textbox", { name: /personal notes for this game/i });
-      expect(notes).toBeInTheDocument();
-      // Radix would otherwise auto-focus this first focusable field and open the keyboard.
+      // Keep focus inside the sheet on the title, not the notes field (which opens the keyboard).
+      expect(title).toHaveFocus();
       expect(notes).not.toHaveFocus();
     } finally {
       Object.defineProperty(window, "innerWidth", {

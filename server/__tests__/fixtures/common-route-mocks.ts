@@ -89,6 +89,12 @@ export function createStorageMock() {
     addGameDownload: vi.fn(),
     getDownloadsByGameId: vi.fn().mockResolvedValue([]),
     getDownloadSummaryByGame: vi.fn().mockResolvedValue({}),
+    getDashboardStatus: vi.fn().mockResolvedValue({
+      totalGames: 0,
+      pendingWishlist: 0,
+      activeDownloads: 0,
+      recentImports: { count: 0, items: [] },
+    }),
     getTrackedDownloadKeys: vi.fn().mockResolvedValue(new Set()),
     getTrackedDownloadGameStatuses: vi.fn().mockResolvedValue(new Map()),
     getGameByIgdbId: vi.fn(),

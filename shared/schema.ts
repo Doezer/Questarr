@@ -969,3 +969,26 @@ export type InsertApiKey = (typeof insertApiKeySchema)["_output"];
 
 // An API key as returned to the client: never includes the hash.
 export type ApiKeyPublic = Omit<ApiKey, "keyHash">;
+
+// Response contracts for the /api/api-keys endpoints, shared so the client
+// can validate the payload at runtime instead of trusting a local TypeScript
+// annotation. Timestamps come back as JSON (ISO strings or null), not the
+// `Date` that ApiKey/ApiKeyPublic type as server-side.
+export const apiKeyPublicResponseSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  name: z.string(),
+  prefix: z.string(),
+  createdAt: z.string().nullable(),
+  lastUsedAt: z.string().nullable(),
+});
+export type ApiKeyPublicResponse = z.infer<typeof apiKeyPublicResponseSchema>;
+
+export const apiKeyListResponseSchema = z.array(apiKeyPublicResponseSchema);
+
+// POST /api/api-keys additionally returns the raw key — shown to the user
+// exactly once, since the server only ever persists its hash.
+export const apiKeyCreatedResponseSchema = apiKeyPublicResponseSchema.extend({
+  key: z.string(),
+});
+export type ApiKeyCreatedResponse = z.infer<typeof apiKeyCreatedResponseSchema>;

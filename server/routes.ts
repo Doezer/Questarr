@@ -195,6 +195,7 @@ import {
   excludeFilteredContent,
 } from "./content-filter.js";
 import { normalizeInitialReleaseStatus } from "./game-status.js";
+import { quickAddGameByTitle } from "./game-quick-add.js";
 import { importRouter } from "./routes/import.js";
 import { importTasksRouter } from "./routes/import-tasks.js";
 import { systemRouter } from "./routes/system.js";
@@ -4186,7 +4187,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Match and add game from name (Quick Add)
+  // Match and add game from name (Quick Add). Shares its search/filter/dedupe
+  // logic with the integration API's POST /api/integration/games/request
+  // (server/game-quick-add.ts) so the two entry points can't drift apart.
   app.post(
     "/api/games/match-and-add",
     sanitizeMatchAndAddTitle,
@@ -4198,63 +4201,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const userId = (req as any).user.id;
 
-        // 1. Search IGDB for the title
-        const igdbResults = await igdbClient.searchGames(title, 1);
-        if (igdbResults.length === 0) {
-          return res.status(404).json({ error: "No game found on IGDB for this title" });
+        const result = await quickAddGameByTitle(userId, title);
+
+        switch (result.outcome) {
+          case "not_found":
+            return res.status(404).json({ error: "No game found on IGDB for this title" });
+          case "duplicate":
+            return res.status(409).json({ error: "Game already in collection", game: result.game });
+          case "added":
+            routesLogger.info(
+              { userId, title: result.game.title, igdbId: result.game.igdbId },
+              "Game quick-added from matching"
+            );
+            return res.status(201).json(result.game);
         }
-
-        const match = igdbResults[0];
-        const formattedMatch = igdbClient.formatGameData(match);
-        const quickAddFilterFlags = await getContentFilterFlags(userId);
-        if (
-          isContentFiltered(
-            formattedMatch as { isAdultContent?: boolean; isAgeRestricted?: boolean },
-            quickAddFilterFlags
-          )
-        ) {
-          return res.status(404).json({ error: "Game not found" });
-        }
-
-        // 2. Add to library (similar to POST /api/games)
-        const gameData = insertGameSchema.parse({
-          userId,
-          title: formattedMatch.title,
-          igdbId: formattedMatch.igdbId,
-          status: "wanted", // Default status for quick add
-          platform: "PC", // Default platform, user can change later
-          platforms: formattedMatch.platforms,
-          genres: formattedMatch.genres,
-          themes: formattedMatch.themes,
-          isAdultContent: formattedMatch.isAdultContent,
-          isAgeRestricted: formattedMatch.isAgeRestricted,
-          coverUrl: formattedMatch.coverUrl,
-          releaseDate: formattedMatch.releaseDate,
-          summary: formattedMatch.summary,
-          publishers: formattedMatch.publishers,
-          developers: formattedMatch.developers,
-          screenshots: formattedMatch.screenshots,
-          rating: formattedMatch.rating,
-        });
-
-        // Check for existing
-        const userGames = await storage.getUserGames(userId, true);
-        const existingGame = userGames.find((g) =>
-          gameData.igdbId != null
-            ? g.igdbId === gameData.igdbId
-            : g.title.toLowerCase() === gameData.title.toLowerCase()
-        );
-
-        if (existingGame) {
-          return res.status(409).json({ error: "Game already in collection", game: existingGame });
-        }
-
-        const game = await storage.addGame(normalizeInitialReleaseStatus(gameData));
-        routesLogger.info(
-          { userId, title: game.title, igdbId: game.igdbId },
-          "Game quick-added from matching"
-        );
-        res.status(201).json(game);
       } catch (error) {
         next(error);
       }

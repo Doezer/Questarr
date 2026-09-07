@@ -1,9 +1,20 @@
 import { Router, type Request, type Response } from "express";
+import { param } from "express-validator";
 import { z } from "zod";
 import { storage } from "../storage.js";
 import { generateApiKey } from "../auth.js";
 import { routesLogger as logger } from "../logger.js";
-import { sensitiveEndpointLimiter } from "../middleware.js";
+import { sensitiveEndpointLimiter, validateRequest } from "../middleware.js";
+
+// Same shape as sanitizeGameId/sanitizeDownloadId in middleware.ts: api_keys.id
+// is a randomUUID(), so a non-UUID path segment can never match a row and is
+// rejected here instead of falling through to a storage lookup.
+const sanitizeApiKeyId = [
+  param("id")
+    .trim()
+    .matches(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
+    .withMessage("Invalid API key ID format"),
+];
 
 /**
  * Management for integration API keys.
@@ -38,20 +49,24 @@ apiKeysRouter.post("/", sensitiveEndpointLimiter, async (req: Request, res: Resp
     }
 
     const userId = req.user!.id;
-    const existing = await storage.getApiKeys(userId);
-    if (existing.length >= MAX_KEYS_PER_USER) {
-      return res
-        .status(409)
-        .json({ error: `You can have at most ${MAX_KEYS_PER_USER} API keys. Revoke one first.` });
-    }
-
     const { rawKey, keyHash, prefix } = generateApiKey();
-    const created = await storage.addApiKey({
-      userId,
-      name: parsed.data.name,
-      keyHash,
-      prefix,
-    });
+
+    let created;
+    try {
+      // Count-then-insert happens atomically inside storage.addApiKey, so two
+      // concurrent requests from the same user can't both slip past the cap.
+      created = await storage.addApiKey(
+        { userId, name: parsed.data.name, keyHash, prefix },
+        MAX_KEYS_PER_USER
+      );
+    } catch (error) {
+      if (error instanceof Error && error.message === "API key limit reached") {
+        return res
+          .status(409)
+          .json({ error: `You can have at most ${MAX_KEYS_PER_USER} API keys. Revoke one first.` });
+      }
+      throw error;
+    }
 
     logger.info(
       { userId, apiKeyId: created.id, name: created.name },
@@ -66,17 +81,23 @@ apiKeysRouter.post("/", sensitiveEndpointLimiter, async (req: Request, res: Resp
   }
 });
 
-apiKeysRouter.delete("/:id", sensitiveEndpointLimiter, async (req: Request, res: Response) => {
-  try {
-    const userId = req.user!.id;
-    const removed = await storage.removeApiKey(req.params.id, userId);
-    if (!removed) {
-      return res.status(404).json({ error: "API key not found" });
+apiKeysRouter.delete(
+  "/:id",
+  sensitiveEndpointLimiter,
+  sanitizeApiKeyId,
+  validateRequest,
+  async (req: Request, res: Response) => {
+    try {
+      const userId = req.user!.id;
+      const removed = await storage.removeApiKey(req.params.id, userId);
+      if (!removed) {
+        return res.status(404).json({ error: "API key not found" });
+      }
+      logger.info({ userId, apiKeyId: req.params.id }, "Integration API key revoked");
+      res.status(204).send();
+    } catch (error) {
+      logger.error({ error }, "Failed to revoke API key");
+      res.status(500).json({ error: "Failed to revoke API key" });
     }
-    logger.info({ userId, apiKeyId: req.params.id }, "Integration API key revoked");
-    res.status(204).send();
-  } catch (error) {
-    logger.error({ error }, "Failed to revoke API key");
-    res.status(500).json({ error: "Failed to revoke API key" });
   }
-});
+);

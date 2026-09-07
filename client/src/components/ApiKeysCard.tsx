@@ -18,19 +18,12 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { copyToClipboard } from "@/lib/utils";
-
-interface ApiKeySummary {
-  id: string;
-  name: string;
-  prefix: string;
-  createdAt: string | null;
-  lastUsedAt: string | null;
-}
-
-/** A freshly minted key also carries the raw secret, exactly once. */
-interface CreatedApiKey extends ApiKeySummary {
-  key: string;
-}
+import {
+  apiKeyListResponseSchema,
+  apiKeyCreatedResponseSchema,
+  type ApiKeyPublicResponse,
+  type ApiKeyCreatedResponse,
+} from "@shared/schema";
 
 function formatDate(value: string | null): string {
   if (!value) return "Never";
@@ -47,22 +40,26 @@ export function ApiKeysCard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [newKeyName, setNewKeyName] = useState("");
-  const [createdKey, setCreatedKey] = useState<CreatedApiKey | null>(null);
+  const [createdKey, setCreatedKey] = useState<ApiKeyCreatedResponse | null>(null);
   const [copied, setCopied] = useState(false);
-  const [pendingRevoke, setPendingRevoke] = useState<ApiKeySummary | null>(null);
+  const [pendingRevoke, setPendingRevoke] = useState<ApiKeyPublicResponse | null>(null);
 
-  const { data, isLoading } = useQuery<ApiKeySummary[]>({
+  const {
+    data: keys = [],
+    isLoading,
+    isError,
+  } = useQuery<ApiKeyPublicResponse[]>({
     queryKey: ["/api/api-keys"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/api-keys");
+      return apiKeyListResponseSchema.parse(await res.json());
+    },
   });
-
-  // Guard the render against anything that isn't a list — a reverse proxy
-  // returning an error body should not blank the whole Settings page.
-  const keys = Array.isArray(data) ? data : [];
 
   const createMutation = useMutation({
     mutationFn: async (name: string) => {
       const res = await apiRequest("POST", "/api/api-keys", { name });
-      return (await res.json()) as CreatedApiKey;
+      return apiKeyCreatedResponseSchema.parse(await res.json());
     },
     onSuccess: (created) => {
       setCreatedKey(created);
@@ -184,6 +181,10 @@ export function ApiKeysCard() {
 
           {isLoading ? (
             <p className="text-sm text-muted-foreground">Loading...</p>
+          ) : isError ? (
+            <p className="text-sm text-destructive">
+              Could not load API keys. Refresh the page to try again.
+            </p>
           ) : keys.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               No API keys yet. Create one to connect the Playnite extension.

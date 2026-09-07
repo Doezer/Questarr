@@ -331,12 +331,11 @@ export interface IStorage {
 
   // Integration API key methods
   getApiKeys(userId: string): Promise<ApiKeyPublic[]>;
-  addApiKey(key: {
-    userId: string;
-    name: string;
-    keyHash: string;
-    prefix: string;
-  }): Promise<ApiKeyPublic>;
+  /** Throws "API key limit reached" (as a plain Error) if the user already has maxKeys. */
+  addApiKey(
+    key: { userId: string; name: string; keyHash: string; prefix: string },
+    maxKeys: number
+  ): Promise<ApiKeyPublic>;
   getApiKeyByHash(keyHash: string): Promise<ApiKey | undefined>;
   touchApiKey(id: string): Promise<void>;
   removeApiKey(id: string, userId: string): Promise<boolean>;
@@ -1540,12 +1539,20 @@ export class MemStorage implements IStorage {
       .sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0));
   }
 
-  async addApiKey(key: {
-    userId: string;
-    name: string;
-    keyHash: string;
-    prefix: string;
-  }): Promise<ApiKeyPublic> {
+  async addApiKey(
+    key: { userId: string; name: string; keyHash: string; prefix: string },
+    maxKeys: number
+  ): Promise<ApiKeyPublic> {
+    // MemStorage has no concurrent callers (single-threaded test usage), so a
+    // plain count check is sufficient here; DatabaseStorage's transaction is
+    // what actually closes the race for the real, multi-request server.
+    const existingCount = Array.from(this.apiKeys.values()).filter(
+      (k) => k.userId === key.userId
+    ).length;
+    if (existingCount >= maxKeys) {
+      throw new Error("API key limit reached");
+    }
+
     const id = randomUUID();
     const record: ApiKey = { ...key, id, createdAt: new Date(), lastUsedAt: null };
     this.apiKeys.set(id, record);
@@ -2906,24 +2913,38 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(apiKeys.createdAt));
   }
 
-  async addApiKey(key: {
-    userId: string;
-    name: string;
-    keyHash: string;
-    prefix: string;
-  }): Promise<ApiKeyPublic> {
-    const [created] = await db
-      .insert(apiKeys)
-      .values({ ...key, id: randomUUID() })
-      .returning({
-        id: apiKeys.id,
-        userId: apiKeys.userId,
-        name: apiKeys.name,
-        prefix: apiKeys.prefix,
-        createdAt: apiKeys.createdAt,
-        lastUsedAt: apiKeys.lastUsedAt,
-      });
-    return created;
+  async addApiKey(
+    key: { userId: string; name: string; keyHash: string; prefix: string },
+    maxKeys: number
+  ): Promise<ApiKeyPublic> {
+    // Counting and inserting inside one transaction closes the race two
+    // concurrent requests would otherwise have around the cap: without it,
+    // both could read the same under-limit count before either insert lands.
+    return db.transaction((tx) => {
+      const [{ count }] = tx
+        .select({ count: sql<number>`count(*)` })
+        .from(apiKeys)
+        .where(eq(apiKeys.userId, key.userId))
+        .all();
+
+      if (count >= maxKeys) {
+        throw new Error("API key limit reached");
+      }
+
+      const [created] = tx
+        .insert(apiKeys)
+        .values({ ...key, id: randomUUID() })
+        .returning({
+          id: apiKeys.id,
+          userId: apiKeys.userId,
+          name: apiKeys.name,
+          prefix: apiKeys.prefix,
+          createdAt: apiKeys.createdAt,
+          lastUsedAt: apiKeys.lastUsedAt,
+        })
+        .all();
+      return created;
+    });
   }
 
   async getApiKeyByHash(keyHash: string): Promise<ApiKey | undefined> {

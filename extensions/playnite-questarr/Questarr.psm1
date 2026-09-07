@@ -134,6 +134,13 @@ function Invoke-QuestarrApi {
         Headers     = $headers
         TimeoutSec  = $TimeoutSec
         ErrorAction = "Stop"
+        # PowerShell 5.1 forwards X-Api-Key across an automatic redirect
+        # (unlike Authorization, which HttpWebRequest strips on its own) --
+        # there is no -PreserveAuthorizationOnRedirect equivalent to rely on
+        # here. Questarr's own API never 3xx-redirects a JSON response, so
+        # refusing to follow one at all is strictly safer than risking the
+        # key reaching a different host or scheme than the one configured.
+        MaximumRedirection = 0
     }
 
     if ($null -ne $Body) {
@@ -161,6 +168,11 @@ function Get-QuestarrErrorMessage {
             403 { return "Questarr refused the request (403)." }
             404 { return "Questarr has no integration API at this address (404). Check the address, and that the server is new enough to expose /api/integration." }
             429 { return "Questarr is rate limiting this client (429). Try again shortly." }
+            { $_ -ge 300 -and $_ -lt 400 } {
+                return "Questarr tried to redirect this request (HTTP $status), which this extension " +
+                "refuses to follow -- the API key would otherwise be forwarded to whatever address the " +
+                "redirect points at. Check the configured server address in Settings -> Integrations."
+            }
             default { return "Questarr returned HTTP $status. $($ErrorRecord.Exception.Message)" }
         }
     }
@@ -242,6 +254,21 @@ function Invoke-QuestarrConnect {
         $PlayniteApi.Dialogs.ShowErrorMessage(
             "'$serverUrl' is not a valid http:// or https:// address.", "Questarr")
         return
+    }
+
+    # A plain-HTTP LAN deployment (Questarr and Playnite on the same home
+    # network, no reverse proxy) is a supported, common setup -- this is not
+    # blocked. But the API key is a long-lived credential sent on every sync,
+    # unlike a password entered once, so anything beyond loopback gets an
+    # explicit, informed choice rather than a silent cleartext send.
+    if ($parsedUri.Scheme -eq "http" -and -not $parsedUri.IsLoopback) {
+        $proceed = $PlayniteApi.Dialogs.ShowMessage(
+            "'$serverUrl' is a plain http:// address. Your API key will be sent " +
+            "unencrypted to this address on every sync or request -- anyone else on " +
+            "this network segment could read it. Continue anyway?",
+            "Questarr",
+            [System.Windows.MessageBoxButton]::YesNo)
+        if ($proceed -ne [System.Windows.MessageBoxResult]::Yes) { return }
     }
 
     $keyResult = $PlayniteApi.Dialogs.SelectString(
@@ -366,7 +393,14 @@ function Invoke-QuestarrSyncBatches {
     $promoted = 0
 
     for ($offset = 0; $offset -lt $Entries.Count; $offset += $script:SyncBatchSize) {
-        if ($null -ne $Progress -and $Progress.CancelToken.IsCancellationRequested) { break }
+        if ($null -ne $Progress -and $Progress.CancelToken.IsCancellationRequested) {
+            # $null here (not a partial tally) is what tells the caller this
+            # was cancelled, not completed -- Invoke-QuestarrSyncWithProgress
+            # and Invoke-QuestarrLibrarySync already treat $null as "say
+            # nothing, don't show a completed-sync dialog for a run the user
+            # cut short".
+            return $null
+        }
 
         $take = [Math]::Min($script:SyncBatchSize, $Entries.Count - $offset)
         $batch = @($Entries.GetRange($offset, $take))

@@ -403,18 +403,38 @@ describe("integration API", () => {
       expect(res.status).toBe(400);
     });
 
+    it("returns 409 when storage reports the per-user key cap is reached", async () => {
+      // storage.addApiKey does the count-and-insert atomically and throws
+      // this exact message when the cap is hit; the route translates it to
+      // a 409 rather than a generic 500.
+      (storage.addApiKey as Mock).mockRejectedValue(new Error("API key limit reached"));
+
+      const res = await authed(request(app).post("/api/api-keys")).send({ name: "One too many" });
+
+      expect(res.status).toBe(409);
+      expect(res.body.error).toMatch(/at most/i);
+    });
+
     it("revokes a key scoped to the calling user", async () => {
+      const keyId = "11111111-1111-4111-8111-111111111111";
       (storage.removeApiKey as Mock).mockResolvedValue(true);
-      const res = await authed(request(app).delete("/api/api-keys/key-1"));
+      const res = await authed(request(app).delete(`/api/api-keys/${keyId}`));
 
       expect(res.status).toBe(204);
-      expect(storage.removeApiKey).toHaveBeenCalledWith("key-1", USER.id);
+      expect(storage.removeApiKey).toHaveBeenCalledWith(keyId, USER.id);
     });
 
     it("returns 404 when the key belongs to someone else", async () => {
+      const keyId = "22222222-2222-4222-8222-222222222222";
       (storage.removeApiKey as Mock).mockResolvedValue(false);
-      const res = await authed(request(app).delete("/api/api-keys/someone-elses-key"));
+      const res = await authed(request(app).delete(`/api/api-keys/${keyId}`));
       expect(res.status).toBe(404);
+    });
+
+    it("rejects a malformed key ID before it ever reaches storage", async () => {
+      const res = await authed(request(app).delete("/api/api-keys/not-a-uuid"));
+      expect(res.status).toBe(400);
+      expect(storage.removeApiKey).not.toHaveBeenCalled();
     });
   });
 });

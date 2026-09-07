@@ -37,11 +37,16 @@ game from the couch without opening a browser.
    (name it after the machine, e.g. "Playnite on the living room PC"). Copy it
    immediately — Questarr stores only a hash and cannot show it again.
 2. In Playnite, open **Extensions → Questarr → Connect to Questarr…**
-3. Enter the server address (`http://questarr.local:5000`, or whatever your
-   reverse proxy serves) and paste the key.
+3. Enter the server address (`https://questarr.example.com`, or whatever your
+   reverse proxy serves — plain `http://` also works for a same-LAN setup with
+   no reverse proxy, and is confirmed with a one-time warning since the setup
+   step reads it back over the network) and paste the key.
 
 The extension pings the server before saving, so a bad address or key fails
-right there instead of silently at the next sync.
+right there instead of silently at the next sync. It also refuses to follow
+any HTTP redirect: the API key would otherwise be forwarded to whatever
+address the redirect points at, so a redirecting proxy shows as a connection
+error instead of silently sending the key onward.
 
 ## Where settings are stored
 

@@ -3,12 +3,12 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import { storage } from "../storage.js";
-import { igdbClient } from "../igdb.js";
 import { routesLogger as logger } from "../logger.js";
 import { normalizeTitle } from "../../shared/title-utils.js";
-import { getContentFilterFlags, isContentFiltered } from "../content-filter.js";
-import { normalizeInitialReleaseStatus } from "../game-status.js";
-import { insertGameSchema, type Game } from "@shared/schema";
+import { quickAddGameByTitle } from "../game-quick-add.js";
+// Relative path, not the "@shared" alias — see the comment in
+// game-quick-add.ts.
+import { GAME_STATUSES, type Game } from "../../shared/schema.js";
 
 const { version: APP_VERSION } = JSON.parse(
   readFileSync(path.resolve(process.cwd(), "package.json"), "utf-8")
@@ -33,6 +33,9 @@ integrationRouter.use((req, res, next) => {
   if (!req.user?.id) {
     return res.status(401).json({ error: "Unauthorized" });
   }
+  // Every response here varies by req.user (auth status, library contents),
+  // so it must never be cached by a shared proxy or the client's HTTP cache.
+  res.set("Cache-Control", "no-store");
   next();
 });
 
@@ -69,7 +72,16 @@ integrationRouter.get("/ping", (req: Request, res: Response) => {
 
 // ── Pull: Questarr library → external client ─────────────────────────────────
 const libraryQuerySchema = z.object({
-  status: z.string().trim().min(1).optional(),
+  // Rejects a malformed filter (e.g. "?status=,", "wanted,,owned", or an
+  // unknown status) outright rather than silently degrading into "no filter"
+  // or "matches nothing" — either of those would be a confusing way to fail.
+  status: z
+    .string()
+    .trim()
+    .min(1)
+    .transform((v) => v.split(",").map((s) => s.trim()))
+    .pipe(z.array(z.enum(GAME_STATUSES)).min(1))
+    .optional(),
   includeHidden: z
     .enum(["true", "false"])
     .optional()
@@ -82,14 +94,7 @@ integrationRouter.get("/library", async (req: Request, res: Response) => {
     if (!parsed.success) {
       return res.status(400).json({ error: "Invalid query parameters" });
     }
-    const { status, includeHidden } = parsed.data;
-
-    const statuses = status
-      ? status
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean)
-      : undefined;
+    const { status: statuses, includeHidden } = parsed.data;
 
     const games = await storage.getUserGames(req.user!.id, includeHidden, statuses);
     res.json({ games: games.map(toIntegrationGame), count: games.length });
@@ -215,61 +220,32 @@ integrationRouter.post("/games/request", async (req: Request, res: Response) => 
     const { title, status } = parsed.data;
     const userId = req.user!.id;
 
-    const results = await igdbClient.searchGames(title, 1);
-    if (results.length === 0) {
-      return res.status(404).json({ error: "No game found on IGDB for this title" });
+    // Shared with POST /api/games/match-and-add (the browser's own "quick
+    // add" flow) so the two entry points can't drift on matching, content
+    // filtering, or dedupe behavior.
+    const result = await quickAddGameByTitle(userId, title, { status, source: "api" });
+
+    switch (result.outcome) {
+      case "not_found":
+        // Deliberately indistinguishable from "no match": a filtered title
+        // must not be discoverable through this endpoint either.
+        return res.status(404).json({ error: "No game found on IGDB for this title" });
+      case "duplicate":
+        return res
+          .status(409)
+          .json({ error: "Game already in collection", game: toIntegrationGame(result.game) });
+      case "added":
+        logger.info(
+          {
+            userId,
+            title: result.game.title,
+            igdbId: result.game.igdbId,
+            viaApiKey: Boolean(req.apiKeyId),
+          },
+          "Game requested through the integration API"
+        );
+        return res.status(201).json({ game: toIntegrationGame(result.game) });
     }
-
-    const match = igdbClient.formatGameData(results[0]);
-    const filterFlags = await getContentFilterFlags(userId);
-    if (
-      isContentFiltered(
-        match as { isAdultContent?: boolean; isAgeRestricted?: boolean },
-        filterFlags
-      )
-    ) {
-      // Deliberately indistinguishable from "no match": a filtered title must
-      // not be discoverable through this endpoint either.
-      return res.status(404).json({ error: "No game found on IGDB for this title" });
-    }
-
-    const gameData = insertGameSchema.parse({
-      userId,
-      title: match.title,
-      igdbId: match.igdbId,
-      status,
-      platforms: match.platforms,
-      genres: match.genres,
-      themes: match.themes,
-      isAdultContent: match.isAdultContent,
-      isAgeRestricted: match.isAgeRestricted,
-      coverUrl: match.coverUrl,
-      releaseDate: match.releaseDate,
-      summary: match.summary,
-      publishers: match.publishers,
-      developers: match.developers,
-      screenshots: match.screenshots,
-      rating: match.rating,
-      source: "api",
-    });
-
-    const existing = (await storage.getUserGames(userId, true)).find((g) =>
-      gameData.igdbId != null
-        ? g.igdbId === gameData.igdbId
-        : g.title.toLowerCase() === gameData.title.toLowerCase()
-    );
-    if (existing) {
-      return res
-        .status(409)
-        .json({ error: "Game already in collection", game: toIntegrationGame(existing) });
-    }
-
-    const game = await storage.addGame(normalizeInitialReleaseStatus(gameData));
-    logger.info(
-      { userId, title: game.title, igdbId: game.igdbId, viaApiKey: Boolean(req.apiKeyId) },
-      "Game requested through the integration API"
-    );
-    res.status(201).json({ game: toIntegrationGame(game) });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: error.issues });

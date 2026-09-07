@@ -25,9 +25,9 @@ export interface IndexerCapsCategory {
 // sane to offer instead of leaving the indexer with none.
 export const DEFAULT_GAME_CATEGORY_IDS = ["1000", "4000", "4050"] as const;
 export const DEFAULT_GAME_CATEGORIES: readonly IndexerCapsCategory[] = Object.freeze([
-  { id: "1000", name: "Console" },
-  { id: "4000", name: "PC" },
-  { id: "4050", name: "PC > Games" },
+  Object.freeze({ id: "1000", name: "Console" }),
+  Object.freeze({ id: "4000", name: "PC" }),
+  Object.freeze({ id: "4050", name: "PC > Games" }),
 ]);
 
 // Overall time budget for a getCategories caps-discovery loop, shared

@@ -2,9 +2,9 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.4.3] - 2026-08-xx
+## [1.5.0] - 2026-09-xx
 
-Hotfix release addressing dependency vulnerabilities flagged by `npm audit`.
+Addresses dependency vulnerabilities flagged by `npm audit`.
 
 ### Security
 
@@ -26,7 +26,7 @@ Hotfix release addressing dependency vulnerabilities flagged by `npm audit`.
 
 ## [1.4.2] - 2026-08-11
 
-Hotfix release, tagged directly off `v1.4.1` rather than from `main` — not part of this branch's history. Fixed the same `ip-address` and `socket.io-parser` advisories independently patched above for `main`'s own accumulated changes (see the `[1.4.3]` entry). Full details in the `v1.4.2` tag and its own copy of this file.
+Hotfix release, tagged directly off `v1.4.1` rather than from `main` — not part of this branch's history. Fixed the same `ip-address` and `socket.io-parser` advisories independently patched above for `main`'s own accumulated changes (see the `[1.5.0]` entry). Full details in the `v1.4.2` tag and its own copy of this file.
 
 ## [1.4.1] - 2026-08-02
 

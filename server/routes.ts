@@ -1224,6 +1224,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Lightweight dashboard stats for external status widgets (Homepage, Homarr, Organizr, etc.)
+  app.get("/api/status", authenticateToken, async (req, res) => {
+    try {
+      const status = await storage.getDashboardStatus(req.user!.id);
+      // User-specific data: never let a shared/browser cache reuse this across accounts.
+      res.set("Cache-Control", "no-store");
+      res.json(status);
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to get dashboard status");
+      res.status(500).json({ error: "Failed to get dashboard status" });
+    }
+  });
+
   // Game collection routes
 
   // Get all games in collection

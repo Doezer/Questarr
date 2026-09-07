@@ -1,0 +1,95 @@
+{
+  "cosmos-installer": {
+    "form": [
+      {
+        "name": "DataFolder",
+        "label": "Data folder",
+        "initialValue": "/usr/local/questarr/data",
+        "type": "text",
+        "required": true,
+        "description": "Host folder where Questarr stores its SQLite database and other data."
+      },
+      {
+        "name": "LibraryFolder",
+        "label": "Library folder",
+        "initialValue": "/mnt/data",
+        "type": "text",
+        "required": false,
+        "description": "Host folder your download client writes into. Mounted at /data inside the container so Questarr can import finished downloads. Add a matching entry under Settings -> Path Mappings."
+      },
+      {
+        "name": "PUID",
+        "label": "PUID",
+        "initialValue": "1000",
+        "type": "text",
+        "required": false,
+        "description": "User ID owning the files Questarr writes."
+      },
+      {
+        "name": "PGID",
+        "label": "PGID",
+        "initialValue": "1000",
+        "type": "text",
+        "required": false,
+        "description": "Group ID owning the files Questarr writes."
+      }
+    ]
+  },
+  "services": {
+    "questarr": {
+      "image": "ghcr.io/doezer/questarr:latest",
+      "restart": "unless-stopped",
+      "environment": [
+        "PORT=5000",
+        "SQLITE_DB_PATH=/app/data/sqlite.db",
+        "PUID={PUID}",
+        "PGID={PGID}",
+        "UMASK=022"
+      ],
+      "volumes": [
+        {
+          "source": "{DataFolder}",
+          "target": "/app/data",
+          "type": "bind"
+        },
+        {
+          "source": "{LibraryFolder}",
+          "target": "/data",
+          "type": "bind"
+        }
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://localhost:' + (process.env.PORT || 5000) + '/api/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
+        ],
+        "interval": "30s",
+        "timeout": "10s",
+        "retries": 3,
+        "start_period": "40s"
+      },
+      "labels": {
+        "cosmos-icon": "https://raw.githubusercontent.com/Doezer/Questarr/main/images/Questarr_icon.png"
+      },
+      "routes": [
+        {
+          "name": "questarr",
+          "description": "Questarr web interface",
+          "useHost": true,
+          "host": "questarr.{ServerHostname}",
+          "usePathPrefix": false,
+          "target": "http://questarr:5000",
+          "mode": "SERVAPP",
+          "Timeout": 14400000,
+          "ThrottlePerMinute": 0,
+          "BlockCommonBots": true,
+          "SmartShield": {
+            "Enabled": true
+          }
+        }
+      ]
+    }
+  }
+}

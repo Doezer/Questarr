@@ -6,17 +6,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/queryClient";
+import type { XrelReleaseListItem } from "@shared/xrel-types";
 
-interface XrelRelease {
-  id: string;
-  dirname: string;
-  link_href: string;
-  time: number;
-  group_name: string;
-  sizeMb?: number;
-  sizeUnit?: string;
-  ext_info?: { title: string; link_href: string };
-  source: "scene" | "p2p";
+// The transport fields (id, dirname, nukeReason, ...) come from the
+// server's XrelReleaseListItem DTO; these are page-only fields the server
+// attaches/derives for display and aren't part of that shared contract.
+interface XrelRelease extends XrelReleaseListItem {
   isWanted?: boolean;
   libraryStatus?: string;
   gameId?: string;
@@ -222,6 +217,22 @@ export default function XrelReleasesPage() {
                       <Badge variant="outline" className="text-[10px] h-4 px-1.5">
                         {rel.group_name || "—"}
                       </Badge>
+                      {rel.nukeReason && (
+                        <>
+                          <Badge
+                            variant="destructive"
+                            className="text-[10px] h-4 px-1.5"
+                            title={`Nuked: ${rel.nukeReason}`}
+                          >
+                            Nuked
+                          </Badge>
+                          {/* Also shown as visible text, not just the hover title above --
+                              touch/mobile users can't reliably reach a native tooltip. */}
+                          <span className="text-xs text-destructive break-all">
+                            {rel.nukeReason}
+                          </span>
+                        </>
+                      )}
                       {rel.libraryStatus ? (
                         <Badge
                           variant={rel.libraryStatus === "wanted" ? "default" : "secondary"}

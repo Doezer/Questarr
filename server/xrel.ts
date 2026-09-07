@@ -1,5 +1,12 @@
 import { titleMatches } from "../shared/title-utils.js";
+import type {
+  XrelExtInfo,
+  XrelReleaseIdentity,
+  XrelReleaseListItem,
+} from "../shared/xrel-types.js";
 import { safeFetch } from "./ssrf.js";
+
+export type { XrelExtInfo, XrelReleaseListItem } from "../shared/xrel-types.js";
 
 /**
  * xREL.to API client (no official Node SDK).
@@ -12,6 +19,11 @@ export const DEFAULT_XREL_BASE = "https://xrel-api.nfos.to";
 const GAME_TYPE = "master_game";
 
 export const ALLOWED_XREL_DOMAINS = ["api.xrel.to", "xrel-api.nfos.to"];
+
+// searchReleases() runs on the search hot path before any indexer is queried;
+// cap it well below safeFetch's default 30s so a hung xREL API fails fast
+// instead of stalling every search.
+const XREL_SEARCH_TIMEOUT_MS = 24000;
 
 function resolveBaseUrl(baseUrl?: string | null): string {
   const v = (baseUrl ?? process.env.XREL_API_BASE ?? "").trim();
@@ -59,19 +71,7 @@ function checkHourlyLimit(): void {
   hourlyCount++;
 }
 
-export interface XrelExtInfo {
-  type: string;
-  id: string;
-  title: string;
-  link_href: string;
-  rating?: number;
-  num_ratings?: number;
-}
-
-export interface XrelSceneRelease {
-  id: string;
-  dirname: string;
-  link_href: string;
+export interface XrelSceneRelease extends XrelReleaseIdentity {
   time: number;
   group_name: string;
   size?: { number: number; unit: string };
@@ -83,12 +83,12 @@ export interface XrelSceneRelease {
   audio_type?: string;
   tv_season?: number;
   tv_episode?: number;
+  // Present (non-empty) when the scene has nuked this release (bad/incomplete
+  // dupe, proper available, etc.); absent for non-nuked releases.
+  nuke_reason?: string;
 }
 
-export interface XrelP2pRelease {
-  id: string;
-  dirname: string;
-  link_href: string;
+export interface XrelP2pRelease extends XrelReleaseIdentity {
   pub_time: number;
   size_mb?: number;
   group?: { id: string; name: string };
@@ -98,16 +98,15 @@ export interface XrelP2pRelease {
   main_lang?: string;
 }
 
-export interface XrelReleaseListItem {
-  id: string;
-  dirname: string;
-  link_href: string;
-  time: number;
-  group_name: string;
-  sizeMb?: number;
-  sizeUnit?: string;
-  ext_info?: XrelExtInfo;
-  source: "scene" | "p2p";
+/**
+ * xREL can flag a release as nuked (flags.nuke_rls) without ever populating
+ * nuke_reason -- the scene marked it invalid but didn't record why. Fall
+ * back to a generic label in that case so the client still shows the Nuked
+ * badge instead of silently dropping a flag-only nuke.
+ */
+function deriveNukeReason(r: XrelSceneRelease): string | undefined {
+  if (r.nuke_reason) return r.nuke_reason;
+  return r.flags?.nuke_rls ? "Nuked (no reason provided)" : undefined;
 }
 
 export interface XrelSearchResponse {
@@ -146,6 +145,7 @@ function mergeAndFilterGameReleases(
       sizeUnit: r.size?.unit,
       ext_info: r.ext_info,
       source: "scene",
+      nukeReason: deriveNukeReason(r),
     });
   }
   for (const r of p2p) {
@@ -188,11 +188,16 @@ export async function searchReleases(
     limit: String(limit),
   });
   const url = `${base}/v2/search/releases.json?${params}`;
+  // This lookup runs on the search hot path before any indexer is queried, so an
+  // unbounded hang here would stall every search. Use a generous cap (well above
+  // xREL's normal response time) that only trips on a true hang; callers should
+  // treat a rejection here as a degrade-gracefully case, not a hard failure.
   const res = await safeFetch(url, {
     headers: {
       Accept: "application/json",
       "User-Agent": "Questarr/1.1.0",
     },
+    timeoutMs: XREL_SEARCH_TIMEOUT_MS,
   });
 
   if (res.status === 429) {
@@ -260,6 +265,7 @@ export async function getLatestReleases(
     sizeUnit: r.size?.unit,
     ext_info: r.ext_info,
     source: "scene",
+    nukeReason: deriveNukeReason(r),
   }));
 
   return {

@@ -81,7 +81,7 @@ const downloadSchema = z.object({
   category: z.string().optional(),
   downloadPath: z.string().optional(),
   priority: z.number().min(1).max(10).optional(),
-  password: z.string().optional(),
+  password: z.string().max(200, "Password must be 200 characters or fewer").optional(),
 });
 
 type DownloadForm = z.infer<typeof downloadSchema>;

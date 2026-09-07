@@ -442,6 +442,20 @@ export async function safeFetch(urlStr: string, options: SafeFetchOptions = {}):
     }
 
     const nextUrl = new URL(location, currentUrl);
+
+    // A 307/308 redirect preserves the request body verbatim, so a credential-bearing
+    // request (the NZBGet XML-RPC body, SABnzbd's addfile query string) redirected to a
+    // different -- but still HTTPS -- origin would hand it to a host we never validated
+    // as the intended target. requireHttps therefore also pins the redirect chain to the
+    // origin the caller actually asked for. A scheme downgrade is reported by the
+    // protocol check at the top of the loop on the next iteration instead, so this only
+    // fires for a same-scheme (HTTPS) host/port change.
+    if (requireHttps && nextUrl.protocol === "https:" && nextUrl.origin !== currentUrl.origin) {
+      throw new Error(
+        `Refusing to redirect a credential-bearing request to a different origin: ${nextUrl.origin}`
+      );
+    }
+
     currentOptions = getRedirectOptions(currentOptions, response.status, currentUrl, nextUrl);
     currentUrl = nextUrl;
     redirectCount++;

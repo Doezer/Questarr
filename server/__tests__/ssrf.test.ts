@@ -247,6 +247,26 @@ describe("safeFetch", () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 
+  it("should refuse to follow a same-scheme redirect to a different origin with requireHttps", async () => {
+    vi.mocked(dns.lookup as unknown as import("node:dns").LookupAddress[]).mockResolvedValueOnce([
+      { address: "1.2.3.4", family: 4 },
+    ]);
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(null, {
+        status: 307,
+        headers: { location: "https://attacker.example/rpc" },
+      })
+    );
+
+    await expect(safeFetch("https://example.com/rpc", { requireHttps: true })).rejects.toThrow(
+      "different origin"
+    );
+    // The 307 preserves the request body, so a redirect to another HTTPS origin would
+    // still hand a credential-bearing request to a host never validated as the target --
+    // only the first, same-origin leg should ever be dialed.
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("should strip Authorization/Cookie headers when a redirect crosses origins", async () => {
     // Initial request to example.com...
     vi.mocked(dns.lookup as unknown as import("node:dns").LookupAddress[]).mockResolvedValueOnce([

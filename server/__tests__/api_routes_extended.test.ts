@@ -643,6 +643,9 @@ describe("API Routes - Additional Coverage", () => {
         expect(JSON.parse(updateCall.settings as string)).toEqual({
           archivePassword: expectedPassword,
         });
+        // The response itself must never echo the real password back, regardless
+        // of which one was just persisted.
+        expect(JSON.parse(res.body.settings)).toEqual({ archivePassword: "********" });
       }
     );
 

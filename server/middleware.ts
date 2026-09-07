@@ -452,6 +452,10 @@ export const sanitizeDownloaderDownloadData = [
     .matches(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
     .withMessage("Invalid game ID format"),
   body("password")
+    // Never echo the archive password back in a 400 response or the
+    // validation-failure log line -- hide() replaces it with a marker
+    // in the error object express-validator builds on a failed check.
+    .hide("[REDACTED]")
     .optional()
     .isString()
     .withMessage("Password must be a string")

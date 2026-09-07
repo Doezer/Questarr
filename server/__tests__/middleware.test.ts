@@ -551,6 +551,30 @@ describe("Middleware - Input Sanitization", () => {
       expect(res.status).toHaveBeenCalledWith(400);
     });
 
+    it("should redact the rejected password value in the validation error response", async () => {
+      const req = createMockRequest({
+        body: {
+          url: "https://example.com/file.zip",
+          title: "Test",
+          password: "a".repeat(201),
+        },
+      });
+      const res = createMockResponse();
+      const next = createMockNext();
+
+      for (const validator of sanitizeDownloaderDownloadData) {
+        await validator(req as Request, res as Response, next);
+      }
+
+      validateRequest(req as Request, res as Response, next);
+
+      const body = (res.json as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      const passwordError = body.details.find(
+        (detail: { path?: string }) => detail.path === "password"
+      );
+      expect(passwordError?.value).toBe("[REDACTED]");
+    });
+
     it("should allow a password at the 200-character limit", async () => {
       const req = createMockRequest({
         body: {

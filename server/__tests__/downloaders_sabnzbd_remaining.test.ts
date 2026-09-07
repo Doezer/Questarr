@@ -398,11 +398,19 @@ describe("sabnzbd remaining regression coverage", () => {
           arrayBuffer: async () => new TextEncoder().encode("nzb").buffer,
         } as Response;
       }
-      const error = new Error("self-signed certificate");
+      // A recognized cause.code is required for doFetchWithFallback to treat this
+      // as an SSL error at all -- without it, the test would pass even if the
+      // allowInsecureFallback guard it's probing were removed entirely.
+      const error = new Error("self-signed certificate") as Error & { cause?: { code: string } };
+      error.cause = { code: "DEPTH_ZERO_SELF_SIGNED_CERT" };
       throw error;
     });
 
-    const client = new SABnzbdClient(createDownloader({ useSsl: true }));
+    // allowSelfSignedCertificate must be on too, or the SSL-error branch returns
+    // before ever consulting allowInsecureFallback (see downloaders_sabnzbd_tls.test.ts).
+    const client = new SABnzbdClient(
+      createDownloader({ useSsl: true, allowSelfSignedCertificate: true })
+    );
     const fetchInsecureSpy = vi.spyOn(
       client as unknown as { fetchInsecure: (...args: unknown[]) => Promise<Response> },
       "fetchInsecure"

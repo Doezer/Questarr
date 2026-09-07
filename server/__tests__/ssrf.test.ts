@@ -32,6 +32,13 @@ function capturedLookup(): LookupFunction {
   return lookup as LookupFunction;
 }
 
+// Queues a single resolved DNS lookup for the next safeFetch hop.
+function mockDnsResolvesOnce(address = "1.2.3.4"): void {
+  vi.mocked(dns.lookup as unknown as import("node:dns").LookupAddress[]).mockResolvedValueOnce([
+    { address, family: 4 },
+  ]);
+}
+
 describe("isSafeUrl Security Check", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -213,9 +220,7 @@ describe("safeFetch", () => {
   });
 
   it("should refuse to follow a redirect to a plain-HTTP hop with requireHttps", async () => {
-    vi.mocked(dns.lookup as unknown as import("node:dns").LookupAddress[]).mockResolvedValueOnce([
-      { address: "1.2.3.4", family: 4 },
-    ]);
+    mockDnsResolvesOnce();
     vi.mocked(fetch).mockResolvedValueOnce(
       new Response(null, {
         status: 307,
@@ -231,15 +236,11 @@ describe("safeFetch", () => {
   });
 
   it("should allow an all-HTTPS redirect chain with requireHttps", async () => {
-    vi.mocked(dns.lookup as unknown as import("node:dns").LookupAddress[]).mockResolvedValueOnce([
-      { address: "1.2.3.4", family: 4 },
-    ]);
+    mockDnsResolvesOnce();
     vi.mocked(fetch).mockResolvedValueOnce(
       new Response(null, { status: 307, headers: { location: "https://example.com/rpc2" } })
     );
-    vi.mocked(dns.lookup as unknown as import("node:dns").LookupAddress[]).mockResolvedValueOnce([
-      { address: "1.2.3.4", family: 4 },
-    ]);
+    mockDnsResolvesOnce();
     vi.mocked(fetch).mockResolvedValueOnce(new Response("ok"));
 
     const response = await safeFetch("https://example.com/rpc", { requireHttps: true });
@@ -248,9 +249,7 @@ describe("safeFetch", () => {
   });
 
   it("should refuse to follow a same-scheme redirect to a different origin with requireHttps", async () => {
-    vi.mocked(dns.lookup as unknown as import("node:dns").LookupAddress[]).mockResolvedValueOnce([
-      { address: "1.2.3.4", family: 4 },
-    ]);
+    mockDnsResolvesOnce();
     vi.mocked(fetch).mockResolvedValueOnce(
       new Response(null, {
         status: 307,

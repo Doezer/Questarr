@@ -63,7 +63,7 @@ A video game management application inspired by the -Arr apps (Sonarr, Radarr, P
 | **Rich Game Metadata**      | Details enriched with IGDB, Steam, PCGamingWiki, and NexusMods, including trending mods where available.                                                                      |
 | **Statistics**              | Visualize collection statistics with Discord sharing support. 🚧                                                                                                              |
 | **Security Focused**        | General security hardening, SSL support, and [OpenSSF certified](https://www.bestpractices.dev/projects/13450) — see [SECURITY.md](.github/SECURITY.md) for the full process. |
-| **Integrations**            | Deployable on UNRAID and as a Home Assistant add-on. 🚧                                                                                                                       |
+| **Integrations**            | One-click install on UNRAID, CasaOS, Umbrel and Cosmos Cloud, plus a Home Assistant add-on. 🚧                                                                                |
 | **Design**                  | Clean, minimalist, dark-first UI built with mobile usage in mind.                                                                                                             |
 
 ### Supported Indexers/Downloaders
@@ -115,6 +115,29 @@ docker run -d -p 5000:5000 -v ./data:/app/data --name questarr ghcr.io/doezer/qu
 3. **Access the application:**
    Open your browser to `http://localhost:5000`
 
+### Proxmox VE (LXC)
+
+<details>
+<summary><b>Deploy as a Proxmox LXC container — no Docker</b></summary>
+
+Run this **on your Proxmox VE host**, as `root`, to create an LXC container with Questarr installed
+and running as a `systemd` service:
+
+```bash
+bash -c "$(curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' https://raw.githubusercontent.com/Doezer/Questarr/main/scripts/proxmox/questarr-lxc.sh)"
+```
+
+The script picks the next free container ID, downloads a Debian template if needed, creates an
+unprivileged container, builds Questarr from source, and prints the URL to open. Every prompt has a
+default, so you can accept them all and be done in a few minutes.
+
+Update later with `pct exec <ctid> -- update`.
+
+See [docs/PROXMOX.md](docs/PROXMOX.md) for non-interactive installs, sizing guidance, configuration,
+and troubleshooting.
+
+</details>
+
 ### UNRAID
 
 <details>
@@ -134,6 +157,48 @@ Questarr is available in the Unraid **Apps** tab via Community Applications:
 
 </details>
 
+### CasaOS
+
+<details>
+<summary><b>Install via Custom Install (AppFile)</b></summary>
+
+1. Open the **App Store** and click **Custom Install**.
+2. Click the **import** icon (top right) and paste this URL:
+   `https://raw.githubusercontent.com/Doezer/Questarr/main/casaos/docker-compose.yml`
+3. Review the mounts — by default `/DATA/AppData/questarr` holds Questarr's data and
+   `/DATA/Downloads` is mounted at `/data` so Questarr can import finished downloads. If you keep
+   that second mount, add a matching entry under **Settings → Path Mappings**.
+4. Click **Install**, then open Questarr from the CasaOS dashboard (port `5000`).
+
+</details>
+
+### Umbrel
+
+<details>
+<summary><b>Install via Community App Store</b></summary>
+
+1. In umbrelOS, open the **App Store**.
+2. Click the **⋮** menu (top right) → **Community App Stores**.
+3. Add this repository URL: `https://github.com/Doezer/Questarr`
+4. Open the **Doezer** store and install **Questarr** (app ID `doezer-questarr`), then open it from
+   your dashboard (`http://umbrel.local:5000`).
+
+</details>
+
+### Cosmos Cloud
+
+<details>
+<summary><b>Install as a ServApp</b></summary>
+
+1. Open **Market Place → Custom Install** (or **Servapps → Add**).
+2. Paste this URL:
+   `https://raw.githubusercontent.com/Doezer/Questarr/main/cosmos/questarr.cosmos-compose.json`
+3. Fill in the install form: **Data folder**, optional **Library folder** (the root your download
+   client writes into, mounted at `/data`), and `PUID`/`PGID`.
+4. Install. Cosmos creates the route `questarr.<your-server-hostname>` and handles HTTPS for you.
+
+</details>
+
 ### Home Assistant Add-on
 
 <details>
@@ -148,6 +213,9 @@ You can install Questarr as a Home Assistant add-on from this repository:
 5. Open `http://<home-assistant-host>:5000` to access the UI.
 
 </details>
+
+All platform definitions live in the repository and share the same mounts and ports — see
+[docs/HOME_SERVER_APPS.md](docs/HOME_SERVER_APPS.md) for details.
 
 ## Screenshots
 

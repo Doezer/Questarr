@@ -56,6 +56,8 @@ export interface StealthState {
 }
 
 export interface ObjectiveState {
+  /** False while the player is still out on the approach, short of the gate. */
+  inside: boolean;
   /** True when a locked door stands between the player and the terminal. */
   needsKeycard: boolean;
   hasKeycard: boolean;
@@ -97,6 +99,11 @@ interface Door {
   box: Box;
   /** 0 fully closed, 1 fully open. */
   openness: number;
+  /**
+   * The gate's cog leaf, which turns about the passage axis as it retracts.
+   * Null for the interior doors, which simply drop into the floor.
+   */
+  wheel: THREE.Object3D | null;
 }
 
 /** A thrown distraction in flight, or resting on the floor until it expires. */
@@ -121,6 +128,10 @@ const CRATE_SIZE = 2.2;
 const CRATE_HEIGHT = 1.8;
 const WALL_HEIGHT = 4;
 const DOOR_HEIGHT = 2.8;
+/** How far the gate's portal stands above the perimeter it is set into. */
+const GATE_PORTAL_RISE = 1.6;
+/** Half-turns the cog leaf makes as it retracts, so it reads as disengaging. */
+const GATE_SPIN = Math.PI * 1.2;
 const VISION_RANGE = 9;
 const VISION_HALF_FOV = THREE.MathUtils.degToRad(32);
 const VISION_CHECK_INTERVAL = 0.15;
@@ -206,6 +217,11 @@ const PALETTE = {
   lampHousing: 0x1c1712,
   /** Motes in the air, lit warm so they only show inside a lamp pool. */
   dust: 0xd9b98a,
+  /** The approach outside the gate: bare grit, colder than the vault's floor. */
+  apron: 0x241f1c,
+  /** The gate's cog leaf, and the dressed stone portal it sits in. */
+  gateLeaf: 0x6f6152,
+  gatePortal: 0x574a3c,
 } as const;
 
 const DOOR_COLORS = { locked: 0xff3b3b, unlocked: 0x35f0b0 };
@@ -245,6 +261,8 @@ export class InfiltrationGame {
   /** Tracked separately from the card so pickup hides the glow with it. */
   private keycardHalo: THREE.Mesh | null = null;
   private hasKeycard = false;
+  /** Latches once the player is through the gate: the HUD's first milestone. */
+  private inside = false;
   private occluders: Occluder[] = [];
   private facilityHalfExtent = 0;
   private terminalWorld = new THREE.Vector3();
@@ -322,6 +340,7 @@ export class InfiltrationGame {
     this.keycardHalo = null;
     this.dust = null;
     this.hasKeycard = false;
+    this.inside = false;
     this.playerPath = [];
     this.clearScene();
     this.hackProgress = 0;
@@ -428,7 +447,14 @@ export class InfiltrationGame {
     // hall with a hotspot in the middle.
     // One source of truth for where light is: the meshes and the detection math
     // read the same list, so a shadow that looks safe on screen actually is.
-    this.lamps = lampPositions(this.level.rooms, (cell) => gridToWorld(cell, this.level));
+    // The gate carries a lamp of its own, on the approach side. It goes in the
+    // same list as the room lamps rather than being drawn separately, because
+    // detection reads this list: standing at the gate has to *be* as exposed as
+    // it looks, or the one place the player must cross would be a free hide.
+    this.lamps = [
+      ...lampPositions(this.level.rooms, (cell) => gridToWorld(cell, this.level)),
+      ...this.approachLampCells().map((cell) => gridToWorld(cell, this.level)),
+    ];
     for (const centre of this.lamps) {
       // The lit pool on screen ends exactly where detection stops counting the
       // player as lit — see LAMP_LIGHT_DISTANCE for why that is not LAMP_RADIUS
@@ -450,10 +476,19 @@ export class InfiltrationGame {
     this.scene.add(floor);
 
     this.buildPerimeter(floorSize);
-    for (const wallCell of this.level.walls) this.buildInteriorWall(wallCell);
+    this.buildApron();
+    // The facility's own perimeter is in the same wall list as its partitions,
+    // so it is raised the same way — one box per cell, so occlusion still fades
+    // only the segment covering the player. It is only tinted apart, as the
+    // outer shell of the building rather than a division inside it.
+    const shell = new Set(this.facilityShellCells().map(cellKey));
+    for (const wallCell of this.level.walls) {
+      this.buildInteriorWall(wallCell, shell.has(cellKey(wallCell)));
+    }
     for (const cell of pillarCells(this.level.walls, this.level.gridSize)) this.buildPillar(cell);
     for (const cratePos of this.level.crates) this.buildCrate(cratePos);
     for (const door of this.level.doors) this.buildDoor(door);
+    this.buildGate();
     this.buildRubble();
     this.buildDust(floorSize);
     this.buildTerminal();
@@ -467,6 +502,7 @@ export class InfiltrationGame {
   /** Pushes the current objective to the HUD, which owns no per-frame state itself. */
   private reportObjective() {
     this.callbacks.onObjectiveChange?.({
+      inside: this.inside,
       needsKeycard: this.level.doors.some((door) => door.locked),
       hasKeycard: this.hasKeycard,
     });
@@ -519,6 +555,279 @@ export class InfiltrationGame {
     this.occluders.push({ mesh: cap, material });
   }
 
+  /**
+   * Lamp cells strung down the approach, from the gate back towards the spawn.
+   *
+   * The apron is outside every room, so the per-room lamps leave it pitch dark
+   * and the opening walk is made across a floor the player cannot read. Lighting
+   * it also puts the crossing on the record the stealth math reads: the way in
+   * is lit, so it costs something.
+   */
+  private approachLampCells(): GridPos[] {
+    const { gate, spawn } = this.level;
+    const step = { x: Math.sign(spawn.x - gate.outside.x), z: Math.sign(spawn.z - gate.outside.z) };
+    const depth = Math.abs(spawn.x - gate.outside.x) + Math.abs(spawn.z - gate.outside.z);
+    const cells: GridPos[] = [gate.outside];
+    // Every third cell, so the pools overlap into a lit run rather than a line
+    // of separate spots with dark gaps between them.
+    for (let i = 3; i <= depth; i += 3) {
+      cells.push({ x: gate.outside.x + step.x * i, z: gate.outside.z + step.z * i });
+    }
+    return cells;
+  }
+
+  /** The cells of the facility's outer shell, as opposed to its partitions. */
+  private facilityShellCells(): GridPos[] {
+    const { facility } = this.level;
+    const cells: GridPos[] = [];
+    for (let x = facility.x; x < facility.x + facility.w; x++) {
+      for (let z = facility.z; z < facility.z + facility.h; z++) {
+        const onEdge =
+          x === facility.x ||
+          z === facility.z ||
+          x === facility.x + facility.w - 1 ||
+          z === facility.z + facility.h - 1;
+        if (onEdge) cells.push({ x, z });
+      }
+    }
+    return cells;
+  }
+
+  /**
+   * The open approach outside the gate.
+   *
+   * Laid as one square tile per cell rather than a single stretched plane: the
+   * apron is a long thin band, and a plane that shape would smear the flagstone
+   * pattern along its length while the floor inside kept its proper scale. The
+   * tiles share one geometry and one material, so this costs a draw call each
+   * and nothing else.
+   */
+  private buildApron() {
+    const size = this.level.cellSize;
+    const geometry = new THREE.PlaneGeometry(size, size);
+    const material = new THREE.MeshStandardMaterial({ color: PALETTE.apron, roughness: 1 });
+    applyTexture(material, stoneFloorTexture(1));
+
+    const { apron } = this.level;
+    for (let x = apron.x; x < apron.x + apron.w; x++) {
+      for (let z = apron.z; z < apron.z + apron.h; z++) {
+        const world = gridToWorld({ x, z }, this.level);
+        const tile = new THREE.Mesh(geometry, material);
+        tile.rotation.x = -Math.PI / 2;
+        // A hair above the vault floor beneath it, so the two never z-fight.
+        tile.position.set(world.x, 0.02, world.z);
+        this.scene.add(tile);
+      }
+    }
+  }
+
+  /**
+   * The one way in: a cog leaf in a dressed stone portal, set into the facility's
+   * outer wall where the approach meets it.
+   *
+   * It joins {@link doors} rather than being driven separately, so the sliding,
+   * the collider and the proximity trigger are the machinery the interior doors
+   * already use and there is one implementation of "a door is shut" for the
+   * pathfinder, the collision test and the sight lines to agree on. What is its
+   * own is the geometry and the turn it makes on the way down.
+   */
+  private buildGate() {
+    const { gate } = this.level;
+    const size = this.level.cellSize;
+    const world = gridToWorld(gate.pos, this.level);
+    const outside = gridToWorld(gate.outside, this.level);
+
+    // Taken from the cells rather than from `spansX` directly, so the portal is
+    // built from the same two points the level says the player passes between.
+    const through = new THREE.Vector3(outside.x - world.x, 0, outside.z - world.z).normalize();
+    const across = new THREE.Vector3(-through.z, 0, through.x);
+
+    const group = new THREE.Group();
+    group.position.set(world.x, 0, world.z);
+
+    // Plain iron, with no emissive of its own. The interior doors tint their
+    // whole panel by lock state, which works at that size; flooding a leaf this
+    // big with one colour drowns the ribs and the hub and leaves a flat disc.
+    // The status light is a ring on the hub instead — see `statusMaterial`.
+    // Low metalness on purpose. There is no environment map down here, so a
+    // near-metal surface has almost nothing to reflect and renders black however
+    // hard the gate lamp is driven — which is what a cast leaf this size did on
+    // the first pass. Dialled back, the ribs catch the lamp and read as relief.
+    const material = new THREE.MeshStandardMaterial({
+      color: PALETTE.gateLeaf,
+      roughness: 0.62,
+      metalness: 0.25,
+    });
+    applyTexture(material, ironTexture(1));
+
+    // The leaf and everything bolted to it turn together, so the spin lives on a
+    // group inside the one holding the orientation: setting a rotation on the
+    // oriented group directly would fight the quaternion aiming it down the
+    // passage.
+    const wheel = new THREE.Group();
+    wheel.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), through);
+    const spinner = new THREE.Group();
+    wheel.add(spinner);
+
+    // Sized to clear the jambs below rather than to fill the cell: a leaf wider
+    // than the opening is clipped down both sides, and a circle with its sides
+    // shaved off stops reading as a wheel and starts reading as a slot.
+    const radius = size * 0.42;
+    const thickness = size * 0.3;
+    const disc = new THREE.Mesh(
+      new THREE.CylinderGeometry(radius, radius, thickness, 24),
+      material
+    );
+    spinner.add(disc);
+
+    // Ribs and a hub on the disc's face. Local Y is the passage axis here, so a
+    // rib is laid flat across the face and stands a little proud of both sides.
+    for (let i = 0; i < 6; i++) {
+      const rib = new THREE.Mesh(
+        new THREE.BoxGeometry(radius * 1.7, thickness * 1.18, size * 0.07),
+        material
+      );
+      rib.rotation.y = (i * Math.PI) / 6;
+      spinner.add(rib);
+    }
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(radius * 0.66, size * 0.045, 6, 20),
+      material
+    );
+    ring.rotation.x = Math.PI / 2;
+    spinner.add(ring);
+    const hub = new THREE.Mesh(
+      new THREE.CylinderGeometry(radius * 0.26, radius * 0.26, thickness * 1.5, 12),
+      material
+    );
+    spinner.add(hub);
+
+    // The status light: the one lit thing on the leaf, so lock state still reads
+    // at a glance without the whole gate turning green. It is what `updateDoors`
+    // tints, which is why the Door record below carries it as its material.
+    const statusMaterial = new THREE.MeshStandardMaterial({
+      color: PALETTE.gateLeaf,
+      emissive: DOOR_COLORS.unlocked,
+      emissiveIntensity: 1.2,
+      roughness: 0.4,
+      metalness: 0.2,
+    });
+    for (const face of [-1, 1]) {
+      const status = new THREE.Mesh(
+        new THREE.TorusGeometry(radius * 0.3, size * 0.035, 6, 16),
+        statusMaterial
+      );
+      status.rotation.x = Math.PI / 2;
+      status.position.y = face * thickness * 0.78;
+      spinner.add(status);
+    }
+
+    // Sat just clear of the floor, and low enough that a DOOR_HEIGHT retraction
+    // takes the whole leaf out of the opening. Pushed out towards the approach
+    // face too, so it is hung in the opening where it can be seen rather than
+    // buried in the middle of the wall's thickness.
+    wheel.position.y = radius + 0.08;
+    wheel.position.x = through.x * size * 0.16;
+    wheel.position.z = through.z * size * 0.16;
+    group.add(wheel);
+    this.scene.add(group);
+
+    const portalMaterial = new THREE.MeshStandardMaterial({
+      color: PALETTE.gatePortal,
+      roughness: 0.88,
+    });
+    applyTexture(portalMaterial, masonryTexture(1));
+    const portalHeight = WALL_HEIGHT + GATE_PORTAL_RISE;
+
+    // Jambs either side and a lintel over the top: the stone the leaf is hung
+    // in, and what fills the wall between the top of the disc and the parapet.
+    // All of it sits inside the gate cell the collider already covers, so none
+    // of it is an obstacle the pathfinder does not know about.
+    //
+    // Both vectors are axis-aligned and one of them is zero on each axis, so a
+    // box is sized by saying how wide it is across the opening and how deep it
+    // is along the passage, and letting the orientation sort out which is which.
+    const boxFor = (widthAcross: number, depthThrough: number) =>
+      new THREE.BoxGeometry(
+        Math.abs(across.x) * widthAcross + Math.abs(through.x) * depthThrough,
+        portalHeight,
+        Math.abs(across.z) * widthAcross + Math.abs(through.z) * depthThrough
+      );
+
+    // Deliberately slim. Jambs at any real thickness close over the edges of the
+    // leaf from an isometric angle, and what is left of it between them is a
+    // slit; these read as a dressed edge to the opening and leave the wheel
+    // whole.
+    const jambInset = size * 0.46;
+    const jambWidth = size * 0.07;
+    // Shallow on purpose. Jambs with real depth make a tunnel, and from a fixed
+    // isometric angle the near one cuts across the opening diagonally: the wheel
+    // behind it is reduced to a tall slot however wide the gap between them is.
+    const depth = size * 0.34;
+    for (const side of [-1, 1]) {
+      const jamb = new THREE.Mesh(boxFor(jambWidth, depth), portalMaterial);
+      jamb.position.set(
+        world.x + across.x * side * jambInset,
+        portalHeight / 2,
+        world.z + across.z * side * jambInset
+      );
+      this.scene.add(jamb);
+      this.occluders.push({ mesh: jamb, material: portalMaterial });
+    }
+
+    // The lintel spans the full opening, from just above the leaf to the top of
+    // the portal. Scaled rather than rebuilt, since it differs only in height.
+    const lintelBase = radius * 2 + 0.16;
+    const lintel = new THREE.Mesh(boxFor(size, depth), portalMaterial);
+    lintel.scale.y = (portalHeight - lintelBase) / portalHeight;
+    lintel.position.set(world.x, (portalHeight + lintelBase) / 2, world.z);
+    this.scene.add(lintel);
+    this.occluders.push({ mesh: lintel, material: portalMaterial });
+    this.buildWallCap(world.x, world.z, size, size, portalHeight);
+
+    // A lamp bracketed to the portal, over the leaf.
+    //
+    // The approach lamp hanging over `gate.outside` lights the ground the player
+    // crosses, but the leaf stands in its own recess between the jambs and under
+    // the lintel, and from a cell away and five metres up almost nothing reaches
+    // it — the cog came out a black hole with a status light floating in it. This
+    // sits inside that lamp's pool rather than beside it, so it changes how the
+    // gate *looks* without putting light anywhere the detection math is unaware
+    // of.
+    const bracketPos = new THREE.Vector3(
+      world.x + through.x * size * 0.62,
+      DOOR_HEIGHT * 0.92,
+      world.z + through.z * size * 0.62
+    );
+    const bracket = new THREE.PointLight(PALETTE.lamp, LAMP_INTENSITY * 0.7, size * 2.1, 1);
+    bracket.position.copy(bracketPos);
+    this.scene.add(bracket);
+    const bulb = new THREE.Mesh(
+      new THREE.SphereGeometry(size * 0.07, 10, 8),
+      new THREE.MeshStandardMaterial({
+        color: PALETTE.lamp,
+        emissive: PALETTE.lamp,
+        emissiveIntensity: 1.4,
+      })
+    );
+    bulb.position.copy(bracketPos);
+    this.scene.add(bulb);
+
+    this.doors.push({
+      // The gate is not a division between two rooms — one side of it is the
+      // approach — so it carries the room it opens onto twice. Nothing reads
+      // these indices except the interior doors' own panel orientation, which
+      // this geometry does not use.
+      def: { pos: gate.pos, locked: false, rooms: [gate.room, gate.room] },
+      group,
+      material: statusMaterial,
+      world: new THREE.Vector3(world.x, 0, world.z),
+      box: boxAround(world.x, world.z, size),
+      openness: 0,
+      wheel: spinner,
+    });
+  }
+
   /** A waist-high timber crate: cover from sight, and a solid box for collision. */
   private buildCrate(gridPos: GridPos) {
     const world = gridToWorld(gridPos, this.level);
@@ -554,11 +863,11 @@ export class InfiltrationGame {
    * One box per interior wall cell rather than per wall run: the occlusion fade
    * then dissolves just the segment covering the player instead of a whole wall.
    */
-  private buildInteriorWall(cell: GridPos) {
+  private buildInteriorWall(cell: GridPos, isShell = false) {
     const world = gridToWorld(cell, this.level);
     const size = this.level.cellSize;
     const material = new THREE.MeshStandardMaterial({
-      color: PALETTE.interiorWall,
+      color: isShell ? PALETTE.perimeterWall : PALETTE.interiorWall,
       roughness: 0.95,
     });
     applyTexture(material, masonryTexture(1));
@@ -717,6 +1026,7 @@ export class InfiltrationGame {
       world: new THREE.Vector3(world.x, 0, world.z),
       box: boxAround(world.x, world.z, size),
       openness: 0,
+      wheel: null,
     });
   }
 
@@ -1357,6 +1667,7 @@ export class InfiltrationGame {
       this.updateGuards(dt);
       this.updateDoors(dt);
       this.updateKeycard();
+      this.updateEntry();
       this.updateHack(dt);
       // Both cooldowns are game time, so they stop with the simulation: ticking
       // them while paused would let a player tap Esc to refresh their throw, or
@@ -1556,6 +1867,8 @@ export class InfiltrationGame {
       );
       // The panel retracts into the floor; the frame above it stays put.
       door.group.position.y = -door.openness * DOOR_HEIGHT;
+      // The gate turns as it goes, so it disengages rather than simply dropping.
+      if (door.wheel) door.wheel.rotation.y = door.openness * GATE_SPIN;
 
       const passable = !door.def.locked || this.hasKeycard;
       door.material.emissive.setHex(passable ? DOOR_COLORS.unlocked : DOOR_COLORS.locked);
@@ -1571,6 +1884,27 @@ export class InfiltrationGame {
     return this.guards.some(
       (guard) => guard.group.position.distanceTo(door.world) <= DOOR_TRIGGER_RANGE
     );
+  }
+
+  /**
+   * Notices the first time the player is through the gate.
+   *
+   * It latches rather than tracking where the player is: the approach is behind
+   * them from then on, and a HUD line that flickered back to "cross the
+   * approach" every time they stepped near the gate would be noise.
+   */
+  private updateEntry() {
+    if (this.inside) return;
+    const cell = worldToGrid(this.player.position.x, this.player.position.z, this.level);
+    const { facility } = this.level;
+    const within =
+      cell.x > facility.x &&
+      cell.z > facility.z &&
+      cell.x < facility.x + facility.w - 1 &&
+      cell.z < facility.z + facility.h - 1;
+    if (!within) return;
+    this.inside = true;
+    this.reportObjective();
   }
 
   /** Picks the keycard up on contact, which unlocks every locked door. */

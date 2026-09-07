@@ -19,6 +19,29 @@ export interface DoorDef {
   rooms: [number, number];
 }
 
+/**
+ * Which grid edge the open approach sits against, and so which face of the
+ * facility carries the gate.
+ */
+export type ApronSide = "north" | "south" | "east" | "west";
+
+/** The one way in through the facility's perimeter wall. */
+export interface GateDef {
+  /** The gate cell itself, punched out of the perimeter wall. */
+  pos: GridPos;
+  /**
+   * True when the wall this gate sits in runs along x, so the gate panel spans
+   * x and the player passes through it along z. The engine needs this to orient
+   * the leaf, and it cannot be derived from rooms the way interior doors are:
+   * one side of a gate is not a room at all.
+   */
+  spansX: boolean;
+  /** The apron cell immediately outside, where the approach ends. */
+  outside: GridPos;
+  /** Index into {@link GeneratedLevel.rooms} of the room it opens into. */
+  room: number;
+}
+
 /** Knobs the generator reads; {@link DEFAULT_LEVEL_CONFIG} supplies every default. */
 export interface LevelConfig {
   gridSize: number;
@@ -27,6 +50,8 @@ export interface LevelConfig {
   crateDensity: number;
   guardCount: number;
   waypointsPerGuard: number;
+  /** Depth of the open approach outside the facility, in cells. */
+  apronDepth: number;
 }
 
 /** One fully generated facility: its geometry, its objectives and its patrols. */
@@ -34,10 +59,21 @@ export interface GeneratedLevel {
   gridSize: number;
   cellSize: number;
   rooms: Rect[];
-  /** Interior wall cells. The outer ring is implicit and not listed here. */
+  /**
+   * Every wall cell: the facility's own perimeter ring as well as the interior
+   * partitions. Only the grid's outer ring is implicit and unlisted — that is
+   * the rock the whole map is cut out of, not part of the building.
+   */
   walls: GridPos[];
   doors: DoorDef[];
+  /** The facility's footprint, perimeter wall included. */
+  facility: Rect;
+  /** The approach outside the facility: open ground, no roof, no patrols. */
+  apron: Rect;
+  apronSide: ApronSide;
+  gate: GateDef;
   crates: GridPos[];
+  /** Where the run starts — out on the apron, facing the gate. */
   spawn: GridPos;
   terminal: GridPos;
   /** Null when the layout has no locked door, so no keycard is needed. */
@@ -46,23 +82,30 @@ export interface GeneratedLevel {
 }
 
 export const DEFAULT_LEVEL_CONFIG: LevelConfig = {
-  gridSize: 21,
+  // Wider than the facility needs: the extra rows are the apron the player
+  // crosses before the gate, so the building keeps the size it always had.
+  gridSize: 26,
   cellSize: 3,
   roomCount: 5,
   crateDensity: 0.1,
   guardCount: 3,
   waypointsPerGuard: 3,
+  apronDepth: 4,
 };
+
+/** The four approach sides, in a fixed order so a seed always picks the same one. */
+const APRON_SIDES: readonly ApronSide[] = ["north", "south", "east", "west"];
+/** Keeps the gate off the corners of the face it sits in. */
+const GATE_EDGE_MARGIN = 2;
 
 /** Smallest floor span a room may have on either axis. */
 const MIN_ROOM_SPAN = 4;
 /** Doors are kept off a wall's ends so they never open into a corner. */
 const DOOR_EDGE_MARGIN = 1;
 
-/** One BSP cut: the wall line it lays down, its single door, and the halves either side. */
+/** One BSP cut: the wall line it lays down and the halves either side of it. */
 interface Split {
   wall: GridPos[];
-  door: GridPos;
   a: Rect;
   b: Rect;
 }
@@ -90,8 +133,9 @@ function rectCells(rect: Rect): GridPos[] {
 
 /**
  * Cuts a rectangle in two along its longer axis, reserving one cell line for the
- * dividing wall and punching a single door through it. Returns null when neither
- * axis has room for two rooms plus that wall.
+ * dividing wall. Returns null when neither axis has room for two rooms plus that
+ * wall. The door through the wall is punched later, by {@link pickDoorInWall},
+ * once every cut is known.
  */
 function splitRect(rect: Rect, rand: () => number): Split | null {
   const canSplitZ = rect.h >= MIN_ROOM_SPAN * 2 + 1;
@@ -112,11 +156,6 @@ function splitRect(rect: Rect, rand: () => number): Split | null {
     wall.push(splitAlongZ ? { x: c, z: wallLine } : { x: wallLine, z: c });
   }
 
-  // Keep the door off the wall's ends so there is floor either side of it.
-  const doorRange = Math.max(1, crossSpan - DOOR_EDGE_MARGIN * 2);
-  const doorOffset = Math.min(crossSpan - 1, DOOR_EDGE_MARGIN + Math.floor(rand() * doorRange));
-  const door = wall[doorOffset];
-
   const a: Rect = splitAlongZ
     ? { x: rect.x, z: rect.z, w: rect.w, h: wallLine - rect.z }
     : { x: rect.x, z: rect.z, w: wallLine - rect.x, h: rect.h };
@@ -124,7 +163,7 @@ function splitRect(rect: Rect, rand: () => number): Split | null {
     ? { x: rect.x, z: wallLine + 1, w: rect.w, h: rect.z + rect.h - wallLine - 1 }
     : { x: wallLine + 1, z: rect.z, w: rect.x + rect.w - wallLine - 1, h: rect.h };
 
-  return { wall, door, a, b };
+  return { wall, a, b };
 }
 
 /** The two room indices a door connects, found from the cells either side of it. */
@@ -144,7 +183,38 @@ function roomsBesideDoor(rooms: Rect[], door: GridPos): [number, number] | null 
 }
 
 /**
- * Binary-space partitions the interior into rooms. Each split contributes one
+ * Chooses the one cell of a wall line to leave open as a door.
+ *
+ * Only cells with a room on either side qualify: a later perpendicular cut can
+ * lay wall against this line, and a door there would open into stone. Picking
+ * the door *after* every cut is known is what keeps the room graph a tree —
+ * choosing it during the split and sealing it later when a cut spoiled it used
+ * to drop that split's edge, and a level whose graph had fallen apart has no
+ * route to lock and so no keycard to find.
+ */
+function pickDoorInWall(
+  wall: readonly GridPos[],
+  rooms: Rect[],
+  rand: () => number
+): DoorDef | null {
+  const candidates: { pos: GridPos; rooms: [number, number]; edge: number }[] = [];
+  for (let i = 0; i < wall.length; i++) {
+    const joined = roomsBesideDoor(rooms, wall[i]);
+    if (!joined) continue;
+    candidates.push({ pos: wall[i], rooms: joined, edge: Math.min(i, wall.length - 1 - i) });
+  }
+  if (candidates.length === 0) return null;
+
+  // Prefer a door clear of the wall's ends so there is floor either side of it,
+  // but never at the cost of having no door at all on a short or crowded line.
+  const reach = Math.min(DOOR_EDGE_MARGIN, Math.max(...candidates.map((c) => c.edge)));
+  const preferred = candidates.filter((c) => c.edge >= reach);
+  const pick = preferred[Math.floor(rand() * preferred.length)];
+  return { pos: pick.pos, locked: false, rooms: pick.rooms };
+}
+
+/**
+ * Binary-space partitions the interior into rooms. Each cut contributes one
  * wall and exactly one door, so the room graph comes out a tree: always
  * connected, and with every door a bridge between the halves it joins.
  */
@@ -170,25 +240,17 @@ function partitionRooms(interior: Rect, roomCount: number, rand: () => number) {
   }
 
   const doors: DoorDef[] = [];
-  const orphans: GridPos[] = [];
+  const openings = new Set<string>();
   for (const split of splits) {
-    const joined = roomsBesideDoor(rooms, split.door);
-    if (joined) doors.push({ pos: split.door, locked: false, rooms: joined });
-    // A later perpendicular split can wall off the cell beside an earlier door,
-    // leaving that door joining fewer than two rooms. Its cell was already
-    // removed from its own wall line, so without sealing it here it becomes a
-    // gap that is neither floor, wall nor door — and so gets no collider at all.
-    else orphans.push(split.door);
+    const door = pickDoorInWall(split.wall, rooms, rand);
+    if (!door) continue;
+    doors.push(door);
+    openings.add(cellKey(door.pos));
   }
 
-  const cut = splits.flatMap((split) => split.wall.filter((cell) => !sameCell(cell, split.door)));
-  const seen = new Set<string>();
-  const walls = [...cut, ...orphans].filter((cell) => {
-    const key = cellKey(cell);
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  const walls = splits.flatMap((split) =>
+    split.wall.filter((cell) => !openings.has(cellKey(cell)))
+  );
 
   return { rooms, walls, doors };
 }
@@ -388,6 +450,154 @@ function assignGuardWaypoints(
   return guards;
 }
 
+/** The ring of cells enclosing a rectangle's floor area. */
+function ringCells(outer: Rect, inner: Rect): GridPos[] {
+  return rectCells(outer).filter((cell) => !rectContains(inner, cell));
+}
+
+/** How the grid divides into an approach and the walled facility beyond it. */
+interface Compound {
+  /** The facility footprint, perimeter wall included. */
+  facility: Rect;
+  /** The BSP area inside that wall. */
+  interior: Rect;
+  /** The open ground outside the gate. */
+  apron: Rect;
+  apronSide: ApronSide;
+  /** True when the gate's wall runs along x, so the player enters along z. */
+  spansX: boolean;
+  /** The facility face the apron looks at, as a constant on the gate's axis. */
+  gateLine: number;
+  /** Step from the gate towards the apron: -1 or +1 on the entry axis. */
+  outward: number;
+}
+
+/**
+ * Splits the grid interior into an apron and a walled facility.
+ *
+ * The apron is a band against one seeded edge; the facility takes the rest, and
+ * the face between them is where the gate will go. The gate itself is not
+ * chosen here — see {@link pickGate}, which needs the rooms first.
+ */
+function layOutCompound(gridSize: number, apronDepth: number, rand: () => number): Compound {
+  const side = APRON_SIDES[Math.floor(rand() * APRON_SIDES.length)];
+  const low = 1;
+  const span = Math.max(1, gridSize - 2);
+  const alongZ = side === "north" || side === "south";
+  // "north"/"west" put the apron at the low end of their axis; the other two
+  // put it at the high end, and the facility takes whatever is left.
+  const apronAtLow = side === "north" || side === "west";
+  // The apron is carved *out of* the span rather than added to it, so the two
+  // always tile the grid exactly. A facility needs three cells on this axis to
+  // have an interior at all, and on a grid too small to afford the configured
+  // approach the apron gives way rather than running off the edge and stranding
+  // the spawn outside the world.
+  const depth = Math.max(1, Math.min(apronDepth, span - 3));
+  const facilitySpan = span - depth;
+
+  const apronStart = apronAtLow ? low : low + facilitySpan;
+  const facilityStart = apronAtLow ? low + depth : low;
+
+  const facility: Rect = alongZ
+    ? { x: low, z: facilityStart, w: span, h: facilitySpan }
+    : { x: facilityStart, z: low, w: facilitySpan, h: span };
+  const apron: Rect = alongZ
+    ? { x: low, z: apronStart, w: span, h: depth }
+    : { x: apronStart, z: low, w: depth, h: span };
+  const interior: Rect = {
+    x: facility.x + 1,
+    z: facility.z + 1,
+    w: Math.max(1, facility.w - 2),
+    h: Math.max(1, facility.h - 2),
+  };
+
+  const gateLine = alongZ
+    ? apronAtLow
+      ? facility.z
+      : facility.z + facility.h - 1
+    : apronAtLow
+      ? facility.x
+      : facility.x + facility.w - 1;
+
+  return {
+    facility,
+    interior,
+    apron,
+    apronSide: side,
+    spansX: alongZ,
+    gateLine,
+    outward: apronAtLow ? -1 : 1,
+  };
+}
+
+/** A gate and the two cells either side of it. */
+interface GateChoice {
+  gate: GateDef;
+  inner: GridPos;
+  spawn: GridPos;
+}
+
+/**
+ * Punches the gate through the facility face the apron looks at.
+ *
+ * Candidates are limited to positions whose *inner* neighbour is open room
+ * floor: a BSP partition can meet the perimeter anywhere along that face, and a
+ * gate opening onto the end of one would lead into solid wall. Corners are
+ * excluded too, so the gate always has building either side of it.
+ */
+function pickGate(
+  compound: Compound,
+  rooms: Rect[],
+  doors: DoorDef[],
+  partitionWalls: ReadonlySet<string>,
+  rand: () => number
+): GateChoice | null {
+  const { interior, apron, spansX, gateLine, outward } = compound;
+  const crossStart = spansX ? interior.x : interior.z;
+  const crossSpan = spansX ? interior.w : interior.h;
+  // Corners are excluded so the gate always has building either side of it —
+  // except on a face too short to afford that, where any position beats none.
+  const margin = Math.min(GATE_EDGE_MARGIN, Math.floor((crossSpan - 1) / 2));
+
+  const candidates: GateChoice[] = [];
+  for (let i = margin; i < crossSpan - margin; i++) {
+    const cross = crossStart + i;
+    const pos: GridPos = spansX ? { x: cross, z: gateLine } : { x: gateLine, z: cross };
+    const inner: GridPos = spansX
+      ? { x: cross, z: gateLine - outward }
+      : { x: gateLine - outward, z: cross };
+    if (partitionWalls.has(cellKey(inner))) continue;
+    const room = rooms.findIndex((rect) => rectContains(rect, inner));
+    if (room < 0) continue;
+
+    const outside: GridPos = spansX
+      ? { x: cross, z: gateLine + outward }
+      : { x: gateLine + outward, z: cross };
+    // The far edge of the apron, straight out from the gate, so the run opens
+    // with the whole approach and the way in already lined up.
+    const spawnLine = outward < 0 ? apron.z : apron.z + apron.h - 1;
+    const spawnCol = outward < 0 ? apron.x : apron.x + apron.w - 1;
+    const spawn: GridPos = spansX ? { x: cross, z: spawnLine } : { x: spawnCol, z: cross };
+
+    candidates.push({ gate: { pos, spansX, outside, room }, inner, spawn });
+  }
+
+  if (candidates.length === 0) return null;
+
+  // Sealing an orphaned door can split the room graph, and a gate opening into
+  // a stranded room would leave the terminal and the keycard on the far side of
+  // a wall with no door. Entering through the best-connected room avoids that:
+  // the deepest room from there is then a real destination, so the lock and the
+  // keycard detour both have somewhere to go.
+  const reach = candidates.map(
+    (candidate) =>
+      roomHops(rooms, doors, candidate.gate.room).hops.filter((hop) => hop !== Infinity).length
+  );
+  const best = Math.max(...reach);
+  const bestCandidates = candidates.filter((_, index) => reach[index] === best);
+  return bestCandidates[Math.floor(rand() * bestCandidates.length)];
+}
+
 /**
  * Generates a facility from a numeric seed: BSP rooms joined by doors, the door
  * into the terminal's room locked, a keycard on the near side of that lock,
@@ -396,42 +606,57 @@ function assignGuardWaypoints(
 export function generateLevel(seed: number, overrides: Partial<LevelConfig> = {}): GeneratedLevel {
   const config = { ...DEFAULT_LEVEL_CONFIG, ...overrides };
   const rand = mulberry32(seed);
-  const interior: Rect = {
-    x: 1,
-    z: 1,
-    w: Math.max(1, config.gridSize - 2),
-    h: Math.max(1, config.gridSize - 2),
-  };
+  const compound = layOutCompound(config.gridSize, config.apronDepth, rand);
+  const { interior, facility, apron } = compound;
 
-  const { rooms, walls, doors } = partitionRooms(interior, config.roomCount, rand);
+  const partition = partitionRooms(interior, config.roomCount, rand);
+  const { rooms, doors } = partition;
+  const partitionWalls = new Set(partition.walls.map(cellKey));
+
+  // Every position along the face is a candidate, so this only comes back null
+  // for a facility too small to have a face at all — not for any real config.
+  const choice = pickGate(compound, rooms, doors, partitionWalls, rand);
+  if (!choice) throw new Error(`seed ${seed}: no gate position on the facility face`);
+  const { gate, spawn } = choice;
+
+  // The facility's own perimeter is real, listed wall — the gate is simply the
+  // one cell missing from it, so nothing else has to know a gate exists to
+  // treat the rest of that ring as solid.
+  const perimeter = ringCells(facility, interior).filter((cell) => !sameCell(cell, gate.pos));
+  const walls = [...partition.walls, ...perimeter];
   const structural = new Set(walls.map(cellKey));
 
-  // Enter from the room nearest the grid origin, so the way in is always a corner.
-  const spawnRoom = rooms.reduce(
-    (best, room, index) => (room.x + room.z < rooms[best].x + rooms[best].z ? index : best),
-    0
-  );
-  const spawn: GridPos = { x: rooms[spawnRoom].x, z: rooms[spawnRoom].z };
+  // The run starts outside, so the room the layout is measured from is the one
+  // behind the gate: the first thing the player reaches indoors.
+  const entryRoom = gate.room;
 
-  const { hops, via } = roomHops(rooms, doors, spawnRoom);
+  const { hops, via } = roomHops(rooms, doors, entryRoom);
   const terminalRoom = hops.reduce(
     (best, value, index) => (value !== Infinity && value > hops[best] ? index : best),
-    spawnRoom
+    entryRoom
   );
-  const terminal = farthestCellIn(rooms[terminalRoom], spawn, structural);
+  const terminal = farthestCellIn(rooms[terminalRoom], gate.pos, structural);
 
   // The door into the terminal's room is the one worth locking: it is the last
   // bridge on the route, so the keycard detour can never be skipped.
-  const route = doorsOnRoute(via, spawnRoom, terminalRoom);
+  const route = doorsOnRoute(via, entryRoom, terminalRoom);
   const lockedDoor = route.length > 0 ? route[0] : null;
   if (lockedDoor) lockedDoor.locked = true;
 
   const keycard = lockedDoor
-    ? pickKeycardCell(rooms, doors, lockedDoor, spawnRoom, spawn, structural)
+    ? pickKeycardCell(rooms, doors, lockedDoor, entryRoom, gate.pos, structural)
     : null;
 
   const reserved = new Set(
-    [spawn, terminal, ...(keycard ? [keycard] : []), ...doorApproaches(doors)].map(cellKey)
+    [
+      spawn,
+      terminal,
+      gate.pos,
+      gate.outside,
+      choice.inner,
+      ...(keycard ? [keycard] : []),
+      ...doorApproaches(doors),
+    ].map(cellKey)
   );
   const crates = placeCrates(
     rooms,
@@ -444,10 +669,10 @@ export function generateLevel(seed: number, overrides: Partial<LevelConfig> = {}
   );
 
   const blockedForGuards = new Set([...structural, ...crates.map(cellKey)]);
-  const patrolRooms = rooms.map((_, index) => index).filter((index) => index !== spawnRoom);
+  const patrolRooms = rooms.map((_, index) => index).filter((index) => index !== entryRoom);
   const guards = assignGuardWaypoints(
     rooms,
-    patrolRooms.length > 0 ? patrolRooms : [spawnRoom],
+    patrolRooms.length > 0 ? patrolRooms : [entryRoom],
     config,
     blockedForGuards,
     rand
@@ -459,6 +684,10 @@ export function generateLevel(seed: number, overrides: Partial<LevelConfig> = {}
     rooms,
     walls,
     doors,
+    facility,
+    apron,
+    apronSide: compound.apronSide,
+    gate,
     crates,
     spawn,
     terminal,

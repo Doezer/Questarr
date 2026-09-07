@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { apiFetch, apiRequest, setBearerToken } from "./queryClient";
@@ -57,12 +57,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  // Lazy initializer runs during render, before any child effect (including
-  // React Query's own fetch-triggering effects) can fire -- see
+  // Runs during render, before any child effect (including React Query's
+  // own fetch-triggering effects) can fire -- see
   // migrateLegacyLocalStorageToken's doc comment for why that ordering
-  // matters. Neither the value nor the setter is needed -- only the
-  // one-time initializer call -- so both are destructured out and unused.
-  const [_migrationRan, _setMigrationRan] = useState(migrateLegacyLocalStorageToken);
+  // matters. Guarded by a ref (rather than a useState lazy initializer) so
+  // a second render of this same component instance -- e.g. under
+  // React.StrictMode's dev-only double-invocation -- can't run the
+  // migration twice and clobber a just-migrated bearer token back to null.
+  const migrationRanRef = useRef(false);
+  if (!migrationRanRef.current) {
+    migrationRanRef.current = true;
+    migrateLegacyLocalStorageToken();
+  }
 
   const {
     isLoading: isCheckingSetup,

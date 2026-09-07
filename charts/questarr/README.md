@@ -101,7 +101,10 @@ helm install questarr charts/questarr --namespace questarr \
 ```
 
 Keys absent from that Secret are injected as `optional`, so a Secret carrying only some
-of them works — Questarr falls back to its own generated values for what is missing.
+of them works. Only `JWT_SECRET` and `CREDENTIALS_ENCRYPTION_KEY` fall back to values
+Questarr generates and persists itself when missing — `IGDB_CLIENT_ID`,
+`IGDB_CLIENT_SECRET` and `NEXUSMODS_API_KEY` simply stay unset, leaving discovery and
+mods disabled until you enter them in Settings → Services.
 
 `questarr.existingSecretKeys` only renames the _key_ each value is read from inside the
 Secret; the environment variable Questarr sees (`JWT_SECRET`, `IGDB_CLIENT_ID`, …) is

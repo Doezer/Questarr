@@ -27,10 +27,11 @@ library, settings and SQLite database are lost when the pod is replaced.
 {{- end }}
 {{- if .Values.questarr.existingSecret }}
 Secrets come from the existing Secret {{ .Values.questarr.existingSecret | quote }}. Keys it does not
-carry are simply not injected, so check that it holds the ones you rely on
-(IGDB_CLIENT_ID / IGDB_CLIENT_SECRET for discovery, JWT_SECRET for sessions
-that outlive the data volume). Questarr generates and persists its own values
-for the ones that stay unset.
+carry are simply not injected, so check that it holds the ones you rely on:
+JWT_SECRET and CREDENTIALS_ENCRYPTION_KEY fall back to values Questarr
+generates and persists itself, but IGDB_CLIENT_ID / IGDB_CLIENT_SECRET and
+NEXUSMODS_API_KEY do not — leave them unset and discovery/mods stay disabled
+until you enter them in Settings → Services.
 {{- else }}
 {{- if not (and .Values.questarr.secrets.igdbClientId .Values.questarr.secrets.igdbClientSecret) }}
 IGDB credentials are incomplete. Game discovery and metadata stay disabled until

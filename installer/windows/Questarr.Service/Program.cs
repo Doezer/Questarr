@@ -132,15 +132,19 @@ internal sealed class QuestarrWorker : BackgroundService
         try
         {
             await questarrProcess.WaitForExitAsync(stoppingToken);
-            if (!stoppingToken.IsCancellationRequested && questarrProcess.ExitCode != 0)
+            if (!stoppingToken.IsCancellationRequested)
             {
-                // Throwing here would only trigger the default
-                // BackgroundServiceExceptionBehavior.StopHost, which stops the
-                // host gracefully - the Windows SCM sees that as a normal
-                // stop, not a crash, and never runs the `sc failure ...
-                // restart` actions configured in Questarr.iss. Terminate the
-                // process directly with a non-zero exit code so the SCM
-                // recognizes this as a failure and restarts the service.
+                // Questarr is supposed to run for as long as the service
+                // does; the child exiting on its own - even with code 0 -
+                // before the service was asked to stop means Questarr is
+                // down and unattended. Throwing here would only trigger the
+                // default BackgroundServiceExceptionBehavior.StopHost, which
+                // stops the host gracefully - the Windows SCM sees that as a
+                // normal stop, not a crash, and never runs the `sc
+                // failure ... restart` actions configured in Questarr.iss.
+                // Terminate the process directly with a non-zero exit code
+                // so the SCM recognizes this as a failure and restarts the
+                // service regardless of Node's own exit code.
                 logger.LogCritical(
                     "Questarr exited unexpectedly with code {ExitCode}; terminating service process so Windows can restart it",
                     questarrProcess.ExitCode

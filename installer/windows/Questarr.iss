@@ -112,6 +112,7 @@ end;
 
 var
   ChangedPayloadFiles: String;
+  StaleRemovedFiles: String;
 
 function NormalizePayloadRelativePath(Value: String): String;
 begin
@@ -123,17 +124,21 @@ function BuildChangedPayloadList(): Boolean;
 var
   ScriptPath: String;
   OutputPath: String;
+  StaleOutputPath: String;
   ManifestPath: String;
   Script: String;
   ResultCode: Integer;
   ChangedRaw: AnsiString;
+  StaleRaw: AnsiString;
   InstallDir: String;
 begin
   Result := False;
   ChangedPayloadFiles := '*';
+  StaleRemovedFiles := '';
   InstallDir := ExpandConstant('{app}');
   ScriptPath := ExpandConstant('{tmp}\questarr-changed-payload.ps1');
   OutputPath := ExpandConstant('{tmp}\questarr-changed-payload.txt');
+  StaleOutputPath := ExpandConstant('{tmp}\questarr-stale-payload.txt');
   ExtractTemporaryFile('questarr-install-manifest.json');
   ManifestPath := ExpandConstant('{tmp}\questarr-install-manifest.json');
 
@@ -142,6 +147,7 @@ begin
     '$manifestPath = ' + PowerShellSingleQuote(ManifestPath) + #13#10 +
     '$installDir = [System.IO.Path]::GetFullPath(' + PowerShellSingleQuote(InstallDir) + ')' + #13#10 +
     '$outputPath = ' + PowerShellSingleQuote(OutputPath) + #13#10 +
+    '$staleOutputPath = ' + PowerShellSingleQuote(StaleOutputPath) + #13#10 +
     '$oldManifestPath = Join-Path $installDir ''questarr-install-manifest.json''' + #13#10 +
     'function Write-AllPayloadChanged { Set-Content -LiteralPath $outputPath -Value ''*'' -Encoding ASCII }' + #13#10 +
     'function Normalize-QuestarrPath([string]$value) { $value.Replace(''/'', ''\'').ToLowerInvariant() }' + #13#10 +
@@ -159,6 +165,14 @@ begin
     '  if ([string]::IsNullOrWhiteSpace($relative)) { continue }' + #13#10 +
     '  $oldFiles[(Normalize-QuestarrPath $relative)] = [pscustomobject]@{ Size = [int64]$entry.size; Sha256 = ([string]$entry.sha256).ToLowerInvariant() }' + #13#10 +
     '}' + #13#10 +
+    '$newNormalizedSet = New-Object System.Collections.Generic.HashSet[string]' + #13#10 +
+    'foreach ($entry in $newFiles) {' + #13#10 +
+    '  $relative = [string]$entry.path' + #13#10 +
+    '  if ([string]::IsNullOrWhiteSpace($relative)) { continue }' + #13#10 +
+    '  [void]$newNormalizedSet.Add((Normalize-QuestarrPath $relative))' + #13#10 +
+    '}' + #13#10 +
+    '$stale = @($oldFiles.Keys | Where-Object { -not $newNormalizedSet.Contains($_) })' + #13#10 +
+    'Set-Content -LiteralPath $staleOutputPath -Value ($stale -join ''|'') -Encoding ASCII' + #13#10 +
     '$changed = New-Object System.Collections.Generic.List[string]' + #13#10 +
     'foreach ($entry in $newFiles) {' + #13#10 +
     '  $relative = [string]$entry.path' + #13#10 +
@@ -204,6 +218,15 @@ begin
   begin
     Log('Changed-file scan failed with exit code ' + IntToStr(ResultCode) + '. Installing all payload files.');
     Exit;
+  end;
+
+  // Best-effort: a missing/unreadable stale-file list just means no stale
+  // payload files get cleaned up this run, which is always safe (unlike the
+  // changed-file list above, its absence is never a reason to fall back to
+  // reinstalling everything).
+  if LoadStringFromFile(StaleOutputPath, StaleRaw) then
+  begin
+    StaleRemovedFiles := Trim(StaleRaw);
   end;
 
   if not LoadStringFromFile(OutputPath, ChangedRaw) then
@@ -351,6 +374,89 @@ begin
   end;
 end;
 
+// An upgrade only overwrites files BuildChangedPayloadList found changed
+// (see ShouldInstallPayloadFile) - it never removes a file that the new
+// version no longer ships (a rename or a dropped dependency), which would
+// otherwise leave a stale file behind under {app} indefinitely. This walks
+// StaleRemovedFiles (old-manifest paths absent from the new manifest, set
+// by BuildChangedPayloadList) and deletes each one, restricted to paths
+// that resolve strictly under the install directory.
+procedure RemoveStalePayloadFiles();
+var
+  InstallDir: String;
+  FullInstallDir: String;
+  Remaining: String;
+  RelativePath: String;
+  RelativeForDisk: String;
+  TargetPath: String;
+  FullTargetPath: String;
+  SeparatorPos: Integer;
+begin
+  if StaleRemovedFiles = '' then
+  begin
+    Exit;
+  end;
+
+  InstallDir := ExpandConstant('{app}');
+  FullInstallDir := AddBackslash(ExpandFileName(InstallDir));
+
+  Remaining := StaleRemovedFiles;
+  while Remaining <> '' do
+  begin
+    SeparatorPos := Pos('|', Remaining);
+    if SeparatorPos > 0 then
+    begin
+      RelativePath := Copy(Remaining, 1, SeparatorPos - 1);
+      Remaining := Copy(Remaining, SeparatorPos + 1, Length(Remaining) - SeparatorPos);
+    end
+    else
+    begin
+      RelativePath := Remaining;
+      Remaining := '';
+    end;
+
+    RelativePath := Trim(RelativePath);
+    if RelativePath = '' then
+    begin
+      Continue;
+    end;
+
+    // Defense in depth: the manifest this list is built from never contains
+    // a "data" entry (the CI build assembles the payload from dist/,
+    // migrations/, node_modules/, etc. - never a data/ directory), but never
+    // let a malformed or unexpected entry touch {app}\data (the junction
+    // into %ProgramData%\Questarr\data) or escape the install directory.
+    if (Pos('..', RelativePath) > 0)
+      or (RelativePath = 'data')
+      or (Copy(RelativePath, 1, 5) = 'data\')
+    then
+    begin
+      Log('Skipping suspicious stale-file entry: ' + RelativePath);
+      Continue;
+    end;
+
+    RelativeForDisk := RelativePath;
+    StringChangeEx(RelativeForDisk, '/', '\', True);
+    TargetPath := InstallDir + '\' + RelativeForDisk;
+    FullTargetPath := ExpandFileName(TargetPath);
+
+    if Copy(Lowercase(FullTargetPath), 1, Length(FullInstallDir)) <> Lowercase(FullInstallDir) then
+    begin
+      Log('Skipping stale-file entry outside the install directory: ' + RelativePath);
+      Continue;
+    end;
+
+    if FileExists(FullTargetPath) then
+    begin
+      Log('Removing payload file no longer shipped: ' + RelativePath);
+      if not DeleteFile(FullTargetPath) then
+      begin
+        Log('Could not remove stale payload file: ' + RelativePath);
+      end;
+    end;
+  end;
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   if not BuildChangedPayloadList() then
@@ -358,6 +464,13 @@ begin
     ChangedPayloadFiles := '*';
   end;
   Result := StopInstalledQuestarr('upgrade');
+  if Result = '' then
+  begin
+    // Only once the running service/process is confirmed stopped (and its
+    // payload files confirmed unlocked, per StopInstalledQuestarr above) is
+    // it safe to delete files no longer shipped by the new version.
+    RemoveStalePayloadFiles();
+  end;
 end;
 
 function RemoveDataJunction(): Boolean;

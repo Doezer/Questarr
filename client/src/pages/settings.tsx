@@ -1,3 +1,4 @@
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Server,
@@ -64,7 +65,6 @@ import {
   type DownloaderDebugLoggingResponse,
 } from "@shared/schema";
 import { parseJsonStringArray, CANONICAL_PLATFORMS } from "@shared/title-utils";
-import { useState, useEffect, useRef, useMemo } from "react";
 import ImportSettings from "@/components/ImportSettings";
 
 interface CertInfo {
@@ -166,6 +166,61 @@ export default function SettingsPage() {
       {}
     );
   }, [blacklistEntries]);
+
+  // Mobile tab scroller: tracks whether the tab strip has more content to
+  // reveal on either side, so we can show a fade hint (tabs overflow on
+  // narrow phones and there's no visible scrollbar to signal that).
+  const tabsScrollRef = useRef<HTMLDivElement | null>(null);
+  const tabsResizeObserverRef = useRef<ResizeObserver | null>(null);
+  const [tabsCanScrollLeft, setTabsCanScrollLeft] = useState(false);
+  const [tabsCanScrollRight, setTabsCanScrollRight] = useState(false);
+
+  const updateTabsScrollFade = useCallback(() => {
+    const el = tabsScrollRef.current;
+    if (!el) return;
+    setTabsCanScrollLeft(el.scrollLeft > 1);
+    setTabsCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
+  }, []);
+
+  // A callback ref (rather than measuring in an effect keyed on a stable
+  // callback) so the tab strip is measured whenever it actually mounts —
+  // including after the page's loading branch gives way to the real
+  // content, which a mount-only effect would otherwise miss entirely.
+  const setTabsScrollNode = useCallback(
+    (el: HTMLDivElement | null) => {
+      tabsScrollRef.current = el;
+      updateTabsScrollFade();
+    },
+    [updateTabsScrollFade]
+  );
+
+  // The scroll container itself is pinned to w-full, so a ResizeObserver on
+  // it won't fire when only its (overflowing) content grows — e.g. this app
+  // ships variable web fonts, and the fallback-font layout can be narrower
+  // than the loaded-font layout, widening tab labels after the swap without
+  // changing the container's own box. Observe the intrinsic-width inner
+  // wrapper instead, whose box does reflect that.
+  const setTabsInnerNode = useCallback(
+    (el: HTMLDivElement | null) => {
+      tabsResizeObserverRef.current?.disconnect();
+      tabsResizeObserverRef.current = null;
+      if (el && typeof ResizeObserver !== "undefined") {
+        const observer = new ResizeObserver(updateTabsScrollFade);
+        observer.observe(el);
+        tabsResizeObserverRef.current = observer;
+      }
+      updateTabsScrollFade();
+    },
+    [updateTabsScrollFade]
+  );
+
+  useEffect(() => {
+    window.addEventListener("resize", updateTabsScrollFade);
+    return () => {
+      window.removeEventListener("resize", updateTabsScrollFade);
+      tabsResizeObserverRef.current?.disconnect();
+    };
+  }, [updateTabsScrollFade]);
 
   // Local state for form
   const [autoSearchEnabled, setAutoSearchEnabled] = useState(true);
@@ -948,15 +1003,37 @@ export default function SettingsPage() {
         )}
 
         <Tabs defaultValue="appearance" className="w-full">
-          <TabsList className="mb-4 sm:mb-8 flex w-full flex-nowrap overflow-x-auto [&>*]:shrink-0">
-            <TabsTrigger value="appearance">Appearance</TabsTrigger>
-            <TabsTrigger value="discovery">Discovery & Downloads</TabsTrigger>
-            <TabsTrigger value="notifications">Notifications</TabsTrigger>
-            <TabsTrigger value="integrations">Integrations</TabsTrigger>
-            <TabsTrigger value="import">Import</TabsTrigger>
-            <TabsTrigger value="account-security">Account & Security</TabsTrigger>
-            <TabsTrigger value="system">System</TabsTrigger>
-          </TabsList>
+          <div className="relative mb-4 sm:mb-8">
+            <TabsList
+              ref={setTabsScrollNode}
+              onScroll={updateTabsScrollFade}
+              className="mb-0 flex w-full flex-nowrap justify-start overflow-x-auto motion-safe:scroll-smooth motion-reduce:scroll-auto"
+            >
+              <div ref={setTabsInnerNode} className="flex w-max flex-nowrap [&>*]:shrink-0">
+                <TabsTrigger value="appearance">Appearance</TabsTrigger>
+                <TabsTrigger value="discovery">Discovery & Downloads</TabsTrigger>
+                <TabsTrigger value="notifications">Notifications</TabsTrigger>
+                <TabsTrigger value="integrations">Integrations</TabsTrigger>
+                <TabsTrigger value="import">Import</TabsTrigger>
+                <TabsTrigger value="account-security">Account & Security</TabsTrigger>
+                <TabsTrigger value="system">System</TabsTrigger>
+              </div>
+            </TabsList>
+            {/* Edge fades hint that the tab strip scrolls further, since it has
+                no visible scrollbar on touch devices. */}
+            {tabsCanScrollLeft && (
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-y-0 left-0 w-6 rounded-l-md bg-gradient-to-r from-muted to-transparent"
+              />
+            )}
+            {tabsCanScrollRight && (
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-y-0 right-0 w-6 rounded-r-md bg-gradient-to-l from-muted to-transparent"
+              />
+            )}
+          </div>
 
           <TabsContent value="appearance" className="space-y-6">
             {ghostUnlocked && (

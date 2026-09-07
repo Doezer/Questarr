@@ -364,13 +364,23 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   useEffect(() => {
     notesValueRef.current = notesValue;
   }, [notesValue]);
+  // Tracks the live isEditingNotes so the server-sync effect (below) can
+  // check it without depending on it — depending on it directly would rerun
+  // the sync (using the still-stale pre-refetch game.notes) the instant a
+  // save flips isEditingNotes back to false, flashing the old value.
+  const isEditingNotesRef = useRef(isEditingNotes);
+  useEffect(() => {
+    isEditingNotesRef.current = isEditingNotes;
+  }, [isEditingNotes]);
   // Serializes mobile note saves: only one PATCH is ever in flight. A save
   // requested while one is pending is queued (overwriting any earlier queued
   // value — only the latest draft matters) and fired once the in-flight one
   // settles, so two overlapping requests can never complete out of order and
-  // let an older draft silently overwrite a newer one on the server.
+  // let an older draft silently overwrite a newer one on the server. Each
+  // queued save also remembers which game it targets, so it's dropped
+  // instead of misfiring if the modal has since switched to another game.
   const notesSaveInFlightRef = useRef(false);
-  const queuedNotesSaveRef = useRef<{ value: string | null } | null>(null);
+  const queuedNotesSaveRef = useRef<{ value: string | null; gameId: string } | null>(null);
   const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
   const [removeFromClient, setRemoveFromClient] = useState(true);
   const [deleteFiles, setDeleteFiles] = useState(true);
@@ -389,14 +399,29 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
       setSelectedScreenshotIndex(null);
       setDownloadOpen(false);
       setIsEditingNotes(false);
+      queuedNotesSaveRef.current = null;
     }
   }, [open]);
 
+  // Full reset when switching to a different game — unconditional, since a
+  // new game.id means any in-progress notes draft belongs to a game we're
+  // no longer looking at.
   useEffect(() => {
     setIsSummaryExpanded(false);
     setNotesValue(game?.notes ?? "");
     setIsEditingNotes(false);
-  }, [game?.id, game?.notes]);
+    queuedNotesSaveRef.current = null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game?.id]);
+
+  // Keep notesValue in sync with the server for the *same* game — e.g. after
+  // the notes mutation's own invalidateQueries refetch lands. Skipped while
+  // actively editing on mobile so a background refetch can't stomp a draft
+  // the user hasn't blurred away from yet.
+  useEffect(() => {
+    if (isMobile && isEditingNotesRef.current) return;
+    setNotesValue(game?.notes ?? "");
+  }, [game?.notes, isMobile]);
 
   useEffect(() => {
     setSelectedScreenshotIndex(null);
@@ -590,8 +615,8 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
   });
 
   const notesMutation = useMutation({
-    mutationFn: async (notes: string | null) => {
-      await apiRequest("PATCH", `/api/games/${game?.id}/notes`, { notes });
+    mutationFn: async ({ gameId, notes }: { gameId: string; notes: string | null }) => {
+      await apiRequest("PATCH", `/api/games/${gameId}/notes`, { notes });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/games"] });
@@ -601,29 +626,36 @@ export default function GameDetailsModal({ game, open, onOpenChange }: GameDetai
     },
   });
 
-  // Fires a notes save, or queues it if one is already in flight (see the
-  // refs above) — never lets two PATCH requests race each other.
-  const saveNotes = (trimmed: string | null) => {
+  // Fires a notes save for `gameId` (the current game by default), or queues
+  // it if one is already in flight (see the refs above) — never lets two
+  // PATCH requests race each other. The target game travels with the save
+  // itself, so a queued draft is dropped instead of misfiring against the
+  // wrong game if the modal switches games while a save is pending.
+  const saveNotes = (trimmed: string | null, gameId: string | undefined = game?.id) => {
+    if (!gameId) return;
     if (notesSaveInFlightRef.current) {
-      queuedNotesSaveRef.current = { value: trimmed };
+      queuedNotesSaveRef.current = { value: trimmed, gameId };
       return;
     }
     notesSaveInFlightRef.current = true;
-    notesMutation.mutate(trimmed, {
-      onSuccess: () => {
-        if (isMobile && notesValueRef.current.trim() === (trimmed ?? "")) {
-          setIsEditingNotes(false);
-        }
-      },
-      onSettled: () => {
-        notesSaveInFlightRef.current = false;
-        const queued = queuedNotesSaveRef.current;
-        queuedNotesSaveRef.current = null;
-        if (queued) {
-          saveNotes(queued.value);
-        }
-      },
-    });
+    notesMutation.mutate(
+      { gameId, notes: trimmed },
+      {
+        onSuccess: () => {
+          if (isMobile && game?.id === gameId && notesValueRef.current.trim() === (trimmed ?? "")) {
+            setIsEditingNotes(false);
+          }
+        },
+        onSettled: () => {
+          notesSaveInFlightRef.current = false;
+          const queued = queuedNotesSaveRef.current;
+          queuedNotesSaveRef.current = null;
+          if (queued && queued.gameId === game?.id) {
+            saveNotes(queued.value, queued.gameId);
+          }
+        },
+      }
+    );
   };
 
   const hiddenMutation = useHiddenMutation({

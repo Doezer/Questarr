@@ -63,7 +63,7 @@ A video game management application inspired by the -Arr apps (Sonarr, Radarr, P
 | **Rich Game Metadata**      | Details enriched with IGDB, Steam, PCGamingWiki, and NexusMods, including trending mods where available.                                                                      |
 | **Statistics**              | Visualize collection statistics with Discord sharing support. 🚧                                                                                                              |
 | **Security Focused**        | General security hardening, SSL support, and [OpenSSF certified](https://www.bestpractices.dev/projects/13450) — see [SECURITY.md](.github/SECURITY.md) for the full process. |
-| **Integrations**            | One-click install on UNRAID, CasaOS, Umbrel and Cosmos Cloud, plus a Home Assistant add-on. 🚧                                                                                |
+| **Integrations**            | One-click install on UNRAID, CasaOS, Umbrel and Cosmos Cloud, a Home Assistant add-on, and a Helm chart for Kubernetes. 🚧                                                    |
 | **Design**                  | Clean, minimalist, dark-first UI built with mobile usage in mind.                                                                                                             |
 
 ### Supported Indexers/Downloaders
@@ -196,6 +196,33 @@ Questarr is available in the Unraid **Apps** tab via Community Applications:
 3. Fill in the install form: **Data folder**, optional **Library folder** (the root your download
    client writes into, mounted at `/data`), and `PUID`/`PGID`.
 4. Install. Cosmos creates the route `questarr.<your-server-hostname>` and handles HTTPS for you.
+
+</details>
+
+### Kubernetes (Helm)
+
+<details>
+<summary><b>Install with the bundled Helm chart</b></summary>
+
+A Helm chart lives in [`charts/questarr`](charts/questarr). It is not published to a Helm
+repository yet, so install it from a clone:
+
+```bash
+git clone https://github.com/Doezer/Questarr.git
+cd Questarr
+helm install questarr charts/questarr --namespace questarr --create-namespace
+```
+
+Then port-forward (or enable the Ingress) and open the UI:
+
+```bash
+kubectl port-forward -n questarr svc/questarr 5000:5000
+```
+
+Questarr keeps its state in a single SQLite database on a ReadWriteOnce volume, so the
+chart never runs more than one replica. See [`charts/questarr/README.md`](charts/questarr/README.md)
+for the full option reference — persistence, media mounts, secrets, Ingress and
+subdirectory deployments.
 
 </details>
 

@@ -388,6 +388,16 @@ describe("DatabaseStorage Integration", () => {
       expect(await storage.getRootFolder(folder.id)).toBeUndefined();
       expect(await storage.removeRootFolder(folder.id)).toBe(false);
     });
+
+    it("returns the unchanged row for an empty update instead of throwing", async () => {
+      // Drizzle's update().set({}) throws "No values to set" — updateRootFolder
+      // must short-circuit before that for a PATCH with no recognized fields.
+      const folder = await storage.addRootFolder({ path: "/mnt/empty-update", name: "Original" });
+
+      const result = await storage.updateRootFolder(folder.id, {});
+
+      expect(result).toMatchObject({ id: folder.id, name: "Original" });
+    });
   });
 
   describe("credential encryption at rest", () => {

@@ -88,6 +88,7 @@ vi.mock("../middleware.js", () => ({
   sanitizeNexusModsTrendingModsQuery: [],
   sanitizeRootFolderData: [],
   sanitizeRootFolderUpdateData: [],
+  sanitizeRootFolderId: [],
   sanitizeLibraryScanData: [],
   sanitizeUnmatchedMatchData: [],
 }));

@@ -71,6 +71,7 @@ import {
   sanitizeNexusModsTrendingModsQuery,
   sanitizeRootFolderData,
   sanitizeRootFolderUpdateData,
+  sanitizeRootFolderId,
   sanitizeLibraryScanData,
   sanitizeUnmatchedMatchData,
 } from "./middleware.js";
@@ -1767,6 +1768,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     async (req: Request, res: Response) => {
       try {
         const data = insertRootFolderSchema.parse(req.body);
+        // Canonicalize before the uniqueness check and probe so equivalent
+        // paths (`/mnt/games`, `/mnt/games/.`, `/mnt/other/../games`) can't
+        // bypass the unique-path constraint and get scanned as duplicates.
+        data.path = path.resolve(data.path);
 
         const existing = await storage.getRootFolderByPath(data.path);
         if (existing) {
@@ -1803,6 +1808,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     "/api/root-folders/:id",
     authenticateToken,
     sensitiveEndpointLimiter,
+    sanitizeRootFolderId,
     sanitizeRootFolderUpdateData,
     validateRequest,
     async (req: Request, res: Response) => {
@@ -1810,6 +1816,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const updates = updateRootFolderSchema.parse(req.body);
 
         if (updates.path) {
+          // Same canonicalization as the create route — resolve before the
+          // uniqueness check and probe so equivalent paths can't collide.
+          updates.path = path.resolve(updates.path);
           const clash = await storage.getRootFolderByPath(updates.path);
           if (clash && clash.id !== req.params.id) {
             return res.status(409).json({ error: "Another root folder already uses this path" });
@@ -1851,6 +1860,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     "/api/root-folders/:id",
     authenticateToken,
     sensitiveEndpointLimiter,
+    sanitizeRootFolderId,
+    validateRequest,
     async (req: Request, res: Response) => {
       try {
         const success = await storage.removeRootFolder(req.params.id);
@@ -1868,6 +1879,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     "/api/root-folders/:id/health-check",
     authenticateToken,
     sensitiveEndpointLimiter,
+    sanitizeRootFolderId,
+    validateRequest,
     async (req: Request, res: Response) => {
       try {
         const folder = await storage.getRootFolder(req.params.id);

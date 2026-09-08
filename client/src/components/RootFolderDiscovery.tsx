@@ -145,6 +145,13 @@ export function RootFolderDiscovery() {
         });
       }
     },
+    onError: (error: Error) => {
+      toast({
+        title: "Could Not Update Delete Permission",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
   });
 
   const healthCheckMutation = useMutation({

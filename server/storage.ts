@@ -2960,6 +2960,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateRootFolder(id: string, updates: UpdateRootFolder): Promise<RootFolder | undefined> {
+    // Every field on UpdateRootFolder is optional, so an empty {} is a valid
+    // input (e.g. a PATCH with no recognized fields). Drizzle's .set({})
+    // throws "No values to set" rather than returning the unchanged row —
+    // short-circuit here to match MemStorage's behavior for the same input.
+    if (Object.keys(updates).length === 0) {
+      return this.getRootFolder(id);
+    }
     const [rf] = await db
       .update(rootFolders)
       .set(updates)

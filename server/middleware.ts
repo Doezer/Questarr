@@ -118,6 +118,14 @@ export const sanitizeGameId = [
     .withMessage("Invalid game ID format"),
 ];
 
+// Sanitization rules for root folder ID parameters
+export const sanitizeRootFolderId = [
+  param("id")
+    .trim()
+    .matches(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
+    .withMessage("Invalid root folder ID format"),
+];
+
 // Sanitization rules for download record ID parameters
 export const sanitizeDownloadId = [
   param("downloadId")

@@ -1013,6 +1013,11 @@ export class MemStorage implements IStorage {
     return result;
   }
 
+  /**
+   * Computes lightweight aggregate dashboard stats for a given user.
+   * Returns total games count, pending wishlist count, active downloads count,
+   * and recent completed imports within the last 7 days, excluding hidden games.
+   */
   async getDashboardStatus(userId: string): Promise<DashboardStatus> {
     const userGames = new Map(
       Array.from(this.games.values())
@@ -2425,6 +2430,11 @@ export class DatabaseStorage implements IStorage {
     );
   }
 
+  /**
+   * Computes lightweight aggregate dashboard stats for a given user.
+   * Returns total games count, pending wishlist count, active downloads count,
+   * and recent completed imports within the last 7 days, excluding hidden games.
+   */
   async getDashboardStatus(userId: string): Promise<DashboardStatus> {
     const [gameCounts] = await db
       .select({

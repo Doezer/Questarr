@@ -281,7 +281,10 @@ describe("the gate", () => {
       const sealed = structuralBlocked(level);
       sealed.add(cellKey(level.gate.pos));
       expect(findPath(level.spawn, level.terminal, level.gridSize, sealed)).toEqual([]);
-      // And with it open the run is walkable end to end, keycard included.
+      // And with it open the run is walkable end to end. `structuralBlocked`
+      // leaves the locked door open, so this is the run as a player who already
+      // holds the keycard walks it; the leg before the keycard is covered by
+      // "locks exactly one door, on the route to the terminal" above.
       expect(
         findPath(level.spawn, level.terminal, level.gridSize, structuralBlocked(level)).length
       ).toBeGreaterThan(0);

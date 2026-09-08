@@ -599,8 +599,10 @@ export class InfiltrationGame {
    * Laid as one square tile per cell rather than a single stretched plane: the
    * apron is a long thin band, and a plane that shape would smear the flagstone
    * pattern along its length while the floor inside kept its proper scale. The
-   * tiles share one geometry and one material, so this costs a draw call each
-   * and nothing else.
+   * tiles share one geometry and one material, so the apron adds nothing to the
+   * GPU beyond one draw call per cell — sharing does not merge meshes into a
+   * single call. At an apron's size that is a few dozen quads, which is not
+   * worth the `InstancedMesh` it would take to draw them in one.
    */
   private buildApron() {
     const size = this.level.cellSize;
@@ -732,11 +734,22 @@ export class InfiltrationGame {
     group.add(wheel);
     this.scene.add(group);
 
-    const portalMaterial = new THREE.MeshStandardMaterial({
-      color: PALETTE.gatePortal,
-      roughness: 0.88,
-    });
-    applyTexture(portalMaterial, masonryTexture(1));
+    // A fresh material per piece, not one shared across the three.
+    //
+    // `updateOcclusion` walks the occluder list and writes `material.opacity`
+    // for every entry, so three entries pointing at one material fight over it
+    // within a single frame: the two that are not covering the player pull it
+    // back to 1 while the one that is pulls it down, and the fade never settles
+    // where it should. `buildPerimeter` keeps a material per wall for exactly
+    // this reason, and the gate is on the one route every run must take.
+    const portalMaterialFor = () => {
+      const material = new THREE.MeshStandardMaterial({
+        color: PALETTE.gatePortal,
+        roughness: 0.88,
+      });
+      applyTexture(material, masonryTexture(1));
+      return material;
+    };
     const portalHeight = WALL_HEIGHT + GATE_PORTAL_RISE;
 
     // Jambs either side and a lintel over the top: the stone the leaf is hung
@@ -765,24 +778,26 @@ export class InfiltrationGame {
     // behind it is reduced to a tall slot however wide the gap between them is.
     const depth = size * 0.34;
     for (const side of [-1, 1]) {
-      const jamb = new THREE.Mesh(boxFor(jambWidth, depth), portalMaterial);
+      const jambMaterial = portalMaterialFor();
+      const jamb = new THREE.Mesh(boxFor(jambWidth, depth), jambMaterial);
       jamb.position.set(
         world.x + across.x * side * jambInset,
         portalHeight / 2,
         world.z + across.z * side * jambInset
       );
       this.scene.add(jamb);
-      this.occluders.push({ mesh: jamb, material: portalMaterial });
+      this.occluders.push({ mesh: jamb, material: jambMaterial });
     }
 
     // The lintel spans the full opening, from just above the leaf to the top of
     // the portal. Scaled rather than rebuilt, since it differs only in height.
     const lintelBase = radius * 2 + 0.16;
-    const lintel = new THREE.Mesh(boxFor(size, depth), portalMaterial);
+    const lintelMaterial = portalMaterialFor();
+    const lintel = new THREE.Mesh(boxFor(size, depth), lintelMaterial);
     lintel.scale.y = (portalHeight - lintelBase) / portalHeight;
     lintel.position.set(world.x, (portalHeight + lintelBase) / 2, world.z);
     this.scene.add(lintel);
-    this.occluders.push({ mesh: lintel, material: portalMaterial });
+    this.occluders.push({ mesh: lintel, material: lintelMaterial });
     this.buildWallCap(world.x, world.z, size, size, portalHeight);
 
     // A lamp bracketed to the portal, over the leaf.

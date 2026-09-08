@@ -511,13 +511,12 @@ function layOutCompound(gridSize: number, apronDepth: number, rand: () => number
     h: Math.max(1, facility.h - 2),
   };
 
-  const gateLine = alongZ
-    ? apronAtLow
-      ? facility.z
-      : facility.z + facility.h - 1
-    : apronAtLow
-      ? facility.x
-      : facility.x + facility.w - 1;
+  // The facility's extent on the entry axis, then whichever end of it the apron
+  // is on. Split in two rather than nested: the axis choice and the end choice
+  // are independent, and folding them together reads as one four-way decision.
+  const faceStart = alongZ ? facility.z : facility.x;
+  const faceSpan = alongZ ? facility.h : facility.w;
+  const gateLine = apronAtLow ? faceStart : faceStart + faceSpan - 1;
 
   return {
     facility,
@@ -538,6 +537,35 @@ interface GateChoice {
 }
 
 /**
+ * Works out the gate one position along the face would make, or null when that
+ * position is unusable because the cell inside it is not open room floor.
+ *
+ * Split out of {@link pickGate} so that function is left with the two decisions
+ * that matter — which positions to try, and which of them to take — rather than
+ * the axis arithmetic for every cell either side of the opening.
+ */
+function gateCandidateAt(compound: Compound, cross: number, rooms: Rect[]): GateChoice | null {
+  const { apron, spansX, gateLine, outward } = compound;
+  const inner: GridPos = spansX
+    ? { x: cross, z: gateLine - outward }
+    : { x: gateLine - outward, z: cross };
+  const room = rooms.findIndex((rect) => rectContains(rect, inner));
+  if (room < 0) return null;
+
+  const pos: GridPos = spansX ? { x: cross, z: gateLine } : { x: gateLine, z: cross };
+  const outside: GridPos = spansX
+    ? { x: cross, z: gateLine + outward }
+    : { x: gateLine + outward, z: cross };
+  // The far edge of the apron, straight out from the gate, so the run opens
+  // with the whole approach and the way in already lined up.
+  const spawnLine = outward < 0 ? apron.z : apron.z + apron.h - 1;
+  const spawnCol = outward < 0 ? apron.x : apron.x + apron.w - 1;
+  const spawn: GridPos = spansX ? { x: cross, z: spawnLine } : { x: spawnCol, z: cross };
+
+  return { gate: { pos, spansX, outside, room }, inner, spawn };
+}
+
+/**
  * Punches the gate through the facility face the apron looks at.
  *
  * Candidates are limited to positions whose *inner* neighbour is open room
@@ -552,7 +580,7 @@ function pickGate(
   partitionWalls: ReadonlySet<string>,
   rand: () => number
 ): GateChoice | null {
-  const { interior, apron, spansX, gateLine, outward } = compound;
+  const { interior, spansX } = compound;
   const crossStart = spansX ? interior.x : interior.z;
   const crossSpan = spansX ? interior.w : interior.h;
   // Corners are excluded so the gate always has building either side of it —
@@ -561,25 +589,9 @@ function pickGate(
 
   const candidates: GateChoice[] = [];
   for (let i = margin; i < crossSpan - margin; i++) {
-    const cross = crossStart + i;
-    const pos: GridPos = spansX ? { x: cross, z: gateLine } : { x: gateLine, z: cross };
-    const inner: GridPos = spansX
-      ? { x: cross, z: gateLine - outward }
-      : { x: gateLine - outward, z: cross };
-    if (partitionWalls.has(cellKey(inner))) continue;
-    const room = rooms.findIndex((rect) => rectContains(rect, inner));
-    if (room < 0) continue;
-
-    const outside: GridPos = spansX
-      ? { x: cross, z: gateLine + outward }
-      : { x: gateLine + outward, z: cross };
-    // The far edge of the apron, straight out from the gate, so the run opens
-    // with the whole approach and the way in already lined up.
-    const spawnLine = outward < 0 ? apron.z : apron.z + apron.h - 1;
-    const spawnCol = outward < 0 ? apron.x : apron.x + apron.w - 1;
-    const spawn: GridPos = spansX ? { x: cross, z: spawnLine } : { x: spawnCol, z: cross };
-
-    candidates.push({ gate: { pos, spansX, outside, room }, inner, spawn });
+    const candidate = gateCandidateAt(compound, crossStart + i, rooms);
+    if (!candidate || partitionWalls.has(cellKey(candidate.inner))) continue;
+    candidates.push(candidate);
   }
 
   if (candidates.length === 0) return null;

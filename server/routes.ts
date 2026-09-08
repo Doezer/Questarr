@@ -1771,6 +1771,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Canonicalize before the uniqueness check and probe so equivalent
         // paths (`/mnt/games`, `/mnt/games/.`, `/mnt/other/../games`) can't
         // bypass the unique-path constraint and get scanned as duplicates.
+        // nosemgrep: javascript.express.security.audit.express-path-join-resolve-traversal.express-path-join-resolve-traversal -- root folders are intentionally arbitrary admin-supplied absolute paths (same trust level as the existing libraryRoot/downloadPath config), not a filename joined onto a fixed destination directory to be escaped
         data.path = path.resolve(data.path);
 
         const existing = await storage.getRootFolderByPath(data.path);
@@ -1818,6 +1819,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (updates.path) {
           // Same canonicalization as the create route — resolve before the
           // uniqueness check and probe so equivalent paths can't collide.
+          // nosemgrep: javascript.express.security.audit.express-path-join-resolve-traversal.express-path-join-resolve-traversal -- same as the create route: an arbitrary admin-supplied absolute path, not a filename joined onto a fixed destination
           updates.path = path.resolve(updates.path);
           const clash = await storage.getRootFolderByPath(updates.path);
           if (clash && clash.id !== req.params.id) {

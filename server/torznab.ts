@@ -1,7 +1,6 @@
-import { isIP } from "net";
 import { type Indexer } from "@shared/schema";
 import { torznabLogger } from "./logger.js";
-import { isSafeUrl, safeFetch } from "./ssrf.js";
+import { isPrivateNetworkAddress, isSafeUrl, safeFetch } from "./ssrf.js";
 import { XMLParser } from "fast-xml-parser";
 
 interface TorznabItem {
@@ -44,17 +43,6 @@ interface TorznabServerInfo {
   version?: string;
 }
 
-/**
- * Strip the brackets URL parsing keeps around an IPv6 literal (`[::1]` -> `::1`)
- * so the hostname can be compared and classified.
- */
-function stripBrackets(hostname: string): string {
-  if (hostname.startsWith("[") && hostname.endsWith("]")) {
-    return hostname.slice(1, -1);
-  }
-  return hostname;
-}
-
 export class TorznabClient {
   private parser: XMLParser;
 
@@ -80,44 +68,6 @@ export class TorznabClient {
     return url;
   }
 
-  /**
-   * True when the hostname is a literal IP address that can only belong to the
-   * local machine or a private network (Docker bridge, LAN, VPN). No public
-   * indexer can hand back a download link on such an address, so seeing one is
-   * a reliable sign that the URL was produced by the Prowlarr instance we just
-   * queried rather than by a third-party tracker.
-   */
-  private isPrivateAddress(hostname: string): boolean {
-    const host = stripBrackets(hostname);
-    const version = isIP(host);
-
-    if (version === 4) {
-      const [a, b] = host.split(".").map(Number);
-      return (
-        a === 127 || // loopback
-        a === 10 || // private
-        (a === 172 && b >= 16 && b <= 31) || // private (Docker's default pools live here)
-        (a === 192 && b === 168) || // private
-        (a === 169 && b === 254) // link-local
-      );
-    }
-
-    if (version === 6) {
-      const lower = host.toLowerCase();
-      return (
-        lower === "::1" ||
-        lower.startsWith("fc") || // unique local
-        lower.startsWith("fd") ||
-        lower.startsWith("fe8") || // link-local
-        lower.startsWith("fe9") ||
-        lower.startsWith("fea") ||
-        lower.startsWith("feb")
-      );
-    }
-
-    return false;
-  }
-
   private isSameProwlarrHost(candidate: URL, configured: URL): boolean {
     // Prowlarr builds its download links from the address the request arrived on,
     // which is rarely the address we configured: a Docker service name resolves to
@@ -125,10 +75,15 @@ export class TorznabClient {
     // internal container. Any of those forms still points at the same Prowlarr, so a
     // link that already carries its /{id}/download proxy path must not be re-wrapped
     // — Prowlarr rejects a nested link with "Failed to normalize provided link".
-    if (this.isPrivateAddress(candidate.hostname) || this.isPrivateAddress(configured.hostname)) {
-      // A private/loopback address on either side can only be an alias of the
-      // Prowlarr we queried, so accept it regardless of scheme or port (a reverse
-      // proxy terminating TLS on 443 fronts a container answering HTTP on 9696).
+    //
+    // A private or loopback address on either side can only be an alias of the
+    // Prowlarr we just queried: no public indexer hands back a download link on one.
+    // Accept it regardless of scheme or port, since a reverse proxy terminating TLS
+    // on 443 fronts a container answering HTTP on 9696.
+    if (
+      isPrivateNetworkAddress(candidate.hostname) ||
+      isPrivateNetworkAddress(configured.hostname)
+    ) {
       return true;
     }
 
@@ -136,7 +91,7 @@ export class TorznabClient {
       return false;
     }
 
-    return stripBrackets(candidate.hostname) === stripBrackets(configured.hostname);
+    return candidate.hostname === configured.hostname;
   }
 
   /**

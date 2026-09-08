@@ -5,7 +5,11 @@ vi.mock("../db.js", () => ({ pool: {}, db: {} }));
 vi.mock("../logger.js", () => ({
   torznabLogger: { info: vi.fn(), debug: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
-vi.mock("../ssrf.js", () => ({ isSafeUrl: vi.fn(), safeFetch: vi.fn() }));
+vi.mock("../ssrf.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../ssrf.js")>()),
+  isSafeUrl: vi.fn(),
+  safeFetch: vi.fn(),
+}));
 
 const { TorznabClient } = await import("../torznab.js");
 const { torznabLogger } = await import("../logger.js");

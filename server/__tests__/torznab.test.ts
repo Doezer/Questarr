@@ -176,6 +176,86 @@ describe("TorznabClient — download link rewriting", () => {
     );
   });
 
+  it("does not double-wrap a Prowlarr proxy URL returned on the container IP behind a Docker service name", async () => {
+    // Prowlarr reflects the address the request arrived on, so a Questarr container
+    // querying http://prowlarr:9696 can get its download links back on the container
+    // IP. Re-wrapping those nests the real token one level too deep and Prowlarr
+    // answers "Failed to normalize provided link" (500). See issue #812.
+    const prowlarrIndexer = makeIndexer({
+      url: "http://prowlarr:9696/39/api",
+      apiKey: "prowlarr-api-key",
+    });
+    const proxyUrlOnContainerIp =
+      "http://172.19.0.8:9696/39/download?apikey=prowlarr-api-key&link=cHJvd2xhcnItdG9rZW4%3D&file=Sunderfolk";
+    mockFetchResponse(makeTorznabXml(proxyUrlOnContainerIp));
+
+    const result = await client.searchGames(prowlarrIndexer, { query: "game" });
+
+    const rewritten = new URL(result.items[0].link);
+    expect(rewritten.host).toBe("prowlarr:9696");
+    expect(rewritten.pathname).toBe("/39/download");
+    expect(rewritten.searchParams.get("apikey")).toBe("prowlarr-api-key");
+    // The real Prowlarr token is preserved as-is, not re-encoded into a nested link
+    expect(rewritten.searchParams.get("link")).toBe("cHJvd2xhcnItdG9rZW4=");
+    expect(rewritten.searchParams.get("file")).toBe("Sunderfolk");
+  });
+
+  it("does not double-wrap a Prowlarr proxy URL returned on an internal address behind a reverse proxy", async () => {
+    // The configured URL terminates TLS on 443 while Prowlarr answers HTTP on 9696
+    // internally, so scheme and port both differ from the link Prowlarr returns.
+    const prowlarrIndexer = makeIndexer({
+      url: "https://prowlarr.example.com/5/api",
+      apiKey: "prowlarr-api-key",
+    });
+    const proxyUrlOnInternalAddress =
+      "http://10.1.2.3:9696/5/download?apikey=prowlarr-api-key&link=cHJvd2xhcnItdG9rZW4%3D&file=Some+Game";
+    mockFetchResponse(makeTorznabXml(proxyUrlOnInternalAddress));
+
+    const result = await client.searchGames(prowlarrIndexer, { query: "game" });
+
+    const rewritten = new URL(result.items[0].link);
+    expect(rewritten.protocol).toBe("https:");
+    expect(rewritten.host).toBe("prowlarr.example.com");
+    expect(rewritten.pathname).toBe("/5/download");
+    expect(rewritten.searchParams.get("link")).toBe("cHJvd2xhcnItdG9rZW4=");
+  });
+
+  it("still wraps a raw external download URL when Prowlarr is addressed by service name", async () => {
+    const prowlarrIndexer = makeIndexer({
+      url: "http://prowlarr:9696/39/api",
+      apiKey: "prowlarr-api-key",
+    });
+    const rawUrl = "https://tracker.example/torrents/download/42.torrent";
+    mockFetchResponse(makeTorznabXml(rawUrl));
+
+    const result = await client.searchGames(prowlarrIndexer, { query: "game" });
+
+    const wrapped = new URL(result.items[0].link);
+    expect(wrapped.host).toBe("prowlarr:9696");
+    expect(wrapped.pathname).toBe("/39/download");
+    expect(Buffer.from(wrapped.searchParams.get("link")!, "base64").toString()).toBe(rawUrl);
+  });
+
+  it("re-wraps a proxy-shaped link for a different Prowlarr indexer id", async () => {
+    const prowlarrIndexer = makeIndexer({
+      url: "http://prowlarr:9696/39/api",
+      apiKey: "prowlarr-api-key",
+    });
+    // Same host and shape, but the numeric id belongs to another indexer, so this is
+    // not the proxy URL for the indexer we queried.
+    const otherIndexerProxyUrl =
+      "http://172.19.0.8:9696/40/download?apikey=prowlarr-api-key&link=dG9rZW4%3D";
+    mockFetchResponse(makeTorznabXml(otherIndexerProxyUrl));
+
+    const result = await client.searchGames(prowlarrIndexer, { query: "game" });
+
+    const wrapped = new URL(result.items[0].link);
+    expect(wrapped.pathname).toBe("/39/download");
+    expect(Buffer.from(wrapped.searchParams.get("link")!, "base64").toString()).toBe(
+      otherIndexerProxyUrl
+    );
+  });
+
   it("re-wraps external URLs that mimic Prowlarr proxy path/query on a different host", async () => {
     const prowlarrIndexer = makeIndexer({
       url: "http://localhost:9696/5/api",

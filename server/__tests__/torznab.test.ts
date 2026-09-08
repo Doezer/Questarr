@@ -396,6 +396,43 @@ describe("TorznabClient — download link rewriting", () => {
   });
 });
 
+describe("TorznabClient — searchGames error wrapping", () => {
+  let client: InstanceType<typeof TorznabClient>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    client = new TorznabClient();
+  });
+
+  it("wraps a parse failure with the original error chained via cause", async () => {
+    // Neither <rss><channel> nor a Torznab <error> element — parseResponse's own
+    // catch throws "Invalid Torznab response format", which searchGames' catch
+    // then wraps again. Both throws must preserve the original error via `cause`.
+    mockFetchResponse(`<?xml version="1.0"?><nonsense/>`);
+    const indexer = makeIndexer();
+
+    await expect(client.searchGames(indexer, { query: "game" })).rejects.toMatchObject({
+      message:
+        "Failed to search indexer Test Indexer: Failed to parse response: Invalid Torznab response format",
+      cause: expect.objectContaining({
+        message: "Failed to parse response: Invalid Torznab response format",
+        cause: expect.objectContaining({ message: "Invalid Torznab response format" }),
+      }),
+    });
+  });
+
+  it("wraps a fetch rejection with the original error chained via cause", async () => {
+    const networkError = new Error("ECONNRESET");
+    mockSafeFetch.mockRejectedValue(networkError);
+    const indexer = makeIndexer();
+
+    await expect(client.searchGames(indexer, { query: "game" })).rejects.toMatchObject({
+      message: "Failed to search indexer Test Indexer: ECONNRESET",
+      cause: networkError,
+    });
+  });
+});
+
 describe("TorznabClient — testConnection", () => {
   let client: InstanceType<typeof TorznabClient>;
 

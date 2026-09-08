@@ -306,7 +306,9 @@ class NewznabClient {
         stack: error instanceof Error ? error.stack : undefined,
       };
       routesLogger.error(errorDetails, "newznab search error");
-      throw new Error(`Newznab search failed for ${indexer.name}: ${errorMessage}`);
+      throw new Error(`Newznab search failed for ${indexer.name}: ${errorMessage}`, {
+        cause: error,
+      });
     }
   }
 

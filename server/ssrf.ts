@@ -29,6 +29,7 @@ export function normalizeHostname(hostname: string): string {
   return hostname;
 }
 
+/** Resolves a hostname after verifying that every returned address is permitted. */
 export async function resolveSafeAddress(
   hostname: string,
   allowPrivate = true
@@ -61,7 +62,7 @@ export async function resolveSafeAddress(
     if (error instanceof Error && error.message === "Invalid or unsafe URL") {
       throw error;
     }
-    throw new Error(`Failed to resolve hostname: ${normalizedHostname}`);
+    throw new Error(`Failed to resolve hostname: ${normalizedHostname}`, { cause: error });
   }
 }
 
@@ -134,6 +135,7 @@ function getRedirectOptions(
   };
 }
 
+/** Resolves and validates the network target used for one safe-fetch request. */
 async function resolveSafeFetchTarget(url: URL, allowPrivate = true): Promise<SafeFetchTarget> {
   const hostname = normalizeHostname(url.hostname);
   const isHttps = url.protocol === "https:";
@@ -175,7 +177,7 @@ async function resolveSafeFetchTarget(url: URL, allowPrivate = true): Promise<Sa
     if (error instanceof Error && error.message === "Invalid or unsafe URL") {
       throw error;
     }
-    throw new Error(`Failed to resolve hostname: ${hostname}`);
+    throw new Error(`Failed to resolve hostname: ${hostname}`, { cause: error });
   }
 }
 

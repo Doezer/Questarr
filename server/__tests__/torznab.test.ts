@@ -213,6 +213,16 @@ describe("TorznabClient — download link rewriting", () => {
       expectedOrigin: "https://prowlarr.example.com",
       expectedPath: "/5/download",
     },
+    {
+      // TLS terminated in front of Prowlarr: it sees plain HTTP and reflects http://
+      // back on the same host and port, so only the scheme differs from the configured
+      // URL — the link still has to be normalized onto the configured endpoint.
+      alias: "the same private address under a plain-HTTP scheme",
+      indexerUrl: "https://172.19.0.8:9696/39/api",
+      enclosure: `http://172.19.0.8:9696/39/download?apikey=prowlarr-api-key&link=${proxyToken}&file=Sunderfolk`,
+      expectedOrigin: "https://172.19.0.8:9696",
+      expectedPath: "/39/download",
+    },
   ];
 
   it.each(aliasedProxyCases)(

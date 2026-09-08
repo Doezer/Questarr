@@ -415,7 +415,10 @@ export class TorznabClient {
         if (linkUrl.protocol === "http:" || linkUrl.protocol === "https:") {
           const indexerUrlObj = new URL(indexerUrl);
 
-          if (linkUrl.host !== indexerUrlObj.host) {
+          // Compare origins, not just hosts: a link that differs from the configured
+          // URL only by scheme (Prowlarr behind TLS termination reflects http://) still
+          // needs normalizing onto the endpoint we were told to use.
+          if (linkUrl.origin !== indexerUrlObj.origin) {
             // Check if this is a Prowlarr indexer URL (pattern: /{numericId}/api).
             // When Prowlarr returns a raw external download URL (e.g. from a Cloudflare-protected
             // indexer), a naive host swap would produce an invalid path on Prowlarr. Instead,
@@ -462,8 +465,8 @@ export class TorznabClient {
               torznabItem.link = linkUrl.toString();
             }
           }
-          // If hosts already match the configured indexer (e.g. Prowlarr already returned its
-          // own proxy URL), leave the link unchanged.
+          // If the origin already matches the configured indexer (e.g. Prowlarr already
+          // returned its own proxy URL), leave the link unchanged.
         }
       } catch {
         // Ignore invalid URLs or parsing errors

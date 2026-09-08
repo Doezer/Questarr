@@ -136,7 +136,7 @@ async function listCandidates(rootPath: string): Promise<FolderCandidate[]> {
       candidates.push({ folderName: e.name, absolutePath: abs });
     } else if (e.isFile()) {
       if (isIgnoredFile(e.name)) continue;
-      let size = 0;
+      let size: number;
       try {
         const stat = await fs.promises.stat(abs);
         size = stat.size;
@@ -221,7 +221,7 @@ async function bestIgdbMatch(folderName: string): Promise<{
   score: number;
 }> {
   const cleaned = cleanReleaseName(folderName) || folderName;
-  let candidates: IGDBGame[] = [];
+  let candidates: IGDBGame[];
   try {
     candidates = await igdbClient.searchGames(cleaned, 5);
   } catch (err) {

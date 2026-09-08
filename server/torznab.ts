@@ -76,14 +76,13 @@ export class TorznabClient {
     // link that already carries its /{id}/download proxy path must not be re-wrapped
     // — Prowlarr rejects a nested link with "Failed to normalize provided link".
     //
-    // A private or loopback address on either side can only be an alias of the
-    // Prowlarr we just queried: no public indexer hands back a download link on one.
-    // Accept it regardless of scheme or port, since a reverse proxy terminating TLS
-    // on 443 fronts a container answering HTTP on 9696.
-    if (
-      isPrivateNetworkAddress(candidate.hostname) ||
-      isPrivateNetworkAddress(configured.hostname)
-    ) {
+    // Only the returned link can carry that signal. A loopback or private address
+    // there can only be the Prowlarr we just queried, since no public indexer hands
+    // back a download link on one, and scheme and port may still differ — a reverse
+    // proxy terminating TLS on 443 fronts a container answering HTTP on 9696. The
+    // configured host being private says nothing about a candidate on a public host:
+    // that is an external link Prowlarr still has to fetch on our behalf.
+    if (candidate.hostname === "localhost" || isPrivateNetworkAddress(candidate.hostname)) {
       return true;
     }
 

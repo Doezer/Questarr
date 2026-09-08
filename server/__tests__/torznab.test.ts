@@ -232,26 +232,38 @@ describe("TorznabClient — download link rewriting", () => {
   const wrappedCases = [
     {
       kind: "a raw external download URL",
+      indexerUrl: "http://prowlarr:9696/39/api",
       enclosure: "https://tracker.example/torrents/download/42.torrent",
+      expectedHost: "prowlarr:9696",
     },
     {
       // Same host and shape, but the numeric id belongs to another indexer, so this is
       // not the proxy URL for the indexer we queried.
       kind: "a proxy-shaped link carrying a different Prowlarr indexer id",
+      indexerUrl: "http://prowlarr:9696/39/api",
       enclosure: "http://172.19.0.8:9696/40/download?apikey=prowlarr-api-key&link=dG9rZW4%3D",
+      expectedHost: "prowlarr:9696",
+    },
+    {
+      // Prowlarr itself addressed by container IP, the workaround from issue #812. A
+      // public host that mimics the proxy path is still an external link Prowlarr has
+      // to fetch for us, so it must be wrapped and given the API key — the configured
+      // host being private proves nothing about where the link points.
+      kind: "a public proxy-shaped link for this indexer id when Prowlarr is addressed by IP",
+      indexerUrl: "http://172.19.0.8:9696/39/api",
+      enclosure: "https://tracker.example/39/download?file=Some+Game&link=dG9rZW4%3D",
+      expectedHost: "172.19.0.8:9696",
     },
   ];
 
-  it.each(wrappedCases)(
-    "still wraps $kind when Prowlarr is addressed by service name",
-    async ({ enclosure }) => {
-      const link = await searchProwlarrLink("http://prowlarr:9696/39/api", enclosure);
+  it.each(wrappedCases)("still wraps $kind", async ({ indexerUrl, enclosure, expectedHost }) => {
+    const link = await searchProwlarrLink(indexerUrl, enclosure);
 
-      expect(link.host).toBe("prowlarr:9696");
-      expect(link.pathname).toBe("/39/download");
-      expect(Buffer.from(link.searchParams.get("link")!, "base64").toString()).toBe(enclosure);
-    }
-  );
+    expect(link.host).toBe(expectedHost);
+    expect(link.pathname).toBe("/39/download");
+    expect(link.searchParams.get("apikey")).toBe("prowlarr-api-key");
+    expect(Buffer.from(link.searchParams.get("link")!, "base64").toString()).toBe(enclosure);
+  });
 
   it("re-wraps external URLs that mimic Prowlarr proxy path/query on a different host", async () => {
     const prowlarrIndexer = makeIndexer({

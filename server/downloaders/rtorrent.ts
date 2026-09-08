@@ -637,6 +637,7 @@ export class RTorrentClient implements DownloaderClient {
     return auth;
   }
 
+  /** Sends an XML-RPC request, retrying with digest authentication when required. */
   private async makeXMLRPCRequest(method: string, params: unknown[]): Promise<XMLValue> {
     // Build the complete URL with protocol, host, port, and path
     let baseUrl = this.downloader.url;

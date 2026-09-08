@@ -481,6 +481,7 @@ export class TransmissionClient implements DownloaderClient {
     }
   }
 
+  /** Maps a Transmission torrent payload to Questarr's normalized download status. */
   private mapTransmissionStatus(torrent: TransmissionTorrent): DownloadStatus {
     // Transmission status codes: 0=stopped, 1=check pending, 2=checking, 3=download pending, 4=downloading, 5=seed pending, 6=seeding
     let status: DownloadStatus["status"];

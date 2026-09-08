@@ -29,6 +29,7 @@ export function normalizeHostname(hostname: string): string {
   return hostname;
 }
 
+/** Resolves a hostname after verifying that every returned address is permitted. */
 export async function resolveSafeAddress(
   hostname: string,
   allowPrivate = true
@@ -134,6 +135,7 @@ function getRedirectOptions(
   };
 }
 
+/** Resolves and validates the network target used for one safe-fetch request. */
 async function resolveSafeFetchTarget(url: URL, allowPrivate = true): Promise<SafeFetchTarget> {
   const hostname = normalizeHostname(url.hostname);
   const isHttps = url.protocol === "https:";

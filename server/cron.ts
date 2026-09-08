@@ -340,6 +340,7 @@ async function logClientVersions(): Promise<void> {
   ]);
 }
 
+/** Refreshes tracked game metadata and queues notifications for release changes. */
 export async function checkGameUpdates() {
   igdbLogger.info("Checking for game updates...");
 

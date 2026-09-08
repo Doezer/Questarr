@@ -221,6 +221,7 @@ function ReleaseMetadataBadges({
   );
 }
 
+/** Renders release search, filtering, and download controls for a game. */
 export default function GameDownloadDialog({ game, open, onOpenChange }: GameDownloadDialogProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();

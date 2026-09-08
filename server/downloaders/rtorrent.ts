@@ -781,7 +781,7 @@ export class RTorrentClient implements DownloaderClient {
           } catch (error) {
             const errorMessage = error instanceof Error ? error.message : "Unknown error";
             downloadersLogger.error({ error: errorMessage }, "Error processing Digest Auth");
-            throw new Error(`Digest Auth Error: ${errorMessage}`);
+            throw new Error(`Digest Auth Error: ${errorMessage}`, { cause: error });
           }
         }
 

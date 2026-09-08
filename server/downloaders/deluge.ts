@@ -682,7 +682,7 @@ export class DelugeClient implements DownloaderClient {
 
   private mapDelugeStatus(hash: string, status: DelugeTorrentStatus): DownloadStatus {
     // Deluge states: Downloading, Seeding, Paused, Checking, Queued, Error, Allocating, Moving
-    let downloadStatus: DownloadStatus["status"] = "paused";
+    let downloadStatus: DownloadStatus["status"];
 
     switch (status.state) {
       case "Downloading":

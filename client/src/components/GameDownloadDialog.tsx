@@ -467,7 +467,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
           return selectedPlatforms.some((sp) => matchesPlatformFilter(platform, sp));
         })
         .sort((a, b) => {
-          let comparison = 0;
+          let comparison;
           if (sortBy === "seeders") {
             const aHealth = isUsenetItem(a) ? (a.grabs ?? 0) : (a.seeders ?? 0);
             const bHealth = isUsenetItem(b) ? (b.grabs ?? 0) : (b.seeders ?? 0);
@@ -1053,7 +1053,7 @@ export default function GameDownloadDialog({ game, open, onOpenChange }: GameDow
                         const metadata =
                           itemsMetadata.get(download.title) ?? parseReleaseMetadata(download.title);
 
-                        let healthColor = "text-muted-foreground";
+                        let healthColor: string;
                         if (isUsenet) {
                           const grabs = download.grabs ?? 0;
                           if (grabs > 100) healthColor = "text-green-500";

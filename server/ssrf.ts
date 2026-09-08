@@ -61,7 +61,7 @@ export async function resolveSafeAddress(
     if (error instanceof Error && error.message === "Invalid or unsafe URL") {
       throw error;
     }
-    throw new Error(`Failed to resolve hostname: ${normalizedHostname}`);
+    throw new Error(`Failed to resolve hostname: ${normalizedHostname}`, { cause: error });
   }
 }
 
@@ -175,7 +175,7 @@ async function resolveSafeFetchTarget(url: URL, allowPrivate = true): Promise<Sa
     if (error instanceof Error && error.message === "Invalid or unsafe URL") {
       throw error;
     }
-    throw new Error(`Failed to resolve hostname: ${hostname}`);
+    throw new Error(`Failed to resolve hostname: ${hostname}`, { cause: error });
   }
 }
 

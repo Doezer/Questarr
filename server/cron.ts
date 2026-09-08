@@ -431,7 +431,7 @@ export async function checkGameUpdates() {
     const diffTime = currentReleaseDate.getTime() - storedOriginalDate.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-    let newReleaseStatus: "released" | "upcoming" | "delayed" | "tbd" = "upcoming";
+    let newReleaseStatus: "released" | "upcoming" | "delayed" | "tbd";
     const now = new Date();
 
     if (currentReleaseDate <= now) {

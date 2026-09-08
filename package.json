@@ -130,7 +130,7 @@
     "zod-validation-error": "^5.0.0"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.4",
+    "@eslint/js": "^10.0.1",
     "@lizenz/checker": "0.0.2",
     "@playwright/test": "^1.62.0",
     "@secretlint/secretlint-rule-preset-recommend": "^13.0.5",

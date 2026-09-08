@@ -87,11 +87,9 @@ export class TorznabClient {
       return true;
     }
 
-    if (candidate.protocol !== configured.protocol || candidate.port !== configured.port) {
-      return false;
-    }
-
-    return candidate.hostname === configured.hostname;
+    // Any other host has to name the configured Prowlarr origin exactly: scheme,
+    // hostname and port all have to line up before the link counts as already proxied.
+    return candidate.origin === configured.origin;
   }
 
   /**

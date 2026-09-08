@@ -774,28 +774,42 @@ describe("MemStorage - Integration API keys", () => {
   });
 
   it("adds a key, omits the hash, and lists keys newest-first for that user only", async () => {
-    const older = await storage.addApiKey(
-      { userId: "u1", name: "Older", keyHash: "hash-older", prefix: "qsr_aaaaaaaa" },
-      25
-    );
-    // Force a distinguishable, later createdAt so ordering is unambiguous
-    // regardless of how fast these two calls run.
-    await new Promise((resolve) => setTimeout(resolve, 2));
-    const newer = await storage.addApiKey(
-      { userId: "u1", name: "Newer", keyHash: "hash-newer", prefix: "qsr_bbbbbbbb" },
-      25
-    );
-    await storage.addApiKey(
-      { userId: "someone-else", name: "Other user's key", keyHash: "hash-other", prefix: "qsr_c" },
-      25
-    );
+    // Control the clock instead of a real delay: a `setTimeout` doesn't
+    // guarantee two distinct `Date.now()` readings, so the ordering assertion
+    // below could flake on a fast-enough runner.
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+      const older = await storage.addApiKey(
+        { userId: "u1", name: "Older", keyHash: "hash-older", prefix: "qsr_aaaaaaaa" },
+        25
+      );
 
-    expect(newer).not.toHaveProperty("keyHash");
-    expect(older).not.toHaveProperty("keyHash");
+      vi.setSystemTime(new Date("2026-01-01T00:00:01.000Z"));
+      const newer = await storage.addApiKey(
+        { userId: "u1", name: "Newer", keyHash: "hash-newer", prefix: "qsr_bbbbbbbb" },
+        25
+      );
 
-    const keys = await storage.getApiKeys("u1");
-    expect(keys.map((k) => k.name)).toEqual(["Newer", "Older"]);
-    expect(keys.every((k) => !("keyHash" in k))).toBe(true);
+      await storage.addApiKey(
+        {
+          userId: "someone-else",
+          name: "Other user's key",
+          keyHash: "hash-other",
+          prefix: "qsr_c",
+        },
+        25
+      );
+
+      expect(newer).not.toHaveProperty("keyHash");
+      expect(older).not.toHaveProperty("keyHash");
+
+      const keys = await storage.getApiKeys("u1");
+      expect(keys.map((k) => k.name)).toEqual(["Newer", "Older"]);
+      expect(keys.every((k) => !("keyHash" in k))).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("rejects a new key once the user is at the cap, without persisting it", async () => {

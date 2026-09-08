@@ -77,6 +77,16 @@ describe("TorznabClient — download link rewriting", () => {
     client = new TorznabClient();
   });
 
+  /** Search a Prowlarr-backed indexer that returns `enclosure`, and parse the rewritten link. */
+  async function searchProwlarrLink(indexerUrl: string, enclosure: string): Promise<URL> {
+    mockFetchResponse(makeTorznabXml(enclosure));
+    const indexer = makeIndexer({ url: indexerUrl, apiKey: "prowlarr-api-key" });
+
+    const result = await client.searchGames(indexer, { query: "game" });
+
+    return new URL(result.items[0].link);
+  }
+
   it("leaves the link unchanged when it already points to the indexer host", async () => {
     const indexer = makeIndexer({ url: "http://indexer.example.com/api" });
     const expectedLink = "http://indexer.example.com/download/file.torrent";
@@ -180,85 +190,68 @@ describe("TorznabClient — download link rewriting", () => {
     );
   });
 
-  it("does not double-wrap a Prowlarr proxy URL returned on the container IP behind a Docker service name", async () => {
-    // Prowlarr reflects the address the request arrived on, so a Questarr container
-    // querying http://prowlarr:9696 can get its download links back on the container
-    // IP. Re-wrapping those nests the real token one level too deep and Prowlarr
-    // answers "Failed to normalize provided link" (500). See issue #812.
-    const prowlarrIndexer = makeIndexer({
-      url: "http://prowlarr:9696/39/api",
-      apiKey: "prowlarr-api-key",
-    });
-    const proxyUrlOnContainerIp =
-      "http://172.19.0.8:9696/39/download?apikey=prowlarr-api-key&link=cHJvd2xhcnItdG9rZW4%3D&file=Sunderfolk";
-    mockFetchResponse(makeTorznabXml(proxyUrlOnContainerIp));
+  // Prowlarr builds its download links from the address the request arrived on, so its
+  // /{id}/download proxy links come back on whatever alias reached it: the container IP
+  // behind a Docker service name, or the internal address behind a reverse proxy.
+  // Re-wrapping one nests Prowlarr's own token a level too deep and it answers
+  // "Failed to normalize provided link" (500). See issue #812.
+  const proxyToken = "cHJvd2xhcnItdG9rZW4=";
+  const aliasedProxyCases = [
+    {
+      alias: "the container IP behind a Docker service name",
+      indexerUrl: "http://prowlarr:9696/39/api",
+      enclosure: `http://172.19.0.8:9696/39/download?apikey=prowlarr-api-key&link=${proxyToken}&file=Sunderfolk`,
+      expectedOrigin: "http://prowlarr:9696",
+      expectedPath: "/39/download",
+    },
+    {
+      // The configured URL terminates TLS on 443 while Prowlarr answers HTTP on 9696
+      // internally, so scheme and port both differ from the link Prowlarr returns.
+      alias: "the internal address behind a reverse proxy",
+      indexerUrl: "https://prowlarr.example.com/5/api",
+      enclosure: `http://10.1.2.3:9696/5/download?apikey=prowlarr-api-key&link=${proxyToken}&file=Sunderfolk`,
+      expectedOrigin: "https://prowlarr.example.com",
+      expectedPath: "/5/download",
+    },
+  ];
 
-    const result = await client.searchGames(prowlarrIndexer, { query: "game" });
+  it.each(aliasedProxyCases)(
+    "does not double-wrap a Prowlarr proxy URL returned on $alias",
+    async ({ indexerUrl, enclosure, expectedOrigin, expectedPath }) => {
+      const link = await searchProwlarrLink(indexerUrl, enclosure);
 
-    const rewritten = new URL(result.items[0].link);
-    expect(rewritten.host).toBe("prowlarr:9696");
-    expect(rewritten.pathname).toBe("/39/download");
-    expect(rewritten.searchParams.get("apikey")).toBe("prowlarr-api-key");
-    // The real Prowlarr token is preserved as-is, not re-encoded into a nested link
-    expect(rewritten.searchParams.get("link")).toBe("cHJvd2xhcnItdG9rZW4=");
-    expect(rewritten.searchParams.get("file")).toBe("Sunderfolk");
-  });
+      expect(link.origin).toBe(expectedOrigin);
+      expect(link.pathname).toBe(expectedPath);
+      expect(link.searchParams.get("apikey")).toBe("prowlarr-api-key");
+      // Prowlarr's own token survives verbatim rather than being nested one level down
+      expect(link.searchParams.get("link")).toBe(proxyToken);
+      expect(link.searchParams.get("file")).toBe("Sunderfolk");
+    }
+  );
 
-  it("does not double-wrap a Prowlarr proxy URL returned on an internal address behind a reverse proxy", async () => {
-    // The configured URL terminates TLS on 443 while Prowlarr answers HTTP on 9696
-    // internally, so scheme and port both differ from the link Prowlarr returns.
-    const prowlarrIndexer = makeIndexer({
-      url: "https://prowlarr.example.com/5/api",
-      apiKey: "prowlarr-api-key",
-    });
-    const proxyUrlOnInternalAddress =
-      "http://10.1.2.3:9696/5/download?apikey=prowlarr-api-key&link=cHJvd2xhcnItdG9rZW4%3D&file=Some+Game";
-    mockFetchResponse(makeTorznabXml(proxyUrlOnInternalAddress));
+  const wrappedCases = [
+    {
+      kind: "a raw external download URL",
+      enclosure: "https://tracker.example/torrents/download/42.torrent",
+    },
+    {
+      // Same host and shape, but the numeric id belongs to another indexer, so this is
+      // not the proxy URL for the indexer we queried.
+      kind: "a proxy-shaped link carrying a different Prowlarr indexer id",
+      enclosure: "http://172.19.0.8:9696/40/download?apikey=prowlarr-api-key&link=dG9rZW4%3D",
+    },
+  ];
 
-    const result = await client.searchGames(prowlarrIndexer, { query: "game" });
+  it.each(wrappedCases)(
+    "still wraps $kind when Prowlarr is addressed by service name",
+    async ({ enclosure }) => {
+      const link = await searchProwlarrLink("http://prowlarr:9696/39/api", enclosure);
 
-    const rewritten = new URL(result.items[0].link);
-    expect(rewritten.protocol).toBe("https:");
-    expect(rewritten.host).toBe("prowlarr.example.com");
-    expect(rewritten.pathname).toBe("/5/download");
-    expect(rewritten.searchParams.get("link")).toBe("cHJvd2xhcnItdG9rZW4=");
-  });
-
-  it("still wraps a raw external download URL when Prowlarr is addressed by service name", async () => {
-    const prowlarrIndexer = makeIndexer({
-      url: "http://prowlarr:9696/39/api",
-      apiKey: "prowlarr-api-key",
-    });
-    const rawUrl = "https://tracker.example/torrents/download/42.torrent";
-    mockFetchResponse(makeTorznabXml(rawUrl));
-
-    const result = await client.searchGames(prowlarrIndexer, { query: "game" });
-
-    const wrapped = new URL(result.items[0].link);
-    expect(wrapped.host).toBe("prowlarr:9696");
-    expect(wrapped.pathname).toBe("/39/download");
-    expect(Buffer.from(wrapped.searchParams.get("link")!, "base64").toString()).toBe(rawUrl);
-  });
-
-  it("re-wraps a proxy-shaped link for a different Prowlarr indexer id", async () => {
-    const prowlarrIndexer = makeIndexer({
-      url: "http://prowlarr:9696/39/api",
-      apiKey: "prowlarr-api-key",
-    });
-    // Same host and shape, but the numeric id belongs to another indexer, so this is
-    // not the proxy URL for the indexer we queried.
-    const otherIndexerProxyUrl =
-      "http://172.19.0.8:9696/40/download?apikey=prowlarr-api-key&link=dG9rZW4%3D";
-    mockFetchResponse(makeTorznabXml(otherIndexerProxyUrl));
-
-    const result = await client.searchGames(prowlarrIndexer, { query: "game" });
-
-    const wrapped = new URL(result.items[0].link);
-    expect(wrapped.pathname).toBe("/39/download");
-    expect(Buffer.from(wrapped.searchParams.get("link")!, "base64").toString()).toBe(
-      otherIndexerProxyUrl
-    );
-  });
+      expect(link.host).toBe("prowlarr:9696");
+      expect(link.pathname).toBe("/39/download");
+      expect(Buffer.from(link.searchParams.get("link")!, "base64").toString()).toBe(enclosure);
+    }
+  );
 
   it("re-wraps external URLs that mimic Prowlarr proxy path/query on a different host", async () => {
     const prowlarrIndexer = makeIndexer({

@@ -93,7 +93,13 @@ Filename: "{sys}\sc.exe"; Parameters: "create Questarr binPath= ""{app}\Questarr
 Filename: "{sys}\sc.exe"; Parameters: "config Questarr binPath= ""{app}\Questarr.Service.exe"" start= auto"; Flags: runhidden waituntilterminated; StatusMsg: "Updating Questarr service..."
 Filename: "{sys}\sc.exe"; Parameters: "description Questarr ""Questarr video game management service"""; Flags: runhidden waituntilterminated
 Filename: "{sys}\sc.exe"; Parameters: "failure Questarr reset= 86400 actions= restart/60000/restart/60000/""""/60000"; Flags: runhidden waituntilterminated
-Filename: "{sys}\sc.exe"; Parameters: "start Questarr"; Flags: runhidden waituntilterminated; StatusMsg: "Starting Questarr service..."
+; postinstall: deferred until after CurStepChanged(ssPostInstall) below has
+; run (Inno's own install order is Files, then non-postinstall [Run]
+; entries, then ssPostInstall, then postinstall [Run] entries) - see the
+; comment on RemoveStalePayloadFiles for why the service must not start
+; until stale-file cleanup has had its chance to run against the fully
+; extracted new payload.
+Filename: "{sys}\sc.exe"; Parameters: "start Questarr"; Flags: runhidden waituntilterminated postinstall; StatusMsg: "Starting Questarr service..."
 
 [UninstallRun]
 Filename: "{sys}\sc.exe"; Parameters: "stop Questarr"; Flags: runhidden waituntilterminated
@@ -381,6 +387,16 @@ end;
 // StaleRemovedFiles (old-manifest paths absent from the new manifest, set
 // by BuildChangedPayloadList) and deletes each one, restricted to paths
 // that resolve strictly under the install directory.
+//
+// Called from CurStepChanged(ssPostInstall) below, not from
+// PrepareToInstall: that runs before [Files] extracts the replacement
+// payload, so deleting stale files there would leave {app} in a broken,
+// half-upgraded state (old files gone, new ones not yet written) if
+// extraction then failed partway through. ssPostInstall fires after
+// [Files] and after every non-postinstall [Run] entry, so by the time
+// this runs the new payload is fully in place; the "start Questarr"
+// [Run] entry is flagged postinstall so the service doesn't come back up
+// on the old payload before cleanup has run.
 procedure RemoveStalePayloadFiles();
 var
   InstallDir: String;
@@ -464,11 +480,15 @@ begin
     ChangedPayloadFiles := '*';
   end;
   Result := StopInstalledQuestarr('upgrade');
-  if Result = '' then
+end;
+
+// See the comment on RemoveStalePayloadFiles for why stale-file cleanup
+// happens here (after [Files] and the non-postinstall [Run] entries) and
+// not in PrepareToInstall (before [Files] extracts the replacement payload).
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
   begin
-    // Only once the running service/process is confirmed stopped (and its
-    // payload files confirmed unlocked, per StopInstalledQuestarr above) is
-    // it safe to delete files no longer shipped by the new version.
     RemoveStalePayloadFiles();
   end;
 end;

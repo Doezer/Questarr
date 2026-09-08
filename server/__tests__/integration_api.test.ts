@@ -125,6 +125,32 @@ describe("integration API", () => {
       expect(storage.touchApiKey).toHaveBeenCalledWith("key-1");
     });
 
+    it("does not fail the request when recording last-used time fails", async () => {
+      (storage.touchApiKey as Mock).mockRejectedValue(new Error("db unavailable"));
+      const res = await withKey(request(app).get("/api/integration/ping"));
+      expect(res.status).toBe(200);
+    });
+
+    it("rejects a key whose owning user no longer exists", async () => {
+      (storage.getUser as Mock).mockImplementation(async (id: string) =>
+        id === USER.id ? undefined : USER
+      );
+
+      const res = await withKey(request(app).get("/api/integration/ping"));
+
+      expect(res.status).toBe(401);
+      expect(res.body.error).toBe("Invalid API key");
+    });
+
+    it("returns 500 when API key authentication itself fails", async () => {
+      (storage.getApiKeyByHash as Mock).mockRejectedValue(new Error("db unavailable"));
+
+      const res = await withKey(request(app).get("/api/integration/ping"));
+
+      expect(res.status).toBe(500);
+      expect(res.body.error).toBe("Authentication failed");
+    });
+
     it("does NOT accept an API key outside the integration surface", async () => {
       // The key must be useless against the rest of the API — most importantly
       // against key management itself, so a leaked key cannot mint another.
@@ -178,6 +204,28 @@ describe("integration API", () => {
     it("passes a comma-separated status filter through to storage", async () => {
       await withKey(request(app).get("/api/integration/library?status=wanted,owned"));
       expect(storage.getUserGames).toHaveBeenCalledWith("user-1", false, ["wanted", "owned"]);
+    });
+
+    it("rejects a malformed status filter instead of silently matching everything", async () => {
+      const res = await withKey(request(app).get("/api/integration/library?status=,"));
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("Invalid query parameters");
+    });
+
+    it("rejects an unknown status value", async () => {
+      const res = await withKey(
+        request(app).get("/api/integration/library?status=not-a-real-status")
+      );
+      expect(res.status).toBe(400);
+    });
+
+    it("returns 500 when the library lookup fails", async () => {
+      (storage.getUserGames as Mock).mockRejectedValue(new Error("db unavailable"));
+
+      const res = await withKey(request(app).get("/api/integration/library"));
+
+      expect(res.status).toBe(500);
+      expect(res.body.error).toBe("Failed to fetch library");
     });
   });
 
@@ -259,6 +307,30 @@ describe("integration API", () => {
         games: [],
       });
       expect(res.status).toBe(400);
+    });
+
+    it("matches against the first game when two library entries share a normalized title", async () => {
+      (storage.getUserGames as Mock).mockResolvedValue([
+        ...library,
+        { id: "game-3", title: "celeste", status: "owned", steamAppId: null },
+      ]);
+
+      const res = await withKey(request(app).post("/api/integration/library/sync")).send({
+        games: [{ title: "Celeste" }],
+      });
+
+      expect(res.body.matched[0].gameId).toBe("game-2");
+    });
+
+    it("returns 500 when the sync fails", async () => {
+      (storage.getUserGames as Mock).mockRejectedValue(new Error("db unavailable"));
+
+      const res = await withKey(request(app).post("/api/integration/library/sync")).send({
+        games: [{ title: "Anything" }],
+      });
+
+      expect(res.status).toBe(500);
+      expect(res.body.error).toBe("Library sync failed");
     });
   });
 
@@ -349,6 +421,35 @@ describe("integration API", () => {
       });
       expect(res.status).toBe(400);
     });
+
+    it("returns 400 when the matched IGDB data fails schema validation", async () => {
+      const { igdbClient } = await import("../igdb.js");
+      // No title -- insertGameSchema requires one, so quickAddGameByTitle's
+      // own `insertGameSchema.parse` throws a ZodError before storage is touched.
+      (igdbClient.formatGameData as Mock).mockReturnValue({
+        igdbId: 113112,
+        isAdultContent: false,
+        isAgeRestricted: false,
+      });
+
+      const res = await withKey(request(app).post("/api/integration/games/request")).send({
+        title: "Hades",
+      });
+
+      expect(res.status).toBe(400);
+      expect(storage.addGame).not.toHaveBeenCalled();
+    });
+
+    it("returns 500 when the request fails for a reason other than validation", async () => {
+      (storage.getUserGames as Mock).mockRejectedValue(new Error("db unavailable"));
+
+      const res = await withKey(request(app).post("/api/integration/games/request")).send({
+        title: "Hades",
+      });
+
+      expect(res.status).toBe(500);
+      expect(res.body.error).toBe("Failed to request game");
+    });
   });
 
   describe("API key management (JWT only)", () => {
@@ -378,6 +479,13 @@ describe("integration API", () => {
       expect(stored.keyHash).not.toContain(res.body.key);
       const { hashApiKey } = await import("../auth.js");
       expect(stored.keyHash).toBe(hashApiKey(res.body.key));
+    });
+
+    it("returns 500 when listing keys fails", async () => {
+      (storage.getApiKeys as Mock).mockRejectedValue(new Error("db unavailable"));
+      const res = await authed(request(app).get("/api/api-keys"));
+      expect(res.status).toBe(500);
+      expect(res.body.error).toBe("Failed to list API keys");
     });
 
     it("never exposes the hash when listing keys", async () => {
@@ -415,6 +523,15 @@ describe("integration API", () => {
       expect(res.body.error).toMatch(/at most/i);
     });
 
+    it("returns 500 when key creation fails for a reason other than the cap", async () => {
+      (storage.addApiKey as Mock).mockRejectedValue(new Error("db unavailable"));
+
+      const res = await authed(request(app).post("/api/api-keys")).send({ name: "Playnite" });
+
+      expect(res.status).toBe(500);
+      expect(res.body.error).toBe("Failed to create API key");
+    });
+
     it("revokes a key scoped to the calling user", async () => {
       const keyId = "11111111-1111-4111-8111-111111111111";
       (storage.removeApiKey as Mock).mockResolvedValue(true);
@@ -436,5 +553,34 @@ describe("integration API", () => {
       expect(res.status).toBe(400);
       expect(storage.removeApiKey).not.toHaveBeenCalled();
     });
+
+    it("returns 500 when revocation fails", async () => {
+      const keyId = "33333333-3333-4333-8333-333333333333";
+      (storage.removeApiKey as Mock).mockRejectedValue(new Error("db unavailable"));
+
+      const res = await authed(request(app).delete(`/api/api-keys/${keyId}`));
+
+      expect(res.status).toBe(500);
+      expect(res.body.error).toBe("Failed to revoke API key");
+    });
+  });
+});
+
+describe("integrationRouter's own auth guard", () => {
+  // Every real mount point runs this router behind authenticateApiKeyOrToken,
+  // so req.user is always populated by the time a request reaches it. This
+  // guard only exists as defence-in-depth against a future mount that forgets
+  // that middleware -- exercise it directly, without going through the app's
+  // real auth stack, to prove it actually blocks an unauthenticated request.
+  it("returns 401 when mounted without an authentication middleware in front of it", async () => {
+    const { integrationRouter } = await import("../routes/integration.js");
+    const app = express();
+    app.use(express.json());
+    app.use("/api/integration", integrationRouter);
+
+    const res = await request(app).get("/api/integration/ping");
+
+    expect(res.status).toBe(401);
+    expect(res.body.error).toBe("Unauthorized");
   });
 });

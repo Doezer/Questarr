@@ -189,6 +189,7 @@ export function createLoggerMocks() {
     },
     logger: {
       info: vi.fn(),
+      warn: vi.fn(),
       error: vi.fn(),
       child: vi.fn().mockReturnThis(),
     },

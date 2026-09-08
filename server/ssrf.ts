@@ -379,6 +379,21 @@ export function isSafeIp(ip: string, allowPrivate = true): boolean {
 }
 
 /**
+ * True when the hostname is a literal IP address that is not publicly routable:
+ * loopback, RFC1918 / ULA private space, or link-local. A DNS name is not
+ * classified here and returns false — resolving it is the caller's business.
+ */
+export function isPrivateNetworkAddress(hostname: string): boolean {
+  const normalizedHostname = normalizeHostname(hostname);
+  if (isIP(normalizedHostname) === 0) {
+    return false;
+  }
+  // isSafeIp(..., false) answers "is this address reachable from the public
+  // internet", so its negation is exactly the private/loopback/link-local set.
+  return !isSafeIp(normalizedHostname, false);
+}
+
+/**
  * Fetches a URL while validating each request target against SSRF risks and DNS rebinding.
  *
  * Follows redirects when configured, validating every redirect target and applying redirect

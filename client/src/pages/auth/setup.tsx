@@ -90,8 +90,9 @@ export default function SetupPage() {
       });
       return res.json();
     },
-    onSuccess: async (data) => {
-      localStorage.setItem("token", data.token);
+    onSuccess: async () => {
+      // The server has already set the httpOnly auth cookie; nothing to
+      // store client-side (see server/security.ts's setAuthCookies).
       await checkSetup();
       toast({ title: "Setup complete! Welcome." });
       // Force reload to pick up auth state or navigate

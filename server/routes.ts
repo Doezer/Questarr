@@ -78,6 +78,7 @@ import {
   authenticateToken,
   optionalAuthenticateToken,
 } from "./auth.js";
+import { setAuthCookies, clearAuthCookies, csrfProtection } from "./security.js";
 import { nexusmodsClient } from "./nexusmods.js";
 import {
   appriseClient,
@@ -153,6 +154,19 @@ function isPublicApiRequest(req: Request): boolean {
   return PUBLIC_API_ROUTES.has(`${req.method.toUpperCase()} ${req.path}`);
 }
 
+// Routes that must always run, even with a missing/expired/invalid token,
+// but should still pick up req.user/req.authSource when the token IS valid
+// (so e.g. csrfProtection still enforces the CSRF check for a cookie-backed
+// caller). Logout is the motivating case: JWTs are stateless, so the only
+// server-side effect is clearing the auth/CSRF cookies, and a user stuck
+// with an expired cookie must still be able to do that -- hard-rejecting
+// the request at the boundary would leave the stale cookies in the browser.
+const SOFT_AUTH_API_ROUTES = new Set<string>(["POST /auth/logout"]);
+
+function isSoftAuthApiRequest(req: Request): boolean {
+  return SOFT_AUTH_API_ROUTES.has(`${req.method.toUpperCase()} ${req.path}`);
+}
+
 /**
  * Default-deny gate for the entire /api surface: anything not explicitly
  * allowlisted above requires a valid token. Mounted before any /api route is
@@ -162,6 +176,10 @@ function isPublicApiRequest(req: Request): boolean {
 export function requireAuthenticationForApi(req: Request, res: Response, next: NextFunction) {
   if (isPublicApiRequest(req)) {
     next();
+    return;
+  }
+  if (isSoftAuthApiRequest(req)) {
+    optionalAuthenticateToken(req, res, next);
     return;
   }
   authenticateToken(req, res, next);
@@ -593,6 +611,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // /api route (including the routers below) is registered, so every /api/*
   // request is required to authenticate unless explicitly allowlisted above.
   app.use("/api", requireAuthenticationForApi);
+  // CSRF protection for cookie-authenticated requests. Must run after the
+  // auth boundary above so req.authSource is already populated.
+  app.use("/api", csrfProtection);
 
   // Use Steam Routes
   app.use(steamRoutes);
@@ -688,6 +709,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await saveIgdbCredentialsIfProvided(igdbClientId, igdbClientSecret);
 
       routesLogger.info({ username: trimmedUsername }, "Initial setup completed");
+      // Cookie-based auth is the primary mechanism for browser clients (see
+      // server/security.ts); the token is also still returned in the body
+      // for backward compatibility with any non-browser/bearer-only client.
+      setAuthCookies(req, res, token);
       res.json({ token, user: { id: user.id, username: user.username } });
     } catch (error) {
       routesLogger.error(
@@ -735,12 +760,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     await storage.assignOrphanGamesToUser(user.id);
 
     const token = await generateToken(user);
+    // Cookie-based auth is the primary mechanism for browser clients (see
+    // server/security.ts); the token is also still returned in the body
+    // for backward compatibility with any non-browser/bearer-only client.
+    setAuthCookies(req, res, token);
     res.json({ token, user: { id: user.id, username: user.username } });
   });
 
   app.get("/api/auth/me", authenticateToken, (req, res) => {
     const user = req.user!;
     res.json({ id: user.id, username: user.username, steamId64: user.steamId64 });
+  });
+
+  // Logout must be idempotent: an expired/invalid/missing session cookie
+  // must still be cleared, otherwise the browser keeps a stale cookie
+  // forever. It's a SOFT_AUTH_API_ROUTES entry (see requireAuthenticationForApi
+  // above), which already ran optionalAuthenticateToken for this request --
+  // req.authSource is populated when a valid cookie is present, so
+  // csrfProtection (mounted before route registration) still enforces the
+  // CSRF check for cookie-authenticated callers. JWTs are stateless, so
+  // there's nothing to invalidate server-side beyond clearing the cookies.
+  app.post("/api/auth/logout", (req, res) => {
+    clearAuthCookies(req, res);
+    res.json({ success: true });
   });
 
   app.patch("/api/auth/password", authenticateToken, sensitiveEndpointLimiter, async (req, res) => {
@@ -1163,11 +1205,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Mount Feature Routers (also explicitly protected as defense-in-depth,
-  // though the default-deny boundary mounted above already covers them)
-  app.use("/api/imports", authenticateToken, importRouter);
-  app.use("/api/import-tasks", authenticateToken, importTasksRouter);
-  app.use("/api/system", authenticateToken, systemRouter);
+  // Mount Feature Routers. No per-mount authenticateToken here: the
+  // default-deny boundary (requireAuthenticationForApi, mounted above
+  // before any /api route is registered) already authenticates every
+  // request to these paths -- none of them are in PUBLIC_API_ROUTES.
+  // Repeating the check here bought no additional protection (it re-runs
+  // the identical jwt.verify + storage.getUser after the same middleware
+  // already accepted the request) while doubling the per-request auth cost.
+  app.use("/api/imports", importRouter);
+  app.use("/api/import-tasks", importTasksRouter);
+  app.use("/api/system", systemRouter);
 
   // Sync indexers from Prowlarr
   app.post("/api/indexers/prowlarr/sync", sensitiveEndpointLimiter, async (req, res, next) => {

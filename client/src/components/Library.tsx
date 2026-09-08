@@ -43,6 +43,7 @@ import { setAddGamePendingQuery, clearAddGamePendingQuery } from "@/lib/add-game
 import { useDownloadSummary } from "@/hooks/use-download-summary";
 import GameFilterPills from "./GameFilterPills";
 import PendingImportsCard from "./PendingImportsCard";
+import { LIBRARY_SORT_OPTIONS, sortLibraryGames, type LibrarySortOption } from "@/lib/game-sort";
 
 export default function Library() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -55,6 +56,10 @@ export default function Library() {
   const [showDownloadsOnly, setShowDownloadsOnly] = useState(false);
   const [minRating, setMinRating] = useState<number | null>(null);
   const [showUnratedOnly, setShowUnratedOnly] = useState(false);
+  const [sortBy, setSortBy] = useLocalStorageState<LibrarySortOption>(
+    "librarySortBy",
+    "added-desc"
+  );
 
   const clearAllFilters = useCallback(() => {
     setStatusFilter("all");
@@ -136,7 +141,7 @@ export default function Library() {
   }, [games]);
 
   const filteredGames = useMemo(() => {
-    return games.filter((game) => {
+    const filtered = games.filter((game) => {
       if (statusFilter !== "all" && game.status !== statusFilter) return false;
       if (genreFilter !== "all" && !game.genres?.includes(genreFilter)) return false;
       if (platformFilter !== "all" && !game.platforms?.includes(platformFilter)) return false;
@@ -147,6 +152,7 @@ export default function Library() {
         return false;
       return true;
     });
+    return sortLibraryGames(filtered, sortBy);
   }, [
     games,
     statusFilter,
@@ -157,6 +163,7 @@ export default function Library() {
     downloadSummaries,
     minRating,
     showUnratedOnly,
+    sortBy,
   ]);
 
   const activeFilters = useMemo(() => {
@@ -227,6 +234,11 @@ export default function Library() {
       hiddenMutation.mutate({ gameId, hidden });
     },
     [hiddenMutation]
+  );
+
+  const handleSortChange = useCallback(
+    (value: string) => setSortBy(value as LibrarySortOption),
+    [setSortBy]
   );
 
   return (
@@ -307,6 +319,10 @@ export default function Library() {
               />
             </div>
           }
+          sortValue={sortBy}
+          onSortChange={handleSortChange}
+          sortOptions={LIBRARY_SORT_OPTIONS}
+          sortAriaLabel="Sort library games"
           viewControls={{
             viewMode,
             onViewModeChange: setViewMode,

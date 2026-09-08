@@ -89,6 +89,12 @@ export function createStorageMock() {
     addGameDownload: vi.fn(),
     getDownloadsByGameId: vi.fn().mockResolvedValue([]),
     getDownloadSummaryByGame: vi.fn().mockResolvedValue({}),
+    getDashboardStatus: vi.fn().mockResolvedValue({
+      totalGames: 0,
+      pendingWishlist: 0,
+      activeDownloads: 0,
+      recentImports: { count: 0, items: [] },
+    }),
     getTrackedDownloadKeys: vi.fn().mockResolvedValue(new Set()),
     getTrackedDownloadGameStatuses: vi.fn().mockResolvedValue(new Map()),
     getGameByIgdbId: vi.fn(),
@@ -109,6 +115,14 @@ export function createStorageMock() {
     removeReleaseBlacklist: vi.fn(),
     getReleaseBlacklistSet: vi.fn().mockResolvedValue(new Set()),
     getImportConfig: vi.fn(),
+    getGameDownload: vi.fn(),
+    getGameFiles: vi.fn().mockResolvedValue([]),
+    getGameFile: vi.fn(),
+    getGameFilesByDownload: vi.fn().mockResolvedValue([]),
+    addGameFile: vi.fn(),
+    addGameFilesBatch: vi.fn(),
+    removeGameFile: vi.fn(),
+    removeGameFilesByGameId: vi.fn(),
   };
 }
 

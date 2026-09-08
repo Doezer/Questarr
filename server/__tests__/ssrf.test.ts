@@ -32,6 +32,11 @@ function capturedLookup(): LookupFunction {
   return lookup as LookupFunction;
 }
 
+// Queues a single resolved DNS lookup for the next safeFetch hop.
+function mockDnsResolvesOnce(address = "1.2.3.4"): void {
+  vi.mocked(dns.lookup).mockResolvedValueOnce([{ address, family: 4 }]);
+}
+
 describe("isSafeUrl Security Check", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -202,6 +207,60 @@ describe("safeFetch", () => {
     await expect(safeFetch("https://example.com/download")).rejects.toThrow(
       "Invalid or unsafe URL"
     );
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("should refuse a credential-bearing request to a plain-HTTP URL with requireHttps", async () => {
+    await expect(safeFetch("http://example.com/rpc", { requireHttps: true })).rejects.toThrow(
+      "non-HTTPS"
+    );
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("should refuse to follow a redirect to a plain-HTTP hop with requireHttps", async () => {
+    mockDnsResolvesOnce();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(null, {
+        status: 307,
+        headers: { location: "http://downgraded.example.com/rpc" },
+      })
+    );
+
+    await expect(safeFetch("https://example.com/rpc", { requireHttps: true })).rejects.toThrow(
+      "non-HTTPS"
+    );
+    // The insecure hop is never dialed -- only the first, HTTPS leg was fetched.
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("should allow an all-HTTPS redirect chain with requireHttps", async () => {
+    mockDnsResolvesOnce();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(null, { status: 307, headers: { location: "https://example.com/rpc2" } })
+    );
+    mockDnsResolvesOnce();
+    vi.mocked(fetch).mockResolvedValueOnce(new Response("ok"));
+
+    const response = await safeFetch("https://example.com/rpc", { requireHttps: true });
+    expect(await response.text()).toBe("ok");
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("should refuse to follow a same-scheme redirect to a different origin with requireHttps", async () => {
+    mockDnsResolvesOnce();
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(null, {
+        status: 307,
+        headers: { location: "https://attacker.example/rpc" },
+      })
+    );
+
+    await expect(safeFetch("https://example.com/rpc", { requireHttps: true })).rejects.toThrow(
+      "different origin"
+    );
+    // The 307 preserves the request body, so a redirect to another HTTPS origin would
+    // still hand a credential-bearing request to a host never validated as the target --
+    // only the first, same-origin leg should ever be dialed.
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 

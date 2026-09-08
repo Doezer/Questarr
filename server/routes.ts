@@ -28,8 +28,11 @@ import {
   type Indexer,
   type Downloader,
   type InsertImportTaskItem,
+  type ScannedGameFile,
+  type GameFileCategory,
 } from "../shared/schema.js";
 import { isUsenetDownloaderType } from "../shared/downloader-types.js";
+import { parseJsonObject } from "../shared/json-object-utils.js";
 import { torznabClient } from "./torznab.js";
 import { newznabClient } from "./newznab.js";
 import { rssService } from "./rss.js";
@@ -56,6 +59,7 @@ import {
   sanitizeIndexerData,
   sanitizeIndexerUpdateData,
   sanitizeDownloaderData,
+  sanitizeDownloaderTestData,
   sanitizeDownloaderUpdateData,
   sanitizeDownloaderDownloadData,
   sanitizeIndexerSearchQuery,
@@ -75,6 +79,7 @@ import {
   authenticateToken,
   optionalAuthenticateToken,
 } from "./auth.js";
+import { setAuthCookies, clearAuthCookies, csrfProtection } from "./security.js";
 import { nexusmodsClient } from "./nexusmods.js";
 import {
   appriseClient,
@@ -104,6 +109,83 @@ const normalizeInitialReleaseStatus = <
 // Root directory for the file system browser; restrict browsing to this tree
 const FILE_BROWSER_ROOT = fs.realpathSync(process.cwd());
 
+type IgdbConfigSource = "env" | "database" | undefined;
+
+interface IgdbConfigStatus {
+  configured: boolean;
+  source: IgdbConfigSource;
+}
+
+/**
+ * Whether IGDB credentials are configured (DB takes precedence over env vars),
+ * and which source they came from. Shared between the authenticated
+ * GET /api/config endpoint and the unauthenticated GET /api/auth/status
+ * endpoint (which needs just this boolean to drive the setup wizard, without
+ * exposing anything else config-related pre-login).
+ */
+async function getIgdbConfigStatus(): Promise<IgdbConfigStatus> {
+  const dbClientId = await storage.getSystemConfig("igdb.clientId");
+  const dbClientSecret = await storage.getSystemConfig("igdb.clientSecret");
+
+  if (dbClientId && dbClientSecret) {
+    return { configured: true, source: "database" };
+  }
+  if (appConfig.igdb.isConfigured) {
+    return { configured: true, source: "env" };
+  }
+  return { configured: false, source: undefined };
+}
+
+// ── Default-deny API auth boundary ─────────────────────────────────────────
+// Every /api/* route requires authentication unless explicitly allowlisted
+// here. This is intentionally an allowlist (not a denylist of "routes that
+// need auth") so that a new route added without updating this list fails
+// safe -- it requires a token by default rather than accidentally becoming
+// public. Paths are relative to the "/api" mount point (no leading "/api").
+export const PUBLIC_API_ROUTES = new Set<string>([
+  "GET /auth/status", // setup-wizard / login-page bootstrap check, runs pre-login
+  "POST /auth/setup", // creates the first user; there is no user/token yet
+  "POST /auth/login", // issues the token; obviously can't require one
+  "GET /health", // liveness probe (docker/compose healthcheck, DAST workflow)
+  "GET /ready", // readiness probe (db/IGDB connectivity), no sensitive data
+]);
+
+function isPublicApiRequest(req: Request): boolean {
+  if (req.method === "OPTIONS") return true;
+  return PUBLIC_API_ROUTES.has(`${req.method.toUpperCase()} ${req.path}`);
+}
+
+// Routes that must always run, even with a missing/expired/invalid token,
+// but should still pick up req.user/req.authSource when the token IS valid
+// (so e.g. csrfProtection still enforces the CSRF check for a cookie-backed
+// caller). Logout is the motivating case: JWTs are stateless, so the only
+// server-side effect is clearing the auth/CSRF cookies, and a user stuck
+// with an expired cookie must still be able to do that -- hard-rejecting
+// the request at the boundary would leave the stale cookies in the browser.
+const SOFT_AUTH_API_ROUTES = new Set<string>(["POST /auth/logout"]);
+
+function isSoftAuthApiRequest(req: Request): boolean {
+  return SOFT_AUTH_API_ROUTES.has(`${req.method.toUpperCase()} ${req.path}`);
+}
+
+/**
+ * Default-deny gate for the entire /api surface: anything not explicitly
+ * allowlisted above requires a valid token. Mounted before any /api route is
+ * registered so it always runs first, regardless of whether an individual
+ * route handler also happens to apply authenticateToken itself.
+ */
+export function requireAuthenticationForApi(req: Request, res: Response, next: NextFunction) {
+  if (isPublicApiRequest(req)) {
+    next();
+    return;
+  }
+  if (isSoftAuthApiRequest(req)) {
+    optionalAuthenticateToken(req, res, next);
+    return;
+  }
+  authenticateToken(req, res, next);
+}
+
 // Configure multer for memory storage
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -120,7 +202,7 @@ import {
   parseReleaseMetadata,
   matchesPlatformFilter,
 } from "../shared/title-utils.js";
-import { categorizeDownload } from "../shared/download-categorizer.js";
+import { categorizeDownload, type DownloadCategory } from "../shared/download-categorizer.js";
 import { SUPPORT_WORKER_ORIGIN } from "../shared/support-config.js";
 import { ZipArchive } from "archiver";
 import helmet from "helmet";
@@ -173,14 +255,52 @@ function isValidDiscordWebhook(value: string): boolean {
   }
 }
 
+/**
+ * Masks an indexer's API key before exposing its configuration.
+ *
+ * @param indexer - The indexer configuration to sanitize
+ * @returns The indexer with its API key replaced by a redaction placeholder when configured
+ */
 function maskIndexer(indexer: Indexer): Indexer {
   return indexer.apiKey ? { ...indexer, apiKey: REDACTED_PLACEHOLDER } : indexer;
 }
 
-function maskDownloader(downloader: Downloader): Downloader {
-  return downloader.password ? { ...downloader, password: REDACTED_PLACEHOLDER } : downloader;
+// The SABnzbd archive password lives inside the free-form `settings` JSON blob
+// (alongside qBittorrent's initialState etc.), so it needs its own mask/restore
+/**
+ * Masks the archive password in serialized downloader settings.
+ *
+ * @param settingsJson - The serialized downloader settings, or `null`
+ * @returns The settings with the archive password redacted, or the original value when no archive password is configured
+ */
+function maskDownloaderSettings(settingsJson: string | null): string | null {
+  const settings = parseJsonObject(settingsJson);
+  if (!settings.archivePassword) return settingsJson;
+  return JSON.stringify({ ...settings, archivePassword: REDACTED_PLACEHOLDER });
 }
 
+/**
+ * Masks sensitive credentials in a downloader configuration.
+ *
+ * @param downloader - The downloader configuration whose credentials should be masked
+ * @returns A downloader configuration with its password and archive password redacted
+ */
+function maskDownloader(downloader: Downloader): Downloader {
+  const masked = downloader.password
+    ? { ...downloader, password: REDACTED_PLACEHOLDER }
+    : downloader;
+  const maskedSettings = maskDownloaderSettings(masked.settings);
+  return maskedSettings !== masked.settings ? { ...masked, settings: maskedSettings } : masked;
+}
+
+/**
+ * Sends a bad-request response containing a message and Zod validation issues.
+ *
+ * @param res - The response used to send the error
+ * @param error - The Zod validation error containing issue details
+ * @param message - The error message included in the response
+ * @returns The configured response
+ */
 function respondWithZodError(res: Response, error: z.ZodError, message: string): Response {
   return res.status(400).json({ error: message, details: error.issues });
 }
@@ -464,6 +584,12 @@ function registerIgdbParamListRoute(
   });
 }
 
+/**
+ * Registers application middleware and API routes, then creates the HTTP server.
+ *
+ * @param app - The Express application to configure
+ * @returns The configured HTTP server
+ */
 export async function registerRoutes(app: Express): Promise<Server> {
   // 🛡️ Sentinel: Add security headers with Helmet
   // Configured to allow Vite/React (unsafe-inline/eval) in dev, and IGDB images everywhere
@@ -519,6 +645,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     );
     next();
   });
+  // Explicit robots.txt so well-behaved crawlers stay out even before
+  // fetching any other page (belt-and-suspenders alongside the X-Robots-Tag
+  // header set in app.ts). Registered here, after helmet(), so it still gets
+  // the same security headers as every other response.
+  app.get("/robots.txt", (_req, res) => {
+    res.type("text/plain").send("User-agent: *\nDisallow: /\n");
+  });
+  // Default-deny auth boundary for the whole /api surface. Mounted before any
+  // /api route (including the routers below) is registered, so every /api/*
+  // request is required to authenticate unless explicitly allowlisted above.
+  app.use("/api", requireAuthenticationForApi);
+  // CSRF protection for cookie-authenticated requests. Must run after the
+  // auth boundary above so req.authSource is already populated.
+  app.use("/api", csrfProtection);
+
   // Use Steam Routes
   app.use(steamRoutes);
   // Use PCGamingWiki Routes
@@ -558,7 +699,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/auth/status", async (_req, res) => {
     try {
       const userCount = await storage.countUsers();
-      res.json({ hasUsers: userCount > 0 });
+      const hasUsers = userCount > 0;
+      // Also surface IGDB configured-status here (not just hasUsers) so the
+      // unauthenticated setup wizard can decide whether to ask for IGDB
+      // credentials without needing to call the authenticated /api/config
+      // endpoint pre-login. This route stays on the public allowlist even
+      // after setup completes (existing sessions re-check it), so once a
+      // user exists, omit the igdb field entirely rather than leaving IGDB
+      // configuration status queryable by any anonymous caller forever.
+      if (!hasUsers) {
+        const igdb = await getIgdbConfigStatus();
+        return res.json({ hasUsers, igdb });
+      }
+      res.json({ hasUsers });
     } catch (error) {
       routesLogger.error({ error }, "Failed to check setup status");
       res.status(500).json({ error: "Failed to check setup status" });
@@ -601,6 +754,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await saveIgdbCredentialsIfProvided(igdbClientId, igdbClientSecret);
 
       routesLogger.info({ username: trimmedUsername }, "Initial setup completed");
+      // Cookie-based auth is the primary mechanism for browser clients (see
+      // server/security.ts); the token is also still returned in the body
+      // for backward compatibility with any non-browser/bearer-only client.
+      setAuthCookies(req, res, token);
       res.json({ token, user: { id: user.id, username: user.username } });
     } catch (error) {
       routesLogger.error(
@@ -648,12 +805,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     await storage.assignOrphanGamesToUser(user.id);
 
     const token = await generateToken(user);
+    // Cookie-based auth is the primary mechanism for browser clients (see
+    // server/security.ts); the token is also still returned in the body
+    // for backward compatibility with any non-browser/bearer-only client.
+    setAuthCookies(req, res, token);
     res.json({ token, user: { id: user.id, username: user.username } });
   });
 
   app.get("/api/auth/me", authenticateToken, (req, res) => {
     const user = req.user!;
     res.json({ id: user.id, username: user.username, steamId64: user.steamId64 });
+  });
+
+  // Logout must be idempotent: an expired/invalid/missing session cookie
+  // must still be cleared, otherwise the browser keeps a stale cookie
+  // forever. It's a SOFT_AUTH_API_ROUTES entry (see requireAuthenticationForApi
+  // above), which already ran optionalAuthenticateToken for this request --
+  // req.authSource is populated when a valid cookie is present, so
+  // csrfProtection (mounted before route registration) still enforces the
+  // CSRF check for cookie-authenticated callers. JWTs are stateless, so
+  // there's nothing to invalidate server-side beyond clearing the cookies.
+  app.post("/api/auth/logout", (req, res) => {
+    clearAuthCookies(req, res);
+    res.json({ success: true });
   });
 
   app.patch("/api/auth/password", authenticateToken, sensitiveEndpointLimiter, async (req, res) => {
@@ -1044,7 +1218,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   );
 
-  // Configuration endpoint - read-only access to key settings
+  // Configuration endpoint - read-only access to key settings. Requires
+  // authentication (enforced by the default-deny API auth boundary below);
+  // the unauthenticated setup flow instead uses the `igdb` field on
+  // GET /api/auth/status, which exposes only the configured/source booleans.
   app.get("/api/config", sensitiveEndpointLimiter, async (req, res) => {
     try {
       // 🛡️ Sentinel: Harden config endpoint to prevent information disclosure.
@@ -1052,21 +1229,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // sensitive details like database URLs or partial API keys.
       // clientId is intentionally omitted here; use the authenticated
       // GET /api/settings/igdb endpoint to retrieve it.
-      let isConfigured = false;
-      let source: "env" | "database" | undefined;
-
-      // Check database first (takes precedence)
-      const dbClientId = await storage.getSystemConfig("igdb.clientId");
-      const dbClientSecret = await storage.getSystemConfig("igdb.clientSecret");
-
-      if (dbClientId && dbClientSecret) {
-        isConfigured = true;
-        source = "database";
-      } else if (appConfig.igdb.isConfigured) {
-        // Fallback to environment variables
-        isConfigured = true;
-        source = "env";
-      }
+      const { configured: isConfigured, source } = await getIgdbConfigStatus();
 
       const xrelApiBase =
         (await storage.getSystemConfig("xrel_api_base"))?.trim() ||
@@ -1087,20 +1250,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Protect all API routes from here
-  app.use("/api", (req, res, next) => {
-    // Skip authentication for specific public endpoints that were already defined or need to be excluded
-    // Note: Auth routes are defined before this middleware, so they are already skipped.
-    // We explicitly skip health check if it matched /api/health (it was defined before, so express handles it first? Yes.)
-
-    // Just applying authenticateToken middleware
-    authenticateToken(req, res, next);
-  });
-
-  // Mount Feature Routers (explicitly protected)
-  app.use("/api/imports", authenticateToken, importRouter);
-  app.use("/api/import-tasks", authenticateToken, importTasksRouter);
-  app.use("/api/system", authenticateToken, systemRouter);
+  // Mount Feature Routers. No per-mount authenticateToken here: the
+  // default-deny boundary (requireAuthenticationForApi, mounted above
+  // before any /api route is registered) already authenticates every
+  // request to these paths -- none of them are in PUBLIC_API_ROUTES.
+  // Repeating the check here bought no additional protection (it re-runs
+  // the identical jwt.verify + storage.getUser after the same middleware
+  // already accepted the request) while doubling the per-request auth cost.
+  app.use("/api/imports", importRouter);
+  app.use("/api/import-tasks", importTasksRouter);
+  app.use("/api/system", systemRouter);
 
   // Sync indexers from Prowlarr
   app.post("/api/indexers/prowlarr/sync", sensitiveEndpointLimiter, async (req, res, next) => {
@@ -1154,6 +1313,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(200).json({ status: "ok" });
     } else {
       res.status(503).json({ status: "error" });
+    }
+  });
+
+  // Lightweight dashboard stats for external status widgets (Homepage, Homarr, Organizr, etc.)
+  app.get("/api/status", authenticateToken, async (req, res) => {
+    try {
+      const status = await storage.getDashboardStatus(req.user!.id);
+      // User-specific data: never let a shared/browser cache reuse this across accounts.
+      res.set("Cache-Control", "no-store");
+      res.json(status);
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to get dashboard status");
+      res.status(500).json({ error: "Failed to get dashboard status" });
     }
   });
 
@@ -1764,6 +1936,98 @@ export async function registerRoutes(app: Express): Promise<Server> {
       .withMessage("Invalid game file category"),
   ];
 
+  // Recursively scan a game library folder. This endpoint is read-only; imports are handled separately.
+  app.get(
+    "/api/games/:gameId/files",
+    authenticateToken,
+    gameIdParamValidation,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      // A missing path, a path that isn't a directory, or a symlink cycle are expected
+      // conditions for a stale/misconfigured library path — treat them as "nothing here".
+      // Anything else (EACCES, EPERM, other I/O failures) is a real failure and should
+      // surface as a 500 rather than silently reporting an empty or partial scan.
+      const isExpectedFsError = (error: unknown): boolean =>
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        ["ENOENT", "ENOTDIR", "ELOOP"].includes((error as NodeJS.ErrnoException).code ?? "");
+      const realpathOrNull = async (target: string): Promise<string | null> => {
+        try {
+          return await fs.promises.realpath(target);
+        } catch (error) {
+          if (isExpectedFsError(error)) return null;
+          throw error;
+        }
+      };
+      try {
+        const game = await resolveOwnedGame(req.params.gameId, req.user!.id, res);
+        if (!game) return;
+        if (!game.libraryPath) return res.json({ files: [] });
+
+        const importConfig = await storage.getImportConfig(req.user!.id);
+        const libraryRoot = await realpathOrNull(importConfig.libraryRoot);
+        const scanRoot = await realpathOrNull(game.libraryPath);
+        const isContained = (candidate: string, root: string) =>
+          candidate === root ||
+          candidate.startsWith(root.endsWith(path.sep) ? root : root + path.sep);
+        if (!libraryRoot || !scanRoot || !isContained(scanRoot, libraryRoot)) {
+          return res.json({ files: [] });
+        }
+
+        const categoryDirs = new Set<DownloadCategory>(["dlc", "update", "extra", "packs"]);
+        const isCategoryDirName = (name: string): name is DownloadCategory =>
+          categoryDirs.has(name as DownloadCategory);
+        // "packs" is recognized as a category-inheriting folder name, but game_files only
+        // persists the four categories the UI groups by ("main" | "dlc" | "update" | "extra").
+        // Normalize it (and the same category from filename-based categorizeDownload
+        // matches) to "extra" so scan results are always postable via POST /api/game-files.
+        const normalizeCategory = (category: DownloadCategory): GameFileCategory =>
+          category === "packs" ? "extra" : category;
+        const files: ScannedGameFile[] = [];
+        const walk = async (dir: string, inheritedCategory?: DownloadCategory): Promise<void> => {
+          const canonicalDir = await realpathOrNull(dir);
+          if (!canonicalDir || !isContained(canonicalDir, libraryRoot)) return;
+          let entries: fs.Dirent[];
+          try {
+            entries = await fs.promises.readdir(canonicalDir, { withFileTypes: true });
+          } catch (error) {
+            if (isExpectedFsError(error)) return;
+            throw error;
+          }
+          for (const entry of entries) {
+            const fullPath = path.join(canonicalDir, entry.name);
+            if (entry.isDirectory()) {
+              const lowerName = entry.name.toLowerCase();
+              const nextCategory = isCategoryDirName(lowerName) ? lowerName : inheritedCategory;
+              await walk(fullPath, nextCategory);
+              continue;
+            }
+            if (!entry.isFile()) continue;
+            const canonicalFile = await realpathOrNull(fullPath);
+            if (!canonicalFile || !isContained(canonicalFile, libraryRoot)) continue;
+            let stat: Awaited<ReturnType<typeof fs.promises.stat>>;
+            try {
+              stat = await fs.promises.stat(canonicalFile);
+            } catch (error) {
+              if (isExpectedFsError(error)) continue;
+              throw error;
+            }
+            const category = normalizeCategory(
+              inheritedCategory ?? categorizeDownload(path.parse(entry.name).name).category
+            );
+            files.push({ name: entry.name, path: canonicalFile, category, size: stat.size });
+          }
+        };
+        await walk(scanRoot);
+        res.json({ files });
+      } catch (error) {
+        routesLogger.error({ error }, "error scanning game files");
+        res.status(500).json({ error: "Failed to scan game files" });
+      }
+    }
+  );
+
   // Get game files for a specific game, grouped by category
   app.get(
     "/api/games/:gameId/content",
@@ -2346,6 +2610,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
           delete updates.password;
         }
 
+        // Same masked-sentinel handling for the archive password nested inside
+        // `settings` -- restore the stored value instead of overwriting it with
+        // the redaction placeholder the UI echoes back unchanged.
+        if (typeof updates.settings === "string") {
+          const incomingSettings = parseJsonObject(updates.settings);
+          if (isUnchangedSentinel(incomingSettings.archivePassword)) {
+            const existing = await storage.getDownloader(id);
+            const existingPassword = parseJsonObject(existing?.settings).archivePassword;
+            if (existingPassword) {
+              incomingSettings.archivePassword = existingPassword;
+            } else {
+              delete incomingSettings.archivePassword;
+            }
+            updates.settings = JSON.stringify(incomingSettings);
+          }
+        }
+
         const downloader = await storage.updateDownloader(id, updates);
         if (!downloader) {
           return res.status(404).json({ error: "Downloader not found" });
@@ -2521,67 +2802,70 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Downloader integration routes
 
   // Test downloader connection with provided configuration (doesn't require saving first)
-  app.post("/api/downloaders/test", async (req, res) => {
-    try {
-      const {
-        type,
-        url,
-        port,
-        useSsl,
-        urlPath,
-        username,
-        password,
-        downloadPath,
-        category,
-        label,
-        addStopped,
-        removeCompleted,
-        postImportCategory,
-        settings,
-      } = req.body;
+  app.post(
+    "/api/downloaders/test",
+    sanitizeDownloaderTestData,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const {
+          type,
+          url,
+          port,
+          useSsl,
+          urlPath,
+          username,
+          password,
+          downloadPath,
+          category,
+          label,
+          addStopped,
+          removeCompleted,
+          postImportCategory,
+          settings,
+          allowSelfSignedCertificate,
+        } = req.body;
 
-      if (!type || !url) {
-        return res.status(400).json({ error: "Type and URL are required" });
+        // Check for SSRF
+        if (!(await isSafeUrl(url))) {
+          return res.status(400).json({ error: "Invalid or unsafe URL" });
+        }
+
+        // Create a temporary downloader object for testing
+        const tempDownloader: Downloader = {
+          id: "test",
+          name: "Test Connection",
+          type,
+          url,
+          port: port || null,
+          useSsl: useSsl ?? false,
+          urlPath: urlPath || null,
+          username: username || null,
+          password: password || null,
+          enabled: true,
+          priority: 1,
+          downloadPath: downloadPath || null,
+          category: category || null,
+          label: label || "Questarr",
+          addStopped: addStopped ?? false,
+          removeCompleted: removeCompleted ?? false,
+          postImportCategory: postImportCategory || null,
+          settings: settings || null,
+          allowSelfSignedCertificate: allowSelfSignedCertificate ?? false,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+
+        const result = await DownloaderManager.testDownloader(tempDownloader);
+        res.json(result);
+      } catch (error) {
+        routesLogger.error({ error }, "error testing downloader");
+        res.status(500).json({
+          error: "Failed to test downloader connection",
+        });
       }
-
-      // Check for SSRF
-      if (!(await isSafeUrl(url))) {
-        return res.status(400).json({ error: "Invalid or unsafe URL" });
-      }
-
-      // Create a temporary downloader object for testing
-      const tempDownloader: Downloader = {
-        id: "test",
-        name: "Test Connection",
-        type,
-        url,
-        port: port || null,
-        useSsl: useSsl ?? false,
-        urlPath: urlPath || null,
-        username: username || null,
-        password: password || null,
-        enabled: true,
-        priority: 1,
-        downloadPath: downloadPath || null,
-        category: category || null,
-        label: label || "Questarr",
-        addStopped: addStopped ?? false,
-        removeCompleted: removeCompleted ?? false,
-        postImportCategory: postImportCategory || null,
-        settings: settings || null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-
-      const result = await DownloaderManager.testDownloader(tempDownloader);
-      res.json(result);
-    } catch (error) {
-      routesLogger.error({ error }, "error testing downloader");
-      res.status(500).json({
-        error: "Failed to test downloader connection",
-      });
     }
-  });
+  );
 
   // Test existing downloader connection by ID
   app.post("/api/downloaders/:id/test", async (req, res) => {
@@ -2612,7 +2896,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     async (req: Request, res: Response) => {
       try {
         const { id } = req.params;
-        const { url, title, category, downloadPath, priority, downloadType } = req.body;
+        const { url, title, category, downloadPath, priority, downloadType, password } = req.body;
 
         if (!url || !title) {
           return res.status(400).json({ error: "URL and title are required" });
@@ -2634,6 +2918,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           downloadPath,
           priority,
           downloadType,
+          password,
         });
 
         res.json(result);
@@ -3310,7 +3595,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     validateRequest,
     async (req: Request, res: Response) => {
       try {
-        const { url, title, category, downloadPath, priority, gameId, downloadType } = req.body;
+        const { url, title, category, downloadPath, priority, gameId, downloadType, password } =
+          req.body;
 
         if (!url || !title) {
           return res.status(400).json({ error: "URL and title are required" });
@@ -3329,6 +3615,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           downloadPath,
           priority,
           downloadType,
+          password,
         });
 
         if (result && result.success === false) {

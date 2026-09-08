@@ -2,6 +2,7 @@ import pino from "pino";
 import { Writable } from "node:stream";
 import { consumeLogChunk, flushLogRemainder } from "./log-stream.js";
 import { logEmitter } from "./log-events.js";
+import { redactSecrets } from "./security.js";
 
 class LogBroadcaster extends Writable {
   private remainder = "";
@@ -31,6 +32,12 @@ class LogBroadcaster extends Writable {
 
 const isProduction = process.env.NODE_ENV === "production";
 const isTest = process.env.NODE_ENV === "test";
+
+// Default log verbosity by environment (LOG_LEVEL always overrides this):
+// quiet info-level logs in production, verbose debug logs everywhere else
+// (development and test), matching how the rest of the repo's env-based
+// config (see config.ts) treats NODE_ENV.
+const DEFAULT_LOG_LEVEL = isProduction ? "info" : "debug";
 
 // Tests import this module in every server test file. The full transport pipeline below
 // spawns worker threads per target (file + pino-pretty) and writes to a shared server.log,
@@ -66,9 +73,16 @@ const destination = isTest
 
 export const logger = pino(
   {
-    level: process.env.LOG_LEVEL || "debug",
+    level: process.env.LOG_LEVEL || DEFAULT_LOG_LEVEL,
     timestamp: pino.stdTimeFunctions.isoTime,
     base: undefined,
+    formatters: {
+      // Redact secret-shaped fields (api keys, tokens, passwords, Bearer
+      // headers, ...) out of every structured log object before it's
+      // serialized, so an accidental `logger.info({ config })` call can't
+      // leak credentials to the log sink.
+      log: (object) => redactSecrets(object) as Record<string, unknown>,
+    },
   },
   destination
 );

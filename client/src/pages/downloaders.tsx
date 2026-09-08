@@ -34,10 +34,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useForm } from "react-hook-form";
+import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertDownloaderSchema, type Downloader, type InsertDownloader } from "@shared/schema";
 import { isUsenetDownloaderType } from "@shared/downloader-types";
+import { parseJsonObject } from "@shared/json-object-utils";
 import { useToast } from "@/hooks/use-toast";
 import { getDownloadTypeColor } from "@/lib/downloads-utils";
 import PageHeader from "@/components/PageHeader";
@@ -89,11 +90,96 @@ function parseIntegerInput(value: string): number | undefined {
   return Number.isNaN(parsedValue) ? undefined : parsedValue;
 }
 
+/**
+ * Parses a priority input and uses a fallback when the value is invalid or empty.
+ *
+ * @param value - The priority input to parse
+ * @param fallback - The value to use when parsing fails
+ * @returns The parsed integer or the fallback value
+ */
 function parsePriorityInput(value: string, fallback: number): number {
   const parsedValue = parseIntegerInput(value);
   return parsedValue ?? fallback;
 }
 
+// SABnzbd's default archive password lives in the free-form per-type `settings`
+// JSON blob, alongside qBittorrent's `initialState`. Kept as pure functions so
+/**
+ * Reads the archive password from serialized downloader settings.
+ *
+ * @param settingsJson - The serialized settings object.
+ * @returns The archive password, or an empty string when none is configured.
+ */
+
+export function getArchivePasswordFromSettings(settingsJson: string | undefined | null): string {
+  const settings = parseJsonObject(settingsJson);
+  return typeof settings.archivePassword === "string" ? settings.archivePassword : "";
+}
+
+/**
+ * Updates the archive password in serialized downloader settings.
+ *
+ * @param settingsJson - The serialized settings to update.
+ * @param password - The archive password to store; an empty value removes it.
+ * @returns The updated settings serialized as JSON.
+ */
+export function setArchivePasswordInSettings(
+  settingsJson: string | undefined | null,
+  password: string
+): string {
+  const settings = parseJsonObject(settingsJson);
+  if (password) {
+    settings.archivePassword = password;
+  } else {
+    delete settings.archivePassword;
+  }
+  return JSON.stringify(settings);
+}
+
+interface ArchivePasswordFieldProps {
+  readonly form: UseFormReturn<InsertDownloader>;
+}
+
+/**
+ * Renders an optional archive-password field for a downloader form.
+ *
+ * @param form - The downloader form whose serialized settings contain the archive password
+ * @returns The archive-password form field and its explanatory description
+ */
+export function ArchivePasswordField({ form }: ArchivePasswordFieldProps) {
+  return (
+    <FormItem>
+      <FormLabel>Default Archive Password (Optional)</FormLabel>
+      <FormControl>
+        <Input
+          type="password"
+          placeholder="e.g. 404"
+          value={getArchivePasswordFromSettings(form.watch("settings"))}
+          onChange={(e) => {
+            form.setValue(
+              "settings",
+              setArchivePasswordInSettings(form.getValues("settings"), e.target.value)
+            );
+          }}
+          data-testid="input-downloader-archive-password"
+        />
+      </FormControl>
+      <FormDescription className="text-xs">
+        Applied automatically to every download sent to this client. Some indexers (e.g. G4U) ship
+        releases as password-protected archives — SABnzbd and NZBGet will use this to unpack them.
+        You can still override it per-download in the search dialog.
+      </FormDescription>
+    </FormItem>
+  );
+}
+
+/**
+ * Provides an editable priority control constrained to values from 1 through 100.
+ *
+ * @param id - Identifier of the downloader whose priority is being edited
+ * @param priority - Current downloader priority
+ * @param onSave - Callback invoked when the priority changes
+ */
 function PriorityControl({
   id,
   priority,
@@ -149,6 +235,9 @@ function PriorityControl({
   );
 }
 
+/**
+ * Manages configured downloader clients, including creation, editing, deletion, status changes, priority updates, and connection testing.
+ */
 export default function DownloadersPage() {
   const { toast } = useToast();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -165,11 +254,7 @@ export default function DownloadersPage() {
 
   const addMutation = useMutation({
     mutationFn: async (data: InsertDownloader) => {
-      const token = localStorage.getItem("token");
       const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
       const response = await apiFetch("/api/downloaders", {
         method: "POST",
         headers,
@@ -191,11 +276,7 @@ export default function DownloadersPage() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: Partial<InsertDownloader> }) => {
-      const token = localStorage.getItem("token");
       const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
       const response = await apiFetch(`/api/downloaders/${id}`, {
         method: "PATCH",
         headers,
@@ -217,14 +298,8 @@ export default function DownloadersPage() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const token = localStorage.getItem("token");
-      const headers: Record<string, string> = {};
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
       const response = await apiFetch(`/api/downloaders/${id}`, {
         method: "DELETE",
-        headers,
       });
       if (!response.ok) throw new Error("Failed to delete downloader");
     },
@@ -239,11 +314,7 @@ export default function DownloadersPage() {
 
   const toggleEnabledMutation = useMutation({
     mutationFn: async ({ id, enabled }: { id: string; enabled: boolean }) => {
-      const token = localStorage.getItem("token");
       const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
       const response = await apiFetch(`/api/downloaders/${id}`, {
         method: "PATCH",
         headers,
@@ -259,11 +330,7 @@ export default function DownloadersPage() {
 
   const updatePriorityMutation = useMutation({
     mutationFn: async ({ id, priority }: { id: string; priority: number }) => {
-      const token = localStorage.getItem("token");
       const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
       const response = await apiFetch(`/api/downloaders/${id}`, {
         method: "PATCH",
         headers,
@@ -279,11 +346,7 @@ export default function DownloadersPage() {
 
   const testConnectionMutation = useMutation({
     mutationFn: async (data: { id?: string; formData?: InsertDownloader }) => {
-      const token = localStorage.getItem("token");
       const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
       if (data.id) {
         // Test existing downloader by ID
         const response = await apiFetch(`/api/downloaders/${data.id}/test`, {
@@ -352,6 +415,7 @@ export default function DownloadersPage() {
       removeCompleted: false,
       postImportCategory: "",
       settings: "",
+      allowSelfSignedCertificate: false,
     },
   });
 
@@ -382,6 +446,7 @@ export default function DownloadersPage() {
       removeCompleted: downloader.removeCompleted ?? false,
       postImportCategory: downloader.postImportCategory ?? "",
       settings: downloader.settings ?? "",
+      allowSelfSignedCertificate: downloader.allowSelfSignedCertificate ?? false,
     });
     setIsDialogOpen(true);
   };
@@ -405,6 +470,7 @@ export default function DownloadersPage() {
       removeCompleted: false,
       postImportCategory: "",
       settings: "",
+      allowSelfSignedCertificate: false,
     });
     setIsDialogOpen(true);
   };
@@ -657,6 +723,19 @@ export default function DownloadersPage() {
                           ) {
                             form.setValue("port", nextDefaultPort);
                           }
+
+                          // Only SABnzbd reads this flag. Clear it when
+                          // switching away from SABnzbd so it can't
+                          // silently carry a stale "true" into a saved
+                          // record for another downloader type, or
+                          // reappear pre-checked if the user switches back
+                          // to SABnzbd without re-confirming it.
+                          if (
+                            nextType !== "sabnzbd" &&
+                            form.getValues("allowSelfSignedCertificate")
+                          ) {
+                            form.setValue("allowSelfSignedCertificate", false);
+                          }
                         }}
                         value={field.value}
                       >
@@ -769,6 +848,31 @@ export default function DownloadersPage() {
                       </FormItem>
                     )}
                   />
+                  {form.watch("type") === "sabnzbd" && (
+                    <FormField
+                      control={form.control}
+                      name="allowSelfSignedCertificate"
+                      render={({ field }) => (
+                        <FormItem className="flex flex-row items-center justify-between rounded-lg border p-2">
+                          <div className="space-y-0">
+                            <FormLabel className="text-sm">Allow self-signed certificate</FormLabel>
+                            <FormDescription className="text-xs">
+                              Skips TLS certificate validation for this downloader over HTTPS. Only
+                              enable this if you trust the network path and understand it allows
+                              man-in-the-middle interception.
+                            </FormDescription>
+                          </div>
+                          <FormControl>
+                            <Checkbox
+                              checked={!!field.value}
+                              onCheckedChange={(checked) => field.onChange(!!checked)}
+                              data-testid="checkbox-downloader-allow-self-signed-certificate"
+                            />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                  )}
                 </>
                 <FormField
                   control={form.control}
@@ -955,6 +1059,9 @@ export default function DownloadersPage() {
                     </FormItem>
                   )}
                 />
+                {(form.watch("type") === "sabnzbd" || form.watch("type") === "nzbget") && (
+                  <ArchivePasswordField form={form} />
+                )}
                 {form.watch("type") === "qbittorrent" && (
                   <FormField
                     control={form.control}

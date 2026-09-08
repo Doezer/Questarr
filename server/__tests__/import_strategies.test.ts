@@ -105,6 +105,44 @@ describe("ImportStrategies", () => {
       expect(result.filesPlaced.some((p) => p.endsWith("data.pak"))).toBe(true);
     });
 
+    it("source is a DIRECTORY: hardlink mode links every file instead of falling back to copy", async () => {
+      // Regression test for a directory-wide hardlink attempt: fs.link()
+      // always rejects a directory with EPERM on Linux, so the multi-file
+      // (no sortExtras) path used to hand the whole source folder to
+      // fs.link() and silently fall back to a full copy every time. Each
+      // file inside the directory should now be its own hardlink, matching
+      // what `cp -al` does on the CLI.
+      const root = tempDir();
+      const sourceDir = path.join(root, "downloads", "game-folder");
+      const destination = path.join(root, "library", "PC", "game-folder");
+      await fs.ensureDir(path.join(sourceDir, "nested"));
+      await fs.writeFile(path.join(sourceDir, "game.exe"), "exe-bytes");
+      await fs.writeFile(path.join(sourceDir, "nested", "data.pak"), "pak-bytes");
+
+      const strategy = new PCImportStrategy();
+      const result = await strategy.executeImport(
+        {
+          needsReview: false,
+          originalPath: sourceDir,
+          proposedPath: destination,
+          strategy: "pc",
+        },
+        "hardlink"
+      );
+
+      expect(result.modeUsed).toBe("hardlink");
+
+      const exeSource = await fs.stat(path.join(sourceDir, "game.exe"));
+      const exeDest = await fs.stat(path.join(destination, "game.exe"));
+      expect(exeDest.ino).toBe(exeSource.ino);
+      expect(exeDest.dev).toBe(exeSource.dev);
+
+      const pakSource = await fs.stat(path.join(sourceDir, "nested", "data.pak"));
+      const pakDest = await fs.stat(path.join(destination, "nested", "data.pak"));
+      expect(pakDest.ino).toBe(pakSource.ino);
+      expect(pakDest.dev).toBe(pakSource.dev);
+    });
+
     it("sorts detected add-on files while preserving main and existing category paths", async () => {
       const root = tempDir();
       const sourceDir = path.join(root, "downloads", "game-folder");
@@ -288,6 +326,25 @@ describe("ImportStrategies", () => {
       const destStat = await fs.stat(path.join(destination, "game.exe"));
       expect(destStat.ino).toBe(sourceStat.ino);
       expect(destStat.dev).toBe(sourceStat.dev);
+    });
+
+    it("preserves the packs parent directory for neutral filenames", async () => {
+      const root = tempDir();
+      const sourceDir = path.join(root, "downloads", "game-folder");
+      const destination = path.join(root, "library", "PC", "My Game");
+      await fs.ensureDir(path.join(sourceDir, "packs"));
+      await fs.writeFile(path.join(sourceDir, "packs", "content.bin"), "pack");
+
+      const strategy = new PCImportStrategy();
+      const plan = await strategy.planImport(
+        sourceDir,
+        makeGame({ title: "My Game" }),
+        path.join(root, "library"),
+        makeImportConfig({ sortExtras: true, overwriteExisting: true })
+      );
+      const result = await strategy.executeImport(plan, "copy");
+
+      expect(result.filesPlaced).toContain(path.join(destination, "packs", "content.bin"));
     });
 
     it("keeps the existing flat destination for a single file when sorting is enabled", async () => {

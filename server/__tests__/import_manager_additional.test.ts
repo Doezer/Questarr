@@ -282,6 +282,54 @@ describe("ImportManager - planConfirmImport", () => {
     expect(result.originalPath).toBeNull();
   });
 
+  it("avoids appending the release name twice when downloadDir already ends with it", async () => {
+    const storage = makeStorage();
+    storage.getGameDownload.mockResolvedValue({
+      id: "dl-1",
+      gameId: "g1",
+      downloaderId: "d1",
+      downloadHash: "abc123",
+    });
+    storage.getGame.mockResolvedValue({
+      id: "g1",
+      title: "My Game",
+      userId: "u1",
+      status: "wanted",
+      platforms: [],
+    });
+    storage.getImportConfig.mockResolvedValue(makeImportConfig({ libraryRoot: "/games" }));
+    storage.getDownloader.mockResolvedValue({
+      id: "d1",
+      name: "SABnzbd",
+      url: "http://sab.local:8080",
+    });
+    downloadersMock.getDownloadDetails.mockResolvedValue({
+      downloadDir: "/remote/complete/Aethus.v1.036-ElAmigos",
+      name: "Aethus.v1.036-ElAmigos",
+    });
+
+    const pathService = {
+      translatePath: vi.fn().mockResolvedValue("/local/complete/Aethus.v1.036-ElAmigos"),
+    };
+    const planSpy = vi.spyOn(PCImportStrategy.prototype, "planImport").mockResolvedValue({
+      needsReview: false,
+      strategy: "pc",
+      originalPath: "/local/complete/Aethus.v1.036-ElAmigos",
+      proposedPath: "/games/PC/My Game",
+    });
+
+    const manager = makeManager(storage, { pathService });
+    const result = await manager.planConfirmImport("dl-1");
+
+    expect(result.originalPath).toBe("/local/complete/Aethus.v1.036-ElAmigos");
+    expect(pathService.translatePath).toHaveBeenCalledWith(
+      "/remote/complete/Aethus.v1.036-ElAmigos",
+      "sab.local"
+    );
+
+    planSpy.mockRestore();
+  });
+
   it("returns fallback proposedPath when planImport throws (source not accessible)", async () => {
     const storage = makeStorage();
     storage.getGameDownload.mockResolvedValue({

@@ -41,6 +41,8 @@ export default defineConfig({
           if (p.includes("/node_modules/@tanstack/")) return "react-query";
           if (p.includes("/node_modules/wouter/")) return "router";
           if (p.includes("/node_modules/@radix-ui/")) return "radix";
+          // three is only used by the /play easter egg; keep it out of the app chunks.
+          if (p.includes("/node_modules/three/")) return "three";
         },
       },
     },

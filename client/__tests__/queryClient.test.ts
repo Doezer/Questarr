@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { apiFetch } from "../src/lib/queryClient";
+import { apiFetch, setBearerToken } from "../src/lib/queryClient";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -10,12 +10,11 @@ function mockFetch() {
   return fetchSpy;
 }
 
+// Auth moved from a localStorage-persisted token to a primarily cookie-based
+// scheme, with this in-memory bearer token bridging only an already-logged-in
+// legacy session (see src/lib/auth.tsx). Tests below set/clear it directly.
 function setToken(token: string | null) {
-  if (token === null) {
-    localStorage.removeItem("token");
-  } else {
-    localStorage.setItem("token", token);
-  }
+  setBearerToken(token);
 }
 
 // ─── withAuthorization (tested through apiFetch) ──────────────────────────────
@@ -26,10 +25,12 @@ describe("apiFetch / withAuthorization", () => {
   beforeEach(() => {
     fetchSpy = mockFetch();
     localStorage.clear();
+    setBearerToken(null);
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    setBearerToken(null);
   });
 
   // No token — headers passed through unchanged

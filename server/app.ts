@@ -9,6 +9,24 @@ export function createApp() {
   const app = express();
   app.disable("x-powered-by");
 
+  // Registered first, before CORS, body-parsing, and the rate limiter, so
+  // these headers/routes still apply on every response those can produce on
+  // their own -- a CORS rejection, a body-parser error, or a 429 from
+  // generalApiLimiter (express-rate-limit responds directly and never calls
+  // next() once its limit is hit, skipping anything registered after it).
+  app.use((_req, res, next) => {
+    res.setHeader("Origin-Agent-Cluster", "?1");
+    // Questarr instances are personal/self-hosted and should never be indexed
+    // by search engines, even if exposed to the public internet.
+    res.setHeader("X-Robots-Tag", "noindex, nofollow");
+    next();
+  });
+
+  // Note: the /robots.txt route itself is registered later, in routes.ts,
+  // after helmet() -- registering it here would let it bypass helmet's
+  // security headers (CSP, X-Frame-Options, X-Content-Type-Options, etc.)
+  // entirely, since Express stops at the first route that sends a response.
+
   if (config.server.isProduction) {
     app.set("trust proxy", 1);
   }
@@ -23,11 +41,6 @@ export function createApp() {
   app.use(express.urlencoded({ extended: false }));
 
   app.use("/api", generalApiLimiter);
-
-  app.use((_req, res, next) => {
-    res.setHeader("Origin-Agent-Cluster", "?1");
-    next();
-  });
 
   app.use((req, res, next) => {
     const start = Date.now();

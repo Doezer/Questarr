@@ -81,6 +81,14 @@ const historyResponse = (slots?: Array<Record<string, unknown>>) =>
     }),
   }) as Response;
 
+// Casts a client to expose its private fetchWithFallback for spying, without
+// repeating the cast/spy pair at every call site.
+const spyOnFetchWithFallback = (client: InstanceType<typeof SABnzbdClient>) =>
+  vi.spyOn(
+    client as unknown as { fetchWithFallback: (...args: unknown[]) => Promise<Response> },
+    "fetchWithFallback"
+  );
+
 class MockRequest extends EventEmitter {
   public writes: Array<Buffer | string> = [];
 
@@ -211,7 +219,7 @@ describe("sabnzbd remaining regression coverage", () => {
     await expect(client.testConnection()).resolves.toEqual({
       success: false,
       message:
-        "Failed to connect to SABnzbd at http://sab.local/api?apikey=api-key&mode=version&output=json: HTTP 500: Broken - No error details",
+        "Failed to connect to SABnzbd at http://sab.local/api?apikey=%5Bredacted%5D&mode=version&output=json: HTTP 500: Broken - No error details",
     });
 
     safeFetchMock.mockResolvedValueOnce({
@@ -255,6 +263,170 @@ describe("sabnzbd remaining regression coverage", () => {
       success: false,
       message: "Failed to add NZB to SABnzbd: Unknown error",
     });
+  });
+
+  it("passes the request password, falling back to the downloader's default archive password", async () => {
+    safeFetchMock.mockResolvedValue({
+      ok: true,
+      arrayBuffer: async () => new TextEncoder().encode("nzb").buffer,
+    } as Response);
+
+    const addfileOk = {
+      ok: true,
+      json: async () => ({ status: true, nzo_ids: ["sab-pw"] }),
+    } as Response;
+
+    // Asserts a single addDownload call against the given expected password matcher,
+    // reusing one client/spy across sequential calls when reuseSpy is passed.
+    const expectPasswordInRequest = async (
+      client: InstanceType<typeof SABnzbdClient>,
+      request: Parameters<InstanceType<typeof SABnzbdClient>["addDownload"]>[0],
+      expectedPassword: string | undefined,
+      reuseSpy?: ReturnType<typeof spyOnFetchWithFallback>
+    ) => {
+      const spy = reuseSpy ?? spyOnFetchWithFallback(client);
+      spy.mockResolvedValueOnce(addfileOk);
+      await client.addDownload(request);
+      expect(spy).toHaveBeenCalledWith(
+        expectedPassword
+          ? expect.stringContaining(`password=${expectedPassword}`)
+          : expect.not.stringContaining("password="),
+        expect.anything(),
+        // A request carrying a password must disable the insecure-cert fallback,
+        // never silently downgrade transport security for a credential.
+        !expectedPassword
+      );
+      return spy;
+    };
+
+    // Per-request password wins over the downloader's default. Uses SSL so the
+    // password isn't blocked by the plain-HTTP guard tested separately below.
+    const withDefault = new SABnzbdClient(
+      createDownloader({ useSsl: true, settings: JSON.stringify({ archivePassword: "404" }) })
+    );
+    const withDefaultSpy = await expectPasswordInRequest(
+      withDefault,
+      { url: "http://indexer.local/g4u.nzb", title: "G4U Release", password: "override" },
+      "override"
+    );
+    // Falls back to the downloader's default archive password when none is given per-request.
+    await expectPasswordInRequest(
+      withDefault,
+      { url: "http://indexer.local/g4u.nzb", title: "G4U Release" },
+      "404",
+      withDefaultSpy
+    );
+
+    // No password configured anywhere — omitted from the request.
+    await expectPasswordInRequest(
+      new SABnzbdClient(createDownloader()),
+      { url: "http://indexer.local/plain.nzb", title: "Plain NZB" },
+      undefined
+    );
+
+    // Malformed settings JSON is tolerated and treated as no default password.
+    await expectPasswordInRequest(
+      new SABnzbdClient(createDownloader({ settings: "not-json" })),
+      { url: "http://indexer.local/plain.nzb", title: "Plain NZB" },
+      undefined
+    );
+  });
+
+  it("refuses to send an archive password over a plain-HTTP SABnzbd connection", async () => {
+    safeFetchMock.mockResolvedValue({
+      ok: true,
+      arrayBuffer: async () => new TextEncoder().encode("nzb").buffer,
+    } as Response);
+
+    const client = new SABnzbdClient(createDownloader({ useSsl: false }));
+    const fetchWithFallbackSpy = spyOnFetchWithFallback(client);
+
+    const result = await client.addDownload({
+      url: "http://indexer.local/g4u.nzb",
+      title: "G4U Release",
+      password: "404",
+    });
+
+    expect(result).toEqual({
+      success: false,
+      message:
+        "Refusing to send the archive password over an insecure connection. Enable SSL for this SABnzbd downloader, or remove the archive password.",
+    });
+    expect(fetchWithFallbackSpy).not.toHaveBeenCalled();
+  });
+
+  it("requires HTTPS on every hop (rejecting an insecure redirect) only when a password is sent", async () => {
+    safeFetchMock.mockImplementation(async (_url: string, options: RequestInit = {}) => {
+      if (options.method !== "POST") {
+        return {
+          ok: true,
+          arrayBuffer: async () => new TextEncoder().encode("nzb").buffer,
+        } as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({ status: true, nzo_ids: ["sab-https"] }),
+      } as Response;
+    });
+
+    const client = new SABnzbdClient(createDownloader({ useSsl: true }));
+    await client.addDownload({
+      url: "http://indexer.local/g4u.nzb",
+      title: "G4U Release",
+      password: "404",
+    });
+    const [, postOptionsWithPassword] = safeFetchMock.mock.calls.find(
+      ([, options]) => (options as RequestInit)?.method === "POST"
+    ) as [string, RequestInit & { requireHttps?: boolean }];
+    expect(postOptionsWithPassword.requireHttps).toBe(true);
+
+    safeFetchMock.mockClear();
+    await client.addDownload({ url: "http://indexer.local/plain.nzb", title: "Plain NZB" });
+    const [, postOptionsWithoutPassword] = safeFetchMock.mock.calls.find(
+      ([, options]) => (options as RequestInit)?.method === "POST"
+    ) as [string, RequestInit & { requireHttps?: boolean }];
+    expect(postOptionsWithoutPassword.requireHttps).toBe(false);
+  });
+
+  it("does not downgrade to the insecure self-signed-cert fallback when a password is sent", async () => {
+    safeFetchMock.mockImplementation(async (_url: string, options: RequestInit = {}) => {
+      // The NZB content fetch (no method override) should succeed normally; only the
+      // addfile POST needs to hit the self-signed-cert failure this test is probing.
+      if (options.method !== "POST") {
+        return {
+          ok: true,
+          arrayBuffer: async () => new TextEncoder().encode("nzb").buffer,
+        } as Response;
+      }
+      // A recognized cause.code is required for doFetchWithFallback to treat this
+      // as an SSL error at all -- without it, the test would pass even if the
+      // allowInsecureFallback guard it's probing were removed entirely.
+      const error = new Error("self-signed certificate") as Error & { cause?: { code: string } };
+      error.cause = { code: "DEPTH_ZERO_SELF_SIGNED_CERT" };
+      throw error;
+    });
+
+    // allowSelfSignedCertificate must be on too, or the SSL-error branch returns
+    // before ever consulting allowInsecureFallback (see downloaders_sabnzbd_tls.test.ts).
+    const client = new SABnzbdClient(
+      createDownloader({ useSsl: true, allowSelfSignedCertificate: true })
+    );
+    const fetchInsecureSpy = vi.spyOn(
+      client as unknown as { fetchInsecure: (...args: unknown[]) => Promise<Response> },
+      "fetchInsecure"
+    );
+
+    await expect(
+      client.addDownload({
+        url: "http://indexer.local/g4u.nzb",
+        title: "G4U Release",
+        password: "404",
+      })
+    ).resolves.toEqual({
+      success: false,
+      message: "Failed to add NZB to SABnzbd: self-signed certificate",
+    });
+    expect(fetchInsecureSpy).not.toHaveBeenCalled();
   });
 
   it("covers queue/history status variants, details fallbacks, and control error branches", async () => {
@@ -443,5 +615,127 @@ describe("sabnzbd remaining regression coverage", () => {
 
     fetchWithFallbackSpy.mockRejectedValueOnce(new Error("space boom"));
     await expect(client.getFreeSpace()).resolves.toBe(0);
+  });
+
+  it("derives downloadDir from storage for both folder and single-file history entries", async () => {
+    const client = new SABnzbdClient(createDownloader());
+    const privateClient = client as unknown as {
+      fetchWithFallback(url: string, options?: RequestInit): Promise<Response>;
+    };
+    const fetchWithFallbackSpy = vi.spyOn(privateClient, "fetchWithFallback");
+
+    fetchWithFallbackSpy
+      .mockResolvedValueOnce(
+        queueResponse([
+          {
+            nzo_id: "job-folder",
+            filename: "Aethus.v1.036-ElAmigos",
+            status: "Completed",
+            percentage: "100",
+            mb: "10",
+            mbleft: "0",
+            timeleft: "0:00:00",
+            cat: "games",
+            avg_age: "2",
+          },
+        ])
+      )
+      .mockResolvedValueOnce(
+        historyResponse([
+          {
+            nzo_id: "job-folder",
+            name: "Aethus.v1.036-ElAmigos",
+            status: "Completed",
+            fail_message: "",
+            path: "/downloads/incomplete/Aethus.v1.036-ElAmigos",
+            storage: "/downloads/complete/Aethus.v1.036-ElAmigos",
+            size: "1 GB",
+            bytes: 1024,
+            category: "games",
+          },
+        ])
+      )
+      .mockResolvedValueOnce(
+        queueResponse([
+          {
+            nzo_id: "job-file",
+            filename: "Baldurs.Gate.3.Deluxe.Edition.v6931813.MULTi15-ElAmigos",
+            status: "Completed",
+            percentage: "100",
+            mb: "10",
+            mbleft: "0",
+            timeleft: "0:00:00",
+            cat: "games",
+            avg_age: "2",
+          },
+        ])
+      )
+      .mockResolvedValueOnce(
+        historyResponse([
+          {
+            nzo_id: "job-file",
+            name: "Baldurs.Gate.3.Deluxe.Edition.v6931813.MULTi15-ElAmigos",
+            status: "Completed",
+            fail_message: "",
+            path: "/downloads/incomplete/Baldurs.Gate.3.Deluxe.Edition.v6931813.MULTi15-ElAmigos",
+            storage:
+              "/downloads/complete/Baldurs.Gate.3.Deluxe.Edition.v6931813.MULTi15-ElAmigos/Baldurs Gate 3.iso",
+            size: "1 GB",
+            bytes: 2048,
+            category: "games",
+          },
+        ])
+      );
+
+    await expect(client.getDownloadDetails("job-folder")).resolves.toMatchObject({
+      downloadDir: "/downloads/complete/Aethus.v1.036-ElAmigos",
+    });
+    await expect(client.getDownloadDetails("job-file")).resolves.toMatchObject({
+      downloadDir: "/downloads/complete/Baldurs.Gate.3.Deluxe.Edition.v6931813.MULTi15-ElAmigos",
+    });
+  });
+
+  it("resolves the completed directory for Windows backslash-delimited history paths", async () => {
+    const client = new SABnzbdClient(createDownloader());
+    const privateClient = client as unknown as {
+      fetchWithFallback(url: string, options?: RequestInit): Promise<Response>;
+    };
+    const fetchWithFallbackSpy = vi.spyOn(privateClient, "fetchWithFallback");
+
+    fetchWithFallbackSpy
+      .mockResolvedValueOnce(
+        queueResponse([
+          {
+            nzo_id: "job-windows",
+            filename: "Aethus.v1.036-ElAmigos",
+            status: "Completed",
+            percentage: "100",
+            mb: "10",
+            mbleft: "0",
+            timeleft: "0:00:00",
+            cat: "games",
+            avg_age: "2",
+          },
+        ])
+      )
+      .mockResolvedValueOnce(
+        historyResponse([
+          {
+            nzo_id: "job-windows",
+            name: "Aethus.v1.036-ElAmigos",
+            status: "Completed",
+            fail_message: "",
+            path: "C:\\downloads\\incomplete\\Aethus.v1.036-ElAmigos",
+            storage: "C:\\downloads\\complete\\Aethus.v1.036-ElAmigos\\Aethus.iso",
+            size: "1 GB",
+            bytes: 1024,
+            category: "games",
+          },
+        ])
+      );
+
+    await expect(client.getDownloadDetails("job-windows")).resolves.toMatchObject({
+      downloadDir: "C:\\downloads\\complete\\Aethus.v1.036-ElAmigos",
+    });
   });
 });

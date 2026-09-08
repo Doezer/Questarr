@@ -121,6 +121,9 @@ describe("SettingsPage", () => {
       </QueryClientProvider>
     );
 
+    await screen.findByText("Settings");
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Discovery & Downloads" }));
+
     expect(await screen.findByLabelText("Enable Auto-Search")).toBeChecked();
     expect(screen.getByLabelText("Search Interval (hours)")).toBeInTheDocument();
     expect(screen.getByLabelText("Search Unreleased Games")).toBeInTheDocument();
@@ -148,6 +151,9 @@ describe("SettingsPage", () => {
       </QueryClientProvider>
     );
 
+    await screen.findByText("Settings");
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Discovery & Downloads" }));
+
     await screen.findByLabelText("Enable Auto-Search");
     expect(screen.queryByLabelText("Search Interval (hours)")).not.toBeInTheDocument();
   });
@@ -159,6 +165,9 @@ describe("SettingsPage", () => {
         <SettingsPage />
       </QueryClientProvider>
     );
+
+    await screen.findByText("Settings");
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Discovery & Downloads" }));
 
     await screen.findByLabelText("Enable Auto-Search");
     fireEvent.click(screen.getByRole("button", { name: /save auto-search/i }));
@@ -179,12 +188,15 @@ describe("SettingsPage", () => {
       </QueryClientProvider>
     );
 
+    await screen.findByText("Settings");
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Discovery & Downloads" }));
+
     const intervalInput = await screen.findByLabelText("Search Interval (hours)");
     fireEvent.change(intervalInput, { target: { value: "24" } });
     expect(intervalInput).toHaveValue(24);
   });
 
-  it("switches to the Rules tab and renders the mocked rule components", async () => {
+  it("switches to the Discovery & Downloads tab and renders the mocked rule components", async () => {
     render(
       <QueryClientProvider client={createTestQueryClient()}>
         <SettingsPage />
@@ -192,13 +204,13 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Rules" }));
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Discovery & Downloads" }));
 
     expect(await screen.findByTestId("auto-download-rules")).toBeInTheDocument();
     expect(screen.getByTestId("preferred-release-groups")).toBeInTheDocument();
   });
 
-  it("switches to the Services tab and saves a Steam ID", async () => {
+  it("switches to the Integrations tab and saves a Steam ID", async () => {
     const { apiRequest } = await import("@/lib/queryClient");
     render(
       <QueryClientProvider client={createTestQueryClient()}>
@@ -207,7 +219,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Services" }));
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Integrations" }));
 
     const steamInput = await screen.findByLabelText("Steam ID (64-bit)");
     fireEvent.change(steamInput, { target: { value: "76561198000000000" } });
@@ -307,7 +319,7 @@ describe("SettingsPage", () => {
     );
   });
 
-  it("switches to the Blacklist tab, lists an entry, and removes it", async () => {
+  it("switches to the Discovery & Downloads tab, lists a blacklist entry, and removes it", async () => {
     const { apiRequest } = await import("@/lib/queryClient");
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
@@ -340,7 +352,7 @@ describe("SettingsPage", () => {
     );
 
     await screen.findByText("Settings");
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Blacklist" }));
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Discovery & Downloads" }));
 
     expect(await screen.findByText("Space Quest")).toBeInTheDocument();
     const releaseTitle = screen.getByText("Space.Quest-GROUP");

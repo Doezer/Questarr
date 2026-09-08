@@ -250,10 +250,7 @@
       "indexes": {
         "game_downloads_downloader_hash_idx": {
           "name": "game_downloads_downloader_hash_idx",
-          "columns": [
-            "downloader_id",
-            "download_hash"
-          ],
+          "columns": ["downloader_id", "download_hash"],
           "isUnique": true
         }
       },
@@ -262,12 +259,8 @@
           "name": "game_downloads_game_id_games_id_fk",
           "tableFrom": "game_downloads",
           "tableTo": "games",
-          "columnsFrom": [
-            "game_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["game_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -275,12 +268,8 @@
           "name": "game_downloads_downloader_id_downloaders_id_fk",
           "tableFrom": "game_downloads",
           "tableTo": "downloaders",
-          "columnsFrom": [
-            "downloader_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["downloader_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -541,12 +530,8 @@
           "name": "games_user_id_users_id_fk",
           "tableFrom": "games",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -619,9 +604,7 @@
       "indexes": {
         "import_task_items_task_id_idx": {
           "name": "import_task_items_task_id_idx",
-          "columns": [
-            "task_id"
-          ],
+          "columns": ["task_id"],
           "isUnique": false
         }
       },
@@ -630,12 +613,8 @@
           "name": "import_task_items_task_id_import_tasks_id_fk",
           "tableFrom": "import_task_items",
           "tableTo": "import_tasks",
-          "columnsFrom": [
-            "task_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["task_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -751,12 +730,8 @@
           "name": "import_tasks_user_id_users_id_fk",
           "tableFrom": "import_tasks",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -935,12 +910,8 @@
           "name": "notifications_user_id_users_id_fk",
           "tableFrom": "notifications",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1061,10 +1032,7 @@
       "indexes": {
         "release_blacklist_game_title_idx": {
           "name": "release_blacklist_game_title_idx",
-          "columns": [
-            "game_id",
-            "release_title"
-          ],
+          "columns": ["game_id", "release_title"],
           "isUnique": true
         }
       },
@@ -1073,12 +1041,8 @@
           "name": "release_blacklist_game_id_games_id_fk",
           "tableFrom": "release_blacklist",
           "tableTo": "games",
-          "columnsFrom": [
-            "game_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["game_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1175,12 +1139,8 @@
           "name": "rss_feed_items_feed_id_rss_feeds_id_fk",
           "tableFrom": "rss_feed_items",
           "tableTo": "rss_feeds",
-          "columnsFrom": [
-            "feed_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["feed_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1576,9 +1536,7 @@
       "indexes": {
         "user_settings_user_id_unique": {
           "name": "user_settings_user_id_unique",
-          "columns": [
-            "user_id"
-          ],
+          "columns": ["user_id"],
           "isUnique": true
         }
       },
@@ -1587,12 +1545,8 @@
           "name": "user_settings_user_id_users_id_fk",
           "tableFrom": "user_settings",
           "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1636,9 +1590,7 @@
       "indexes": {
         "users_username_unique": {
           "name": "users_username_unique",
-          "columns": [
-            "username"
-          ],
+          "columns": ["username"],
           "isUnique": true
         }
       },
@@ -1686,12 +1638,8 @@
           "name": "xrel_notified_releases_game_id_games_id_fk",
           "tableFrom": "xrel_notified_releases",
           "tableTo": "games",
-          "columnsFrom": [
-            "game_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["game_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }

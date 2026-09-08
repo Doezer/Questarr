@@ -334,7 +334,7 @@ export async function logDownloaderDebugResponse(
 // Trims trailing path separators with a plain character scan instead of a
 // `[\\/]+$`-style regex, which SonarCloud flags as having super-linear
 // worst-case backtracking on inputs that don't end in a separator.
-function stripTrailingPathSeparators(value: string): string {
+export function stripTrailingPathSeparators(value: string): string {
   let end = value.length;
   while (end > 0 && (value[end - 1] === "\\" || value[end - 1] === "/")) {
     end--;

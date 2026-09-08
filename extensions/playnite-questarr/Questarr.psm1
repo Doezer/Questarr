@@ -160,6 +160,17 @@ function Invoke-QuestarrApi {
 function Get-QuestarrErrorMessage {
     param([Parameter(Mandatory)] $ErrorRecord)
 
+    # Windows PowerShell 5.1 surfaces a blocked redirect (MaximumRedirection =
+    # 0, set by Invoke-QuestarrApi) as a terminating InvalidOperationException
+    # with no Response attached at all -- match on the error id before ever
+    # looking for a status code, or this falls through to the generic
+    # "could not reach Questarr" message below instead of explaining why.
+    if ($ErrorRecord.FullyQualifiedErrorId -like "MaximumRedirectExceeded*") {
+        return "Questarr tried to redirect this request, which this extension refuses to follow -- " +
+        "the API key would otherwise be forwarded to whatever address the redirect points at. " +
+        "Check the configured server address in Settings -> Integrations."
+    }
+
     $response = $ErrorRecord.Exception.Response
     if ($null -ne $response -and $null -ne $response.StatusCode) {
         $status = [int]$response.StatusCode
@@ -215,6 +226,12 @@ function GetMainMenuItems {
     $toggle.FunctionName = "Invoke-QuestarrToggleAutoSync"
     $toggle.MenuSection = "@Questarr"
     $items += $toggle
+
+    $owned = New-Object Playnite.SDK.Plugins.ScriptMainMenuItem
+    $owned.Description = "Toggle promoting installed games to owned"
+    $owned.FunctionName = "Invoke-QuestarrToggleMarkInstalledAsOwned"
+    $owned.MenuSection = "@Questarr"
+    $items += $owned
 
     return $items
 }
@@ -298,7 +315,12 @@ function Invoke-QuestarrConnect {
         return
     }
 
-    if ($parsedUri.Scheme -eq "http" -and -not (Test-QuestarrIsPrivateHost $parsedUri.Host)) {
+    # DnsSafeHost, not Host: Host keeps the [brackets] around an IPv6 literal,
+    # which [System.Net.IPAddress]::TryParse inside Test-QuestarrIsPrivateHost
+    # rejects outright -- that falls through to the hostname heuristic, which
+    # misclassifies a public IPv6 address as private and lets its API key go
+    # out over plain HTTP.
+    if ($parsedUri.Scheme -eq "http" -and -not (Test-QuestarrIsPrivateHost $parsedUri.DnsSafeHost)) {
         # A confirmation dialog is consent, not protection -- it does nothing
         # to stop an on-path attacker from reading the key in transit. So this
         # is a hard stop, not a warn-and-continue: whatever "questarr.example.com"
@@ -377,6 +399,24 @@ function Invoke-QuestarrToggleAutoSync {
 
     $state = if ($enabled) { "enabled" } else { "disabled" }
     $PlayniteApi.Dialogs.ShowMessage("Automatic sync on library update is now $state.", "Questarr")
+}
+
+function Invoke-QuestarrToggleMarkInstalledAsOwned {
+    param($scriptMainMenuItemActionArgs)
+
+    $config = Get-QuestarrConfigOrWarn
+    if ($null -eq $config) { return }
+
+    $enabled = -not $config.MarkInstalledAsOwned
+    Save-QuestarrConfig `
+        -ServerUrl $config.ServerUrl `
+        -ApiKey $config.ApiKey `
+        -SyncOnLibraryUpdate $config.SyncOnLibraryUpdate `
+        -MarkInstalledAsOwned $enabled
+
+    $state = if ($enabled) { "enabled" } else { "disabled" }
+    $PlayniteApi.Dialogs.ShowMessage(
+        "Promoting an installed 'wanted' game to 'owned' during sync is now $state.", "Questarr")
 }
 
 <#

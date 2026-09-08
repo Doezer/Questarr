@@ -25,6 +25,14 @@ const sanitizeApiKeyId = [
  */
 export const apiKeysRouter = Router();
 
+// Every response here varies by req.user (key list, a freshly-minted raw
+// key), so none of it may be cached by a shared proxy or the browser's own
+// HTTP cache.
+apiKeysRouter.use((_req, res, next) => {
+  res.set("Cache-Control", "no-store");
+  next();
+});
+
 /** One key per integration is the intended usage; the cap just bounds abuse. */
 const MAX_KEYS_PER_USER = 25;
 

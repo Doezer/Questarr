@@ -9,6 +9,7 @@ import { quickAddGameByTitle } from "../game-quick-add.js";
 // Relative path, not the "@shared" alias — see the comment in
 // game-quick-add.ts.
 import { GAME_STATUSES, type Game } from "../../shared/schema.js";
+import { getContentFilterFlags, excludeFilteredContent } from "../content-filter.js";
 
 const { version: APP_VERSION } = JSON.parse(
   readFileSync(path.resolve(process.cwd(), "package.json"), "utf-8")
@@ -97,7 +98,11 @@ integrationRouter.get("/library", async (req: Request, res: Response) => {
     const { status: statuses, includeHidden } = parsed.data;
 
     const games = await storage.getUserGames(req.user!.id, includeHidden, statuses);
-    res.json({ games: games.map(toIntegrationGame), count: games.length });
+    // Match /api/games' own behavior: a title the user filtered out (adult
+    // content, age-restricted) must not leak through this endpoint either.
+    const filterFlags = await getContentFilterFlags(req.user!.id);
+    const visibleGames = excludeFilteredContent(games, filterFlags);
+    res.json({ games: visibleGames.map(toIntegrationGame), count: visibleGames.length });
   } catch (error) {
     logger.error({ error }, "Integration library fetch failed");
     res.status(500).json({ error: "Failed to fetch library" });

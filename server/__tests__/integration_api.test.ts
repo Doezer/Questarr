@@ -219,6 +219,20 @@ describe("integration API", () => {
       expect(res.status).toBe(400);
     });
 
+    it("hides content the user filtered out, matching /api/games", async () => {
+      (storage.getUserGames as Mock).mockResolvedValue([
+        { id: "game-1", title: "Visible Game", status: "owned", isAdultContent: false },
+        { id: "game-2", title: "Filtered Game", status: "owned", isAdultContent: true },
+      ]);
+      (storage.getUserSettings as Mock).mockResolvedValue({ hideAdultContent: true });
+
+      const res = await withKey(request(app).get("/api/integration/library"));
+
+      expect(res.status).toBe(200);
+      expect(res.body.count).toBe(1);
+      expect(res.body.games.map((g: { id: string }) => g.id)).toEqual(["game-1"]);
+    });
+
     it("returns 500 when the library lookup fails", async () => {
       (storage.getUserGames as Mock).mockRejectedValue(new Error("db unavailable"));
 
@@ -375,7 +389,14 @@ describe("integration API", () => {
 
     it("returns 409 when the game is already in the library", async () => {
       (storage.getUserGames as Mock).mockResolvedValue([
-        { id: "game-1", title: "Hades", igdbId: 113112, status: "owned" },
+        {
+          id: "game-1",
+          title: "Hades",
+          igdbId: 113112,
+          status: "owned",
+          userId: "user-1",
+          notes: "private note",
+        },
       ]);
 
       const res = await withKey(request(app).post("/api/integration/games/request")).send({
@@ -384,6 +405,8 @@ describe("integration API", () => {
 
       expect(res.status).toBe(409);
       expect(res.body.game.id).toBe("game-1");
+      expect(res.body.game).not.toHaveProperty("notes");
+      expect(res.body.game).not.toHaveProperty("userId");
       expect(storage.addGame).not.toHaveBeenCalled();
     });
 
@@ -479,6 +502,26 @@ describe("integration API", () => {
       expect(stored.keyHash).not.toContain(res.body.key);
       const { hashApiKey } = await import("../auth.js");
       expect(stored.keyHash).toBe(hashApiKey(res.body.key));
+    });
+
+    it("never lets a shared cache store key data or a freshly-minted raw key", async () => {
+      (storage.getApiKeys as Mock).mockResolvedValue([]);
+      (storage.addApiKey as Mock).mockImplementation(
+        async (key: { userId: string; name: string; keyHash: string; prefix: string }) => ({
+          id: "key-1",
+          userId: key.userId,
+          name: key.name,
+          prefix: key.prefix,
+          createdAt: new Date().toISOString(),
+          lastUsedAt: null,
+        })
+      );
+
+      const list = await authed(request(app).get("/api/api-keys"));
+      expect(list.headers["cache-control"]).toBe("no-store");
+
+      const created = await authed(request(app).post("/api/api-keys")).send({ name: "Playnite" });
+      expect(created.headers["cache-control"]).toBe("no-store");
     });
 
     it("returns 500 when listing keys fails", async () => {

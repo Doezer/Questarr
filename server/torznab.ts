@@ -1,7 +1,7 @@
 import { type Indexer } from "@shared/schema";
 import { DEFAULT_GAME_CATEGORIES, discoverCapsCategories } from "./indexer-caps.js";
 import { torznabLogger } from "./logger.js";
-import { isSafeUrl, safeFetch } from "./ssrf.js";
+import { isPrivateNetworkAddress, isSafeUrl, safeFetch } from "./ssrf.js";
 import { XMLParser } from "fast-xml-parser";
 
 interface TorznabItem {
@@ -69,25 +69,27 @@ export class TorznabClient {
     return url;
   }
 
-  private isLoopbackHostname(hostname: string): boolean {
-    return (
-      hostname === "localhost" ||
-      hostname === "127.0.0.1" ||
-      hostname === "::1" ||
-      hostname === "[::1]"
-    );
-  }
-
   private isSameProwlarrHost(candidate: URL, configured: URL): boolean {
-    if (candidate.protocol !== configured.protocol || candidate.port !== configured.port) {
-      return false;
-    }
-    if (candidate.hostname === configured.hostname) {
+    // Prowlarr builds its download links from the address the request arrived on,
+    // which is rarely the address we configured: a Docker service name resolves to
+    // the container IP, `localhost` to `127.0.0.1`, a reverse-proxy hostname to the
+    // internal container. Any of those forms still points at the same Prowlarr, so a
+    // link that already carries its /{id}/download proxy path must not be re-wrapped
+    // — Prowlarr rejects a nested link with "Failed to normalize provided link".
+    //
+    // Only the returned link can carry that signal. A loopback or private address
+    // there can only be the Prowlarr we just queried, since no public indexer hands
+    // back a download link on one, and scheme and port may still differ — a reverse
+    // proxy terminating TLS on 443 fronts a container answering HTTP on 9696. The
+    // configured host being private says nothing about a candidate on a public host:
+    // that is an external link Prowlarr still has to fetch on our behalf.
+    if (candidate.hostname === "localhost" || isPrivateNetworkAddress(candidate.hostname)) {
       return true;
     }
-    return (
-      this.isLoopbackHostname(candidate.hostname) && this.isLoopbackHostname(configured.hostname)
-    );
+
+    // Any other host has to name the configured Prowlarr origin exactly: scheme,
+    // hostname and port all have to line up before the link counts as already proxied.
+    return candidate.origin === configured.origin;
   }
 
   /**
@@ -414,7 +416,10 @@ export class TorznabClient {
         if (linkUrl.protocol === "http:" || linkUrl.protocol === "https:") {
           const indexerUrlObj = new URL(indexerUrl);
 
-          if (linkUrl.host !== indexerUrlObj.host) {
+          // Compare origins, not just hosts: a link that differs from the configured
+          // URL only by scheme (Prowlarr behind TLS termination reflects http://) still
+          // needs normalizing onto the endpoint we were told to use.
+          if (linkUrl.origin !== indexerUrlObj.origin) {
             // Check if this is a Prowlarr indexer URL (pattern: /{numericId}/api).
             // When Prowlarr returns a raw external download URL (e.g. from a Cloudflare-protected
             // indexer), a naive host swap would produce an invalid path on Prowlarr. Instead,
@@ -434,9 +439,13 @@ export class TorznabClient {
 
               if (isProwlarrProxyUrl) {
                 // Prowlarr already returned a proxy URL. Avoid double-wrapping when only
-                // hostnames differ (e.g. localhost vs 127.0.0.1) by doing host rewrite only.
+                // the host form differs (localhost vs 127.0.0.1, a Docker service name vs
+                // the container IP it resolves to) by doing a host rewrite only.
                 linkUrl.protocol = indexerUrlObj.protocol;
                 linkUrl.host = indexerUrlObj.host;
+                // Assigning `host` without a port leaves the previous port in place, which
+                // would keep Prowlarr's internal port on a reverse-proxied configured URL.
+                linkUrl.port = indexerUrlObj.port;
                 torznabItem.link = linkUrl.toString();
               } else {
                 const prowlarrUrl = new URL(`${indexerUrlObj.protocol}//${indexerUrlObj.host}`);
@@ -457,8 +466,8 @@ export class TorznabClient {
               torznabItem.link = linkUrl.toString();
             }
           }
-          // If hosts already match the configured indexer (e.g. Prowlarr already returned its
-          // own proxy URL), leave the link unchanged.
+          // If the origin already matches the configured indexer (e.g. Prowlarr already
+          // returned its own proxy URL), leave the link unchanged.
         }
       } catch {
         // Ignore invalid URLs or parsing errors

@@ -17,6 +17,7 @@ import {
   sendLogs,
   type SendLogsResult,
 } from "@/lib/send-logs";
+import { copyToClipboard } from "@/lib/utils";
 
 interface SendLogsDialogProps {
   open: boolean;
@@ -75,28 +76,17 @@ export default function SendLogsDialog({
 
   const handleCopyCode = useCallback(() => {
     if (!result?.ok) return;
-    const clipboard = navigator.clipboard;
-    if (!clipboard) {
-      toast({
-        title: "Copy failed",
-        description: "Clipboard API not supported in this browser",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    clipboard
-      .writeText(result.code)
-      .then(() => {
+    copyToClipboard(result.code).then((succeeded) => {
+      if (succeeded) {
         toast({ title: "Copied", description: `Code ${result.code} copied to clipboard` });
-      })
-      .catch(() => {
+      } else {
         toast({
           title: "Copy failed",
           description: "Clipboard access denied",
           variant: "destructive",
         });
-      });
+      }
+    });
   }, [result, toast]);
 
   const issueUrl = result?.ok

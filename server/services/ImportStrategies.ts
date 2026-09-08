@@ -51,6 +51,25 @@ async function ensureParentDir(filePath: string): Promise<void> {
   await fs.ensureDir(path.dirname(filePath));
 }
 
+// Linux's link(2) always rejects a directory target with EPERM — hard links
+// only ever point at a single inode (a file), never a directory tree. So a
+// directory source has to be walked and linked file-by-file (mirroring what
+// `cp -al` does on the CLI), rather than handed to fs.link() as one call,
+// which would otherwise always fail for a multi-file torrent/release.
+async function hardlinkTree(source: string, destination: string): Promise<void> {
+  const stats = await fs.lstat(source);
+  if (!stats.isDirectory()) {
+    await fs.link(source, destination);
+    return;
+  }
+
+  await fs.ensureDir(destination);
+  const entries = await fs.readdir(source, { withFileTypes: true });
+  for (const entry of entries) {
+    await hardlinkTree(path.join(source, entry.name), path.join(destination, entry.name));
+  }
+}
+
 async function transferFile(
   source: string,
   destination: string,
@@ -83,7 +102,7 @@ async function transferFile(
   }
 
   try {
-    await fs.link(source, destination);
+    await hardlinkTree(source, destination);
     return "hardlink";
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
@@ -98,6 +117,9 @@ async function transferFile(
         { source, destination, code },
         "[ImportStrategies] Hardlink failed, falling back to copy"
       );
+      // Clean up any partial tree hardlinkTree() managed to create before
+      // the failure, so the copy fallback isn't merging into leftovers.
+      await fs.remove(destination).catch(() => undefined);
       await fs.copy(source, destination, { overwrite: true });
       return "copy";
     }

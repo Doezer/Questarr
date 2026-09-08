@@ -89,7 +89,7 @@ vi.mock("../xrel.js", () => ({
 
 // Import the function under test
 // We need to use dynamic import or require because of the hoisting of vi.mock
-const { checkAutoSearch } = await import("../cron.js");
+const { checkAutoSearch, categorizeSearchItems } = await import("../cron.js");
 
 describe("Cron - checkAutoSearch", () => {
   const userId = "user-123";
@@ -1150,6 +1150,59 @@ describe("Cron - checkAutoSearch", () => {
       // Should not throw; defaults have minSeeders=0, so the item passes
       await expect(checkAutoSearch()).resolves.not.toThrow();
       expect(mockUpdateGameSearchResultsAvailable).toHaveBeenCalledWith(game.id, true);
+    });
+
+    it("should sort by indexer priority (lower number = higher priority sorts first)", () => {
+      const itemFromLowPriorityIndexer = {
+        ...ITEM_LOW_SEEDERS,
+        title: "Test Game-LOWPRIO",
+        indexerId: "indexer-low",
+      };
+      const itemFromHighPriorityIndexer = {
+        ...ITEM_HIGH_SEEDERS,
+        title: "Test Game-HIGHPRIO",
+        indexerId: "indexer-high",
+      };
+      const indexerPriorityMap = new Map([
+        ["indexer-low", 5],
+        ["indexer-high", 1],
+      ]);
+
+      const result = categorizeSearchItems(
+        [itemFromLowPriorityIndexer, itemFromHighPriorityIndexer],
+        { minSeeders: 0, sortBy: "priority", visibleCategoriesSet: new Set(["main"]) },
+        indexerPriorityMap
+      );
+
+      expect(result.mainItems.map((item) => item.title)).toEqual([
+        "Test Game-HIGHPRIO",
+        "Test Game-LOWPRIO",
+      ]);
+    });
+
+    it("should treat unknown indexers as lowest priority when sorting by priority", () => {
+      const itemFromKnownIndexer = {
+        ...ITEM_LOW_SEEDERS,
+        title: "Test Game-KNOWN",
+        indexerId: "indexer-known",
+      };
+      const itemFromUnknownIndexer = {
+        ...ITEM_HIGH_SEEDERS,
+        title: "Test Game-UNKNOWN",
+        indexerId: "indexer-unknown",
+      };
+      const indexerPriorityMap = new Map([["indexer-known", 3]]);
+
+      const result = categorizeSearchItems(
+        [itemFromUnknownIndexer, itemFromKnownIndexer],
+        { minSeeders: 0, sortBy: "priority", visibleCategoriesSet: new Set(["main"]) },
+        indexerPriorityMap
+      );
+
+      expect(result.mainItems.map((item) => item.title)).toEqual([
+        "Test Game-KNOWN",
+        "Test Game-UNKNOWN",
+      ]);
     });
   });
 

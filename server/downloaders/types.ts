@@ -10,6 +10,9 @@ export interface DownloadRequest {
   downloadPath?: string;
   priority?: number;
   downloadType?: "torrent" | "usenet";
+  // Archive/unpack password for the release (e.g. NZB archives that ship password-protected).
+  // Currently only consumed by SABnzbd; other clients ignore it.
+  password?: string;
 }
 
 export interface DownloaderActionResult {

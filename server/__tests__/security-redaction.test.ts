@@ -1,28 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { redactSecretText, redactSecrets } from "../security.js";
+import { redactSecrets } from "../security.js";
 
-describe("redactSecretText", () => {
-  it("redacts key=value style secrets", () => {
-    expect(redactSecretText("apikey=abc123&other=fine")).toBe("apikey=[redacted]&other=fine");
-    expect(redactSecretText('password: "hunter2"')).toContain("password=[redacted]");
-  });
-
-  it("redacts Bearer tokens", () => {
-    const input = "Authorization header was Bearer eyJhbGciOiJIUzI1NiJ9.abc.def";
-    expect(redactSecretText(input)).toBe("Authorization header was Bearer [redacted]");
-  });
-
-  it("redacts Discord webhook URLs", () => {
-    const input = "https://discord.com/api/webhooks/12345/abcdef-token";
-    expect(redactSecretText(input)).toBe("[redacted-discord-webhook]");
-  });
-
-  it("leaves ordinary text untouched", () => {
-    const input = "Search completed with 12 results for query 'zelda'";
-    expect(redactSecretText(input)).toBe(input);
-  });
-});
-
+// `redactSecretText` (the plain-string secret redaction `redactSecrets` is built
+// on) now lives in shared/log-scrub.ts, re-exported here for pino-formatter use
+// -- its own tests live in shared/__tests__/log-scrub.test.ts. This file covers
+// only redactSecrets' server-specific behavior: recursive object/array redaction
+// by key shape.
 describe("redactSecrets", () => {
   it("redacts values whose key looks secret-shaped", () => {
     const result = redactSecrets({
@@ -78,5 +61,35 @@ describe("redactSecrets", () => {
       name: "Error",
       message: "token=[redacted] was invalid",
     });
+  });
+
+  it("preserves Date values instead of collapsing them to {}", () => {
+    const date = new Date("2026-01-02T03:04:05.000Z");
+    expect(redactSecrets(date)).toBe("2026-01-02T03:04:05.000Z");
+    expect(redactSecrets({ timestamp: date })).toEqual({
+      timestamp: "2026-01-02T03:04:05.000Z",
+    });
+  });
+
+  it("returns a sentinel for an invalid Date instead of throwing", () => {
+    const invalidDate = new Date("not a real date");
+    expect(() => redactSecrets(invalidDate)).not.toThrow();
+    expect(redactSecrets(invalidDate)).toBe("[Invalid Date]");
+  });
+
+  it("summarizes Buffer values instead of collapsing them to {}", () => {
+    const buf = Buffer.from("hello");
+    expect(redactSecrets(buf)).toBe("[Buffer 5 bytes]");
+  });
+
+  it("redacts through Map and Set values instead of collapsing them to {}", () => {
+    const map = new Map<string, string>([
+      ["username", "alice"],
+      ["password", "hunter2"],
+    ]);
+    expect(redactSecrets(map)).toEqual({ username: "alice", password: "[redacted]" });
+
+    const set = new Set(["plain text", "Bearer sekrettoken123"]);
+    expect(redactSecrets(set)).toEqual(["plain text", "Bearer [redacted]"]);
   });
 });

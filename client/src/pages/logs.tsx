@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/sheet";
 import { useToast } from "@/hooks/use-toast";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { copyToClipboard } from "@/lib/utils";
 
 interface LogField {
   key: string;
@@ -593,21 +594,20 @@ export default function LogsPage() {
 
   const copyText = useCallback(
     (text: string, description: string) => {
-      navigator.clipboard
-        .writeText(text)
-        .then(() => {
+      copyToClipboard(text).then((succeeded) => {
+        if (succeeded) {
           toast({
             title: "Copied",
             description,
           });
-        })
-        .catch(() => {
+        } else {
           toast({
             title: "Copy failed",
             description: "Clipboard access denied",
             variant: "destructive",
           });
-        });
+        }
+      });
     },
     [toast]
   );

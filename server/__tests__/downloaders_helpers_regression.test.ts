@@ -51,6 +51,7 @@ const createDownloader = (overrides: Partial<Downloader> = {}): Downloader => {
     removeCompleted: false,
     postImportCategory: null,
     settings: null,
+    allowSelfSignedCertificate: false,
     createdAt: now,
     updatedAt: now,
     ...overrides,
@@ -129,6 +130,7 @@ describe("downloaders helper regression coverage", () => {
         port: 8085,
         urlPath: "sab",
         username: "api-key",
+        allowSelfSignedCertificate: true,
       })
     ) as unknown as {
       getBaseUrl(): string;

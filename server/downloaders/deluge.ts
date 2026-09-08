@@ -680,9 +680,10 @@ export class DelugeClient implements DownloaderClient {
     }
   }
 
+  /** Maps a Deluge torrent payload to Questarr's normalized download status. */
   private mapDelugeStatus(hash: string, status: DelugeTorrentStatus): DownloadStatus {
     // Deluge states: Downloading, Seeding, Paused, Checking, Queued, Error, Allocating, Moving
-    let downloadStatus: DownloadStatus["status"] = "paused";
+    let downloadStatus: DownloadStatus["status"];
 
     switch (status.state) {
       case "Downloading":

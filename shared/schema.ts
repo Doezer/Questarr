@@ -192,6 +192,7 @@ export const games = sqliteTable("games", {
   searchResultsAvailable: integer("search_results_available", { mode: "boolean" })
     .default(false)
     .notNull(),
+  searchResultsAvailableAt: integer("search_results_available_at", { mode: "timestamp_ms" }),
   updateSearchResultsAvailable: integer("update_search_results_available", { mode: "boolean" })
     .default(false)
     .notNull(),
@@ -231,6 +232,13 @@ export const downloaders = sqliteTable("downloaders", {
   port: integer("port"),
   useSsl: integer("use_ssl", { mode: "boolean" }).default(false),
   urlPath: text("url_path"),
+  // Opt-in per-downloader bypass for TLS certificate validation. Left off by
+  // default: a hung/failed TLS handshake should surface as an error, not
+  // silently fall back to an insecure connection unless the user explicitly
+  // trusts this downloader's self-signed certificate.
+  allowSelfSignedCertificate: integer("allow_self_signed_certificate", { mode: "boolean" })
+    .notNull()
+    .default(false),
   username: text("username"),
   password: text("password"),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
@@ -460,7 +468,7 @@ export const insertNotificationSchema = createInsertSchema(notifications).omit({
 // Download rules schema for auto-download filtering
 export const downloadRulesSchema = z.object({
   minSeeders: z.number().int().min(0).default(0),
-  sortBy: z.enum(["seeders", "date", "size"]).default("seeders"),
+  sortBy: z.enum(["seeders", "date", "size", "priority"]).default("seeders"),
   visibleCategories: z
     .array(z.enum(["main", "update", "dlc", "extra", "packs"]))
     .default(["main", "update", "dlc", "extra", "packs"]),
@@ -608,6 +616,21 @@ export interface DownloadSummary {
   count: number;
   downloadTypes: ("torrent" | "usenet")[];
   hasUpdateDownload: boolean;
+}
+
+// Lightweight stats surfaced via /api/status for external dashboards (Homepage, Homarr, etc.)
+export interface DashboardStatus {
+  totalGames: number;
+  pendingWishlist: number;
+  activeDownloads: number;
+  recentImports: {
+    count: number;
+    items: Array<{
+      gameId: string;
+      title: string;
+      completedAt: string | null;
+    }>;
+  };
 }
 
 // Application configuration type

@@ -1,4 +1,5 @@
 import type { Downloader, DownloadStatus, DownloadDetails } from "../../shared/schema.js";
+import { resolveArchivePassword } from "../../shared/archive-password.js";
 import { downloadersLogger } from "../logger.js";
 import https from "https";
 import { isSafeUrl, resolveSafeAddress, safeFetch } from "../ssrf.js";
@@ -8,6 +9,39 @@ import {
   logDownloaderDebugResponse,
   stripTrailingPathSeparators,
 } from "./utils.js";
+
+/**
+ * Strips the `apikey` query param from a SABnzbd request URL before it's
+ * passed to a logger -- getApiUrl() embeds the credential directly in the
+ * URL, so logging it unredacted would leak the API key into log output.
+ */
+function redactApiKey(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.searchParams.has("apikey")) {
+      parsed.searchParams.set("apikey", "[redacted]");
+    }
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * Node TLS error codes that genuinely indicate a self-signed or otherwise
+ * untrusted certificate chain -- the specific failure modes
+ * allowSelfSignedCertificate exists to bypass. Deliberately excludes
+ * CERT_HAS_EXPIRED and any other certificate-related code: an expired
+ * certificate is a different, unrelated problem that this opt-in was never
+ * meant to paper over.
+ */
+const SELF_SIGNED_TLS_ERROR_CODES = new Set([
+  "DEPTH_ZERO_SELF_SIGNED_CERT",
+  "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "SELF_SIGNED_CERT_IN_CHAIN",
+  "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+  "UNABLE_TO_GET_ISSUER_CERT",
+]);
 
 interface SABnzbdQueue {
   slots: Array<{
@@ -106,28 +140,60 @@ export class SABnzbdClient implements DownloaderClient {
     return url.toString();
   }
 
-  private async fetchWithFallback(url: string, options: RequestInit = {}): Promise<Response> {
-    const response = await this.doFetchWithFallback(url, options);
+  private async fetchWithFallback(
+    url: string,
+    options: RequestInit = {},
+    allowInsecureFallback = true
+  ): Promise<Response> {
+    const response = await this.doFetchWithFallback(url, options, allowInsecureFallback);
     await logDownloaderDebugResponse("sabnzbd", options.method ?? "GET", url, response);
     return response;
   }
 
-  private async doFetchWithFallback(url: string, options: RequestInit = {}): Promise<Response> {
+  private async doFetchWithFallback(
+    url: string,
+    options: RequestInit = {},
+    allowInsecureFallback = true
+  ): Promise<Response> {
     try {
-      return await safeFetch(url, { ...options, allowPrivate: true });
+      // allowInsecureFallback is false exactly when this request carries the archive
+      // password (see addDownload) -- in that case also refuse to follow a redirect to
+      // a non-HTTPS hop, since a compromised or MITM'd SABnzbd could otherwise bounce the
+      // credential-bearing request to a plaintext endpoint mid-flight.
+      return await safeFetch(url, {
+        ...options,
+        allowPrivate: true,
+        requireHttps: !allowInsecureFallback,
+      });
     } catch (error) {
       const isSslError =
         error instanceof Error &&
-        (error.message.includes("self-signed") ||
-          error.message.includes("certificate") ||
-          (error.cause as { code: string })?.code === "DEPTH_ZERO_SELF_SIGNED_CERT" ||
-          (error.cause as { code: string })?.code === "UNABLE_TO_VERIFY_LEAF_SIGNATURE" ||
-          (error.cause as { code: string })?.code === "CERT_HAS_EXPIRED");
+        // Only Node's self-signed/untrusted-chain TLS error codes qualify for
+        // the insecure retry -- NOT a generic message.includes("certificate")
+        // (too broad) or CERT_HAS_EXPIRED (an expired cert is a different,
+        // unrelated failure that allowSelfSignedCertificate was never meant
+        // to bypass).
+        SELF_SIGNED_TLS_ERROR_CODES.has((error.cause as { code?: string })?.code ?? "");
 
-      if (isSslError) {
+      // The insecure fallback (rejectUnauthorized: false) accepts *any* certificate,
+      // including one presented by an attacker impersonating the configured host. That's
+      // an acceptable trade-off for routine status polling, but never for a request
+      // carrying the archive password -- callers pass allowInsecureFallback: false there
+      // so a cert failure surfaces as an error instead of silently downgrading transport
+      // security for a credential.
+      if (isSslError && allowInsecureFallback) {
+        const redactedUrl = redactApiKey(url);
+        if (!this.downloader.allowSelfSignedCertificate) {
+          downloadersLogger.warn(
+            { url: redactedUrl, downloaderId: this.downloader.id },
+            "SSL verification failed; not retrying insecurely because " +
+              "allowSelfSignedCertificate is disabled for this downloader"
+          );
+          throw error;
+        }
         downloadersLogger.debug(
-          { url },
-          "SSL verification failed, retrying with insecure connection"
+          { url: redactedUrl },
+          "SSL verification failed, retrying with insecure connection (allowSelfSignedCertificate enabled)"
         );
         return this.fetchInsecure(url, options);
       }
@@ -202,13 +268,11 @@ export class SABnzbdClient implements DownloaderClient {
       return { success: false, message: "Invalid SABnzbd response - missing version field" };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      downloadersLogger.error(
-        { error, url: this.getApiUrl("version") },
-        "SABnzbd connection test failed"
-      );
+      const redactedUrl = redactApiKey(this.getApiUrl("version"));
+      downloadersLogger.error({ error, url: redactedUrl }, "SABnzbd connection test failed");
       return {
         success: false,
-        message: `Failed to connect to SABnzbd at ${this.getApiUrl("version")}: ${errorMessage}`,
+        message: `Failed to connect to SABnzbd at ${redactedUrl}: ${errorMessage}`,
       };
     }
   }
@@ -235,7 +299,7 @@ export class SABnzbdClient implements DownloaderClient {
 
   private async getVersionInfo(): Promise<Record<string, unknown>> {
     const url = this.getApiUrl("version");
-    downloadersLogger.debug({ url }, "Testing SABnzbd connection");
+    downloadersLogger.debug({ url: redactApiKey(url) }, "Testing SABnzbd connection");
     const response = await this.fetchWithFallback(url, { signal: AbortSignal.timeout(10000) });
 
     if (!response.ok) {
@@ -244,6 +308,34 @@ export class SABnzbdClient implements DownloaderClient {
     }
 
     return (await response.json()) as Record<string, unknown>;
+  }
+
+  private parseAddFileResponse(data: { status?: boolean; nzo_ids?: string[]; error?: string }): {
+    success: boolean;
+    id?: string;
+    message: string;
+  } {
+    if (data.status === true) {
+      if (data.nzo_ids && data.nzo_ids.length > 0) {
+        return { success: true, id: data.nzo_ids[0], message: "NZB added successfully" };
+      }
+      // Status true but no ID usually means duplicate in SABnzbd (or merged)
+      return { success: true, message: "NZB added successfully (likely duplicate or merged)" };
+    }
+
+    // Check for specific duplicate error
+    if (
+      data.error &&
+      typeof data.error === "string" &&
+      data.error.toLowerCase().includes("duplicate")
+    ) {
+      return { success: true, message: `NZB already exists: ${data.error}` };
+    }
+
+    return {
+      success: false,
+      message: data.error || "Failed to add NZB - SABnzbd returned success:false",
+    };
   }
 
   async addDownload(
@@ -263,31 +355,48 @@ export class SABnzbdClient implements DownloaderClient {
       }
       const nzbContent = await nzbResponse.arrayBuffer();
 
+      // Many usenet releases (e.g. G4U) ship as password-protected archives. SABnzbd
+      // can unpack them automatically if we hand it the extraction password up front —
+      // configured per-downloader since it's usually a fixed indexer/group convention.
+      const { password, error: passwordError } = resolveArchivePassword(
+        request.password,
+        this.downloader.settings,
+        this.getBaseUrl(),
+        "SABnzbd"
+      );
+      if (passwordError) {
+        return { success: false, message: passwordError };
+      }
+
       const url = this.getApiUrl("addfile", {
         nzbname: request.title,
         cat: request.category || "games",
         priority: (request.priority || 0).toString(),
+        ...(password ? { password } : {}),
       });
 
       // Build multipart body manually so fetchInsecure (self-signed HTTPS fallback)
       // can write it as a Buffer — FormData is not serialisable via req.write().
       const boundary = `questarr${Date.now().toString(16)}`;
       const safeName = request.title.replace(/["\\]/g, "_");
-      const nzbBuffer = Buffer.from(nzbContent);
       const multipartBody = Buffer.concat([
         Buffer.from(
           `--${boundary}\r\nContent-Disposition: form-data; name="name"; filename="${safeName}.nzb"\r\nContent-Type: application/x-nzb\r\n\r\n`
         ),
-        nzbBuffer,
+        Buffer.from(nzbContent),
         Buffer.from(`\r\n--${boundary}--\r\n`),
       ]);
 
-      const response = await this.fetchWithFallback(url, {
-        method: "POST",
-        body: multipartBody,
-        headers: { "Content-Type": `multipart/form-data; boundary=${boundary}` },
-        signal: AbortSignal.timeout(30000),
-      });
+      const response = await this.fetchWithFallback(
+        url,
+        {
+          method: "POST",
+          body: multipartBody,
+          headers: { "Content-Type": `multipart/form-data; boundary=${boundary}` },
+          signal: AbortSignal.timeout(30000),
+        },
+        !password
+      );
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => "No error details");
@@ -295,39 +404,7 @@ export class SABnzbdClient implements DownloaderClient {
       }
 
       const data = await response.json();
-
-      if (data.status === true) {
-        if (data.nzo_ids && data.nzo_ids.length > 0) {
-          return {
-            success: true,
-            id: data.nzo_ids[0],
-            message: "NZB added successfully",
-          };
-        } else {
-          // Status true but no ID usually means duplicate in SABnzbd (or merged)
-          return {
-            success: true,
-            message: "NZB added successfully (likely duplicate or merged)",
-          };
-        }
-      }
-
-      // Check for specific duplicate error
-      if (
-        data.error &&
-        typeof data.error === "string" &&
-        data.error.toLowerCase().includes("duplicate")
-      ) {
-        return {
-          success: true,
-          message: `NZB already exists: ${data.error}`,
-        };
-      }
-
-      return {
-        success: false,
-        message: data.error || "Failed to add NZB - SABnzbd returned success:false",
-      };
+      return this.parseAddFileResponse(data);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       return {

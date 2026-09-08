@@ -1768,7 +1768,7 @@ describe("downloader client regression coverage", () => {
     await expect(client.testConnection()).resolves.toEqual({
       success: false,
       message:
-        "Failed to connect to SABnzbd at http://localhost:8080/api?apikey=api-key&mode=version&output=json: HTTP 500: Boom - server error",
+        "Failed to connect to SABnzbd at http://localhost:8080/api?apikey=%5Bredacted%5D&mode=version&output=json: HTTP 500: Boom - server error",
     });
 
     fetchWithFallbackSpy.mockRejectedValueOnce(new Error("connect boom"));

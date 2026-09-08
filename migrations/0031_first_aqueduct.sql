@@ -3,6 +3,7 @@ CREATE TABLE `root_folders` (
 	`path` text NOT NULL,
 	`name` text,
 	`enabled` integer DEFAULT true NOT NULL,
+	`allow_delete` integer DEFAULT false NOT NULL,
 	`accessible` integer,
 	`disk_free_bytes` integer,
 	`disk_total_bytes` integer,

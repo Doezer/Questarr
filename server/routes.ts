@@ -34,6 +34,7 @@ import {
   type GameFileCategory,
 } from "../shared/schema.js";
 import { isUsenetDownloaderType } from "../shared/downloader-types.js";
+import { parseJsonObject } from "../shared/json-object-utils.js";
 import { torznabClient } from "./torznab.js";
 import { newznabClient } from "./newznab.js";
 import { rssService } from "./rss.js";
@@ -60,6 +61,7 @@ import {
   sanitizeIndexerData,
   sanitizeIndexerUpdateData,
   sanitizeDownloaderData,
+  sanitizeDownloaderTestData,
   sanitizeDownloaderUpdateData,
   sanitizeDownloaderDownloadData,
   sanitizeIndexerSearchQuery,
@@ -83,6 +85,7 @@ import {
   authenticateToken,
   optionalAuthenticateToken,
 } from "./auth.js";
+import { setAuthCookies, clearAuthCookies, csrfProtection } from "./security.js";
 import { nexusmodsClient } from "./nexusmods.js";
 import {
   appriseClient,
@@ -158,6 +161,19 @@ function isPublicApiRequest(req: Request): boolean {
   return PUBLIC_API_ROUTES.has(`${req.method.toUpperCase()} ${req.path}`);
 }
 
+// Routes that must always run, even with a missing/expired/invalid token,
+// but should still pick up req.user/req.authSource when the token IS valid
+// (so e.g. csrfProtection still enforces the CSRF check for a cookie-backed
+// caller). Logout is the motivating case: JWTs are stateless, so the only
+// server-side effect is clearing the auth/CSRF cookies, and a user stuck
+// with an expired cookie must still be able to do that -- hard-rejecting
+// the request at the boundary would leave the stale cookies in the browser.
+const SOFT_AUTH_API_ROUTES = new Set<string>(["POST /auth/logout"]);
+
+function isSoftAuthApiRequest(req: Request): boolean {
+  return SOFT_AUTH_API_ROUTES.has(`${req.method.toUpperCase()} ${req.path}`);
+}
+
 /**
  * Default-deny gate for the entire /api surface: anything not explicitly
  * allowlisted above requires a valid token. Mounted before any /api route is
@@ -167,6 +183,10 @@ function isPublicApiRequest(req: Request): boolean {
 export function requireAuthenticationForApi(req: Request, res: Response, next: NextFunction) {
   if (isPublicApiRequest(req)) {
     next();
+    return;
+  }
+  if (isSoftAuthApiRequest(req)) {
+    optionalAuthenticateToken(req, res, next);
     return;
   }
   authenticateToken(req, res, next);
@@ -249,14 +269,52 @@ function isValidDiscordWebhook(value: string): boolean {
   }
 }
 
+/**
+ * Masks an indexer's API key before exposing its configuration.
+ *
+ * @param indexer - The indexer configuration to sanitize
+ * @returns The indexer with its API key replaced by a redaction placeholder when configured
+ */
 function maskIndexer(indexer: Indexer): Indexer {
   return indexer.apiKey ? { ...indexer, apiKey: REDACTED_PLACEHOLDER } : indexer;
 }
 
-function maskDownloader(downloader: Downloader): Downloader {
-  return downloader.password ? { ...downloader, password: REDACTED_PLACEHOLDER } : downloader;
+// The SABnzbd archive password lives inside the free-form `settings` JSON blob
+// (alongside qBittorrent's initialState etc.), so it needs its own mask/restore
+/**
+ * Masks the archive password in serialized downloader settings.
+ *
+ * @param settingsJson - The serialized downloader settings, or `null`
+ * @returns The settings with the archive password redacted, or the original value when no archive password is configured
+ */
+function maskDownloaderSettings(settingsJson: string | null): string | null {
+  const settings = parseJsonObject(settingsJson);
+  if (!settings.archivePassword) return settingsJson;
+  return JSON.stringify({ ...settings, archivePassword: REDACTED_PLACEHOLDER });
 }
 
+/**
+ * Masks sensitive credentials in a downloader configuration.
+ *
+ * @param downloader - The downloader configuration whose credentials should be masked
+ * @returns A downloader configuration with its password and archive password redacted
+ */
+function maskDownloader(downloader: Downloader): Downloader {
+  const masked = downloader.password
+    ? { ...downloader, password: REDACTED_PLACEHOLDER }
+    : downloader;
+  const maskedSettings = maskDownloaderSettings(masked.settings);
+  return maskedSettings !== masked.settings ? { ...masked, settings: maskedSettings } : masked;
+}
+
+/**
+ * Sends a bad-request response containing a message and Zod validation issues.
+ *
+ * @param res - The response used to send the error
+ * @param error - The Zod validation error containing issue details
+ * @param message - The error message included in the response
+ * @returns The configured response
+ */
 function respondWithZodError(res: Response, error: z.ZodError, message: string): Response {
   return res.status(400).json({ error: message, details: error.issues });
 }
@@ -540,6 +598,12 @@ function registerIgdbParamListRoute(
   });
 }
 
+/**
+ * Registers application middleware and API routes, then creates the HTTP server.
+ *
+ * @param app - The Express application to configure
+ * @returns The configured HTTP server
+ */
 export async function registerRoutes(app: Express): Promise<Server> {
   // 🛡️ Sentinel: Add security headers with Helmet
   // Configured to allow Vite/React (unsafe-inline/eval) in dev, and IGDB images everywhere
@@ -606,6 +670,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // /api route (including the routers below) is registered, so every /api/*
   // request is required to authenticate unless explicitly allowlisted above.
   app.use("/api", requireAuthenticationForApi);
+  // CSRF protection for cookie-authenticated requests. Must run after the
+  // auth boundary above so req.authSource is already populated.
+  app.use("/api", csrfProtection);
 
   // Use Steam Routes
   app.use(steamRoutes);
@@ -701,6 +768,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await saveIgdbCredentialsIfProvided(igdbClientId, igdbClientSecret);
 
       routesLogger.info({ username: trimmedUsername }, "Initial setup completed");
+      // Cookie-based auth is the primary mechanism for browser clients (see
+      // server/security.ts); the token is also still returned in the body
+      // for backward compatibility with any non-browser/bearer-only client.
+      setAuthCookies(req, res, token);
       res.json({ token, user: { id: user.id, username: user.username } });
     } catch (error) {
       routesLogger.error(
@@ -748,12 +819,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     await storage.assignOrphanGamesToUser(user.id);
 
     const token = await generateToken(user);
+    // Cookie-based auth is the primary mechanism for browser clients (see
+    // server/security.ts); the token is also still returned in the body
+    // for backward compatibility with any non-browser/bearer-only client.
+    setAuthCookies(req, res, token);
     res.json({ token, user: { id: user.id, username: user.username } });
   });
 
   app.get("/api/auth/me", authenticateToken, (req, res) => {
     const user = req.user!;
     res.json({ id: user.id, username: user.username, steamId64: user.steamId64 });
+  });
+
+  // Logout must be idempotent: an expired/invalid/missing session cookie
+  // must still be cleared, otherwise the browser keeps a stale cookie
+  // forever. It's a SOFT_AUTH_API_ROUTES entry (see requireAuthenticationForApi
+  // above), which already ran optionalAuthenticateToken for this request --
+  // req.authSource is populated when a valid cookie is present, so
+  // csrfProtection (mounted before route registration) still enforces the
+  // CSRF check for cookie-authenticated callers. JWTs are stateless, so
+  // there's nothing to invalidate server-side beyond clearing the cookies.
+  app.post("/api/auth/logout", (req, res) => {
+    clearAuthCookies(req, res);
+    res.json({ success: true });
   });
 
   app.patch("/api/auth/password", authenticateToken, sensitiveEndpointLimiter, async (req, res) => {
@@ -1176,11 +1264,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Mount Feature Routers (also explicitly protected as defense-in-depth,
-  // though the default-deny boundary mounted above already covers them)
-  app.use("/api/imports", authenticateToken, importRouter);
-  app.use("/api/import-tasks", authenticateToken, importTasksRouter);
-  app.use("/api/system", authenticateToken, systemRouter);
+  // Mount Feature Routers. No per-mount authenticateToken here: the
+  // default-deny boundary (requireAuthenticationForApi, mounted above
+  // before any /api route is registered) already authenticates every
+  // request to these paths -- none of them are in PUBLIC_API_ROUTES.
+  // Repeating the check here bought no additional protection (it re-runs
+  // the identical jwt.verify + storage.getUser after the same middleware
+  // already accepted the request) while doubling the per-request auth cost.
+  app.use("/api/imports", importRouter);
+  app.use("/api/import-tasks", importTasksRouter);
+  app.use("/api/system", systemRouter);
 
   // Sync indexers from Prowlarr
   app.post("/api/indexers/prowlarr/sync", sensitiveEndpointLimiter, async (req, res, next) => {
@@ -1234,6 +1327,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(200).json({ status: "ok" });
     } else {
       res.status(503).json({ status: "error" });
+    }
+  });
+
+  // Lightweight dashboard stats for external status widgets (Homepage, Homarr, Organizr, etc.)
+  app.get("/api/status", authenticateToken, async (req, res) => {
+    try {
+      const status = await storage.getDashboardStatus(req.user!.id);
+      // User-specific data: never let a shared/browser cache reuse this across accounts.
+      res.set("Cache-Control", "no-store");
+      res.json(status);
+    } catch (error) {
+      routesLogger.error({ error }, "Failed to get dashboard status");
+      res.status(500).json({ error: "Failed to get dashboard status" });
     }
   });
 
@@ -2749,6 +2855,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
           delete updates.password;
         }
 
+        // Same masked-sentinel handling for the archive password nested inside
+        // `settings` -- restore the stored value instead of overwriting it with
+        // the redaction placeholder the UI echoes back unchanged.
+        if (typeof updates.settings === "string") {
+          const incomingSettings = parseJsonObject(updates.settings);
+          if (isUnchangedSentinel(incomingSettings.archivePassword)) {
+            const existing = await storage.getDownloader(id);
+            const existingPassword = parseJsonObject(existing?.settings).archivePassword;
+            if (existingPassword) {
+              incomingSettings.archivePassword = existingPassword;
+            } else {
+              delete incomingSettings.archivePassword;
+            }
+            updates.settings = JSON.stringify(incomingSettings);
+          }
+        }
+
         const downloader = await storage.updateDownloader(id, updates);
         if (!downloader) {
           return res.status(404).json({ error: "Downloader not found" });
@@ -2924,67 +3047,70 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Downloader integration routes
 
   // Test downloader connection with provided configuration (doesn't require saving first)
-  app.post("/api/downloaders/test", async (req, res) => {
-    try {
-      const {
-        type,
-        url,
-        port,
-        useSsl,
-        urlPath,
-        username,
-        password,
-        downloadPath,
-        category,
-        label,
-        addStopped,
-        removeCompleted,
-        postImportCategory,
-        settings,
-      } = req.body;
+  app.post(
+    "/api/downloaders/test",
+    sanitizeDownloaderTestData,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const {
+          type,
+          url,
+          port,
+          useSsl,
+          urlPath,
+          username,
+          password,
+          downloadPath,
+          category,
+          label,
+          addStopped,
+          removeCompleted,
+          postImportCategory,
+          settings,
+          allowSelfSignedCertificate,
+        } = req.body;
 
-      if (!type || !url) {
-        return res.status(400).json({ error: "Type and URL are required" });
+        // Check for SSRF
+        if (!(await isSafeUrl(url))) {
+          return res.status(400).json({ error: "Invalid or unsafe URL" });
+        }
+
+        // Create a temporary downloader object for testing
+        const tempDownloader: Downloader = {
+          id: "test",
+          name: "Test Connection",
+          type,
+          url,
+          port: port || null,
+          useSsl: useSsl ?? false,
+          urlPath: urlPath || null,
+          username: username || null,
+          password: password || null,
+          enabled: true,
+          priority: 1,
+          downloadPath: downloadPath || null,
+          category: category || null,
+          label: label || "Questarr",
+          addStopped: addStopped ?? false,
+          removeCompleted: removeCompleted ?? false,
+          postImportCategory: postImportCategory || null,
+          settings: settings || null,
+          allowSelfSignedCertificate: allowSelfSignedCertificate ?? false,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+
+        const result = await DownloaderManager.testDownloader(tempDownloader);
+        res.json(result);
+      } catch (error) {
+        routesLogger.error({ error }, "error testing downloader");
+        res.status(500).json({
+          error: "Failed to test downloader connection",
+        });
       }
-
-      // Check for SSRF
-      if (!(await isSafeUrl(url))) {
-        return res.status(400).json({ error: "Invalid or unsafe URL" });
-      }
-
-      // Create a temporary downloader object for testing
-      const tempDownloader: Downloader = {
-        id: "test",
-        name: "Test Connection",
-        type,
-        url,
-        port: port || null,
-        useSsl: useSsl ?? false,
-        urlPath: urlPath || null,
-        username: username || null,
-        password: password || null,
-        enabled: true,
-        priority: 1,
-        downloadPath: downloadPath || null,
-        category: category || null,
-        label: label || "Questarr",
-        addStopped: addStopped ?? false,
-        removeCompleted: removeCompleted ?? false,
-        postImportCategory: postImportCategory || null,
-        settings: settings || null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-
-      const result = await DownloaderManager.testDownloader(tempDownloader);
-      res.json(result);
-    } catch (error) {
-      routesLogger.error({ error }, "error testing downloader");
-      res.status(500).json({
-        error: "Failed to test downloader connection",
-      });
     }
-  });
+  );
 
   // Test existing downloader connection by ID
   app.post("/api/downloaders/:id/test", async (req, res) => {
@@ -3015,7 +3141,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     async (req: Request, res: Response) => {
       try {
         const { id } = req.params;
-        const { url, title, category, downloadPath, priority, downloadType } = req.body;
+        const { url, title, category, downloadPath, priority, downloadType, password } = req.body;
 
         if (!url || !title) {
           return res.status(400).json({ error: "URL and title are required" });
@@ -3037,6 +3163,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           downloadPath,
           priority,
           downloadType,
+          password,
         });
 
         res.json(result);
@@ -3713,7 +3840,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     validateRequest,
     async (req: Request, res: Response) => {
       try {
-        const { url, title, category, downloadPath, priority, gameId, downloadType } = req.body;
+        const { url, title, category, downloadPath, priority, gameId, downloadType, password } =
+          req.body;
 
         if (!url || !title) {
           return res.status(400).json({ error: "URL and title are required" });
@@ -3732,6 +3860,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           downloadPath,
           priority,
           downloadType,
+          password,
         });
 
         if (result && result.success === false) {

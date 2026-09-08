@@ -1,4 +1,5 @@
 import { type Indexer } from "@shared/schema";
+import { DEFAULT_GAME_CATEGORIES, discoverCapsCategories } from "./indexer-caps.js";
 import { torznabLogger } from "./logger.js";
 import { isSafeUrl, safeFetch } from "./ssrf.js";
 import { XMLParser } from "fast-xml-parser";
@@ -539,54 +540,92 @@ export class TorznabClient {
   }
 
   /**
-   * Get available categories from an indexer
+   * Recursively collects <category>/<subcat> entries into a flat list,
+   * composing each descendant's name as "parent > child" at every level --
+   * caps responses can nest subcategories more than one level deep (e.g.
+   * category > subcat > subcat), and earlier only direct children of the
+   * top-level category were visited, silently dropping grandchildren.
+   */
+  private collectCapsCategories(
+    node: unknown,
+    parentName: string | undefined,
+    categories: { id: string; name: string }[]
+  ): void {
+    const nodes = Array.isArray(node) ? node : [node];
+    nodes.forEach((cat: unknown) => {
+      if (!this.isRecord(cat)) return;
+      const id = this.asScalarString(cat["@_id"]);
+      const ownName =
+        this.asScalarString(cat["@_name"]) ?? this.asScalarString(cat["#text"]) ?? `Category ${id}`;
+      const fullName = parentName ? `${parentName} > ${ownName}` : ownName;
+      if (id) {
+        categories.push({ id, name: fullName });
+      }
+
+      // Torznab caps commonly nest subcategories under a parent category
+      // (e.g. parent "PC" containing subcat "PC/Games" id 4050) -- descend
+      // into them too, since these are the specific, useful IDs indexers
+      // actually expect in search requests.
+      const subcatNode = cat["subcat"];
+      if (subcatNode !== undefined) {
+        this.collectCapsCategories(subcatNode, fullName, categories);
+      }
+    });
+  }
+
+  private parseCapsCategories(xmlData: string): { id: string; name: string }[] {
+    const parsed: unknown = this.parser.parse(xmlData);
+    const categories: { id: string; name: string }[] = [];
+
+    const categoryNode = this.getCapsCategoryNode(parsed);
+    if (!categoryNode) {
+      return categories;
+    }
+
+    this.collectCapsCategories(categoryNode, undefined, categories);
+
+    return categories;
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null;
+  }
+
+  /** Narrows a caps XML attribute value to a string, accepting only string/number scalars. */
+  private asScalarString(value: unknown): string | undefined {
+    if (typeof value === "string") return value;
+    if (typeof value === "number") return String(value);
+    return undefined;
+  }
+
+  private getCapsCategoryNode(parsed: unknown): unknown {
+    if (!this.isRecord(parsed)) return undefined;
+    const caps = parsed["caps"];
+    if (!this.isRecord(caps)) return undefined;
+    const categories = caps["categories"];
+    if (!this.isRecord(categories)) return undefined;
+    return categories["category"];
+  }
+
+  /**
+   * Get available categories from an indexer. See discoverCapsCategories
+   * for the retry/fallback behavior.
    */
   async getCategories(indexer: Indexer): Promise<{ id: string; name: string }[]> {
-    if (!indexer.enabled) {
-      throw new Error(`Indexer ${indexer.name} is disabled`);
-    }
-
-    const url = new URL(indexer.url);
-    url.searchParams.set("t", "caps");
-    url.searchParams.set("apikey", indexer.apiKey);
-
-    try {
-      const response = await safeFetch(url.toString(), {
-        headers: { "User-Agent": "Questarr/1.0" },
-        signal: AbortSignal.timeout(30000),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => "No error details available");
-        throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
-      }
-
-      const xmlData = await response.text();
-      const parsed = this.parser.parse(xmlData);
-
-      const categories: { id: string; name: string }[] = [];
-
-      if (parsed.caps?.categories?.category) {
-        const cats = Array.isArray(parsed.caps.categories.category)
-          ? parsed.caps.categories.category
-          : [parsed.caps.categories.category];
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        cats.forEach((cat: any) => {
-          const id = cat["@_id"];
-          const name = cat["@_name"] || cat["#text"] || `Category ${id}`;
-          if (id) {
-            categories.push({ id, name });
-          }
-        });
-      }
-
-      return categories;
-    } catch (error) {
-      torznabLogger.error({ indexerName: indexer.name, error }, `error getting categories`);
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      throw new Error(`Failed to get categories: ${errorMessage}`);
-    }
+    return discoverCapsCategories({
+      indexer,
+      buildApiUrl: this.buildApiUrl.bind(this),
+      assertAllowed: () => {
+        if (!indexer.enabled) {
+          throw new Error(`Indexer ${indexer.name} is disabled`);
+        }
+      },
+      fetchHeaders: { "User-Agent": "Questarr/1.0" },
+      parseCaps: (xmlData) => this.parseCapsCategories(xmlData),
+      fallback: DEFAULT_GAME_CATEGORIES,
+      logger: torznabLogger,
+      protocolName: "torznab",
+    });
   }
 }
 

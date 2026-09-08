@@ -17,7 +17,6 @@ const overrides = pkg.overrides || {};
 // Once the upstream package officially supports the feature, these can be removed.
 const necessaryFeatureOverrides = new Set([
   "eslint-plugin-react -> eslint", // ESLint v10 support (eslint-plugin-react@7 doesn't officially support it yet)
-  "@eslint/eslintrc -> js-yaml", // Security patch - @eslint/eslintrc is a transitive dep not directly in node_modules
 ]);
 
 function readManifest(dirPath) {

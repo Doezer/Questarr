@@ -125,6 +125,23 @@ describe("auth Module", () => {
       expect(next).toHaveBeenCalled();
     });
 
+    it("should return 401 (not 403) when the Authorization header uses a non-Bearer scheme and no auth cookie is present", async () => {
+      // A Basic-auth (or any other scheme) header should be ignored rather
+      // than treated as a bearer token -- it should fall through to "no
+      // credentials found" (401), not fail JWT verification (403).
+      const req = {
+        headers: { authorization: "Basic dXNlcjpwYXNz", cookie: undefined },
+        user: undefined,
+      } as unknown as import("express").Request;
+      const res = mockResponse();
+
+      await authenticateToken(req, res, next);
+
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith({ error: "Authentication required" });
+      expect(next).not.toHaveBeenCalled();
+    });
+
     it("should return 403 on invalid signature", async () => {
       const maliciousToken = jwt.sign({ id: "valid_id" }, "wrong-secret");
 

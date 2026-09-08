@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "questarr.fullname" . }}-test-connection"
+  labels:
+    {{- include "questarr.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  automountServiceAccountToken: false
+  containers:
+    - name: health
+      image: busybox:1.36
+      command:
+        - wget
+      args:
+        - "--spider"
+        - "-q"
+        - "http://{{ include "questarr.fullname" . }}:{{ .Values.service.port }}/api/health"
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi
+          ephemeral-storage: 16Mi
+        limits:
+          memory: 64Mi
+          ephemeral-storage: 64Mi
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL

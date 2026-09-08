@@ -163,7 +163,9 @@ export class TorznabClient {
     } catch (error) {
       torznabLogger.error({ indexerName: indexer.name, error }, `error searching indexer`);
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      throw new Error(`Failed to search indexer ${indexer.name}: ${errorMessage}`);
+      throw new Error(`Failed to search indexer ${indexer.name}: ${errorMessage}`, {
+        cause: error,
+      });
     }
   }
 
@@ -380,7 +382,7 @@ export class TorznabClient {
     } catch (error) {
       torznabLogger.error({ error }, "error parsing Torznab response");
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      throw new Error(`Failed to parse response: ${errorMessage}`);
+      throw new Error(`Failed to parse response: ${errorMessage}`, { cause: error });
     }
   }
 

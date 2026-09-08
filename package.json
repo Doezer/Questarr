@@ -1,6 +1,6 @@
 {
   "name": "questarr",
-  "version": "1.4.3",
+  "version": "1.5.0",
   "description": "A video game management application inspired by the -Arr apps. Track and organize your video game collection with automated discovery and download management.",
   "type": "module",
   "packageManager": "npm@11.7.0",
@@ -206,7 +206,11 @@
     "@esbuild-kit/core-utils": {
       "esbuild": "^0.25.0"
     },
+    "@eslint/eslintrc": {
+      "js-yaml": "^4.3.1"
+    },
     "body-parser": "1.20.6",
+    "qs": "^6.16.0",
     "brace-expansion": "^5.0.9",
     "minimatch": "^10.2.5",
     "fast-uri": "^3.1.7"

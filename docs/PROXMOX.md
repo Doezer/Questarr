@@ -103,7 +103,7 @@ development code. Pin a release with `QUESTARR_REF` if you want to avoid that.
 To move to a specific version instead:
 
 ```bash
-pct exec 210 -- env QUESTARR_REF=v1.4.3 bash -c "$(curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' https://raw.githubusercontent.com/Doezer/Questarr/main/scripts/proxmox/questarr-install.sh)"
+pct exec 210 -- env QUESTARR_REF=v1.4.2 bash -c "$(curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' https://raw.githubusercontent.com/Doezer/Questarr/main/scripts/proxmox/questarr-install.sh)"
 ```
 
 Take a Proxmox snapshot or backup before updating if you want a quick way back:

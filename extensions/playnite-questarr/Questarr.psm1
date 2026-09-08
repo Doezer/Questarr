@@ -232,6 +232,48 @@ function GetGameMenuItems {
 
 # ── Actions ──────────────────────────────────────────────────────────────────
 
+<#
+    Whether $HostName names a machine on the caller's own local network rather
+    than somewhere out on the internet: loopback, an RFC1918/link-local IP
+    literal, or a hostname with no dot / an mDNS ".local" suffix (the two
+    conventions actual home-network devices use -- "questarr", "nas",
+    "questarr.local").
+
+    This gates which plain-HTTP addresses get a warn-and-continue choice
+    instead of being refused outright: it only has to be right about "this
+    clearly isn't a local address", not perfectly classify every address, so a
+    literal IP is checked precisely and a bare hostname is judged by
+    convention rather than resolved over the network.
+#>
+function Test-QuestarrIsPrivateHost {
+    param([Parameter(Mandatory)] [string] $HostName)
+
+    if ($HostName -ieq "localhost") { return $true }
+
+    $ip = $null
+    if ([System.Net.IPAddress]::TryParse($HostName, [ref]$ip)) {
+        if ([System.Net.IPAddress]::IsLoopback($ip)) { return $true }
+
+        $bytes = $ip.GetAddressBytes()
+        if ($ip.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork) {
+            # 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16 (link-local)
+            if ($bytes[0] -eq 10) { return $true }
+            if ($bytes[0] -eq 172 -and $bytes[1] -ge 16 -and $bytes[1] -le 31) { return $true }
+            if ($bytes[0] -eq 192 -and $bytes[1] -eq 168) { return $true }
+            if ($bytes[0] -eq 169 -and $bytes[1] -eq 254) { return $true }
+            return $false
+        }
+        # IPv6: unique local (fc00::/7) and link-local (fe80::/10)
+        if (($bytes[0] -band 0xfe) -eq 0xfc) { return $true }
+        if ($bytes[0] -eq 0xfe -and ($bytes[1] -band 0xc0) -eq 0x80) { return $true }
+        return $false
+    }
+
+    # Not an IP literal: judge by the two conventions local-network devices
+    # actually use, rather than spending a DNS round-trip on every Connect.
+    return ($HostName -notlike "*.*") -or ($HostName -ilike "*.local")
+}
+
 function Invoke-QuestarrConnect {
     param($scriptMainMenuItemActionArgs)
 
@@ -256,11 +298,28 @@ function Invoke-QuestarrConnect {
         return
     }
 
+    if ($parsedUri.Scheme -eq "http" -and -not (Test-QuestarrIsPrivateHost $parsedUri.Host)) {
+        # A confirmation dialog is consent, not protection -- it does nothing
+        # to stop an on-path attacker from reading the key in transit. So this
+        # is a hard stop, not a warn-and-continue: whatever "questarr.example.com"
+        # resolves to, it isn't this machine's own LAN, and there is no
+        # legitimate reason to send a long-lived credential there in cleartext.
+        $PlayniteApi.Dialogs.ShowErrorMessage(
+            "'$serverUrl' is a plain http:// address outside your local network. " +
+            "Questarr requires https:// here, since the API key would otherwise be " +
+            "sent unencrypted across the internet. Use an https:// address (e.g. " +
+            "behind a reverse proxy), or a local address (127.0.0.1, a private " +
+            "192.168.x.x/10.x.x.x address, or a .local hostname) if this is a " +
+            "same-network setup.",
+            "Questarr")
+        return
+    }
+
     # A plain-HTTP LAN deployment (Questarr and Playnite on the same home
     # network, no reverse proxy) is a supported, common setup -- this is not
     # blocked. But the API key is a long-lived credential sent on every sync,
-    # unlike a password entered once, so anything beyond loopback gets an
-    # explicit, informed choice rather than a silent cleartext send.
+    # unlike a password entered once, so a private-network address still gets
+    # an explicit, informed choice rather than a silent cleartext send.
     if ($parsedUri.Scheme -eq "http" -and -not $parsedUri.IsLoopback) {
         $proceed = $PlayniteApi.Dialogs.ShowMessage(
             "'$serverUrl' is a plain http:// address. Your API key will be sent " +

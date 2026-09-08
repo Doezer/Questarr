@@ -19,11 +19,20 @@ internal sealed class QuestarrWorker : BackgroundService
     private readonly ILogger<QuestarrWorker> logger;
     private Process? questarrProcess;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="QuestarrWorker"/> class.
+    /// </summary>
+    /// <param name="logger">The logger used by the worker.</param>
     public QuestarrWorker(ILogger<QuestarrWorker> logger)
     {
         this.logger = logger;
     }
 
+    /// <summary>
+    /// Runs and supervises the Questarr Node.js server until cancellation or unexpected termination.
+    /// </summary>
+    /// <param name="stoppingToken">A token that requests shutdown of the server process.</param>
+    /// <exception cref="FileNotFoundException">Thrown when the Questarr server entry point is missing.</exception>
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         // installDir is where the installer places the app payload (dist/,
@@ -179,12 +188,24 @@ internal sealed class QuestarrWorker : BackgroundService
         }
     }
 
+    /// <summary>
+    /// Stops the Questarr process before completing service shutdown.
+    /// </summary>
+    /// <param name="cancellationToken">A token that signals cancellation of the shutdown operation.</param>
+    /// <returns>The task representing completion of service shutdown.</returns>
     public override Task StopAsync(CancellationToken cancellationToken)
     {
         StopQuestarrProcess();
         return base.StopAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// Resolves a configuration value from the process environment, configuration values, or a fallback.
+    /// </summary>
+    /// <param name="name">The configuration variable name.</param>
+    /// <param name="configValues">The configuration values loaded from the configuration file.</param>
+    /// <param name="fallback">The value to use when no configured value is available.</param>
+    /// <returns>The first nonblank configured value, or the fallback value.</returns>
     private static string GetEnvironmentValue(
         string name,
         IReadOnlyDictionary<string, string> configValues,
@@ -221,6 +242,11 @@ internal sealed class QuestarrWorker : BackgroundService
         "QUESTARR_BASE_PATH",
     };
 
+    /// <summary>
+    /// Reads supported settings from a configuration file.
+    /// </summary>
+    /// <param name="path">The path to the configuration file.</param>
+    /// <returns>The allowlisted configuration values, or an empty dictionary if the file is missing.</returns>
     private static IReadOnlyDictionary<string, string> ReadConfigFile(string path)
     {
         var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -254,6 +280,11 @@ internal sealed class QuestarrWorker : BackgroundService
         return values;
     }
 
+    /// <summary>
+    /// Writes a process output line to the log writer when it is available.
+    /// </summary>
+    /// <param name="writer">The writer that receives the process output.</param>
+    /// <param name="line">The process output line to write.</param>
     private static void WriteProcessLog(TextWriter writer, string? line)
     {
         if (line is null)
@@ -276,6 +307,9 @@ internal sealed class QuestarrWorker : BackgroundService
         }
     }
 
+    /// <summary>
+    /// Stops the running Questarr process and its child processes, waiting up to 30 seconds for termination.
+    /// </summary>
     private void StopQuestarrProcess()
     {
         if (questarrProcess is null || questarrProcess.HasExited)

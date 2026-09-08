@@ -632,7 +632,10 @@ describe("API Routes - Additional Coverage", () => {
       "resolves settings.archivePassword %j to %j on PATCH",
       async (submittedPassword, expectedPassword) => {
         vi.mocked(storage.getDownloader).mockResolvedValue(sabnzbdDownloaderWithArchivePassword);
-        vi.mocked(storage.updateDownloader).mockResolvedValue(sabnzbdDownloaderWithArchivePassword);
+        vi.mocked(storage.updateDownloader).mockResolvedValue({
+          ...sabnzbdDownloaderWithArchivePassword,
+          settings: JSON.stringify({ archivePassword: expectedPassword }),
+        } as Downloader);
 
         const res = await request(app)
           .patch("/api/downloaders/dl-1")

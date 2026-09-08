@@ -34,9 +34,7 @@ function capturedLookup(): LookupFunction {
 
 // Queues a single resolved DNS lookup for the next safeFetch hop.
 function mockDnsResolvesOnce(address = "1.2.3.4"): void {
-  vi.mocked(dns.lookup as unknown as import("node:dns").LookupAddress[]).mockResolvedValueOnce([
-    { address, family: 4 },
-  ]);
+  vi.mocked(dns.lookup).mockResolvedValueOnce([{ address, family: 4 }]);
 }
 
 describe("isSafeUrl Security Check", () => {

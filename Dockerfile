@@ -36,9 +36,10 @@ ENV UMASK=022
 # 7za that the npm 7zip-bin package bundles, which can never execute on this musl-only base
 # image: there's no /lib64/ld-linux-x86-64.so.2 for it, so every run fails with ENOENT
 # regardless of the executable bit — see ArchiveService.ts), gcompat (glibc compatibility
-# shim, needed below to run RARLAB's official unrar binary), ca-certificates (so the unrar
-# download below can verify TLS), and Python + Apprise for local CLI notifications.
-RUN apk add --no-cache 7zip ca-certificates gcompat py3-pip python3 shadow su-exec && \
+# shim, needed below to run RARLAB's official unrar binary), curl (to fetch that binary
+# with strict HTTPS enforcement, see below), and Python + Apprise for local CLI
+# notifications.
+RUN apk add --no-cache 7zip curl gcompat py3-pip python3 shadow su-exec && \
     python3 -m pip install --no-cache-dir --break-system-packages apprise==1.9.4
 
 # Fetch RARLAB's official unrar binary for RAR extraction (legacy and RAR5, including
@@ -46,12 +47,14 @@ RUN apk add --no-cache 7zip ca-certificates gcompat py3-pip python3 shadow su-ex
 # doesn't meet Alpine's packaging policy for main/community — the binary itself remains
 # free to use and redistribute, so we bundle it directly instead. Pinned to an exact
 # version for reproducible builds; gcompat above provides the glibc dynamic loader this
-# binary needs on musl.
+# binary needs on musl. `--proto '=https'` makes curl refuse to follow a redirect to
+# anything but https, so a compromised or misconfigured redirect can't silently downgrade
+# this download to plaintext.
 # SECURITY NOTE: rarlab.com was unreachable from the environment this change was authored
 # in, so no checksum is pinned here — verify and add one (`curl -fsSL "$url" | sha256sum`)
 # before relying on this in production.
 ARG RARLAB_UNRAR_VERSION=712
-RUN wget -qO /tmp/unrar.tar.gz \
+RUN curl -fsSL --proto '=https' --tlsv1.2 -o /tmp/unrar.tar.gz \
       "https://www.rarlab.com/rar/rarlinux-x64-${RARLAB_UNRAR_VERSION}.tar.gz" && \
     tar -xzf /tmp/unrar.tar.gz -C /tmp && \
     install -Dm755 /tmp/rar/unrar /usr/local/bin/unrar && \

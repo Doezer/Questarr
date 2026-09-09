@@ -140,7 +140,7 @@ jobs:
             --coverage.thresholds.branches=0 \
             --coverage.thresholds.functions=0 \
             --coverage.thresholds.lines=0 \
-            --reporter=blob
+            --reporter=blob --reporter=verbose
 
       - name: Upload blob report
         if: always()

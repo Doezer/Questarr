@@ -28,6 +28,7 @@ const mockAddNotification = vi.fn();
 const mockGetUserSettings = vi.fn();
 const mockGetImportConfig = vi.fn();
 const mockUpdateGameDownloadHash = vi.fn();
+const mockGetDownloadsByGameId = vi.fn();
 
 vi.mock("../storage.js", () => ({
   storage: {
@@ -40,6 +41,7 @@ vi.mock("../storage.js", () => ({
     getUserSettings: mockGetUserSettings,
     getImportConfig: mockGetImportConfig,
     updateGameDownloadHash: mockUpdateGameDownloadHash,
+    getDownloadsByGameId: mockGetDownloadsByGameId,
   },
 }));
 
@@ -129,6 +131,7 @@ describe("Cron — async qBittorrent correlation tag resolution", () => {
     mockUpdateGameDownloadStatus.mockResolvedValue(undefined);
     mockUpdateGameStatus.mockResolvedValue(undefined);
     mockUpdateGameDownloadHash.mockResolvedValue(undefined);
+    mockGetDownloadsByGameId.mockResolvedValue([]);
     mockGetDownloadDetails.mockResolvedValue(null);
     mockProcessImport.mockResolvedValue(undefined);
   });
@@ -211,6 +214,75 @@ describe("Cron — async qBittorrent correlation tag resolution", () => {
     expect(mockUpdateGameDownloadStatus).not.toHaveBeenCalled();
     expect(mockUpdateGameStatus).not.toHaveBeenCalled();
     expect(mockGetDownloadStatus).not.toHaveBeenCalled();
+  });
+
+  it("marks tag FAILED after threshold and resets game to wanted with no active sibling", async () => {
+    const asyncDownload = {
+      id: "gd-async-fail",
+      gameId: "game-1",
+      downloaderId: "dl-qbit",
+      downloadHash: "questarr-add-stuck",
+      downloadTitle: "Stuck Game",
+      status: "downloading" as const,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      downloadType: "torrent" as const,
+    };
+
+    mockGetDownloadingGameDownloads.mockResolvedValue([asyncDownload]);
+    mockGetDownloader.mockResolvedValue(qbDownloader);
+    mockGetAllDownloads.mockResolvedValue([]);
+    mockFindDownloadByTag.mockResolvedValue(null);
+    // No sibling still downloading — game should reset to wanted.
+    mockGetDownloadsByGameId.mockResolvedValue([{ id: "gd-async-fail", status: "failed" }]);
+
+    // Run 3 cron cycles to hit ASYNC_TAG_RESOLVE_THRESHOLD.
+    await checkDownloadStatus();
+    await checkDownloadStatus();
+    await checkDownloadStatus();
+
+    expect(mockUpdateGameDownloadStatus).toHaveBeenCalledWith(
+      "gd-async-fail",
+      "failed",
+      "The download client never registered this download."
+    );
+    expect(mockUpdateGameStatus).toHaveBeenCalledWith("game-1", { status: "wanted" });
+    expect(mockNotifyUser).toHaveBeenCalledWith("downloadUpdate", "game-1");
+  });
+
+  it("preserves game status when a sibling remains downloading on tag failure", async () => {
+    const asyncDownload = {
+      id: "gd-async-fail-2",
+      gameId: "game-1",
+      downloaderId: "dl-qbit",
+      downloadHash: "questarr-add-stuck2",
+      downloadTitle: "Stuck Game 2",
+      status: "downloading" as const,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      downloadType: "torrent" as const,
+    };
+
+    mockGetDownloadingGameDownloads.mockResolvedValue([asyncDownload]);
+    mockGetDownloader.mockResolvedValue(qbDownloader);
+    mockGetAllDownloads.mockResolvedValue([]);
+    mockFindDownloadByTag.mockResolvedValue(null);
+    // A sibling is still downloading — game status must stay as-is.
+    mockGetDownloadsByGameId.mockResolvedValue([
+      { id: "gd-async-fail-2", status: "failed" },
+      { id: "gd-sibling", status: "downloading" },
+    ]);
+
+    await checkDownloadStatus();
+    await checkDownloadStatus();
+    await checkDownloadStatus();
+
+    expect(mockUpdateGameDownloadStatus).toHaveBeenCalledWith(
+      "gd-async-fail-2",
+      "failed",
+      "The download client never registered this download."
+    );
+    expect(mockUpdateGameStatus).not.toHaveBeenCalled();
   });
 
   it("does NOT attempt tag resolution for downloads with a real hash (non-async)", async () => {

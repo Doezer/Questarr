@@ -599,6 +599,23 @@ export async function checkDownloadStatus() {
                 "The download client never registered this download."
               );
               notifyUser("downloadUpdate", download.gameId);
+              // Mirror the normal error path: reset the game to "wanted"
+              // only when no sibling download for the same game is still
+              // actively downloading.
+              const siblings = await storage.getDownloadsByGameId(download.gameId);
+              const hasActiveSibling = siblings.some(
+                (s) => s.id !== download.id && s.status === "downloading"
+              );
+              if (!hasActiveSibling) {
+                const failedGame = await storage.getGame(download.gameId);
+                if (failedGame && failedGame.status !== "wanted") {
+                  await storage.updateGameStatus(download.gameId, { status: "wanted" });
+                  igdbLogger.debug(
+                    { gameId: download.gameId, oldStatus: failedGame.status, newStatus: "wanted" },
+                    "Reset game status after async tag resolution failure"
+                  );
+                }
+              }
               igdbLogger.warn(
                 {
                   downloadId: download.id,

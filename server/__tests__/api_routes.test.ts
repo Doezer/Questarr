@@ -22,10 +22,17 @@ import {
   createSocketMock,
 } from "./fixtures/common-route-mocks.js";
 import { registerRoutes, parseCategories } from "../routes.js";
+import { matchUnmatchedFolder } from "../library-scanner.js";
 import { storage } from "../storage.js";
 import { searchAllIndexers } from "../search.js";
 import { igdbClient, type IGDBGame } from "../igdb.js";
-import { type Game, type User, type Indexer, type Downloader } from "../../shared/schema.js";
+import {
+  type Game,
+  type User,
+  type Indexer,
+  type Downloader,
+  type RootFolder,
+} from "../../shared/schema.js";
 import { DownloaderManager } from "../downloaders.js";
 import { torznabClient } from "../torznab.js";
 import { newznabClient } from "../newznab.js";
@@ -55,6 +62,28 @@ vi.mock("../search.js", () => createSearchMock());
 vi.mock("fs-extra", () => ({
   default: { remove: vi.fn(), pathExists: vi.fn(), readdir: vi.fn() },
 }));
+// Real isWithinDeletableRootFolder (pure path logic, no fs access) is used by the
+// game-delete tests above; only probeRootFolder — which does real fs.stat/statfs —
+// needs stubbing so the root-folder create/update route tests below don't depend
+// on paths that actually exist on the test runner's filesystem.
+vi.mock("../root-folders.js", async () => {
+  const actual = await vi.importActual<typeof import("../root-folders.js")>("../root-folders.js");
+  return {
+    ...actual,
+    probeRootFolder: vi.fn().mockResolvedValue({
+      accessible: true,
+      diskFreeBytes: 1000,
+      diskTotalBytes: 2000,
+    }),
+  };
+});
+vi.mock("../library-scanner.js", () => ({
+  scanRootFolderById: vi.fn().mockResolvedValue(undefined),
+  scanAllEnabledRootFolders: vi.fn().mockResolvedValue(undefined),
+  getAllScanProgress: vi.fn().mockReturnValue([]),
+  getAllUnmatched: vi.fn().mockReturnValue([]),
+  matchUnmatchedFolder: vi.fn(),
+}));
 
 // Neutralize the IP-keyed rate limiters so cumulative requests across this large
 // test file don't trip a shared 30-req/min counter; keep all other exports
@@ -72,6 +101,22 @@ vi.mock("../middleware.js", async () => {
 vi.mock("../config.js", () => ({ config: mockConfig }));
 vi.mock("../config-loader.js", () => ({ configLoader: createConfigLoaderMock() }));
 vi.mock("../socket.js", () => createSocketMock());
+
+function makeRootFolder(overrides: Partial<RootFolder> = {}): RootFolder {
+  return {
+    id: "rf-1",
+    path: "/mnt/old-library",
+    name: null,
+    enabled: true,
+    allowDelete: false,
+    accessible: true,
+    diskFreeBytes: null,
+    diskTotalBytes: null,
+    lastScannedAt: null,
+    createdAt: new Date("2024-01-01T00:00:00.000Z"),
+    ...overrides,
+  };
+}
 
 describe("API Routes - Extended Coverage", () => {
   let app: express.Express;
@@ -899,6 +944,61 @@ describe("API Routes - Extended Coverage", () => {
       expect(response.body).toEqual({
         success: true,
         fileDeletion: { deleted: false, reason: "outside-library-root", path: "/etc/passwd" },
+      });
+      expect(fsExtra.remove).not.toHaveBeenCalled();
+    });
+
+    it("should delete library files outside the library root when their root folder has allowDelete on", async () => {
+      const gameId = "123e4567-e89b-12d3-a456-426614174000";
+      vi.mocked(storage.getGame).mockResolvedValue({
+        id: gameId,
+        userId: "user-1",
+        libraryPath: "/mnt/old-library/MyGame",
+      } as unknown as Game);
+      vi.mocked(storage.getImportConfig).mockResolvedValue({
+        libraryRoot: "/data/library",
+      } as any);
+      vi.mocked(storage.getAllRootFolders).mockResolvedValue([
+        makeRootFolder({ path: "/mnt/old-library", allowDelete: true }),
+      ]);
+      vi.mocked(storage.removeGame).mockResolvedValue(true);
+      vi.mocked(fsExtra.remove).mockResolvedValue(undefined as never);
+
+      const response = await request(app).delete(`/api/games/${gameId}?deleteFiles=true`);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({
+        success: true,
+        fileDeletion: { deleted: true, path: "/mnt/old-library/MyGame" },
+      });
+      expect(fsExtra.remove).toHaveBeenCalledWith(path.resolve("/mnt/old-library/MyGame"));
+    });
+
+    it("should still skip deleting library files outside the library root when their root folder has allowDelete off", async () => {
+      const gameId = "123e4567-e89b-12d3-a456-426614174000";
+      vi.mocked(storage.getGame).mockResolvedValue({
+        id: gameId,
+        userId: "user-1",
+        libraryPath: "/mnt/old-library/MyGame",
+      } as unknown as Game);
+      vi.mocked(storage.getImportConfig).mockResolvedValue({
+        libraryRoot: "/data/library",
+      } as any);
+      vi.mocked(storage.getAllRootFolders).mockResolvedValue([
+        makeRootFolder({ path: "/mnt/old-library", allowDelete: false }),
+      ]);
+      vi.mocked(storage.removeGame).mockResolvedValue(true);
+
+      const response = await request(app).delete(`/api/games/${gameId}?deleteFiles=true`);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({
+        success: true,
+        fileDeletion: {
+          deleted: false,
+          reason: "outside-library-root",
+          path: "/mnt/old-library/MyGame",
+        },
       });
       expect(fsExtra.remove).not.toHaveBeenCalled();
     });
@@ -3164,6 +3264,90 @@ describe("API Routes - Extended Coverage", () => {
 
       expect(response.status).toBe(502);
       expect(response.body.error).toBe("CLI timed out");
+    });
+  });
+
+  describe("root folder routes", () => {
+    it("rejects a non-UUID :id on PATCH, DELETE, and health-check", async () => {
+      const patchRes = await request(app)
+        .patch("/api/root-folders/not-a-uuid")
+        .send({ enabled: false });
+      const deleteRes = await request(app).delete("/api/root-folders/not-a-uuid");
+      const healthRes = await request(app).post("/api/root-folders/not-a-uuid/health-check");
+
+      expect(patchRes.status).toBe(400);
+      expect(deleteRes.status).toBe(400);
+      expect(healthRes.status).toBe(400);
+      expect(storage.updateRootFolder).not.toHaveBeenCalled();
+      expect(storage.removeRootFolder).not.toHaveBeenCalled();
+      expect(storage.getRootFolder).not.toHaveBeenCalled();
+    });
+
+    it("canonicalizes the path before checking uniqueness on create", async () => {
+      vi.mocked(storage.getRootFolderByPath).mockResolvedValue(undefined);
+      vi.mocked(storage.addRootFolder).mockResolvedValue(makeRootFolder({ path: "/mnt/games" }));
+      vi.mocked(storage.updateRootFolderHealth).mockResolvedValue(
+        makeRootFolder({ path: "/mnt/games" })
+      );
+
+      await request(app).post("/api/root-folders").send({ path: "/mnt/other/../games/." });
+
+      expect(storage.getRootFolderByPath).toHaveBeenCalledWith(path.resolve("/mnt/games"));
+      expect(storage.addRootFolder).toHaveBeenCalledWith(
+        expect.objectContaining({ path: path.resolve("/mnt/games") })
+      );
+    });
+
+    it("canonicalizes the path before checking uniqueness on update", async () => {
+      const folderId = "123e4567-e89b-12d3-a456-426614174000";
+      vi.mocked(storage.getRootFolderByPath).mockResolvedValue(undefined);
+      vi.mocked(storage.updateRootFolder).mockResolvedValue(makeRootFolder({ id: folderId }));
+      vi.mocked(storage.updateRootFolderHealth).mockResolvedValue(makeRootFolder({ id: folderId }));
+
+      await request(app)
+        .patch(`/api/root-folders/${folderId}`)
+        .send({ path: "/mnt/other/../games/." });
+
+      expect(storage.getRootFolderByPath).toHaveBeenCalledWith(path.resolve("/mnt/games"));
+      expect(storage.updateRootFolder).toHaveBeenCalledWith(
+        folderId,
+        expect.objectContaining({ path: path.resolve("/mnt/games") })
+      );
+    });
+  });
+
+  describe("POST /api/library/scan/unmatched/match", () => {
+    const validBody = { rootFolderId: "rf-1", folderName: "Some Game", igdbId: 42 };
+
+    it("returns 404 when matchUnmatchedFolder reports the root folder is gone", async () => {
+      vi.mocked(matchUnmatchedFolder).mockRejectedValue(new Error("Root folder not found"));
+
+      const response = await request(app).post("/api/library/scan/unmatched/match").send(validBody);
+
+      expect(response.status).toBe(404);
+      expect(response.body).toEqual({ error: "Root folder not found" });
+    });
+
+    it("returns 404 when matchUnmatchedFolder reports the unmatched entry is gone", async () => {
+      vi.mocked(matchUnmatchedFolder).mockRejectedValue(
+        new Error("No matching unmatched entry for this root folder")
+      );
+
+      const response = await request(app).post("/api/library/scan/unmatched/match").send(validBody);
+
+      expect(response.status).toBe(404);
+      expect(response.body).toEqual({ error: "No matching unmatched entry for this root folder" });
+    });
+
+    it("returns 500 for any other matchUnmatchedFolder failure", async () => {
+      vi.mocked(matchUnmatchedFolder).mockRejectedValue(
+        new Error("Selected IGDB game not found in top candidates")
+      );
+
+      const response = await request(app).post("/api/library/scan/unmatched/match").send(validBody);
+
+      expect(response.status).toBe(500);
+      expect(response.body).toEqual({ error: "Selected IGDB game not found in top candidates" });
     });
   });
 });

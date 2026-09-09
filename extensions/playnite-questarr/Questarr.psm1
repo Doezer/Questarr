@@ -108,10 +108,6 @@ function Get-QuestarrConfig {
 
 <#
     Single entry point for every Questarr call.
-
-    The body is encoded to UTF-8 bytes by hand because Invoke-RestMethod on
-    PowerShell 5.1 otherwise sends the JSON as ISO-8859-1, which mangles any
-    non-ASCII game title (Pokémon, Ōkami, Nier Replicant ...) on the way up.
 #>
 function Invoke-QuestarrApi {
     param(
@@ -123,53 +119,119 @@ function Invoke-QuestarrApi {
     )
 
     $uri = "$($Config.ServerUrl)/api/integration$Path"
-    $headers = @{
-        "X-Api-Key" = $Config.ApiKey
-        "Accept"    = "application/json"
-    }
-
-    $params = @{
-        Uri         = $uri
-        Method      = $Method
-        Headers     = $headers
-        TimeoutSec  = $TimeoutSec
-        ErrorAction = "Stop"
-        # PowerShell 5.1 forwards X-Api-Key across an automatic redirect
-        # (unlike Authorization, which HttpWebRequest strips on its own) --
-        # there is no -PreserveAuthorizationOnRedirect equivalent to rely on
-        # here. Questarr's own API never 3xx-redirects a JSON response, so
-        # refusing to follow one at all is strictly safer than risking the
-        # key reaching a different host or scheme than the one configured.
-        MaximumRedirection = 0
-    }
-
-    if ($null -ne $Body) {
-        $json = $Body | ConvertTo-Json -Depth 6 -Compress
-        $params.Body = [System.Text.Encoding]::UTF8.GetBytes($json)
-        $params.ContentType = "application/json; charset=utf-8"
-    }
-
-    return Invoke-RestMethod @params
+    return Invoke-QuestarrHttpRequest -Uri $uri -ApiKey $Config.ApiKey -Method $Method -Body $Body -TimeoutSec $TimeoutSec
 }
 
 <#
-    Turns an exception from Invoke-RestMethod into something a user can act on.
-    The status code matters here: 401 means the key is wrong, which is a very
-    different fix from "the server is unreachable".
+    Raw HttpWebRequest, not Invoke-RestMethod: PowerShell forwards X-Api-Key
+    across an automatic redirect (unlike Authorization, which HttpWebRequest
+    strips on its own), and there is no -PreserveAuthorizationOnRedirect
+    equivalent for a custom header -- so a redirect to an arbitrary third-party
+    host must never be followed blindly with the key still attached.
+
+    Invoke-RestMethod's own -MaximumRedirection 0 can't help decide this: on
+    Windows PowerShell 5.1 it surfaces a blocked redirect as an
+    InvalidOperationException with no Response attached at all, so there is no
+    way to read the redirect's Location header and tell a same-host scheme
+    upgrade (a reverse proxy enforcing https, or a trailing slash) from a
+    redirect to somewhere else entirely. HttpWebRequest with
+    AllowAutoRedirect = $false instead gives a real WebException carrying the
+    3xx response, Location header included, so only a same-host redirect is
+    followed (with the API key reattached by hand) and anything else still
+    fails exactly the way a refused redirect always has -- including a
+    same-host https -> http redirect, which would otherwise downgrade an
+    https:// connection to sending the key in cleartext with no renewed
+    warning at all.
+
+    The body is encoded to UTF-8 bytes by hand because Invoke-RestMethod on
+    PowerShell 5.1 otherwise sends JSON as ISO-8859-1, which mangles any
+    non-ASCII game title (Pokémon, Ōkami, Nier Replicant ...) on the way up --
+    writing raw bytes to the request stream here keeps that same fix.
+#>
+function Invoke-QuestarrHttpRequest {
+    param(
+        [Parameter(Mandatory)] [string] $Uri,
+        [Parameter(Mandatory)] [string] $ApiKey,
+        [string] $Method = "Get",
+        $Body = $null,
+        [int] $TimeoutSec = 60,
+        [int] $RedirectsFollowed = 0
+    )
+
+    $request = [System.Net.WebRequest]::Create($Uri)
+    $request.Method = $Method
+    $request.Accept = "application/json"
+    $request.Headers.Add("X-Api-Key", $ApiKey)
+    $request.Timeout = $TimeoutSec * 1000
+    $request.AllowAutoRedirect = $false
+
+    if ($null -ne $Body) {
+        $json = $Body | ConvertTo-Json -Depth 6 -Compress
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
+        $request.ContentType = "application/json; charset=utf-8"
+        $request.ContentLength = $bytes.Length
+        $requestStream = $request.GetRequestStream()
+        try {
+            $requestStream.Write($bytes, 0, $bytes.Length)
+        }
+        finally {
+            $requestStream.Close()
+        }
+    }
+
+    try {
+        $response = $request.GetResponse()
+    }
+    catch [System.Net.WebException] {
+        $webResponse = $_.Exception.Response
+        if ($null -ne $webResponse) {
+            $status = [int]$webResponse.StatusCode
+            if ($status -ge 300 -and $status -lt 400 -and $RedirectsFollowed -lt 1) {
+                $location = $webResponse.Headers["Location"]
+                $webResponse.Close()
+                if ($location) {
+                    $originalUri = [Uri]$Uri
+                    $redirectUri = [Uri]::new($originalUri, $location)
+                    # Same host only, and never downgrade https -> http: an
+                    # https:// connection carries no consent to ever send the
+                    # key in cleartext, so a same-host redirect to plain http
+                    # is exactly as untrusted here as a redirect to a
+                    # different host entirely, and falls through to the same
+                    # refusal below.
+                    $isDowngrade = $originalUri.Scheme -ieq "https" -and $redirectUri.Scheme -ieq "http"
+                    if ($redirectUri.Host -ieq $originalUri.Host -and -not $isDowngrade) {
+                        return Invoke-QuestarrHttpRequest -Uri $redirectUri.AbsoluteUri -ApiKey $ApiKey `
+                            -Method $Method -Body $Body -TimeoutSec $TimeoutSec `
+                            -RedirectsFollowed ($RedirectsFollowed + 1)
+                    }
+                }
+            }
+        }
+        throw
+    }
+
+    try {
+        $reader = New-Object System.IO.StreamReader($response.GetResponseStream())
+        $text = $reader.ReadToEnd()
+    }
+    finally {
+        $reader.Close()
+        $response.Close()
+    }
+
+    if ([string]::IsNullOrWhiteSpace($text)) { return $null }
+    return $text | ConvertFrom-Json
+}
+
+<#
+    Turns an exception from Invoke-QuestarrHttpRequest into something a user
+    can act on. The status code matters here: 401 means the key is wrong,
+    which is a very different fix from "the server is unreachable". A 3xx
+    means Invoke-QuestarrHttpRequest found a redirect it refused to follow
+    (anywhere but the exact same host) -- the API key never got sent there.
 #>
 function Get-QuestarrErrorMessage {
     param([Parameter(Mandatory)] $ErrorRecord)
-
-    # Windows PowerShell 5.1 surfaces a blocked redirect (MaximumRedirection =
-    # 0, set by Invoke-QuestarrApi) as a terminating InvalidOperationException
-    # with no Response attached at all -- match on the error id before ever
-    # looking for a status code, or this falls through to the generic
-    # "could not reach Questarr" message below instead of explaining why.
-    if ($ErrorRecord.FullyQualifiedErrorId -like "MaximumRedirectExceeded*") {
-        return "Questarr tried to redirect this request, which this extension refuses to follow -- " +
-        "the API key would otherwise be forwarded to whatever address the redirect points at. " +
-        "Check the configured server address in Settings -> Integrations."
-    }
 
     $response = $ErrorRecord.Exception.Response
     if ($null -ne $response -and $null -ne $response.StatusCode) {
@@ -256,11 +318,13 @@ function GetGameMenuItems {
     conventions actual home-network devices use -- "questarr", "nas",
     "questarr.local").
 
-    This gates which plain-HTTP addresses get a warn-and-continue choice
-    instead of being refused outright: it only has to be right about "this
-    clearly isn't a local address", not perfectly classify every address, so a
-    literal IP is checked precisely and a bare hostname is judged by
-    convention rather than resolved over the network.
+    A plain-HTTP address always gets a warn-and-continue choice rather than
+    being refused outright -- this only decides how alarming that warning's
+    wording is ("your own network" vs. "outside your network, on the open
+    internet"). It only has to be right about "this clearly isn't a local
+    address", not perfectly classify every address, so a literal IP is
+    checked precisely and a bare hostname is judged by convention rather than
+    resolved over the network.
 #>
 function Test-QuestarrIsPrivateHost {
     param([Parameter(Mandatory)] [string] $HostName)
@@ -315,39 +379,36 @@ function Invoke-QuestarrConnect {
         return
     }
 
+    # Never a hard stop: it's the user's server and their call to make. But the
+    # API key is a long-lived credential sent on every sync or request, unlike
+    # a password typed once, so plain http:// always gets an explicit, loud
+    # warning before it can proceed -- worded more strongly the further the
+    # address is from "this is obviously just my own LAN".
+    #
     # DnsSafeHost, not Host: Host keeps the [brackets] around an IPv6 literal,
     # which [System.Net.IPAddress]::TryParse inside Test-QuestarrIsPrivateHost
     # rejects outright -- that falls through to the hostname heuristic, which
-    # misclassifies a public IPv6 address as private and lets its API key go
-    # out over plain HTTP.
-    if ($parsedUri.Scheme -eq "http" -and -not (Test-QuestarrIsPrivateHost $parsedUri.DnsSafeHost)) {
-        # A confirmation dialog is consent, not protection -- it does nothing
-        # to stop an on-path attacker from reading the key in transit. So this
-        # is a hard stop, not a warn-and-continue: whatever "questarr.example.com"
-        # resolves to, it isn't this machine's own LAN, and there is no
-        # legitimate reason to send a long-lived credential there in cleartext.
-        $PlayniteApi.Dialogs.ShowErrorMessage(
-            "'$serverUrl' is a plain http:// address outside your local network. " +
-            "Questarr requires https:// here, since the API key would otherwise be " +
-            "sent unencrypted across the internet. Use an https:// address (e.g. " +
-            "behind a reverse proxy), or a local address (127.0.0.1, a private " +
-            "192.168.x.x/10.x.x.x address, or a .local hostname) if this is a " +
-            "same-network setup.",
-            "Questarr")
-        return
-    }
+    # would otherwise misclassify a public IPv6 address as local.
+    if ($parsedUri.Scheme -eq "http") {
+        $isLocal = $parsedUri.IsLoopback -or (Test-QuestarrIsPrivateHost $parsedUri.DnsSafeHost)
+        $scopeWarning = if ($isLocal) {
+            "'$serverUrl' is a plain http:// address on your local network."
+        }
+        else {
+            "'$serverUrl' is a plain http:// address OUTSIDE your local network. " +
+            "This is considerably riskier than a same-network address: the traffic can " +
+            "cross the open internet in cleartext."
+        }
 
-    # A plain-HTTP LAN deployment (Questarr and Playnite on the same home
-    # network, no reverse proxy) is a supported, common setup -- this is not
-    # blocked. But the API key is a long-lived credential sent on every sync,
-    # unlike a password entered once, so a private-network address still gets
-    # an explicit, informed choice rather than a silent cleartext send.
-    if ($parsedUri.Scheme -eq "http" -and -not $parsedUri.IsLoopback) {
         $proceed = $PlayniteApi.Dialogs.ShowMessage(
-            "'$serverUrl' is a plain http:// address. Your API key will be sent " +
-            "unencrypted to this address on every sync or request -- anyone else on " +
-            "this network segment could read it. Continue anyway?",
-            "Questarr",
+            "$scopeWarning`n`n" +
+            "WARNING: your Questarr API key will be sent UNENCRYPTED on every sync or " +
+            "request. Anyone able to observe this traffic -- on this network, or anywhere " +
+            "between here and the server if it's remote -- can capture the key and use it " +
+            "to read and modify your library.`n`n" +
+            "Use an https:// address instead whenever you can (e.g. behind a reverse " +
+            "proxy). Continue with plain http:// anyway?",
+            "Questarr - Security Warning",
             [System.Windows.MessageBoxButton]::YesNo)
         if ($proceed -ne [System.Windows.MessageBoxResult]::Yes) { return }
     }

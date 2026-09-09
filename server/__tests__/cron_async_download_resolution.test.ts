@@ -136,36 +136,58 @@ describe("Cron — async qBittorrent correlation tag resolution", () => {
     mockProcessImport.mockResolvedValue(undefined);
   });
 
-  it("resolves a correlation tag to the real hash and updates the tracking record", async () => {
-    // The tracking record was created with the correlation tag as a temporary downloadHash.
+  function mockTagScenario(opts: {
+    gdId: string;
+    tag: string;
+    title: string;
+    resolvedHash: string | null;
+    remoteId: string | null;
+    remoteStatus?: string;
+    remoteProgress?: number;
+    siblings?: { id: string; status: string }[];
+  }) {
     const asyncDownload = {
-      id: "gd-async-1",
+      id: opts.gdId,
       gameId: "game-1",
       downloaderId: "dl-qbit",
-      downloadHash: "questarr-add-abc123uuid",
-      downloadTitle: "Async Game",
+      downloadHash: opts.tag,
+      downloadTitle: opts.title,
       status: "downloading" as const,
       createdAt: new Date(),
       updatedAt: new Date(),
       downloadType: "torrent" as const,
     };
-
     mockGetDownloadingGameDownloads.mockResolvedValue([asyncDownload]);
     mockGetDownloader.mockResolvedValue(qbDownloader);
+    mockFindDownloadByTag.mockResolvedValue(opts.resolvedHash);
+    mockGetAllDownloads.mockResolvedValue(
+      opts.remoteId
+        ? [
+            {
+              id: opts.remoteId,
+              name: opts.title,
+              status: opts.remoteStatus ?? "downloading",
+              progress: opts.remoteProgress ?? 50,
+              downloadType: "torrent",
+            },
+          ]
+        : []
+    );
+    if (opts.siblings) mockGetDownloadsByGameId.mockResolvedValue(opts.siblings);
+    return asyncDownload;
+  }
 
-    // findDownloadByTag resolves the tag to the real torrent hash.
-    mockFindDownloadByTag.mockResolvedValue("realhash456");
-
-    // After resolution, the bulk getAllDownloads finds the torrent.
-    mockGetAllDownloads.mockResolvedValue([
-      {
-        id: "realhash456",
-        name: "Async Game",
-        status: "downloading",
-        progress: 50,
-        downloadType: "torrent",
-      },
-    ]);
+  it("resolves a correlation tag to the real hash and updates the tracking record", async () => {
+    // The tracking record was created with the correlation tag as a temporary downloadHash.
+    // findDownloadByTag resolves the tag to the real torrent hash, then the
+    // bulk getAllDownloads finds the torrent.
+    mockTagScenario({
+      gdId: "gd-async-1",
+      tag: "questarr-add-abc123uuid",
+      title: "Async Game",
+      resolvedHash: "realhash456",
+      remoteId: "realhash456",
+    });
 
     await checkDownloadStatus();
 
@@ -180,25 +202,15 @@ describe("Cron — async qBittorrent correlation tag resolution", () => {
   });
 
   it("skips the download when the correlation tag has not yet resolved (torrent not visible)", async () => {
-    const asyncDownload = {
-      id: "gd-async-2",
-      gameId: "game-1",
-      downloaderId: "dl-qbit",
-      downloadHash: "questarr-add-notyet",
-      downloadTitle: "Pending Game",
-      status: "downloading" as const,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      downloadType: "torrent" as const,
-    };
-
-    mockGetDownloadingGameDownloads.mockResolvedValue([asyncDownload]);
-    mockGetDownloader.mockResolvedValue(qbDownloader);
-    // Bulk fetch runs once per downloader before the per-download loop.
-    mockGetAllDownloads.mockResolvedValue([]);
-
+    // Bulk fetch runs once per downloader before the per-download loop;
     // qBittorrent doesn't have the torrent yet — returns null.
-    mockFindDownloadByTag.mockResolvedValue(null);
+    mockTagScenario({
+      gdId: "gd-async-2",
+      tag: "questarr-add-notyet",
+      title: "Pending Game",
+      resolvedHash: null,
+      remoteId: null,
+    });
 
     await checkDownloadStatus();
 
@@ -217,24 +229,15 @@ describe("Cron — async qBittorrent correlation tag resolution", () => {
   });
 
   it("marks tag FAILED after threshold and resets game to wanted with no active sibling", async () => {
-    const asyncDownload = {
-      id: "gd-async-fail",
-      gameId: "game-1",
-      downloaderId: "dl-qbit",
-      downloadHash: "questarr-add-stuck",
-      downloadTitle: "Stuck Game",
-      status: "downloading" as const,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      downloadType: "torrent" as const,
-    };
-
-    mockGetDownloadingGameDownloads.mockResolvedValue([asyncDownload]);
-    mockGetDownloader.mockResolvedValue(qbDownloader);
-    mockGetAllDownloads.mockResolvedValue([]);
-    mockFindDownloadByTag.mockResolvedValue(null);
     // No sibling still downloading — game should reset to wanted.
-    mockGetDownloadsByGameId.mockResolvedValue([{ id: "gd-async-fail", status: "failed" }]);
+    mockTagScenario({
+      gdId: "gd-async-fail",
+      tag: "questarr-add-stuck",
+      title: "Stuck Game",
+      resolvedHash: null,
+      remoteId: null,
+      siblings: [{ id: "gd-async-fail", status: "failed" }],
+    });
 
     // Run 3 cron cycles to hit ASYNC_TAG_RESOLVE_THRESHOLD.
     await checkDownloadStatus();
@@ -251,27 +254,18 @@ describe("Cron — async qBittorrent correlation tag resolution", () => {
   });
 
   it("preserves game status when a sibling remains downloading on tag failure", async () => {
-    const asyncDownload = {
-      id: "gd-async-fail-2",
-      gameId: "game-1",
-      downloaderId: "dl-qbit",
-      downloadHash: "questarr-add-stuck2",
-      downloadTitle: "Stuck Game 2",
-      status: "downloading" as const,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      downloadType: "torrent" as const,
-    };
-
-    mockGetDownloadingGameDownloads.mockResolvedValue([asyncDownload]);
-    mockGetDownloader.mockResolvedValue(qbDownloader);
-    mockGetAllDownloads.mockResolvedValue([]);
-    mockFindDownloadByTag.mockResolvedValue(null);
     // A sibling is still downloading — game status must stay as-is.
-    mockGetDownloadsByGameId.mockResolvedValue([
-      { id: "gd-async-fail-2", status: "failed" },
-      { id: "gd-sibling", status: "downloading" },
-    ]);
+    mockTagScenario({
+      gdId: "gd-async-fail-2",
+      tag: "questarr-add-stuck2",
+      title: "Stuck Game 2",
+      resolvedHash: null,
+      remoteId: null,
+      siblings: [
+        { id: "gd-async-fail-2", status: "failed" },
+        { id: "gd-sibling", status: "downloading" },
+      ],
+    });
 
     await checkDownloadStatus();
     await checkDownloadStatus();
@@ -300,7 +294,6 @@ describe("Cron — async qBittorrent correlation tag resolution", () => {
 
     mockGetDownloadingGameDownloads.mockResolvedValue([syncDownload]);
     mockGetDownloader.mockResolvedValue(qbDownloader);
-
     mockGetAllDownloads.mockResolvedValue([
       {
         id: "realhash789",
@@ -321,32 +314,16 @@ describe("Cron — async qBittorrent correlation tag resolution", () => {
   });
 
   it("resolves tag and then marks download as completed when torrent is done", async () => {
-    const asyncDownload = {
-      id: "gd-async-3",
-      gameId: "game-1",
-      downloaderId: "dl-qbit",
-      downloadHash: "questarr-add-done",
-      downloadTitle: "Completed Async Game",
-      status: "downloading" as const,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      downloadType: "torrent" as const,
-    };
-
-    mockGetDownloadingGameDownloads.mockResolvedValue([asyncDownload]);
-    mockGetDownloader.mockResolvedValue(qbDownloader);
-    mockFindDownloadByTag.mockResolvedValue("donehash999");
-
     // Torrent is at 100% — completed.
-    mockGetAllDownloads.mockResolvedValue([
-      {
-        id: "donehash999",
-        name: "Completed Async Game",
-        status: "completed",
-        progress: 100,
-        downloadType: "torrent",
-      },
-    ]);
+    mockTagScenario({
+      gdId: "gd-async-3",
+      tag: "questarr-add-done",
+      title: "Completed Async Game",
+      resolvedHash: "donehash999",
+      remoteId: "donehash999",
+      remoteStatus: "completed",
+      remoteProgress: 100,
+    });
 
     await checkDownloadStatus();
 

@@ -51,6 +51,16 @@ vi.mock("../middleware.js", async () => {
   };
 });
 
+type FallbackResult = {
+  success: boolean;
+  id?: string;
+  correlationTag?: string;
+  message?: string;
+  downloaderId?: string;
+  downloaderName?: string;
+  attemptedDownloaders: string[];
+};
+
 describe("POST /api/downloads — async qBittorrent tracking", () => {
   let app: express.Express;
 
@@ -62,32 +72,35 @@ describe("POST /api/downloads — async qBittorrent tracking", () => {
     await registerRoutes(app);
   });
 
-  it("creates a game_downloads record when downloader returns a correlationTag (async, no hash)", async () => {
-    // Simulate qBittorrent v5+ async add: pending_count with no hash yet.
-    // The downloader returns a correlationTag instead of an id.
-    vi.mocked(DownloaderManager.addDownloadWithFallback).mockResolvedValue({
-      success: true,
-      correlationTag: "questarr-add-abc123",
-      downloaderId: "d-1",
-      downloaderName: "qBittorrent",
-      attemptedDownloaders: ["qBittorrent"],
-    });
-    vi.mocked(storage.getEnabledDownloaders).mockResolvedValue([
-      {
-        id: "d-1",
-        name: "qBittorrent",
-        type: "qbittorrent",
-        url: "http://localhost:8080",
-        enabled: true,
-        priority: 1,
-      } as any,
-    ]);
+  const qbDownloaderRow = {
+    id: "d-1",
+    name: "qBittorrent",
+    type: "qbittorrent",
+    url: "http://localhost:8080",
+    enabled: true,
+    priority: 1,
+  };
+
+  function mockFallback(result: FallbackResult) {
+    vi.mocked(DownloaderManager.addDownloadWithFallback).mockResolvedValue(result);
+  }
+
+  function mockEnabledQb() {
+    vi.mocked(storage.getEnabledDownloaders).mockResolvedValue([qbDownloaderRow] as never);
+  }
+
+  function mockGameDownloadRow(opts: {
+    gdId: string;
+    gameId: string;
+    hash: string;
+    title: string;
+  }) {
     vi.mocked(storage.addGameDownload).mockResolvedValue({
-      id: "gd-1",
-      gameId: "123e4567-e89b-12d3-a456-426614174001",
+      id: opts.gdId,
+      gameId: opts.gameId,
       downloaderId: "d-1",
-      downloadHash: "questarr-add-abc123",
-      downloadTitle: "Test Game",
+      downloadHash: opts.hash,
+      downloadTitle: opts.title,
       status: "downloading",
       downloadType: "torrent",
       errorMessage: null,
@@ -95,27 +108,71 @@ describe("POST /api/downloads — async qBittorrent tracking", () => {
       addedAt: new Date(),
       completedAt: null,
     });
+  }
+
+  function mockGameRow(gameId: string, title: string) {
     vi.mocked(storage.getGame).mockResolvedValue({
-      id: "123e4567-e89b-12d3-a456-426614174001",
-      title: "Test Game",
+      id: gameId,
+      title,
       userId: "user-1",
       status: "wanted",
-    } as any);
+    } as never);
+  }
 
-    const res = await request(app).post("/api/downloads").send({
-      url: "https://example.com/game.torrent",
-      title: "Test Game",
-      gameId: "123e4567-e89b-12d3-a456-426614174001",
+  function mockSuccessCase(opts: {
+    fallback: FallbackResult;
+    gdId: string;
+    gameId: string;
+    hash: string;
+    title: string;
+  }) {
+    mockFallback(opts.fallback);
+    mockEnabledQb();
+    mockGameDownloadRow({
+      gdId: opts.gdId,
+      gameId: opts.gameId,
+      hash: opts.hash,
+      title: opts.title,
     });
+    mockGameRow(opts.gameId, opts.title);
+  }
 
+  async function postDownload(payload: { url: string; title: string; gameId: string }) {
+    const res = await request(app).post("/api/downloads").send(payload);
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
+    return res;
+  }
+
+  it("creates a game_downloads record when downloader returns a correlationTag (async, no hash)", async () => {
+    // Simulate qBittorrent v5+ async add: pending_count with no hash yet.
+    // The downloader returns a correlationTag instead of an id.
+    const gameId = "123e4567-e89b-12d3-a456-426614174001";
+    mockSuccessCase({
+      fallback: {
+        success: true,
+        correlationTag: "questarr-add-abc123",
+        downloaderId: "d-1",
+        downloaderName: "qBittorrent",
+        attemptedDownloaders: ["qBittorrent"],
+      },
+      gdId: "gd-1",
+      gameId,
+      hash: "questarr-add-abc123",
+      title: "Test Game",
+    });
+
+    await postDownload({
+      url: "https://example.com/game.torrent",
+      title: "Test Game",
+      gameId,
+    });
 
     // The critical assertion: the tracking record was created with the
     // correlationTag as the temporary downloadHash.
     expect(storage.addGameDownload).toHaveBeenCalledWith(
       expect.objectContaining({
-        gameId: "123e4567-e89b-12d3-a456-426614174001",
+        gameId,
         downloaderId: "d-1",
         downloadHash: "questarr-add-abc123",
         downloadTitle: "Test Game",
@@ -124,62 +181,37 @@ describe("POST /api/downloads — async qBittorrent tracking", () => {
     );
 
     // Game status should be updated to downloading.
-    expect(storage.updateGameStatus).toHaveBeenCalledWith("123e4567-e89b-12d3-a456-426614174001", {
+    expect(storage.updateGameStatus).toHaveBeenCalledWith(gameId, {
       status: "downloading",
     });
   });
 
   it("creates a game_downloads record with the real hash when sync add returns an id", async () => {
     // Sync path: downloader returns a real hash immediately.
-    vi.mocked(DownloaderManager.addDownloadWithFallback).mockResolvedValue({
-      success: true,
-      id: "realhash123",
-      downloaderId: "d-1",
-      downloaderName: "qBittorrent",
-      attemptedDownloaders: ["qBittorrent"],
-    });
-    vi.mocked(storage.getEnabledDownloaders).mockResolvedValue([
-      {
-        id: "d-1",
-        name: "qBittorrent",
-        type: "qbittorrent",
-        url: "http://localhost:8080",
-        enabled: true,
-        priority: 1,
-      } as any,
-    ]);
-    vi.mocked(storage.addGameDownload).mockResolvedValue({
-      id: "gd-2",
-      gameId: "123e4567-e89b-12d3-a456-426614174002",
-      downloaderId: "d-1",
-      downloadHash: "realhash123",
-      downloadTitle: "Sync Game",
-      status: "downloading",
-      downloadType: "torrent",
-      errorMessage: null,
-      fileSize: null,
-      addedAt: new Date(),
-      completedAt: null,
-    });
-    vi.mocked(storage.getGame).mockResolvedValue({
-      id: "123e4567-e89b-12d3-a456-426614174002",
+    const gameId = "123e4567-e89b-12d3-a456-426614174002";
+    mockSuccessCase({
+      fallback: {
+        success: true,
+        id: "realhash123",
+        downloaderId: "d-1",
+        downloaderName: "qBittorrent",
+        attemptedDownloaders: ["qBittorrent"],
+      },
+      gdId: "gd-2",
+      gameId,
+      hash: "realhash123",
       title: "Sync Game",
-      userId: "user-1",
-      status: "wanted",
-    } as any);
+    });
 
-    const res = await request(app).post("/api/downloads").send({
+    await postDownload({
       url: "https://example.com/sync.torrent",
       title: "Sync Game",
-      gameId: "123e4567-e89b-12d3-a456-426614174002",
+      gameId,
     });
-
-    expect(res.status).toBe(200);
-    expect(res.body.success).toBe(true);
 
     expect(storage.addGameDownload).toHaveBeenCalledWith(
       expect.objectContaining({
-        gameId: "123e4567-e89b-12d3-a456-426614174002",
+        gameId,
         downloadHash: "realhash123",
         status: "downloading",
       })
@@ -189,57 +221,32 @@ describe("POST /api/downloads — async qBittorrent tracking", () => {
   it("prefers result.id over result.correlationTag when both are present", async () => {
     // Edge case: downloader returns both a real hash AND a correlationTag.
     // The route must use the real hash (id), not the tag.
-    vi.mocked(DownloaderManager.addDownloadWithFallback).mockResolvedValue({
-      success: true,
-      id: "realhash_preferred",
-      correlationTag: "questarr-add-should_ignore",
-      downloaderId: "d-1",
-      downloaderName: "qBittorrent",
-      attemptedDownloaders: ["qBittorrent"],
-    });
-    vi.mocked(storage.getEnabledDownloaders).mockResolvedValue([
-      {
-        id: "d-1",
-        name: "qBittorrent",
-        type: "qbittorrent",
-        url: "http://localhost:8080",
-        enabled: true,
-        priority: 1,
-      } as any,
-    ]);
-    vi.mocked(storage.addGameDownload).mockResolvedValue({
-      id: "gd-edge",
-      gameId: "123e4567-e89b-12d3-a456-426614174003",
-      downloaderId: "d-1",
-      downloadHash: "realhash_preferred",
-      downloadTitle: "Edge Game",
-      status: "downloading",
-      downloadType: "torrent",
-      errorMessage: null,
-      fileSize: null,
-      addedAt: new Date(),
-      completedAt: null,
-    });
-    vi.mocked(storage.getGame).mockResolvedValue({
-      id: "123e4567-e89b-12d3-a456-426614174003",
+    const gameId = "123e4567-e89b-12d3-a456-426614174003";
+    mockSuccessCase({
+      fallback: {
+        success: true,
+        id: "realhash_preferred",
+        correlationTag: "questarr-add-should_ignore",
+        downloaderId: "d-1",
+        downloaderName: "qBittorrent",
+        attemptedDownloaders: ["qBittorrent"],
+      },
+      gdId: "gd-edge",
+      gameId,
+      hash: "realhash_preferred",
       title: "Edge Game",
-      userId: "user-1",
-      status: "wanted",
-    } as any);
+    });
 
-    const res = await request(app).post("/api/downloads").send({
+    await postDownload({
       url: "https://example.com/edge.torrent",
       title: "Edge Game",
-      gameId: "123e4567-e89b-12d3-a456-426614174003",
+      gameId,
     });
-
-    expect(res.status).toBe(200);
-    expect(res.body.success).toBe(true);
 
     // Must use the real hash, NOT the correlationTag.
     expect(storage.addGameDownload).toHaveBeenCalledWith(
       expect.objectContaining({
-        gameId: "123e4567-e89b-12d3-a456-426614174003",
+        gameId,
         downloadHash: "realhash_preferred",
         status: "downloading",
       })
@@ -247,21 +254,12 @@ describe("POST /api/downloads — async qBittorrent tracking", () => {
   });
 
   it("does NOT create a game_downloads record when the downloader fails", async () => {
-    vi.mocked(DownloaderManager.addDownloadWithFallback).mockResolvedValue({
+    mockFallback({
       success: false,
       message: "All downloaders failed",
       attemptedDownloaders: ["qBittorrent"],
     });
-    vi.mocked(storage.getEnabledDownloaders).mockResolvedValue([
-      {
-        id: "d-1",
-        name: "qBittorrent",
-        type: "qbittorrent",
-        url: "http://localhost:8080",
-        enabled: true,
-        priority: 1,
-      } as any,
-    ]);
+    mockEnabledQb();
 
     const res = await request(app).post("/api/downloads").send({
       url: "https://example.com/fail.torrent",

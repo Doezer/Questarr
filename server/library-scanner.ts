@@ -16,8 +16,8 @@
 //   safety check (routes.ts) already refuses to delete files outside the
 //   library root, so these discovered files are never touched by that flow.
 
-import fs from "fs";
-import path from "path";
+import fs from "node:fs";
+import path from "node:path";
 import { storage } from "./storage.js";
 import { igdbClient, type IGDBGame } from "./igdb.js";
 import { normalizeTitle, cleanReleaseName } from "../shared/title-utils.js";

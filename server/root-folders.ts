@@ -3,9 +3,9 @@
 // secondary drive). Health-probing is kept separate from the scanner itself
 // so both the HTTP handlers and a future cron job can share the same logic.
 
-import fs from "fs";
-import path from "path";
-import { promisify } from "util";
+import fs from "node:fs";
+import path from "node:path";
+import { promisify } from "node:util";
 import { storage } from "./storage.js";
 import { routesLogger } from "./logger.js";
 

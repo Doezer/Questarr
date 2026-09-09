@@ -406,35 +406,36 @@ export function RootFolderDiscovery() {
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Scan Progress
             </p>
-            {scanProgress.map((p) => (
-              <div key={p.rootFolderId} className="rounded-md border p-3 space-y-2">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-mono">{p.rootFolderPath}</span>
-                  <Badge
-                    variant={
-                      p.status === "failed"
-                        ? "destructive"
-                        : p.status === "completed"
-                          ? "secondary"
-                          : "default"
-                    }
-                  >
-                    {p.status}
-                  </Badge>
-                </div>
-                {p.totalCandidates > 0 && (
-                  <Progress value={(p.processedCandidates / p.totalCandidates) * 100} />
-                )}
-                <p className="text-xs text-muted-foreground">
-                  {p.processedCandidates}/{p.totalCandidates} scanned · {p.matched} matched ·{" "}
-                  {p.unmatched} need review · {p.errors} errors
-                  {p.currentCandidate && p.status === "running" && (
-                    <> · currently: {p.currentCandidate}</>
+            {scanProgress.map((p) => {
+              let badgeVariant: "destructive" | "secondary" | "default";
+              if (p.status === "failed") {
+                badgeVariant = "destructive";
+              } else if (p.status === "completed") {
+                badgeVariant = "secondary";
+              } else {
+                badgeVariant = "default";
+              }
+
+              return (
+                <div key={p.rootFolderId} className="rounded-md border p-3 space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-mono">{p.rootFolderPath}</span>
+                    <Badge variant={badgeVariant}>{p.status}</Badge>
+                  </div>
+                  {p.totalCandidates > 0 && (
+                    <Progress value={(p.processedCandidates / p.totalCandidates) * 100} />
                   )}
-                </p>
-                {p.errorMessage && <p className="text-xs text-destructive">{p.errorMessage}</p>}
-              </div>
-            ))}
+                  <p className="text-xs text-muted-foreground">
+                    {p.processedCandidates}/{p.totalCandidates} scanned · {p.matched} matched ·{" "}
+                    {p.unmatched} need review · {p.errors} errors
+                    {p.currentCandidate && p.status === "running" && (
+                      <> · currently: {p.currentCandidate}</>
+                    )}
+                  </p>
+                  {p.errorMessage && <p className="text-xs text-destructive">{p.errorMessage}</p>}
+                </div>
+              );
+            })}
           </div>
         )}
 

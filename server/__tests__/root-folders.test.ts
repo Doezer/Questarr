@@ -112,30 +112,26 @@ describe("isWithinDeletableRootFolder", () => {
     expect(await isWithinDeletableRootFolder("/mnt/old-library")).toBe(true);
   });
 
-  it("rejects a path inside a root folder that has allowDelete off", async () => {
+  it.each([
+    {
+      name: "a path inside a root folder that has allowDelete off",
+      folders: [{ id: "rf-1", path: "/mnt/old-library", allowDelete: false }],
+      target: "/mnt/old-library/SomeGame",
+    },
+    {
+      name: "a path outside every configured root folder",
+      folders: [{ id: "rf-1", path: "/mnt/old-library", allowDelete: true }],
+      target: "/etc/passwd",
+    },
+    {
+      name: "a sibling folder with the same path prefix",
+      folders: [{ id: "rf-1", path: "/mnt/old-library", allowDelete: true }],
+      target: "/mnt/old-library-2/SomeGame",
+    },
+  ])("rejects $name", async ({ folders, target }) => {
     const { storage } = await import("../storage.js");
-    vi.mocked(storage.getAllRootFolders).mockResolvedValue([
-      { id: "rf-1", path: "/mnt/old-library", allowDelete: false } as unknown as RootFolder,
-    ]);
+    vi.mocked(storage.getAllRootFolders).mockResolvedValue(folders as unknown as RootFolder[]);
 
-    expect(await isWithinDeletableRootFolder("/mnt/old-library/SomeGame")).toBe(false);
-  });
-
-  it("rejects a path outside every configured root folder", async () => {
-    const { storage } = await import("../storage.js");
-    vi.mocked(storage.getAllRootFolders).mockResolvedValue([
-      { id: "rf-1", path: "/mnt/old-library", allowDelete: true } as unknown as RootFolder,
-    ]);
-
-    expect(await isWithinDeletableRootFolder("/etc/passwd")).toBe(false);
-  });
-
-  it("does not match a sibling folder with the same prefix", async () => {
-    const { storage } = await import("../storage.js");
-    vi.mocked(storage.getAllRootFolders).mockResolvedValue([
-      { id: "rf-1", path: "/mnt/old-library", allowDelete: true } as unknown as RootFolder,
-    ]);
-
-    expect(await isWithinDeletableRootFolder("/mnt/old-library-2/SomeGame")).toBe(false);
+    expect(await isWithinDeletableRootFolder(target)).toBe(false);
   });
 });

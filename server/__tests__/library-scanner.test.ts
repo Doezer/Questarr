@@ -129,7 +129,7 @@ describe("scanRootFolderById concurrency guard", () => {
     // immediately without ever calling storage.getRootFolder again.
     const callCountBeforeSecond = vi.mocked(storage.getRootFolder).mock.calls.length;
     await scanRootFolderById("rf-1", "user-1");
-    expect(vi.mocked(storage.getRootFolder).mock.calls.length).toBe(callCountBeforeSecond);
+    expect(vi.mocked(storage.getRootFolder).mock.calls).toHaveLength(callCountBeforeSecond);
 
     // Unblock the first scan so it can finish and release the guard.
     resolveGetRootFolder(mockRootFolder);

@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Downloader } from "../../shared/schema.js";
 import { QBittorrentClient } from "../downloaders/qbittorrent.js";
@@ -1392,6 +1393,7 @@ describe("qbittorrent regression coverage", () => {
         })
       ).resolves.toEqual({
         success: true,
+        correlationTag: expect.stringMatching(/^questarr-add-/),
         message: "Download queued in qBittorrent",
       });
 
@@ -1501,59 +1503,45 @@ describe("QBittorrentClient.findTorrentByTag — async correlation tag resolutio
     vi.mocked(isSafeUrl).mockResolvedValue(true);
   });
 
+  type PrivateClient = {
+    authenticate(force?: boolean): Promise<void>;
+    makeRequest(method: string, path: string, body?: string | Buffer): Promise<Response>;
+  };
+
+  const mockTagLookup = (client: QBittorrentClient, torrents: unknown[] | Error) => {
+    const privateClient = client as unknown as PrivateClient;
+    vi.spyOn(privateClient, "authenticate").mockResolvedValue(undefined);
+    const makeRequestSpy = vi.spyOn(privateClient, "makeRequest");
+    if (torrents instanceof Error) {
+      makeRequestSpy.mockRejectedValue(torrents);
+    } else {
+      makeRequestSpy.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => torrents,
+      } as Response);
+    }
+    return makeRequestSpy;
+  };
+
   it("returns the torrent hash when a matching tag is found", async () => {
     const client = new QBittorrentClient(createDownloader());
-
-    // Mock authenticate → set cookie.
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      headers: { get: () => "SID=abc123" },
-    } as Response);
-
-    // Mock findTorrentByTag → torrents/info?tag=... returns a match.
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      headers: jsonHeaders,
-      json: async () => [
-        {
-          hash: "resolvedhash123",
-          name: "Async Game",
-          state: "downloading",
-          progress: 0.5,
-        },
-      ],
-    } as Response);
+    const makeRequestSpy = mockTagLookup(client, [
+      { hash: "resolvedhash123", name: "Async Game", state: "downloading", progress: 0.5 },
+    ]);
 
     const result = await client.findTorrentByTag("questarr-add-abc123");
 
     expect(result).toBe("resolvedhash123");
-    // Verify the correct API endpoint was called with the tag.
-    const tagCall = fetchMock.mock.calls.find((call) =>
-      String(call[0]).includes("/api/v2/torrents/info?tag=")
+    expect(makeRequestSpy).toHaveBeenCalledWith(
+      "GET",
+      `/api/v2/torrents/info?tag=${encodeURIComponent("questarr-add-abc123")}`
     );
-    expect(tagCall).toBeDefined();
-    expect(String(tagCall![0])).toContain(encodeURIComponent("questarr-add-abc123"));
   });
 
   it("returns null when no torrent matches the tag", async () => {
     const client = new QBittorrentClient(createDownloader());
-
-    // Mock authenticate.
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      headers: { get: () => "SID=abc123" },
-    } as Response);
-
-    // Mock findTorrentByTag → empty array (no match yet).
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      headers: jsonHeaders,
-      json: async () => [],
-    } as Response);
+    mockTagLookup(client, []);
 
     const result = await client.findTorrentByTag("questarr-add-notyet");
 
@@ -1562,26 +1550,7 @@ describe("QBittorrentClient.findTorrentByTag — async correlation tag resolutio
 
   it("returns null when the API response has no hash field", async () => {
     const client = new QBittorrentClient(createDownloader());
-
-    // Mock authenticate.
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      headers: { get: () => "SID=abc123" },
-    } as Response);
-
-    // Mock findTorrentByTag → torrent object without a hash.
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      headers: jsonHeaders,
-      json: async () => [
-        {
-          name: "Broken Entry",
-          state: "error",
-        },
-      ],
-    } as Response);
+    mockTagLookup(client, [{ name: "Broken Entry", state: "error" }]);
 
     const result = await client.findTorrentByTag("questarr-add-broken");
 
@@ -1590,21 +1559,7 @@ describe("QBittorrentClient.findTorrentByTag — async correlation tag resolutio
 
   it("returns null on API error (does not throw)", async () => {
     const client = new QBittorrentClient(createDownloader());
-
-    // Mock authenticate.
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      headers: { get: () => "SID=abc123" },
-    } as Response);
-
-    // Mock findTorrentByTag → HTTP error.
-    fetchMock.mockResolvedValueOnce({
-      ok: false,
-      status: 500,
-      statusText: "Server Error",
-      text: async () => "boom",
-    } as Response);
+    mockTagLookup(client, new Error("boom"));
 
     // Should not throw — returns null.
     const result = await client.findTorrentByTag("questarr-add-error");
@@ -1614,24 +1569,10 @@ describe("QBittorrentClient.findTorrentByTag — async correlation tag resolutio
 
   it("returns the first match when multiple torrents share the tag", async () => {
     const client = new QBittorrentClient(createDownloader());
-
-    // Mock authenticate.
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      headers: { get: () => "SID=abc123" },
-    } as Response);
-
-    // Mock findTorrentByTag → multiple results.
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      headers: jsonHeaders,
-      json: async () => [
-        { hash: "firsthash", name: "Game 1" },
-        { hash: "secondhash", name: "Game 2" },
-      ],
-    } as Response);
+    mockTagLookup(client, [
+      { hash: "firsthash", name: "Game 1" },
+      { hash: "secondhash", name: "Game 2" },
+    ]);
 
     const result = await client.findTorrentByTag("questarr-add-multi");
 

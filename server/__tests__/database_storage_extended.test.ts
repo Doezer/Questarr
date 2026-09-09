@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import {

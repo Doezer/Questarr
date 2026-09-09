@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import express from "express";
 import request from "supertest";
@@ -83,7 +84,7 @@ describe("POST /api/downloads — async qBittorrent tracking", () => {
     ]);
     vi.mocked(storage.addGameDownload).mockResolvedValue({
       id: "gd-1",
-      gameId: "game-1",
+      gameId: "123e4567-e89b-12d3-a456-426614174001",
       downloaderId: "d-1",
       downloadHash: "questarr-add-abc123",
       downloadTitle: "Test Game",
@@ -95,7 +96,7 @@ describe("POST /api/downloads — async qBittorrent tracking", () => {
       completedAt: null,
     });
     vi.mocked(storage.getGame).mockResolvedValue({
-      id: "game-1",
+      id: "123e4567-e89b-12d3-a456-426614174001",
       title: "Test Game",
       userId: "user-1",
       status: "wanted",
@@ -104,7 +105,7 @@ describe("POST /api/downloads — async qBittorrent tracking", () => {
     const res = await request(app).post("/api/downloads").send({
       url: "https://example.com/game.torrent",
       title: "Test Game",
-      gameId: "game-1",
+      gameId: "123e4567-e89b-12d3-a456-426614174001",
     });
 
     expect(res.status).toBe(200);
@@ -114,7 +115,7 @@ describe("POST /api/downloads — async qBittorrent tracking", () => {
     // correlationTag as the temporary downloadHash.
     expect(storage.addGameDownload).toHaveBeenCalledWith(
       expect.objectContaining({
-        gameId: "game-1",
+        gameId: "123e4567-e89b-12d3-a456-426614174001",
         downloaderId: "d-1",
         downloadHash: "questarr-add-abc123",
         downloadTitle: "Test Game",
@@ -123,7 +124,9 @@ describe("POST /api/downloads — async qBittorrent tracking", () => {
     );
 
     // Game status should be updated to downloading.
-    expect(storage.updateGameStatus).toHaveBeenCalledWith("game-1", { status: "downloading" });
+    expect(storage.updateGameStatus).toHaveBeenCalledWith("123e4567-e89b-12d3-a456-426614174001", {
+      status: "downloading",
+    });
   });
 
   it("creates a game_downloads record with the real hash when sync add returns an id", async () => {
@@ -147,7 +150,7 @@ describe("POST /api/downloads — async qBittorrent tracking", () => {
     ]);
     vi.mocked(storage.addGameDownload).mockResolvedValue({
       id: "gd-2",
-      gameId: "game-2",
+      gameId: "123e4567-e89b-12d3-a456-426614174002",
       downloaderId: "d-1",
       downloadHash: "realhash123",
       downloadTitle: "Sync Game",
@@ -159,7 +162,7 @@ describe("POST /api/downloads — async qBittorrent tracking", () => {
       completedAt: null,
     });
     vi.mocked(storage.getGame).mockResolvedValue({
-      id: "game-2",
+      id: "123e4567-e89b-12d3-a456-426614174002",
       title: "Sync Game",
       userId: "user-1",
       status: "wanted",
@@ -168,7 +171,7 @@ describe("POST /api/downloads — async qBittorrent tracking", () => {
     const res = await request(app).post("/api/downloads").send({
       url: "https://example.com/sync.torrent",
       title: "Sync Game",
-      gameId: "game-2",
+      gameId: "123e4567-e89b-12d3-a456-426614174002",
     });
 
     expect(res.status).toBe(200);
@@ -176,7 +179,7 @@ describe("POST /api/downloads — async qBittorrent tracking", () => {
 
     expect(storage.addGameDownload).toHaveBeenCalledWith(
       expect.objectContaining({
-        gameId: "game-2",
+        gameId: "123e4567-e89b-12d3-a456-426614174002",
         downloadHash: "realhash123",
         status: "downloading",
       })
@@ -206,7 +209,7 @@ describe("POST /api/downloads — async qBittorrent tracking", () => {
     ]);
     vi.mocked(storage.addGameDownload).mockResolvedValue({
       id: "gd-edge",
-      gameId: "game-edge",
+      gameId: "123e4567-e89b-12d3-a456-426614174003",
       downloaderId: "d-1",
       downloadHash: "realhash_preferred",
       downloadTitle: "Edge Game",
@@ -218,7 +221,7 @@ describe("POST /api/downloads — async qBittorrent tracking", () => {
       completedAt: null,
     });
     vi.mocked(storage.getGame).mockResolvedValue({
-      id: "game-edge",
+      id: "123e4567-e89b-12d3-a456-426614174003",
       title: "Edge Game",
       userId: "user-1",
       status: "wanted",
@@ -227,7 +230,7 @@ describe("POST /api/downloads — async qBittorrent tracking", () => {
     const res = await request(app).post("/api/downloads").send({
       url: "https://example.com/edge.torrent",
       title: "Edge Game",
-      gameId: "game-edge",
+      gameId: "123e4567-e89b-12d3-a456-426614174003",
     });
 
     expect(res.status).toBe(200);
@@ -236,7 +239,7 @@ describe("POST /api/downloads — async qBittorrent tracking", () => {
     // Must use the real hash, NOT the correlationTag.
     expect(storage.addGameDownload).toHaveBeenCalledWith(
       expect.objectContaining({
-        gameId: "game-edge",
+        gameId: "123e4567-e89b-12d3-a456-426614174003",
         downloadHash: "realhash_preferred",
         status: "downloading",
       })
@@ -263,7 +266,7 @@ describe("POST /api/downloads — async qBittorrent tracking", () => {
     const res = await request(app).post("/api/downloads").send({
       url: "https://example.com/fail.torrent",
       title: "Fail Game",
-      gameId: "game-3",
+      gameId: "123e4567-e89b-12d3-a456-426614174004",
     });
 
     expect(res.status).toBe(500);

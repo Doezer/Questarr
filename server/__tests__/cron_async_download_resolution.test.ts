@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // --- Mocks ---
@@ -190,6 +191,8 @@ describe("Cron — async qBittorrent correlation tag resolution", () => {
 
     mockGetDownloadingGameDownloads.mockResolvedValue([asyncDownload]);
     mockGetDownloader.mockResolvedValue(qbDownloader);
+    // Bulk fetch runs once per downloader before the per-download loop.
+    mockGetAllDownloads.mockResolvedValue([]);
 
     // qBittorrent doesn't have the torrent yet — returns null.
     mockFindDownloadByTag.mockResolvedValue(null);
@@ -203,9 +206,11 @@ describe("Cron — async qBittorrent correlation tag resolution", () => {
     expect(mockUpdateGameDownloadHash).not.toHaveBeenCalled();
 
     // The download was skipped entirely — no status change, no completion.
+    // NOTE: bulk getAllDownloads still runs once per downloader before the
+    // per-download tag-resolution loop, so only per-item follow-ups are skipped.
     expect(mockUpdateGameDownloadStatus).not.toHaveBeenCalled();
     expect(mockUpdateGameStatus).not.toHaveBeenCalled();
-    expect(mockGetAllDownloads).not.toHaveBeenCalled();
+    expect(mockGetDownloadStatus).not.toHaveBeenCalled();
   });
 
   it("does NOT attempt tag resolution for downloads with a real hash (non-async)", async () => {

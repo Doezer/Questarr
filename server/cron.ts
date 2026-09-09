@@ -544,6 +544,11 @@ export async function checkDownloadStatus() {
       downloadMissCount.delete(key);
     }
   });
+  downloadTagMissCount.forEach((_, key) => {
+    if (!activeDownloadIds.has(key)) {
+      downloadTagMissCount.delete(key);
+    }
+  });
 
   // Group by downloader
   const downloadsByDownloader = new Map<string, typeof downloadingDownloads>();
@@ -572,6 +577,12 @@ export async function checkDownloadStatus() {
       );
 
       for (const download of downloads) {
+        // Terminal failed tag records stay visible to getDownloadingGameDownloads
+        // (it only excludes completed/error/imported/etc). Skip them so a
+        // failed questarr-add-* row doesn't restart a new miss cycle.
+        if (download.status === "failed" && download.downloadHash.startsWith("questarr-add-")) {
+          continue;
+        }
         // For async qBittorrent adds, the tracking record may have been created
         // with the correlation tag as a temporary downloadHash (the real hash
         // wasn't known upfront). Resolve it now so we can match the torrent.

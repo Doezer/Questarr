@@ -2482,10 +2482,37 @@ export class DatabaseStorage implements IStorage {
       await db.delete(gameDownloads).where(eq(gameDownloads.id, id));
       return;
     }
-    await db
-      .update(gameDownloads)
-      .set({ downloadHash })
-      .where(and(eq(gameDownloads.id, id), like(gameDownloads.downloadHash, "questarr-add-%")));
+    try {
+      await db
+        .update(gameDownloads)
+        .set({ downloadHash })
+        .where(and(eq(gameDownloads.id, id), like(gameDownloads.downloadHash, "questarr-add-%")));
+    } catch (error) {
+      // TOCTOU: /api/downloads/claim may have inserted the real-hash row
+      // between our check and update, violating the unique index on
+      // (downloaderId, downloadHash). Re-check; if the conflict is the
+      // expected claim race, drop the stale tag row instead of propagating.
+      const isUniqueConflict =
+        error instanceof Error &&
+        (/UNIQUE constraint failed/i.test(error.message) ||
+          (error as NodeJS.ErrnoException).code === "SQLITE_CONSTRAINT_UNIQUE" ||
+          (error as NodeJS.ErrnoException).code === "SQLITE_CONSTRAINT");
+      if (!isUniqueConflict) throw error;
+      const retry = await db
+        .select({ id: gameDownloads.id })
+        .from(gameDownloads)
+        .where(
+          and(
+            eq(gameDownloads.downloaderId, current.downloaderId),
+            eq(gameDownloads.downloadHash, downloadHash)
+          )
+        );
+      if (retry.some((row) => row.id !== id)) {
+        await db.delete(gameDownloads).where(eq(gameDownloads.id, id));
+        return;
+      }
+      throw error;
+    }
   }
 
   async addGameDownload(insertGameDownload: InsertGameDownload): Promise<GameDownload | undefined> {

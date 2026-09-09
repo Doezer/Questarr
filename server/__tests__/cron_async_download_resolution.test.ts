@@ -228,6 +228,33 @@ describe("Cron — async qBittorrent correlation tag resolution", () => {
     expect(mockGetDownloadStatus).not.toHaveBeenCalled();
   });
 
+  it("skips failed questarr-add-* records without restarting tag resolution", async () => {
+    // Terminal failed tag rows remain visible to getDownloadingGameDownloads;
+    // they must not trigger findDownloadByTag or a new miss cycle.
+    const failedTagDownload = {
+      id: "gd-failed-tag",
+      gameId: "game-1",
+      downloaderId: "dl-qbit",
+      downloadHash: "questarr-add-dead",
+      downloadTitle: "Dead Game",
+      status: "failed" as const,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      downloadType: "torrent" as const,
+    };
+
+    mockGetDownloadingGameDownloads.mockResolvedValue([failedTagDownload]);
+    mockGetDownloader.mockResolvedValue(qbDownloader);
+    mockGetAllDownloads.mockResolvedValue([]);
+
+    await checkDownloadStatus();
+
+    expect(mockFindDownloadByTag).not.toHaveBeenCalled();
+    expect(mockUpdateGameDownloadStatus).not.toHaveBeenCalled();
+    expect(mockUpdateGameStatus).not.toHaveBeenCalled();
+    expect(mockGetDownloadStatus).not.toHaveBeenCalled();
+  });
+
   it("marks tag FAILED after threshold and resets game to wanted with no active sibling", async () => {
     // No sibling still downloading — game should reset to wanted.
     mockTagScenario({

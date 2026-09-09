@@ -41,7 +41,8 @@ function detectionColor(awareness: number): string {
 }
 
 /** The single next step, so the HUD never asks the player to hold two goals. */
-function objectiveText({ needsKeycard, hasKeycard }: ObjectiveState): string {
+function objectiveText({ inside, needsKeycard, hasKeycard }: ObjectiveState): string {
+  if (!inside) return "cross the approach and get through the gate";
   if (needsKeycard && !hasKeycard) return "find the keycard, then reach the console";
   return "reach the console and hack it unseen";
 }
@@ -65,6 +66,7 @@ export default function PlayPage() {
   const [paused, setPaused] = useState(true);
   const [won, setWon] = useState(false);
   const [objective, setObjective] = useState<ObjectiveState>({
+    inside: false,
     needsKeycard: false,
     hasKeycard: false,
   });
@@ -263,9 +265,11 @@ export default function PlayPage() {
               Ghost the Terminal
             </h1>
             <p className="text-sm text-white/70">
-              A procedurally generated facility of connected rooms, patrolling guards, and one
-              console worth hacking. The door to it is locked, so find the keycard first. Stay out
-              of the vision cones &mdash; walls and crates break line of sight.
+              You start outside, on the approach. One gate is cut through the facility&rsquo;s wall
+              and it is the only way in &mdash; cross the open ground and it rolls back for you.
+              Inside are connected rooms, patrolling guards, and one console worth hacking. The door
+              to it is locked, so find the keycard first. Stay out of the vision cones &mdash; walls
+              and crates break line of sight.
             </p>
             <dl className="mx-auto grid max-w-xs grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-left text-sm text-white/70">
               {CONTROLS.map(({ keys, action }) => (

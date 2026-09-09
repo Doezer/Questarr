@@ -24,6 +24,22 @@ function containsCell(rect: { x: number; z: number; w: number; h: number }, cell
   );
 }
 
+/** Cells of the facility's perimeter ring that are not walled: the way in. */
+function perimeterHoles(level: GeneratedLevel): string[] {
+  const walls = new Set(level.walls.map(cellKey));
+  const { facility } = level;
+  const interior = {
+    x: facility.x + 1,
+    z: facility.z + 1,
+    w: facility.w - 2,
+    h: facility.h - 2,
+  };
+  return rectCells(facility)
+    .filter((cell) => !containsCell(interior, cell))
+    .map(cellKey)
+    .filter((key) => !walls.has(key));
+}
+
 function rectCells(rect: { x: number; z: number; w: number; h: number }): GridPos[] {
   const cells: GridPos[] = [];
   for (let x = rect.x; x < rect.x + rect.w; x++) {
@@ -86,22 +102,29 @@ describe("generateLevel", () => {
     }
   });
 
-  it("leaves no interior cell that is neither floor, wall nor door", () => {
-    // A later perpendicular split can strand an earlier door so it joins fewer
-    // than two rooms. Its cell is already cut from its wall line, so if it is
-    // not sealed it becomes a hole the engine builds no collider for.
+  it("leaves no interior cell that is neither floor, wall, door nor open ground", () => {
+    // Every cell of the grid has to be *something* the engine builds: room floor
+    // and the apron are walked on, walls and the shut gate are collided with. A
+    // cell that is none of them is a hole with no collider and nothing drawn.
     for (const seed of SEEDS) {
       const level = generateLevel(seed);
       const floor = new Set(level.rooms.flatMap(rectCells).map(cellKey));
       const walls = new Set(level.walls.map(cellKey));
       const doors = new Set(level.doors.map((door) => cellKey(door.pos)));
+      const apron = new Set(rectCells(level.apron).map(cellKey));
 
       for (let x = 1; x <= level.gridSize - 2; x++) {
         for (let z = 1; z <= level.gridSize - 2; z++) {
           const cell = { x, z };
           if (!isInterior(cell, level.gridSize)) continue;
           const key = cellKey(cell);
-          expect(floor.has(key) || walls.has(key) || doors.has(key)).toBe(true);
+          const accounted =
+            floor.has(key) ||
+            walls.has(key) ||
+            doors.has(key) ||
+            apron.has(key) ||
+            key === cellKey(level.gate.pos);
+          expect(accounted).toBe(true);
         }
       }
     }
@@ -197,8 +220,99 @@ describe("generateLevel", () => {
     const level = generateLevel(1, { gridSize: 7 });
     expect(level.rooms).toHaveLength(1);
     expect(level.doors).toHaveLength(0);
-    expect(level.walls).toHaveLength(0);
     expect(level.keycard).toBeNull();
+    // The facility always has its own perimeter, however small it gets, so the
+    // one thing that can never be empty here is the wall list.
+    expect(level.walls.length).toBeGreaterThan(0);
+    expect(perimeterHoles(level)).toEqual([cellKey(level.gate.pos)]);
+  });
+});
+
+describe("the gate", () => {
+  it("starts the player outside, on the apron", () => {
+    for (const seed of SEEDS) {
+      const level = generateLevel(seed);
+      expect(containsCell(level.apron, level.spawn)).toBe(true);
+      expect(containsCell(level.facility, level.spawn)).toBe(false);
+      // Nothing is placed on the approach, so the opening walk is never blocked.
+      const blocked = structuralBlocked(level);
+      for (const cell of rectCells(level.apron)) {
+        expect(blocked.has(cellKey(cell))).toBe(false);
+      }
+    }
+  });
+
+  it("is the only opening in the facility's perimeter", () => {
+    // This is what makes the approach mean anything: with any second hole the
+    // player could walk around the gate and the whole entrance is decoration.
+    for (const seed of SEEDS) {
+      const level = generateLevel(seed);
+      expect(perimeterHoles(level)).toEqual([cellKey(level.gate.pos)]);
+    }
+  });
+
+  it("opens from the apron into the room it names", () => {
+    for (const seed of SEEDS) {
+      const level = generateLevel(seed);
+      const { gate } = level;
+      const blocked = structuralBlocked(level);
+      expect(blocked.has(cellKey(gate.pos))).toBe(false);
+
+      // The cell outside is apron, and the cell opposite it is the room floor
+      // the gate leads onto — so the gate is genuinely a threshold, not a slot
+      // punched into a corner or against the end of an interior partition.
+      expect(containsCell(level.apron, gate.outside)).toBe(true);
+      const inner = {
+        x: gate.pos.x * 2 - gate.outside.x,
+        z: gate.pos.z * 2 - gate.outside.z,
+      };
+      expect(containsCell(level.rooms[gate.room], inner)).toBe(true);
+      expect(blocked.has(cellKey(inner))).toBe(false);
+
+      // `spansX` says which way the leaf faces; the player always crosses the
+      // gate on the other axis.
+      expect(gate.spansX).toBe(gate.outside.x === gate.pos.x);
+    }
+  });
+
+  it("is the only route in, so sealing it strands the terminal", () => {
+    for (const seed of SEEDS) {
+      const level = generateLevel(seed);
+      const sealed = structuralBlocked(level);
+      sealed.add(cellKey(level.gate.pos));
+      expect(findPath(level.spawn, level.terminal, level.gridSize, sealed)).toEqual([]);
+      // And with it open the run is walkable end to end. `structuralBlocked`
+      // leaves the locked door open, so this is the run as a player who already
+      // holds the keycard walks it; the leg before the keycard is covered by
+      // "locks exactly one door, on the route to the terminal" above.
+      expect(
+        findPath(level.spawn, level.terminal, level.gridSize, structuralBlocked(level)).length
+      ).toBeGreaterThan(0);
+    }
+  });
+
+  it("keeps the apron and the facility from overlapping", () => {
+    for (const seed of SEEDS) {
+      const level = generateLevel(seed);
+      for (const cell of rectCells(level.apron)) {
+        expect(containsCell(level.facility, cell)).toBe(false);
+        expect(isInterior(cell, level.gridSize)).toBe(true);
+      }
+      for (const cell of rectCells(level.facility)) {
+        expect(isInterior(cell, level.gridSize)).toBe(true);
+      }
+    }
+  });
+
+  it("puts no patrol out on the approach", () => {
+    for (const seed of SEEDS) {
+      const level = generateLevel(seed);
+      for (const guard of level.guards) {
+        for (const waypoint of guard.waypoints) {
+          expect(containsCell(level.apron, waypoint)).toBe(false);
+        }
+      }
+    }
   });
 });
 

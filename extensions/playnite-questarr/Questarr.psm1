@@ -138,7 +138,10 @@ function Invoke-QuestarrApi {
     AllowAutoRedirect = $false instead gives a real WebException carrying the
     3xx response, Location header included, so only a same-host redirect is
     followed (with the API key reattached by hand) and anything else still
-    fails exactly the way a refused redirect always has.
+    fails exactly the way a refused redirect always has -- including a
+    same-host https -> http redirect, which would otherwise downgrade an
+    https:// connection to sending the key in cleartext with no renewed
+    warning at all.
 
     The body is encoded to UTF-8 bytes by hand because Invoke-RestMethod on
     PowerShell 5.1 otherwise sends JSON as ISO-8859-1, which mangles any
@@ -187,8 +190,16 @@ function Invoke-QuestarrHttpRequest {
                 $location = $webResponse.Headers["Location"]
                 $webResponse.Close()
                 if ($location) {
-                    $redirectUri = [Uri]::new([Uri]$Uri, $location)
-                    if ($redirectUri.Host -ieq ([Uri]$Uri).Host) {
+                    $originalUri = [Uri]$Uri
+                    $redirectUri = [Uri]::new($originalUri, $location)
+                    # Same host only, and never downgrade https -> http: an
+                    # https:// connection carries no consent to ever send the
+                    # key in cleartext, so a same-host redirect to plain http
+                    # is exactly as untrusted here as a redirect to a
+                    # different host entirely, and falls through to the same
+                    # refusal below.
+                    $isDowngrade = $originalUri.Scheme -ieq "https" -and $redirectUri.Scheme -ieq "http"
+                    if ($redirectUri.Host -ieq $originalUri.Host -and -not $isDowngrade) {
                         return Invoke-QuestarrHttpRequest -Uri $redirectUri.AbsoluteUri -ApiKey $ApiKey `
                             -Method $Method -Body $Body -TimeoutSec $TimeoutSec `
                             -RedirectsFollowed ($RedirectsFollowed + 1)

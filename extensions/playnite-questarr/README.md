@@ -49,9 +49,10 @@ game from the couch without opening a browser.
 The extension pings the server before saving, so a bad address or key fails
 right there instead of silently at the next sync. A same-host redirect (a
 reverse proxy enforcing `https://`, or normalizing a trailing slash) is
-followed automatically with the key intact; a redirect to any other host is
-refused, since the key would otherwise be forwarded to wherever that redirect
-points.
+followed automatically with the key intact; a redirect to any other host, or
+a same-host redirect from `https://` down to `http://`, is refused instead,
+since either would otherwise move the key somewhere it never had consent to
+go.
 
 ## Where settings are stored
 

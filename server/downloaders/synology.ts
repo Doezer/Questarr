@@ -1166,4 +1166,8 @@ export class SynologyDownloadStationClient implements DownloaderClient {
       return 0;
     }
   }
+
+  async findTorrentByTag(_tag: string): Promise<string | null> {
+    return null;
+  }
 }

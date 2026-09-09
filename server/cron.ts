@@ -566,6 +566,29 @@ export async function checkDownloadStatus() {
       );
 
       for (const download of downloads) {
+        // For async qBittorrent adds, the tracking record may have been created
+        // with the correlation tag as a temporary downloadHash (the real hash
+        // wasn't known upfront). Resolve it now so we can match the torrent.
+        if (download.downloadHash.startsWith("questarr-add-")) {
+          const originalTag = download.downloadHash;
+          const resolvedHash = await DownloaderManager.findDownloadByTag(downloader, originalTag);
+          if (resolvedHash) {
+            await storage.updateGameDownloadHash(download.id, resolvedHash);
+            download.downloadHash = resolvedHash;
+            igdbLogger.info(
+              { downloadId: download.id, tag: originalTag, resolvedHash },
+              "Resolved async qBittorrent hash for tracked download"
+            );
+          } else {
+            // Torrent hasn't appeared yet; skip this download for now.
+            igdbLogger.debug(
+              { downloadId: download.id, tag: originalTag },
+              "Async qBittorrent download not yet visible — skipping"
+            );
+            continue;
+          }
+        }
+
         // Match by hash/ID (handle case sensitivity just in case)
         let remoteDownload = activeDownloadMap.get(download.downloadHash.toLowerCase());
 

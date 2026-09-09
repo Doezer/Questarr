@@ -184,6 +184,7 @@ export class DownloaderManager {
   ): Promise<{
     success: boolean;
     id?: string;
+    correlationTag?: string;
     message?: string;
     downloaderId?: string;
     downloaderName?: string;
@@ -244,5 +245,23 @@ export class DownloaderManager {
       message: `All downloaders failed. Errors: ${errors.join("; ")}`,
       attemptedDownloaders,
     };
+  }
+
+  /**
+   * Resolve a correlation tag to a real torrent hash. Only relevant for
+   * qBittorrent async adds where the hash wasn't known upfront.
+   * Returns null for downloaders that don't use this mechanism.
+   */
+  static async findDownloadByTag(downloader: Downloader, tag: string): Promise<string | null> {
+    try {
+      const client = this.createClient(downloader);
+      return await client.findTorrentByTag(tag);
+    } catch (error) {
+      downloadersLogger.warn(
+        { error, downloaderId: downloader.id, tag },
+        "findDownloadByTag not supported or failed"
+      );
+      return null;
+    }
   }
 }

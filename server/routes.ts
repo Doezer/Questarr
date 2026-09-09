@@ -3607,13 +3607,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(500).json(result);
         }
 
-        // If gameId is provided, track this download and update game status
-        if (gameId && result.success && result.id && result.downloaderId) {
+        // If gameId is provided, track this download and update game status.
+        // For async qBittorrent adds (pending_count with no hash yet), the
+        // downloader returns a correlationTag we use as a temporary downloadHash
+        // so the tracking record exists upfront. The cron resolves the real hash.
+        const downloadHash = result.id ?? result.correlationTag;
+        if (gameId && result.success && downloadHash && result.downloaderId) {
           try {
             await storage.addGameDownload({
               gameId,
               downloaderId: result.downloaderId,
-              downloadHash: result.id,
+              downloadHash,
               downloadTitle: title,
               status: "downloading",
               downloadType: downloadType || "torrent",

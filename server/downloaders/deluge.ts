@@ -680,6 +680,10 @@ export class DelugeClient implements DownloaderClient {
     }
   }
 
+  async findTorrentByTag(_tag: string): Promise<string | null> {
+    return null;
+  }
+
   /** Maps a Deluge torrent payload to Questarr's normalized download status. */
   private mapDelugeStatus(hash: string, status: DelugeTorrentStatus): DownloadStatus {
     // Deluge states: Downloading, Seeding, Paused, Checking, Queued, Error, Allocating, Moving

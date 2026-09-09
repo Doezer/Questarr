@@ -353,9 +353,12 @@ export class QBittorrentClient implements DownloaderClient {
               }
 
               if (!shouldFallbackToUpload) {
+                // For async adds where the hash isn't immediately known, return
+                // the correlationTag so the route can create the game_downloads
+                // tracking record upfront. The cron later resolves the real hash.
                 return {
                   success: true,
-                  ...(resolvedHash ? { id: resolvedHash } : {}),
+                  ...(resolvedHash ? { id: resolvedHash } : { correlationTag }),
                   message: isPending
                     ? "Download queued in qBittorrent"
                     : "Download added successfully",
@@ -851,6 +854,35 @@ export class QBittorrentClient implements DownloaderClient {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       downloadersLogger.error({ error: errorMessage }, "Error adding download to qBittorrent");
       return { success: false, message: `Failed to add download: ${errorMessage}` };
+    }
+  }
+
+  /**
+   * Find a torrent by its correlation tag. Used to resolve the real hash
+   * for async adds where the hash wasn't known when the tracking record
+   * was created (the correlation tag was used as a temporary downloadHash).
+   * Returns the torrent hash, or null if not found.
+   */
+  async findTorrentByTag(tag: string): Promise<string | null> {
+    try {
+      await this.authenticate();
+      const response = await this.makeRequest(
+        "GET",
+        `/api/v2/torrents/info?tag=${encodeURIComponent(tag)}`
+      );
+      const torrents = (await response.json()) as QBittorrentTorrent[];
+      const match = torrents?.[0];
+      if (match?.hash) {
+        downloadersLogger.info(
+          { tag, hash: match.hash, name: match.name },
+          "Resolved async qBittorrent add: correlation tag → hash"
+        );
+        return match.hash;
+      }
+      return null;
+    } catch (error) {
+      downloadersLogger.warn({ error, tag }, "Failed to find torrent by correlation tag");
+      return null;
     }
   }
 

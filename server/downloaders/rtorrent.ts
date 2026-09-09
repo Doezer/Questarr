@@ -501,6 +501,10 @@ export class RTorrentClient implements DownloaderClient {
     }
   }
 
+  async findTorrentByTag(_tag: string): Promise<string | null> {
+    return null;
+  }
+
   private mapRTorrentStatus(torrent: unknown[]): DownloadStatus {
     // download is an array: [hash, name, state, complete, size, completed, down_rate, up_rate, ratio, peers_connected, peers_complete, message, custom1]
     const [

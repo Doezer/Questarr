@@ -219,6 +219,10 @@ export interface IStorage {
     gameId: string
   ): Promise<(GameDownload & { downloaderName: string | null })[]>;
   updateGameDownloadStatus(id: string, status: string, errorMessage?: string | null): Promise<void>;
+  // Resolves a temporary correlation-tag hash (from an async qBittorrent add)
+  // to the real torrent hash once it becomes known. No-op if the record already
+  // has a real hash or doesn't exist.
+  updateGameDownloadHash(id: string, downloadHash: string): Promise<void>;
   // Attaches a "game_link_required" download to the given game and drops it back into
   // the normal "manual_review_required" path-review flow.
   relinkGameDownload(id: string, gameId: string): Promise<GameDownload | undefined>;
@@ -934,6 +938,13 @@ export class MemStorage implements IStorage {
         completedAt: status === "completed" ? new Date() : null,
         ...(errorMessage !== undefined ? { errorMessage } : {}),
       });
+    }
+  }
+
+  async updateGameDownloadHash(id: string, downloadHash: string): Promise<void> {
+    const gd = this.gameDownloads.get(id);
+    if (gd && gd.downloadHash.startsWith("questarr-add-")) {
+      this.gameDownloads.set(id, { ...gd, downloadHash });
     }
   }
 
@@ -2340,6 +2351,13 @@ export class DatabaseStorage implements IStorage {
       updates.errorMessage = errorMessage;
     }
     await db.update(gameDownloads).set(updates).where(eq(gameDownloads.id, id));
+  }
+
+  async updateGameDownloadHash(id: string, downloadHash: string): Promise<void> {
+    await db
+      .update(gameDownloads)
+      .set({ downloadHash })
+      .where(and(eq(gameDownloads.id, id), like(gameDownloads.downloadHash, "questarr-add-%")));
   }
 
   async addGameDownload(insertGameDownload: InsertGameDownload): Promise<GameDownload | undefined> {

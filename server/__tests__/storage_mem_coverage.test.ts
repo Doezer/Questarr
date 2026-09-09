@@ -764,3 +764,107 @@ describe("MemStorage - Release blacklist CRUD", () => {
     expect(set.size).toBe(2);
   });
 });
+
+describe("MemStorage - Integration API keys", () => {
+  let storage: MemStorageType;
+
+  beforeEach(async () => {
+    storage = new MemStorage();
+    await storage.registerSetupUser(makeUser({ username: "keyowner" }));
+  });
+
+  it("adds a key, omits the hash, and lists keys newest-first for that user only", async () => {
+    // Control the clock instead of a real delay: a `setTimeout` doesn't
+    // guarantee two distinct `Date.now()` readings, so the ordering assertion
+    // below could flake on a fast-enough runner.
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+      const older = await storage.addApiKey(
+        { userId: "u1", name: "Older", keyHash: "hash-older", prefix: "qsr_aaaaaaaa" },
+        25
+      );
+
+      vi.setSystemTime(new Date("2026-01-01T00:00:01.000Z"));
+      const newer = await storage.addApiKey(
+        { userId: "u1", name: "Newer", keyHash: "hash-newer", prefix: "qsr_bbbbbbbb" },
+        25
+      );
+
+      await storage.addApiKey(
+        {
+          userId: "someone-else",
+          name: "Other user's key",
+          keyHash: "hash-other",
+          prefix: "qsr_c",
+        },
+        25
+      );
+
+      expect(newer).not.toHaveProperty("keyHash");
+      expect(older).not.toHaveProperty("keyHash");
+
+      const keys = await storage.getApiKeys("u1");
+      expect(keys.map((k) => k.name)).toEqual(["Newer", "Older"]);
+      expect(keys.every((k) => !("keyHash" in k))).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rejects a new key once the user is at the cap, without persisting it", async () => {
+    await storage.addApiKey(
+      { userId: "u1", name: "First", keyHash: "hash-1", prefix: "qsr_aaaaaaaa" },
+      1
+    );
+
+    await expect(
+      storage.addApiKey(
+        { userId: "u1", name: "Second", keyHash: "hash-2", prefix: "qsr_bbbbbbbb" },
+        1
+      )
+    ).rejects.toThrow("API key limit reached");
+
+    const keys = await storage.getApiKeys("u1");
+    expect(keys).toHaveLength(1);
+    expect(keys[0].name).toBe("First");
+  });
+
+  it("finds a key by hash, and records touchApiKey's lastUsedAt", async () => {
+    const created = await storage.addApiKey(
+      { userId: "u1", name: "Playnite", keyHash: "a-unique-hash", prefix: "qsr_cccccccc" },
+      25
+    );
+
+    const found = await storage.getApiKeyByHash("a-unique-hash");
+    expect(found?.id).toBe(created.id);
+    expect(found?.lastUsedAt).toBeNull();
+
+    await storage.touchApiKey(created.id);
+    const touched = await storage.getApiKeyByHash("a-unique-hash");
+    expect(touched?.lastUsedAt).toBeInstanceOf(Date);
+  });
+
+  it("getApiKeyByHash returns undefined for an unknown hash", async () => {
+    expect(await storage.getApiKeyByHash("no-such-hash")).toBeUndefined();
+  });
+
+  it("touchApiKey is a no-op for an unknown id", async () => {
+    await expect(storage.touchApiKey("no-such-id")).resolves.toBeUndefined();
+  });
+
+  it("only removes a key that belongs to the requesting user", async () => {
+    const created = await storage.addApiKey(
+      { userId: "owner", name: "Owned key", keyHash: "owned-hash", prefix: "qsr_dddddddd" },
+      25
+    );
+
+    expect(await storage.removeApiKey(created.id, "someone-else")).toBe(false);
+    expect(await storage.removeApiKey(created.id, "owner")).toBe(true);
+    expect(await storage.getApiKeys("owner")).toHaveLength(0);
+  });
+
+  it("removeApiKey returns false for an unknown id", async () => {
+    expect(await storage.removeApiKey("no-such-id", "owner")).toBe(false);
+  });
+});

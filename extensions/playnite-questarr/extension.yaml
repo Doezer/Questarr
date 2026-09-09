@@ -1,0 +1,9 @@
+Id: Questarr_Integration
+Name: Questarr
+Author: Questarr
+Version: 1.0.0
+Module: Questarr.psm1
+Type: Script
+Links:
+  - Name: Questarr
+    Url: https://github.com/Doezer/Questarr

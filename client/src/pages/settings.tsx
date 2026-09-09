@@ -46,6 +46,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
+import { ApiKeysCard } from "@/components/ApiKeysCard";
 import AutoDownloadRulesSettings from "@/components/AutoDownloadRulesSettings";
 import PreferredReleaseGroupsSettings from "@/components/PreferredReleaseGroupsSettings";
 import { useLocalStorageState } from "@/hooks/use-local-storage-state";
@@ -1524,6 +1525,9 @@ export default function SettingsPage() {
           </TabsContent>
 
           <TabsContent value="integrations" className="space-y-6">
+            {/* API keys for external clients (Playnite extension, scripts) */}
+            <ApiKeysCard />
+
             {/* Steam Integration Card */}
             <Card id="steam-config">
               <CardHeader>

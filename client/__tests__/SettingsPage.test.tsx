@@ -97,6 +97,9 @@ describe("SettingsPage", () => {
       if (url.includes("/api/blacklist")) {
         return { ok: true, json: async () => [] } as Response;
       }
+      if (url.includes("/api/api-keys")) {
+        return { ok: true, json: async () => [] } as Response;
+      }
       if (url.includes("/api/settings")) {
         return { ok: true, json: async () => defaultUserSettings } as Response;
       }

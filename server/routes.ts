@@ -78,6 +78,7 @@ import {
   generateToken,
   authenticateToken,
   optionalAuthenticateToken,
+  authenticateApiKeyOrToken,
 } from "./auth.js";
 import { setAuthCookies, clearAuthCookies, csrfProtection } from "./security.js";
 import { nexusmodsClient } from "./nexusmods.js";
@@ -92,19 +93,6 @@ import path from "path";
 import fs from "fs";
 import fsExtra from "fs-extra";
 import { readLastLogLines } from "./log-file.js";
-
-const normalizeInitialReleaseStatus = <
-  T extends { releaseDate?: string | null; releaseStatus?: string | null },
->(
-  gameData: T
-): T => {
-  const releaseDate = gameData.releaseDate?.slice(0, 10);
-  const today = new Date().toISOString().slice(0, 10);
-  if (releaseDate && /^\d{4}-\d{2}-\d{2}$/.test(releaseDate) && releaseDate <= today) {
-    return { ...gameData, releaseStatus: "released" };
-  }
-  return gameData;
-};
 
 // Root directory for the file system browser; restrict browsing to this tree
 const FILE_BROWSER_ROOT = fs.realpathSync(process.cwd());
@@ -155,6 +143,11 @@ function isPublicApiRequest(req: Request): boolean {
   return PUBLIC_API_ROUTES.has(`${req.method.toUpperCase()} ${req.path}`);
 }
 
+/** Paths under the /api mount that accept an integration API key as well as a JWT. */
+function isIntegrationApiRequest(req: Request): boolean {
+  return req.path === "/integration" || req.path.startsWith("/integration/");
+}
+
 // Routes that must always run, even with a missing/expired/invalid token,
 // but should still pick up req.user/req.authSource when the token IS valid
 // (so e.g. csrfProtection still enforces the CSRF check for a cookie-backed
@@ -177,6 +170,14 @@ function isSoftAuthApiRequest(req: Request): boolean {
 export function requireAuthenticationForApi(req: Request, res: Response, next: NextFunction) {
   if (isPublicApiRequest(req)) {
     next();
+    return;
+  }
+  // The integration surface is the one place that also accepts a long-lived
+  // API key, for machine clients (the Playnite extension, scripts) that cannot
+  // run the interactive login flow. Everything else — key management included —
+  // stays JWT-only, so a leaked key can never mint or revoke another one.
+  if (isIntegrationApiRequest(req)) {
+    authenticateApiKeyOrToken(req, res, next);
     return;
   }
   if (isSoftAuthApiRequest(req)) {
@@ -207,10 +208,19 @@ import { SUPPORT_WORKER_ORIGIN } from "../shared/support-config.js";
 import { ZipArchive } from "archiver";
 import helmet from "helmet";
 import { steamRoutes } from "./steam-routes.js";
+import {
+  getContentFilterFlags,
+  isContentFiltered,
+  excludeFilteredContent,
+} from "./content-filter.js";
+import { normalizeInitialReleaseStatus } from "./game-status.js";
+import { quickAddGameByTitle } from "./game-quick-add.js";
 import { importRouter } from "./routes/import.js";
 import { importTasksRouter } from "./routes/import-tasks.js";
 import { systemRouter } from "./routes/system.js";
 import { pcgamingwikiRouter } from "./pcgamingwiki-router.js";
+import { integrationRouter } from "./routes/integration.js";
+import { apiKeysRouter } from "./routes/api-keys.js";
 
 // Cache-Control header values for IGDB discovery endpoints
 const CC_IGDB_METADATA = "public, max-age=86400, stale-while-revalidate=3600";
@@ -467,36 +477,6 @@ function validatePaginationParams(query: { limit?: string; offset?: string }): {
   const limit = Math.min(Math.max(1, Number.parseInt(query.limit as string, 10) || 20), 100);
   const offset = Math.max(0, Number.parseInt(query.offset as string, 10) || 0);
   return { limit, offset };
-}
-
-interface ContentFilterFlags {
-  hideAdultContent: boolean;
-  hideAgeRestrictedContent: boolean;
-}
-
-/** The two content-filter signals are independent user settings: "Erotic" theme vs. ESRB AO/PEGI 18 age ratings. */
-async function getContentFilterFlags(userId: string): Promise<ContentFilterFlags> {
-  const settings = await storage.getUserSettings(userId);
-  return {
-    hideAdultContent: settings?.hideAdultContent ?? true,
-    hideAgeRestrictedContent: settings?.hideAgeRestrictedContent ?? true,
-  };
-}
-
-function isContentFiltered(
-  game: { isAdultContent?: boolean; isAgeRestricted?: boolean },
-  flags: ContentFilterFlags
-): boolean {
-  return (
-    (flags.hideAdultContent && game.isAdultContent === true) ||
-    (flags.hideAgeRestrictedContent && game.isAgeRestricted === true)
-  );
-}
-
-function excludeFilteredContent<T>(games: T[], flags: ContentFilterFlags): T[] {
-  return games.filter(
-    (g) => !isContentFiltered(g as { isAdultContent?: boolean; isAgeRestricted?: boolean }, flags)
-  );
 }
 
 /** Filters an already-fetched list of library games according to the user's content-filter preferences. */
@@ -1260,6 +1240,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/imports", importRouter);
   app.use("/api/import-tasks", importTasksRouter);
   app.use("/api/system", systemRouter);
+  // Authenticated by the /api gate above (JWT or integration API key); same
+  // reasoning as the mounts above.
+  app.use("/api/integration", integrationRouter);
+  app.use("/api/api-keys", apiKeysRouter);
 
   // Sync indexers from Prowlarr
   app.post("/api/indexers/prowlarr/sync", sensitiveEndpointLimiter, async (req, res, next) => {
@@ -4315,7 +4299,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Match and add game from name (Quick Add)
+  // Match and add game from name (Quick Add). Shares its search/filter/dedupe
+  // logic with the integration API's POST /api/integration/games/request
+  // (server/game-quick-add.ts) so the two entry points can't drift apart.
   app.post(
     "/api/games/match-and-add",
     sanitizeMatchAndAddTitle,
@@ -4327,63 +4313,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const userId = (req as any).user.id;
 
-        // 1. Search IGDB for the title
-        const igdbResults = await igdbClient.searchGames(title, 1);
-        if (igdbResults.length === 0) {
-          return res.status(404).json({ error: "No game found on IGDB for this title" });
+        const result = await quickAddGameByTitle(userId, title);
+
+        switch (result.outcome) {
+          case "not_found":
+            return res.status(404).json({ error: "No game found on IGDB for this title" });
+          case "duplicate":
+            return res.status(409).json({ error: "Game already in collection", game: result.game });
+          case "added":
+            routesLogger.info(
+              { userId, title: result.game.title, igdbId: result.game.igdbId },
+              "Game quick-added from matching"
+            );
+            return res.status(201).json(result.game);
         }
-
-        const match = igdbResults[0];
-        const formattedMatch = igdbClient.formatGameData(match);
-        const quickAddFilterFlags = await getContentFilterFlags(userId);
-        if (
-          isContentFiltered(
-            formattedMatch as { isAdultContent?: boolean; isAgeRestricted?: boolean },
-            quickAddFilterFlags
-          )
-        ) {
-          return res.status(404).json({ error: "Game not found" });
-        }
-
-        // 2. Add to library (similar to POST /api/games)
-        const gameData = insertGameSchema.parse({
-          userId,
-          title: formattedMatch.title,
-          igdbId: formattedMatch.igdbId,
-          status: "wanted", // Default status for quick add
-          platform: "PC", // Default platform, user can change later
-          platforms: formattedMatch.platforms,
-          genres: formattedMatch.genres,
-          themes: formattedMatch.themes,
-          isAdultContent: formattedMatch.isAdultContent,
-          isAgeRestricted: formattedMatch.isAgeRestricted,
-          coverUrl: formattedMatch.coverUrl,
-          releaseDate: formattedMatch.releaseDate,
-          summary: formattedMatch.summary,
-          publishers: formattedMatch.publishers,
-          developers: formattedMatch.developers,
-          screenshots: formattedMatch.screenshots,
-          rating: formattedMatch.rating,
-        });
-
-        // Check for existing
-        const userGames = await storage.getUserGames(userId, true);
-        const existingGame = userGames.find((g) =>
-          gameData.igdbId != null
-            ? g.igdbId === gameData.igdbId
-            : g.title.toLowerCase() === gameData.title.toLowerCase()
-        );
-
-        if (existingGame) {
-          return res.status(409).json({ error: "Game already in collection", game: existingGame });
-        }
-
-        const game = await storage.addGame(normalizeInitialReleaseStatus(gameData));
-        routesLogger.info(
-          { userId, title: game.title, igdbId: game.igdbId },
-          "Game quick-added from matching"
-        );
-        res.status(201).json(game);
       } catch (error) {
         next(error);
       }

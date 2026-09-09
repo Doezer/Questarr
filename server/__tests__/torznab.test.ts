@@ -1,11 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Indexer } from "@shared/schema";
+import { DEFAULT_GAME_CATEGORIES } from "../indexer-caps.js";
 
 vi.mock("../db.js", () => ({ pool: {}, db: {} }));
 vi.mock("../logger.js", () => ({
   torznabLogger: { info: vi.fn(), debug: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
-vi.mock("../ssrf.js", () => ({ isSafeUrl: vi.fn(), safeFetch: vi.fn() }));
+vi.mock("../ssrf.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../ssrf.js")>()),
+  isSafeUrl: vi.fn(),
+  safeFetch: vi.fn(),
+}));
 
 const { TorznabClient } = await import("../torznab.js");
 const { torznabLogger } = await import("../logger.js");
@@ -72,6 +77,16 @@ describe("TorznabClient — download link rewriting", () => {
     vi.clearAllMocks();
     client = new TorznabClient();
   });
+
+  /** Search a Prowlarr-backed indexer that returns `enclosure`, and parse the rewritten link. */
+  async function searchProwlarrLink(indexerUrl: string, enclosure: string): Promise<URL> {
+    mockFetchResponse(makeTorznabXml(enclosure));
+    const indexer = makeIndexer({ url: indexerUrl, apiKey: "prowlarr-api-key" });
+
+    const result = await client.searchGames(indexer, { query: "game" });
+
+    return new URL(result.items[0].link);
+  }
 
   it("leaves the link unchanged when it already points to the indexer host", async () => {
     const indexer = makeIndexer({ url: "http://indexer.example.com/api" });
@@ -174,6 +189,91 @@ describe("TorznabClient — download link rewriting", () => {
     expect(rewritten.searchParams.get("link")).toBe(
       "aHR0cHM6Ly9leGFtcGxlLmNvbS90b3JyZW50L2Rvd25sb2FkP2lkPTE="
     );
+  });
+
+  // Prowlarr builds its download links from the address the request arrived on, so its
+  // /{id}/download proxy links come back on whatever alias reached it: the container IP
+  // behind a Docker service name, or the internal address behind a reverse proxy.
+  // Re-wrapping one nests Prowlarr's own token a level too deep and it answers
+  // "Failed to normalize provided link" (500). See issue #812.
+  const proxyToken = "cHJvd2xhcnItdG9rZW4=";
+  const aliasedProxyCases = [
+    {
+      alias: "the container IP behind a Docker service name",
+      indexerUrl: "http://prowlarr:9696/39/api",
+      enclosure: `http://172.19.0.8:9696/39/download?apikey=prowlarr-api-key&link=${proxyToken}&file=Sunderfolk`,
+      expectedOrigin: "http://prowlarr:9696",
+      expectedPath: "/39/download",
+    },
+    {
+      // The configured URL terminates TLS on 443 while Prowlarr answers HTTP on 9696
+      // internally, so scheme and port both differ from the link Prowlarr returns.
+      alias: "the internal address behind a reverse proxy",
+      indexerUrl: "https://prowlarr.example.com/5/api",
+      enclosure: `http://10.1.2.3:9696/5/download?apikey=prowlarr-api-key&link=${proxyToken}&file=Sunderfolk`,
+      expectedOrigin: "https://prowlarr.example.com",
+      expectedPath: "/5/download",
+    },
+    {
+      // TLS terminated in front of Prowlarr: it sees plain HTTP and reflects http://
+      // back on the same host and port, so only the scheme differs from the configured
+      // URL — the link still has to be normalized onto the configured endpoint.
+      alias: "the same private address under a plain-HTTP scheme",
+      indexerUrl: "https://172.19.0.8:9696/39/api",
+      enclosure: `http://172.19.0.8:9696/39/download?apikey=prowlarr-api-key&link=${proxyToken}&file=Sunderfolk`,
+      expectedOrigin: "https://172.19.0.8:9696",
+      expectedPath: "/39/download",
+    },
+  ];
+
+  it.each(aliasedProxyCases)(
+    "does not double-wrap a Prowlarr proxy URL returned on $alias",
+    async ({ indexerUrl, enclosure, expectedOrigin, expectedPath }) => {
+      const link = await searchProwlarrLink(indexerUrl, enclosure);
+
+      expect(link.origin).toBe(expectedOrigin);
+      expect(link.pathname).toBe(expectedPath);
+      expect(link.searchParams.get("apikey")).toBe("prowlarr-api-key");
+      // Prowlarr's own token survives verbatim rather than being nested one level down
+      expect(link.searchParams.get("link")).toBe(proxyToken);
+      expect(link.searchParams.get("file")).toBe("Sunderfolk");
+    }
+  );
+
+  const wrappedCases = [
+    {
+      kind: "a raw external download URL",
+      indexerUrl: "http://prowlarr:9696/39/api",
+      enclosure: "https://tracker.example/torrents/download/42.torrent",
+      expectedHost: "prowlarr:9696",
+    },
+    {
+      // Same host and shape, but the numeric id belongs to another indexer, so this is
+      // not the proxy URL for the indexer we queried.
+      kind: "a proxy-shaped link carrying a different Prowlarr indexer id",
+      indexerUrl: "http://prowlarr:9696/39/api",
+      enclosure: "http://172.19.0.8:9696/40/download?apikey=prowlarr-api-key&link=dG9rZW4%3D",
+      expectedHost: "prowlarr:9696",
+    },
+    {
+      // Prowlarr itself addressed by container IP, the workaround from issue #812. A
+      // public host that mimics the proxy path is still an external link Prowlarr has
+      // to fetch for us, so it must be wrapped and given the API key — the configured
+      // host being private proves nothing about where the link points.
+      kind: "a public proxy-shaped link for this indexer id when Prowlarr is addressed by IP",
+      indexerUrl: "http://172.19.0.8:9696/39/api",
+      enclosure: "https://tracker.example/39/download?file=Some+Game&link=dG9rZW4%3D",
+      expectedHost: "172.19.0.8:9696",
+    },
+  ];
+
+  it.each(wrappedCases)("still wraps $kind", async ({ indexerUrl, enclosure, expectedHost }) => {
+    const link = await searchProwlarrLink(indexerUrl, enclosure);
+
+    expect(link.host).toBe(expectedHost);
+    expect(link.pathname).toBe("/39/download");
+    expect(link.searchParams.get("apikey")).toBe("prowlarr-api-key");
+    expect(Buffer.from(link.searchParams.get("link")!, "base64").toString()).toBe(enclosure);
   });
 
   it("re-wraps external URLs that mimic Prowlarr proxy path/query on a different host", async () => {
@@ -296,6 +396,43 @@ describe("TorznabClient — download link rewriting", () => {
   });
 });
 
+describe("TorznabClient — searchGames error wrapping", () => {
+  let client: InstanceType<typeof TorznabClient>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    client = new TorznabClient();
+  });
+
+  it("wraps a parse failure with the original error chained via cause", async () => {
+    // Neither <rss><channel> nor a Torznab <error> element — parseResponse's own
+    // catch throws "Invalid Torznab response format", which searchGames' catch
+    // then wraps again. Both throws must preserve the original error via `cause`.
+    mockFetchResponse(`<?xml version="1.0"?><nonsense/>`);
+    const indexer = makeIndexer();
+
+    await expect(client.searchGames(indexer, { query: "game" })).rejects.toMatchObject({
+      message:
+        "Failed to search indexer Test Indexer: Failed to parse response: Invalid Torznab response format",
+      cause: expect.objectContaining({
+        message: "Failed to parse response: Invalid Torznab response format",
+        cause: expect.objectContaining({ message: "Invalid Torznab response format" }),
+      }),
+    });
+  });
+
+  it("wraps a fetch rejection with the original error chained via cause", async () => {
+    const networkError = new Error("ECONNRESET");
+    mockSafeFetch.mockRejectedValue(networkError);
+    const indexer = makeIndexer();
+
+    await expect(client.searchGames(indexer, { query: "game" })).rejects.toMatchObject({
+      message: "Failed to search indexer Test Indexer: ECONNRESET",
+      cause: networkError,
+    });
+  });
+});
+
 describe("TorznabClient — testConnection", () => {
   let client: InstanceType<typeof TorznabClient>;
 
@@ -362,14 +499,53 @@ describe("TorznabClient — getCategories", () => {
     ]);
   });
 
-  it("returns an empty array when there are no categories", async () => {
+  it("descends into nested <subcat> entries and includes their IDs alongside the parent", async () => {
+    mockFetchResponse(
+      `<?xml version="1.0"?><caps><categories>` +
+        `<category id="4000" name="PC">` +
+        `<subcat id="4050" name="Games"/>` +
+        `<subcat id="4060" name="Mods"/>` +
+        `</category>` +
+        `<category id="2000" name="Movies"/>` +
+        `</categories></caps>`
+    );
+
+    const categories = await client.getCategories(makeIndexer());
+    expect(categories).toEqual([
+      { id: "4000", name: "PC" },
+      { id: "4050", name: "PC > Games" },
+      { id: "4060", name: "PC > Mods" },
+      { id: "2000", name: "Movies" },
+    ]);
+  });
+
+  it("recurses through more than one level of nested <subcat> entries", async () => {
+    mockFetchResponse(
+      `<?xml version="1.0"?><caps><categories>` +
+        `<category id="4000" name="PC">` +
+        `<subcat id="4050" name="Games">` +
+        `<subcat id="4051" name="Action"/>` +
+        `</subcat>` +
+        `</category>` +
+        `</categories></caps>`
+    );
+
+    const categories = await client.getCategories(makeIndexer());
+    expect(categories).toEqual([
+      { id: "4000", name: "PC" },
+      { id: "4050", name: "PC > Games" },
+      { id: "4051", name: "PC > Games > Action" },
+    ]);
+  });
+
+  it("falls back to the default game categories when every caps URL variant has none", async () => {
     mockFetchResponse(`<?xml version="1.0"?><caps></caps>`);
 
     const categories = await client.getCategories(makeIndexer());
-    expect(categories).toEqual([]);
+    expect(categories).toEqual(DEFAULT_GAME_CATEGORIES);
   });
 
-  it("throws a descriptive error when the response is not ok", async () => {
+  it("falls back to the default game categories instead of throwing when every caps URL variant is non-ok", async () => {
     mockSafeFetch.mockResolvedValue({
       ok: false,
       status: 500,
@@ -377,6 +553,44 @@ describe("TorznabClient — getCategories", () => {
       text: async () => "boom",
     } as Response);
 
-    await expect(client.getCategories(makeIndexer())).rejects.toThrow("Failed to get categories");
+    const categories = await client.getCategories(makeIndexer());
+    expect(categories.length).toBeGreaterThan(0);
+    expect(categories).toEqual(DEFAULT_GAME_CATEGORIES);
+  });
+
+  it("tries a second caps URL variant and uses it when the first variant fails outright", async () => {
+    // First candidate (the buildApiUrl-normalized form) fails at the network
+    // level; the second candidate (the raw stored URL) succeeds with real
+    // categories -- the client should use those instead of falling back.
+    mockSafeFetch.mockRejectedValueOnce(new Error("ECONNREFUSED")).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      text: async () =>
+        `<?xml version="1.0"?><caps><categories><category id="2000" name="Movies"/></categories></caps>`,
+    } as Response);
+
+    const categories = await client.getCategories(makeIndexer());
+    expect(categories).toEqual([{ id: "2000", name: "Movies" }]);
+    expect(mockSafeFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("falls back to defaults, skipping a second candidate, once the deadline expires", async () => {
+    // The first candidate's fetch consumes the entire caps-discovery budget
+    // itself; the second candidate should be skipped rather than getting a
+    // fresh full timeout, since the deadline is shared across candidates.
+    vi.useFakeTimers();
+    try {
+      mockSafeFetch.mockImplementationOnce(() => {
+        vi.advanceTimersByTime(30000);
+        return Promise.reject(new Error("ETIMEDOUT"));
+      });
+
+      const categories = await client.getCategories(makeIndexer());
+      expect(categories).toEqual(DEFAULT_GAME_CATEGORIES);
+      expect(mockSafeFetch).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

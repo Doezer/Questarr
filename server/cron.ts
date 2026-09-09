@@ -340,6 +340,7 @@ async function logClientVersions(): Promise<void> {
   ]);
 }
 
+/** Refreshes tracked game metadata and queues notifications for release changes. */
 export async function checkGameUpdates() {
   igdbLogger.info("Checking for game updates...");
 
@@ -431,7 +432,7 @@ export async function checkGameUpdates() {
     const diffTime = currentReleaseDate.getTime() - storedOriginalDate.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-    let newReleaseStatus: "released" | "upcoming" | "delayed" | "tbd" = "upcoming";
+    let newReleaseStatus: "released" | "upcoming" | "delayed" | "tbd";
     const now = new Date();
 
     if (currentReleaseDate <= now) {

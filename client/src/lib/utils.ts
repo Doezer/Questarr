@@ -152,7 +152,7 @@ export async function copyToClipboard(text: string): Promise<boolean> {
   textarea.focus();
   textarea.select();
 
-  let succeeded = false;
+  let succeeded: boolean;
   try {
     succeeded = document.execCommand("copy");
   } catch {

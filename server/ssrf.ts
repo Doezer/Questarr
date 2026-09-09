@@ -29,6 +29,7 @@ export function normalizeHostname(hostname: string): string {
   return hostname;
 }
 
+/** Resolves a hostname after verifying that every returned address is permitted. */
 export async function resolveSafeAddress(
   hostname: string,
   allowPrivate = true
@@ -61,7 +62,7 @@ export async function resolveSafeAddress(
     if (error instanceof Error && error.message === "Invalid or unsafe URL") {
       throw error;
     }
-    throw new Error(`Failed to resolve hostname: ${normalizedHostname}`);
+    throw new Error(`Failed to resolve hostname: ${normalizedHostname}`, { cause: error });
   }
 }
 
@@ -134,6 +135,7 @@ function getRedirectOptions(
   };
 }
 
+/** Resolves and validates the network target used for one safe-fetch request. */
 async function resolveSafeFetchTarget(url: URL, allowPrivate = true): Promise<SafeFetchTarget> {
   const hostname = normalizeHostname(url.hostname);
   const isHttps = url.protocol === "https:";
@@ -175,7 +177,7 @@ async function resolveSafeFetchTarget(url: URL, allowPrivate = true): Promise<Sa
     if (error instanceof Error && error.message === "Invalid or unsafe URL") {
       throw error;
     }
-    throw new Error(`Failed to resolve hostname: ${hostname}`);
+    throw new Error(`Failed to resolve hostname: ${hostname}`, { cause: error });
   }
 }
 
@@ -376,6 +378,21 @@ export function isSafeIp(ip: string, allowPrivate = true): boolean {
   }
 
   return false;
+}
+
+/**
+ * True when the hostname is a literal IP address that is not publicly routable:
+ * loopback, RFC1918 / ULA private space, or link-local. A DNS name is not
+ * classified here and returns false — resolving it is the caller's business.
+ */
+export function isPrivateNetworkAddress(hostname: string): boolean {
+  const normalizedHostname = normalizeHostname(hostname);
+  if (isIP(normalizedHostname) === 0) {
+    return false;
+  }
+  // isSafeIp(..., false) answers "is this address reachable from the public
+  // internet", so its negation is exactly the private/loopback/link-local set.
+  return !isSafeIp(normalizedHostname, false);
 }
 
 /**

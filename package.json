@@ -128,7 +128,7 @@
     "zod-validation-error": "^5.0.0"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.4",
+    "@eslint/js": "^10.0.1",
     "@lizenz/checker": "0.0.2",
     "@playwright/test": "^1.62.0",
     "@secretlint/secretlint-rule-preset-recommend": "^13.0.5",
@@ -162,7 +162,7 @@
     "cross-env": "^10.1.0",
     "drizzle-kit": "^0.31.10",
     "esbuild": "^0.28.2",
-    "eslint": "^9.39.4",
+    "eslint": "^10.9.1",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react": "^7.37.2",
     "eslint-plugin-react-hooks": "^7.1.1",
@@ -203,14 +203,14 @@
     "@esbuild-kit/core-utils": {
       "esbuild": "^0.25.0"
     },
-    "@eslint/eslintrc": {
-      "js-yaml": "^4.3.1"
-    },
     "body-parser": "1.20.6",
     "qs": "^6.16.0",
     "brace-expansion": "^5.0.9",
     "minimatch": "^10.2.5",
-    "fast-uri": "^3.1.7"
+    "fast-uri": "^3.1.7",
+    "eslint-plugin-react": {
+      "eslint": "^10.9.1"
+    }
   },
   "allowScripts": {
     "esbuild@0.25.12": true,

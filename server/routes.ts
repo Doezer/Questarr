@@ -23,6 +23,8 @@ import {
   insertReleaseBlacklistSchema,
   insertGameFileSchema,
   claimDownloadRequestSchema,
+  insertRootFolderSchema,
+  updateRootFolderSchema,
   type Config,
   type Game,
   type Indexer,
@@ -67,6 +69,11 @@ import {
   sanitizeMatchAndAddTitle,
   sanitizeNexusModsGameDomainQuery,
   sanitizeNexusModsTrendingModsQuery,
+  sanitizeRootFolderData,
+  sanitizeRootFolderUpdateData,
+  sanitizeRootFolderId,
+  sanitizeLibraryScanData,
+  sanitizeUnmatchedMatchData,
 } from "./middleware.js";
 import { config as appConfig } from "./config.js";
 import { configLoader } from "./config-loader.js";
@@ -219,6 +226,14 @@ import { importRouter } from "./routes/import.js";
 import { importTasksRouter } from "./routes/import-tasks.js";
 import { systemRouter } from "./routes/system.js";
 import { pcgamingwikiRouter } from "./pcgamingwiki-router.js";
+import { probeRootFolder, isWithinDeletableRootFolder } from "./root-folders.js";
+import {
+  scanRootFolderById,
+  scanAllEnabledRootFolders,
+  getAllScanProgress,
+  getAllUnmatched,
+  matchUnmatchedFolder,
+} from "./library-scanner.js";
 import { integrationRouter } from "./routes/integration.js";
 import { apiKeysRouter } from "./routes/api-keys.js";
 
@@ -1711,6 +1726,253 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ==========================================================================
+  // Root folders — extra directories scanned (read-only discovery) for games
+  // already on disk outside the configured library root, e.g. an older
+  // library or a secondary drive. Separate from the library root used by the
+  // download-import pipeline.
+  // ==========================================================================
+
+  app.get("/api/root-folders", authenticateToken, async (_req: Request, res: Response) => {
+    try {
+      const folders = await storage.getAllRootFolders();
+      res.json(folders);
+    } catch (error) {
+      routesLogger.error({ error }, "error listing root folders");
+      res.status(500).json({ error: "Failed to list root folders" });
+    }
+  });
+
+  app.post(
+    "/api/root-folders",
+    authenticateToken,
+    sensitiveEndpointLimiter,
+    sanitizeRootFolderData,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const data = insertRootFolderSchema.parse(req.body);
+        // Canonicalize before the uniqueness check and probe so equivalent
+        // paths (`/mnt/games`, `/mnt/games/.`, `/mnt/other/../games`) can't
+        // bypass the unique-path constraint and get scanned as duplicates.
+        // nosemgrep: javascript.express.security.audit.express-path-join-resolve-traversal.express-path-join-resolve-traversal -- root folders are intentionally arbitrary admin-supplied absolute paths (same trust level as the existing libraryRoot/downloadPath config), not a filename joined onto a fixed destination directory to be escaped
+        data.path = path.resolve(data.path);
+
+        const existing = await storage.getRootFolderByPath(data.path);
+        if (existing) {
+          return res.status(409).json({ error: "A root folder with this path already exists" });
+        }
+
+        const probe = await probeRootFolder(data.path);
+        if (!probe.accessible) {
+          return res.status(400).json({
+            error: "Path is not accessible",
+            details: probe.error ?? "Path must exist and be a readable directory",
+          });
+        }
+
+        const folder = await storage.addRootFolder(data);
+        const withHealth = await storage.updateRootFolderHealth(folder.id, {
+          accessible: probe.accessible,
+          diskFreeBytes: probe.diskFreeBytes,
+          diskTotalBytes: probe.diskTotalBytes,
+        });
+
+        res.status(201).json(withHealth ?? folder);
+      } catch (error) {
+        if (error instanceof z.ZodError) {
+          return respondWithZodError(res, error, "Invalid root folder data");
+        }
+        routesLogger.error({ error }, "error creating root folder");
+        res.status(500).json({ error: "Failed to create root folder" });
+      }
+    }
+  );
+
+  app.patch(
+    "/api/root-folders/:id",
+    authenticateToken,
+    sensitiveEndpointLimiter,
+    sanitizeRootFolderId,
+    sanitizeRootFolderUpdateData,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const updates = updateRootFolderSchema.parse(req.body);
+
+        if (updates.path) {
+          // Same canonicalization as the create route — resolve before the
+          // uniqueness check and probe so equivalent paths can't collide.
+          // nosemgrep: javascript.express.security.audit.express-path-join-resolve-traversal.express-path-join-resolve-traversal -- same as the create route: an arbitrary admin-supplied absolute path, not a filename joined onto a fixed destination
+          updates.path = path.resolve(updates.path);
+          const clash = await storage.getRootFolderByPath(updates.path);
+          if (clash && clash.id !== req.params.id) {
+            return res.status(409).json({ error: "Another root folder already uses this path" });
+          }
+
+          // Re-probe on every path change so stale health from the old path
+          // is never carried over onto the new one.
+          const probe = await probeRootFolder(updates.path);
+          if (!probe.accessible) {
+            return res.status(400).json({
+              error: "Path is not accessible",
+              details: probe.error ?? "Path must exist and be a readable directory",
+            });
+          }
+          const folder = await storage.updateRootFolder(req.params.id, updates);
+          if (!folder) return res.status(404).json({ error: "Root folder not found" });
+          const withHealth = await storage.updateRootFolderHealth(folder.id, {
+            accessible: probe.accessible,
+            diskFreeBytes: probe.diskFreeBytes,
+            diskTotalBytes: probe.diskTotalBytes,
+          });
+          return res.json(withHealth ?? folder);
+        }
+
+        const folder = await storage.updateRootFolder(req.params.id, updates);
+        if (!folder) return res.status(404).json({ error: "Root folder not found" });
+        res.json(folder);
+      } catch (error) {
+        if (error instanceof z.ZodError) {
+          return respondWithZodError(res, error, "Invalid root folder data");
+        }
+        routesLogger.error({ error }, "error updating root folder");
+        res.status(500).json({ error: "Failed to update root folder" });
+      }
+    }
+  );
+
+  app.delete(
+    "/api/root-folders/:id",
+    authenticateToken,
+    sensitiveEndpointLimiter,
+    sanitizeRootFolderId,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const success = await storage.removeRootFolder(req.params.id);
+        if (!success) return res.status(404).json({ error: "Root folder not found" });
+        res.status(204).send();
+      } catch (error) {
+        routesLogger.error({ error }, "error deleting root folder");
+        res.status(500).json({ error: "Failed to delete root folder" });
+      }
+    }
+  );
+
+  // Force-refresh accessibility + disk stats for one root folder.
+  app.post(
+    "/api/root-folders/:id/health-check",
+    authenticateToken,
+    sensitiveEndpointLimiter,
+    sanitizeRootFolderId,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const folder = await storage.getRootFolder(req.params.id);
+        if (!folder) return res.status(404).json({ error: "Root folder not found" });
+
+        const probe = await probeRootFolder(folder.path);
+        const updated = await storage.updateRootFolderHealth(folder.id, {
+          accessible: probe.accessible,
+          diskFreeBytes: probe.diskFreeBytes,
+          diskTotalBytes: probe.diskTotalBytes,
+        });
+        res.json({ ...updated, error: probe.error ?? null });
+      } catch (error) {
+        routesLogger.error({ error }, "error running root folder health check");
+        res.status(500).json({ error: "Failed to run health check" });
+      }
+    }
+  );
+
+  // ==========================================================================
+  // Library scanner — scans configured root folders for games not yet
+  // tracked in Questarr and matches them against IGDB.
+  // ==========================================================================
+
+  app.post(
+    "/api/library/scan",
+    authenticateToken,
+    sensitiveEndpointLimiter,
+    sanitizeLibraryScanData,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const userId = req.user!.id;
+        const { rootFolderId } = (req.body ?? {}) as { rootFolderId?: string };
+        if (rootFolderId) {
+          const folder = await storage.getRootFolder(rootFolderId);
+          if (!folder) return res.status(404).json({ error: "Root folder not found" });
+          // Fire-and-forget; progress is available via GET /api/library/scan/status
+          scanRootFolderById(rootFolderId, userId).catch((err) =>
+            routesLogger.error({ err }, "scanRootFolderById crashed")
+          );
+          return res.status(202).json({ accepted: true, rootFolderId });
+        }
+        scanAllEnabledRootFolders(userId).catch((err) =>
+          routesLogger.error({ err }, "scanAllEnabledRootFolders crashed")
+        );
+        res.status(202).json({ accepted: true, rootFolderId: null });
+      } catch (error) {
+        routesLogger.error({ error }, "error starting library scan");
+        res.status(500).json({ error: "Failed to start library scan" });
+      }
+    }
+  );
+
+  app.get("/api/library/scan/status", authenticateToken, async (_req: Request, res: Response) => {
+    try {
+      res.json(getAllScanProgress());
+    } catch (error) {
+      routesLogger.error({ error }, "error reading scan status");
+      res.status(500).json({ error: "Failed to read scan status" });
+    }
+  });
+
+  app.get(
+    "/api/library/scan/unmatched",
+    authenticateToken,
+    async (_req: Request, res: Response) => {
+      try {
+        res.json(getAllUnmatched());
+      } catch (error) {
+        routesLogger.error({ error }, "error reading unmatched list");
+        res.status(500).json({ error: "Failed to read unmatched list" });
+      }
+    }
+  );
+
+  app.post(
+    "/api/library/scan/unmatched/match",
+    authenticateToken,
+    sensitiveEndpointLimiter,
+    sanitizeUnmatchedMatchData,
+    validateRequest,
+    async (req: Request, res: Response) => {
+      try {
+        const { rootFolderId, folderName, igdbId } = req.body as {
+          rootFolderId: string;
+          folderName: string;
+          igdbId: number;
+        };
+        const result = await matchUnmatchedFolder(rootFolderId, folderName, igdbId, req.user!.id);
+        res.json(result);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : "Unknown error";
+        routesLogger.error({ error }, "error resolving unmatched folder");
+        // matchUnmatchedFolder throws these two plain-Error messages for the
+        // "client asked to match something that no longer exists" cases —
+        // report them as 404s rather than 500s; everything else (IGDB
+        // lookup failure, filesystem error) stays a 500.
+        const notFound =
+          msg === "Root folder not found" ||
+          msg === "No matching unmatched entry for this root folder";
+        res.status(notFound ? 404 : 500).json({ error: msg });
+      }
+    }
+  );
+
   // Remove game from collection
   type FileDeletionResult =
     | { deleted: true; path: string | null }
@@ -1739,8 +2001,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const resolvedTarget = path.resolve(game.libraryPath);
             const insideRoot =
               resolvedTarget === resolvedRoot || resolvedTarget.startsWith(resolvedRoot + path.sep);
+            // Games discovered by the root-folder scanner live outside the
+            // configured library root by design. Allow deleting their files
+            // too, but only when the user has explicitly opted that specific
+            // root folder in to deletion — discovery itself never does.
+            const canDelete = insideRoot || (await isWithinDeletableRootFolder(resolvedTarget));
 
-            if (insideRoot) {
+            if (canDelete) {
               try {
                 await fsExtra.remove(resolvedTarget);
                 fileDeletion = { deleted: true, path: game.libraryPath };

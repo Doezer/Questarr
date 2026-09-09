@@ -39,8 +39,11 @@ function makeBinaryResolver(envVar: string, candidates: string[]): () => string 
     if (cached !== undefined) {
       return cached;
     }
+    // An explicit override replaces the built-in candidates entirely rather than adding to
+    // them: if an operator points this at a specific binary, a typo'd or missing path should
+    // fail loudly instead of silently falling back to a different tool they didn't ask for.
     const envPath = process.env[envVar];
-    const searchList = envPath ? [envPath, ...candidates] : candidates;
+    const searchList = envPath ? [envPath] : candidates;
     cached =
       searchList.find((candidate) => {
         try {

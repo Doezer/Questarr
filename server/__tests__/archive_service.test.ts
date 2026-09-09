@@ -36,6 +36,13 @@ vi.mock("node:child_process", () => {
 
 import { ArchiveService } from "../services/ArchiveService.js";
 
+// A path guaranteed not to exist on any machine — used to force "binary not found" instead of
+// deleting the env var and relying on the hardcoded fallback candidates (/usr/bin/7zz,
+// /usr/bin/7z, /usr/local/bin/unrar, /usr/bin/unrar) being absent. That assumption doesn't
+// hold everywhere: a bare CI runner or dev machine can genuinely have a system 7-Zip
+// installed (p7zip is a common preinstall), which made this exact test flaky in CI.
+const NONEXISTENT_BINARY_PATH = "/definitely/does/not/exist/questarr-archive-tool-test";
+
 type ExecCallback = (error: Error | null, stdout: string, stderr: string) => void;
 
 function mockExecOnce(error: Error | null, stdout = "", stderr = ""): void {
@@ -213,7 +220,7 @@ describe("ArchiveService", () => {
     });
 
     it("rejects with a clear error when no 7-Zip binary is available", async () => {
-      delete process.env.SEVENZIP_PATH;
+      process.env.SEVENZIP_PATH = NONEXISTENT_BINARY_PATH;
       const service = await freshArchiveService();
 
       await expect(
@@ -332,7 +339,7 @@ describe("ArchiveService", () => {
     });
 
     it("rejects with a clear error when no unrar binary is available", async () => {
-      delete process.env.UNRAR_PATH;
+      process.env.UNRAR_PATH = NONEXISTENT_BINARY_PATH;
       const service = await freshArchiveService();
 
       await expect(

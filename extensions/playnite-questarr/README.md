@@ -39,17 +39,19 @@ game from the couch without opening a browser.
 2. In Playnite, open **Extensions → Questarr → Connect to Questarr…**
 3. Enter the server address (`https://questarr.example.com`, or whatever your
    reverse proxy serves) and paste the key. A plain `http://` address is also
-   accepted, but only for a local address — a loopback, `192.168.x.x`/`10.x.x.x`
-   IP, or a `.local` hostname — and asks for confirmation first, since the key
-   still travels in cleartext on that network segment. Any other `http://`
-   address is refused outright: there is no way to protect the key in transit
-   to an address outside your own network without HTTPS.
+   accepted — for a local address (a loopback, `192.168.x.x`/`10.x.x.x` IP, or
+   a `.local` hostname) or any other address — but always shows a warning
+   first and asks for confirmation, since the key travels in cleartext over
+   `http://` either way. Use `https://` whenever you can; the warning is
+   stronger for an address outside your own network, where that cleartext
+   traffic can cross the open internet.
 
 The extension pings the server before saving, so a bad address or key fails
-right there instead of silently at the next sync. It also refuses to follow
-any HTTP redirect: the API key would otherwise be forwarded to whatever
-address the redirect points at, so a redirecting proxy shows as a connection
-error instead of silently sending the key onward.
+right there instead of silently at the next sync. A same-host redirect (a
+reverse proxy enforcing `https://`, or normalizing a trailing slash) is
+followed automatically with the key intact; a redirect to any other host is
+refused, since the key would otherwise be forwarded to wherever that redirect
+points.
 
 ## Where settings are stored
 

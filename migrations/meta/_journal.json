@@ -232,6 +232,13 @@
       "when": 1788462667167,
       "tag": "0031_nasty_green_goblin",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1788941321979,
+      "tag": "0032_gorgeous_sandman",
+      "breakpoints": true
     }
   ]
 }

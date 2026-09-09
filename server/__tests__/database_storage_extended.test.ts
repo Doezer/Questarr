@@ -486,6 +486,48 @@ describe("DatabaseStorage Extended Coverage", () => {
         storage.updateGameDownloadHash("nonexistent-id", "anyhash")
       ).resolves.toBeUndefined();
     });
+
+    it("merges the stale tag row when the real-hash row already exists (claim race)", async () => {
+      const { game, downloader } = await setup();
+
+      // POST /api/downloads created this row with the correlation tag.
+      const tagDownload = await storage.addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader.id,
+        downloadHash: "questarr-add-collide-xyz",
+        downloadTitle: "Async Game",
+        status: "downloading",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+
+      // The torrent appeared under its real hash before cron resolved the tag,
+      // and /api/downloads/claim tracked it — same (downloaderId, hash) pair
+      // the tag row is about to resolve to. The unique index on
+      // (downloaderId, downloadHash) forbids both rows converging.
+      const realDownload = await storage.addGameDownload({
+        gameId: game.id,
+        downloaderId: downloader.id,
+        downloadHash: "realhash-collide-xyz",
+        downloadTitle: "Async Game",
+        status: "downloading",
+        downloadType: "torrent",
+        fileSize: null,
+      } as InsertGameDownload);
+
+      // Must not throw a UNIQUE-constraint violation.
+      await expect(
+        storage.updateGameDownloadHash(tagDownload!.id, "realhash-collide-xyz")
+      ).resolves.toBeUndefined();
+
+      // Stale tag row is gone; the real-hash row survives exactly once.
+      expect(await storage.getGameDownload(tagDownload!.id)).toBeUndefined();
+      const surviving = await storage.getGameDownload(realDownload!.id);
+      expect(surviving?.downloadHash).toBe("realhash-collide-xyz");
+      const keys = await storage.getTrackedDownloadKeys();
+      expect(keys.has(`${downloader.id}:realhash-collide-xyz`)).toBe(true);
+      expect(keys.has(`${downloader.id}:questarr-add-collide-xyz`)).toBe(false);
+    });
   });
 
   describe("Import task history", () => {

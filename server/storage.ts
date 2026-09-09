@@ -221,7 +221,9 @@ export interface IStorage {
   updateGameDownloadStatus(id: string, status: string, errorMessage?: string | null): Promise<void>;
   // Resolves a temporary correlation-tag hash (from an async qBittorrent add)
   // to the real torrent hash once it becomes known. No-op if the record already
-  // has a real hash or doesn't exist.
+  // has a real hash or doesn't exist. If another row already tracks the same
+  // (downloaderId, downloadHash) — e.g. claimed before cron resolved the tag —
+  // the stale tag row is deleted instead of violating the unique index.
   updateGameDownloadHash(id: string, downloadHash: string): Promise<void>;
   // Attaches a "game_link_required" download to the given game and drops it back into
   // the normal "manual_review_required" path-review flow.
@@ -943,9 +945,24 @@ export class MemStorage implements IStorage {
 
   async updateGameDownloadHash(id: string, downloadHash: string): Promise<void> {
     const gd = this.gameDownloads.get(id);
-    if (gd && gd.downloadHash.startsWith("questarr-add-")) {
-      this.gameDownloads.set(id, { ...gd, downloadHash });
+    if (!gd || !gd.downloadHash.startsWith("questarr-add-")) {
+      return;
     }
+    // Claim race: the torrent may already be tracked under its real hash
+    // (e.g. claimed via /api/downloads/claim before cron resolved the tag).
+    // The unique index on (downloaderId, downloadHash) forbids converging both
+    // rows, so drop the stale tag row and keep the real-hash row.
+    for (const [otherId, other] of this.gameDownloads) {
+      if (
+        otherId !== id &&
+        other.downloaderId === gd.downloaderId &&
+        other.downloadHash === downloadHash
+      ) {
+        this.gameDownloads.delete(id);
+        return;
+      }
+    }
+    this.gameDownloads.set(id, { ...gd, downloadHash });
   }
 
   async addGameDownload(insertGameDownload: InsertGameDownload): Promise<GameDownload> {
@@ -2354,6 +2371,33 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateGameDownloadHash(id: string, downloadHash: string): Promise<void> {
+    const [current] = await db
+      .select({
+        downloaderId: gameDownloads.downloaderId,
+        downloadHash: gameDownloads.downloadHash,
+      })
+      .from(gameDownloads)
+      .where(eq(gameDownloads.id, id));
+    if (!current || !current.downloadHash.startsWith("questarr-add-")) {
+      return;
+    }
+    // Claim race: the torrent may already be tracked under its real hash
+    // (e.g. claimed via /api/downloads/claim before cron resolved the tag).
+    // The unique index on (downloaderId, downloadHash) forbids converging both
+    // rows, so drop the stale tag row and keep the real-hash row.
+    const existing = await db
+      .select({ id: gameDownloads.id })
+      .from(gameDownloads)
+      .where(
+        and(
+          eq(gameDownloads.downloaderId, current.downloaderId),
+          eq(gameDownloads.downloadHash, downloadHash)
+        )
+      );
+    if (existing.some((row) => row.id !== id)) {
+      await db.delete(gameDownloads).where(eq(gameDownloads.id, id));
+      return;
+    }
     await db
       .update(gameDownloads)
       .set({ downloadHash })

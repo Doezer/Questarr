@@ -551,4 +551,74 @@ describe("DatabaseStorage Integration", () => {
       expect(rawRow.password).toMatch(/^enc:v1:/);
     });
   });
+
+  describe("Integration API keys", () => {
+    it("enforces the per-user cap and never persists the raw key or hash to the caller", async () => {
+      const userId = randomUUID();
+      await db
+        .insert(users)
+        .values({ id: userId, username: "apikey_test_user", passwordHash: "hash" });
+
+      const created = await storage.addApiKey(
+        { userId, name: "First key", keyHash: "hash-1", prefix: "qsr_aaaaaaaa" },
+        1
+      );
+      expect(created).toMatchObject({ userId, name: "First key", prefix: "qsr_aaaaaaaa" });
+      expect(created).not.toHaveProperty("keyHash");
+
+      // A second key for the same user, with the cap already at 1, must be
+      // rejected -- this is the real, transactional DatabaseStorage path
+      // (not MemStorage), so it also proves the count-then-insert is atomic
+      // within one SQLite transaction rather than two separate round trips.
+      await expect(
+        storage.addApiKey(
+          { userId, name: "Second key", keyHash: "hash-2", prefix: "qsr_bbbbbbbb" },
+          1
+        )
+      ).rejects.toThrow("API key limit reached");
+
+      // The rejected attempt must not have partially inserted a row.
+      const keys = await storage.getApiKeys(userId);
+      expect(keys).toHaveLength(1);
+      expect(keys[0].name).toBe("First key");
+    });
+
+    it("looks a key up by hash and records its last-used time", async () => {
+      const userId = randomUUID();
+      await db
+        .insert(users)
+        .values({ id: userId, username: "apikey_test_user_2", passwordHash: "hash" });
+
+      const created = await storage.addApiKey(
+        { userId, name: "Playnite", keyHash: "a-unique-hash", prefix: "qsr_cccccccc" },
+        25
+      );
+
+      const found = await storage.getApiKeyByHash("a-unique-hash");
+      expect(found?.id).toBe(created.id);
+      expect(found?.lastUsedAt).toBeNull();
+
+      await storage.touchApiKey(created.id);
+      const touched = await storage.getApiKeyByHash("a-unique-hash");
+      expect(touched?.lastUsedAt).toBeInstanceOf(Date);
+    });
+
+    it("only removes a key that belongs to the requesting user", async () => {
+      const ownerId = randomUUID();
+      const otherId = randomUUID();
+      await db.insert(users).values([
+        { id: ownerId, username: "apikey_owner", passwordHash: "hash" },
+        { id: otherId, username: "apikey_other", passwordHash: "hash" },
+      ]);
+
+      const created = await storage.addApiKey(
+        { userId: ownerId, name: "Owned key", keyHash: "owned-hash", prefix: "qsr_dddddddd" },
+        25
+      );
+
+      expect(await storage.removeApiKey(created.id, otherId)).toBe(false);
+      expect(await storage.removeApiKey(created.id, ownerId)).toBe(true);
+      expect(await storage.getApiKeys(ownerId)).toHaveLength(0);
+    });
+  });
 });

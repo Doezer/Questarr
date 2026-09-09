@@ -9,7 +9,11 @@ import { downloadersLogger } from "../logger.js";
 import parseTorrent from "parse-torrent";
 import { isSafeUrl, safeFetch } from "../ssrf.js";
 import type { DownloadRequest, DownloaderClient } from "./types.js";
-import { fetchWithMagnetDetection, logDownloaderDebugResponse } from "./utils.js";
+import {
+  fetchWithMagnetDetection,
+  logDownloaderDebugResponse,
+  findTorrentByTagNull,
+} from "./utils.js";
 
 interface TransmissionTorrent {
   id: number;
@@ -481,8 +485,8 @@ export class TransmissionClient implements DownloaderClient {
     }
   }
 
-  async findTorrentByTag(_tag: string): Promise<string | null> {
-    return null;
+  async findTorrentByTag(tag: string): Promise<string | null> {
+    return findTorrentByTagNull(tag);
   }
 
   /** Maps a Transmission torrent payload to Questarr's normalized download status. */

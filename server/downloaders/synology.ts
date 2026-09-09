@@ -12,6 +12,7 @@ import {
   fetchWithMagnetDetection,
   extractHashFromUrl,
   logDownloaderDebugResponse,
+  findTorrentByTagNull,
 } from "./utils.js";
 
 interface SynologyApiDescriptor {
@@ -1167,7 +1168,7 @@ export class SynologyDownloadStationClient implements DownloaderClient {
     }
   }
 
-  async findTorrentByTag(_tag: string): Promise<string | null> {
-    return null;
+  async findTorrentByTag(tag: string): Promise<string | null> {
+    return findTorrentByTagNull(tag);
   }
 }

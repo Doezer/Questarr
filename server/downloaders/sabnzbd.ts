@@ -8,6 +8,7 @@ import {
   fixNzbUrlEncoding,
   logDownloaderDebugResponse,
   stripTrailingPathSeparators,
+  findTorrentByTagNull,
 } from "./utils.js";
 
 /**
@@ -742,7 +743,7 @@ export class SABnzbdClient implements DownloaderClient {
     }
   }
 
-  async findTorrentByTag(_tag: string): Promise<string | null> {
-    return null;
+  async findTorrentByTag(tag: string): Promise<string | null> {
+    return findTorrentByTagNull(tag);
   }
 }

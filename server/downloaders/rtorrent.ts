@@ -14,6 +14,7 @@ import {
   fetchWithMagnetDetection,
   extractHashFromUrl,
   logDownloaderDebugResponse,
+  findTorrentByTagNull,
 } from "./utils.js";
 import { XMLParser } from "fast-xml-parser";
 
@@ -501,8 +502,8 @@ export class RTorrentClient implements DownloaderClient {
     }
   }
 
-  async findTorrentByTag(_tag: string): Promise<string | null> {
-    return null;
+  async findTorrentByTag(tag: string): Promise<string | null> {
+    return findTorrentByTagNull(tag);
   }
 
   private mapRTorrentStatus(torrent: unknown[]): DownloadStatus {

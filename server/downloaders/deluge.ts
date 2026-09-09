@@ -12,6 +12,7 @@ import {
   fetchWithMagnetDetection,
   extractHashFromUrl,
   logDownloaderDebugResponse,
+  findTorrentByTagNull,
 } from "./utils.js";
 import { z } from "zod";
 
@@ -680,8 +681,8 @@ export class DelugeClient implements DownloaderClient {
     }
   }
 
-  async findTorrentByTag(_tag: string): Promise<string | null> {
-    return null;
+  async findTorrentByTag(tag: string): Promise<string | null> {
+    return findTorrentByTagNull(tag);
   }
 
   /** Maps a Deluge torrent payload to Questarr's normalized download status. */

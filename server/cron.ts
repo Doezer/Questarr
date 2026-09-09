@@ -566,6 +566,21 @@ export async function checkDownloadStatus() {
       );
 
       for (const download of downloads) {
+        // Skip rows whose import is already in flight: processImport() from a
+        // previous tick set these statuses and is still working (extracting a
+        // large archive can take minutes). checkDownloadStatus runs every 60s
+        // and setInterval does not wait for the previous run to finish, so a
+        // second concurrent run would re-invoke processImport() and start a
+        // second extraction into the same _extracted directory — clobbering
+        // the in-flight extraction ("file grows, then starts small again").
+        if (download.status === "unpacking" || download.status === "completed_pending_import") {
+          igdbLogger.debug(
+            { downloadId: download.id, status: download.status },
+            "Skipping download — import already in progress"
+          );
+          continue;
+        }
+
         // Match by hash/ID (handle case sensitivity just in case)
         let remoteDownload = activeDownloadMap.get(download.downloadHash.toLowerCase());
 
